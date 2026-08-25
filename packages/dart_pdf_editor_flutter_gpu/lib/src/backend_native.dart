@@ -6318,6 +6318,24 @@ class _GpuPipelines {
       1,
       format: gpu.PixelFormat.r8g8b8a8UNormInt,
     );
+    final blendTarget = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    final blendBackdrop = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    final blendSource = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
     sample.overwrite(ByteData.sublistView(Uint8List.fromList(
       const [255, 255, 255, 255],
     )));
@@ -6448,6 +6466,9 @@ class _GpuPipelines {
       ..setRange(32, 36, const [-1, -1, 1, 1]);
     final softMaskUniform =
         transient.emplace(ByteData.sublistView(softMaskInfo));
+    final blendInfo = transient.emplace(ByteData.sublistView(
+      Float32List.fromList([PdfBlendMode.overlay.index.toDouble(), 0, 0, 0]),
+    ));
 
     final commandBuffer = context.createCommandBuffer();
     final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
@@ -6543,6 +6564,43 @@ class _GpuPipelines {
     _warmUpDraw(pass, textureVertices, 3);
     pass.clearBindings();
 
+    // Destination-sampling blends render without fixed-function blending or
+    // a stencil attachment. Metal keys pipeline state on those attachment and
+    // blend settings, so touching the same shaders in the page pass above does
+    // not compile the variants used by [_CompiledScene._renderAdvanced].
+    // Prime both its page-copy and PDF-blend draws while the viewer is idle;
+    // otherwise the first advanced-blend tile still waits on the driver even
+    // after this general warm-up completed.
+    // Flutter GPU 3.47 cannot safely encode two render passes into this
+    // experimental command-buffer wrapper on Metal. Queue the independent
+    // no-blend variant after the general pass instead; submission order keeps
+    // the completion callback a fence for both.
+    final blendCommandBuffer = context.createCommandBuffer();
+    final blendPass = blendCommandBuffer.createRenderPass(
+      gpu.RenderTarget.singleColor(gpu.ColorAttachment(
+        texture: blendTarget,
+        clearValue: vm.Vector4.zero(),
+      )),
+    )
+      ..setCullMode(gpu.CullMode.none)
+      ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+      ..setPrimitiveType(gpu.PrimitiveType.triangle)
+      ..setColorBlendEnable(false)
+      ..bindPipeline(texture)
+      ..bindUniform(textureTransform, transform)
+      ..bindUniform(this.textureInfo, textureInfo)
+      ..bindTexture(textureSampler, sample);
+    _warmUpDraw(blendPass, textureVertices, 3);
+    blendPass
+      ..clearBindings()
+      ..bindPipeline(blend)
+      ..bindUniform(blendTransform, transform)
+      ..bindUniform(this.blendInfo, blendInfo)
+      ..bindTexture(blendBackdropSampler, blendBackdrop)
+      ..bindTexture(blendSourceSampler, blendSource);
+    _warmUpDraw(blendPass, textureVertices, 3);
+    blendPass.clearBindings();
+
     final completer = Completer<void>();
     // Keep every command-buffer resource strongly reachable until Impeller's
     // completion fence fires. The callback itself is the lifetime owner.
@@ -6551,19 +6609,33 @@ class _GpuPipelines {
       color,
       stencilTexture,
       sample,
+      blendTarget,
+      blendBackdrop,
+      blendSource,
       transient,
       commandBuffer,
+      blendCommandBuffer,
       pass,
+      blendPass,
     ];
     try {
-      commandBuffer.submit(completionCallback: (success) {
-        if (resources.isEmpty) return;
-        if (success) {
+      var completed = 0;
+      var succeeded = true;
+      void complete(bool success) {
+        resources.length;
+        if (completer.isCompleted) return;
+        succeeded = succeeded && success;
+        completed++;
+        if (completed != 2) return;
+        if (succeeded) {
           completer.complete();
         } else {
           completer.completeError(StateError('GPU pipeline warm-up failed'));
         }
-      });
+      }
+
+      commandBuffer.submit(completionCallback: complete);
+      blendCommandBuffer.submit(completionCallback: complete);
     } catch (error, stack) {
       if (!completer.isCompleted) completer.completeError(error, stack);
     }
