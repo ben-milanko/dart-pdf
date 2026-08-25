@@ -1427,6 +1427,13 @@ void main() {
       expect(device.texts.single.fontSize, 12);
       expect(device.texts.single.transform.e, 22);
       expect(device.texts.single.transform.f, closeTo(106.692, 1e-3));
+      expect(device.texts.single.charOffsets,
+          hasLength('tx annotation'.length + 1));
+      expect(device.texts.single.charOffsets!.first, 0);
+      expect(device.texts.single.charOffsets![1],
+          closeTo(measureHelvetica('t', 1), 1e-9));
+      expect(device.texts.single.charOffsets!.last,
+          closeTo(device.texts.single.width, 1e-9));
       expect(device.clips, hasLength(1));
     });
 

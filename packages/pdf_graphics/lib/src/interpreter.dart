@@ -806,7 +806,9 @@ class PdfInterpreter {
       var line = '';
       for (final word in words) {
         final candidate = line.isEmpty ? word : '$line $word';
-        if (line.isNotEmpty && measureHelvetica(candidate, size) > available) {
+        if (line.isNotEmpty &&
+            _fallbackTextGeometry(candidate, style.fontName).width * size >
+                available) {
           lines.add(line);
           line = word;
         } else {
@@ -822,8 +824,8 @@ class PdfInterpreter {
       for (final line in lines) {
         if (y + size < rect.bottom) break;
         if (line.isNotEmpty) {
-          final measured = measureHelvetica(line, size);
-          final width = measured / size;
+          final geometry = _fallbackTextGeometry(line, style.fontName);
+          final measured = geometry.width * size;
           final q = cos.resolve(annotation.dict['Q']);
           final alignment = q is CosInteger ? q.value : 0;
           final x = switch (alignment) {
@@ -835,9 +837,10 @@ class PdfInterpreter {
             text: line,
             transform: PdfMatrix(size, 0, 0, size, x, y),
             color: style.color,
-            width: width,
+            width: geometry.width,
             fontName: style.fontName,
             fontSize: size,
+            charOffsets: geometry.offsets,
           ));
         }
         y -= lineHeight;
@@ -974,7 +977,7 @@ class PdfInterpreter {
     const pad = 2.0;
     var size = style.size;
     final text = value.replaceAll('\n', ' ');
-    final width = measureHelvetica(text, size) / size;
+    final geometry = _fallbackTextGeometry(text, style.fontName);
     final ascent = size * 0.718;
     final y =
         ((rect.height - ascent) / 2 < pad ? pad : (rect.height - ascent) / 2) +
@@ -991,9 +994,10 @@ class PdfInterpreter {
         text: text,
         transform: PdfMatrix(size, 0, 0, size, rect.left + pad, y),
         color: style.color,
-        width: width,
+        width: geometry.width,
         fontName: style.fontName,
         fontSize: size,
+        charOffsets: geometry.offsets,
       ));
     } finally {
       device.restore();
@@ -1108,7 +1112,8 @@ class PdfInterpreter {
     // The DA size (defaulted to 12 when the string says auto-size), capped so
     // the caption fits a short button.
     final size = math.min(style.size, rect.height);
-    final textWidth = measureHelvetica(caption, size);
+    final geometry = _fallbackTextGeometry(caption, style.fontName);
+    final textWidth = geometry.width * size;
     final x = rect.left + (rect.width - textWidth) / 2;
     final y = rect.bottom + (rect.height - size * 0.718) / 2;
     device.save();
@@ -1118,13 +1123,32 @@ class PdfInterpreter {
         text: caption,
         transform: PdfMatrix(size, 0, 0, size, x, y),
         color: style.color,
-        width: size == 0 ? 0 : textWidth / size,
+        width: geometry.width,
         fontName: style.fontName,
         fontSize: size,
+        charOffsets: geometry.offsets,
       ));
     } finally {
       device.restore();
     }
+  }
+
+  /// Base-14 advance geometry for text synthesized when an annotation has no
+  /// appearance stream. Unlike ordinary page text there is no font object to
+  /// supply per-code advances, so derive both the total and every character
+  /// boundary from the same standard-font table. Canvas and retained backends
+  /// can then place substitute glyphs at identical, authoritative positions.
+  ({double width, List<double> offsets}) _fallbackTextGeometry(
+      String text, String fontName) {
+    final font =
+        PdfStandardFont.tryFromName(fontName) ?? PdfStandardFont.helvetica;
+    final offsets = <double>[0];
+    var width = 0.0;
+    for (final code in text.codeUnits) {
+      width += font.widthOf(code) / 1000;
+      offsets.add(width);
+    }
+    return (width: width, offsets: List.unmodifiable(offsets));
   }
 
   /// A checkbox check (stroked tick) or radio dot (filled disc), inset in

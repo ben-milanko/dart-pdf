@@ -2,6 +2,9 @@
 
 ## Next
 
+- Give synthesized FreeText and form-widget fallback text exact Base-14
+  character offsets, keeping Canvas placement, selection geometry, and
+  retained outline backends on the same per-character advances.
 - Export the TrueType outline reader and add indexed TrueType Collection
   parsing so retained backends can derive exact glyph paths from a host's
   registered TTF/TTC bytes.
