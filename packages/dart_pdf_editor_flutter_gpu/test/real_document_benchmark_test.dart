@@ -13,8 +13,11 @@ import 'package:image/image.dart' as img;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
+import '../tool/advanced_blend_stress_fixture.dart';
+
 const _defaultPages = [27, 30, 29, 32, 31, 34, 37, 39, 28];
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
+const _advancedBlendStressScenario = 'advanced-blend-stress';
 const _deferredMaskFixture = 'deferred-mask';
 
 bool _gpuAvailable() {
@@ -147,6 +150,26 @@ Future<void> _registerMacSystemFonts() async {
 
 void main() {
   if (_buildCommit.isNotEmpty) PdfPerfLog.buildTag = 'commit=$_buildCommit';
+
+  testWidgets('advanced-blend stress fixture records twelve ordered strokes',
+      (tester) async {
+    await tester.runAsync(() async {
+      final document = PdfDocument.open(buildAdvancedBlendStressPdf());
+      final scene = await PdfRetainedScene.record(document.page(0));
+      try {
+        expect(
+          scene.commands.whereType<PdfStrokePathCommand>(),
+          hasLength(12),
+        );
+        expect(
+          scene.commands.whereType<PdfSetBlendModeCommand>().map((c) => c.mode),
+          contains(PdfBlendMode.darken),
+        );
+      } finally {
+        scene.dispose();
+      }
+    });
+  });
 
   testWidgets('deferred-mask fixture keeps its companion image surface',
       (tester) async {
@@ -407,6 +430,13 @@ void main() {
       print('REAL_GPU_BENCHMARK rssStart=$rssStart peakRss=$peakRss '
           'delta=${peakRss - rssStart} stats=${backend.stats}');
       expect(rows, isNotEmpty);
+      if (scenarioLabel == _advancedBlendStressScenario) {
+        expect(backend.stats.advancedBlendPasses, greaterThanOrEqualTo(24));
+        expect(
+          backend.stats.advancedBlendBlits,
+          backend.stats.advancedBlendPasses,
+        );
+      }
     });
   }, timeout: const Timeout(Duration(minutes: 20)));
 }

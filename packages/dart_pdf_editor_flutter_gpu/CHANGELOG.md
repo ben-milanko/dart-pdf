@@ -15,6 +15,9 @@
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing
   marker when the Canvas base has no GPU session.
+- Add a deterministic repeated-advanced-blend CI workload whose twelve ordered
+  destination-sampling passes provide a higher-signal same-host comparison for
+  future blend optimizations.
 - Retain axial/radial gradient and Gouraud mesh paints in single-paint and
   mixed offscreen transparency groups.
 - Preserve per-paint Normal, Multiply, and Screen state inside isolated

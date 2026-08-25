@@ -250,10 +250,12 @@ vector-mask transfer, PDF.js knockout soft-mask and isolated-knockout overlap,
 GWG168/169 vector
 soft-mask, and GWG1610/1611 text soft-mask pages plus the PDF.js Latin and CJK
 system-font outline pages and deterministic deferred-mask fixture six times on
-macOS Metal,
-compare the exact
-PR base and candidate on the same runner with balanced execution order, and
-publish both a concise PR headline and a collapsed detailed trace.
+macOS Metal. A generated repeated-advanced-blend page adds twelve ordered
+destination-sampling passes, giving blend optimizations a higher-signal
+measurement than the small PDF.js conformance page alone.
+CI compares the exact PR base and candidate on the same runner with balanced
+execution order, and publishes both a concise PR headline and a collapsed
+detailed trace.
 Set `PDF_GPU_BENCHMARK_FIXTURE=deferred-mask` instead of a PDF path to exercise
 a deterministic 1024x768 JPEG under a Flate grayscale soft mask. This fixture
 emits the same first-tile and Canvas scenarios whether the backend accepts the
