@@ -152,13 +152,9 @@ void main() {
     await tester.pump(); // reject the future
     await tester.pump(); // show the snack bar
 
-    // The toast carries the platform's own reason after the sentence - which
-    // failure it was is the whole diagnostic value.
-    expect(
-      find.textContaining("Couldn't scan the document."),
-      findsOneWidget,
-    );
-    expect(find.textContaining('scanner unavailable'), findsOneWidget);
+    expect(find.text("Couldn't scan the document."), findsOneWidget);
+    expect(find.textContaining('scanner unavailable'), findsNothing);
+    expect(find.textContaining('StateError'), findsNothing);
     expect(findMiddleEllipsisText('Untitled.pdf'), findsNothing);
   });
 
@@ -179,13 +175,9 @@ void main() {
     await tester.pump(); // reject the future
     await tester.pump(); // show the snack bar
 
-    // The toast carries the platform's own reason after the sentence - which
-    // failure it was is the whole diagnostic value.
-    expect(
-      find.textContaining("Couldn't scan the document."),
-      findsOneWidget,
-    );
-    expect(find.textContaining('scanner unavailable'), findsOneWidget);
+    expect(find.text("Couldn't scan the document."), findsOneWidget);
+    expect(find.textContaining('scanner unavailable'), findsNothing);
+    expect(find.textContaining('StateError'), findsNothing);
   });
 
   testWidgets('a second scan request while one is up is ignored',

@@ -248,4 +248,55 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  testWidgets('a missing Recent closes cleanly without exposing its path',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final missingPath = '${tempDir.path}/network/gone.pdf';
+    try {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.recents': jsonEncode([
+          {'t': 'gone.pdf', 'p': missingPath, 'o': 1000}
+        ]),
+      });
+
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      expect(find.byKey(ValueKey('recent-tile-$missingPath')), findsOneWidget);
+
+      await pump(tester, () async {
+        await tester
+            .tap(find.byKey(ValueKey('recent-tile-thumb-$missingPath')));
+      });
+
+      expect(tabTitle('gone.pdf'), findsNothing);
+      expect(find.textContaining('PathNotFoundException'), findsNothing);
+      expect(find.textContaining(missingPath), findsNothing);
+      expect(find.text('Could not reopen gone'), findsOneWidget);
+      expect(find.byKey(ValueKey('recent-tile-$missingPath')), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('a direct missing-file error is concise and recoverable',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final missingPath = '${tempDir.path}/network/direct.pdf';
+    try {
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      await pump(tester, () => openIncoming(tester, missingPath, 'direct.pdf'));
+
+      expect(find.textContaining('Could not open direct'), findsOneWidget);
+      expect(find.textContaining('No such file or directory'), findsOneWidget);
+      expect(find.textContaining('PathNotFoundException'), findsNothing);
+      expect(find.textContaining(missingPath), findsNothing);
+      expect(find.text('Open PDF in a new tab'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 }

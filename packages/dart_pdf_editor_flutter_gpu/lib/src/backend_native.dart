@@ -273,6 +273,10 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             break;
           case _FlattenSoftMaskSpec():
             break;
+          case _FlattenGroupSpec():
+            break;
+          case _EmptyGroupSpec():
+            break;
         }
         continue;
       }
@@ -490,6 +494,24 @@ class _FlattenSoftMaskPaint {
   final PdfBlendMode blendMode;
   final _GpuCompositeSpec? composite;
   final PdfPath? pathClip;
+}
+
+class _FlattenGroupSpec extends _GpuCompositeSpec {
+  const _FlattenGroupSpec(this.paints);
+
+  final List<({int commandIndex, PdfRect? clip})> paints;
+
+  @override
+  PdfRect? get contentClip => null;
+}
+
+class _EmptyGroupSpec extends _GpuCompositeSpec {
+  const _EmptyGroupSpec(this.bounds);
+
+  final PdfRect bounds;
+
+  @override
+  PdfRect? get contentClip => null;
 }
 
 class _SoftMaskImageSpec extends _GpuCompositeSpec {
@@ -833,8 +855,51 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
                 composite: spec,
               ));
             }
+          } else if (spec is _FlattenGroupSpec) {
+            for (final paint in spec.paints) {
+              final paintCommand = commands[paint.commandIndex];
+              final paintClip = _withGpuRectClip(capture.clip, paint.clip);
+              final paintBounds = pdfRenderCommandBounds(paintCommand);
+              final clipped = paintBounds == null || paintClip.empty
+                  ? null
+                  : paintClip.scissor == null
+                      ? paintBounds
+                      : _pdfIntersection(paintClip.scissor, paintBounds);
+              if (clipped == null) continue;
+              units.add(_GpuUnit(
+                commandIndex: paint.commandIndex,
+                endCommandIndex: paint.commandIndex,
+                bounds: _inflatePdf(clipped, 2),
+                clip: paintClip,
+                blendMode: capture.blendMode,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                hairline: paintCommand is PdfStrokePathCommand &&
+                    paintCommand.stroke.width <= 0,
+              ));
+            }
+            final groupBounds = capture.bounds;
+            if (groupBounds != null) {
+              // Keep the structural Begin/End pair covered for the final
+              // unsupported-command audit. The real paints above retain
+              // their own command indices and clips; this marker compiles to
+              // no draw.
+              units.add(_GpuUnit(
+                commandIndex: capture.start,
+                endCommandIndex: i,
+                bounds: _inflatePdf(groupBounds, 2),
+                clip: capture.clip,
+                blendMode: PdfBlendMode.normal,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                composite: spec,
+              ));
+            }
           } else {
-            final bounds = capture.bounds;
+            final bounds =
+                spec is _EmptyGroupSpec ? spec.bounds : capture.bounds;
             if (bounds != null) {
               units.add(_GpuUnit(
                 commandIndex: capture.start,
@@ -945,18 +1010,30 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     // multi-paint path below is deliberately narrower: alpha-one, normal
     // source-over, non-knockout groups whose isolation layer is an identity.
     PdfDrawImageCommand? content;
-    final paints = <(PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
+    final paints = <(int, PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
     PdfEndSoftMaskedCommand? softEnd;
     var softDepth = 0;
     var softCount = 0;
     PdfRect? clip = initialClip;
     PdfRect? contentClip;
+    var emptyClipOnly = false;
     var fillOverprint = initialFillOverprint;
     var strokeOverprint = initialStrokeOverprint;
     var blend = initialBlend;
+    var invisibleGroupDepth = 0;
     final saved = <(PdfRect?, bool, bool, PdfBlendMode)>[];
     for (var i = start + 1; i < end; i++) {
       final command = commands[i];
+      if (invisibleGroupDepth != 0) {
+        if (command is PdfBeginGroupCommand) invisibleGroupDepth++;
+        if (command is PdfEndGroupCommand) invisibleGroupDepth--;
+        continue;
+      }
+      if (command case PdfBeginGroupCommand(alpha: final groupAlpha)
+          when groupAlpha <= 0) {
+        invisibleGroupDepth = 1;
+        continue;
+      }
       switch (command) {
         case PdfSaveCommand():
           saved.add((clip, fillOverprint, strokeOverprint, blend));
@@ -973,8 +1050,14 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
           final pathBounds = pdfRenderPathBounds(path);
           final narrowed = _pdfIntersection(clip, pathBounds);
-          if (clip != null && pathBounds != null && narrowed == null) {
-            return (null, 'empty transparency group clip');
+          final degenerate = pathBounds != null &&
+              (pathBounds.right <= pathBounds.left ||
+                  pathBounds.top <= pathBounds.bottom);
+          if (degenerate ||
+              (clip != null && pathBounds != null && narrowed == null)) {
+            emptyClipOnly = true;
+            clip = pathBounds;
+            break;
           }
           clip = narrowed;
         case PdfBeginSoftMaskedCommand():
@@ -984,22 +1067,31 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           softDepth--;
           softEnd = command;
         case PdfDrawImageCommand():
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
           if (softDepth != 1 || content != null) {
             return (null, 'soft-mask group is not a single image');
           }
           content = command;
           contentClip = clip;
         case PdfFillPathCommand():
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfFillPathCommand');
           }
-          paints.add((command, clip, blend, fillOverprint));
+          paints.add((i, command, clip, blend, fillOverprint));
           contentClip = clip;
         case PdfStrokePathCommand():
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfStrokePathCommand');
           }
-          paints.add((command, clip, blend, strokeOverprint));
+          paints.add((i, command, clip, blend, strokeOverprint));
           contentClip = clip;
         case PdfSetBlendModeCommand(:final mode):
           // A one-element group may use any internal blend: with a transparent
@@ -1020,22 +1112,28 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     if (saved.isNotEmpty) {
       return (null, 'unbalanced transparency group state');
     }
+    if (invisibleGroupDepth != 0) {
+      return (null, 'unbalanced invisible transparency group');
+    }
+    if (emptyClipOnly && softCount == 0 && paints.isEmpty && content == null) {
+      return (_EmptyGroupSpec(clip!), null);
+    }
     if (softCount == 0 && softDepth == 0 && paints.length == 1) {
       final paint = paints.single;
-      if (paint.$4) {
+      if (paint.$5) {
         return (
           null,
-          paint.$1 is PdfStrokePathCommand
+          paint.$2 is PdfStrokePathCommand
               ? 'transparency-group stroke overprint'
               : 'transparency-group fill overprint',
         );
       }
-      return switch (paint.$1) {
+      return switch (paint.$2) {
         PdfFillPathCommand content => (
             _GroupFillSpec(
               content: content,
               groupAlpha: alpha,
-              contentClip: paint.$2,
+              contentClip: paint.$3,
             ),
             null,
           ),
@@ -1043,7 +1141,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             _GroupStrokeSpec(
               content: content,
               groupAlpha: alpha,
-              contentClip: paint.$2,
+              contentClip: paint.$3,
             ),
             null,
           ),
@@ -1051,19 +1149,39 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       };
     }
     if (softCount == 0 && softDepth == 0 && paints.length > 1) {
-      final commonClip = paints.first.$2;
+      final commonClip = paints.first.$3;
+      var overlaps = false;
+      final occupied = <PdfRect>[];
+      for (final paint in paints) {
+        final bounds = _pdfIntersection(
+          pdfRenderCommandBounds(paint.$2),
+          paint.$3,
+        );
+        if (bounds == null) continue;
+        if (occupied.any((other) => _pdfIntersection(other, bounds) != null)) {
+          overlaps = true;
+          break;
+        }
+        occupied.add(bounds);
+      }
       if (alpha != 1 ||
           knockout ||
-          initialBlend != PdfBlendMode.normal ||
-          paints.any((paint) =>
-              paint.$3 != PdfBlendMode.normal ||
-              paint.$4 ||
-              !_samePdfRect(paint.$2, commonClip))) {
+          paints.any((paint) => paint.$4 != PdfBlendMode.normal || paint.$5) ||
+          (initialBlend != PdfBlendMode.normal && overlaps)) {
         return (null, 'non-identity multi-paint transparency group');
+      }
+      if (paints.any((paint) => !_samePdfRect(paint.$3, commonClip))) {
+        return (
+          _FlattenGroupSpec(List.unmodifiable([
+            for (final paint in paints)
+              (commandIndex: paint.$1, clip: paint.$3),
+          ])),
+          null,
+        );
       }
       return (
         _GroupPaintSpec(
-          commands: List.unmodifiable([for (final paint in paints) paint.$1]),
+          commands: List.unmodifiable([for (final paint in paints) paint.$2]),
           contentClip: commonClip,
         ),
         null,
@@ -2330,6 +2448,8 @@ class _CompiledScene {
             _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
             _GroupPaintSpec spec => _compileGroupPaint(geometry, spec),
             _FlattenSoftMaskSpec() => null,
+            _FlattenGroupSpec() => null,
+            _EmptyGroupSpec() => null,
             _SoftMaskImageSpec spec => await _compileSoftMaskImage(
                 context,
                 geometry,
