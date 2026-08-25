@@ -215,9 +215,10 @@ retained scene before measuring that tile.
 Set `PDF_GPU_BENCHMARK_SCENARIO` to emit normalized `PdfPerfLog` scenario
 markers for each pipeline/scene/tile phase. CI uses those markers to run the
 checked-in tiling-pattern, radial-shading, hairline, vector-mask transfer,
-GWG168/169 vector soft-mask, and GWG1610/1611 text soft-mask pages plus the
-PDF.js system-font outline page and deterministic deferred-mask fixture six
-times on macOS Metal, compare the exact
+PDF.js knockout soft-mask and isolated-knockout overlap, GWG168/169 vector
+soft-mask, and GWG1610/1611 text soft-mask pages plus the PDF.js system-font
+outline page and deterministic deferred-mask fixture six times on macOS Metal,
+compare the exact
 PR base and candidate on the same runner with balanced execution order, and
 publish both a concise PR headline and a collapsed detailed trace.
 Set `PDF_GPU_BENCHMARK_FIXTURE=deferred-mask` instead of a PDF path to exercise
@@ -231,8 +232,8 @@ reference warm on both the accepted and fallback routes without warming the
 cold first-tile measurement.
 Set `PDF_GPU_BENCHMARK_ROUTE_CHANGE=1` for the same normalization when a PDF
 path, rather than the built-in fixture, changes from Canvas fallback to direct
-GPU. CI uses it for the checked-in vector-mask transfer, hairline, and GWG
-vector/text soft-mask pages.
+GPU. CI uses it for the checked-in vector-mask transfer, knockout soft-mask,
+isolated-knockout overlap, hairline, and GWG vector/text soft-mask pages.
 Set `PDF_GPU_BENCHMARK_SYSTEM_TEXT=1` to enable the native system-font outline
 adapter. For a like-for-like macOS parity control,
 `PDF_GPU_BENCHMARK_REGISTER_SYSTEM_FONTS=1` registers those same font bytes
