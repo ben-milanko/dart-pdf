@@ -67,7 +67,16 @@ class PdfRetainedScene {
     this.commands,
     this._images, [
     this._retainedDecodedRequests,
+    this.imageDecodingAttempted = true,
   ]);
+
+  /// Whether image requests were passed through the decoder for this scene.
+  ///
+  /// When true, a request absent from [imageFor] is definitively undecodable
+  /// and Canvas replay skips it. When false, the scene is a deliberate
+  /// vector-only progressive buffer and a later complete scene may still
+  /// supply the image.
+  final bool imageDecodingAttempted;
 
   /// Scenes holding sheddable spatial metadata (a region index or banded
   /// transcript), weakly held so a coordinated memory-pressure sweep can drop
@@ -418,6 +427,7 @@ class PdfRetainedScene {
       commands,
       images,
       retainedRequests,
+      includeImages,
     );
   }
 
