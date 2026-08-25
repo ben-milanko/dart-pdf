@@ -279,7 +279,8 @@ void main() {
     });
   });
 
-  testWidgets('interior paper clears preserve page color and edge coverage',
+  testWidgets(
+      'simple and advanced interior clears preserve paper and edge coverage',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -287,49 +288,60 @@ void main() {
         return;
       }
       final page = PdfDocument.open(buildClassicPdf()).page(0);
-      final scene = await PdfRetainedScene.fromCommands(
-        page,
-        [
-          PdfFillPathCommand(
-            _rect(240, 300, 320, 380),
-            const PdfColor(0.85, 0.12, 0.28),
-            PdfFillRule.nonzero,
-            0.7,
+      for (final advanced in [false, true]) {
+        final scene = await PdfRetainedScene.fromCommands(
+          page,
+          [
+            if (advanced) const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+            PdfFillPathCommand(
+              _rect(40, 40, 572, 752),
+              const PdfColor(0.85, 0.12, 0.28),
+              PdfFillRule.nonzero,
+              0.7,
+            ),
+            if (advanced) const PdfSetBlendModeCommand(PdfBlendMode.normal),
+          ],
+          plan: const PdfPageRenderPlan(
+            pageColor: Color(0x8066AA22),
+            rotation: 90,
           ),
-        ],
-        plan: const PdfPageRenderPlan(
-          pageColor: Color(0x8066AA22),
-          rotation: 90,
-        ),
-      );
-      addTearDown(scene.dispose);
-      final backend = FlutterGpuTileRasterBackend();
-      final session = backend.createSession(scene);
-      expect(session, isNotNull, reason: backend.stats.lastRejection);
-      addTearDown(session!.dispose);
-
-      for (final (region, clears) in const [
-        (Rect.fromLTWH(60, 60, 240, 200), 1),
-        (Rect.fromLTWH(0, 0, 240, 200), 1),
-      ]) {
-        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
-        final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+        );
+        final backend = FlutterGpuTileRasterBackend();
+        final session = backend.createSession(scene);
+        expect(session, isNotNull,
+            reason: '$advanced: ${backend.stats.lastRejection}');
+        final liveSession = session!;
         try {
-          final a = await _pixels(expected), b = await _pixels(actual);
-          var difference = 0;
-          var minimumAlpha = 255;
-          for (var index = 0; index < a.length; index++) {
-            difference += (a[index] - b[index]).abs();
-            if (index % 4 == 3 && b[index] < minimumAlpha) {
-              minimumAlpha = b[index];
+          for (final (region, clears) in const [
+            (Rect.fromLTWH(60, 60, 240, 200), 1),
+            (Rect.fromLTWH(0, 0, 240, 200), 1),
+          ]) {
+            final expected =
+                await scene.rasterizeRegion(region, pixelRatio: 1.5);
+            final actual =
+                await liveSession.rasterizeRegion(region, pixelRatio: 1.5);
+            try {
+              final a = await _pixels(expected), b = await _pixels(actual);
+              var difference = 0;
+              var minimumAlpha = 255;
+              for (var index = 0; index < a.length; index++) {
+                difference += (a[index] - b[index]).abs();
+                if (index % 4 == 3 && b[index] < minimumAlpha) {
+                  minimumAlpha = b[index];
+                }
+              }
+              expect(difference / a.length, lessThan(3),
+                  reason: advanced ? 'advanced route' : 'simple route');
+              expect(minimumAlpha, 255);
+              expect(backend.stats.paperClearTiles, clears);
+            } finally {
+              expected.dispose();
+              actual.dispose();
             }
           }
-          expect(difference / a.length, lessThan(3));
-          expect(minimumAlpha, 255);
-          expect(backend.stats.paperClearTiles, clears);
         } finally {
-          expected.dispose();
-          actual.dispose();
+          liveSession.dispose();
+          scene.dispose();
         }
       }
     });

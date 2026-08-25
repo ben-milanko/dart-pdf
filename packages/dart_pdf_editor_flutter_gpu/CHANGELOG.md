@@ -5,6 +5,10 @@
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 
+- Initialize tiles wholly inside the transformed crop box with the folded
+  opaque paper color in the render-pass clear, skipping the transparent clear
+  and full-tile paper draw. A one-device-pixel guard keeps rotated and
+  translucent page boundaries on the exact antialiased-quad path.
 - Keep intermediate transparency-group targets single-sample while retaining
   4x MSAA on the final page target. This removes a redundant color/stencil
   raster and resolve, cuts live group attachment estimates from 40 to 8 bytes

@@ -114,6 +114,10 @@ image soft mask directly through retained stencil geometry. Rectangular vector
 soft-mask fills, including alpha or luminosity backdrops and linearized
 transfer functions, are partitioned into constant-mask stencil cover cells and
 need no intermediate texture.
+Tiles that sit at least one device pixel inside the transformed crop box use
+the folded opaque paper color as their render-pass clear, avoiding a separate
+transparent clear and full-tile paper draw. Boundary tiles retain the paper
+quad so rotated and translucent page colors keep their exact antialiased edge.
 Advanced blend paints use bounded ping-pong tile attachments. Paints whose
 bounds prove they cannot affect one another share one destination-sampling
 pass; overlapping paints replay sequentially inside their conservative command
@@ -187,6 +191,7 @@ scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
+Paper diagnostics report how many tiles used the exact interior clear path.
 Advanced-blend diagnostics report destination-sampling passes, destination
 blits, cropped-source selections, allocated and peak temporary bytes, and
 budget fallbacks.

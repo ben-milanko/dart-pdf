@@ -3466,6 +3466,9 @@ class _CompiledScene {
   }
 
   bool _canClearPaper(Rect region, double pixelRatio) {
+    // A render-pass clear cannot reproduce the paper quad's antialiased crop
+    // edge. Keep one device pixel between the tile and every transformed page
+    // edge so the clear is used only where the quad has constant full coverage.
     final margin = 1 / pixelRatio;
     final bounds = paper.rasterBounds;
     return region.left >= bounds.left + margin &&
@@ -3766,11 +3769,12 @@ class _CompiledScene {
     ];
 
     gpu.RenderPass createPaintPass(
-        gpu.CommandBuffer commandBuffer,
-        gpu.Texture resolve,
-        gpu.Texture? targetColor,
-        gpu.Texture targetStencil,
-        {vm.Vector4? clearValue}) {
+      gpu.CommandBuffer commandBuffer,
+      gpu.Texture resolve,
+      gpu.Texture? targetColor,
+      gpu.Texture targetStencil, {
+      vm.Vector4? clearValue,
+    }) {
       final target = targetColor ?? resolve;
       final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
         colorAttachments: [
