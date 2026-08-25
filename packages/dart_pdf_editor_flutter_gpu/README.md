@@ -242,9 +242,11 @@ reference warm on both the accepted and fallback routes without warming the
 cold first-tile measurement.
 Set `PDF_GPU_BENCHMARK_ROUTE_CHANGE=1` for the same normalization when a PDF
 path, rather than the built-in fixture, changes from Canvas fallback to direct
-GPU. CI uses it for the checked-in vector-mask transfer, knockout soft-mask,
-isolated-knockout overlap, hairline, advanced-blend, and GWG vector/text
-soft-mask pages.
+GPU. Route-change scene warm-up still runs when requested, matching the
+viewer's idle-prepared path, but its unmatched timing marker is omitted because
+the Canvas base has no GPU session to warm. CI uses it for the checked-in
+vector-mask transfer, knockout soft-mask, isolated-knockout overlap, hairline,
+advanced-blend, and GWG vector/text soft-mask pages.
 Set `PDF_GPU_BENCHMARK_SYSTEM_TEXT=1` to enable the native system-font outline
 adapter. For a like-for-like macOS parity control,
 `PDF_GPU_BENCHMARK_REGISTER_SYSTEM_FONTS=1` registers those same font bytes

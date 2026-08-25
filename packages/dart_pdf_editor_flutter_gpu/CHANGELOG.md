@@ -2,6 +2,9 @@
 
 ## Next
 
+- Run requested scene warm-up for route-change benchmarks, matching the
+  viewer's idle-prepared production path while suppressing the unmatched timing
+  marker when the Canvas base has no GPU session.
 - Render every PDF blend mode exactly with retained GPU destination sampling.
   Advanced modes use bounded ping-pong tile attachments; provably disjoint
   paints share one blend pass, while overlapping paints retain painter order.

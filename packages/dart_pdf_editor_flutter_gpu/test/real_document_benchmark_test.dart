@@ -290,13 +290,18 @@ void main() {
           }
           try {
             if (Platform.environment['PDF_GPU_BENCHMARK_SCENE_WARMUP'] == '1' &&
-                !productionRoute &&
                 session is PdfTileRasterWarmUp) {
-              final scenario = _scenarioName(
-                scenarioLabel,
-                'scene-warm',
-                page: pageIndex,
-              );
+              // Route-change cohorts compare a Canvas base with a GPU
+              // candidate, so only one side can produce a scene-warm timing.
+              // Still perform the warm-up—the viewer does—while suppressing
+              // the unmatched marker from the comparison report.
+              final scenario = productionRoute
+                  ? null
+                  : _scenarioName(
+                      scenarioLabel,
+                      'scene-warm',
+                      page: pageIndex,
+                    );
               _startScenario(scenario);
               final warmUp = Stopwatch()..start();
               await (session as PdfTileRasterWarmUp).warmUp();
