@@ -154,7 +154,7 @@ class PdfEditorFeatures {
   /// controls). Independent of [colorControls].
   final bool styleControls;
 
-  /// The toolbar's flatten-annotations button.
+  /// The toolbar's document-wide annotation and form-field flatten button.
   final bool flatten;
 
   /// The toolbar's "Color processing" action: find and replace page-content

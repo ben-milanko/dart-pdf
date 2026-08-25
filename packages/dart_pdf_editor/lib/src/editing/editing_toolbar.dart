@@ -189,7 +189,8 @@ class PdfEditingToolbar extends StatefulWidget {
   /// and font controls with its colour rows hidden.
   final bool showStyle;
 
-  /// Whether the flatten-annotations button is shown.
+  /// Whether the document-wide annotation and form-field flatten button is
+  /// shown.
   final bool showFlatten;
 
   /// Whether the Edit group includes the colour-processing action.
@@ -907,7 +908,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   void _flatten(BuildContext context) {
-    final flattened = controller.flattenAllAnnotations();
+    final flattened = controller.flattenDocument();
     _flattenToast(
       context,
       flattened
@@ -1788,6 +1789,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final tool = controller.tool;
     final flatten = widget.showFlatten
         ? _LabeledToolButton(
+            key: const ValueKey('pdf-flatten-all'),
             icon: Icons.layers_outlined,
             label: pdfL10n(context).tbFlattenLabel,
             tooltip: pdfL10n(context).tbFlattenAnnotationsTooltip,

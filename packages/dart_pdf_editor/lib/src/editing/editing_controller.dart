@@ -3637,6 +3637,19 @@ class PdfEditingController extends ChangeNotifier {
         }
       });
 
+  /// Bakes every form-field widget and other annotation appearance into the
+  /// page content, then removes their interactive dictionaries. The whole
+  /// document is flattened in one revision so a single undo restores it.
+  ///
+  /// Forms are flattened first because [PdfEditor.flattenForm] materializes
+  /// missing appearances for untouched empty fields before removing them.
+  bool flattenDocument() => apply((editor) {
+        editor.flattenForm();
+        for (var i = 0; i < _document.pageCount; i++) {
+          editor.flattenAnnotations(i);
+        }
+      });
+
   // ---------------------------------------------------------------------
   // pages
 
