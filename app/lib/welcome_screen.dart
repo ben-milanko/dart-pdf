@@ -402,7 +402,10 @@ class _RecentsList extends StatelessWidget {
             width: 48,
             height: 62,
           ),
-          title: MiddleEllipsisText(entry.title),
+          title: MiddleEllipsisText(
+            entry.title,
+            hidePdfExtension: true,
+          ),
           subtitle: entry.path != null
               ? MiddleEllipsisText(entry.path!)
               : entry.isReopenable
@@ -552,6 +555,7 @@ class _RecentGridTile extends StatelessWidget {
               alignment: Alignment.bottomCenter,
               child: MiddleEllipsisText(
                 entry.title,
+                hidePdfExtension: true,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
