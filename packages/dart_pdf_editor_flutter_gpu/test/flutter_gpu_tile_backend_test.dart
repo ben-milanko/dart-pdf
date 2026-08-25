@@ -1158,6 +1158,96 @@ void main() {
     });
   });
 
+  testWidgets('disjoint fills retain a transparency group outer blend',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(30, 90, 310, 370),
+          const PdfColor(0.45, 0.55, 0.7),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(1, isolated: true),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfClipPathCommand(_rect(50, 110, 290, 350), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(70, 140, 140, 310),
+          const PdfColor(0.95, 0.7, 0.2),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(210, 140, 270, 310),
+          const PdfColor(0.2, 0.8, 0.85),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 410, 310, 310);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+    });
+  });
+
+  testWidgets('overlapping fills keep non-normal groups on Canvas',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(1, isolated: true),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfFillPathCommand(
+          _rect(70, 140, 220, 310),
+          const PdfColor(0.95, 0.7, 0.2),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(150, 140, 270, 310),
+          const PdfColor(0.2, 0.8, 0.85),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      expect(backend.createSession(scene), isNull);
+      expect(
+        backend.stats.lastRejection,
+        'non-identity multi-paint transparency group',
+      );
+    });
+  });
+
   testWidgets(
       'single-image knockout luminosity masks stay as two retained textures',
       (tester) async {

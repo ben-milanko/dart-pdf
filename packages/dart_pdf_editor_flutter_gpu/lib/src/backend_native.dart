@@ -1035,7 +1035,11 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   PdfBlendMode initialBlend = PdfBlendMode.normal,
 }) {
   if (commands[start]
-      case PdfBeginGroupCommand(:final alpha, :final knockout)) {
+      case PdfBeginGroupCommand(
+        :final alpha,
+        :final knockout,
+        :final backdropColor,
+      )) {
     if (commands[end] is! PdfEndGroupCommand) {
       return (null, 'unsupported composite nesting');
     }
@@ -1151,9 +1155,12 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     }
     if (softCount == 0 && softDepth == 0 && paints.length > 1) {
       final commonClip = paints.first.$2;
+      final disjointOuterBlend =
+          initialBlend != PdfBlendMode.normal && _areDisjointFills(paints);
       if (alpha != 1 ||
           knockout ||
-          initialBlend != PdfBlendMode.normal ||
+          backdropColor != null ||
+          (initialBlend != PdfBlendMode.normal && !disjointOuterBlend) ||
           paints.any((paint) =>
               paint.$3 != PdfBlendMode.normal ||
               paint.$4 ||
@@ -1371,6 +1378,32 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     };
   }
   return (null, 'unsupported composite ${commands[start].runtimeType}');
+}
+
+/// Whether a multi-paint group can apply its outer blend per paint without
+/// changing the result.
+///
+/// Disjoint fills never contribute to the same destination sample, so
+/// compositing their transparent group once is identical to compositing each
+/// fill directly. The two-point padding is deliberately conservative around
+/// antialiased path edges; overlapping, touching, stroked, or unbounded paints
+/// stay on the exact Canvas layer path.
+bool _areDisjointFills(
+  List<(PdfRenderCommand, PdfRect?, PdfBlendMode, bool)> paints,
+) {
+  final bounds = <PdfRect>[];
+  for (final paint in paints) {
+    if (paint.$1 is! PdfFillPathCommand) return false;
+    final commandBounds = pdfRenderCommandBounds(paint.$1);
+    final clipped = _pdfIntersection(commandBounds, paint.$2);
+    if (clipped == null) return false;
+    final padded = _inflatePdf(clipped, 2);
+    if (bounds.any((other) => _pdfIntersection(other, padded) != null)) {
+      return false;
+    }
+    bounds.add(padded);
+  }
+  return true;
 }
 
 /// Flattens one narrow nested-mask shape without allocating an offscreen
