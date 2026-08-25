@@ -2,6 +2,20 @@
 
 ## Next
 
+- Render overlapping Normal paints in isolated transparency groups into a
+  shader-readable tile attachment, then apply group alpha and outer blend once
+  when sampling it into the page pass.
+- Elide zero-alpha and zero-area transparency groups before GPU auditing;
+  their composite alpha or form BBox clip makes all nested paints exact
+  no-ops.
+- Retain non-Normal transparency groups whose padded fill bounds are provably
+  disjoint, preserving exact outer blending without an offscreen surface.
+- Treat C1 controls as non-rendering glyph placements in the exact native
+  outline seam, matching Flutter shaping while preserving their PDF advances.
+- Retain stroke-only and fill-plus-stroke outline text, including page-space
+  alpha and zero-width hairlines, by reusing the exact path stroke pipeline.
+  Filled glyphs keep the analytic atlas while their stroke overlays in painter
+  order.
 - Retain ordinary filled text as six-vertex glyph quads backed by a
   scale-independent analytic curve atlas. The shader derives device scale per
   tile, eliminating repeated flattened outline fans across LoDs while exact

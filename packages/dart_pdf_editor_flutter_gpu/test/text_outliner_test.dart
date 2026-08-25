@@ -66,6 +66,24 @@ void main() {
     expect(outlined.glyphs![1].text, ' ');
   });
 
+  test('keeps default-ignorable controls as empty placements', () {
+    final outlined = outliner.outline(
+      run('A\u007fB\u0081', const [0, 0.6, 0.8, 1.8, 2.0], width: 2),
+    );
+    expect(outlined, isNotNull);
+    expect(outlined!.glyphs, hasLength(4));
+    expect(outlined.glyphs![1].outline, isNull);
+    expect(outlined.glyphs![1].text, '\u007f');
+    expect(outlined.glyphs![3].outline, isNull);
+    expect(outlined.glyphs![3].text, '\u0081');
+
+    final controlsOnly =
+        outliner.outline(run('\u007f', const [0, 0.5], width: 0.5));
+    expect(controlsOnly, isNotNull);
+    expect(controlsOnly!.glyphs!.single.outline, isNull);
+    expect(controlsOnly.transform, run('', const [0]).transform);
+  });
+
   test('declines missing glyphs, malformed offsets, and complex shaping', () {
     expect(outliner.outline(run('AC', const [0, 0.6, 1.2])), isNull);
     expect(outliner.outline(run('AB', const [0, 0.6])), isNull);

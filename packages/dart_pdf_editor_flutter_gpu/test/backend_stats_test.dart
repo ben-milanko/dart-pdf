@@ -63,6 +63,10 @@ void main() {
       ..analyticAtlasBytes = 4096
       ..analyticAtlasFallbacks = 1
       ..analyticTextFallbackRuns = 2
+      ..offscreenGroupPasses = 3
+      ..offscreenGroupAllocatedBytes = 6 << 20
+      ..peakOffscreenGroupBytes = 4 << 20
+      ..offscreenGroupBudgetFallbacks = 1
       ..completedSubmissions = 8
       ..completionMicros = 32000
       ..maxCompletionMicros = 9000
@@ -93,6 +97,11 @@ void main() {
     expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
     expect(stats.toJson(), containsPair('analyticAtlasFallbacks', 1));
     expect(stats.toJson(), containsPair('analyticTextFallbackRuns', 2));
+    expect(stats.toJson(), containsPair('offscreenGroupPasses', 3));
+    expect(
+        stats.toJson(), containsPair('offscreenGroupAllocatedBytes', 6 << 20));
+    expect(stats.toJson(), containsPair('peakOffscreenGroupBytes', 4 << 20));
+    expect(stats.toJson(), containsPair('offscreenGroupBudgetFallbacks', 1));
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
@@ -126,6 +135,10 @@ void main() {
     expect(stats.analyticAtlasBytes, 0);
     expect(stats.analyticAtlasFallbacks, 0);
     expect(stats.analyticTextFallbackRuns, 0);
+    expect(stats.offscreenGroupPasses, 0);
+    expect(stats.offscreenGroupAllocatedBytes, 0);
+    expect(stats.peakOffscreenGroupBytes, 0);
+    expect(stats.offscreenGroupBudgetFallbacks, 0);
     expect(stats.completedSubmissions, 0);
     expect(stats.completionMicros, 0);
     expect(stats.inFlightSubmissions, 2);
