@@ -2,6 +2,11 @@
 
 ## Next
 
+- Render every PDF blend mode exactly with retained GPU destination sampling.
+  Advanced modes use bounded ping-pong tile attachments; provably disjoint
+  paints share one blend pass, while overlapping paints retain painter order.
+  Oversized tiles and scenes that combine advanced blends with offscreen
+  transparency groups keep the conservative Canvas fallback.
 - Retain isolated knockout groups made entirely from vector fills. Later
   sibling shapes use exact source replacement only inside their retained path,
   while the group's alpha and outer blend remain a single offscreen composite.
@@ -44,7 +49,7 @@
   retained stencil pass. Rectangular vector-mask fills, including alpha or
   luminosity `/BC` and linearized `/TR`, stay entirely in retained geometry.
 - Render Multiply and Screen exactly with fixed-function blending over the
-  backend's opaque page surface; other blend modes still fall back to Canvas.
+  backend's opaque page surface.
 - Warm the nonzero stencil-cover render state used by retained fills, moving
   its first-use Metal compilation into the existing idle pipeline phase.
 - Render tiled stencil images exactly using scene-scoped, hand-built mipmaps.
