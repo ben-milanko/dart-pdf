@@ -5,6 +5,10 @@
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing
   marker when the Canvas base has no GPU session.
+- Retain exact macOS CJK substitutions for Songti, Heiti, Hiragino Sans, and
+  Hiragino Mincho, including CFF outlines inside OpenType collections. Six
+  additional PDF.js corpus pages now stay on the GPU, with a dedicated CJK
+  same-host scenario.
 - Render every PDF blend mode exactly with retained GPU destination sampling.
   Advanced modes use bounded ping-pong tile attachments; provably disjoint
   paints share one blend pass, while overlapping paints retain painter order.

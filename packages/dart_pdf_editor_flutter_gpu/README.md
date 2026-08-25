@@ -38,13 +38,16 @@ PdfReader(
 Unembedded text remains on the conservative Canvas fallback by default because
 Flutter does not expose the glyph paths selected by `TextPainter`. A host that
 owns its font registrations can pass a `FlutterGpuTrueTypeTextOutliner` whose
-resolver returns `FlutterGpuTrueTypeFontFace` instances built from those exact
-bytes. `systemTextOutlines: true` is the native convenience adapter: it probes
+resolver returns `FlutterGpuFontFace` instances built from those exact bytes,
+including `FlutterGpuTrueTypeFontFace` and `FlutterGpuOpenTypeCffFontFace`.
+`systemTextOutlines: true` is the native convenience adapter: it probes
 known Helvetica/Arial, Times, Courier, Symbol, and platform-equivalent font
-files and declines a run when the requested face, glyph, or simple horizontal
-placement cannot be proved. It is deliberately opt-in because an app may have
-registered different bytes under the same Flutter family name. Web keeps the
-Canvas path.
+files. On macOS it also resolves the exact Songti, Heiti, Hiragino Sans, and
+Hiragino Mincho faces selected by the Canvas CJK substitution stack, including
+OpenType CFF faces inside font collections. It declines a run when the
+requested face, glyph, or simple horizontal placement cannot be proved. It is
+deliberately opt-in because an app may have registered different bytes under
+the same Flutter family name. Web keeps the Canvas path.
 
 Flutter GPU must also be enabled by the host. Add
 `<key>FLTEnableFlutterGPU</key><true/>` to the iOS/macOS Info.plist (and
@@ -226,8 +229,9 @@ markers for each pipeline/scene/tile phase. CI uses those markers to run the
 checked-in tiling-pattern, radial-shading, hairline, advanced-blend,
 vector-mask transfer, PDF.js knockout soft-mask and isolated-knockout overlap,
 GWG168/169 vector
-soft-mask, and GWG1610/1611 text soft-mask pages plus the PDF.js system-font
-outline page and deterministic deferred-mask fixture six times on macOS Metal,
+soft-mask, and GWG1610/1611 text soft-mask pages plus the PDF.js Latin and CJK
+system-font outline pages and deterministic deferred-mask fixture six times on
+macOS Metal,
 compare the exact
 PR base and candidate on the same runner with balanced execution order, and
 publish both a concise PR headline and a collapsed detailed trace.

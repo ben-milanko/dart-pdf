@@ -12,7 +12,7 @@ abstract interface class FlutterGpuTextOutliner {
   PdfTextRun? outline(PdfTextRun run);
 }
 
-/// A parsed TrueType face used by [FlutterGpuTrueTypeTextOutliner].
+/// A parsed outline font face used by [FlutterGpuTrueTypeTextOutliner].
 abstract interface class FlutterGpuFontFace {
   int gidForUnicode(int codePoint);
 
@@ -96,7 +96,7 @@ typedef FlutterGpuFontFaceResolver = FlutterGpuFontFace? Function(
   PdfTextRun run,
 );
 
-/// Converts simple horizontal substituted text to retained TrueType outlines.
+/// Converts simple horizontal substituted text to retained font outlines.
 ///
 /// PDF character offsets remain authoritative. Glyph shapes receive one
 /// uniform horizontal scale—the same copy-fitting rule used by

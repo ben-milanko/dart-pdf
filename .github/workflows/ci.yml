@@ -249,6 +249,7 @@ jobs:
                   "$label" == "text-mask-1" ||
                   "$label" == "text-mask-2" ||
                   "$label" == "system-text" ||
+                  "$label" == "cjk-text" ||
                   "$label" == "advanced-blend" ||
                   "$label" == "knockout-mask" ||
                   "$label" == "knockout-overlap" ||
@@ -257,6 +258,7 @@ jobs:
             fi
             local system_text=0
             if [[ "$label" == "system-text" ||
+                  "$label" == "cjk-text" ||
                   "$label" == "advanced-blend" ]]; then
               system_text=1
             fi
@@ -324,6 +326,7 @@ jobs:
           text-mask-1 pdf ../../test_corpora/ghent/1-CMYK/GWG1610_Softmasks_Text_part1_X4.pdf
           text-mask-2 pdf ../../test_corpora/ghent/1-CMYK/GWG1611_Softmasks_Text_part2_X4.pdf
           system-text pdf ../../test_corpora/pdfjs/hello_world_rotated.pdf
+          cjk-text pdf ../../test_corpora/pdfjs/SimFang-variant.pdf
           advanced-blend pdf ../../test_corpora/pdfjs/blendmode.pdf
           knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
           knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
@@ -359,6 +362,7 @@ jobs:
           text-mask-1 pdf ../../test_corpora/ghent/1-CMYK/GWG1610_Softmasks_Text_part1_X4.pdf
           text-mask-2 pdf ../../test_corpora/ghent/1-CMYK/GWG1611_Softmasks_Text_part2_X4.pdf
           system-text pdf ../../test_corpora/pdfjs/hello_world_rotated.pdf
+          cjk-text pdf ../../test_corpora/pdfjs/SimFang-variant.pdf
           advanced-blend pdf ../../test_corpora/pdfjs/blendmode.pdf
           knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
           knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
@@ -404,6 +408,8 @@ jobs:
             --require-scenario-runs gpu-text-mask-2-page-0-canvas-tile=6
             --require-scenario-runs gpu-system-text-page-0-first-tile=6
             --require-scenario-runs gpu-system-text-page-0-canvas-tile=6
+            --require-scenario-runs gpu-cjk-text-page-0-first-tile=6
+            --require-scenario-runs gpu-cjk-text-page-0-canvas-tile=6
             --require-scenario-runs gpu-advanced-blend-page-0-first-tile=6
             --require-scenario-runs gpu-advanced-blend-page-0-canvas-tile=6
             --require-scenario-runs gpu-knockout-mask-page-0-first-tile=6

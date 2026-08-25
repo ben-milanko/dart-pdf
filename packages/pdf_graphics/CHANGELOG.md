@@ -2,6 +2,9 @@
 
 ## Next
 
+- Export an OpenType CFF face reader that retains Unicode cmap mappings and
+  selects collection entries, allowing native substitution adapters to obtain
+  exact glyph outlines and advances from CFF-flavoured system fonts.
 - Give synthesized FreeText and form-widget fallback text exact Base-14
   character offsets, keeping Canvas placement, selection geometry, and
   retained outline backends on the same per-character advances.
