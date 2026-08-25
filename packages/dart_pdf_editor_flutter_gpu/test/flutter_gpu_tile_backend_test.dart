@@ -451,6 +451,72 @@ void main() {
     });
   });
 
+  testWidgets('sub-MSAA positive strokes request exact Canvas fallback',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        for (var index = 0; index < 128; index++)
+          PdfStrokePathCommand(
+            PdfPath([
+              PdfMoveTo(60, index == 127 ? 400 : 240 + index * 0.01),
+              PdfLineTo(550, index == 127 ? 400 : 240 + index * 0.01),
+            ]),
+            const PdfColor(0.05, 0.1, 0.2),
+            const PdfStroke(width: 0.24),
+            1,
+          ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(40, 500, 520, 100);
+
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 2);
+      final accelerated = await session.rasterizeRegion(region, pixelRatio: 2);
+      try {
+        final a = await _pixels(expected), b = await _pixels(accelerated);
+        var difference = 0;
+        for (var index = 0; index < a.length; index++) {
+          difference += (a[index] - b[index]).abs();
+        }
+        expect(difference / a.length, lessThan(3));
+      } finally {
+        expected.dispose();
+        accelerated.dispose();
+      }
+
+      final belowThreshold =
+          await session.rasterizeRegion(region, pixelRatio: 0.5);
+      belowThreshold.dispose();
+      expect(backend.stats.subpixelStrokeFallbacks, 0);
+
+      await expectLater(
+        session.rasterizeRegion(
+          Offset.zero & scene.pageSize,
+          pixelRatio: 0.5,
+        ),
+        throwsA(isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          allOf(
+            contains('128 paint units contain positive-width strokes'),
+            contains('below the 0.25 flutter_gpu coverage quantum'),
+          ),
+        )),
+      );
+      expect(backend.stats.subpixelStrokeFallbacks, 1);
+      expect(backend.stats.rasterFallbacks, 1);
+      expect(backend.stats.lastTileRoute, 'canvas-fallback');
+    });
+  });
+
   testWidgets('dense hairlines roll transient buffers without crossing blocks',
       (tester) async {
     await tester.runAsync(() async {

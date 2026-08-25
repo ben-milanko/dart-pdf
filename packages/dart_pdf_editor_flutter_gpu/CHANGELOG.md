@@ -23,6 +23,11 @@
   instead of rounding every scene up to 16 MiB. Dense scenes still flush at
   the existing 16 MiB arena boundary and all active buffers remain under the
   same hard byte budget.
+- Retire a GPU session to the viewer's exact Canvas fallback when one tile
+  selects at least 128 paint units containing positive-width strokes that
+  resolve below the 0.25 px coverage quantum of 4x MSAA. This prevents dense
+  CAD linework from becoming faint or disappearing at low zoom while isolated
+  subpixel strokes retain the established GPU parity and routing.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

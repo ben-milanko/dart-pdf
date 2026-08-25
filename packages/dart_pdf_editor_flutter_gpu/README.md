@@ -205,6 +205,10 @@ how many of those were content-free color-only submissions.
 Transient-buffer diagnostics report emplaced bytes, allocated buffers/bytes,
 and the peak allocation for one tile, making dense dynamic hairline workloads
 and ordinary 64 KiB submissions separately visible.
+Subpixel-stroke diagnostics report resolution-aware runtime fallbacks for
+dense CAD tiles whose positive-width linework falls below one 4x MSAA coverage
+quantum; the viewer permanently serves that session through Canvas rather than
+displaying incomplete linework.
 Advanced-blend diagnostics report destination-sampling passes, destination
 blits, cropped-source selections, allocated and peak temporary bytes, and
 budget fallbacks.

@@ -451,6 +451,7 @@ class _GpuUnit {
     required this.strokeOverprint,
     required this.darken,
     this.hairline = false,
+    this.minimumPositiveStrokeWidth,
     this.composite,
   });
 
@@ -463,6 +464,7 @@ class _GpuUnit {
   final bool strokeOverprint;
   final bool darken;
   final bool hairline;
+  final double? minimumPositiveStrokeWidth;
   final _GpuCompositeSpec? composite;
 }
 
@@ -1087,6 +1089,27 @@ List<PdfRenderCommand> _dropInvisibleGroups(List<PdfRenderCommand> commands) {
   return rewritten == null ? commands : List.unmodifiable(rewritten);
 }
 
+double? _minimumPositiveStrokeWidth(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end,
+) {
+  double? minimum;
+  for (var index = start; index <= end; index++) {
+    final width = switch (commands[index]) {
+      PdfStrokePathCommand(:final stroke) when stroke.width > 0 => stroke.width,
+      PdfDrawTextCommand(:final run)
+          when run.strokeColor != null && run.strokeWidth > 0 =>
+        run.strokeWidth,
+      _ => null,
+    };
+    if (width != null && (minimum == null || width < minimum)) {
+      minimum = width;
+    }
+  }
+  return minimum;
+}
+
 _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
   if (commands.length > 1000000) {
     return const _GpuUnitBuild(null, 'retained scene exceeds GPU index cap');
@@ -1162,6 +1185,11 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
                 fillOverprint: false,
                 strokeOverprint: false,
                 darken: false,
+                minimumPositiveStrokeWidth: _minimumPositiveStrokeWidth(
+                  commands,
+                  paint.commandIndex,
+                  paint.endCommandIndex,
+                ),
                 composite: paint.composite,
               ));
             }
@@ -1204,6 +1232,11 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
                 darken: false,
                 hairline: paintCommand is PdfStrokePathCommand &&
                     paintCommand.stroke.width <= 0,
+                minimumPositiveStrokeWidth: _minimumPositiveStrokeWidth(
+                  commands,
+                  paint.commandIndex,
+                  paint.commandIndex,
+                ),
               ));
             }
             final groupBounds = capture.bounds;
@@ -1237,6 +1270,8 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
                 fillOverprint: capture.fillOverprint,
                 strokeOverprint: capture.strokeOverprint,
                 darken: false,
+                minimumPositiveStrokeWidth:
+                    _minimumPositiveStrokeWidth(commands, capture.start, i),
                 composite: spec,
               ));
             }
@@ -1270,6 +1305,8 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
                 _commandNeedsDarken(command, fillOverprint, strokeOverprint),
             hairline:
                 command is PdfStrokePathCommand && command.stroke.width <= 0,
+            minimumPositiveStrokeWidth:
+                _minimumPositiveStrokeWidth(commands, i, i),
           ));
         }
     }
@@ -3129,6 +3166,34 @@ class _FlutterGpuTileSession
       final issue = Stopwatch()..start();
       final selected =
           _selectGpuUnits(units, compiled.pageToRaster, region, pixelRatio);
+      final coverageQuantum =
+          msaa && context.doesSupportOffscreenMSAA ? 0.25 : 1.0;
+      final deviceScale = _pageDeviceScale(compiled.pageToRaster, pixelRatio);
+      var undersampledUnits = 0;
+      double? narrowest;
+      for (final unit in selected) {
+        final width = unit.minimumPositiveStrokeWidth;
+        if (width != null && width * deviceScale < coverageQuantum) {
+          undersampledUnits++;
+          if (narrowest == null || width < narrowest) narrowest = width;
+        }
+      }
+      // Four-sample MSAA can represent coverage only in quarter-pixel
+      // increments. Isolated thinner strokes stay within the established
+      // Canvas parity tolerance, but dense CAD drawings accumulate hundreds
+      // of missed strokes into material blank regions. Retire the accelerated
+      // session before issuing a knowingly incomplete tile; the viewer serves
+      // this request and all later LoDs from its exact Canvas fallback session.
+      if (undersampledUnits >= 128) {
+        final resolvedWidth = narrowest! * deviceScale;
+        stats.subpixelStrokeFallbacks++;
+        throw StateError(
+          '$undersampledUnits paint units contain positive-width strokes that '
+          'resolve as narrowly as ${resolvedWidth.toStringAsFixed(3)} device '
+          'pixels, below the ${coverageQuantum.toStringAsFixed(2)} '
+          'flutter_gpu coverage quantum',
+        );
+      }
       stats.selectedCommands += selected.length;
       final image = compiled.render(
         selected,

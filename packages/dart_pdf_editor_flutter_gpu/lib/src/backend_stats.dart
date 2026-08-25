@@ -38,6 +38,7 @@ class FlutterGpuTileBackendStats {
   int clipMaskRebuilds = 0;
   int paperClearTiles = 0;
   int paperOnlyTiles = 0;
+  int subpixelStrokeFallbacks = 0;
   int advancedBlendPasses = 0;
   int advancedBlendBlits = 0;
   int advancedBlendCroppedSources = 0;
@@ -117,6 +118,7 @@ class FlutterGpuTileBackendStats {
         'clipMaskRebuilds': clipMaskRebuilds,
         'paperClearTiles': paperClearTiles,
         'paperOnlyTiles': paperOnlyTiles,
+        'subpixelStrokeFallbacks': subpixelStrokeFallbacks,
         'advancedBlendPasses': advancedBlendPasses,
         'advancedBlendBlits': advancedBlendBlits,
         'advancedBlendCroppedSources': advancedBlendCroppedSources,
@@ -195,6 +197,7 @@ class FlutterGpuTileBackendStats {
     clipMaskRebuilds = 0;
     paperClearTiles = 0;
     paperOnlyTiles = 0;
+    subpixelStrokeFallbacks = 0;
     advancedBlendPasses = 0;
     advancedBlendBlits = 0;
     advancedBlendCroppedSources = 0;
@@ -256,6 +259,7 @@ class FlutterGpuTileBackendStats {
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'paperClearTiles=$paperClearTiles '
       'paperOnlyTiles=$paperOnlyTiles '
+      'subpixelStrokeFallbacks=$subpixelStrokeFallbacks '
       'advancedBlendPasses=$advancedBlendPasses '
       'advancedBlendBlits=$advancedBlendBlits '
       'advancedBlendCroppedSources=$advancedBlendCroppedSources '
