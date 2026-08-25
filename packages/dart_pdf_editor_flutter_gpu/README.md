@@ -118,6 +118,9 @@ Advanced blend paints use bounded ping-pong tile attachments. Paints whose
 bounds prove they cannot affect one another share one destination-sampling
 pass; overlapping paints replay sequentially inside their conservative command
 bounds to preserve PDF painter order without shading unrelated tile pixels.
+Consecutive same-mode straight strokes can also share one transparent source
+and one blend when raster-space capsule tests prove that their resolved pixels
+are disjoint, even if their diagonal axis-aligned bounds overlap.
 Each pass preserves the untouched ping-pong destination with a byte-exact GPU
 texture blit rather than a full-tile fragment draw.
 Offscreen groups can precede or follow those paints in the same exact route:

@@ -314,7 +314,8 @@ void main() {
       final settleMedian = _median(settledGpu);
       final canvasMedian = _median(warmCanvas);
       expect(backend.stats.offscreenGroupPasses, 16);
-      expect(backend.stats.advancedBlendPasses, greaterThan(0));
+      expect(backend.stats.advancedBlendPasses, 32);
+      expect(backend.stats.advancedBlendBlits, 32);
       // ignore: avoid_print
       print('flutter_gpu mixed group+blend benchmark: cold=${coldGpu}us '
           'issueMedian=${issueMedian.toStringAsFixed(0)}us '

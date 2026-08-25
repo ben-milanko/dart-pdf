@@ -465,6 +465,104 @@ class _GpuUnit {
   final _GpuCompositeSpec? composite;
 }
 
+/// A conservative page-space capsule for one positive-width, single-segment
+/// stroke. It lets the advanced-blend scheduler prove that diagonal strokes
+/// are disjoint even when their axis-aligned bounds overlap heavily.
+class _StraightStrokeFootprint {
+  const _StraightStrokeFootprint(
+    this.x0,
+    this.y0,
+    this.x1,
+    this.y1,
+    this.radius,
+  );
+
+  final double x0;
+  final double y0;
+  final double x1;
+  final double y1;
+  final double radius;
+}
+
+_StraightStrokeFootprint? _straightStrokeFootprint(
+    PdfStrokePathCommand command) {
+  final width = command.stroke.width;
+  if (!width.isFinite || width <= 0) return null;
+  final subpaths = flattenPath(command.path, PdfMatrix.identity);
+  if (subpaths.length != 1) return null;
+  final subpath = subpaths.single;
+  if (subpath.closed || subpath.pointCount != 2) return null;
+  final points = subpath.points;
+  if (!points.every((value) => value.isFinite)) return null;
+  final halfWidth = width / 2;
+  // A circle of sqrt(2) * halfWidth encloses a projecting-square cap.
+  final radius = command.stroke.cap == 2 ? halfWidth * math.sqrt2 : halfWidth;
+  return _StraightStrokeFootprint(
+    points[0],
+    points[1],
+    points[2],
+    points[3],
+    radius,
+  );
+}
+
+double _pointSegmentDistanceSquared(
+  double px,
+  double py,
+  double x0,
+  double y0,
+  double x1,
+  double y1,
+) {
+  final dx = x1 - x0, dy = y1 - y0;
+  final lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared <= 1e-24) {
+    final ex = px - x0, ey = py - y0;
+    return ex * ex + ey * ey;
+  }
+  final t = (((px - x0) * dx + (py - y0) * dy) / lengthSquared).clamp(0.0, 1.0);
+  final ex = px - (x0 + t * dx), ey = py - (y0 + t * dy);
+  return ex * ex + ey * ey;
+}
+
+double _segmentDistanceSquared(
+    _StraightStrokeFootprint a, _StraightStrokeFootprint b) {
+  double cross(
+          double ax, double ay, double bx, double by, double cx, double cy) =>
+      (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  final ab0 = cross(a.x0, a.y0, a.x1, a.y1, b.x0, b.y0);
+  final ab1 = cross(a.x0, a.y0, a.x1, a.y1, b.x1, b.y1);
+  final ba0 = cross(b.x0, b.y0, b.x1, b.y1, a.x0, a.y0);
+  final ba1 = cross(b.x0, b.y0, b.x1, b.y1, a.x1, a.y1);
+  if (((ab0 <= 0 && ab1 >= 0) || (ab0 >= 0 && ab1 <= 0)) &&
+      ((ba0 <= 0 && ba1 >= 0) || (ba0 >= 0 && ba1 <= 0))) {
+    return 0;
+  }
+  return math.min(
+    math.min(
+      _pointSegmentDistanceSquared(a.x0, a.y0, b.x0, b.y0, b.x1, b.y1),
+      _pointSegmentDistanceSquared(a.x1, a.y1, b.x0, b.y0, b.x1, b.y1),
+    ),
+    math.min(
+      _pointSegmentDistanceSquared(b.x0, b.y0, a.x0, a.y0, a.x1, a.y1),
+      _pointSegmentDistanceSquared(b.x1, b.y1, a.x0, a.y0, a.x1, a.y1),
+    ),
+  );
+}
+
+bool _straightStrokesAreRasterDisjoint(
+  _StraightStrokeFootprint a,
+  _StraightStrokeFootprint b,
+  double deviceScale,
+) {
+  // Two shapes cannot contribute samples to the same resolved pixel when the
+  // page-space gap between them is wider than that pixel's diagonal. This is
+  // the condition needed to blend their shared transparent source exactly
+  // once; using the diagonal remains conservative for every MSAA pattern.
+  final minimumDistance = a.radius + b.radius + math.sqrt2 / deviceScale;
+  return _segmentDistanceSquared(a, b) > minimumDistance * minimumDistance;
+}
+
 /// One immutable graphics-state clip. Rectangles only narrow [scissor]; every
 /// other path adds a persistent [node] that is rebuilt into the stencil when
 /// the command stream changes clip state. Save/restore can therefore retain
@@ -3037,6 +3135,7 @@ class _CompiledScene {
     required this.pageToRaster,
     required this.paper,
     required this.draws,
+    required this.straightStrokes,
     required this.clipDraws,
     required this.stats,
     required this.imageCache,
@@ -3057,6 +3156,7 @@ class _CompiledScene {
       required bool mipmapImages}) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
+    final straightStrokes = <int, _StraightStrokeFootprint>{};
     final clipDraws = Map<_GpuClipNode, _GpuClipDraw>.identity();
     final textureLeases = <_GpuImageTexture>[];
     final geometry = _GpuGeometryArena(context, stats, geometryPool);
@@ -3079,6 +3179,13 @@ class _CompiledScene {
         }
       }
       for (final unit in units) {
+        final command = commands[unit.commandIndex];
+        if (unit.composite == null && command is PdfStrokePathCommand) {
+          final footprint = _straightStrokeFootprint(command);
+          if (footprint != null) {
+            straightStrokes[unit.commandIndex] = footprint;
+          }
+        }
         for (_GpuClipNode? node = unit.clip.node;
             node != null;
             node = node.previous) {
@@ -3092,7 +3199,7 @@ class _CompiledScene {
             context,
             geometry,
             scene,
-            commands[unit.commandIndex],
+            command,
             stats,
             imageCache,
             textureLeases,
@@ -3170,6 +3277,7 @@ class _CompiledScene {
         pageToRaster: pageToRaster,
         paper: paper,
         draws: draws,
+        straightStrokes: straightStrokes,
         clipDraws: clipDraws,
         stats: stats,
         imageCache: imageCache,
@@ -3193,6 +3301,7 @@ class _CompiledScene {
   final PdfMatrix pageToRaster;
   final _SolidDraw paper;
   final Map<int, _GpuDraw> draws;
+  final Map<int, _StraightStrokeFootprint> straightStrokes;
   final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
@@ -3715,6 +3824,20 @@ class _CompiledScene {
         a.bottom < b.top &&
         a.top > b.bottom;
 
+    final deviceScale = _pageDeviceScale(pageToRaster, pixelRatio);
+    bool rasterDisjoint(_GpuUnit a, _GpuUnit b) {
+      if (!overlaps(a.bounds, b.bounds)) return true;
+      final aStroke = straightStrokes[a.commandIndex];
+      final bStroke = straightStrokes[b.commandIndex];
+      return aStroke != null &&
+          bStroke != null &&
+          _straightStrokesAreRasterDisjoint(
+            aStroke,
+            bStroke,
+            deviceScale,
+          );
+    }
+
     final advanced = <(int, _GpuUnit, PdfRect)>[];
     for (var i = 0; i < selected.length; i++) {
       final unit = selected[i];
@@ -3767,9 +3890,44 @@ class _CompiledScene {
           paintSegment(selected.sublist(start, index));
         }
         if (index < selected.length) {
-          paintSources([selected[index]]);
-          blendSources([(selected[index], selected[index].bounds)]);
-          index++;
+          final first = selected[index];
+          final firstFootprint = straightStrokes[first.commandIndex];
+          var batchEnd = index + 1;
+          if (firstFootprint != null) {
+            while (batchEnd < selected.length) {
+              final candidate = selected[batchEnd];
+              if (FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+                      candidate.blendMode) ||
+                  candidate.blendMode != first.blendMode ||
+                  straightStrokes[candidate.commandIndex] == null) {
+                break;
+              }
+              var disjoint = true;
+              for (var previous = index; previous < batchEnd; previous++) {
+                if (!rasterDisjoint(selected[previous], candidate)) {
+                  disjoint = false;
+                  break;
+                }
+              }
+              if (!disjoint) break;
+              batchEnd++;
+            }
+          }
+          final sources = selected.sublist(index, batchEnd);
+          paintSources(sources);
+          if (sources.length == 1) {
+            blendSources([(first, first.bounds)]);
+          } else {
+            var blendBounds = first.bounds;
+            for (final source in sources.skip(1)) {
+              blendBounds = _pdfUnion(blendBounds, source.bounds);
+            }
+            // No resolved source pixel contains coverage from two strokes.
+            // Their common blend can therefore run exactly once over the
+            // union, including the transparent gaps between them.
+            blendSources([(first, blendBounds)]);
+          }
+          index = batchEnd;
         }
       }
     }

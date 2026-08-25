@@ -667,8 +667,8 @@ void main() {
       }
       expect(difference / a.length, lessThan(3));
       expect(minimumAlpha, 255);
-      expect(backend.stats.advancedBlendPasses, 8);
-      expect(backend.stats.advancedBlendBlits, 8);
+      expect(backend.stats.advancedBlendPasses, 1);
+      expect(backend.stats.advancedBlendBlits, 1);
     });
   });
 
@@ -753,7 +753,108 @@ void main() {
       expect(difference / a.length, lessThan(3));
       expect(minimumAlpha, 255);
       expect(backend.stats.offscreenGroupPasses, 1);
-      expect(backend.stats.advancedBlendPasses, 9);
+      expect(backend.stats.advancedBlendPasses, 2);
+    });
+  });
+
+  testWidgets('disjoint advanced-blend strokes share one source and blend',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final commands = <PdfRenderCommand>[
+        PdfFillPathCommand(
+          _rect(0, 0, 612, 792),
+          const PdfColor(0.24, 0.58, 0.72),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.darken),
+        for (var index = 0; index < 6; index++)
+          PdfStrokePathCommand(
+            PdfPath([
+              PdfMoveTo(55, 105 + index * 10),
+              PdfLineTo(557, 465 + index * 10),
+            ]),
+            PdfColor(0.12 + index * 0.05, 0.24, 0.72),
+            const PdfStroke(width: 2.5),
+            1,
+          ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ];
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(50, 120, 512, 512);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.advancedBlendPasses, 1);
+      expect(backend.stats.advancedBlendBlits, 1);
+    });
+  });
+
+  testWidgets('overlapping advanced-blend strokes keep ordered blends',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(0, 0, 612, 792),
+          const PdfColor(0.24, 0.58, 0.72),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.darken),
+        for (var index = 0; index < 2; index++)
+          PdfStrokePathCommand(
+            PdfPath([
+              PdfMoveTo(55, 105 + index * 2),
+              PdfLineTo(557, 465 + index * 2),
+            ]),
+            PdfColor(0.15 + index * 0.45, 0.24, 0.72),
+            const PdfStroke(width: 2.5),
+            1,
+          ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(50, 120, 512, 512);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.advancedBlendPasses, 2);
+      expect(backend.stats.advancedBlendBlits, 2);
     });
   });
 
