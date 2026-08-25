@@ -5,6 +5,9 @@
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing
   marker when the Canvas base has no GPU session.
+- Retain outlined text in single-paint and mixed vector transparency groups,
+  including clipped isolated groups that require the exact offscreen tile
+  pass for group alpha and outer blending.
 - Retain exact macOS CJK substitutions for Songti, Heiti, Hiragino Sans, and
   Hiragino Mincho, including CFF outlines inside OpenType collections. Six
   additional PDF.js corpus pages now stay on the GPU, with a dedicated CJK

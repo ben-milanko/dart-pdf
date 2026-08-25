@@ -312,7 +312,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             break;
           case _GroupStrokeSpec():
             break;
+          case _GroupTextSpec():
+            final reason = _unsupportedTextReason(composite.content.run);
+            if (reason != null) return reason;
           case _GroupPaintSpec():
+            for (final command in composite.commands) {
+              if (command case PdfDrawTextCommand(:final run)) {
+                final reason = _unsupportedTextReason(run);
+                if (reason != null) return reason;
+              }
+            }
             break;
           case _KnockoutSoftMaskFillSpec():
             break;
@@ -516,6 +525,19 @@ class _GroupStrokeSpec extends _GpuCompositeSpec {
   });
 
   final PdfStrokePathCommand content;
+  final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _GroupTextSpec extends _GpuCompositeSpec {
+  const _GroupTextSpec({
+    required this.content,
+    required this.groupAlpha,
+    required this.contentClip,
+  });
+
+  final PdfDrawTextCommand content;
   final double groupAlpha;
   @override
   final PdfRect? contentClip;
@@ -1307,6 +1329,22 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
           paints.add((i, command, clip, blend, strokeOverprint));
           contentClip = clip;
+        case PdfDrawTextCommand(:final run):
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
+          if (softDepth != 0 || content != null) {
+            return (null, 'soft-mask group contains PdfDrawTextCommand');
+          }
+          paints.add((
+            i,
+            command,
+            clip,
+            blend,
+            (run.fill && fillOverprint) ||
+                (run.strokeColor != null && strokeOverprint),
+          ));
+          contentClip = clip;
         case PdfSetBlendModeCommand(:final mode):
           // A one-element group may use any internal blend: with a transparent
           // group backdrop every PDF blend function reduces to the source.
@@ -1419,6 +1457,14 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           ),
         PdfStrokePathCommand content => (
             _GroupStrokeSpec(
+              content: content,
+              groupAlpha: alpha,
+              contentClip: paint.$3,
+            ),
+            null,
+          ),
+        PdfDrawTextCommand content => (
+            _GroupTextSpec(
               content: content,
               groupAlpha: alpha,
               contentClip: paint.$3,
@@ -2919,6 +2965,7 @@ class _CompiledScene {
           draw = switch (unit.composite!) {
             _GroupFillSpec spec => _compileGroupFill(geometry, spec),
             _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
+            _GroupTextSpec spec => _compileGroupText(geometry, spec),
             _GroupPaintSpec spec => _compileGroupPaint(geometry, spec),
             _KnockoutSoftMaskFillSpec spec =>
               _compileKnockoutSoftMaskFill(geometry, spec),
@@ -3854,6 +3901,57 @@ _GpuDraw? _compileGroupStroke(
       alphaScale: spec.groupAlpha,
     );
 
+_GpuDraw? _compileGroupText(_GpuGeometryArena geometry, _GroupTextSpec spec) =>
+    _compileGroupTextRun(
+      geometry,
+      spec.content.run,
+      alphaScale: spec.groupAlpha,
+    );
+
+_GpuDraw? _compileGroupTextRun(
+  _GpuGeometryArena geometry,
+  PdfTextRun run, {
+  double alphaScale = 1,
+}) {
+  if (run.invisible) return null;
+  final subpaths = _textSubpaths(run)!;
+  final gradient = run.gradient;
+  final fill = !run.fill
+      ? null
+      : gradient != null
+          ? _compileGradientSubpaths(
+              geometry,
+              subpaths,
+              PdfFillRule.nonzero,
+              gradient,
+              (run.fillAlpha * alphaScale).clamp(0.0, 1.0),
+            )
+          : _stencilDraw(
+              geometry,
+              subpaths,
+              run.color,
+              (run.fillAlpha * alphaScale).clamp(0.0, 1.0),
+              PdfFillRule.nonzero,
+              false,
+            );
+  final strokeColor = run.strokeColor;
+  final stroke = strokeColor == null
+      ? null
+      : _compileStrokeSubpaths(
+          geometry,
+          subpaths,
+          strokeColor,
+          PdfStroke(width: run.strokeWidth, miterLimit: 4),
+          (run.strokeAlpha * alphaScale).clamp(0.0, 1.0),
+        );
+  return switch ((fill, stroke)) {
+    (null, null) => null,
+    (final _GpuDraw draw, null) || (null, final _GpuDraw draw) => draw,
+    (final _GpuDraw fill, final _GpuDraw stroke) =>
+      _SequenceDraw([fill, stroke]),
+  };
+}
+
 _GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
   final draws = <(_GpuDraw, PdfRect?, bool)>[];
   var paintPadding = 2.0;
@@ -3883,6 +3981,7 @@ _GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
           false,
         ),
       PdfStrokePathCommand() => _compileStroke(geometry, command),
+      PdfDrawTextCommand(:final run) => _compileGroupTextRun(geometry, run),
       _ => null,
     };
     if (draw != null) {
