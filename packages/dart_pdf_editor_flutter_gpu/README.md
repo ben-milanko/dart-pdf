@@ -96,7 +96,9 @@ normal-blend non-knockout groups may contain multiple ordered fills, strokes,
 outlined text runs, and ordinary images because source-over is associative, so
 their isolation layer is an identity operation. Isolated overlapping groups
 retain those same paint types in the bounded offscreen tile pass before
-applying group alpha and the outer blend once. Platform-decoded JPEGs whose
+applying group alpha and the outer blend once. Normal, Multiply, and Screen
+remain per-paint state inside that attachment rather than being collapsed into
+the group's outer blend. Platform-decoded JPEGs whose
 `/SMask` remains a companion GPU
 surface also keep their base and mask as separate cached textures and combine
 them in the same shader path. A single vector fill can use one opaque grayscale

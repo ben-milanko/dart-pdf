@@ -1879,6 +1879,92 @@ void main() {
     });
   });
 
+  testWidgets('offscreen groups preserve fixed-function blends per paint',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          PdfFillPathCommand(
+            _rect(30, 90, 310, 370),
+            const PdfColor(0.45, 0.55, 0.7),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+          const PdfBeginGroupCommand(
+            0.72,
+            isolated: true,
+            bounds: PdfRect(50, 110, 290, 350),
+          ),
+          const PdfSetBlendModeCommand(PdfBlendMode.normal),
+          PdfClipPathCommand(_rect(50, 110, 290, 350), PdfFillRule.nonzero),
+          PdfFillPathCommand(
+            _rect(70, 140, 230, 310),
+            const PdfColor(0.95, 0.7, 0.2),
+            PdfFillRule.nonzero,
+            0.8,
+          ),
+          const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+          _outlinedText(
+            transform: const PdfMatrix(155, 0, 0, 155, 125, 150),
+            color: const PdfColor(0.2, 0.8, 0.85),
+            alpha: 0.75,
+          ),
+          const PdfSetBlendModeCommand(PdfBlendMode.screen),
+          _decodedImage(
+            Uint8List.fromList(const [
+              220,
+              35,
+              40,
+              255,
+              25,
+              180,
+              215,
+              255,
+              45,
+              90,
+              225,
+              255,
+              235,
+              195,
+              30,
+              255,
+            ]),
+            const PdfMatrix(90, 0, 0, 90, 175, 185),
+            'blended-group-image',
+          ),
+          const PdfEndGroupCommand(),
+          const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 410, 310, 310);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(backend.stats.offscreenGroupPasses, 1);
+    });
+  });
+
   testWidgets('isolated knockout fills replace earlier overlapping shapes',
       (tester) async {
     await tester.runAsync(() async {

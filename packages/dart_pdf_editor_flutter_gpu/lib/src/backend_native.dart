@@ -555,6 +555,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   const _GroupPaintSpec({
     required this.commands,
     required this.paintClips,
+    required this.paintBlends,
     required this.contentClip,
     this.groupAlpha = 1,
     this.offscreen = false,
@@ -563,6 +564,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
 
   final List<PdfRenderCommand> commands;
   final List<PdfRect?> paintClips;
+  final List<PdfBlendMode> paintBlends;
   final double groupAlpha;
   final bool offscreen;
   final bool knockout;
@@ -1412,7 +1414,11 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 PdfBlendMode.normal,
                 false,
               ));
-            case _GroupPaintSpec(:final commands, :final paintClips)
+            case _GroupPaintSpec(
+                  :final commands,
+                  :final paintClips,
+                  :final paintBlends,
+                )
                 when !nestedSpec.offscreen:
               for (var nestedIndex = 0;
                   nestedIndex < commands.length;
@@ -1421,7 +1427,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   null,
                   commands[nestedIndex],
                   paintClips[nestedIndex],
-                  PdfBlendMode.normal,
+                  paintBlends[nestedIndex],
                   false,
                 ));
               }
@@ -1488,6 +1494,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             _GroupPaintSpec(
               commands: [content],
               paintClips: [paint.$3],
+              paintBlends: const [PdfBlendMode.normal],
               contentClip: paint.$3,
               groupAlpha: alpha,
               offscreen: alpha != 1,
@@ -1499,8 +1506,11 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     }
     if (softCount == 0 && softDepth == 0 && paints.length > 1) {
       final commonClip = paints.first.$3;
-      final compatiblePaints =
+      final normalPaints =
           paints.every((paint) => paint.$4 == PdfBlendMode.normal && !paint.$5);
+      final fixedFunctionPaints = paints.every((paint) =>
+          FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(paint.$4) &&
+          !paint.$5);
       final commonPaintClip =
           paints.every((paint) => _samePdfRect(paint.$3, commonClip));
       final disjointOuterBlend = initialBlend != PdfBlendMode.normal &&
@@ -1511,17 +1521,17 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       final canFlatten = alpha == 1 &&
           !knockout &&
           backdropColor == null &&
-          compatiblePaints &&
+          normalPaints &&
           (initialBlend == PdfBlendMode.normal || disjointOuterBlend);
       final canRenderKnockout = isolated &&
           knockout &&
           backdropColor == null &&
-          compatiblePaints &&
+          normalPaints &&
           paints.every((paint) => paint.$2 is PdfFillPathCommand);
       final canRenderOffscreen = (isolated &&
               !knockout &&
               backdropColor == null &&
-              compatiblePaints) ||
+              fixedFunctionPaints) ||
           canRenderKnockout;
       if (!canFlatten && !canRenderOffscreen) {
         return (null, 'non-identity multi-paint transparency group');
@@ -1549,6 +1559,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         _GroupPaintSpec(
           commands: List.unmodifiable([for (final paint in paints) paint.$2]),
           paintClips: List.unmodifiable([for (final paint in paints) paint.$3]),
+          paintBlends:
+              List.unmodifiable([for (final paint in paints) paint.$4]),
           contentClip: canFlatten && commonPaintClip ? commonClip : null,
           groupAlpha: alpha,
           offscreen: !canFlatten || !commonPaintClip,
@@ -3692,10 +3704,10 @@ class _CompiledScene {
       );
       for (final paint in draw.paints) {
         groupEncoder.setClip(_withGpuRectClip(unit.clip, paint.$2));
-        if (paint.$3) {
+        if (paint.$4) {
           groupEncoder.setSourceBlend();
         } else {
-          groupEncoder.setBlendMode(PdfBlendMode.normal);
+          groupEncoder.setBlendMode(paint.$3);
         }
         paint.$1.encode(groupEncoder);
       }
@@ -3998,7 +4010,7 @@ Future<_GpuDraw?> _compileGroupPaint(
   PdfMatrix pageToRaster, {
   required bool mipmapImages,
 }) async {
-  final draws = <(_GpuDraw, PdfRect?, bool)>[];
+  final draws = <(_GpuDraw, PdfRect?, PdfBlendMode, bool)>[];
   var paintPadding = 2.0;
   for (var index = 0; index < spec.commands.length; index++) {
     final command = spec.commands[index];
@@ -4023,7 +4035,12 @@ Future<_GpuDraw?> _compileGroupPaint(
       mipmapImages: mipmapImages,
     );
     if (draw != null) {
-      draws.add((draw, spec.paintClips[index], spec.knockout && index > 0));
+      draws.add((
+        draw,
+        spec.paintClips[index],
+        spec.paintBlends[index],
+        spec.knockout && index > 0,
+      ));
     }
   }
   if (draws.isEmpty) return null;
@@ -4050,9 +4067,10 @@ _GpuDraw? _compileKnockoutSoftMaskFill(
     false,
   );
   final maskedDraw = _compileSoftMaskVectorFill(geometry, spec.masked);
-  final paints = <(_GpuDraw, PdfRect?, bool)>[
-    if (baseDraw != null) (baseDraw, spec.baseClip, false),
-    if (maskedDraw != null) (maskedDraw, spec.masked.contentClip, false),
+  final paints = <(_GpuDraw, PdfRect?, PdfBlendMode, bool)>[
+    if (baseDraw != null) (baseDraw, spec.baseClip, PdfBlendMode.normal, false),
+    if (maskedDraw != null)
+      (maskedDraw, spec.masked.contentClip, PdfBlendMode.normal, false),
   ];
   if (paints.isEmpty) return null;
   return _OffscreenGroupDraw(
@@ -5585,11 +5603,12 @@ class _SequenceDraw implements _GpuDraw {
 class _OffscreenGroupDraw implements _GpuDraw {
   const _OffscreenGroupDraw(this.paints, this.alpha, this.extraPadding);
 
-  /// The third field selects shape-limited source replacement for knockout
+  /// The third field preserves the paint's internal blend. The fourth selects
+  /// shape-limited source replacement for knockout
   /// siblings. Retained path stencils emit fragments only inside the painted
   /// shape; masked texture quads keep source-over so transparent pixels beyond
   /// their source shape cannot erase earlier siblings.
-  final List<(_GpuDraw, PdfRect?, bool)> paints;
+  final List<(_GpuDraw, PdfRect?, PdfBlendMode, bool)> paints;
   final double alpha;
   final double extraPadding;
 

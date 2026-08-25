@@ -5,6 +5,8 @@
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing
   marker when the Canvas base has no GPU session.
+- Preserve per-paint Normal, Multiply, and Screen state inside isolated
+  offscreen transparency groups.
 - Retain ordinary images in single-paint and mixed vector/text transparency
   groups, reusing the scene texture cache and the exact offscreen group pass.
 - Retain outlined text in single-paint and mixed vector transparency groups,
