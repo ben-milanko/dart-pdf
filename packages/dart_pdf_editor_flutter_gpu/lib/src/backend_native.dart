@@ -744,6 +744,7 @@ PdfTextRun? _tryOutlineGpuText(
 /// compact transcript for unbounded GPU geometry.
 _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
   const maxExpandedCommands = 1000000;
+  source = _dropDegenerateGroups(source);
   var hasTiledCell = false;
   var mipmapImages = false;
 
@@ -835,6 +836,44 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
     null,
     mipmapImages: mipmapImages,
   );
+}
+
+/// Removes transparency groups whose declared device-space bounds have no
+/// area.
+///
+/// A form group is clipped to its BBox before any content paints. A collapsed
+/// BBox therefore contributes no samples regardless of nested commands,
+/// blend modes, masks, or overprint state. Dropping the balanced transcript is
+/// exact and avoids rejecting an otherwise GPU-safe page for unreachable
+/// content.
+List<PdfRenderCommand> _dropDegenerateGroups(List<PdfRenderCommand> commands) {
+  List<PdfRenderCommand>? rewritten;
+  for (var index = 0; index < commands.length; index++) {
+    final command = commands[index];
+    if (command case PdfBeginGroupCommand(:final bounds)
+        when bounds != null &&
+            (bounds.right <= bounds.left || bounds.top <= bounds.bottom)) {
+      var depth = 1;
+      var end = index + 1;
+      for (; end < commands.length && depth > 0; end++) {
+        switch (commands[end]) {
+          case PdfBeginGroupCommand():
+            depth++;
+          case PdfEndGroupCommand():
+            depth--;
+          default:
+            break;
+        }
+      }
+      if (depth == 0) {
+        rewritten ??= List<PdfRenderCommand>.of(commands.take(index));
+        index = end - 1;
+        continue;
+      }
+    }
+    rewritten?.add(command);
+  }
+  return rewritten == null ? commands : List.unmodifiable(rewritten);
 }
 
 _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {

@@ -2,6 +2,8 @@
 
 ## Next
 
+- Elide zero-area transparency groups before GPU auditing; their form BBox
+  clip makes all nested paints exact no-ops.
 - Retain non-Normal transparency groups whose padded fill bounds are provably
   disjoint, preserving exact outer blending without an offscreen surface.
 - Treat C1 controls as non-rendering glyph placements in the exact native

@@ -9,6 +9,7 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -1245,6 +1246,63 @@ void main() {
         backend.stats.lastRejection,
         'non-identity multi-paint transparency group',
       );
+    });
+  });
+
+  testWidgets('degenerate transparency groups are exact no-ops',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(40, 100, 300, 360),
+          const PdfColor(0.2, 0.65, 0.8),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(
+          1,
+          isolated: true,
+          bounds: PdfRect(170, 100, 170, 360),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+        PdfFillPathCommand(
+          _rect(70, 130, 270, 330),
+          const PdfColor(0.95, 0.15, 0.35),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(0.5, knockout: true),
+        PdfStrokePathCommand(
+          _rect(80, 140, 260, 320),
+          const PdfColor(0.2, 0.9, 0.25),
+          const PdfStroke(width: 8),
+          1,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(30, 420, 290, 290);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(2));
     });
   });
 
