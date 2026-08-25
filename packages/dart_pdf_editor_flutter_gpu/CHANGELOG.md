@@ -2,6 +2,10 @@
 
 ## Next
 
+- Retain stroke-only and fill-plus-stroke outline text, including page-space
+  alpha and zero-width hairlines, by reusing the exact path stroke pipeline.
+  Filled glyphs keep the analytic atlas while their stroke overlays in painter
+  order.
 - Retain ordinary filled text as six-vertex glyph quads backed by a
   scale-independent analytic curve atlas. The shader derives device scale per
   tile, eliminating repeated flattened outline fans across LoDs while exact

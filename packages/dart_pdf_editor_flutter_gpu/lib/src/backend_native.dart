@@ -2166,14 +2166,12 @@ String? _gradientUnsupportedReason(PdfGradient gradient, double alpha) {
 
 String? _unsupportedTextReason(PdfTextRun run) {
   if (run.invisible) return null;
-  final gradientReason = run.gradient == null
+  final gradientReason = !run.fill || run.gradient == null
       ? null
       : _gradientUnsupportedReason(run.gradient!, run.fillAlpha);
   final reasons = <String>[
     if (run.glyphs == null) 'missing glyph outlines',
-    if (!run.fill) 'fill disabled',
     if (gradientReason != null) gradientReason,
-    if (run.strokeColor != null) 'stroke',
   ];
   return reasons.isEmpty ? null : 'unsupported text: ${reasons.join(', ')}';
 }
@@ -3240,7 +3238,7 @@ class _GpuGlyphAtlas {
       if (unit.composite != null) continue;
       final command = commands[unit.commandIndex];
       if (command case PdfDrawTextCommand(:final run)
-          when !run.invisible && run.gradient == null) {
+          when !run.invisible && run.fill && run.gradient == null) {
         for (final glyph in run.glyphs ?? const <PdfGlyphPlacement>[]) {
           final outline = glyph.outline;
           if (outline == null || slots.containsKey(outline)) continue;
@@ -3570,11 +3568,26 @@ _GpuDraw? _compileStroke(
   PdfStrokePathCommand command, {
   double alphaScale = 1,
 }) {
-  final path = command.path;
-  final color = command.color;
-  final stroke = command.stroke;
   final alpha = (command.alpha * alphaScale).clamp(0.0, 1.0);
-  var subpaths = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
+  final subpaths =
+      flattenPath(command.path, PdfMatrix.identity, tolerance: 0.01);
+  return _compileStrokeSubpaths(
+    geometry,
+    subpaths,
+    command.color,
+    command.stroke,
+    alpha,
+  );
+}
+
+_GpuDraw? _compileStrokeSubpaths(
+  _GpuGeometryArena geometry,
+  List<FlatSubpath> source,
+  PdfColor color,
+  PdfStroke stroke,
+  double alpha,
+) {
+  var subpaths = source;
   if (stroke.dashArray.any((value) => value > 0)) {
     subpaths = dashSubpaths(subpaths, stroke.dashArray, stroke.dashPhase);
   }
@@ -3740,32 +3753,59 @@ FutureOr<_GpuDraw?> _compileCommand(
       return _compileStroke(geometry, command);
     case PdfDrawTextCommand(:final run):
       if (run.invisible) return null;
-      if (glyphAtlas != null && run.gradient == null) {
-        final analytic = _compileAnalyticText(
-          geometry,
-          run,
-          glyphAtlas,
-          pageToRaster,
-          stats,
-        );
-        if (analytic != null) return analytic;
-        if (run.glyphs!.any((glyph) => glyph.outline != null)) {
-          stats.analyticTextFallbackRuns++;
+      List<FlatSubpath>? flattened;
+      List<FlatSubpath> outlines() => flattened ??= _textSubpaths(run)!;
+      _GpuDraw? fill;
+      if (run.fill) {
+        if (glyphAtlas != null && run.gradient == null) {
+          fill = _compileAnalyticText(
+            geometry,
+            run,
+            glyphAtlas,
+            pageToRaster,
+            stats,
+          );
+          if (fill == null &&
+              run.glyphs!.any((glyph) => glyph.outline != null)) {
+            stats.analyticTextFallbackRuns++;
+          }
+        }
+        if (fill == null) {
+          final gradient = run.gradient;
+          fill = gradient != null
+              ? _compileGradientSubpaths(
+                  geometry,
+                  outlines(),
+                  PdfFillRule.nonzero,
+                  gradient,
+                  run.fillAlpha,
+                )
+              : _stencilDraw(
+                  geometry,
+                  outlines(),
+                  run.color,
+                  run.fillAlpha,
+                  PdfFillRule.nonzero,
+                  false,
+                );
         }
       }
-      final subs = _textSubpaths(run)!;
-      final gradient = run.gradient;
-      if (gradient != null) {
-        return _compileGradientSubpaths(
-          geometry,
-          subs,
-          PdfFillRule.nonzero,
-          gradient,
-          run.fillAlpha,
-        );
-      }
-      return _stencilDraw(
-          geometry, subs, run.color, run.fillAlpha, PdfFillRule.nonzero, false);
+      final strokeColor = run.strokeColor;
+      final stroke = strokeColor == null
+          ? null
+          : _compileStrokeSubpaths(
+              geometry,
+              outlines(),
+              strokeColor,
+              PdfStroke(width: run.strokeWidth, miterLimit: 4),
+              run.strokeAlpha.clamp(0.0, 1.0),
+            );
+      return switch ((fill, stroke)) {
+        (null, null) => null,
+        (final _GpuDraw draw, null) || (null, final _GpuDraw draw) => draw,
+        (final _GpuDraw fill, final _GpuDraw stroke) =>
+          _SequenceDraw([fill, stroke]),
+      };
     case PdfFillMeshCommand(:final mesh, :final alpha):
       if (mesh.triangles.isEmpty) return null;
       final vertices = FloatBuilder(mesh.triangles.length * 6);

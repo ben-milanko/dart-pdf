@@ -57,7 +57,10 @@ PdfDrawTextCommand _outlinedText({
   required PdfMatrix transform,
   required PdfColor color,
   double alpha = 1,
+  bool fill = true,
   PdfColor? strokeColor,
+  double strokeWidth = 0,
+  double strokeAlpha = 1,
 }) =>
     PdfDrawTextCommand(PdfTextRun(
       text: 'A',
@@ -80,8 +83,11 @@ PdfDrawTextCommand _outlinedText({
           ]),
         ),
       ],
+      fill: fill,
       fillAlpha: alpha,
       strokeColor: strokeColor,
+      strokeWidth: strokeWidth,
+      strokeAlpha: strokeAlpha,
     ));
 
 void main() {
@@ -332,6 +338,60 @@ void main() {
           actual.dispose();
         }
       }
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+    });
+  });
+
+  testWidgets('filled, stroked, and hairline text retain exact GPU outlines',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        _outlinedText(
+          transform: const PdfMatrix(120, 0, 0, 120, 70, 110),
+          color: const PdfColor(0.95, 0.65, 0.08),
+          alpha: 0.85,
+          strokeColor: const PdfColor(0.08, 0.16, 0.6),
+          strokeWidth: 7,
+          strokeAlpha: 0.75,
+        ),
+        _outlinedText(
+          transform: const PdfMatrix(120, 0, 0, 120, 260, 110),
+          color: const PdfColor(0, 0, 0),
+          fill: false,
+          strokeColor: const PdfColor(0.75, 0.1, 0.22),
+          strokeWidth: 0,
+          strokeAlpha: 0.9,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(40, 520, 390, 180);
+      for (final ratio in [0.5, 1.5, 3.0]) {
+        final expected = await scene.rasterizeRegion(region, pixelRatio: ratio);
+        final actual = await session.rasterizeRegion(region, pixelRatio: ratio);
+        try {
+          final a = await _pixels(expected), b = await _pixels(actual);
+          var difference = 0;
+          for (var i = 0; i < a.length; i++) {
+            difference += (a[i] - b[i]).abs();
+          }
+          expect(difference / a.length, lessThan(8), reason: 'ratio=$ratio');
+        } finally {
+          expected.dispose();
+          actual.dispose();
+        }
+      }
+      expect(backend.stats.analyticTextRuns, 1);
+      expect(backend.stats.analyticGlyphQuads, 1);
       expect(backend.stats.lastTileRoute, 'flutter_gpu');
     });
   });
@@ -1643,6 +1703,7 @@ void main() {
               transform: const PdfMatrix(120, 0, 0, 120, 70, 100),
               color: const PdfColor(0.1, 0.55, 0.9),
               strokeColor: const PdfColor(0, 0, 0),
+              strokeWidth: 5,
             ),
             PdfEndSoftMaskedCommand(
               luminosity: true,
@@ -1652,9 +1713,24 @@ void main() {
           ],
           retainDecodedPixels: true);
       addTearDown(stroked.dispose);
-      final conservative = FlutterGpuTileRasterBackend();
-      expect(conservative.createSession(stroked), isNull);
-      expect(conservative.stats.lastRejection, contains('stroke'));
+      final strokeBackend = FlutterGpuTileRasterBackend();
+      final strokeSession = strokeBackend.createSession(stroked);
+      expect(strokeSession, isNotNull,
+          reason: strokeBackend.stats.lastRejection);
+      addTearDown(strokeSession!.dispose);
+      final strokeExpected =
+          await stroked.rasterizeRegion(region, pixelRatio: 1.5);
+      final strokeActual =
+          await strokeSession.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(strokeExpected.dispose);
+      addTearDown(strokeActual.dispose);
+      final strokeA = await _pixels(strokeExpected);
+      final strokeB = await _pixels(strokeActual);
+      var strokeDifference = 0;
+      for (var i = 0; i < strokeA.length; i++) {
+        strokeDifference += (strokeA[i] - strokeB[i]).abs();
+      }
+      expect(strokeDifference / strokeA.length, lessThan(6));
     });
   });
 

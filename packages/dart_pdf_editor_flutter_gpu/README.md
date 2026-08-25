@@ -75,8 +75,9 @@ PDF features return to the Canvas tile backend automatically. Web gets a
 compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes (including zero-width PDF
-hairlines that stay one device pixel at every LoD), embedded-outline text,
-simple substituted text when an exact `FlutterGpuTextOutliner` resolves it,
+hairlines that stay one device pixel at every LoD), filled and stroked
+embedded-outline text, simple substituted text when an exact
+`FlutterGpuTextOutliner` resolves it,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
 radial gradients, vector and stencil-image tiling cells, normal/Multiply/Screen
 blending,
@@ -155,8 +156,8 @@ Pages with other transparency groups or soft masks, blend modes other than
 Multiply and Screen,
 non-nested radial gradients, gradient overprint, unsafe overprint, complex
 clips nested inside the single-image soft-mask shortcut, unresolved
-substituted text, stroked text, or missing image pixels are rejected as a whole
-rather than approximated.
+substituted text, or missing image pixels are rejected as a whole rather than
+approximated.
 `allowOverprintApproximation` exists only for controlled experiments and
 defaults to false.
 
