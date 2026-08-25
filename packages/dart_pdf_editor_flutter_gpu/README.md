@@ -98,7 +98,9 @@ associative, so their isolation layer is an identity operation. Nested
 alpha-one identity groups flatten into the same retained parent while keeping
 their distinct per-paint clips. Isolated overlapping groups retain those same
 paint types in the bounded offscreen tile pass before applying group alpha and
-the outer blend once. Normal, Multiply, and Screen
+the outer blend once. The intermediate group target stays single-sample while
+the final page target retains 4x MSAA, avoiding a redundant color/stencil
+raster and resolve. Normal, Multiply, and Screen
 remain per-paint state inside that attachment rather than being collapsed into
 the group's outer blend. Platform-decoded JPEGs whose
 `/SMask` remains a companion GPU

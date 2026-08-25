@@ -59,7 +59,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         _imageCache = _GpuImageCache(maxTextureBytes),
         _geometryPool = _GpuGeometryPool(maxGeometryBytes);
 
-  /// Enables 4x offscreen MSAA where the Impeller context supports it.
+  /// Enables 4x MSAA on the final tile target where Impeller supports it.
+  /// Intermediate transparency-group targets stay single-sample and are
+  /// sampled through that final pass.
   final bool msaa;
 
   /// Allows non-black overprint paints to use source-over.
@@ -3686,11 +3688,13 @@ class _CompiledScene {
           (groupRegion.width * pixelRatio).ceil().clamp(1, width);
       final groupHeight =
           (groupRegion.height * pixelRatio).ceil().clamp(1, height);
-      // Resolve RGBA + stencil is about 8 B/px. A 4x attachment adds four
-      // samples of each; 40 B/px is deliberately conservative across backend
-      // stencil formats. Bound all live intermediates so a pathological page
-      // falls back instead of multiplying a deep-zoom tile into an OOM.
-      final estimatedBytes = groupWidth * groupHeight * (multisampled ? 40 : 8);
+      // The resolved RGBA + stencil pair is about 8 B/px. The intermediate
+      // stays single-sample: it is sampled through the final multisampled page
+      // pass, and a second 4x color+stencil raster plus resolve makes visual
+      // settle slower than Canvas for ordinary groups. Bound all live
+      // intermediates so a pathological page falls back instead of
+      // multiplying a deep-zoom tile into an OOM.
+      final estimatedBytes = groupWidth * groupHeight * 8;
       offscreenBytes += estimatedBytes;
       if (offscreenBytes > (256 << 20)) {
         stats.offscreenGroupBudgetFallbacks++;
@@ -3717,25 +3721,16 @@ class _CompiledScene {
         groupHeight,
         format: context.defaultColorFormat,
       );
-      final groupColor = multisampled
-          ? context.createTexture(
-              gpu.StorageMode.deviceTransient,
-              groupWidth,
-              groupHeight,
-              format: context.defaultColorFormat,
-              sampleCount: 4,
-            )
-          : groupResolve;
+      final groupColor = groupResolve;
       final groupStencil = context.createTexture(
         gpu.StorageMode.deviceTransient,
         groupWidth,
         groupHeight,
         format: context.defaultStencilFormat,
-        sampleCount: multisampled ? 4 : 1,
+        sampleCount: 1,
       );
       final groupAttachments = <gpu.Texture>[
         groupResolve,
-        if (multisampled) groupColor,
         groupStencil,
       ];
       retainedGroupTextures.addAll(groupAttachments);
@@ -3745,7 +3740,6 @@ class _CompiledScene {
           groupCommandBuffer,
           groupColor,
           groupStencil,
-          resolveTarget: multisampled ? groupResolve : null,
         ),
         targetRegion: groupRegion,
         targetWidth: groupWidth,

@@ -2265,6 +2265,87 @@ void main() {
     });
   });
 
+  testWidgets('single-sample group targets preserve diagonal edge coverage',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      PdfPath triangle(
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy,
+      ) =>
+          PdfPath([
+            PdfMoveTo(ax, ay),
+            PdfLineTo(bx, by),
+            PdfLineTo(cx, cy),
+            const PdfClosePath(),
+          ]);
+
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(35, 95, 365, 365),
+          const PdfColor(0.28, 0.44, 0.66),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(
+          0.72,
+          isolated: true,
+          bounds: PdfRect(55, 115, 345, 345),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfFillPathCommand(
+          triangle(63.3, 126.7, 332.4, 159.6, 118.8, 337.2),
+          const PdfColor(0.94, 0.24, 0.34),
+          PdfFillRule.nonzero,
+          0.82,
+        ),
+        PdfFillPathCommand(
+          triangle(79.6, 311.4, 301.7, 121.8, 339.2, 329.5),
+          const PdfColor(0.2, 0.82, 0.42),
+          PdfFillRule.nonzero,
+          0.68,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(30, 390, 340, 340);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      var changedPixels = 0;
+      for (var pixel = 0; pixel < a.length; pixel += 4) {
+        var pixelDifference = 0;
+        for (var channel = 0; channel < 4; channel++) {
+          final delta = (a[pixel + channel] - b[pixel + channel]).abs();
+          difference += delta;
+          if (delta > pixelDifference) pixelDifference = delta;
+        }
+        if (pixelDifference > 16) changedPixels++;
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(changedPixels / (a.length / 4), lessThan(0.02));
+      expect(backend.stats.offscreenGroupPasses, 1);
+    });
+  });
+
   testWidgets('offscreen group budget rejects before submitting group passes',
       (tester) async {
     await tester.runAsync(() async {
@@ -2274,7 +2355,7 @@ void main() {
       }
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final commands = <PdfRenderCommand>[];
-      for (var index = 0; index < 27; index++) {
+      for (var index = 0; index < 129; index++) {
         commands.addAll([
           const PdfBeginGroupCommand(
             0.8,

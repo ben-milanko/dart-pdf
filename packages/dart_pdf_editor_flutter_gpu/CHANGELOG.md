@@ -5,6 +5,10 @@
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 
+- Keep intermediate transparency-group targets single-sample while retaining
+  4x MSAA on the final page target. This removes a redundant color/stencil
+  raster and resolve, cuts live group attachment estimates from 40 to 8 bytes
+  per pixel, and preserves diagonal-edge parity with Canvas.
 - Flatten nested alpha-one, normal source-over groups into their parent
   retained group, preserving distinct per-paint clips without a nested render
   target or Canvas fallback.
