@@ -408,4 +408,108 @@ void main() {
           '${backend.stats}');
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('reports advanced blends inside an offscreen group',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+
+      final commands = <PdfRenderCommand>[
+        PdfFillPathCommand(
+          _rect(0, 0, 612, 792),
+          const PdfColor(0.88, 0.91, 0.94),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(
+          0.82,
+          isolated: true,
+          bounds: PdfRect(40, 80, 572, 730),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfFillPathCommand(
+          _rect(55, 95, 520, 555),
+          const PdfColor(0.12, 0.55, 0.78),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+        PdfFillPathCommand(
+          _rect(110, 140, 560, 610),
+          const PdfColor(0.92, 0.35, 0.18),
+          PdfFillRule.nonzero,
+          0.86,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        PdfFillPathCommand(
+          _rect(70, 250, 475, 690),
+          const PdfColor(0.28, 0.77, 0.32),
+          PdfFillRule.nonzero,
+          0.74,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ];
+
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(50, 120, 512, 512);
+      final coldGpu = await _timeSettledImage(
+        () => session.rasterizeRegion(region, pixelRatio: 1),
+      );
+      final issueGpu = <int>[];
+      for (var index = 0; index < 7; index++) {
+        issueGpu.add(await _timeImage(
+          () => session.rasterizeRegion(region, pixelRatio: 1),
+        ));
+      }
+      await _timeSettledImage(
+        () => session.rasterizeRegion(region, pixelRatio: 1),
+      );
+      final settledGpu = <int>[];
+      final warmCanvas = <int>[];
+      for (var index = 0; index < 7; index++) {
+        if (index.isEven) {
+          settledGpu.add(await _timeSettledImage(
+            () => session.rasterizeRegion(region, pixelRatio: 1),
+          ));
+          warmCanvas.add(await _timeSettledImage(
+            () => scene.rasterizeRegion(region, pixelRatio: 1),
+          ));
+        } else {
+          warmCanvas.add(await _timeSettledImage(
+            () => scene.rasterizeRegion(region, pixelRatio: 1),
+          ));
+          settledGpu.add(await _timeSettledImage(
+            () => session.rasterizeRegion(region, pixelRatio: 1),
+          ));
+        }
+      }
+
+      final issueMedian = _median(issueGpu);
+      final settleMedian = _median(settledGpu);
+      final canvasMedian = _median(warmCanvas);
+      expect(backend.stats.offscreenGroupPasses, 16);
+      expect(backend.stats.advancedBlendPasses, 32);
+      expect(backend.stats.advancedBlendBlits, 32);
+      // ignore: avoid_print
+      print('flutter_gpu internal group blend benchmark: '
+          'cold=${coldGpu}us '
+          'issueMedian=${issueMedian.toStringAsFixed(0)}us '
+          'settleMedian=${settleMedian.toStringAsFixed(0)}us '
+          'canvasMedian=${canvasMedian.toStringAsFixed(0)}us '
+          'issueVsCanvas=${(issueMedian / canvasMedian).toStringAsFixed(2)}x '
+          'settleVsCanvas=${(settleMedian / canvasMedian).toStringAsFixed(2)}x '
+          '${backend.stats}');
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

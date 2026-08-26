@@ -1691,7 +1691,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     // multi-paint path below is deliberately narrower: alpha-one, normal
     // source-over, non-knockout groups whose isolation layer is an identity.
     PdfDrawImageCommand? content;
-    final paints = <(int?, PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
+    final paints =
+        <(int?, PdfRenderCommand, PdfRect?, PdfBlendMode, bool, bool)>[];
     final paintPathClips = <List<_GpuPathClip>>[];
     final paintAlphaScales = <int, double>{};
     PdfEndSoftMaskedCommand? softEnd;
@@ -1773,7 +1774,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             break;
           }
           if (softDepth == 0 && content == null) {
-            paints.add((i, command, clip, blend, false));
+            paints.add((i, command, clip, blend, false, false));
             paintPathClips.add(pathClips);
             contentClip = clip;
             break;
@@ -1792,7 +1793,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfFillPathCommand');
           }
-          paints.add((i, command, clip, blend, fillOverprint));
+          paints.add((i, command, clip, blend, fillOverprint, false));
           paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfFillPathGradientCommand() || PdfFillMeshCommand():
@@ -1806,7 +1807,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               'soft-mask group contains ${command.runtimeType}',
             );
           }
-          paints.add((i, command, clip, blend, fillOverprint));
+          paints.add((i, command, clip, blend, fillOverprint, false));
           paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfStrokePathCommand():
@@ -1817,7 +1818,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfStrokePathCommand');
           }
-          paints.add((i, command, clip, blend, strokeOverprint));
+          paints.add((i, command, clip, blend, false, strokeOverprint));
           paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfDrawTextCommand(:final run):
@@ -1833,8 +1834,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             command,
             clip,
             blend,
-            (run.fill && fillOverprint) ||
-                (run.strokeColor != null && strokeOverprint),
+            run.fill && fillOverprint,
+            run.strokeColor != null && strokeOverprint,
           ));
           paintPathClips.add(pathClips);
           contentClip = clip;
@@ -1874,6 +1875,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   nestedPaint.clip,
                   PdfBlendMode.normal,
                   false,
+                  false,
                 ));
                 paintPathClips.add(nestedPaint.pathClips);
               }
@@ -1889,6 +1891,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 nestedSpec.contentClip,
                 PdfBlendMode.normal,
                 false,
+                false,
               ));
               paintPathClips.add(nestedSpec.contentPathClips);
             case _GroupStrokeSpec(:final content, :final groupAlpha):
@@ -1902,6 +1905,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 ),
                 nestedSpec.contentClip,
                 PdfBlendMode.normal,
+                false,
                 false,
               ));
               paintPathClips.add(nestedSpec.contentPathClips);
@@ -1921,6 +1925,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   commands[nestedIndex],
                   paintClips[nestedIndex],
                   paintBlends[nestedIndex],
+                  false,
                   false,
                 ));
                 final nestedAlphaScale =
@@ -1947,6 +1952,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 PdfDrawImageCommand(request),
                 nestedClip,
                 PdfBlendMode.normal,
+                false,
                 false,
               ));
               paintAlphaScales[paints.length - 1] =
@@ -1979,7 +1985,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     if (softCount == 0 && softDepth == 0 && paints.length == 1) {
       final paint = paints.single;
       final paintPaths = paintPathClips.single;
-      final overprintReason = _compositeOverprintReason(paint.$2, paint.$5);
+      final overprintReason =
+          _compositeOverprintReason(paint.$2, paint.$5 || paint.$6);
       if (overprintReason != null) return (null, overprintReason);
       if (backdropColor != null) {
         final canRenderSeededKnockout = !isolated &&
@@ -2086,16 +2093,24 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       final commonClip = paints.first.$3;
       final normalPaints = paints.every((paint) =>
           paint.$4 == PdfBlendMode.normal &&
-          _compositeOverprintReason(paint.$2, paint.$5) == null);
-      final fixedFunctionPaints = paints.every((paint) =>
-          FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(paint.$4) &&
-          _compositeOverprintReason(paint.$2, paint.$5) == null);
+          _compositeOverprintReason(paint.$2, paint.$5 || paint.$6) == null);
+      final gpuPaintBlends = [
+        for (final paint in paints)
+          _canvasEquivalentGroupBlend(
+            paint.$2,
+            paint.$5,
+            paint.$6,
+            paint.$4,
+          ),
+      ];
+      final gpuPaints = gpuPaintBlends.every((blend) =>
+          blend != null && FlutterGpuTileRasterBackend._isGpuBlendMode(blend));
       final commonPaintClip =
           paints.every((paint) => _samePdfRect(paint.$3, commonClip));
       final disjointOuterBlend = initialBlend != PdfBlendMode.normal &&
           _areDisjointFills([
             for (final paint in paints)
-              (paint.$2, paint.$3, paint.$4, paint.$5),
+              (paint.$2, paint.$3, paint.$4, paint.$5 || paint.$6),
           ]);
       final canFlatten = alpha == 1 &&
           !knockout &&
@@ -2119,12 +2134,10 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 PdfStrokePathCommand(:final alpha) => alpha == 1,
                 _ => false,
               });
-      final canRenderOffscreen = (isolated &&
-              !knockout &&
-              backdropColor == null &&
-              fixedFunctionPaints) ||
-          canRenderKnockout ||
-          canRenderSeededKnockout;
+      final canRenderOffscreen =
+          (isolated && !knockout && backdropColor == null && gpuPaints) ||
+              canRenderKnockout ||
+              canRenderSeededKnockout;
       if (canFlatten &&
           paints.every((paint) => paint.$1 != null) &&
           (!commonPaintClip || !commonPaintPathClip)) {
@@ -2154,7 +2167,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       }
       if (!canFlatten && !canRenderOffscreen) {
         for (final paint in paints) {
-          final reason = _compositeOverprintReason(paint.$2, paint.$5);
+          final reason =
+              _compositeOverprintReason(paint.$2, paint.$5 || paint.$6);
           if (reason != null) return (null, reason);
         }
         return (null, 'non-identity multi-paint transparency group');
@@ -2171,8 +2185,10 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         _GroupPaintSpec(
           commands: List.unmodifiable([for (final paint in paints) paint.$2]),
           paintClips: List.unmodifiable([for (final paint in paints) paint.$3]),
-          paintBlends:
-              List.unmodifiable([for (final paint in paints) paint.$4]),
+          paintBlends: List.unmodifiable([
+            for (var index = 0; index < paints.length; index++)
+              canRenderOffscreen ? gpuPaintBlends[index]! : paints[index].$4,
+          ]),
           paintPathClips: commonPaintPathClip
               ? const []
               : List.unmodifiable(paintPathClips),
@@ -3596,6 +3612,59 @@ String? _compositeOverprintReason(
   };
 }
 
+/// Returns the blend Canvas applies to a paint inside a transparency group.
+///
+/// Faithful colorant-space overprint is normally consumed by the interpreter.
+/// When it cannot resolve a plain fill or stroke, [CanvasPdfDevice] uses
+/// per-channel darken as its established RGB fallback. Replaying that same
+/// operation through the destination-sampling shader preserves Canvas parity;
+/// it is not the source-over approximation exposed by
+/// `allowOverprintApproximation`. An explicit PDF blend mode takes precedence
+/// over the Canvas overprint fallback. Text is accepted only when its fill and
+/// stroke reduce to the same effective blend; independently overprinted mixed
+/// text remains on Canvas because one retained text draw cannot apply two modes.
+PdfBlendMode? _canvasEquivalentGroupBlend(
+  PdfRenderCommand command,
+  bool fillOverprint,
+  bool strokeOverprint,
+  PdfBlendMode blend,
+) {
+  final overprint = fillOverprint || strokeOverprint;
+  final reason = _compositeOverprintReason(command, overprint);
+  if (reason == null) return blend;
+  if (reason != 'non-black overprint requires Canvas fallback') {
+    return null;
+  }
+  if (blend != PdfBlendMode.normal) {
+    return switch (command) {
+      PdfFillPathCommand() || PdfStrokePathCommand() => blend,
+      PdfDrawTextCommand(:final run) when run.gradient == null => blend,
+      _ => null,
+    };
+  }
+  if (command is PdfFillPathCommand || command is PdfStrokePathCommand) {
+    return PdfBlendMode.darken;
+  }
+  if (command case PdfDrawTextCommand(run: final run)
+      when run.gradient == null) {
+    bool nonBlack(PdfColor color) =>
+        color.red.abs() > 1e-7 ||
+        color.green.abs() > 1e-7 ||
+        color.blue.abs() > 1e-7;
+    final fillDarkens = run.fill && fillOverprint && nonBlack(run.color);
+    final strokeDarkens = run.strokeColor != null &&
+        strokeOverprint &&
+        nonBlack(run.strokeColor!);
+    if (run.fill && run.strokeColor != null && fillDarkens != strokeDarkens) {
+      return null;
+    }
+    return fillDarkens || strokeDarkens
+        ? PdfBlendMode.darken
+        : PdfBlendMode.normal;
+  }
+  return null;
+}
+
 String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
   switch (command) {
     case PdfFillMeshCommand():
@@ -4427,13 +4496,16 @@ class _CompiledScene {
           (groupRegion.width * pixelRatio).ceil().clamp(1, width);
       final groupHeight =
           (groupRegion.height * pixelRatio).ceil().clamp(1, height);
-      // The resolved RGBA + stencil pair is about 8 B/px. The intermediate
-      // stays single-sample: it is sampled through the final page pass, and a
-      // second 4x color+stencil raster plus resolve makes visual settle slower
-      // than Canvas for ordinary groups. Bound all live intermediates so a
-      // pathological page falls back instead of multiplying a deep-zoom tile
-      // into an OOM.
-      final estimatedBytes = groupWidth * groupHeight * 8;
+      // Ordinary groups retain one RGBA + stencil pair (about 8 B/px).
+      // Destination-sampling groups need two ping-pong resolves, one reusable
+      // source resolve, and a shared 4x color+stencil raster. Conservatively
+      // budget that like the page advanced-blend path (48 B/px). The separate
+      // raster attachment is required because a resolved texture is sampled
+      // and later reused as a destination within the group. Bound all
+      // simultaneously live intermediates so a pathological page falls back
+      // instead of multiplying a deep-zoom tile into an OOM.
+      final estimatedBytes =
+          groupWidth * groupHeight * (draw.hasAdvancedBlend ? 48 : 8);
       offscreenBytes += estimatedBytes;
       if (offscreenBytes > maxBytes) {
         stats.offscreenGroupBudgetFallbacks++;
@@ -4454,6 +4526,24 @@ class _CompiledScene {
     for (final plan in groupPlans) {
       final (unit, draw, groupRegion, groupWidth, groupHeight, estimatedBytes) =
           plan;
+      if (draw.hasAdvancedBlend) {
+        final advanced = _renderAdvancedOffscreenGroup(
+          unit,
+          draw,
+          groupRegion: groupRegion,
+          pixelRatio: pixelRatio,
+          width: groupWidth,
+          height: groupHeight,
+          pipelines: pipelines,
+          transient: transient,
+        );
+        retainedGroupTextures.addAll(advanced.retained);
+        stats
+          ..offscreenGroupPasses += 1
+          ..offscreenGroupAllocatedBytes += estimatedBytes;
+        groupTextures[unit.commandIndex] = (advanced.texture, groupRegion);
+        continue;
+      }
       final groupResolve = context.createTexture(
         gpu.StorageMode.devicePrivate,
         groupWidth,
@@ -4516,14 +4606,14 @@ class _CompiledScene {
       );
       for (final paint in draw.paints) {
         groupEncoder.setClip(
-          paint.$5 ?? _withGpuRectClip(unit.clip, paint.$2),
+          paint.clipState ?? _withGpuRectClip(unit.clip, paint.clip),
         );
-        if (paint.$4) {
+        if (paint.sourceReplacement) {
           groupEncoder.setSourceBlend();
         } else {
-          groupEncoder.setBlendMode(paint.$3);
+          groupEncoder.setBlendMode(paint.blendMode);
         }
-        paint.$1.encode(groupEncoder);
+        paint.draw.encode(groupEncoder);
       }
       stats.clipMaskRebuilds += groupEncoder.clipMaskRebuilds;
       final groupResources = <Object>[
@@ -4546,6 +4636,229 @@ class _CompiledScene {
     stats.peakOffscreenGroupBytes =
         math.max(stats.peakOffscreenGroupBytes, offscreenBytes);
     return (textures: groupTextures, retained: retainedGroupTextures);
+  }
+
+  ({
+    gpu.Texture texture,
+    List<gpu.Texture> retained,
+  }) _renderAdvancedOffscreenGroup(
+    _GpuUnit unit,
+    _OffscreenGroupDraw draw, {
+    required Rect groupRegion,
+    required double pixelRatio,
+    required int width,
+    required int height,
+    required _GpuPipelines pipelines,
+    required _GpuTransientArena transient,
+  }) {
+    if (!context.doesSupportOffscreenMSAA) {
+      throw StateError('advanced offscreen groups require offscreen MSAA');
+    }
+    gpu.Texture colorTexture() => context.createTexture(
+          gpu.StorageMode.devicePrivate,
+          width,
+          height,
+          format: context.defaultColorFormat,
+        );
+
+    final groupA = colorTexture();
+    final groupB = colorTexture();
+    final source = colorTexture();
+    final color = context.createTexture(
+      gpu.StorageMode.deviceTransient,
+      width,
+      height,
+      format: context.defaultColorFormat,
+      sampleCount: 4,
+    );
+    final stencil = context.createTexture(
+      gpu.StorageMode.deviceTransient,
+      width,
+      height,
+      format: context.defaultStencilFormat,
+      sampleCount: 4,
+    );
+    final textures = <gpu.Texture>[
+      groupA,
+      groupB,
+      source,
+      color,
+      stencil,
+    ];
+    final commandBuffers = <gpu.CommandBuffer>[];
+    final passes = <gpu.RenderPass>[];
+
+    gpu.RenderPass createPaintPass(
+      gpu.CommandBuffer commandBuffer,
+      gpu.Texture resolve, {
+      vm.Vector4? clearValue,
+    }) {
+      final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
+        colorAttachments: [
+          gpu.ColorAttachment(
+            texture: color,
+            resolveTexture: resolve,
+            clearValue: clearValue ?? vm.Vector4.zero(),
+            storeAction: gpu.StoreAction.multisampleResolve,
+          ),
+        ],
+        depthStencilAttachment: gpu.DepthStencilAttachment(
+          texture: stencil,
+          stencilClearValue: 0,
+        ),
+      ));
+      return pass
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setStencilReference(0)
+        ..setColorBlendEnable(true);
+    }
+
+    _GpuEncoder encoderFor(gpu.RenderPass pass) => _GpuEncoder(
+          pass: pass,
+          pipelines: pipelines,
+          transform: transient.emplace(_tileTransform(
+            pageToRaster,
+            groupRegion,
+            pixelRatio,
+            width,
+            height,
+          )),
+          pageToRaster: pageToRaster,
+          region: groupRegion,
+          pixelRatio: pixelRatio,
+          width: width,
+          height: height,
+          clipDraws: clipDraws,
+          stencilClear: paper.vertices,
+          emplaceTransient: transient.emplace,
+        );
+
+    _GpuClipState clipFor(_OffscreenGroupPaint paint) =>
+        paint.clipState ?? _withGpuRectClip(unit.clip, paint.clip);
+
+    gpu.Texture? current;
+    gpu.Texture alternate() => identical(current, groupA) ? groupB : groupA;
+
+    void paintSegment(List<_OffscreenGroupPaint> segment) {
+      final target = alternate();
+      final commandBuffer = context.createCommandBuffer();
+      final backdrop = draw.backdropColor;
+      final pass = createPaintPass(
+        commandBuffer,
+        target,
+        clearValue: current == null && backdrop != null
+            ? vm.Vector4(backdrop.red, backdrop.green, backdrop.blue, 1)
+            : null,
+      );
+      final encoder = encoderFor(pass);
+      if (current != null) {
+        encoder
+          ..setClip(_rootGpuClip)
+          ..setSourceBlend()
+          ..tileTexture(current!, groupRegion, 1);
+      }
+      for (final paint in segment) {
+        assert(!draw.requiresDestinationSampling(paint));
+        encoder.setClip(clipFor(paint));
+        if (paint.sourceReplacement) {
+          encoder.setSourceBlend();
+        } else {
+          encoder.setBlendMode(paint.blendMode);
+        }
+        paint.draw.encode(encoder);
+      }
+      stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
+      commandBuffers.add(commandBuffer);
+      passes.add(pass);
+      current = target;
+    }
+
+    void paintSource(_OffscreenGroupPaint paint) {
+      assert(!paint.sourceReplacement);
+      final commandBuffer = context.createCommandBuffer();
+      final pass = createPaintPass(
+        commandBuffer,
+        source,
+      );
+      final encoder = encoderFor(pass)
+        ..setClip(clipFor(paint))
+        ..setBlendMode(PdfBlendMode.normal);
+      paint.draw.encode(encoder);
+      stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
+      commandBuffers.add(commandBuffer);
+      passes.add(pass);
+    }
+
+    void blendSource(_OffscreenGroupPaint paint) {
+      final target = alternate();
+      final commandBuffer = context.createCommandBuffer();
+      commandBuffer.copyTextureToTexture(
+        gpu.TextureRegion(current!),
+        gpu.TextureDestinationRegion(target),
+      );
+      final pass = commandBuffer.createRenderPass(
+        gpu.RenderTarget.singleColor(gpu.ColorAttachment(
+          texture: target,
+          loadAction: gpu.LoadAction.load,
+        )),
+      )
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setColorBlendEnable(false);
+      encoderFor(pass).advancedBlend(
+        current!,
+        source,
+        groupRegion,
+        paint.blendMode,
+        paint.bounds,
+      );
+      commandBuffers.add(commandBuffer);
+      passes.add(pass);
+      current = target;
+      stats
+        ..advancedBlendPasses += 1
+        ..advancedBlendBlits += 1;
+    }
+
+    var index = 0;
+    while (index < draw.paints.length) {
+      final start = index;
+      while (index < draw.paints.length &&
+          !draw.requiresDestinationSampling(draw.paints[index])) {
+        index++;
+      }
+      if (start != index || current == null) {
+        paintSegment(draw.paints.sublist(start, index));
+      }
+      if (index < draw.paints.length) {
+        final paint = draw.paints[index++];
+        paintSource(paint);
+        blendSource(paint);
+      }
+    }
+    if (current == null) {
+      throw StateError('advanced offscreen group has no paints');
+    }
+
+    transient.flush();
+    final retained = <Object>[
+      ...textures,
+      ...passes,
+      ...commandBuffers,
+      transient,
+    ];
+    for (final commandBuffer in commandBuffers) {
+      commandBuffer.submit(completionCallback: (_) {
+        // A later page submission owns the completed texture on the success
+        // path. This independent capture fences every intermediate if a
+        // subsequent allocation or submission throws.
+        retained.length;
+      });
+    }
+    return (texture: current!, retained: textures);
   }
 
   ui.Image _renderAdvanced(
@@ -5464,7 +5777,7 @@ Future<_GpuDraw?> _compileGroupPaint(
   List<_GpuClipState>? paintClipStates,
   required bool mipmapImages,
 }) async {
-  final draws = <(_GpuDraw, PdfRect?, PdfBlendMode, bool, _GpuClipState?)>[];
+  final draws = <_OffscreenGroupPaint>[];
   var paintPadding = 2.0;
   for (var index = 0; index < spec.commands.length; index++) {
     final command = spec.commands[index];
@@ -5505,12 +5818,21 @@ Future<_GpuDraw?> _compileGroupPaint(
       );
     }
     if (draw != null) {
-      draws.add((
-        draw,
-        spec.paintClips[index],
-        spec.paintBlends[index],
-        spec.knockout && index > 0,
-        paintClipStates?[index],
+      final clip = spec.paintClips[index];
+      final bounds = pdfRenderCommandBounds(command);
+      final clippedBounds = bounds == null || clip == null
+          ? bounds
+          : _pdfIntersection(bounds, clip);
+      draws.add(_OffscreenGroupPaint(
+        draw: draw,
+        clip: clip,
+        blendMode: spec.paintBlends[index],
+        sourceReplacement: spec.knockout && index > 0,
+        clipState: paintClipStates?[index],
+        // Match the page unit's conservative antialias/stroke fringe. A
+        // wider blend scissor is harmless because the source target is clear
+        // outside the command; a narrower one can clip device coverage.
+        bounds: clippedBounds == null ? null : _inflatePdf(clippedBounds, 2),
       ));
     }
   }
@@ -5522,7 +5844,8 @@ Future<_GpuDraw?> _compileGroupPaint(
           math.max(0, paintPadding - 2),
           backdropColor: spec.backdropColor,
         )
-      : _SequenceDraw(List.unmodifiable([for (final draw in draws) draw.$1]));
+      : _SequenceDraw(
+          List.unmodifiable([for (final paint in draws) paint.draw]));
 }
 
 _GpuDraw? _compileKnockoutSoftMaskFill(
@@ -5539,16 +5862,24 @@ _GpuDraw? _compileKnockoutSoftMaskFill(
     false,
   );
   final maskedDraw = _compileSoftMaskVectorFill(geometry, spec.masked);
-  final paints = <(_GpuDraw, PdfRect?, PdfBlendMode, bool, _GpuClipState?)>[
+  final paints = <_OffscreenGroupPaint>[
     if (baseDraw != null)
-      (baseDraw, spec.baseClip, PdfBlendMode.normal, false, null),
+      _OffscreenGroupPaint(
+        draw: baseDraw,
+        clip: spec.baseClip,
+        blendMode: PdfBlendMode.normal,
+        sourceReplacement: false,
+        clipState: null,
+        bounds: pdfRenderCommandBounds(spec.base),
+      ),
     if (maskedDraw != null)
-      (
-        maskedDraw,
-        spec.masked.contentClip,
-        PdfBlendMode.normal,
-        false,
-        null,
+      _OffscreenGroupPaint(
+        draw: maskedDraw,
+        clip: spec.masked.contentClip,
+        blendMode: PdfBlendMode.normal,
+        sourceReplacement: false,
+        clipState: null,
+        bounds: pdfRenderCommandBounds(spec.masked.content),
       ),
   ];
   if (paints.isEmpty) return null;
@@ -5629,7 +5960,16 @@ Future<_GpuDraw?> _compileSoftMaskGroup(
   }
   if (draw == null) return null;
   return _OffscreenGroupDraw(
-    [(draw, null, PdfBlendMode.normal, false, null)],
+    [
+      _OffscreenGroupPaint(
+        draw: draw,
+        clip: null,
+        blendMode: PdfBlendMode.normal,
+        sourceReplacement: false,
+        clipState: null,
+        bounds: spec.contentClip,
+      ),
+    ],
     spec.groupAlpha,
     0,
   );
@@ -7410,21 +7750,51 @@ class _OffscreenGroupDraw implements _GpuDraw {
     this.backdropColor,
   });
 
-  /// The third field preserves the paint's internal blend. The fourth selects
-  /// shape-limited source replacement for knockout
-  /// siblings. Retained path stencils emit fragments only inside the painted
-  /// shape; masked texture quads keep source-over so transparent pixels beyond
-  /// their source shape cannot erase earlier siblings. The fifth optionally
-  /// carries a precompiled per-paint clip for offscreen groups whose shared
-  /// arbitrary path must be applied before the group is resolved.
-  final List<(_GpuDraw, PdfRect?, PdfBlendMode, bool, _GpuClipState?)> paints;
+  final List<_OffscreenGroupPaint> paints;
   final double alpha;
   final double extraPadding;
   final PdfColor? backdropColor;
 
+  bool requiresDestinationSampling(_OffscreenGroupPaint paint) =>
+      backdropColor == null
+          ? paint.blendMode != PdfBlendMode.normal
+          : !FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+              paint.blendMode,
+            );
+
+  bool get hasAdvancedBlend => paints.any(requiresDestinationSampling);
+
   @override
   void encode(_GpuEncoder encoder) =>
       throw StateError('offscreen group requires a separate render pass');
+}
+
+class _OffscreenGroupPaint {
+  const _OffscreenGroupPaint({
+    required this.draw,
+    required this.clip,
+    required this.blendMode,
+    required this.sourceReplacement,
+    required this.clipState,
+    required this.bounds,
+  });
+
+  final _GpuDraw draw;
+  final PdfRect? clip;
+  final PdfBlendMode blendMode;
+
+  /// Selects shape-limited source replacement for knockout siblings.
+  /// Retained path stencils emit fragments only inside the painted shape;
+  /// masked texture quads keep source-over so transparent pixels beyond their
+  /// source shape cannot erase earlier siblings.
+  final bool sourceReplacement;
+
+  /// A precompiled per-paint clip for an offscreen group whose arbitrary path
+  /// must be applied before the group is resolved.
+  final _GpuClipState? clipState;
+
+  /// Conservative page-space paint bounds for advanced-blend scissoring.
+  final PdfRect? bounds;
 }
 
 class _SolidDraw implements _GpuDraw {

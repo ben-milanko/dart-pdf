@@ -1934,7 +1934,7 @@ void main() {
     });
   });
 
-  testWidgets('colored overprint inside a group reports the exact fallback',
+  testWidgets('colored overprint inside a group matches Canvas darken',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -1961,11 +1961,24 @@ void main() {
       ]);
       addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend();
-      expect(backend.createSession(scene), isNull);
-      expect(
-        backend.stats.lastRejection,
-        'non-black overprint requires Canvas fallback',
-      );
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(40, 430, 260, 230);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+      expect(backend.stats.offscreenGroupPasses, 1);
+      expect(backend.stats.advancedBlendPasses, 2);
     });
   });
 
@@ -2896,7 +2909,7 @@ void main() {
     });
   });
 
-  testWidgets('offscreen groups preserve fixed-function blends per paint',
+  testWidgets('offscreen groups sample transparent destinations per paint',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -2979,6 +2992,7 @@ void main() {
       }
       expect(difference / a.length, lessThan(4));
       expect(backend.stats.offscreenGroupPasses, 1);
+      expect(backend.stats.advancedBlendPasses, 2);
     });
   });
 
@@ -3506,6 +3520,7 @@ void main() {
         PdfRetainedScene scene, {
         int expectedClipPaths = 1,
         int? expectedOffscreenGroupPasses,
+        int? expectedAdvancedBlendPasses,
       }) async {
         addTearDown(scene.dispose);
         final backend = FlutterGpuTileRasterBackend();
@@ -3528,6 +3543,12 @@ void main() {
           expect(
             backend.stats.offscreenGroupPasses,
             expectedOffscreenGroupPasses,
+          );
+        }
+        if (expectedAdvancedBlendPasses != null) {
+          expect(
+            backend.stats.advancedBlendPasses,
+            expectedAdvancedBlendPasses,
           );
         }
       }
@@ -3666,6 +3687,7 @@ void main() {
           0.85,
         ),
         const PdfRestoreCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
         const PdfSaveCommand(),
         const PdfClipPathCommand(
           PdfPath([
@@ -3689,6 +3711,7 @@ void main() {
         distinctOffscreenClips,
         expectedClipPaths: 2,
         expectedOffscreenGroupPasses: 1,
+        expectedAdvancedBlendPasses: 1,
       );
     });
   });
