@@ -6,6 +6,7 @@ import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -185,6 +186,87 @@ void main() {
       }
       // ignore: avoid_print
       print('flutter_gpu analytic text benchmark: runs=${commands.length} '
+          'settledMedian=${_median(settled).toStringAsFixed(0)}us '
+          'issueMean=${(backend.stats.issueMicros / settled.length).toStringAsFixed(0)}us '
+          '${backend.stats}');
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('reports dense texture submission cost', (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
+        }),
+        Uint8List(0),
+      );
+      final pixels = PdfDecodedPixels(
+        Uint8List.fromList([
+          235,
+          55,
+          45,
+          255,
+          45,
+          120,
+          235,
+          255,
+          55,
+          205,
+          95,
+          255,
+          240,
+          190,
+          40,
+          255,
+        ]),
+        2,
+        2,
+      );
+      final commands = <PdfRenderCommand>[
+        for (var row = 0; row < 16; row++)
+          for (var column = 0; column < 16; column++)
+            PdfDrawImageCommand(PdfImageRequest(
+              stream: stream,
+              transform: PdfMatrix(
+                28,
+                0,
+                0,
+                28,
+                18 + column * 34,
+                748 - row * 44,
+              ),
+              decoded: pixels,
+            )),
+      ];
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final warm = await session.rasterizeRegion(region, pixelRatio: 0.5);
+      await warm.toByteData(format: ui.ImageByteFormat.rawRgba);
+      warm.dispose();
+      expect(backend.stats.texturesUploaded, 1);
+
+      backend.stats.reset();
+      final settled = <int>[];
+      for (var index = 0; index < 15; index++) {
+        settled.add(await _timeSettledImage(
+          () => session.rasterizeRegion(region, pixelRatio: 0.5),
+        ));
+      }
+      // ignore: avoid_print
+      print('flutter_gpu texture benchmark: draws=${commands.length} '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '
           'issueMean=${(backend.stats.issueMicros / settled.length).toStringAsFixed(0)}us '
           '${backend.stats}');
