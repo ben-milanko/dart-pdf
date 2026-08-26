@@ -257,6 +257,9 @@ void main() {
       await warm.toByteData(format: ui.ImageByteFormat.rawRgba);
       warm.dispose();
       expect(backend.stats.texturesUploaded, 1);
+      final compileMicros = backend.stats.compileMicros;
+      final compileCacheHits = backend.stats.textureCacheHits;
+      final compileLeases = backend.stats.activeTextureLeases;
 
       backend.stats.reset();
       final settled = <int>[];
@@ -267,6 +270,8 @@ void main() {
       }
       // ignore: avoid_print
       print('flutter_gpu texture benchmark: draws=${commands.length} '
+          'compile=${compileMicros}us compileCacheHits=$compileCacheHits '
+          'compileLeases=$compileLeases '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '
           'issueMean=${(backend.stats.issueMicros / settled.length).toStringAsFixed(0)}us '
           '${backend.stats}');
