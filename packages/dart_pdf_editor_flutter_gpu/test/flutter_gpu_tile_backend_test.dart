@@ -3486,7 +3486,7 @@ void main() {
     });
   });
 
-  testWidgets('flattened groups retain exact shared content clips',
+  testWidgets('groups retain exact shared and per-paint content clips',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -3505,13 +3505,14 @@ void main() {
       Future<void> expectParity(
         PdfRetainedScene scene, {
         int expectedClipPaths = 1,
+        int? expectedOffscreenGroupPasses,
       }) async {
         addTearDown(scene.dispose);
         final backend = FlutterGpuTileRasterBackend();
         final session = backend.createSession(scene);
         expect(session, isNotNull, reason: backend.stats.lastRejection);
         addTearDown(session!.dispose);
-        const region = Rect.fromLTWH(30, 70, 220, 220);
+        const region = Rect.fromLTWH(30, 500, 220, 220);
         final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
         final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
         addTearDown(expected.dispose);
@@ -3523,6 +3524,12 @@ void main() {
         }
         expect(difference / a.length, lessThan(8));
         expect(backend.stats.clipPathsCompiled, expectedClipPaths);
+        if (expectedOffscreenGroupPasses != null) {
+          expect(
+            backend.stats.offscreenGroupPasses,
+            expectedOffscreenGroupPasses,
+          );
+        }
       }
 
       await expectParity(await PdfRetainedScene.fromCommands(page, [
@@ -3647,6 +3654,42 @@ void main() {
         const PdfEndGroupCommand(),
       ]);
       await expectParity(distinctClips, expectedClipPaths: 2);
+
+      final distinctOffscreenClips = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(0.45, isolated: true),
+        const PdfSaveCommand(),
+        const PdfClipPathCommand(diamond, PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(40, 80, 180, 280),
+          const PdfColor(0.1, 0.65, 0.3),
+          PdfFillRule.nonzero,
+          0.85,
+        ),
+        const PdfRestoreCommand(),
+        const PdfSaveCommand(),
+        const PdfClipPathCommand(
+          PdfPath([
+            PdfMoveTo(100, 100),
+            PdfLineTo(240, 180),
+            PdfLineTo(100, 260),
+            PdfClosePath(),
+          ]),
+          PdfFillRule.evenOdd,
+        ),
+        PdfFillPathCommand(
+          _rect(80, 100, 240, 260),
+          const PdfColor(0.8, 0.2, 0.3),
+          PdfFillRule.nonzero,
+          0.7,
+        ),
+        const PdfRestoreCommand(),
+        const PdfEndGroupCommand(),
+      ]);
+      await expectParity(
+        distinctOffscreenClips,
+        expectedClipPaths: 2,
+        expectedOffscreenGroupPasses: 1,
+      );
     });
   });
 

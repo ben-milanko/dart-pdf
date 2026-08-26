@@ -138,10 +138,11 @@ mask clips remain the bounded shader scissor; arbitrary mask clips with a
 non-zero outside value still use Canvas.
 The same composite stencil retains an arbitrary path clip around one fill,
 stroke, text run, image, gradient, or mesh inside a single-paint transparency
-group. An isolated multi-paint offscreen group can share one arbitrary path
-clip: the backend rebuilds that stencil for every source paint before resolving
-the group alpha, preserving antialiased overlap coverage. Groups whose
-separately ordered paints carry distinct path clips remain on Canvas.
+group. An isolated multi-paint offscreen group preserves either a shared or a
+distinct arbitrary clip stack for every source paint before resolving the
+group alpha, preserving antialiased overlap coverage. Unisolated groups that
+need a backdrop-aware group result, and offscreen groups with advanced
+per-paint blend modes, remain on Canvas.
 A single ordinary soft-masked source may itself sit inside a transparency
 group: the backend resolves that source in a bounded offscreen target and then
 applies the enclosing group alpha once. This exact route requires no explicit

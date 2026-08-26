@@ -6,6 +6,9 @@
   need a hand-built mip chain, upload those pixels directly, and release them
   after scene compilation. Ordinary images continue through zero-copy platform
   texture import; mipmapped scenes avoid a GPU-to-CPU readback per image.
+- Preserve a distinct arbitrary path-clip stack for every paint in an isolated
+  offscreen transparency group. Each paint rebuilds its exact stencil before
+  the group alpha is resolved, rather than forcing the page onto Canvas.
 - Import compatible platform-decoded `ui.Image` textures directly into
   Flutter GPU instead of reading their pixels back to the CPU and uploading
   them again. CPU-backed and mipmapped images keep the proven upload fallback.
@@ -66,8 +69,7 @@
   the alpha/luminosity backdrop and transfer function prove that the mask is
   zero outside the clip. Non-zero outside-mask values remain on Canvas.
 - Retain arbitrary path clips around one fill, stroke, text run, image,
-  gradient, or mesh inside a single-paint transparency group. Multi-paint
-  groups with path clips remain conservative Canvas fallbacks.
+  gradient, or mesh inside a single-paint transparency group.
 - Consume `pdf_graphics` exact region-clipped spatial overprint strokes as
   ordinary retained clip and stroke commands. Three additional Ghent pages
   stay on the GPU path; unresolved non-black overprint remains on Canvas.

@@ -810,6 +810,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
     required this.commands,
     required this.paintClips,
     required this.paintBlends,
+    this.paintPathClips = const [],
     required this.contentClip,
     this.contentPathClips = const [],
     this.paintAlphaScales = const {},
@@ -822,6 +823,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final List<PdfRenderCommand> commands;
   final List<PdfRect?> paintClips;
   final List<PdfBlendMode> paintBlends;
+  final List<List<_GpuPathClip>> paintPathClips;
   final Map<int, double> paintAlphaScales;
   final double groupAlpha;
   final bool offscreen;
@@ -831,6 +833,9 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final PdfRect? contentClip;
   @override
   final List<_GpuPathClip> contentPathClips;
+
+  List<_GpuPathClip> pathClipsForPaint(int index) =>
+      paintPathClips.isEmpty ? contentPathClips : paintPathClips[index];
 }
 
 class _KnockoutSoftMaskFillSpec extends _GpuCompositeSpec {
@@ -1923,7 +1928,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 if (nestedAlphaScale != null) {
                   paintAlphaScales[paints.length - 1] = nestedAlphaScale;
                 }
-                paintPathClips.add(nestedSpec.contentPathClips);
+                paintPathClips.add(nestedSpec.pathClipsForPaint(nestedIndex));
               }
             case _GroupPaintSpec(
                   commands: [PdfDrawImageCommand(:final request)],
@@ -1946,7 +1951,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               ));
               paintAlphaScales[paints.length - 1] =
                   (nestedSpec.paintAlphaScales[0] ?? 1) * nestedSpec.groupAlpha;
-              paintPathClips.add(nestedSpec.contentPathClips);
+              paintPathClips.add(nestedSpec.pathClipsForPaint(0));
             default:
               return (null, nested.$2 ?? 'nested image group');
           }
@@ -2135,7 +2140,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           null,
         );
       }
-      if (!commonPaintPathClip) {
+      if (!commonPaintPathClip && !canRenderOffscreen) {
         return (null, 'non-rectangular multi-paint transparency group clip');
       }
       // A shared path clip can stay active across a flattened draw sequence,
@@ -2168,13 +2173,16 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           paintClips: List.unmodifiable([for (final paint in paints) paint.$3]),
           paintBlends:
               List.unmodifiable([for (final paint in paints) paint.$4]),
+          paintPathClips: commonPaintPathClip
+              ? const []
+              : List.unmodifiable(paintPathClips),
           paintAlphaScales: Map.unmodifiable(paintAlphaScales),
           contentClip: canRenderSeededKnockout
               ? groupBounds
               : canFlatten && commonPaintClip
                   ? commonClip
                   : null,
-          contentPathClips: commonPathClips,
+          contentPathClips: commonPaintPathClip ? commonPathClips : const [],
           groupAlpha: alpha,
           offscreen: !canFlatten || !commonPaintClip,
           knockout: canRenderKnockout || canRenderSeededKnockout,
@@ -4009,32 +4017,42 @@ class _CompiledScene {
       for (final unit in units) {
         final command = commands[unit.commandIndex];
         List<_GpuClipState>? offscreenPaintClips;
-        if (unit.composite
-            case _GroupPaintSpec(
-              offscreen: true,
-              :final contentPathClips,
-              :final paintClips,
-            ) when contentPathClips.isNotEmpty) {
-          var commonState = unit.clip;
-          for (final pathClip in contentPathClips) {
-            commonState = _pushGpuClip(
-              commonState,
-              pathClip.path,
-              pathClip.rule,
-            );
-          }
-          offscreenPaintClips = [
-            for (final paintClip in paintClips)
-              _withGpuRectClip(commonState, paintClip),
+        final composite = unit.composite;
+        if (composite is _GroupPaintSpec && composite.offscreen) {
+          final pathClipStacks = [
+            for (var index = 0; index < composite.commands.length; index++)
+              composite.pathClipsForPaint(index),
           ];
-          for (_GpuClipNode? node = commonState.node;
-              node != null;
-              node = node.previous) {
-            final clipNode = node;
-            clipDraws.putIfAbsent(
-              clipNode,
-              () => _compileClip(geometry, clipNode),
-            );
+          if (pathClipStacks.any((clips) => clips.isNotEmpty)) {
+            final stackStates =
+                HashMap<List<_GpuPathClip>, _GpuClipState>.identity();
+            offscreenPaintClips = [];
+            for (var index = 0; index < pathClipStacks.length; index++) {
+              final stack = pathClipStacks[index];
+              final stackState = stackStates.putIfAbsent(stack, () {
+                var state = unit.clip;
+                for (final pathClip in stack) {
+                  state = _pushGpuClip(
+                    state,
+                    pathClip.path,
+                    pathClip.rule,
+                  );
+                }
+                return state;
+              });
+              offscreenPaintClips.add(
+                _withGpuRectClip(stackState, composite.paintClips[index]),
+              );
+              for (_GpuClipNode? node = stackState.node;
+                  node != null;
+                  node = node.previous) {
+                final clipNode = node;
+                clipDraws.putIfAbsent(
+                  clipNode,
+                  () => _compileClip(geometry, clipNode),
+                );
+              }
+            }
           }
         }
         if (unit.composite == null && command is PdfStrokePathCommand) {
