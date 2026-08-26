@@ -5,10 +5,12 @@
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
 const _mb = 1024 * 1024;
@@ -25,17 +27,191 @@ void main() {
     await $.pumpWidget(const SizedBox());
     await $.pump(const Duration(milliseconds: 50));
   });
+
+  patrolTest('warms and rasterizes a real native flutter_gpu scene', ($) async {
+    expect($.isWeb, isFalse);
+    await $.pumpWidget(const MaterialApp(home: SizedBox()));
+    await runNativeGpuPerfScenario();
+    await $.pumpWidget(const SizedBox());
+    await $.pump(const Duration(milliseconds: 50));
+  });
 }
+
+typedef _NativeGpuRaster = ({
+  ByteData pixels,
+  int width,
+  int height,
+});
+
+@visibleForTesting
+Future<void> runNativeGpuPerfScenario() async {
+  final platform = _platformName();
+  final document = PdfDocument.open(buildEmbeddedFontImagePdf());
+  final scene = await PdfRetainedScene.record(document.page(0));
+  final backend = FlutterGpuTileRasterBackend(enableProactiveWarmUp: true);
+  PdfTileRasterSession? session;
+  try {
+    await _measureNativeGpuScenario(
+      'gpu-native-pipeline-warm',
+      platform,
+      () async {
+        await backend.warmUp();
+        return null;
+      },
+    );
+    expect(backend.stats.warmUpRequests, 1);
+    expect(backend.stats.warmUpCompletions, 1);
+    expect(backend.stats.warmUpFailures, 0);
+
+    session = backend.createSession(scene);
+    expect(session, isA<PdfTileRasterWarmUp>(),
+        reason: backend.lastSessionRejection);
+    final accelerated = session!;
+    await _measureNativeGpuScenario(
+      'gpu-native-page-0-scene-warm',
+      platform,
+      () async {
+        await (accelerated as PdfTileRasterWarmUp).warmUp();
+        return null;
+      },
+    );
+    expect(backend.stats.sceneWarmUpRequests, 1);
+    expect(backend.stats.sceneWarmUpCompletions, 1);
+    expect(backend.stats.sceneWarmUpFailures, 0);
+    expect(backend.stats.scenesCompiled, 1);
+    expect(backend.stats.tilesRendered, 0,
+        reason: 'the one-pixel scene warm-up is not a visible tile');
+
+    const firstRegion = Rect.fromLTWH(40, 40, 256, 192);
+    final firstGpu = await _measureNativeGpuScenario(
+      'gpu-native-page-0-first-tile',
+      platform,
+      () => _rasterAndReadback(
+        () => accelerated.rasterizeRegion(
+          firstRegion,
+          pixelRatio: 2,
+          tracePage: 0,
+        ),
+      ),
+    );
+    final canvas = await _measureNativeGpuScenario(
+      'gpu-native-page-0-canvas-tile',
+      platform,
+      () => _rasterAndReadback(
+        () => scene.rasterizeRegion(firstRegion, pixelRatio: 2),
+      ),
+    );
+    expect(firstGpu, isNotNull);
+    expect(canvas, isNotNull);
+    expect(firstGpu!.width, canvas!.width);
+    expect(firstGpu.height, canvas.height);
+    final meanDifference =
+        _meanChannelDifference(firstGpu.pixels, canvas.pixels);
+    expect(
+      meanDifference,
+      lessThan(12),
+      reason: 'native GPU pixels must agree with Canvas apart from AA edges',
+    );
+
+    const reusedRegion = Rect.fromLTWH(72, 64, 256, 192);
+    await _measureNativeGpuScenario(
+      'gpu-native-page-0-reused-tile',
+      platform,
+      () => _rasterAndReadback(
+        () => accelerated.rasterizeRegion(
+          reusedRegion,
+          pixelRatio: 2,
+          tracePage: 0,
+        ),
+      ),
+    );
+
+    expect(backend.stats.contextsSeen, 1);
+    expect(backend.stats.sessionsCreated, 1);
+    expect(backend.stats.sessionsRejected, 0);
+    expect(backend.stats.rasterFallbacks, 0);
+    expect(backend.stats.tilesRendered, 2);
+    expect(backend.stats.completedSubmissions, greaterThanOrEqualTo(3));
+    expect(backend.stats.failedSubmissions, 0);
+    expect(backend.stats.inFlightSubmissions, 0,
+        reason: 'the readbacks must settle every GPU submission');
+    expect(backend.stats.lastTileRoute, 'flutter_gpu');
+    PdfPerfLog.log(
+      'gpu native stats platform=$platform '
+      'warmUs=${backend.stats.warmUpMicros} '
+      'sceneWarmUs=${backend.stats.sceneWarmUpMicros} '
+      'compileUs=${backend.stats.compileMicros} '
+      'completeUs=${backend.stats.completionMicros} '
+      'tiles=${backend.stats.tilesRendered} '
+      'submissions=${backend.stats.completedSubmissions} '
+      'fallbacks=${backend.stats.rasterFallbacks} '
+      'meanDifference=${meanDifference.toStringAsFixed(3)}',
+    );
+  } finally {
+    session?.dispose();
+    backend.clearImageCache();
+    scene.dispose();
+  }
+}
+
+Future<_NativeGpuRaster?> _measureNativeGpuScenario(
+  String name,
+  String platform,
+  Future<_NativeGpuRaster?> Function() operation,
+) async {
+  PdfPerfLog.log(
+    'scenario name=$name phase=start platform=$platform',
+  );
+  final clock = Stopwatch()..start();
+  final result = await operation();
+  clock.stop();
+  PdfPerfLog.log(
+    'raster page=${name.contains('page-0') ? 0 : '-'} kind=$name '
+    'platform=$platform '
+    'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}'
+    '${result == null ? '' : ' img=${result.width}x${result.height}'}',
+  );
+  PdfPerfLog.log(
+    'scenario name=$name phase=validated platform=$platform',
+  );
+  return result;
+}
+
+Future<_NativeGpuRaster> _rasterAndReadback(
+  Future<ui.Image> Function() rasterize,
+) async {
+  final image = await rasterize();
+  try {
+    final pixels = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (pixels == null) fail('native raster RGBA readback returned null');
+    return (pixels: pixels, width: image.width, height: image.height);
+  } finally {
+    image.dispose();
+  }
+}
+
+double _meanChannelDifference(ByteData a, ByteData b) {
+  final aa = a.buffer.asUint8List(a.offsetInBytes, a.lengthInBytes);
+  final bb = b.buffer.asUint8List(b.offsetInBytes, b.lengthInBytes);
+  expect(aa, hasLength(bb.length));
+  var total = 0;
+  for (var i = 0; i < aa.length; i++) {
+    total += (aa[i] - bb[i]).abs();
+  }
+  return total / aa.length;
+}
+
+String _platformName() => switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'android',
+      TargetPlatform.iOS => 'ios',
+      _ => defaultTargetPlatform.name,
+    };
 
 @visibleForTesting
 Future<void> runNativeTilePerfScenario({
   required Future<void> Function(Duration duration) pump,
 }) async {
-  final platform = switch (defaultTargetPlatform) {
-    TargetPlatform.android => 'android',
-    TargetPlatform.iOS => 'ios',
-    _ => defaultTargetPlatform.name,
-  };
+  final platform = _platformName();
   final store = PdfTileStore(registerForMemoryPressure: false);
   final mobile = defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
