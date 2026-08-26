@@ -493,6 +493,11 @@ class _DemoHarness {
     required String group,
     required PdfEditTool tool,
   }) async {
+    // Some one-shot tools return to Select after they commit. Opening the
+    // Select group in that state toggles Select off, so preserve the already
+    // satisfied state instead of driving the toolbar again.
+    if (editing.tool == tool) return;
+
     final toolButton = find.byKey(ValueKey('pdf-tool-${tool.name}'));
     final mobileHandle = find.byKey(const ValueKey('pdf-tools-handle'));
     if (mobileHandle.evaluate().isNotEmpty) {
