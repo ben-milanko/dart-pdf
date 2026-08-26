@@ -45,6 +45,19 @@ Future<int> _timeSettledImage(Future<ui.Image> Function() render) async {
   return clock.elapsedMicroseconds;
 }
 
+Future<void> _waitForGpuIdle(FlutterGpuTileRasterBackend backend) async {
+  for (var attempt = 0;
+      attempt < 100 && backend.stats.inFlightSubmissions != 0;
+      attempt++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  expect(
+    backend.stats.inFlightSubmissions,
+    0,
+    reason: 'the warm submission must retire before reuse accounting resets',
+  );
+}
+
 Future<(int, Uint8List)> _timePixels(Future<ui.Image> Function() render) async {
   final clock = Stopwatch()..start();
   final image = await render();
@@ -175,6 +188,7 @@ void main() {
       final warm = await session.rasterizeRegion(region, pixelRatio: 0.5);
       await warm.toByteData(format: ui.ImageByteFormat.rawRgba);
       warm.dispose();
+      await _waitForGpuIdle(backend);
       expect(backend.stats.analyticTextRuns, commands.length);
 
       backend.stats.reset();
@@ -271,6 +285,7 @@ void main() {
       final warm = await session.rasterizeRegion(region, pixelRatio: 0.5);
       await warm.toByteData(format: ui.ImageByteFormat.rawRgba);
       warm.dispose();
+      await _waitForGpuIdle(backend);
       expect(backend.stats.texturesUploaded, 1);
       final compileMicros = backend.stats.compileMicros;
       final compileCacheHits = backend.stats.textureCacheHits;
@@ -612,6 +627,11 @@ void main() {
       expect(backend.stats.offscreenGroupPasses, 16);
       expect(backend.stats.advancedBlendPasses, 32);
       expect(backend.stats.advancedBlendBlits, 32);
+      expect(
+        backend.stats.transientEmplacedBytes,
+        lessThanOrEqualTo(13440),
+        reason: 'identical tile transforms should be shared across passes',
+      );
       final attachmentsPerTile =
           gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
       expect(
@@ -730,6 +750,11 @@ void main() {
       expect(backend.stats.offscreenGroupPasses, 16);
       expect(backend.stats.advancedBlendPasses, 32);
       expect(backend.stats.advancedBlendBlits, 32);
+      expect(
+        backend.stats.transientEmplacedBytes,
+        lessThanOrEqualTo(13440),
+        reason: 'identical group transforms should be shared across passes',
+      );
       // ignore: avoid_print
       print('flutter_gpu internal group blend benchmark: '
           'cold=${coldGpu}us '

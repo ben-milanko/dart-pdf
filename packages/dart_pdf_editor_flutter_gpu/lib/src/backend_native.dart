@@ -4984,6 +4984,16 @@ class _CompiledScene {
     ];
     final commandBuffers = <gpu.CommandBuffer>[];
     final passes = <gpu.RenderPass>[];
+    // Every pass targets the same group tile. Keep one immutable uniform view
+    // alive in the route-wide arena instead of re-emplacing identical bytes
+    // for each paint, source, and blend encoder.
+    final groupTransform = transient.emplace(_tileTransform(
+      pageToRaster,
+      groupRegion,
+      pixelRatio,
+      width,
+      height,
+    ));
 
     gpu.RenderPass createPaintPass(
       gpu.CommandBuffer commandBuffer,
@@ -5016,13 +5026,7 @@ class _CompiledScene {
           pass: pass,
           pipelines: pipelines,
           stats: stats,
-          transform: transient.emplace(_tileTransform(
-            pageToRaster,
-            groupRegion,
-            pixelRatio,
-            width,
-            height,
-          )),
+          transform: groupTransform,
           pageToRaster: pageToRaster,
           region: groupRegion,
           pixelRatio: pixelRatio,
@@ -5294,6 +5298,25 @@ class _CompiledScene {
       ...groups.retained,
       commandBuffers,
     ];
+    // The encoders below share target geometry. Their immutable BufferViews
+    // remain valid until every route command buffer completes because the
+    // transient arena is retained by each submission.
+    final pageTransform = transient.emplace(_tileTransform(
+      pageToRaster,
+      region,
+      pixelRatio,
+      width,
+      height,
+    ));
+    final sourceTransform = cropSource
+        ? transient.emplace(_tileTransform(
+            pageToRaster,
+            sourceRegion,
+            pixelRatio,
+            sourceWidth,
+            sourceHeight,
+          ))
+        : pageTransform;
 
     gpu.RenderPass createPaintPass(
       gpu.CommandBuffer commandBuffer,
@@ -5329,6 +5352,7 @@ class _CompiledScene {
 
     _GpuEncoder encoderFor(
       gpu.RenderPass pass, {
+      required gpu.BufferView transform,
       required Rect targetRegion,
       required int targetWidth,
       required int targetHeight,
@@ -5337,13 +5361,7 @@ class _CompiledScene {
           pass: pass,
           pipelines: pipelines,
           stats: stats,
-          transform: transient.emplace(_tileTransform(
-            pageToRaster,
-            targetRegion,
-            pixelRatio,
-            targetWidth,
-            targetHeight,
-          )),
+          transform: transform,
           pageToRaster: pageToRaster,
           region: targetRegion,
           pixelRatio: pixelRatio,
@@ -5370,6 +5388,7 @@ class _CompiledScene {
           stencil,
           clearValue: clearPaper ? paper.clearColor : null,
         ),
+        transform: pageTransform,
         targetRegion: region,
         targetWidth: width,
         targetHeight: height,
@@ -5418,6 +5437,7 @@ class _CompiledScene {
           sourceColor,
           sourceStencil,
         ),
+        transform: sourceTransform,
         targetRegion: sourceRegion,
         targetWidth: sourceWidth,
         targetHeight: sourceHeight,
@@ -5467,6 +5487,7 @@ class _CompiledScene {
         ..setColorBlendEnable(false);
       final blendEncoder = encoderFor(
         blendPass,
+        transform: pageTransform,
         targetRegion: region,
         targetWidth: width,
         targetHeight: height,
