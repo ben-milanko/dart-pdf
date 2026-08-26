@@ -121,9 +121,11 @@ ordinary retained strokes before the mask is applied. Masked zero-width
 hairlines stay on Canvas because their one-device-pixel geometry is tile-scale
 dependent.
 An arbitrary content-side path clip around one soft-masked source is retained
-as the ordinary GPU stencil clip on the resolved composite. Rectangular clips
-inside the mask-image transcript remain the bounded shader scissor; arbitrary
-mask-side clips still use Canvas.
+as the ordinary GPU stencil clip on the resolved composite. Arbitrary clips
+inside a single-image mask transcript use that same exact stencil when the
+mask's backdrop and transfer function make its outside value zero. Rectangular
+mask clips remain the bounded shader scissor; arbitrary mask clips with a
+non-zero outside value still use Canvas.
 A single ordinary soft-masked source may itself sit inside a transparency
 group: the backend resolves that source in a bounded offscreen target and then
 applies the enclosing group alpha once. This exact route requires no explicit
@@ -237,7 +239,7 @@ describe the real workload rather than one page at a time.
 
 Pages with other transparency groups or soft masks, non-nested radial
 gradients, gradient overprint, unsafe overprint, complex
-clips inside a soft-mask image transcript, unresolved
+clips around a non-zero soft-mask backdrop, unresolved
 substituted text, or missing image pixels are rejected as a whole rather than
 approximated.
 `allowOverprintApproximation` exists only for controlled experiments and

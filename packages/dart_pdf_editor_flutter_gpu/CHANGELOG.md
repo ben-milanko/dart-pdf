@@ -47,6 +47,9 @@
   including the single-image transparency-group route. The resolved source is
   constrained by the existing exact stencil clip instead of requiring an
   axis-aligned shortcut.
+- Retain arbitrary path clips inside a single-image soft-mask transcript when
+  the alpha/luminosity backdrop and transfer function prove that the mask is
+  zero outside the clip. Non-zero outside-mask values remain on Canvas.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and
