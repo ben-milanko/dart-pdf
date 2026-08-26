@@ -61,6 +61,13 @@ this inside the Android `<application>` element:
   android:value="true" />
 ```
 
+The retained backend currently activates only on Metal and Vulkan contexts.
+Flutter 3.47's OpenGLES `flutter_gpu` pipeline path can terminate the process
+before Dart receives an error, so the backend detects the GLES capability set
+before creating shaders and uses the exact Canvas fallback instead. Android
+hosts do not need to force Vulkan: capable devices normally select it through
+Impeller, while GLES-only devices remain safe on Canvas.
+
 For a desktop development launch, pass both engine opt-ins:
 
 ```sh
@@ -73,10 +80,10 @@ before the engine starts. The DartPDF PR preview workflow demonstrates this
 with profile-mode Windows/Linux bundles and also publishes a macOS DMG.
 
 No master SDK, native-assets hook, or runtime shader compiler is required. The
-Metal, GLES/GLES3, and Vulkan runtime stages are compiled offline and checked in
-as a package asset. Unsupported platforms, disabled contexts, and unsupported
-PDF features return to the Canvas tile backend automatically. Web gets a
-compile-time stub and therefore preserves the all-platform host surface.
+Metal and Vulkan runtime stages are compiled offline and checked in as a
+package asset. Unsupported platforms or contexts, disabled contexts, and
+unsupported PDF features return to the Canvas tile backend automatically. Web
+gets a compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes (including zero-width PDF
 hairlines that stay one device pixel at every LoD), filled and stroked
@@ -209,12 +216,12 @@ interaction without delaying initial document paint or competing with an
 immediate scroll. The common work is coalesced per native view and MSAA mode,
 even when several readers share the same process.
 
-Proactive warm-up defaults on for macOS, Windows, and Linux. Android and iOS
-stay on-demand by default because merely creating an Impeller GPU context can
-reserve significant memory before a page is known to be GPU-compatible. A host
-that has validated its mobile device range can opt in with
+Proactive warm-up defaults on for macOS, Windows, and Linux. Vulkan Android and
+iOS stay on-demand by default because merely creating an Impeller GPU context
+can reserve significant memory before a page is known to be GPU-compatible. A
+host that has validated its mobile device range can opt in with
 `enableProactiveWarmUp: true`; normal on-demand GPU tiles remain available when
-the option is false.
+the option is false. OpenGLES contexts skip warm-up and retain Canvas.
 
 The same idle gate then prepares the live page's retained tile session: scene
 geometry and decoded-image uploads are compiled once and every scene pipeline

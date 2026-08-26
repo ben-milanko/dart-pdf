@@ -235,6 +235,7 @@ jobs:
           name: patrol-android-report
           path: |
             ${{ env.EXAMPLE_DIR }}/build/app/reports/androidTests
+            ${{ env.EXAMPLE_DIR }}/build/app/outputs/androidTest-results
             ${{ env.EXAMPLE_DIR }}/test-results/perf/android
           if-no-files-found: ignore
 

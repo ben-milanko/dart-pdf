@@ -117,16 +117,23 @@ void main() {
       }
       final first = FlutterGpuTileRasterBackend();
       await first.warmUp();
+      final supportsPipelineWarmUp =
+          gpu.gpuContext.doesSupportFramebufferRenderMipmap;
       expect(first.stats.warmUpRequests, 1);
-      expect(first.stats.warmUpSubmissions, 1);
+      expect(first.stats.warmUpSubmissions, supportsPipelineWarmUp ? 1 : 0);
       expect(first.stats.warmUpCompletions, 1);
       expect(first.stats.warmUpFailures, 0);
       expect(first.stats.warmUpMicros, greaterThan(0));
 
       await first.warmUp();
       expect(first.stats.warmUpRequests, 2);
-      expect(first.stats.warmUpSubmissions, 1,
-          reason: 'the same backend reuses the completed context warm-up');
+      expect(
+        first.stats.warmUpSubmissions,
+        supportsPipelineWarmUp ? 1 : 0,
+        reason: supportsPipelineWarmUp
+            ? 'the same backend reuses the completed context warm-up'
+            : 'GLES must never submit the process-fatal synthetic warm-up',
+      );
 
       final second = FlutterGpuTileRasterBackend();
       await second.warmUp();
@@ -136,6 +143,31 @@ void main() {
       expect(second.stats.warmUpCompletions, 1);
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('OpenGLES context declines before pipeline creation',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      if (gpu.gpuContext.doesSupportFramebufferRenderMipmap) {
+        markTestSkipped('this assertion targets an OpenGLES context');
+        return;
+      }
+      final scene = await PdfRetainedScene.record(
+          PdfDocument.open(buildEmbeddedFontImagePdf()).page(0));
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      expect(backend.createSession(scene), isNull);
+      expect(
+        backend.lastSessionRejection,
+        'OpenGLES flutter_gpu contexts require Canvas fallback',
+      );
+      expect(backend.stats.sessionsRejected, 1);
+      expect(backend.stats.lastTileRoute, 'canvas-fallback');
+    });
+  });
 
   testWidgets('scene warm-up prepares retained resources before the first tile',
       (tester) async {

@@ -137,6 +137,17 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   gpu.GpuContext? _lastContext;
   String? _lastSessionRejection;
 
+  // Flutter GPU does not expose its active Impeller backend directly. This
+  // capability is documented as true on Metal/Vulkan and false on GLES. The
+  // current GLES implementation can terminate the process while loading or
+  // submitting this package's shader pipelines, which cannot be caught in
+  // Dart. Decline it before creating a pipeline future so the exact Canvas
+  // fallback remains available.
+  static bool _supportsContext(gpu.GpuContext context) =>
+      context.doesSupportFramebufferRenderMipmap;
+  static const _unsupportedContextReason =
+      'OpenGLES flutter_gpu contexts require Canvas fallback';
+
   @override
   String? get lastSessionRejection => _lastSessionRejection;
 
@@ -183,6 +194,13 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
     stats.warmUpRequests++;
     try {
       final context = gpu.gpuContext;
+      if (!_supportsContext(context)) {
+        stats.warmUpCompletions++;
+        PdfPerfLog.log(
+          'tile gpu pipeline warm skipped reason=opengles-context',
+        );
+        return;
+      }
       final pipelines = await _GpuPipelines.instance(context);
       final submitted = await pipelines.warmUp(
         context,
@@ -221,6 +239,13 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
       }
       _lastContext = context;
       stats.lastContextIdentity = identityHashCode(context);
+      if (!_supportsContext(context)) {
+        _lastSessionRejection = _unsupportedContextReason;
+        stats.lastRejection = _unsupportedContextReason;
+        stats.lastTileRoute = 'canvas-fallback';
+        stats.sessionsRejected++;
+        return null;
+      }
       final outlinedCommands = textOutliner == null
           ? scene.commands
           : _outlineGpuTextCommands(scene.commands, textOutliner!);

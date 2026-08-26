@@ -11,6 +11,14 @@ if ! [[ "$PATROL_NATIVE_PERF_REPETITIONS" =~ ^[1-9][0-9]*$ ]]; then
   exit 64
 fi
 
+# The GitHub emulator otherwise selects Impeller OpenGLES. flutter_gpu's
+# current GLES shader-pipeline path can terminate the instrumentation process
+# before Dart can report a fallback, so the GPU-specific Patrol cohort uses
+# the emulator's Vulkan/SwiftShader backend. The checked-in example manifest
+# remains device-default for ordinary users and local development.
+cp ../../../tool/android_patrol_vulkan_manifest.xml \
+  android/app/src/debug/AndroidManifest.xml
+
 patrol test \
   --device emulator-5554 \
   --target patrol_test/demo_e2e_test.dart \
