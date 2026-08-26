@@ -184,6 +184,8 @@ void main() {
           () => session.rasterizeRegion(region, pixelRatio: 0.5),
         ));
       }
+      expect(backend.stats.transientAllocatedBytes, 15 * (4 << 10),
+          reason: 'one-transform tiles should use the 4 KiB first block');
       // ignore: avoid_print
       print('flutter_gpu analytic text benchmark: runs=${commands.length} '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '

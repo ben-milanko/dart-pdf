@@ -7898,14 +7898,15 @@ class _GpuGeometryArena {
 /// though the tile renderer creates a fresh allocator for every submission.
 /// Its rollover check also ignores the incoming emplacement length, so a
 /// dense sequence of individually small CAD hairlines can cross the active
-/// block boundary and fail the upload. This arena owns only the buffers used
-/// by one tile, tests the complete aligned range before every write, and is
-/// retained until the command-buffer completion fence fires.
+/// block boundary and fail the upload. This arena starts at 4 KiB for the
+/// common one-transform submission, grows geometrically through 1 MiB for
+/// dense dynamic geometry, tests the complete aligned range before every
+/// write, and is retained until the command-buffer completion fence fires.
 class _GpuTransientArena {
   _GpuTransientArena(this.context, [this.stats]);
 
-  static const _firstBlockBytes = 64 << 10;
-  static const _secondBlockBytes = 256 << 10;
+  static const _firstBlockBytes = 4 << 10;
+  static const _secondBlockBytes = 16 << 10;
   static const _maximumBlockBytes = 1 << 20;
 
   final gpu.GpuContext context;

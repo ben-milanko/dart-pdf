@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Start per-submission transient GPU arenas at 4 KiB instead of 64 KiB, then
+  grow geometrically through 1 MiB for dense dynamic geometry. Common tiles
+  keep their single transform upload without reserving sixteen times as much
+  host-visible device memory.
 - Carry ordinary image tint, alpha, and stencil mode in retained vertex data
   instead of binding a separately aligned fragment uniform for every draw.
   Dense image scenes halve their pooled arena size and avoid one native bind
