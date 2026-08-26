@@ -60,6 +60,7 @@ class FlutterGpuTileBackendStats {
   int activeGeometryLeases = 0;
   int geometryBytes = 0;
   int peakGeometryBytes = 0;
+  int standaloneUniformBuffers = 0;
   int transientBuffers = 0;
   int transientEmplacedBytes = 0;
   int transientAllocatedBytes = 0;
@@ -148,6 +149,7 @@ class FlutterGpuTileBackendStats {
         'activeGeometryLeases': activeGeometryLeases,
         'geometryBytes': geometryBytes,
         'peakGeometryBytes': peakGeometryBytes,
+        'standaloneUniformBuffers': standaloneUniformBuffers,
         'transientBuffers': transientBuffers,
         'transientEmplacedBytes': transientEmplacedBytes,
         'transientAllocatedBytes': transientAllocatedBytes,
@@ -233,6 +235,7 @@ class FlutterGpuTileBackendStats {
     offscreenGroupBudgetFallbacks = 0;
     geometryBudgetFallbacks = 0;
     peakGeometryBytes = geometryBytes;
+    standaloneUniformBuffers = 0;
     transientBuffers = 0;
     transientEmplacedBytes = 0;
     transientAllocatedBytes = 0;
@@ -300,6 +303,7 @@ class FlutterGpuTileBackendStats {
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '
+      'standaloneUniformBuffers=$standaloneUniformBuffers '
       'transientBuffers=$transientBuffers '
       'transientEmplacedBytes=$transientEmplacedBytes '
       'transientAllocatedBytes=$transientAllocatedBytes '

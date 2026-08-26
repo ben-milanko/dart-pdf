@@ -260,6 +260,8 @@ void main() {
       final compileMicros = backend.stats.compileMicros;
       final compileCacheHits = backend.stats.textureCacheHits;
       final compileLeases = backend.stats.activeTextureLeases;
+      final compileStandaloneUniformBuffers =
+          backend.stats.standaloneUniformBuffers;
 
       backend.stats.reset();
       final settled = <int>[];
@@ -272,6 +274,7 @@ void main() {
       print('flutter_gpu texture benchmark: draws=${commands.length} '
           'compile=${compileMicros}us compileCacheHits=$compileCacheHits '
           'compileLeases=$compileLeases '
+          'compileStandaloneUniformBuffers=$compileStandaloneUniformBuffers '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '
           'issueMean=${(backend.stats.issueMicros / settled.length).toStringAsFixed(0)}us '
           '${backend.stats}');

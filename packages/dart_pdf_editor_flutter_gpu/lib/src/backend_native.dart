@@ -5925,6 +5925,7 @@ Future<_GpuDraw> _compileSoftMaskImage(
       : <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)];
   final info = _softMaskInfo(
     context,
+    stats,
     maskTransform: spec.mask.transform,
     contentTint: contentTint,
     maskTint: maskTint,
@@ -6328,6 +6329,7 @@ Future<_GpuDraw> _compileSoftMaskFill(
     maskResource.texture,
     _softMaskInfo(
       context,
+      stats,
       maskTransform: spec.mask.transform,
       contentTint: _premul(spec.content.color, spec.content.alpha),
       maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
@@ -6387,6 +6389,7 @@ Future<_GpuDraw> _compileSoftMaskStroke(
     maskResource.texture,
     _softMaskInfo(
       context,
+      stats,
       maskTransform: spec.mask.transform,
       contentTint: _premul(spec.content.color, spec.content.alpha),
       maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
@@ -6438,6 +6441,7 @@ Future<_GpuDraw> _compileSoftMaskText(
     maskResource.texture,
     _softMaskInfo(
       context,
+      stats,
       maskTransform: spec.mask.transform,
       contentTint: _premul(spec.content.run.color, spec.content.run.fillAlpha),
       maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
@@ -6635,7 +6639,8 @@ double _vectorMaskValue(_SoftMaskVectorFillSpec spec, double x, double y) {
 }
 
 gpu.BufferView _softMaskInfo(
-  gpu.GpuContext context, {
+  gpu.GpuContext context,
+  FlutterGpuTileBackendStats stats, {
   required PdfMatrix maskTransform,
   required List<double> contentTint,
   required List<double> maskTint,
@@ -6690,6 +6695,7 @@ gpu.BufferView _softMaskInfo(
       clip.right,
       clip.top,
     ]);
+  stats.standaloneUniformBuffers++;
   return gpu.BufferView(
     context.createDeviceBufferWithCopy(ByteData.sublistView(values)),
     offsetInBytes: 0,
@@ -6790,6 +6796,7 @@ class _GpuGlyphAtlas {
     final dimensions = Float32List.fromList(
       <double>[slugAtlasWidth.toDouble(), height.toDouble()],
     );
+    stats.standaloneUniformBuffers++;
     final info = gpu.BufferView(
       context.createDeviceBufferWithCopy(ByteData.sublistView(dimensions)),
       offsetInBytes: 0,
@@ -7430,6 +7437,7 @@ Future<_GpuDraw?> _compileImageCommand(
       maskResource.texture,
       _softMaskInfo(
         context,
+        stats,
         maskTransform: request.transform,
         contentTint: tint,
         maskTint: const [0, 0, 0, 1],
@@ -7445,6 +7453,7 @@ Future<_GpuDraw?> _compileImageCommand(
   final info = Float32List(8)
     ..setRange(0, 4, tint)
     ..[4] = request.isStencil ? 1 : 0;
+  stats.standaloneUniformBuffers++;
   return _TextureDraw(
     geometry.add(vertices.bytes, 6),
     resource.texture,
