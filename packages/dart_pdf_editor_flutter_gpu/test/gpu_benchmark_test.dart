@@ -262,10 +262,13 @@ void main() {
       final compileLeases = backend.stats.activeTextureLeases;
       final compileStandaloneUniformBuffers =
           backend.stats.standaloneUniformBuffers;
+      final compileGeometryBytes = backend.stats.geometryBytes;
       expect(compileStandaloneUniformBuffers, 0,
-          reason: 'immutable image metadata belongs in the retained arena');
+          reason: 'ordinary image metadata belongs in retained vertices');
       expect(backend.stats.geometryBuffers, 1,
-          reason: 'all image vertices and aligned uniforms fit one arena');
+          reason: 'all retained image vertices fit one arena');
+      expect(backend.stats.geometryBytes, 64 << 10,
+          reason: 'image metadata should not force a 128 KiB size class');
 
       backend.stats.reset();
       final settled = <int>[];
@@ -279,6 +282,7 @@ void main() {
           'compile=${compileMicros}us compileCacheHits=$compileCacheHits '
           'compileLeases=$compileLeases '
           'compileStandaloneUniformBuffers=$compileStandaloneUniformBuffers '
+          'compileGeometryBytes=$compileGeometryBytes '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '
           'issueMean=${(backend.stats.issueMicros / settled.length).toStringAsFixed(0)}us '
           '${backend.stats}');

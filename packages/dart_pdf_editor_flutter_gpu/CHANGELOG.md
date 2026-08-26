@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Carry ordinary image tint, alpha, and stencil mode in retained vertex data
+  instead of binding a separately aligned fragment uniform for every draw.
+  Dense image scenes halve their pooled arena size and avoid one native bind
+  call per image without changing texture sampling or PDF mask semantics.
 - Pack immutable image, soft-mask, and glyph-atlas uniforms into the
   lifetime-fenced scene arena with device-required alignment. Image-dense
   scenes avoid one standalone native `DeviceBuffer` allocation per draw.

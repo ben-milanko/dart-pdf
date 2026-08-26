@@ -7010,6 +7010,32 @@ FloatBuilder _imageVertices(PdfMatrix transform) {
   return vertices;
 }
 
+FloatBuilder _textureVertices(
+  PdfMatrix transform,
+  List<double> tint, {
+  required bool stencil,
+}) {
+  const corners = <double>[0, 0, 1, 0, 1, 1, 0, 1];
+  const uv = <double>[0, 1, 1, 1, 1, 0, 0, 0];
+  final stencilMode = stencil ? 1.0 : 0.0;
+  final vertices = FloatBuilder(54);
+  for (final i in const [0, 1, 2, 0, 2, 3]) {
+    final x = corners[2 * i], y = corners[2 * i + 1];
+    vertices.add9(
+      transform.transformX(x, y),
+      transform.transformY(x, y),
+      uv[2 * i],
+      uv[2 * i + 1],
+      tint[0],
+      tint[1],
+      tint[2],
+      tint[3],
+      stencilMode,
+    );
+  }
+  return vertices;
+}
+
 Future<_GpuImageTexture> _uploadImageTexture(
     gpu.GpuContext context, ui.Image image, FlutterGpuTileBackendStats stats,
     {PdfDecodedPixels? decoded, required int mipLevelCount}) async {
@@ -7401,12 +7427,12 @@ Future<_GpuDraw?> _compileImageCommand(
     mipmapped: mipmapImages,
     leases: textureLeases,
   );
-  final vertices = _imageVertices(request.transform);
   final alpha = (request.alpha * alphaScale).clamp(0.0, 1.0);
   final tint = request.isStencil
       ? _premul(request.stencilColor, alpha)
       : <double>[0, 0, 0, alpha];
   if (maskImage != null) {
+    final vertices = _imageVertices(request.transform);
     final maskResource = await imageCache.acquireSurface(
       context,
       (pdfImageContentKey(request), _GpuTexturePlane.deferredSoftMask),
@@ -7436,13 +7462,14 @@ Future<_GpuDraw?> _compileImageCommand(
       ),
     );
   }
-  final info = Float32List(8)
-    ..setRange(0, 4, tint)
-    ..[4] = request.isStencil ? 1 : 0;
+  final vertices = _textureVertices(
+    request.transform,
+    tint,
+    stencil: request.isStencil,
+  );
   return _TextureDraw(
     geometry.add(vertices.bytes, 6),
     resource.texture,
-    geometry.addUniform(ByteData.sublistView(info)),
   );
 }
 
@@ -8201,14 +8228,12 @@ class _GpuClipDraw {
 }
 
 class _TextureDraw implements _GpuDraw {
-  const _TextureDraw(this.vertices, this.texture, this.info);
+  const _TextureDraw(this.vertices, this.texture);
   final _GpuBuffer vertices;
   final gpu.Texture texture;
-  final _GpuBuffer info;
 
   @override
-  void encode(_GpuEncoder encoder) =>
-      encoder.texture(vertices, texture, info.view);
+  void encode(_GpuEncoder encoder) => encoder.texture(vertices, texture);
 }
 
 class _AnalyticTextDraw implements _GpuDraw {
@@ -8612,12 +8637,13 @@ class _GpuEncoder {
     _drawBuffer(stencilClear);
   }
 
-  void texture(_GpuBuffer vertices, gpu.Texture texture, gpu.BufferView info) {
+  void texture(_GpuBuffer vertices, gpu.Texture texture) {
     _defaultStencil();
     pass.setColorBlendEquation(_paintBlend);
     // Every ordinary image shares this pass transform and pipeline. Keep
-    // those bindings across adjacent draws; only the fragment metadata and,
-    // when it changes, the source texture need another Dart-to-native call.
+    // those bindings across adjacent draws; per-image metadata travels with
+    // the retained vertices, so only a changed source texture needs another
+    // Dart-to-native call.
     final retained = _retainedBindingKind == _GpuRetainedBindingKind.image;
     if (retained) {
       stats.imageBindingReuses++;
@@ -8627,7 +8653,6 @@ class _GpuEncoder {
         ..bindPipeline(pipelines.texture)
         ..bindUniform(pipelines.textureTransform, transform);
     }
-    pass.bindUniform(pipelines.textureInfo, info);
     if (!retained || !identical(_boundImageTexture, texture)) {
       pass.bindTexture(
         pipelines.textureSampler,
@@ -8649,15 +8674,15 @@ class _GpuEncoder {
   /// the completed group once, as required by PDF transparency semantics.
   void tileTexture(gpu.Texture texture, Rect textureRegion, double alpha) {
     _dropRetainedBindings();
-    final vertices = _tileTextureVertices(textureRegion);
-    final info = Float32List(8)..[3] = alpha.clamp(0.0, 1.0);
+    final vertices = _tileTextureVertices(
+      textureRegion,
+      tint: <double>[0, 0, 0, alpha.clamp(0.0, 1.0)],
+    );
     _defaultStencil();
     pass
       ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.texture)
       ..bindUniform(pipelines.textureTransform, transform)
-      ..bindUniform(
-          pipelines.textureInfo, emplaceTransient(ByteData.sublistView(info)))
       ..bindTexture(
         pipelines.textureSampler,
         texture,
@@ -8676,13 +8701,10 @@ class _GpuEncoder {
   void copyTile(gpu.Texture texture) {
     _dropRetainedBindings();
     final vertices = _tileTextureVertices(region);
-    final info = Float32List(8)..[3] = 1;
     pass
       ..setScissor(gpu.Scissor(x: 0, y: 0, width: width, height: height))
       ..bindPipeline(pipelines.texture)
       ..bindUniform(pipelines.textureTransform, transform)
-      ..bindUniform(
-          pipelines.textureInfo, emplaceTransient(ByteData.sublistView(info)))
       ..bindTexture(
         pipelines.textureSampler,
         texture,
@@ -8765,7 +8787,10 @@ class _GpuEncoder {
     );
   }
 
-  FloatBuilder _tileTextureVertices(Rect textureRegion) {
+  FloatBuilder _tileTextureVertices(
+    Rect textureRegion, {
+    List<double> tint = const <double>[0, 0, 0, 1],
+  }) {
     final inverse = pageToRaster.inverted();
     if (inverse == null) throw StateError('singular page-to-raster transform');
     final left = textureRegion.left, right = textureRegion.right;
@@ -8782,14 +8807,18 @@ class _GpuEncoder {
       inverse.transformX(left, top),
       inverse.transformY(left, top),
     );
-    return _imageVertices(PdfMatrix(
-      br.$1 - bl.$1,
-      br.$2 - bl.$2,
-      tl.$1 - bl.$1,
-      tl.$2 - bl.$2,
-      bl.$1,
-      bl.$2,
-    ));
+    return _textureVertices(
+      PdfMatrix(
+        br.$1 - bl.$1,
+        br.$2 - bl.$2,
+        tl.$1 - bl.$1,
+        tl.$2 - bl.$2,
+        bl.$1,
+        bl.$2,
+      ),
+      tint,
+      stencil: false,
+    );
   }
 
   void glyphs(_GpuBuffer vertices, _GpuGlyphAtlas atlas) {
@@ -8959,8 +8988,6 @@ class _GpuPipelines {
             library['PdfTileSolidVertex']!.getUniformSlot('VertInfo'),
         textureTransform =
             library['PdfTileTextureVertex']!.getUniformSlot('VertInfo'),
-        textureInfo =
-            library['PdfTileTextureFragment']!.getUniformSlot('FragInfo'),
         textureSampler =
             library['PdfTileTextureFragment']!.getUniformSlot('tex'),
         blendTransform =
@@ -9112,18 +9139,30 @@ class _GpuPipelines {
         -1,
         0,
         0,
+        0,
+        0,
+        0,
+        1,
+        0,
         3,
         -1,
+        1,
+        0,
+        0,
+        0,
+        0,
         1,
         0,
         -1,
         3,
         0,
         1,
+        0,
+        0,
+        0,
+        1,
+        0,
       ]),
-    ));
-    final textureInfo = transient.emplace(ByteData.sublistView(
-      Float32List.fromList(const [1, 1, 1, 1, 0, 0, 0, 0]),
     ));
     final commandBuffer = context.createCommandBuffer();
     final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
@@ -9191,7 +9230,6 @@ class _GpuPipelines {
     pass
       ..bindPipeline(texture)
       ..bindUniform(textureTransform, transform)
-      ..bindUniform(this.textureInfo, textureInfo)
       ..bindTexture(textureSampler, sample);
     _warmUpDraw(pass, textureVertices, 3);
     pass.clearBindings();
@@ -9278,7 +9316,6 @@ class _GpuPipelines {
   final gpu.UniformSlot stencilTransform;
   final gpu.UniformSlot solidTransform;
   final gpu.UniformSlot textureTransform;
-  final gpu.UniformSlot textureInfo;
   final gpu.UniformSlot textureSampler;
   final gpu.UniformSlot blendTransform;
   final gpu.UniformSlot blendInfo;
