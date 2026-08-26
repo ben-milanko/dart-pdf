@@ -5493,6 +5493,64 @@ void main() {
     });
   });
 
+  testWidgets('retains analytic glyph bindings only across adjacent runs',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final face = FlutterGpuTrueTypeFontFace(buildTestTrueTypeFont());
+      final outliner = FlutterGpuTrueTypeTextOutliner((_) => face);
+      PdfDrawTextCommand text(double x, double y, PdfColor color) {
+        final run = PdfTextRun(
+          text: 'AB',
+          transform: PdfMatrix(36, 0, 0, 36, x, y),
+          color: color,
+          width: 1.2,
+          fontName: 'Helvetica',
+          fontSize: 36,
+          charOffsets: const [0, 0.6, 1.2],
+        );
+        return PdfDrawTextCommand(outliner.outline(run)!);
+      }
+
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        text(60, 700, const PdfColor(0.15, 0.25, 0.75)),
+        text(160, 700, const PdfColor(0.75, 0.25, 0.15)),
+        PdfFillPathCommand(
+          _rect(260, 680, 320, 730),
+          const PdfColor(0.2, 0.7, 0.35),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        text(360, 700, const PdfColor(0.55, 0.2, 0.65)),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final expectedPixels = await _pixels(expected);
+      final actualPixels = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < expectedPixels.length; index++) {
+        difference += (expectedPixels[index] - actualPixels[index]).abs();
+      }
+      expect(difference / expectedPixels.length, lessThan(8));
+      expect(backend.stats.analyticTextRuns, 3);
+      expect(backend.stats.glyphBindingReuses, 1,
+          reason: 'the solid draw must invalidate the retained atlas state');
+    });
+  });
+
   testWidgets('unsupported pages are rejected instead of approximated',
       (tester) async {
     await tester.runAsync(() async {

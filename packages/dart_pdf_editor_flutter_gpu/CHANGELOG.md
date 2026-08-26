@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Retain the glyph pipeline, transform, atlas metadata, and sampler bindings
+  across adjacent analytic text runs. Intervening geometry invalidates that
+  state, while dense text tiles avoid five redundant native calls per run.
 - Retain portable decoder RGBA only for scenes whose tiled bitmap-font images
   need a hand-built mip chain, upload those pixels directly, and release them
   after scene compilation. Ordinary images continue through zero-copy platform
