@@ -505,7 +505,9 @@ class _DemoHarness {
       await $.pump(const Duration(milliseconds: 250));
       final groupTab = find.byKey(ValueKey('pdf-group-tab-$group'));
       await tester.ensureVisible(groupTab);
-      await tester.tap(groupTab);
+      final visibleGroupTab = groupTab.hitTestable();
+      await waitForFinder(visibleGroupTab, attempts: 30);
+      await tester.tap(visibleGroupTab);
       await $.pump(const Duration(milliseconds: 250));
       // Select is the mobile sheet's only single-option group, so tapping its
       // group tab now arms it directly and closes the sheet. Multi-tool groups
@@ -514,7 +516,9 @@ class _DemoHarness {
       expect(toolButton, findsOneWidget,
           reason: '$tool should be available in the $group tool group');
       await tester.ensureVisible(toolButton);
-      await tester.tap(toolButton);
+      final visibleToolButton = toolButton.hitTestable();
+      await waitForFinder(visibleToolButton, attempts: 30);
+      await tester.tap(visibleToolButton);
       await $.pump();
       // Mobile keeps the tools sheet open to expose the active settings.
       // Tap its modal barrier so the armed tool can reach the page.
