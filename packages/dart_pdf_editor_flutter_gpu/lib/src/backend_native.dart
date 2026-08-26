@@ -8713,6 +8713,15 @@ class _GpuEncoder {
     sourceAlphaBlendFactor: gpu.BlendFactor.zero,
     destinationAlphaBlendFactor: gpu.BlendFactor.one,
   );
+  // bindTexture reads these value fields synchronously. Keep the private
+  // descriptors immutable so dense image and blend runs do not allocate the
+  // same short-lived Dart object for every binding.
+  static final _nearestSampler = gpu.SamplerOptions();
+  static final _linearSampler = gpu.SamplerOptions(
+    minFilter: gpu.MinMagFilter.linear,
+    magFilter: gpu.MinMagFilter.linear,
+    mipFilter: gpu.MipFilter.linear,
+  );
 
   void setBlendMode(PdfBlendMode mode) {
     _paintBlend = switch (mode) {
@@ -9015,11 +9024,7 @@ class _GpuEncoder {
       pass.bindTexture(
         pipelines.textureSampler,
         texture,
-        sampler: gpu.SamplerOptions(
-          minFilter: gpu.MinMagFilter.linear,
-          magFilter: gpu.MinMagFilter.linear,
-          mipFilter: gpu.MipFilter.linear,
-        ),
+        sampler: _linearSampler,
       );
       _boundImageTexture = texture;
     }
@@ -9044,10 +9049,7 @@ class _GpuEncoder {
       ..bindTexture(
         pipelines.textureSampler,
         texture,
-        sampler: gpu.SamplerOptions(
-          minFilter: gpu.MinMagFilter.nearest,
-          magFilter: gpu.MinMagFilter.nearest,
-        ),
+        sampler: _nearestSampler,
       );
     _drawView(emplaceTransient(vertices.bytes), 6);
     pass.clearBindings();
@@ -9066,10 +9068,7 @@ class _GpuEncoder {
       ..bindTexture(
         pipelines.textureSampler,
         texture,
-        sampler: gpu.SamplerOptions(
-          minFilter: gpu.MinMagFilter.nearest,
-          magFilter: gpu.MinMagFilter.nearest,
-        ),
+        sampler: _nearestSampler,
       );
     _drawView(emplaceTransient(vertices.bytes), 6);
     pass.clearBindings();
@@ -9101,18 +9100,12 @@ class _GpuEncoder {
       ..bindTexture(
         pipelines.blendBackdropSampler,
         backdrop,
-        sampler: gpu.SamplerOptions(
-          minFilter: gpu.MinMagFilter.nearest,
-          magFilter: gpu.MinMagFilter.nearest,
-        ),
+        sampler: _nearestSampler,
       )
       ..bindTexture(
         pipelines.blendSourceSampler,
         source,
-        sampler: gpu.SamplerOptions(
-          minFilter: gpu.MinMagFilter.nearest,
-          magFilter: gpu.MinMagFilter.nearest,
-        ),
+        sampler: _nearestSampler,
       );
     _drawView(emplaceTransient(vertices.bytes), 6);
     pass.clearBindings();
@@ -9194,11 +9187,7 @@ class _GpuEncoder {
         ..bindTexture(
           pipelines.glyphSampler,
           atlas.texture,
-          sampler: gpu.SamplerOptions(
-            minFilter: gpu.MinMagFilter.nearest,
-            magFilter: gpu.MinMagFilter.nearest,
-            mipFilter: gpu.MipFilter.nearest,
-          ),
+          sampler: _nearestSampler,
         );
       _boundGlyphAtlas = atlas;
     }
@@ -9209,20 +9198,15 @@ class _GpuEncoder {
       gpu.Texture maskTexture, gpu.BufferView info) {
     _dropRetainedBindings();
     _defaultStencil();
-    final sampler = gpu.SamplerOptions(
-      minFilter: gpu.MinMagFilter.linear,
-      magFilter: gpu.MinMagFilter.linear,
-      mipFilter: gpu.MipFilter.linear,
-    );
     pass
       ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.softMask)
       ..bindUniform(pipelines.softMaskTransform, transform)
       ..bindUniform(pipelines.softMaskInfo, info)
       ..bindTexture(pipelines.softMaskContentSampler, contentTexture,
-          sampler: sampler)
+          sampler: _linearSampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
-          sampler: sampler);
+          sampler: _linearSampler);
     _drawBuffer(vertices);
     pass.clearBindings();
   }
@@ -9234,11 +9218,6 @@ class _GpuEncoder {
       rule: rule,
       union: false,
       requiredClipBit: _activeClipBit,
-    );
-    final sampler = gpu.SamplerOptions(
-      minFilter: gpu.MinMagFilter.linear,
-      magFilter: gpu.MinMagFilter.linear,
-      mipFilter: gpu.MipFilter.linear,
     );
     pass
       ..setStencilReference(0)
@@ -9257,9 +9236,9 @@ class _GpuEncoder {
       // content sample too lets contentStencil supply the solid fill color,
       // while the second lookup still evaluates the PDF mask luminance/alpha.
       ..bindTexture(pipelines.softMaskContentSampler, maskTexture,
-          sampler: sampler)
+          sampler: _linearSampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
-          sampler: sampler);
+          sampler: _linearSampler);
     _drawBuffer(cover);
     pass.clearBindings();
     _clearStencil(_pathMask);
