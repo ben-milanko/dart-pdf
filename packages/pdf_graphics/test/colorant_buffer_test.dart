@@ -545,5 +545,38 @@ void main() {
         containsAll([green, inkColor]),
       );
     });
+
+    test('a multi-segment sub-cell stroke stays conservative', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final c = buffer();
+      fill(c, rect(0, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+
+      // Both exact 0.1pt segments lie between sample rows and cover no
+      // colorant cell centre. Inflating the whole compound path resolves it
+      // as [inkColor], even though joins/caps and neighbouring backdrops are
+      // unknowable at this grid resolution. Declining keeps the device's
+      // conservative overprint path; the Ghent composite pages expose the
+      // forced resolution as a visible X.
+      expect(
+        c.strokeShape(
+          PdfPath([
+            const PdfMoveTo(10, 50),
+            const PdfLineTo(40, 50),
+            const PdfMoveTo(60, 50),
+            const PdfLineTo(90, 50),
+          ]),
+          const PdfStroke(width: 0.1),
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      expect(c.takeSpatialPaint(), isNull);
+    });
   });
 }

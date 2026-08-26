@@ -519,11 +519,17 @@ class PdfColorantRaster {
     }
     final contours = StrokeContours();
     final mappedWidth = width * scale;
+    final isSingleOpenSegment = subpaths.length == 1 &&
+        !subpaths.single.closed &&
+        subpaths.single.pointCount == 2;
     strokeToContours(subpaths,
-        // The colorant grid cannot represent a stroke narrower than one cell.
-        // Preserve one sample cell here; spatial replay still clips the result
-        // through the original vector stroke, so its visible width is exact.
-        width: mappedWidth < 1 ? 1 : mappedWidth,
+        // A single straight stroke narrower than one cell can miss every cell
+        // centre. Preserve one probe cell for that bounded case; spatial
+        // replay still clips the result through the original vector stroke,
+        // so its visible width is exact. Inflating multi-segment paths changes
+        // joins/caps and can sample unrelated backdrops outside their exact
+        // geometry (the Ghent transparency X patches expose that error).
+        width: mappedWidth < 1 && isSingleOpenSegment ? 1 : mappedWidth,
         cap: cap,
         join: join,
         miterLimit: miterLimit,
