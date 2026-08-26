@@ -675,12 +675,15 @@ class _GroupFillSpec extends _GpuCompositeSpec {
     required this.content,
     required this.groupAlpha,
     required this.contentClip,
+    this.contentPathClips = const [],
   });
 
   final PdfFillPathCommand content;
   final double groupAlpha;
   @override
   final PdfRect? contentClip;
+  @override
+  final List<_GpuPathClip> contentPathClips;
 }
 
 class _GroupStrokeSpec extends _GpuCompositeSpec {
@@ -688,12 +691,15 @@ class _GroupStrokeSpec extends _GpuCompositeSpec {
     required this.content,
     required this.groupAlpha,
     required this.contentClip,
+    this.contentPathClips = const [],
   });
 
   final PdfStrokePathCommand content;
   final double groupAlpha;
   @override
   final PdfRect? contentClip;
+  @override
+  final List<_GpuPathClip> contentPathClips;
 }
 
 class _GroupTextSpec extends _GpuCompositeSpec {
@@ -701,12 +707,15 @@ class _GroupTextSpec extends _GpuCompositeSpec {
     required this.content,
     required this.groupAlpha,
     required this.contentClip,
+    this.contentPathClips = const [],
   });
 
   final PdfDrawTextCommand content;
   final double groupAlpha;
   @override
   final PdfRect? contentClip;
+  @override
+  final List<_GpuPathClip> contentPathClips;
 }
 
 class _GroupPaintSpec extends _GpuCompositeSpec {
@@ -715,6 +724,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
     required this.paintClips,
     required this.paintBlends,
     required this.contentClip,
+    this.contentPathClips = const [],
     this.groupAlpha = 1,
     this.offscreen = false,
     this.knockout = false,
@@ -730,6 +740,8 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final PdfColor? backdropColor;
   @override
   final PdfRect? contentClip;
+  @override
+  final List<_GpuPathClip> contentPathClips;
 }
 
 class _KnockoutSoftMaskFillSpec extends _GpuCompositeSpec {
@@ -1551,6 +1563,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     // source-over, non-knockout groups whose isolation layer is an identity.
     PdfDrawImageCommand? content;
     final paints = <(int?, PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
+    final paintPathClips = <List<_GpuPathClip>>[];
     PdfEndSoftMaskedCommand? softEnd;
     var softDepth = 0;
     var softCount = 0;
@@ -1630,10 +1643,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             break;
           }
           if (softDepth == 0 && content == null) {
-            if (pathClips.isNotEmpty) {
-              return (null, 'non-rectangular soft-mask image clip');
-            }
             paints.add((i, command, clip, blend, false));
+            paintPathClips.add(pathClips);
             contentClip = clip;
             break;
           }
@@ -1651,10 +1662,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfFillPathCommand');
           }
-          if (pathClips.isNotEmpty) {
-            return (null, 'non-rectangular soft-mask image clip');
-          }
           paints.add((i, command, clip, blend, fillOverprint));
+          paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfFillPathGradientCommand() || PdfFillMeshCommand():
           if (emptyClipOnly) {
@@ -1667,10 +1676,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               'soft-mask group contains ${command.runtimeType}',
             );
           }
-          if (pathClips.isNotEmpty) {
-            return (null, 'non-rectangular soft-mask image clip');
-          }
           paints.add((i, command, clip, blend, fillOverprint));
+          paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfStrokePathCommand():
           if (emptyClipOnly) {
@@ -1680,10 +1687,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfStrokePathCommand');
           }
-          if (pathClips.isNotEmpty) {
-            return (null, 'non-rectangular soft-mask image clip');
-          }
           paints.add((i, command, clip, blend, strokeOverprint));
+          paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfDrawTextCommand(:final run):
           if (emptyClipOnly) {
@@ -1693,9 +1698,6 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfDrawTextCommand');
           }
-          if (pathClips.isNotEmpty) {
-            return (null, 'non-rectangular soft-mask image clip');
-          }
           paints.add((
             i,
             command,
@@ -1704,6 +1706,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             (run.fill && fillOverprint) ||
                 (run.strokeColor != null && strokeOverprint),
           ));
+          paintPathClips.add(pathClips);
           contentClip = clip;
         case PdfSetBlendModeCommand(:final mode):
           // A one-element group may use any internal blend: with a transparent
@@ -1742,6 +1745,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   PdfBlendMode.normal,
                   false,
                 ));
+                paintPathClips.add(const []);
               }
             case _GroupFillSpec(:final content, :final groupAlpha):
               paints.add((
@@ -1756,6 +1760,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 PdfBlendMode.normal,
                 false,
               ));
+              paintPathClips.add(nestedSpec.contentPathClips);
             case _GroupStrokeSpec(:final content, :final groupAlpha):
               paints.add((
                 null,
@@ -1769,6 +1774,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 PdfBlendMode.normal,
                 false,
               ));
+              paintPathClips.add(nestedSpec.contentPathClips);
             case _GroupPaintSpec(
                   :final commands,
                   :final paintClips,
@@ -1787,6 +1793,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   paintBlends[nestedIndex],
                   false,
                 ));
+                paintPathClips.add(nestedSpec.contentPathClips);
               }
             default:
               return (null, nested.$2 ?? 'nested image group');
@@ -1814,6 +1821,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     }
     if (softCount == 0 && softDepth == 0 && paints.length == 1) {
       final paint = paints.single;
+      final paintPaths = paintPathClips.single;
       final overprintReason = _compositeOverprintReason(paint.$2, paint.$5);
       if (overprintReason != null) return (null, overprintReason);
       if (backdropColor != null) {
@@ -1835,6 +1843,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               paintClips: [paint.$3],
               paintBlends: [paint.$4],
               contentClip: groupBounds,
+              contentPathClips: paintPaths,
               offscreen: true,
               knockout: true,
               backdropColor: backdropColor,
@@ -1850,6 +1859,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               content: content,
               groupAlpha: alpha,
               contentClip: paint.$3,
+              contentPathClips: paintPaths,
             ),
             null,
           ),
@@ -1858,6 +1868,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               content: content,
               groupAlpha: alpha,
               contentClip: paint.$3,
+              contentPathClips: paintPaths,
             ),
             null,
           ),
@@ -1866,6 +1877,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               content: content,
               groupAlpha: alpha,
               contentClip: paint.$3,
+              contentPathClips: paintPaths,
             ),
             null,
           ),
@@ -1875,6 +1887,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               paintClips: [paint.$3],
               paintBlends: const [PdfBlendMode.normal],
               contentClip: paint.$3,
+              contentPathClips: paintPaths,
               groupAlpha: alpha,
               offscreen: alpha != 1,
             ),
@@ -1886,6 +1899,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               paintClips: [paint.$3],
               paintBlends: const [PdfBlendMode.normal],
               contentClip: paint.$3,
+              contentPathClips: paintPaths,
               groupAlpha: alpha,
               offscreen: alpha != 1,
             ),
@@ -1897,6 +1911,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               paintClips: [paint.$3],
               paintBlends: const [PdfBlendMode.normal],
               contentClip: paint.$3,
+              contentPathClips: paintPaths,
               groupAlpha: alpha,
               offscreen: alpha != 1,
             ),
@@ -1906,6 +1921,9 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       };
     }
     if (softCount == 0 && softDepth == 0 && paints.length > 1) {
+      if (paintPathClips.any((clips) => clips.isNotEmpty)) {
+        return (null, 'non-rectangular multi-paint transparency group clip');
+      }
       final commonClip = paints.first.$3;
       final normalPaints = paints.every((paint) =>
           paint.$4 == PdfBlendMode.normal &&

@@ -50,6 +50,9 @@
 - Retain arbitrary path clips inside a single-image soft-mask transcript when
   the alpha/luminosity backdrop and transfer function prove that the mask is
   zero outside the clip. Non-zero outside-mask values remain on Canvas.
+- Retain arbitrary path clips around one fill, stroke, text run, image,
+  gradient, or mesh inside a single-paint transparency group. Multi-paint
+  groups with path clips remain conservative Canvas fallbacks.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

@@ -126,6 +126,10 @@ inside a single-image mask transcript use that same exact stencil when the
 mask's backdrop and transfer function make its outside value zero. Rectangular
 mask clips remain the bounded shader scissor; arbitrary mask clips with a
 non-zero outside value still use Canvas.
+The same composite stencil retains an arbitrary path clip around one fill,
+stroke, text run, image, gradient, or mesh inside a single-paint transparency
+group. Groups whose separately ordered paints carry path clips remain on
+Canvas until the offscreen pass can preserve a distinct stencil per paint.
 A single ordinary soft-masked source may itself sit inside a transparency
 group: the backend resolves that source in a bounded offscreen target and then
 applies the enclosing group alpha once. This exact route requires no explicit
