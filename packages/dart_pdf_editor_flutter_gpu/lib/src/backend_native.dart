@@ -8722,6 +8722,27 @@ class _GpuEncoder {
     magFilter: gpu.MinMagFilter.linear,
     mipFilter: gpu.MipFilter.linear,
   );
+  // setStencilConfig reads these value fields synchronously. Keep the private
+  // descriptors immutable so every ordinary path, glyph, and texture draw can
+  // reuse the same state instead of allocating one Dart object per draw.
+  static final _stencilDefaultNoClip = gpu.StencilConfig(
+    compareFunction: gpu.CompareFunction.always,
+    depthStencilPassOperation: gpu.StencilOperation.keep,
+    readMask: 0,
+    writeMask: 0,
+  );
+  static final _stencilDefaultClipA = gpu.StencilConfig(
+    compareFunction: gpu.CompareFunction.equal,
+    depthStencilPassOperation: gpu.StencilOperation.keep,
+    readMask: _clipBitA,
+    writeMask: 0,
+  );
+  static final _stencilDefaultClipB = gpu.StencilConfig(
+    compareFunction: gpu.CompareFunction.equal,
+    depthStencilPassOperation: gpu.StencilOperation.keep,
+    readMask: _clipBitB,
+    writeMask: 0,
+  );
 
   void setBlendMode(PdfBlendMode mode) {
     _paintBlend = switch (mode) {
@@ -9293,14 +9314,12 @@ class _GpuEncoder {
   void _defaultStencil() {
     pass
       ..setStencilReference(_activeClipBit)
-      ..setStencilConfig(gpu.StencilConfig(
-        compareFunction: _activeClipBit == 0
-            ? gpu.CompareFunction.always
-            : gpu.CompareFunction.equal,
-        depthStencilPassOperation: gpu.StencilOperation.keep,
-        readMask: _activeClipBit == 0 ? 0 : _activeClipBit,
-        writeMask: 0,
-      ));
+      ..setStencilConfig(switch (_activeClipBit) {
+        0 => _stencilDefaultNoClip,
+        _clipBitA => _stencilDefaultClipA,
+        _clipBitB => _stencilDefaultClipB,
+        _ => throw StateError('unsupported active clip bit: $_activeClipBit'),
+      });
   }
 }
 
