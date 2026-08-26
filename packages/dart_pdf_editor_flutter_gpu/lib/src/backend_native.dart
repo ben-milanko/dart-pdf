@@ -99,7 +99,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   ///
   /// Unsupported glyphs and gradient or soft-masked text keep the exact
   /// stencil path. The atlas is independent of tile scale, so later LoD tiles
-  /// reuse both its outline streams and the six-vertex glyph quads.
+  /// reuse both its outline streams and the six-vertex glyph quads. Native
+  /// substitution scenes with fewer than 32 outlined glyph placements keep
+  /// the cheaper retained stencil path because atlas setup cannot amortize.
   final bool analyticText;
 
   /// Optional exact vector outlines for unembedded/substituted text.
@@ -207,6 +209,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       final outlinedCommands = textOutliner == null
           ? scene.commands
           : _outlineGpuTextCommands(scene.commands, textOutliner!);
+      final usesHostOutlines = !identical(outlinedCommands, scene.commands);
       final commandBuild = _buildGpuCommands(outlinedCommands);
       final commands = commandBuild.commands;
       if (commands == null) {
@@ -254,6 +257,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         imageCache: _imageCache,
         geometryPool: _geometryPool,
         analyticText: analyticText,
+        analyticTextMinimumGlyphs:
+            systemTextOutlines && usesHostOutlines ? 32 : 1,
       );
     } catch (error) {
       _lastSessionRejection = 'initialization failed: $error';
@@ -3301,6 +3306,7 @@ class _FlutterGpuTileSession
     required this.imageCache,
     required this.geometryPool,
     required this.analyticText,
+    required this.analyticTextMinimumGlyphs,
   });
 
   @override
@@ -3327,6 +3333,7 @@ class _FlutterGpuTileSession
   final _GpuImageCache imageCache;
   final _GpuGeometryPool geometryPool;
   final bool analyticText;
+  final int analyticTextMinimumGlyphs;
 
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
@@ -3343,6 +3350,7 @@ class _FlutterGpuTileSession
         imageCache,
         geometryPool,
         analyticText: analyticText,
+        analyticTextMinimumGlyphs: analyticTextMinimumGlyphs,
         mipmapImages: mipmapImages,
       ).then((compiled) {
         if (_disposed) {
@@ -3516,6 +3524,7 @@ class _CompiledScene {
       _GpuImageCache imageCache,
       _GpuGeometryPool geometryPool,
       {required bool analyticText,
+      required int analyticTextMinimumGlyphs,
       required bool mipmapImages}) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
@@ -3534,7 +3543,13 @@ class _CompiledScene {
       _GpuGlyphAtlas? glyphAtlas;
       if (analyticText) {
         try {
-          glyphAtlas = _GpuGlyphAtlas.build(context, commands, units, stats);
+          glyphAtlas = _GpuGlyphAtlas.build(
+            context,
+            commands,
+            units,
+            stats,
+            minimumGlyphs: analyticTextMinimumGlyphs,
+          );
         } catch (_) {
           // This is a retained-geometry optimization, never a new reason for
           // an otherwise supported page to abandon the exact GPU route.
@@ -5512,8 +5527,24 @@ class _GpuGlyphAtlas {
     gpu.GpuContext context,
     List<PdfRenderCommand> commands,
     List<_GpuUnit> units,
-    FlutterGpuTileBackendStats stats,
-  ) {
+    FlutterGpuTileBackendStats stats, {
+    required int minimumGlyphs,
+  }) {
+    var candidateGlyphs = 0;
+    for (final unit in units) {
+      if (unit.composite != null) continue;
+      final command = commands[unit.commandIndex];
+      if (command case PdfDrawTextCommand(:final run)
+          when !run.invisible && run.fill && run.gradient == null) {
+        candidateGlyphs += (run.glyphs ?? const <PdfGlyphPlacement>[])
+            .where((glyph) => glyph.outline != null)
+            .length;
+      }
+    }
+    if (candidateGlyphs < minimumGlyphs) {
+      if (candidateGlyphs > 0) stats.analyticSparseAtlasSkips++;
+      return null;
+    }
     final slots = Map<PdfPath, int>.identity();
     final data = <SlugGlyphData>[];
     for (final unit in units) {

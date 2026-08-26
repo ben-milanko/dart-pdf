@@ -25,7 +25,8 @@ PdfReader(
     maxTextureBytes: 256 << 20,
     maxGeometryBytes: 256 << 20,
     // Ordinary filled outlines use a scale-independent curve atlas by
-    // default. Set false only for an A/B against legacy stencil fans.
+    // default. Sparse native substitution runs stay on cheaper retained
+    // stencil geometry; dense text still amortizes the atlas setup.
     analyticText: true,
     // Optional: retain simple substituted text using the native faces that
     // Canvas normally selects. Leave false if the app registers replacements

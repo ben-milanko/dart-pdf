@@ -66,6 +66,7 @@ void main() {
       ..analyticGlyphSlots = 4
       ..analyticAtlasBytes = 4096
       ..analyticAtlasFallbacks = 1
+      ..analyticSparseAtlasSkips = 3
       ..analyticTextFallbackRuns = 2
       ..paperClearTiles = 6
       ..paperOnlyTiles = 3
@@ -109,6 +110,7 @@ void main() {
     expect(stats.toJson(), containsPair('analyticGlyphSlots', 4));
     expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
     expect(stats.toJson(), containsPair('analyticAtlasFallbacks', 1));
+    expect(stats.toJson(), containsPair('analyticSparseAtlasSkips', 3));
     expect(stats.toJson(), containsPair('analyticTextFallbackRuns', 2));
     expect(stats.toJson(), containsPair('paperClearTiles', 6));
     expect(stats.toJson(), containsPair('paperOnlyTiles', 3));
@@ -156,6 +158,7 @@ void main() {
     expect(stats.analyticGlyphSlots, 0);
     expect(stats.analyticAtlasBytes, 0);
     expect(stats.analyticAtlasFallbacks, 0);
+    expect(stats.analyticSparseAtlasSkips, 0);
     expect(stats.analyticTextFallbackRuns, 0);
     expect(stats.paperClearTiles, 0);
     expect(stats.paperOnlyTiles, 0);

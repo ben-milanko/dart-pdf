@@ -4452,6 +4452,53 @@ void main() {
         reason: 'retained glyph quads must replace outline stencil fans',
       );
 
+      final sparseSystemBackend = FlutterGpuTileRasterBackend(
+        textOutliner: outliner,
+        systemTextOutlines: true,
+      );
+      final sparseSystemSession =
+          sparseSystemBackend.createSession(substituteScene);
+      expect(sparseSystemSession, isNotNull,
+          reason: sparseSystemBackend.lastSessionRejection);
+      addTearDown(sparseSystemSession!.dispose);
+      final sparseSystem = await sparseSystemSession.rasterizeRegion(
+        textRegion,
+        pixelRatio: 1,
+      );
+      addTearDown(sparseSystem.dispose);
+      expect(sparseSystemBackend.stats.analyticSparseAtlasSkips, 1);
+      expect(sparseSystemBackend.stats.analyticGlyphSlots, 0);
+      expect(sparseSystemBackend.stats.analyticTextRuns, 0);
+      expect(
+        sparseSystemBackend.stats.geometryVertices,
+        flattenedBackend.stats.geometryVertices,
+        reason: 'sparse native outlines should use the cheaper stencil path',
+      );
+      final sparsePixels = await _pixels(sparseSystem);
+      var sparseDifference = 0;
+      for (var i = 0; i < expectedPixels.length; i++) {
+        sparseDifference += (expectedPixels[i] - sparsePixels[i]).abs();
+      }
+      expect(sparseDifference / expectedPixels.length, lessThan(8));
+
+      final embeddedProbeBackend = FlutterGpuTileRasterBackend(
+        textOutliner: outliner,
+        systemTextOutlines: true,
+      );
+      final embeddedProbeSession =
+          embeddedProbeBackend.createSession(outlineControl);
+      expect(embeddedProbeSession, isNotNull,
+          reason: embeddedProbeBackend.lastSessionRejection);
+      addTearDown(embeddedProbeSession!.dispose);
+      final embeddedProbe = await embeddedProbeSession.rasterizeRegion(
+        textRegion,
+        pixelRatio: 1,
+      );
+      addTearDown(embeddedProbe.dispose);
+      expect(embeddedProbeBackend.stats.analyticSparseAtlasSkips, 0);
+      expect(embeddedProbeBackend.stats.analyticTextRuns, 1,
+          reason: 'a system-font probe must not penalize embedded outlines');
+
       final radial = await PdfRetainedScene.fromCommands(page, [
         PdfFillPathGradientCommand(
           _rect(40, 40, 300, 300),

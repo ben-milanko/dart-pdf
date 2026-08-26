@@ -252,8 +252,6 @@ jobs:
                   "$label" == "vector-stack-2" ||
                   "$label" == "text-mask-1" ||
                   "$label" == "text-mask-2" ||
-                  "$label" == "system-text" ||
-                  "$label" == "cjk-text" ||
                   "$label" == "advanced-blend" ||
                   "$label" == "advanced-blend-stress" ||
                   "$label" == "knockout-mask" ||
@@ -416,8 +414,12 @@ jobs:
             --require-scenario-runs gpu-text-mask-1-page-0-canvas-tile=6
             --require-scenario-runs gpu-text-mask-2-page-0-first-tile=6
             --require-scenario-runs gpu-text-mask-2-page-0-canvas-tile=6
+            --require-scenario-runs gpu-system-text-pipeline-warm=6
+            --require-scenario-runs gpu-system-text-page-0-scene-warm=6
             --require-scenario-runs gpu-system-text-page-0-first-tile=6
             --require-scenario-runs gpu-system-text-page-0-canvas-tile=6
+            --require-scenario-runs gpu-cjk-text-pipeline-warm=6
+            --require-scenario-runs gpu-cjk-text-page-0-scene-warm=6
             --require-scenario-runs gpu-cjk-text-page-0-first-tile=6
             --require-scenario-runs gpu-cjk-text-page-0-canvas-tile=6
             --require-scenario-runs gpu-advanced-blend-page-0-first-tile=6

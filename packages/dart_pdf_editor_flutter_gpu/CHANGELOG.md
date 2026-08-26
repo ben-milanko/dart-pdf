@@ -5,6 +5,10 @@
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 
+- Keep sparse native system-font outlines on retained stencil geometry instead
+  of allocating a curve atlas for fewer than 32 glyph placements. Dense text
+  still uses the atlas; short Latin/CJK pages avoid its texture construction
+  and driver setup while producing the same pixels.
 - Render content-free interior tiles with a color-only pass that clears
   directly to the folded paper color. This avoids stencil, MSAA, host-buffer,
   and pipeline work when spatial selection proves that no retained command can
