@@ -15,6 +15,7 @@ env:
   PATROL_CLI_VERSION: 4.7.0
   PATROL_ANALYTICS_ENABLED: "false"
   PATROL_PERF_REPETITIONS: 3
+  PATROL_NATIVE_PERF_REPETITIONS: 6
   EXAMPLE_DIR: packages/dart_pdf_editor/example
   PDF_PATROL_BUILD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -215,7 +216,7 @@ jobs:
             --output test-results/perf/android
             --markdown "$GITHUB_STEP_SUMMARY"
             --label Android
-            --require-scenario-runs "native-mobile-tiles=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "native-mobile-tiles=$PATROL_NATIVE_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
@@ -275,8 +276,8 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/patrol-ios.log"
           completed=0
           attempt=0
-          max_attempts=$((PATROL_PERF_REPETITIONS + 2))
-          while ((completed < PATROL_PERF_REPETITIONS && attempt < max_attempts)); do
+          max_attempts=$((PATROL_NATIVE_PERF_REPETITIONS + 2))
+          while ((completed < PATROL_NATIVE_PERF_REPETITIONS && attempt < max_attempts)); do
             attempt=$((attempt + 1))
             attempt_log="$RUNNER_TEMP/patrol-ios-perf-$attempt.log"
             echo "::group::Patrol native performance attempt $attempt/$max_attempts"
@@ -300,8 +301,8 @@ jobs:
               echo "::warning::iOS Patrol attempt $attempt returned without a complete performance marker; retrying"
             fi
           done
-          if ((completed < PATROL_PERF_REPETITIONS)); then
-            echo "::error::iOS Patrol produced $completed/$PATROL_PERF_REPETITIONS complete performance repetitions"
+          if ((completed < PATROL_NATIVE_PERF_REPETITIONS)); then
+            echo "::error::iOS Patrol produced $completed/$PATROL_NATIVE_PERF_REPETITIONS complete performance repetitions"
             exit 1
           fi
       - name: Download latest main Patrol iOS baseline
@@ -344,7 +345,7 @@ jobs:
             --output test-results/perf/ios
             --markdown "$GITHUB_STEP_SUMMARY"
             --label "iOS Simulator"
-            --require-scenario-runs "native-mobile-tiles=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "native-mobile-tiles=$PATROL_NATIVE_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
