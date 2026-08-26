@@ -127,6 +127,70 @@ void main() {
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('reports dense analytic text submission cost', (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final face = FlutterGpuTrueTypeFontFace(buildTestTrueTypeFont());
+      final outliner = FlutterGpuTrueTypeTextOutliner((_) => face);
+      final commands = <PdfRenderCommand>[];
+      for (var row = 0; row < 16; row++) {
+        for (var column = 0; column < 16; column++) {
+          final run = PdfTextRun(
+            text: 'AB',
+            transform: PdfMatrix(
+              12,
+              0,
+              0,
+              12,
+              18 + column * 34,
+              760 - row * 44,
+            ),
+            color: PdfColor(
+              0.1 + (column % 4) * 0.15,
+              0.2 + (row % 4) * 0.12,
+              0.55,
+            ),
+            width: 1.2,
+            fontName: 'Helvetica',
+            fontSize: 12,
+            charOffsets: const [0, 0.6, 1.2],
+          );
+          commands.add(PdfDrawTextCommand(outliner.outline(run)!));
+        }
+      }
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final warm = await session.rasterizeRegion(region, pixelRatio: 0.5);
+      await warm.toByteData(format: ui.ImageByteFormat.rawRgba);
+      warm.dispose();
+      expect(backend.stats.analyticTextRuns, commands.length);
+
+      backend.stats.reset();
+      final settled = <int>[];
+      for (var index = 0; index < 15; index++) {
+        settled.add(await _timeSettledImage(
+          () => session.rasterizeRegion(region, pixelRatio: 0.5),
+        ));
+      }
+      // ignore: avoid_print
+      print('flutter_gpu analytic text benchmark: runs=${commands.length} '
+          'settledMedian=${_median(settled).toStringAsFixed(0)}us '
+          'issueMean=${(backend.stats.issueMicros / settled.length).toStringAsFixed(0)}us '
+          '${backend.stats}');
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('reports content-free interior tile settle', (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
