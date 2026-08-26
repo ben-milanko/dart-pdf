@@ -107,7 +107,10 @@ associative, so their isolation layer is an identity operation. Nested
 alpha-one identity groups flatten into the same retained parent while keeping
 their distinct per-paint clips. Isolated overlapping groups retain those same
 paint types in the bounded offscreen tile pass before applying group alpha and
-the outer blend once. Opaque non-isolated knockout groups with a declared
+the outer blend once. A nested one-image group with a transparent backdrop and
+Normal blend folds its group alpha into that image before joining its retained
+parent; the equivalent premultiplied source avoids a redundant nested pass.
+Opaque non-isolated knockout groups with a declared
 uniform backdrop also retain ordered vector fills and strokes: their bounded
 attachment is seeded with that color and clipped to the form BBox. The
 intermediate group target stays single-sample while
@@ -135,8 +138,10 @@ mask clips remain the bounded shader scissor; arbitrary mask clips with a
 non-zero outside value still use Canvas.
 The same composite stencil retains an arbitrary path clip around one fill,
 stroke, text run, image, gradient, or mesh inside a single-paint transparency
-group. Groups whose separately ordered paints carry path clips remain on
-Canvas until the offscreen pass can preserve a distinct stencil per paint.
+group. An isolated multi-paint offscreen group can share one arbitrary path
+clip: the backend rebuilds that stencil for every source paint before resolving
+the group alpha, preserving antialiased overlap coverage. Groups whose
+separately ordered paints carry distinct path clips remain on Canvas.
 A single ordinary soft-masked source may itself sit inside a transparency
 group: the backend resolves that source in a bounded offscreen target and then
 applies the enclosing group alpha once. This exact route requires no explicit

@@ -808,6 +808,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
     required this.paintBlends,
     required this.contentClip,
     this.contentPathClips = const [],
+    this.paintAlphaScales = const {},
     this.groupAlpha = 1,
     this.offscreen = false,
     this.knockout = false,
@@ -817,6 +818,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final List<PdfRenderCommand> commands;
   final List<PdfRect?> paintClips;
   final List<PdfBlendMode> paintBlends;
+  final Map<int, double> paintAlphaScales;
   final double groupAlpha;
   final bool offscreen;
   final bool knockout;
@@ -1502,12 +1504,20 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
             if (bounds != null) {
               var compositeClip =
                   _withGpuRectClip(capture.clip, spec.contentClip);
-              for (final pathClip in spec.contentPathClips) {
-                compositeClip = _pushGpuClip(
-                  compositeClip,
-                  pathClip.path,
-                  pathClip.rule,
-                );
+              // An offscreen multi-paint group must apply its arbitrary clip
+              // to each source paint before the group alpha is resolved.
+              // Moving that clip to the completed texture can accumulate
+              // different antialias coverage where translucent paints
+              // overlap. [_CompiledScene] retains these path clips as
+              // per-paint stencil states instead.
+              if (spec is! _GroupPaintSpec || !spec.offscreen) {
+                for (final pathClip in spec.contentPathClips) {
+                  compositeClip = _pushGpuClip(
+                    compositeClip,
+                    pathClip.path,
+                    pathClip.rule,
+                  );
+                }
               }
               units.add(_GpuUnit(
                 commandIndex: capture.start,
@@ -1655,6 +1665,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     PdfDrawImageCommand? content;
     final paints = <(int?, PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
     final paintPathClips = <List<_GpuPathClip>>[];
+    final paintAlphaScales = <int, double>{};
     PdfEndSoftMaskedCommand? softEnd;
     var softDepth = 0;
     var softCount = 0;
@@ -1884,8 +1895,35 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   paintBlends[nestedIndex],
                   false,
                 ));
+                final nestedAlphaScale =
+                    nestedSpec.paintAlphaScales[nestedIndex];
+                if (nestedAlphaScale != null) {
+                  paintAlphaScales[paints.length - 1] = nestedAlphaScale;
+                }
                 paintPathClips.add(nestedSpec.contentPathClips);
               }
+            case _GroupPaintSpec(
+                  commands: [PdfDrawImageCommand(:final request)],
+                  paintClips: [final nestedClip],
+                  paintBlends: [PdfBlendMode.normal],
+                )
+                when !nestedSpec.knockout && nestedSpec.backdropColor == null:
+              // A single image over a transparent group backdrop can absorb
+              // the group's alpha exactly: scaling the premultiplied source
+              // before its parent composition is identical to sampling the
+              // completed one-paint group with that alpha. This keeps common
+              // nested image forms on the retained route without inventing a
+              // second nested offscreen pass.
+              paints.add((
+                null,
+                PdfDrawImageCommand(request),
+                nestedClip,
+                PdfBlendMode.normal,
+                false,
+              ));
+              paintAlphaScales[paints.length - 1] =
+                  (nestedSpec.paintAlphaScales[0] ?? 1) * nestedSpec.groupAlpha;
+              paintPathClips.add(nestedSpec.contentPathClips);
             default:
               return (null, nested.$2 ?? 'nested image group');
           }
@@ -1977,6 +2015,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               commands: [content],
               paintClips: [paint.$3],
               paintBlends: const [PdfBlendMode.normal],
+              paintAlphaScales: Map.unmodifiable(paintAlphaScales),
               contentClip: paint.$3,
               contentPathClips: paintPaths,
               groupAlpha: alpha,
@@ -2080,7 +2119,9 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       // which applies the same retained stencil to every paint. Do not move it
       // to the resolved texture of an offscreen group: repeated translucent
       // paints can accumulate different edge coverage from one final mask.
-      if (commonPathClips.isNotEmpty && (!canFlatten || !commonPaintClip)) {
+      if (commonPathClips.isNotEmpty &&
+          (!canFlatten || !commonPaintClip) &&
+          !canRenderOffscreen) {
         return (null, 'non-rectangular multi-paint transparency group clip');
       }
       if (!canFlatten && !canRenderOffscreen) {
@@ -2104,6 +2145,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           paintClips: List.unmodifiable([for (final paint in paints) paint.$3]),
           paintBlends:
               List.unmodifiable([for (final paint in paints) paint.$4]),
+          paintAlphaScales: Map.unmodifiable(paintAlphaScales),
           contentClip: canRenderSeededKnockout
               ? groupBounds
               : canFlatten && commonPaintClip
@@ -3943,6 +3985,35 @@ class _CompiledScene {
       }
       for (final unit in units) {
         final command = commands[unit.commandIndex];
+        List<_GpuClipState>? offscreenPaintClips;
+        if (unit.composite
+            case _GroupPaintSpec(
+              offscreen: true,
+              :final contentPathClips,
+              :final paintClips,
+            ) when contentPathClips.isNotEmpty) {
+          var commonState = unit.clip;
+          for (final pathClip in contentPathClips) {
+            commonState = _pushGpuClip(
+              commonState,
+              pathClip.path,
+              pathClip.rule,
+            );
+          }
+          offscreenPaintClips = [
+            for (final paintClip in paintClips)
+              _withGpuRectClip(commonState, paintClip),
+          ];
+          for (_GpuClipNode? node = commonState.node;
+              node != null;
+              node = node.previous) {
+            final clipNode = node;
+            clipDraws.putIfAbsent(
+              clipNode,
+              () => _compileClip(geometry, clipNode),
+            );
+          }
+        }
         if (unit.composite == null && command is PdfStrokePathCommand) {
           final footprint = _straightStrokeFootprint(command);
           if (footprint != null) {
@@ -3986,6 +4057,7 @@ class _CompiledScene {
                 textureLeases,
                 glyphAtlas,
                 pageToRaster,
+                paintClipStates: offscreenPaintClips,
                 mipmapImages: mipmapImages,
               ),
             _KnockoutSoftMaskFillSpec spec =>
@@ -4402,7 +4474,9 @@ class _CompiledScene {
         emplaceTransient: transient.emplace,
       );
       for (final paint in draw.paints) {
-        groupEncoder.setClip(_withGpuRectClip(unit.clip, paint.$2));
+        groupEncoder.setClip(
+          paint.$5 ?? _withGpuRectClip(unit.clip, paint.$2),
+        );
         if (paint.$4) {
           groupEncoder.setSourceBlend();
         } else {
@@ -5346,9 +5420,10 @@ Future<_GpuDraw?> _compileGroupPaint(
   List<_GpuImageTexture> textureLeases,
   _GpuGlyphAtlas? glyphAtlas,
   PdfMatrix pageToRaster, {
+  List<_GpuClipState>? paintClipStates,
   required bool mipmapImages,
 }) async {
-  final draws = <(_GpuDraw, PdfRect?, PdfBlendMode, bool)>[];
+  final draws = <(_GpuDraw, PdfRect?, PdfBlendMode, bool, _GpuClipState?)>[];
   var paintPadding = 2.0;
   for (var index = 0; index < spec.commands.length; index++) {
     final command = spec.commands[index];
@@ -5360,24 +5435,41 @@ Future<_GpuDraw?> _compileGroupPaint(
         stroke.width * joinScale / 2 + 2,
       );
     }
-    final draw = await _compileCommand(
-      context,
-      geometry,
-      scene,
-      command,
-      stats,
-      imageCache,
-      textureLeases,
-      glyphAtlas,
-      pageToRaster,
-      mipmapImages: mipmapImages,
-    );
+    final alphaScale = spec.paintAlphaScales[index] ?? 1;
+    final _GpuDraw? draw;
+    if (command case PdfDrawImageCommand(:final request) when alphaScale != 1) {
+      draw = await _compileImageCommand(
+        context,
+        geometry,
+        scene,
+        request,
+        stats,
+        imageCache,
+        textureLeases,
+        alphaScale: alphaScale,
+        mipmapImages: mipmapImages,
+      );
+    } else {
+      draw = await _compileCommand(
+        context,
+        geometry,
+        scene,
+        command,
+        stats,
+        imageCache,
+        textureLeases,
+        glyphAtlas,
+        pageToRaster,
+        mipmapImages: mipmapImages,
+      );
+    }
     if (draw != null) {
       draws.add((
         draw,
         spec.paintClips[index],
         spec.paintBlends[index],
         spec.knockout && index > 0,
+        paintClipStates?[index],
       ));
     }
   }
@@ -5406,10 +5498,17 @@ _GpuDraw? _compileKnockoutSoftMaskFill(
     false,
   );
   final maskedDraw = _compileSoftMaskVectorFill(geometry, spec.masked);
-  final paints = <(_GpuDraw, PdfRect?, PdfBlendMode, bool)>[
-    if (baseDraw != null) (baseDraw, spec.baseClip, PdfBlendMode.normal, false),
+  final paints = <(_GpuDraw, PdfRect?, PdfBlendMode, bool, _GpuClipState?)>[
+    if (baseDraw != null)
+      (baseDraw, spec.baseClip, PdfBlendMode.normal, false, null),
     if (maskedDraw != null)
-      (maskedDraw, spec.masked.contentClip, PdfBlendMode.normal, false),
+      (
+        maskedDraw,
+        spec.masked.contentClip,
+        PdfBlendMode.normal,
+        false,
+        null,
+      ),
   ];
   if (paints.isEmpty) return null;
   return _OffscreenGroupDraw(
@@ -5489,7 +5588,7 @@ Future<_GpuDraw?> _compileSoftMaskGroup(
   }
   if (draw == null) return null;
   return _OffscreenGroupDraw(
-    [(draw, null, PdfBlendMode.normal, false)],
+    [(draw, null, PdfBlendMode.normal, false, null)],
     spec.groupAlpha,
     0,
   );
@@ -6550,14 +6649,16 @@ FutureOr<_GpuDraw?> _compileCommand(
 }
 
 Future<_GpuDraw?> _compileImageCommand(
-    gpu.GpuContext context,
-    _GpuGeometryArena geometry,
-    PdfRetainedScene scene,
-    PdfImageRequest request,
-    FlutterGpuTileBackendStats stats,
-    _GpuImageCache imageCache,
-    List<_GpuImageTexture> textureLeases,
-    {required bool mipmapImages}) async {
+  gpu.GpuContext context,
+  _GpuGeometryArena geometry,
+  PdfRetainedScene scene,
+  PdfImageRequest request,
+  FlutterGpuTileBackendStats stats,
+  _GpuImageCache imageCache,
+  List<_GpuImageTexture> textureLeases, {
+  double alphaScale = 1,
+  required bool mipmapImages,
+}) async {
   final image = scene.imageFor(request);
   if (image == null) return null;
   final maskImage = pdfGpuSoftMaskOf(image);
@@ -6570,9 +6671,10 @@ Future<_GpuDraw?> _compileImageCommand(
   );
   textureLeases.add(resource);
   final vertices = _imageVertices(request.transform);
+  final alpha = (request.alpha * alphaScale).clamp(0.0, 1.0);
   final tint = request.isStencil
-      ? _premul(request.stencilColor, request.alpha)
-      : <double>[0, 0, 0, request.alpha];
+      ? _premul(request.stencilColor, alpha)
+      : <double>[0, 0, 0, alpha];
   if (maskImage != null) {
     final maskResource = await imageCache.acquireSurface(
       context,
@@ -7254,8 +7356,10 @@ class _OffscreenGroupDraw implements _GpuDraw {
   /// shape-limited source replacement for knockout
   /// siblings. Retained path stencils emit fragments only inside the painted
   /// shape; masked texture quads keep source-over so transparent pixels beyond
-  /// their source shape cannot erase earlier siblings.
-  final List<(_GpuDraw, PdfRect?, PdfBlendMode, bool)> paints;
+  /// their source shape cannot erase earlier siblings. The fifth optionally
+  /// carries a precompiled per-paint clip for offscreen groups whose shared
+  /// arbitrary path must be applied before the group is resolved.
+  final List<(_GpuDraw, PdfRect?, PdfBlendMode, bool, _GpuClipState?)> paints;
   final double alpha;
   final double extraPadding;
   final PdfColor? backdropColor;

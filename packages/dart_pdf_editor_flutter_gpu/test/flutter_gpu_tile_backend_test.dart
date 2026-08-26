@@ -2565,6 +2565,60 @@ void main() {
     });
   });
 
+  testWidgets('nested single-image group folds alpha into its parent',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final image = _decodedImage(
+        Uint8List.fromList([
+          for (var i = 0; i < 4; i++) ...const [225, 45, 30, 210],
+        ]),
+        const PdfMatrix(220, 0, 0, 180, 60, 110),
+        'nested-alpha-image',
+        workerReconstructed: true,
+      );
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          PdfFillPathCommand(
+            _rect(20, 70, 340, 330),
+            const PdfColor(0.2, 0.55, 0.8),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          const PdfBeginGroupCommand(0.72, isolated: true),
+          const PdfBeginGroupCommand(0.46, isolated: true),
+          image,
+          const PdfEndGroupCommand(),
+          const PdfEndGroupCommand(),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(30, 430, 300, 260);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(2));
+      expect(backend.stats.offscreenGroupPasses, 1);
+    });
+  });
+
   testWidgets('isolated overlapping paints composite through an offscreen tile',
       (tester) async {
     await tester.runAsync(() async {
@@ -3467,6 +3521,24 @@ void main() {
         backend.stats.lastRejection,
         'non-rectangular multi-paint transparency group clip',
       );
+
+      await expectParity(await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(0.45, isolated: true),
+        const PdfClipPathCommand(diamond, PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(40, 80, 240, 280),
+          const PdfColor(0.1, 0.65, 0.3),
+          PdfFillRule.nonzero,
+          0.85,
+        ),
+        PdfFillPathCommand(
+          _rect(80, 120, 200, 240),
+          const PdfColor(0.8, 0.2, 0.3),
+          PdfFillRule.nonzero,
+          0.7,
+        ),
+        const PdfEndGroupCommand(),
+      ]));
 
       final distinctClips = await PdfRetainedScene.fromCommands(page, [
         const PdfBeginGroupCommand(1),
