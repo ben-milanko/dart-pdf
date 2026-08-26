@@ -136,20 +136,24 @@ void _corpus(
         );
         final limit = math.min(document.pageCount, maxPages);
         for (var pageIndex = 0; pageIndex < limit; pageIndex++) {
-          final scene = await PdfRetainedScene.record(document.page(pageIndex));
+          final PdfTileRasterBackend backend = FlutterGpuTileRasterBackend(
+            analyticText:
+                Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
+            systemTextOutlines:
+                Platform.environment['GPU_CORPUS_SYSTEM_TEXT'] == '1',
+            overprintRetryMaxDimension: int.tryParse(
+                  Platform.environment[
+                          'GPU_CORPUS_OVERPRINT_RETRY_DIMENSION'] ??
+                      '',
+                ) ??
+                512,
+          );
+          final scene = await PdfRetainedScene.record(
+            document.page(pageIndex),
+            retainDecodedPixelsForCommands:
+                backend.shouldRetainLocallyDecodedImagePixels,
+          );
           try {
-            final PdfTileRasterBackend backend = FlutterGpuTileRasterBackend(
-              analyticText:
-                  Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
-              systemTextOutlines:
-                  Platform.environment['GPU_CORPUS_SYSTEM_TEXT'] == '1',
-              overprintRetryMaxDimension: int.tryParse(
-                    Platform.environment[
-                            'GPU_CORPUS_OVERPRINT_RETRY_DIMENSION'] ??
-                        '',
-                  ) ??
-                  512,
-            );
             var session = backend.createSession(scene);
             if (session == null && backend is PdfTileRasterRetryBackend) {
               final retry =

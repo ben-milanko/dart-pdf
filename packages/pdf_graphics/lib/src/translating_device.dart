@@ -113,17 +113,8 @@ class TranslatingPdfDevice implements PdfDevice {
       ));
 
   @override
-  void drawImage(PdfImageRequest request) => target.drawImage(PdfImageRequest(
-        stream: request.stream,
-        transform: _matrix(request.transform),
-        alpha: request.alpha,
-        isStencil: request.isStencil,
-        stencilColor: request.stencilColor,
-        isInline: request.isInline,
-        isLuminosityMask: request.isLuminosityMask,
-        decoded: request.decoded,
-        sourceReference: request.sourceReference,
-      ));
+  void drawImage(PdfImageRequest request) =>
+      target.drawImage(request.withTransform(_matrix(request.transform)));
 
   @override
   void setBlendMode(PdfBlendMode mode) => target.setBlendMode(mode);

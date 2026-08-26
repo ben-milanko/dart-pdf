@@ -188,8 +188,10 @@ mask case keeps the base and mask as two GPU textures and combines them during
 tile replay; it never builds an eager full-size RGBA composite or reads pixels
 back to the CPU. Worker-retained RGBA uploads directly; compatible locally
 platform-decoded images import their GPU texture directly into the shared
-cache without a pixel readback. CPU-backed images and the uncommon mipmapped
-bitmap-font path retain the existing readback/upload fallback. A
+cache without a pixel readback. For the uncommon tiled bitmap-font path, the
+local portable decoder keeps RGBA just long enough to upload the hand-built mip
+chain directly, then releases it. CPU-backed platform images retain the proven
+readback/upload fallback. A
 backend-wide byte-budgeted LRU preserves decoded texture identity
 across scenes, pages, workers, zoom levels, and LoDs.
 Pinned scene textures count toward the same ceiling; if no unpinned entry can

@@ -225,6 +225,10 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   bool get prefersDirectDecodedImageUploads => true;
 
   @override
+  bool shouldRetainLocallyDecodedImagePixels(List<PdfRenderCommand> commands) =>
+      _requiresMipmappedImages(_dropInvisibleGroups(commands));
+
+  @override
   PdfTileRasterSession? createSession(PdfRetainedScene scene) {
     _lastSessionRejection = null;
     try {
@@ -1192,7 +1196,7 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
   const maxExpandedCommands = 1000000;
   source = _dropInvisibleGroups(source);
   var hasTiledCell = false;
-  var mipmapImages = false;
+  final mipmapImages = _requiresMipmappedImages(source);
 
   int count(List<PdfRenderCommand> commands, Set<Object> active,
       {bool inTiledCell = false}) {
@@ -1215,15 +1219,6 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
         }
         total += cellCount * originsX.length;
       } else {
-        if (inTiledCell &&
-            command is PdfDrawImageCommand &&
-            command.request.isStencil) {
-          // Canvas uses FilterQuality.medium for every image on the page.
-          // Once a retained bitmap-font cell needs minification, match that
-          // sampling mode for the whole GPU scene; mixing base-only and
-          // mipmapped images on the same Ghent page is measurably less exact.
-          mipmapImages = true;
-        }
         total++;
       }
       if (total > maxExpandedCommands) {
@@ -1282,6 +1277,34 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
     null,
     mipmapImages: mipmapImages,
   );
+}
+
+/// Whether Canvas parity requires the scene-wide hand-built mip chain.
+///
+/// Canvas uses FilterQuality.medium for every image on the page. Once a
+/// retained bitmap-font cell needs minification, matching that sampling mode
+/// for the whole GPU scene is measurably more exact than mixing base-only and
+/// mipmapped images on the same Ghent page.
+bool _requiresMipmappedImages(List<PdfRenderCommand> commands,
+    {bool inTiledCell = false, Set<Object>? active}) {
+  active ??= Set<Object>.identity();
+  if (!active.add(commands)) return false;
+  for (final command in commands) {
+    if (command case PdfDrawTiledCellCommand(:final cellCommands)) {
+      if (_requiresMipmappedImages(cellCommands,
+          inTiledCell: true, active: active)) {
+        active.remove(commands);
+        return true;
+      }
+    } else if (inTiledCell &&
+        command is PdfDrawImageCommand &&
+        command.request.isStencil) {
+      active.remove(commands);
+      return true;
+    }
+  }
+  active.remove(commands);
+  return false;
 }
 
 /// Removes transparency groups whose alpha is zero or whose declared

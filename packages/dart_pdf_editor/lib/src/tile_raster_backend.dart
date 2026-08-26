@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'retained_scene.dart';
 import 'tile_store.dart';
@@ -38,10 +39,18 @@ abstract class PdfTileRasterBackend {
   ///
   /// The Canvas backend only needs the engine [ui.Image], so dropping the
   /// duplicate worker payload immediately saves memory. A backend that can
-  /// upload those bytes directly may opt in and release them after its
-  /// one-time scene compilation through
+  /// upload those bytes directly may opt in and release them after its one-time
+  /// scene compilation through
   /// [PdfRetainedScene.releaseDecodedImagePixels].
   bool get prefersDirectDecodedImageUploads => false;
+
+  /// Whether this command mix needs locally decoded RGBA retained for upload.
+  ///
+  /// Returning false lets compatible engine images stay on a zero-copy import
+  /// route. Backends should return true only when scene resources require a CPU
+  /// representation, such as a hand-built mip chain.
+  bool shouldRetainLocallyDecodedImagePixels(List<PdfRenderCommand> commands) =>
+      false;
 
   /// Whether [warmUp] performs useful process- or view-scoped preparation.
   ///

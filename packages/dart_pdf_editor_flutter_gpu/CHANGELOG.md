@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Retain portable decoder RGBA only for scenes whose tiled bitmap-font images
+  need a hand-built mip chain, upload those pixels directly, and release them
+  after scene compilation. Ordinary images continue through zero-copy platform
+  texture import; mipmapped scenes avoid a GPU-to-CPU readback per image.
 - Import compatible platform-decoded `ui.Image` textures directly into
   Flutter GPU instead of reading their pixels back to the CPU and uploading
   them again. CPU-backed and mipmapped images keep the proven upload fallback.

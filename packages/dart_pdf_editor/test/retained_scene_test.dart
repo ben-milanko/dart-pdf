@@ -84,6 +84,35 @@ void main() {
     });
   });
 
+  testWidgets(
+      'cached local scene can recover portable pixels for accelerated upload',
+      (tester) async {
+    await tester.runAsync(() async {
+      PdfImageCache.instance.clear();
+      addTearDown(PdfImageCache.instance.clear);
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final warm = await PdfRetainedScene.record(page);
+      warm.dispose();
+
+      final scene = await PdfRetainedScene.record(
+        page,
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final request =
+          scene.commands.whereType<PdfDrawImageCommand>().first.request;
+
+      expect(request.decoded, isNotNull);
+      expect(request.decoded!.width, scene.imageFor(request)!.width);
+      expect(request.decoded!.height, scene.imageFor(request)!.height);
+
+      scene.releaseDecodedImagePixels();
+      expect(request.decoded, isNull);
+      expect(scene.imageFor(request), isNotNull,
+          reason: 'Canvas replay keeps the engine image after CPU release');
+    });
+  });
+
   testWidgets('local retained scenes can be re-recorded for overprint retry',
       (tester) async {
     await tester.runAsync(() async {

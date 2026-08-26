@@ -1609,6 +1609,70 @@ void main() {
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('local portable pixels upload without an image readback',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final scene = await PdfRetainedScene.record(
+        PdfDocument.open(buildEmbeddedFontImagePdf()).page(0),
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final request =
+          scene.commands.whereType<PdfDrawImageCommand>().first.request;
+      expect(request.decoded, isNotNull);
+
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene)!;
+      addTearDown(session.dispose);
+      final image = await session.rasterizeRegion(
+        Offset.zero & scene.pageSize,
+        pixelRatio: 0.25,
+      );
+      addTearDown(image.dispose);
+      await _pixels(image);
+
+      expect(backend.stats.textureDirectUploads, 1);
+      expect(backend.stats.textureImports, 0);
+      expect(backend.stats.textureReadbacks, 0);
+      expect(request.decoded, isNull,
+          reason: 'scene compilation releases the temporary CPU payload');
+    });
+  });
+
+  test('local retention targets only mipmapped tiled stencil scenes', () {
+    final backend = FlutterGpuTileRasterBackend();
+    final stream = CosStream(CosDictionary(), Uint8List(0));
+    PdfDrawImageCommand image({required bool stencil}) =>
+        PdfDrawImageCommand(PdfImageRequest(
+          stream: stream,
+          transform: PdfMatrix.identity,
+          isStencil: stencil,
+        ));
+    List<PdfRenderCommand> tiled(PdfDrawImageCommand command) => [
+          PdfDrawTiledCellCommand(
+            [command],
+            Float64List.fromList([0]),
+            Float64List.fromList([0]),
+          ),
+        ];
+
+    expect(
+        backend.shouldRetainLocallyDecodedImagePixels([image(stencil: true)]),
+        isFalse);
+    expect(
+        backend.shouldRetainLocallyDecodedImagePixels(
+            tiled(image(stencil: false))),
+        isFalse);
+    expect(
+        backend
+            .shouldRetainLocallyDecodedImagePixels(tiled(image(stencil: true))),
+        isTrue);
+  });
+
   testWidgets('content identity survives worker-reconstructed scenes',
       (tester) async {
     await tester.runAsync(() async {

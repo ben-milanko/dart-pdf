@@ -47,8 +47,12 @@ typedef _NativeGpuRaster = ({
 Future<void> runNativeGpuPerfScenario() async {
   final platform = _platformName();
   final document = PdfDocument.open(buildEmbeddedFontImagePdf());
-  final scene = await PdfRetainedScene.record(document.page(0));
   final backend = FlutterGpuTileRasterBackend(enableProactiveWarmUp: true);
+  final scene = await PdfRetainedScene.record(
+    document.page(0),
+    retainDecodedPixelsForCommands:
+        backend.shouldRetainLocallyDecodedImagePixels,
+  );
   PdfTileRasterSession? session;
   try {
     await _measureNativeGpuScenario(

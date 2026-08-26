@@ -71,10 +71,13 @@ void main() {
         return;
       }
 
-      final scene = await PdfRetainedScene.record(
-          PdfDocument.open(buildEmbeddedFontImagePdf()).page(0));
-      addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend();
+      final scene = await PdfRetainedScene.record(
+        PdfDocument.open(buildEmbeddedFontImagePdf()).page(0),
+        retainDecodedPixelsForCommands:
+            backend.shouldRetainLocallyDecodedImagePixels,
+      );
+      addTearDown(scene.dispose);
       final session = backend.createSession(scene);
       expect(session, isNotNull, reason: backend.stats.lastRejection);
       addTearDown(session!.dispose);

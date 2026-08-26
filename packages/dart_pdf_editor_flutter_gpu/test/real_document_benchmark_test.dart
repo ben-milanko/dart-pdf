@@ -265,6 +265,8 @@ void main() {
         final record = Stopwatch()..start();
         final scene = await PdfRetainedScene.record(
           document.page(pageIndex),
+          retainDecodedPixelsForCommands:
+              gpuBackend.shouldRetainLocallyDecodedImagePixels,
           timing: timing,
         );
         record.stop();

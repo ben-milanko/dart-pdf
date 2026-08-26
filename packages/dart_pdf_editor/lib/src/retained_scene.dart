@@ -364,6 +364,13 @@ class PdfRetainedScene {
   /// display resolution, as in [decodeImages] - the local twin of the render
   /// worker's own cap, so a JPEG the worker declined does not decode at full
   /// native resolution on the UI thread.
+  ///
+  /// [retainDecodedPixels] keeps portable decoder output until an accelerated
+  /// backend uploads it. Platform-codec images still retain only their
+  /// [ui.Image].
+  /// [retainDecodedPixelsForCommands] can opt in after recording has exposed
+  /// the complete command mix, allowing a backend to keep pixels only for
+  /// scenes whose upload strategy needs them.
   static Future<PdfRetainedScene> record(
     PdfPage page, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
@@ -371,6 +378,8 @@ class PdfRetainedScene {
     int overprintMaxDimension = 384,
     double? maxImagePixelRatio,
     double imageDecodeHeadroom = 2,
+    bool retainDecodedPixels = false,
+    bool Function(List<PdfRenderCommand>)? retainDecodedPixelsForCommands,
     PdfSceneBuildTiming? timing,
   }) async {
     final cos = page.document.cos;
@@ -381,11 +390,14 @@ class PdfRetainedScene {
       overprintMaxDimension: overprintMaxDimension,
     )..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    final keepDecodedPixels = retainDecodedPixels ||
+        (retainDecodedPixelsForCommands?.call(recorder.commands) ?? false);
     final clock = timing == null ? null : (Stopwatch()..start());
     final images = await decodeImages(cos, recorder.imageRequests,
         cache: PdfImageCache.instance,
         maxImagePixelRatio: maxImagePixelRatio,
-        imageDecodeHeadroom: imageDecodeHeadroom);
+        imageDecodeHeadroom: imageDecodeHeadroom,
+        retainDecodedPixels: keepDecodedPixels);
     if (clock != null) {
       timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
     }
@@ -394,6 +406,14 @@ class PdfRetainedScene {
       plan,
       recorder.commands,
       images,
+      retainedDecodedRequests: !keepDecodedPixels
+          ? null
+          : <PdfImageRequest>[
+              for (final request in recorder.imageRequests)
+                if (request.decoded != null &&
+                    images.containsKey(pdfImageKey(request)))
+                  request,
+            ],
       recordingOptions: skipAnnotation == null
           ? (
               maxImagePixelRatio: maxImagePixelRatio,
@@ -495,6 +515,9 @@ class PdfRetainedScene {
   /// ([decodeImages]). This is the path that pays for a JPEG the worker shipped
   /// un-decoded (it cannot run the platform codec); the cap keeps that UI-thread
   /// decode at display size instead of the image's full native resolution.
+  /// [retainDecodedPixels] preserves pixels already carried by a worker;
+  /// [retainLocallyDecodedPixels] separately controls portable decoding done in
+  /// this isolate and defaults to the same value.
   static Future<PdfRetainedScene> fromCommands(
     PdfPage page,
     List<PdfRenderCommand> commands, {
@@ -502,9 +525,11 @@ class PdfRetainedScene {
     bool includeImages = true,
     bool allowOverprintRerecord = false,
     bool retainDecodedPixels = false,
+    bool? retainLocallyDecodedPixels,
     PdfSceneBuildTiming? timing,
     double? maxImagePixelRatio,
   }) async {
+    final keepLocalPixels = retainLocallyDecodedPixels ?? retainDecodedPixels;
     Map<Object, ui.Image> images = const <Object, ui.Image>{};
     final requests = <PdfImageRequest>[];
     if (includeImages) {
@@ -515,15 +540,16 @@ class PdfRetainedScene {
       images = await decodeImages(page.document.cos, requests,
           cache: PdfImageCache.instance,
           maxImagePixelRatio: maxImagePixelRatio,
-          imageDecodeHeadroom: 1);
-      if (!retainDecodedPixels) {
+          imageDecodeHeadroom: 1,
+          retainDecodedPixels: keepLocalPixels);
+      if (!retainDecodedPixels && !keepLocalPixels) {
         _releaseDecodedImagePixels(requests, images);
       }
       if (clock != null) {
         timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
       }
     }
-    final retainedRequests = !retainDecodedPixels
+    final retainedRequests = !retainDecodedPixels && !keepLocalPixels
         ? null
         : <PdfImageRequest>[
             for (final request in requests)
@@ -547,8 +573,8 @@ class PdfRetainedScene {
     );
   }
 
-  /// Releases worker-carried RGBA after an accelerated backend has uploaded
-  /// its scene textures.
+  /// Releases worker-carried or locally retained RGBA after an accelerated
+  /// backend has uploaded its scene textures.
   ///
   /// Retained Canvas replay continues to use [_images]. The command requests
   /// keep their decoded dimensions, so inline-image lookup identity remains

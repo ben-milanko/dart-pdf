@@ -2923,7 +2923,9 @@ class _PdfPageViewState extends State<PdfPageView>
     final scene = await PdfRetainedScene.record(widget.page,
         plan: _renderPlan,
         maxImagePixelRatio: localImageRatio,
-        imageDecodeHeadroom: 1);
+        imageDecodeHeadroom: 1,
+        retainDecodedPixelsForCommands:
+            widget.tileRasterBackend.shouldRetainLocallyDecodedImagePixels);
     _lastInterpretResultBytes = _logImageStats(pageIndex, scene.commands);
     if (!_retainScene(scene.commands)) {
       // Too dense or too fragmented to replay per zoom settle: take the 1:1
@@ -3055,6 +3057,8 @@ class _PdfPageViewState extends State<PdfPageView>
       plan: _renderPlan,
       retainDecodedPixels:
           widget.tileRasterBackend.prefersDirectDecodedImageUploads,
+      retainLocallyDecodedPixels: widget.tileRasterBackend
+          .shouldRetainLocallyDecodedImagePixels(commands),
       timing: timing,
       maxImagePixelRatio: maxImagePixelRatio,
       allowOverprintRerecord: true,
@@ -4988,6 +4992,8 @@ class _PdfPageViewState extends State<PdfPageView>
         plan: _renderPlan,
         retainDecodedPixels:
             widget.tileRasterBackend.prefersDirectDecodedImageUploads,
+        retainLocallyDecodedPixels: widget.tileRasterBackend
+            .shouldRetainLocallyDecodedImagePixels(commands),
         maxImagePixelRatio: imageRatio,
       );
       if (!mounted ||
