@@ -262,6 +262,10 @@ void main() {
       final compileLeases = backend.stats.activeTextureLeases;
       final compileStandaloneUniformBuffers =
           backend.stats.standaloneUniformBuffers;
+      expect(compileStandaloneUniformBuffers, 0,
+          reason: 'immutable image metadata belongs in the retained arena');
+      expect(backend.stats.geometryBuffers, 1,
+          reason: 'all image vertices and aligned uniforms fit one arena');
 
       backend.stats.reset();
       final settled = <int>[];

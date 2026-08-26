@@ -88,14 +88,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   /// A non-positive value disables cross-scene texture reuse.
   final int maxTextureBytes;
 
-  /// Hard ceiling for reusable scene geometry buffers.
+  /// Hard ceiling for reusable retained-scene buffers.
   ///
   /// Stable flutter_gpu does not expose explicit DeviceBuffer disposal, so
   /// relying on native finalizers lets fast CAD navigation outrun collection.
-  /// Buffers are therefore pooled in power-of-two size classes from 64 KiB to
-  /// the arena's 16 MiB chunk size, leased by compiled scenes, and reused only
-  /// after the scene is disposed and every submitted command buffer has
-  /// completed. A scene that cannot fit falls back to Canvas.
+  /// Geometry and aligned immutable uniform metadata are therefore packed
+  /// together in power-of-two size classes from 64 KiB to the arena's 16 MiB
+  /// chunk size, leased by compiled scenes, and reused only after the scene is
+  /// disposed and every submitted command buffer has completed. A scene that
+  /// cannot fit falls back to Canvas.
   final int maxGeometryBytes;
 
   /// Whether the viewer should prepare GPU pipelines and live scenes at idle.
@@ -4323,7 +4324,7 @@ class _CompiledScene {
       if (analyticText) {
         try {
           glyphAtlas = _GpuGlyphAtlas.build(
-            context,
+            geometry,
             commands,
             units,
             stats,
@@ -5924,8 +5925,7 @@ Future<_GpuDraw> _compileSoftMaskImage(
       ? _premul(spec.mask.stencilColor, spec.mask.alpha)
       : <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)];
   final info = _softMaskInfo(
-    context,
-    stats,
+    geometry,
     maskTransform: spec.mask.transform,
     contentTint: contentTint,
     maskTint: maskTint,
@@ -6328,8 +6328,7 @@ Future<_GpuDraw> _compileSoftMaskFill(
     spec.content.rule,
     maskResource.texture,
     _softMaskInfo(
-      context,
-      stats,
+      geometry,
       maskTransform: spec.mask.transform,
       contentTint: _premul(spec.content.color, spec.content.alpha),
       maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
@@ -6388,8 +6387,7 @@ Future<_GpuDraw> _compileSoftMaskStroke(
     PdfFillRule.nonzero,
     maskResource.texture,
     _softMaskInfo(
-      context,
-      stats,
+      geometry,
       maskTransform: spec.mask.transform,
       contentTint: _premul(spec.content.color, spec.content.alpha),
       maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
@@ -6440,8 +6438,7 @@ Future<_GpuDraw> _compileSoftMaskText(
     PdfFillRule.nonzero,
     maskResource.texture,
     _softMaskInfo(
-      context,
-      stats,
+      geometry,
       maskTransform: spec.mask.transform,
       contentTint: _premul(spec.content.run.color, spec.content.run.fillAlpha),
       maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
@@ -6638,9 +6635,8 @@ double _vectorMaskValue(_SoftMaskVectorFillSpec spec, double x, double y) {
   return (value * spec.transferScale + spec.transferOffset).clamp(0.0, 1.0);
 }
 
-gpu.BufferView _softMaskInfo(
-  gpu.GpuContext context,
-  FlutterGpuTileBackendStats stats, {
+_GpuBuffer _softMaskInfo(
+  _GpuGeometryArena geometry, {
   required PdfMatrix maskTransform,
   required List<double> contentTint,
   required List<double> maskTint,
@@ -6695,24 +6691,20 @@ gpu.BufferView _softMaskInfo(
       clip.right,
       clip.top,
     ]);
-  stats.standaloneUniformBuffers++;
-  return gpu.BufferView(
-    context.createDeviceBufferWithCopy(ByteData.sublistView(values)),
-    offsetInBytes: 0,
-    lengthInBytes: values.lengthInBytes,
-  );
+  return geometry.addUniform(ByteData.sublistView(values));
 }
 
 class _GpuGlyphAtlas {
   _GpuGlyphAtlas(this.texture, this.info, this.slots);
 
   static _GpuGlyphAtlas? build(
-    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
     List<PdfRenderCommand> commands,
     List<_GpuUnit> units,
     FlutterGpuTileBackendStats stats, {
     required int minimumGlyphs,
   }) {
+    final context = geometry.context;
     var candidateGlyphs = 0;
     for (final unit in units) {
       if (unit.composite != null) continue;
@@ -6796,12 +6788,7 @@ class _GpuGlyphAtlas {
     final dimensions = Float32List.fromList(
       <double>[slugAtlasWidth.toDouble(), height.toDouble()],
     );
-    stats.standaloneUniformBuffers++;
-    final info = gpu.BufferView(
-      context.createDeviceBufferWithCopy(ByteData.sublistView(dimensions)),
-      offsetInBytes: 0,
-      lengthInBytes: dimensions.lengthInBytes,
-    );
+    final info = geometry.addUniform(ByteData.sublistView(dimensions));
     stats
       ..analyticGlyphSlots += data.length
       ..analyticAtlasBytes += pixels.length;
@@ -6809,7 +6796,7 @@ class _GpuGlyphAtlas {
   }
 
   final gpu.Texture texture;
-  final gpu.BufferView info;
+  final _GpuBuffer info;
   final Map<PdfPath, int> slots;
 }
 
@@ -7436,8 +7423,7 @@ Future<_GpuDraw?> _compileImageCommand(
       resource.texture,
       maskResource.texture,
       _softMaskInfo(
-        context,
-        stats,
+        geometry,
         maskTransform: request.transform,
         contentTint: tint,
         maskTint: const [0, 0, 0, 1],
@@ -7453,15 +7439,10 @@ Future<_GpuDraw?> _compileImageCommand(
   final info = Float32List(8)
     ..setRange(0, 4, tint)
     ..[4] = request.isStencil ? 1 : 0;
-  stats.standaloneUniformBuffers++;
   return _TextureDraw(
     geometry.add(vertices.bytes, 6),
     resource.texture,
-    gpu.BufferView(
-      context.createDeviceBufferWithCopy(ByteData.sublistView(info)),
-      offsetInBytes: 0,
-      lengthInBytes: info.lengthInBytes,
-    ),
+    geometry.addUniform(ByteData.sublistView(info)),
   );
 }
 
@@ -7821,15 +7802,26 @@ class _GpuGeometryArena {
 
   List<_GpuGeometryResource> get leases => List.unmodifiable(_leases);
 
-  _GpuBuffer add(ByteData bytes, int vertices) {
+  _GpuBuffer add(ByteData bytes, int vertices) =>
+      _add(bytes, vertices, alignment: 1);
+
+  _GpuBuffer addUniform(ByteData bytes) => _add(
+        bytes,
+        0,
+        alignment: math.max(1, context.minimumUniformByteAlignment),
+      );
+
+  _GpuBuffer _add(ByteData bytes, int vertices, {required int alignment}) {
     if (_finalized) throw StateError('GPU geometry arena already finalized');
+    var offset = _align(_pendingBytes, alignment);
     if (_slices.isNotEmpty &&
-        _pendingBytes + bytes.lengthInBytes > _GpuGeometryPool.chunkBytes) {
+        offset + bytes.lengthInBytes > _GpuGeometryPool.chunkBytes) {
       _flush();
+      offset = 0;
     }
-    final result = _GpuBuffer(vertices);
+    final result = _GpuBuffer(vertices).._offsetInBytes = offset;
     _slices.add(_GpuGeometrySlice(bytes, result));
-    _pendingBytes += bytes.lengthInBytes;
+    _pendingBytes = offset + bytes.lengthInBytes;
     stats.geometryVertices += vertices;
     return result;
   }
@@ -7848,15 +7840,13 @@ class _GpuGeometryArena {
   void _flush() {
     if (_slices.isEmpty) return;
     final packed = Uint8List(_pendingBytes);
-    var offset = 0;
     for (final slice in _slices) {
       final source = slice.bytes.buffer.asUint8List(
         slice.bytes.offsetInBytes,
         slice.bytes.lengthInBytes,
       );
+      final offset = slice.buffer._offsetInBytes;
       packed.setRange(offset, offset + source.length, source);
-      slice.buffer._offsetInBytes = offset;
-      offset += source.length;
     }
     final resource = pool.acquire(context, ByteData.sublistView(packed), stats);
     _leases.add(resource);
@@ -7870,6 +7860,9 @@ class _GpuGeometryArena {
     _slices.clear();
     _pendingBytes = 0;
   }
+
+  static int _align(int value, int alignment) =>
+      ((value + alignment - 1) ~/ alignment) * alignment;
 }
 
 /// Single-submission bump arena for transient uniforms and dynamic vertices.
@@ -8211,10 +8204,11 @@ class _TextureDraw implements _GpuDraw {
   const _TextureDraw(this.vertices, this.texture, this.info);
   final _GpuBuffer vertices;
   final gpu.Texture texture;
-  final gpu.BufferView info;
+  final _GpuBuffer info;
 
   @override
-  void encode(_GpuEncoder encoder) => encoder.texture(vertices, texture, info);
+  void encode(_GpuEncoder encoder) =>
+      encoder.texture(vertices, texture, info.view);
 }
 
 class _AnalyticTextDraw implements _GpuDraw {
@@ -8233,11 +8227,11 @@ class _SoftMaskDraw implements _GpuDraw {
   final _GpuBuffer vertices;
   final gpu.Texture contentTexture;
   final gpu.Texture maskTexture;
-  final gpu.BufferView info;
+  final _GpuBuffer info;
 
   @override
   void encode(_GpuEncoder encoder) =>
-      encoder.softMask(vertices, contentTexture, maskTexture, info);
+      encoder.softMask(vertices, contentTexture, maskTexture, info.view);
 }
 
 class _SoftMaskFillDraw implements _GpuDraw {
@@ -8247,11 +8241,11 @@ class _SoftMaskFillDraw implements _GpuDraw {
   final _GpuBuffer cover;
   final PdfFillRule rule;
   final gpu.Texture maskTexture;
-  final gpu.BufferView info;
+  final _GpuBuffer info;
 
   @override
   void encode(_GpuEncoder encoder) =>
-      encoder.softMaskFill(fan, cover, rule, maskTexture, info);
+      encoder.softMaskFill(fan, cover, rule, maskTexture, info.view);
 }
 
 enum _GpuRetainedBindingKind { glyph, image }
@@ -8809,7 +8803,7 @@ class _GpuEncoder {
       pass
         ..bindPipeline(pipelines.glyph)
         ..bindUniform(pipelines.glyphTransform, transform)
-        ..bindUniform(pipelines.glyphInfo, atlas.info)
+        ..bindUniform(pipelines.glyphInfo, atlas.info.view)
         ..bindTexture(
           pipelines.glyphSampler,
           atlas.texture,

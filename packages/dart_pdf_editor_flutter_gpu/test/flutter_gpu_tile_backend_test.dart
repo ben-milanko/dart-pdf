@@ -1703,6 +1703,8 @@ void main() {
               'before touching the shared cache');
       expect(backend.stats.activeTextureLeases, 2,
           reason: 'one scene pins each unique texture once, not once per draw');
+      expect(backend.stats.standaloneUniformBuffers, 0,
+          reason: 'retained image metadata shares the aligned scene arena');
 
       final secondSession = backend.createSession(scene)!;
       addTearDown(secondSession.dispose);

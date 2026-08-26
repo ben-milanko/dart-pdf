@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Pack immutable image, soft-mask, and glyph-atlas uniforms into the
+  lifetime-fenced scene arena with device-required alignment. Image-dense
+  scenes avoid one standalone native `DeviceBuffer` allocation per draw.
 - Pin each unique image texture once per compiled scene instead of once per
   draw. Repeated image commands bypass the shared cache's lease bookkeeping,
   while distinct scenes still acquire independent lifetime-safe leases.
