@@ -115,9 +115,11 @@ uniform backdrop also retain ordered vector fills and strokes: their bounded
 attachment is seeded with that color and clipped to the form BBox. The
 intermediate group target stays single-sample while
 the final page target retains 4x MSAA, avoiding a redundant color/stencil
-raster and resolve. Normal, Multiply, and Screen
-remain per-paint state inside that attachment rather than being collapsed into
-the group's outer blend. Platform-decoded JPEGs whose
+raster and resolve. Every PDF blend mode remains per-paint state inside that
+attachment rather than being collapsed into the group's outer blend. Normal
+uses source-over directly; the other modes sample the possibly translucent
+group backdrop through bounded ping-pong attachments. Platform-decoded JPEGs
+whose
 `/SMask` remains a companion GPU
 surface also keep their base and mask as separate cached textures and combine
 them in the same shader path. A single vector fill can use one opaque grayscale
@@ -141,8 +143,7 @@ stroke, text run, image, gradient, or mesh inside a single-paint transparency
 group. An isolated multi-paint offscreen group preserves either a shared or a
 distinct arbitrary clip stack for every source paint before resolving the
 group alpha, preserving antialiased overlap coverage. Unisolated groups that
-need a backdrop-aware group result, and offscreen groups with advanced
-per-paint blend modes, remain on Canvas.
+need a page-backdrop-aware group result remain on Canvas.
 A single ordinary soft-masked source may itself sit inside a transparency
 group: the backend resolves that source in a bounded offscreen target and then
 applies the enclosing group alpha once. This exact route requires no explicit

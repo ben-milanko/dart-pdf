@@ -9,6 +9,11 @@
 - Preserve a distinct arbitrary path-clip stack for every paint in an isolated
   offscreen transparency group. Each paint rebuilds its exact stencil before
   the group alpha is resolved, rather than forcing the page onto Canvas.
+- Retain every PDF blend mode between paints inside isolated offscreen groups.
+  Non-Normal paints sample the group's possibly translucent destination through
+  bounded ping-pong attachments before group alpha and the outer blend are
+  applied once. The programmable path now implements Multiply and Screen as
+  well as the advanced modes instead of falling through to Exclusion.
 - Import compatible platform-decoded `ui.Image` textures directly into
   Flutter GPU instead of reading their pixels back to the CPU and uploading
   them again. CPU-backed and mipmapped images keep the proven upload fallback.
