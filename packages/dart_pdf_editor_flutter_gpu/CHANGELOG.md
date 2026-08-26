@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Reuse page-level advanced-blend multisample and stencil attachments only
+  after every command buffer in the destination-sampling route completes.
+  Repeated tiles no longer allocate a fresh attachment pair, while the page
+  ping-pong and source textures keep their existing exact ownership.
 - Reuse final-pass multisample color and stencil attachments only after every
   command buffer that references them reaches its completion fence. Final
   resolve textures still remain one-shot because their `ui.Image` escapes to

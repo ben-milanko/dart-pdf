@@ -329,6 +329,65 @@ void main() {
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('advanced blend attachments return after route completion',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(0, 0, 612, 792),
+          const PdfColor(0.16, 0.52, 0.82),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+        PdfFillPathCommand(
+          _rect(0, 0, 612, 792),
+          const PdfColor(0.88, 0.26, 0.12),
+          PdfFillRule.nonzero,
+          0.63,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      final active = session!;
+      try {
+        const region = Rect.fromLTWH(40, 80, 320, 240);
+        final warm = await active.rasterizeRegion(region, pixelRatio: 1);
+        await _pixels(warm);
+        warm.dispose();
+
+        final attachmentsPerTile =
+            gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
+        expect(
+          backend.stats.transientAttachmentTextures,
+          attachmentsPerTile,
+        );
+        expect(backend.stats.transientAttachmentReuses, 0);
+
+        backend.stats.reset();
+        final replay = await active.rasterizeRegion(region, pixelRatio: 1);
+        await _pixels(replay);
+        replay.dispose();
+        expect(backend.stats.failedSubmissions, 0);
+        expect(backend.stats.transientAttachmentTextures, 0);
+        expect(
+          backend.stats.transientAttachmentReuses,
+          attachmentsPerTile,
+        );
+      } finally {
+        active.dispose();
+        scene.dispose();
+      }
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('rotation and rectangular clips match Canvas', (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {

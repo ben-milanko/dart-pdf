@@ -5239,35 +5239,31 @@ class _CompiledScene {
     final pageB = texture(width, height);
     final source = texture(sourceWidth, sourceHeight);
     final color = multisampled
-        ? context.createTexture(
-            gpu.StorageMode.deviceTransient,
-            width,
-            height,
+        ? transient.attachment(
+            width: width,
+            height: height,
             format: context.defaultColorFormat,
             sampleCount: 4,
           )
         : null;
-    final stencil = context.createTexture(
-      gpu.StorageMode.deviceTransient,
-      width,
-      height,
+    final stencil = transient.attachment(
+      width: width,
+      height: height,
       format: context.defaultStencilFormat,
       sampleCount: multisampled ? 4 : 1,
     );
     final sourceColor = cropSource && multisampled
-        ? context.createTexture(
-            gpu.StorageMode.deviceTransient,
-            sourceWidth,
-            sourceHeight,
+        ? transient.attachment(
+            width: sourceWidth,
+            height: sourceHeight,
             format: context.defaultColorFormat,
             sampleCount: 4,
           )
         : color;
     final sourceStencil = cropSource
-        ? context.createTexture(
-            gpu.StorageMode.deviceTransient,
-            sourceWidth,
-            sourceHeight,
+        ? transient.attachment(
+            width: sourceWidth,
+            height: sourceHeight,
             format: context.defaultStencilFormat,
             sampleCount: multisampled ? 4 : 1,
           )

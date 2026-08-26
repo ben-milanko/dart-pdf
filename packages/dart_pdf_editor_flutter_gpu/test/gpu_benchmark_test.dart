@@ -612,6 +612,21 @@ void main() {
       expect(backend.stats.offscreenGroupPasses, 16);
       expect(backend.stats.advancedBlendPasses, 32);
       expect(backend.stats.advancedBlendBlits, 32);
+      final attachmentsPerTile =
+          gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
+      expect(
+        backend.stats.transientAttachmentTextures,
+        greaterThanOrEqualTo(
+          backend.stats.peakInFlightSubmissions * attachmentsPerTile,
+        ),
+        reason: 'in-flight advanced routes need distinct attachment leases',
+      );
+      expect(
+        backend.stats.transientAttachmentTextures +
+            backend.stats.transientAttachmentReuses,
+        backend.stats.tilesRendered * attachmentsPerTile,
+        reason: 'every advanced route attachment should allocate or reuse',
+      );
       // ignore: avoid_print
       print('flutter_gpu mixed group+blend benchmark: cold=${coldGpu}us '
           'issueMedian=${issueMedian.toStringAsFixed(0)}us '
