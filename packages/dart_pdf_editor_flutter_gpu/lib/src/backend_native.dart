@@ -59,7 +59,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
                 ? FlutterGpuSystemTextOutliner.tryCreate()
                 : null),
         _imageCache = _GpuImageCache(maxTextureBytes),
-        _geometryPool = _GpuGeometryPool(maxGeometryBytes);
+        _geometryPool = _GpuGeometryPool(maxGeometryBytes),
+        _transientPool = _GpuTransientPool();
 
   /// Enables 4x MSAA on the final tile target where Impeller supports it.
   /// Intermediate transparency-group targets stay single-sample and are
@@ -131,6 +132,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
+  final _GpuTransientPool _transientPool;
   // Contexts belong to Flutter views and can disappear when a native window
   // closes. Keep only weak membership so diagnostics do not turn every view
   // ever opened into a process-lifetime root.
@@ -301,6 +303,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
         stats: stats,
         imageCache: _imageCache,
         geometryPool: _geometryPool,
+        transientPool: _transientPool,
         analyticText: analyticText,
         analyticTextMinimumGlyphs:
             systemTextOutlines && usesHostOutlines ? 32 : 1,
@@ -4085,6 +4088,7 @@ class _FlutterGpuTileSession
     required this.stats,
     required this.imageCache,
     required this.geometryPool,
+    required this.transientPool,
     required this.analyticText,
     required this.analyticTextMinimumGlyphs,
   });
@@ -4112,6 +4116,7 @@ class _FlutterGpuTileSession
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
   final _GpuGeometryPool geometryPool;
+  final _GpuTransientPool transientPool;
   final bool analyticText;
   final int analyticTextMinimumGlyphs;
 
@@ -4129,6 +4134,7 @@ class _FlutterGpuTileSession
         stats,
         imageCache,
         geometryPool,
+        transientPool,
         analyticText: analyticText,
         analyticTextMinimumGlyphs: analyticTextMinimumGlyphs,
         mipmapImages: mipmapImages,
@@ -4293,6 +4299,7 @@ class _CompiledScene {
     required this.textureLeases,
     required this.geometryPool,
     required this.geometryLeases,
+    required this.transientPool,
   });
 
   static Future<_CompiledScene> build(
@@ -4303,6 +4310,7 @@ class _CompiledScene {
       FlutterGpuTileBackendStats stats,
       _GpuImageCache imageCache,
       _GpuGeometryPool geometryPool,
+      _GpuTransientPool transientPool,
       {required bool analyticText,
       required int analyticTextMinimumGlyphs,
       required bool mipmapImages}) async {
@@ -4504,6 +4512,7 @@ class _CompiledScene {
         textureLeases: textureLeases,
         geometryPool: geometryPool,
         geometryLeases: geometry.leases,
+        transientPool: transientPool,
       );
       stats
         ..scenesCompiled += 1
@@ -4528,6 +4537,7 @@ class _CompiledScene {
   final _GpuTextureLeases textureLeases;
   final _GpuGeometryPool geometryPool;
   final List<_GpuGeometryResource> geometryLeases;
+  final _GpuTransientPool transientPool;
   bool _disposed = false;
   bool _texturesReleased = false;
   bool _geometryReleased = false;
@@ -4602,10 +4612,24 @@ class _CompiledScene {
         tracePage: tracePage,
       );
     }
-    if (selected.any((unit) =>
-        !FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
-            unit.blendMode))) {
-      return _renderAdvanced(
+    final transient = _GpuTransientArena(context, stats, transientPool);
+    try {
+      if (selected.any((unit) =>
+          !FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+              unit.blendMode))) {
+        return _renderAdvanced(
+          selected,
+          region: region,
+          pixelRatio: pixelRatio,
+          pipelines: pipelines,
+          useMsaa: useMsaa,
+          width: width,
+          height: height,
+          transient: transient,
+          tracePage: tracePage,
+        );
+      }
+      return _renderSimple(
         selected,
         region: region,
         pixelRatio: pixelRatio,
@@ -4613,19 +4637,12 @@ class _CompiledScene {
         useMsaa: useMsaa,
         width: width,
         height: height,
+        transient: transient,
         tracePage: tracePage,
       );
+    } finally {
+      transient.seal();
     }
-    return _renderSimple(
-      selected,
-      region: region,
-      pixelRatio: pixelRatio,
-      pipelines: pipelines,
-      useMsaa: useMsaa,
-      width: width,
-      height: height,
-      tracePage: tracePage,
-    );
   }
 
   ui.Image _renderPaperOnly({
@@ -4876,7 +4893,7 @@ class _CompiledScene {
         transient,
       ];
       transient.flush();
-      groupCommandBuffer.submit(completionCallback: (_) {
+      transient.submit(groupCommandBuffer, completionCallback: (_) {
         // The page completion owns the textures on the success path. This
         // independent capture also fences every submitted group resource if a
         // later allocation or the final page submission throws.
@@ -5106,7 +5123,7 @@ class _CompiledScene {
       transient,
     ];
     for (final commandBuffer in commandBuffers) {
-      commandBuffer.submit(completionCallback: (_) {
+      transient.submit(commandBuffer, completionCallback: (_) {
         // A later page submission owns the completed texture on the success
         // path. This independent capture fences every intermediate if a
         // subsequent allocation or submission throws.
@@ -5124,6 +5141,7 @@ class _CompiledScene {
     required bool useMsaa,
     required int width,
     required int height,
+    required _GpuTransientArena transient,
     int? tracePage,
   }) {
     final issue = Stopwatch()..start();
@@ -5228,7 +5246,6 @@ class _CompiledScene {
             sampleCount: multisampled ? 4 : 1,
           )
         : stencil;
-    final transient = _GpuTransientArena(context, stats);
     final groups = _renderOffscreenGroups(
       selected,
       region: region,
@@ -5576,7 +5593,7 @@ class _CompiledScene {
     try {
       for (var i = 0; i < commandBuffers.length; i++) {
         final last = i == commandBuffers.length - 1;
-        commandBuffers[i].submit(completionCallback: (success) {
+        transient.submit(commandBuffers[i], completionCallback: (success) {
           retained.length;
           if (last) {
             _completeSubmission(
@@ -5612,6 +5629,7 @@ class _CompiledScene {
     required bool useMsaa,
     required int width,
     required int height,
+    required _GpuTransientArena transient,
     int? tracePage,
   }) {
     final issue = Stopwatch()..start();
@@ -5638,8 +5656,6 @@ class _CompiledScene {
       format: context.defaultStencilFormat,
       sampleCount: multisampled ? 4 : 1,
     );
-    final transient = _GpuTransientArena(context, stats);
-
     gpu.RenderPass createPass(
       gpu.CommandBuffer commandBuffer,
       gpu.Texture target,
@@ -5765,7 +5781,8 @@ class _CompiledScene {
         stats.inFlightSubmissions,
       );
     try {
-      commandBuffer.submit(
+      transient.submit(
+        commandBuffer,
         completionCallback: (success) {
           // Keep every intermediate attachment alive until the command buffer
           // has finished sampling it into the page target.
@@ -7903,7 +7920,7 @@ class _GpuGeometryArena {
 /// dense dynamic geometry, tests the complete aligned range before every
 /// write, and is retained until the command-buffer completion fence fires.
 class _GpuTransientArena {
-  _GpuTransientArena(this.context, [this.stats]);
+  _GpuTransientArena(this.context, [this.stats, this.pool]);
 
   static const _firstBlockBytes = 4 << 10;
   static const _secondBlockBytes = 16 << 10;
@@ -7911,12 +7928,17 @@ class _GpuTransientArena {
 
   final gpu.GpuContext context;
   final FlutterGpuTileBackendStats? stats;
+  final _GpuTransientPool? pool;
   final List<_GpuTransientBlock> _blocks = [];
   _GpuTransientBlock? _active;
   var _allocatedBytes = 0;
   var _nextBlockBytes = _secondBlockBytes;
+  var _pendingSubmissions = 0;
+  var _sealed = false;
+  var _released = false;
 
   gpu.BufferView emplace(ByteData bytes) {
+    if (_sealed) throw StateError('GPU transient arena is sealed');
     final length = bytes.lengthInBytes;
     if (length <= 0) {
       throw ArgumentError.value(length, 'bytes.lengthInBytes');
@@ -7929,26 +7951,31 @@ class _GpuTransientArena {
       final first = _blocks.isEmpty;
       final base = first ? _firstBlockBytes : _nextBlockBytes;
       final capacity = math.max(base, minimum);
-      block = _GpuTransientBlock(
-        context.createDeviceBuffer(gpu.StorageMode.hostVisible, capacity),
-        capacity,
-      );
+      final resource = pool?.acquire(context, capacity, stats) ??
+          _GpuTransientResource(
+            context,
+            context.createDeviceBuffer(gpu.StorageMode.hostVisible, capacity),
+            capacity,
+          );
+      block = _GpuTransientBlock(resource);
       _blocks.add(block);
       _active = block;
-      _allocatedBytes += capacity;
+      _allocatedBytes += resource.capacity;
+      if (pool == null) {
+        stats
+          ?..transientBuffers += 1
+          ..transientAllocatedBytes += resource.capacity;
+      }
       if (!first) {
         _nextBlockBytes = math.min(
           _maximumBlockBytes,
-          math.max(_nextBlockBytes * 2, capacity),
+          math.max(_nextBlockBytes * 2, resource.capacity),
         );
       }
-      stats
-        ?..transientBuffers += 1
-        ..transientAllocatedBytes += capacity
-        ..peakTransientTileBytes = math.max(
-          stats!.peakTransientTileBytes,
-          _allocatedBytes,
-        );
+      stats?.peakTransientTileBytes = math.max(
+        stats!.peakTransientTileBytes,
+        _allocatedBytes,
+      );
       offset = 0;
     }
     if (!block.buffer.overwrite(bytes, destinationOffsetInBytes: offset)) {
@@ -7977,17 +8004,141 @@ class _GpuTransientArena {
     }
   }
 
+  /// Submits one command buffer that references this arena.
+  ///
+  /// The pool lease is released only after [seal] has been called and every
+  /// command buffer registered here has reached its completion callback.
+  void submit(
+    gpu.CommandBuffer commandBuffer, {
+    required void Function(bool success) completionCallback,
+  }) {
+    if (_sealed) throw StateError('GPU transient arena is sealed');
+    _pendingSubmissions++;
+    var completed = false;
+    try {
+      commandBuffer.submit(completionCallback: (success) {
+        if (completed) return;
+        completed = true;
+        try {
+          completionCallback(success);
+        } finally {
+          _pendingSubmissions--;
+          _releaseIfReady();
+        }
+      });
+    } catch (_) {
+      if (!completed) _pendingSubmissions--;
+      rethrow;
+    }
+  }
+
+  /// Prevents further writes and returns pooled blocks after GPU completion.
+  void seal() {
+    if (_sealed) return;
+    _sealed = true;
+    _releaseIfReady();
+  }
+
+  void _releaseIfReady() {
+    if (_released || !_sealed || _pendingSubmissions != 0) return;
+    _released = true;
+    pool?.releaseAll(
+      [for (final block in _blocks) block.resource],
+      stats,
+    );
+    _blocks.clear();
+    _active = null;
+  }
+
   static int _align(int value, int alignment) =>
       ((value + alignment - 1) ~/ alignment) * alignment;
 }
 
 class _GpuTransientBlock {
-  _GpuTransientBlock(this.buffer, this.capacity);
+  _GpuTransientBlock(this.resource);
 
-  final gpu.DeviceBuffer buffer;
-  final int capacity;
+  final _GpuTransientResource resource;
+  gpu.DeviceBuffer get buffer => resource.buffer;
+  int get capacity => resource.capacity;
   var usedBytes = 0;
   var flushedBytes = 0;
+}
+
+/// Small exact-size-class pool for completion-fenced transient uploads.
+///
+/// Stable flutter_gpu has no explicit DeviceBuffer disposal. Reusing the
+/// common blocks therefore both removes one native allocation per tile and
+/// bounds how quickly rapid scrolling can outrun native finalizers. Buffers
+/// that would exceed the retained budget stay one-shot; correctness never
+/// depends on a pool hit.
+class _GpuTransientPool {
+  _GpuTransientPool();
+
+  static const maxBytes = 8 << 20;
+  final List<_GpuTransientResource> _resources = [];
+  var _bytes = 0;
+
+  _GpuTransientResource acquire(
+    gpu.GpuContext context,
+    int capacity,
+    FlutterGpuTileBackendStats? stats,
+  ) {
+    for (final resource in _resources) {
+      if (!resource.leased &&
+          identical(resource.context, context) &&
+          resource.capacity == capacity) {
+        resource.leased = true;
+        stats?.transientBufferReuses++;
+        return resource;
+      }
+    }
+
+    final pooled = capacity <= maxBytes && _bytes + capacity <= maxBytes;
+    final resource = _GpuTransientResource(
+      context,
+      context.createDeviceBuffer(gpu.StorageMode.hostVisible, capacity),
+      capacity,
+    )..leased = true;
+    if (pooled) {
+      _resources.add(resource);
+      _bytes += capacity;
+    }
+    stats
+      ?..transientBuffers += 1
+      ..transientAllocatedBytes += capacity;
+    if (stats != null) {
+      stats
+        ..transientResidentBytes = _bytes
+        ..peakTransientResidentBytes = math.max(
+          stats.peakTransientResidentBytes,
+          _bytes,
+        );
+    }
+    return resource;
+  }
+
+  void releaseAll(
+    Iterable<_GpuTransientResource> resources,
+    FlutterGpuTileBackendStats? stats,
+  ) {
+    for (final resource in resources) {
+      resource.leased = false;
+    }
+    if (stats != null) stats.transientResidentBytes = _bytes;
+  }
+}
+
+class _GpuTransientResource {
+  _GpuTransientResource(
+    this.context,
+    this.buffer,
+    this.capacity,
+  );
+
+  final gpu.GpuContext context;
+  final gpu.DeviceBuffer buffer;
+  final int capacity;
+  bool leased = false;
 }
 
 class _GpuGeometryPool {

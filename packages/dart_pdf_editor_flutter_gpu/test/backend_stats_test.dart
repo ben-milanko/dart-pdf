@@ -69,8 +69,11 @@ void main() {
       ..peakGeometryBytes = 48 << 20
       ..standaloneUniformBuffers = 9
       ..transientBuffers = 5
+      ..transientBufferReuses = 11
       ..transientEmplacedBytes = 768 << 10
       ..transientAllocatedBytes = 1 << 20
+      ..transientResidentBytes = 2 << 20
+      ..peakTransientResidentBytes = 3 << 20
       ..peakTransientTileBytes = 896 << 10
       ..textureImports = 6
       ..analyticTextRuns = 7
@@ -120,8 +123,11 @@ void main() {
     expect(stats.toJson(), containsPair('analyticTextRuns', 7));
     expect(stats.toJson(), containsPair('standaloneUniformBuffers', 9));
     expect(stats.toJson(), containsPair('transientBuffers', 5));
+    expect(stats.toJson(), containsPair('transientBufferReuses', 11));
     expect(stats.toJson(), containsPair('transientEmplacedBytes', 768 << 10));
     expect(stats.toJson(), containsPair('transientAllocatedBytes', 1 << 20));
+    expect(stats.toJson(), containsPair('transientResidentBytes', 2 << 20));
+    expect(stats.toJson(), containsPair('peakTransientResidentBytes', 3 << 20));
     expect(stats.toJson(), containsPair('peakTransientTileBytes', 896 << 10));
     expect(stats.toJson(), containsPair('textureImports', 6));
     expect(stats.toJson(), containsPair('analyticGlyphQuads', 18));
@@ -173,8 +179,11 @@ void main() {
     expect(stats.peakGeometryBytes, 32 << 20);
     expect(stats.standaloneUniformBuffers, 0);
     expect(stats.transientBuffers, 0);
+    expect(stats.transientBufferReuses, 0);
     expect(stats.transientEmplacedBytes, 0);
     expect(stats.transientAllocatedBytes, 0);
+    expect(stats.transientResidentBytes, 2 << 20);
+    expect(stats.peakTransientResidentBytes, 2 << 20);
     expect(stats.peakTransientTileBytes, 0);
     expect(stats.textureImports, 0);
     expect(stats.analyticTextRuns, 0);

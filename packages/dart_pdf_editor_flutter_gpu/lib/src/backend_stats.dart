@@ -62,8 +62,11 @@ class FlutterGpuTileBackendStats {
   int peakGeometryBytes = 0;
   int standaloneUniformBuffers = 0;
   int transientBuffers = 0;
+  int transientBufferReuses = 0;
   int transientEmplacedBytes = 0;
   int transientAllocatedBytes = 0;
+  int transientResidentBytes = 0;
+  int peakTransientResidentBytes = 0;
   int peakTransientTileBytes = 0;
   int texturesUploaded = 0;
   int textureImports = 0;
@@ -151,8 +154,11 @@ class FlutterGpuTileBackendStats {
         'peakGeometryBytes': peakGeometryBytes,
         'standaloneUniformBuffers': standaloneUniformBuffers,
         'transientBuffers': transientBuffers,
+        'transientBufferReuses': transientBufferReuses,
         'transientEmplacedBytes': transientEmplacedBytes,
         'transientAllocatedBytes': transientAllocatedBytes,
+        'transientResidentBytes': transientResidentBytes,
+        'peakTransientResidentBytes': peakTransientResidentBytes,
         'peakTransientTileBytes': peakTransientTileBytes,
         'texturesUploaded': texturesUploaded,
         'textureImports': textureImports,
@@ -237,8 +243,10 @@ class FlutterGpuTileBackendStats {
     peakGeometryBytes = geometryBytes;
     standaloneUniformBuffers = 0;
     transientBuffers = 0;
+    transientBufferReuses = 0;
     transientEmplacedBytes = 0;
     transientAllocatedBytes = 0;
+    peakTransientResidentBytes = transientResidentBytes;
     peakTransientTileBytes = 0;
     texturesUploaded = 0;
     textureImports = 0;
@@ -305,8 +313,11 @@ class FlutterGpuTileBackendStats {
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '
       'standaloneUniformBuffers=$standaloneUniformBuffers '
       'transientBuffers=$transientBuffers '
+      'transientBufferReuses=$transientBufferReuses '
       'transientEmplacedBytes=$transientEmplacedBytes '
       'transientAllocatedBytes=$transientAllocatedBytes '
+      'transientResidentBytes=$transientResidentBytes '
+      'peakTransientResidentBytes=$peakTransientResidentBytes '
       'peakTransientTileBytes=$peakTransientTileBytes '
       'uploads=$texturesUploaded imports=$textureImports '
       'directUploads=$textureDirectUploads '

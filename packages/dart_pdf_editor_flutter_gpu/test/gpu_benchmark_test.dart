@@ -184,8 +184,11 @@ void main() {
           () => session.rasterizeRegion(region, pixelRatio: 0.5),
         ));
       }
-      expect(backend.stats.transientAllocatedBytes, 15 * (4 << 10),
-          reason: 'one-transform tiles should use the 4 KiB first block');
+      expect(backend.stats.transientBuffers, 0,
+          reason: 'the settled loop should reuse the warmed 4 KiB block');
+      expect(backend.stats.transientBufferReuses, settled.length);
+      expect(backend.stats.transientAllocatedBytes, 0);
+      expect(backend.stats.transientResidentBytes, 4 << 10);
       // ignore: avoid_print
       print('flutter_gpu analytic text benchmark: runs=${commands.length} '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '
@@ -279,6 +282,11 @@ void main() {
           () => session.rasterizeRegion(region, pixelRatio: 0.5),
         ));
       }
+      expect(backend.stats.transientBuffers, 0,
+          reason: 'the settled loop should reuse the warmed 4 KiB block');
+      expect(backend.stats.transientBufferReuses, settled.length);
+      expect(backend.stats.transientAllocatedBytes, 0);
+      expect(backend.stats.transientResidentBytes, 4 << 10);
       // ignore: avoid_print
       print('flutter_gpu texture benchmark: draws=${commands.length} '
           'compile=${compileMicros}us compileCacheHits=$compileCacheHits '
@@ -446,6 +454,13 @@ void main() {
       final canvasMedian = _median(warmCanvas);
       expect(backend.stats.offscreenGroupPasses, 16);
       expect(backend.stats.offscreenGroupAllocatedBytes, greaterThan(0));
+      expect(backend.stats.peakInFlightSubmissions, greaterThan(1));
+      expect(
+          backend.stats.transientBuffers, backend.stats.peakInFlightSubmissions,
+          reason: 'concurrent submissions must receive distinct buffers');
+      expect(backend.stats.transientBufferReuses,
+          backend.stats.tilesRendered - backend.stats.transientBuffers,
+          reason: 'completed submissions should return buffers to the pool');
       // ignore: avoid_print
       print('flutter_gpu isolated group benchmark: cold=${coldGpu}us '
           'issueMedian=${issueMedian.toStringAsFixed(0)}us '

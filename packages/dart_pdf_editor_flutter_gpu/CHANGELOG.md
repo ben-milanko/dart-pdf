@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Reuse transient host-visible buffers only after every command buffer that
+  references them reaches its completion fence. Settled tiles stop allocating
+  one native `DeviceBuffer` apiece, while concurrent and multi-pass group
+  submissions retain independent leases until all of their GPU work finishes.
 - Start per-submission transient GPU arenas at 4 KiB instead of 64 KiB, then
   grow geometrically through 1 MiB for dense dynamic geometry. Common tiles
   keep their single transform upload without reserving sixteen times as much
