@@ -443,5 +443,63 @@ void main() {
             c == overSpot ? green : inkColor);
       }
     });
+
+    test('a stroke exposes exact regions when its backdrop varies', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('Black'), const CosName('GWG Green')]),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0, 0, 1]),
+          ]));
+      final c = buffer();
+      fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
+      fill(c, rect(50, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+      final path = PdfPath([
+        const PdfMoveTo(10, 50),
+        const PdfLineTo(90, 50),
+      ]);
+
+      expect(
+        c.strokeShape(
+          path,
+          const PdfStroke(width: 20),
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      final regions = c.takeSpatialPaint();
+      expect(regions, isNotNull);
+      expect(
+        {for (final region in regions!) region.color},
+        containsAll([green, inkColor]),
+      );
+
+      // A later stroke must not inherit the previous one-shot region list.
+      expect(
+        c.strokeShape(
+          PdfPath([
+            const PdfMoveTo(10, 20),
+            const PdfLineTo(40, 20),
+          ]),
+          const PdfStroke(width: 10),
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        green,
+      );
+      expect(c.takeSpatialPaint(), isNull);
+    });
   });
 }

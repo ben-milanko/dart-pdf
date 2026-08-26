@@ -53,6 +53,9 @@
 - Retain arbitrary path clips around one fill, stroke, text run, image,
   gradient, or mesh inside a single-paint transparency group. Multi-paint
   groups with path clips remain conservative Canvas fallbacks.
+- Consume `pdf_graphics` exact region-clipped spatial overprint strokes as
+  ordinary retained clip and stroke commands. Three additional Ghent pages
+  stay on the GPU path; unresolved non-black overprint remains on Canvas.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

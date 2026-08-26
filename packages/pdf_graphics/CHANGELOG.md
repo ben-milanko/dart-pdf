@@ -13,6 +13,10 @@
 - Add public `PdfColorContext`, `PdfRenderingIntent`, spatial overprint and
   transparency-group device interfaces, plus intent-aware colour-space and ICC
   conversion APIs.
+- Replay spatially varying stroked overprint through the compositor's exact
+  per-backdrop regions instead of leaving those strokes to an RGB `darken`
+  approximation. The region clips preserve the original vector stroke edge
+  and let retained GPU scenes accept three additional Ghent pages exactly.
 
 - Export an OpenType CFF face reader that retains Unicode cmap mappings and
   selects collection entries, allowing native substitution adapters to obtain

@@ -2393,14 +2393,27 @@ class PdfInterpreter {
             overprint: _state.strokeOverprint,
             mode: _state.overprintMode,
             opaque: _opaquePaint(_state.strokeAlpha));
+        final skip = overprint?.takeSkipPaint() ?? false;
+        final spatial = overprint?.takeSpatialPaint();
         _deliverOverprint(
             _state.fillOverprint,
             _state.strokeOverprint &&
                 (overprint == null || _state.strokeInk != null) &&
-                resolved == null,
+                resolved == null &&
+                !skip &&
+                spatial == null,
             _state.overprintMode);
-        device.strokePath(
-            path, resolved ?? _state.strokeColor, scaled, _state.strokeAlpha);
+        if (spatial != null && !skip) {
+          for (final region in spatial) {
+            device.save();
+            device.clipPath(region.path, PdfFillRule.nonzero);
+            device.strokePath(path, region.color, scaled, _state.strokeAlpha);
+            device.restore();
+          }
+        } else if (!skip) {
+          device.strokePath(
+              path, resolved ?? _state.strokeColor, scaled, _state.strokeAlpha);
+        }
       }
       if (_pendingClip != null) {
         overprint?.clipPath(path, _pendingClip!);

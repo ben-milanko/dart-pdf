@@ -168,6 +168,50 @@ void main() {
           reason: 'OPM 1 (nonzero overprint mode) must be delivered');
     });
   });
+
+  test('spatial stroked overprint is replayed without an RGB fallback', () {
+    final file = File(
+        '../../test_corpora/ghent/3-ICC-CMS/GWG205_ICC-V4-CMYK-Image_x4.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('test_corpora/ghent not found');
+      return;
+    }
+    final doc = PdfDocument.open(file.readAsBytesSync());
+
+    int nonBlackOverprintStrokes(bool resolve) {
+      final recorder = RecordingPdfDevice();
+      final previous = PdfInterpreter.debugResolveOverprint;
+      PdfInterpreter.debugResolveOverprint = resolve;
+      try {
+        PdfInterpreter(cos: doc.cos, device: recorder).drawPage(doc.page(0));
+      } finally {
+        PdfInterpreter.debugResolveOverprint = previous;
+      }
+      var strokeOverprint = false;
+      var count = 0;
+      final saved = <bool>[];
+      for (final command in recorder.commands) {
+        switch (command) {
+          case PdfSaveCommand():
+            saved.add(strokeOverprint);
+          case PdfRestoreCommand() when saved.isNotEmpty:
+            strokeOverprint = saved.removeLast();
+          case PdfSetOverprintCommand(:final stroke):
+            strokeOverprint = stroke;
+          case PdfStrokePathCommand(:final color)
+              when strokeOverprint && color != PdfColor.black:
+            count++;
+          default:
+        }
+      }
+      return count;
+    }
+
+    expect(nonBlackOverprintStrokes(false), greaterThan(0),
+        reason: 'the fixture must exercise the RGB fallback control');
+    expect(nonBlackOverprintStrokes(true), 0,
+        reason: 'exact region-clipped replay clears stroked overprint');
+  });
 }
 
 /// Smallest valid PDF the interpreter can resolve names against - the content

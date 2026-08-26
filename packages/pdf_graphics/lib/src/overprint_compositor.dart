@@ -343,25 +343,28 @@ class PdfOverprintCompositor {
   /// Stroking counterpart of [fill]. [stroke] carries page-space geometry
   /// (the interpreter has already mapped the line width through the CTM).
   PdfColor? strokeShape(
-          PdfPath path, PdfStroke stroke, PdfColor color, PdfInkColorants? ink,
-          {PdfInkColorants? blendInk,
-          required bool overprint,
-          required int mode,
-          required bool opaque}) =>
-      _resolve(
-          () => _raster.strokeSpans(path,
-              width: stroke.width,
-              cap: stroke.cap,
-              join: stroke.join,
-              miterLimit: stroke.miterLimit,
-              dashArray: stroke.dashArray,
-              dashPhase: stroke.dashPhase),
-          color,
-          ink,
-          blendInk: blendInk,
-          overprint: overprint,
-          mode: mode,
-          opaque: opaque);
+      PdfPath path, PdfStroke stroke, PdfColor color, PdfInkColorants? ink,
+      {PdfInkColorants? blendInk,
+      required bool overprint,
+      required int mode,
+      required bool opaque}) {
+    _skipPaint = false;
+    _spatialPaint = null;
+    return _resolve(
+        () => _raster.strokeSpans(path,
+            width: stroke.width,
+            cap: stroke.cap,
+            join: stroke.join,
+            miterLimit: stroke.miterLimit,
+            dashArray: stroke.dashArray,
+            dashPhase: stroke.dashPhase),
+        color,
+        ink,
+        blendInk: blendInk,
+        overprint: overprint,
+        mode: mode,
+        opaque: opaque);
+  }
 
   /// Records an axial or radial shading in device-colorant space.
   ///
