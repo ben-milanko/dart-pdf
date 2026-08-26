@@ -204,6 +204,17 @@ void main() {
   _expectContains(headline, '### Android headline', 'headline heading');
   _expectContains(
     headline,
+    '**Scenario elapsed p50:** `heavy-document` **80.0 ms**',
+    'current scenario timing is visible',
+  );
+  _expectBefore(
+    headline,
+    '**Scenario elapsed p50:**',
+    '<details>',
+    'current scenario timing precedes details',
+  );
+  _expectContains(
+    headline,
     '| Jank total p95 | 3.0 ms |',
     'headline jank',
   );
@@ -284,6 +295,29 @@ void main() {
     comparisonHeadline,
     '### Headline comparison with `main`',
     'comparison headline heading',
+  );
+  _expectContains(
+    comparisonHeadline,
+    '**Scenario elapsed p50 (main → PR):** `heavy-document` '
+        '**100.0 ms → 80.0 ms (-20.0%)**',
+    'comparison timing is visible',
+  );
+  _expectBefore(
+    comparisonHeadline,
+    '**Scenario elapsed p50 (main → PR):**',
+    '<details>',
+    'comparison timing precedes details',
+  );
+  _expectContains(
+    comparisonHeadline,
+    '<summary>View comparison samples and signals</summary>',
+    'comparison details stay collapsed',
+  );
+  _expectBefore(
+    comparisonHeadline,
+    'fewer than three samples',
+    '<details>',
+    'sparse-sample warning stays visible',
   );
   final androidComparison = summary.PatrolPerfComparison(
     baseline: {'scenarios': json['scenarios']},
@@ -528,6 +562,11 @@ void main() {
   );
   _expectContains(
     gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '<summary>View performance samples and signals</summary>',
+    'single-trace details stay collapsed',
+  );
+  _expectContains(
+    gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
     '**First tile vs Canvas (p50):** `tiling page 0` **56.7×** '
         '(6.0 ms vs 350.0 ms).',
     'GPU speedup leads the PR headline',
@@ -597,5 +636,18 @@ void _expectNotContains(String actual, String unexpected, String label) {
   if (actual.contains(unexpected)) {
     throw StateError(
         '$label: unexpectedly contained "$unexpected" in:\n$actual');
+  }
+}
+
+void _expectBefore(
+  String actual,
+  String first,
+  String second,
+  String label,
+) {
+  final firstIndex = actual.indexOf(first);
+  final secondIndex = actual.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex) {
+    throw StateError('$label: expected "$first" before "$second" in:\n$actual');
   }
 }
