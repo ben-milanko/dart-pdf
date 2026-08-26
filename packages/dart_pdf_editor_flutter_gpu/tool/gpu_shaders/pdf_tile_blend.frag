@@ -56,6 +56,8 @@ vec3 set_saturation(vec3 color, float sat) {
 }
 
 vec3 separable_blend(vec3 cb, vec3 cs, int mode) {
+  if (mode == 1) return cb * cs;
+  if (mode == 2) return cb + cs - cb * cs;
   if (mode == 3) {
     return mix(
       2.0 * cb * cs,

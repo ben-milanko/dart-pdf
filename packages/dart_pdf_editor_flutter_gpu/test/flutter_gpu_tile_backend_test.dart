@@ -3070,6 +3070,71 @@ void main() {
     });
   });
 
+  testWidgets('offscreen Multiply and Screen sample translucent backdrops',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      for (final mode in [PdfBlendMode.multiply, PdfBlendMode.screen]) {
+        final scene = await PdfRetainedScene.fromCommands(page, [
+          PdfFillPathCommand(
+            _rect(35, 85, 325, 365),
+            const PdfColor(0.14, 0.42, 0.82),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          const PdfBeginGroupCommand(
+            0.83,
+            isolated: true,
+            bounds: PdfRect(55, 105, 305, 345),
+          ),
+          PdfFillPathCommand(
+            _rect(65, 115, 295, 335),
+            const PdfColor(0.92, 0.7, 0.18),
+            PdfFillRule.nonzero,
+            0.48,
+          ),
+          PdfSetBlendModeCommand(mode),
+          PdfFillPathCommand(
+            _rect(85, 135, 285, 325),
+            const PdfColor(0.18, 0.76, 0.42),
+            PdfFillRule.nonzero,
+            0.72,
+          ),
+          const PdfEndGroupCommand(),
+        ]);
+        final backend = FlutterGpuTileRasterBackend();
+        final session = backend.createSession(scene);
+        expect(session, isNotNull,
+            reason: '${mode.name}: ${backend.stats.lastRejection}');
+        const region = Rect.fromLTWH(45, 435, 270, 270);
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+        final actual = await session!.rasterizeRegion(
+          region,
+          pixelRatio: 1.5,
+        );
+        try {
+          final a = await _pixels(expected), b = await _pixels(actual);
+          var difference = 0;
+          for (var index = 0; index < a.length; index++) {
+            difference += (a[index] - b[index]).abs();
+          }
+          expect(difference / a.length, lessThan(3), reason: mode.name);
+          expect(backend.stats.offscreenGroupPasses, 1, reason: mode.name);
+          expect(backend.stats.advancedBlendPasses, 1, reason: mode.name);
+        } finally {
+          expected.dispose();
+          actual.dispose();
+          session.dispose();
+          scene.dispose();
+        }
+      }
+    });
+  });
+
   testWidgets('isolated knockout fills replace earlier overlapping shapes',
       (tester) async {
     await tester.runAsync(() async {
