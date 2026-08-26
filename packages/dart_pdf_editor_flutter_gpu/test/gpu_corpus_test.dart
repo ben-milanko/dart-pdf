@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -28,6 +29,8 @@ const _skippedPdfJs = {
   'poppler-937-0-fuzzed.pdf',
   'print_protection.pdf',
 };
+
+final _corpusReports = <String, Object?>{};
 
 bool _gpuAvailable() {
   try {
@@ -115,8 +118,16 @@ void _corpus(
   var rejected = 0;
   final rejectionReasons = <String, int>{};
   final missingOutlineFonts = <String, int>{};
+  final pages = <Map<String, Object?>>[];
   for (final file in files) {
     final name = file.uri.pathSegments.last;
+    final prefix = root.path.endsWith(Platform.pathSeparator)
+        ? root.path
+        : '${root.path}${Platform.pathSeparator}';
+    final relativeName = (file.path.startsWith(prefix)
+            ? file.path.substring(prefix.length)
+            : name)
+        .replaceAll('\\', '/');
     testWidgets('$suite/$name', (tester) async {
       await tester.runAsync(() async {
         final document = PdfDocument.open(
@@ -137,6 +148,11 @@ void _corpus(
             if (session == null) {
               rejected++;
               final reason = backend.lastSessionRejection ?? 'unspecified';
+              pages.add({
+                'id': '$suite/$relativeName page $pageIndex',
+                'route': 'canvas-fallback',
+                'reason': reason,
+              });
               rejectionReasons.update(reason, (count) => count + 1,
                   ifAbsent: () => 1);
               final fonts = <String>{
@@ -152,6 +168,10 @@ void _corpus(
               continue;
             }
             accepted++;
+            pages.add({
+              'id': '$suite/$relativeName page $pageIndex',
+              'route': 'flutter-gpu',
+            });
             try {
               final region = Offset.zero & scene.pageSize;
               final ratio = math.min(
@@ -215,11 +235,36 @@ void _corpus(
     // ignore: avoid_print
     print('$suite flutter_gpu missing-outline fonts: '
         '${{for (final entry in fonts) entry.key: entry.value}}');
+    pages.sort((a, b) => (a['id']! as String).compareTo(b['id']! as String));
+    _corpusReports[suite] = {
+      'accepted': accepted,
+      'rejected': rejected,
+      'pages': pages,
+      'rejectionReasons': {
+        for (final entry in grouped) entry.key: entry.value,
+      },
+      'missingOutlineFonts': {
+        for (final entry in fonts) entry.key: entry.value,
+      },
+    };
+    _writeCorpusReport();
     expect(accepted + rejected, greaterThan(0));
     // A zero acceptance rate would make the optional backend inert even if
     // all conservative-fallback tests passed.
     expect(accepted, greaterThan(0));
   });
+}
+
+void _writeCorpusReport() {
+  final path = Platform.environment['GPU_CORPUS_REPORT'];
+  if (path == null || path.isEmpty) return;
+  final file = File(path);
+  file.parent.createSync(recursive: true);
+  const encoder = JsonEncoder.withIndent('  ');
+  file.writeAsStringSync('${encoder.convert({
+        'schema': 1,
+        'suites': _corpusReports,
+      })}\n');
 }
 
 Future<void> _registerMacSystemFonts() async {
