@@ -416,15 +416,33 @@ class _DemoHarness {
     // be present in the tree while their tap target is covered by the dock on
     // a short Android viewport. Frame the widget before tapping it, just as a
     // user would scroll the field into view.
-    await viewer.showRect(page, rect!);
-    await $.pump(const Duration(milliseconds: 350));
     final target = find.byKey(
       ValueKey(
         'pdf-form-field-$page-$name-$widgetIndex',
       ),
     );
-    await waitForFinder(target);
-    await tester.tap(target);
+    final hitTarget = target.hitTestable();
+    // On a loaded-down Android emulator the viewer's zoom animation can
+    // advance more slowly than its scroll animation. Do not tap a stale
+    // target that is still under the floating editing dock: that activates
+    // the dock and leaves its modal sheet covering the retry. Re-frame until
+    // Flutter confirms that the live form widget owns its centre point.
+    for (var attempt = 0;
+        attempt < 3 && hitTarget.evaluate().isEmpty;
+        attempt++) {
+      await viewer.showRect(page, rect!);
+      await $.pump(const Duration(milliseconds: 350));
+      await waitForFinder(target);
+      for (var i = 0; i < 10 && hitTarget.evaluate().isEmpty; i++) {
+        await $.pump(const Duration(milliseconds: 100));
+      }
+    }
+    expect(
+      hitTarget,
+      findsOneWidget,
+      reason: '$name widget $widgetIndex should be visible and unobscured',
+    );
+    await tester.tap(hitTarget);
     await $.pump(const Duration(milliseconds: 400));
   }
 
