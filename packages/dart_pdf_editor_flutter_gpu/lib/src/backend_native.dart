@@ -811,6 +811,9 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
     required this.paintClips,
     required this.paintBlends,
     this.paintPathClips = const [],
+    this.paintBounds = const {},
+    this.sourceReplacementPaints = const {},
+    this.paintComposites = const {},
     required this.contentClip,
     this.contentPathClips = const [],
     this.paintAlphaScales = const {},
@@ -824,6 +827,9 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final List<PdfRect?> paintClips;
   final List<PdfBlendMode> paintBlends;
   final List<List<_GpuPathClip>> paintPathClips;
+  final Map<int, PdfRect> paintBounds;
+  final Set<int> sourceReplacementPaints;
+  final Map<int, _GpuCompositeSpec> paintComposites;
   final Map<int, double> paintAlphaScales;
   final double groupAlpha;
   final bool offscreen;
@@ -836,6 +842,9 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
 
   List<_GpuPathClip> pathClipsForPaint(int index) =>
       paintPathClips.isEmpty ? contentPathClips : paintPathClips[index];
+
+  bool sourceReplacesAt(int index) =>
+      sourceReplacementPaints.contains(index) || (knockout && index > 0);
 }
 
 class _KnockoutSoftMaskFillSpec extends _GpuCompositeSpec {
@@ -1694,7 +1703,10 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     final paints =
         <(int?, PdfRenderCommand, PdfRect?, PdfBlendMode, bool, bool)>[];
     final paintPathClips = <List<_GpuPathClip>>[];
+    final paintBounds = <int, PdfRect>{};
     final paintAlphaScales = <int, double>{};
+    final sourceReplacementPaints = <int>{};
+    final paintComposites = <int, _GpuCompositeSpec>{};
     PdfEndSoftMaskedCommand? softEnd;
     var softDepth = 0;
     var softCount = 0;
@@ -1763,6 +1775,83 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             ]);
           }
         case PdfBeginSoftMaskedCommand():
+          final nestedEnd = _matchingSoftMaskEnd(commands, i, end);
+          if (nestedEnd == null) {
+            return (null, 'unterminated nested soft-mask group');
+          }
+          final nestedEnablesOverprint = commands
+              .getRange(i + 1, nestedEnd)
+              .whereType<PdfSetOverprintCommand>()
+              .any((state) => state.fill || state.stroke);
+          final nested = _parseComposite(
+            commands,
+            i,
+            nestedEnd,
+            initialClip: clip,
+            initialFillOverprint: fillOverprint,
+            initialStrokeOverprint: strokeOverprint,
+            initialBlend: blend,
+          );
+          final nestedPaint = _nestedSoftMaskPaint(nested.$1);
+          if (nestedEnablesOverprint &&
+              (nestedPaint != null || nested.$1 is _FlattenSoftMaskSpec)) {
+            return (null, 'soft-mask group contains enabled overprint');
+          }
+          if (nestedPaint != null) {
+            if (emptyClipOnly) {
+              skippedEmptyPaint = true;
+              i = nestedEnd;
+              break;
+            }
+            final paintIndex = paints.length;
+            final spec = nested.$1!;
+            paints.add((
+              null,
+              nestedPaint.command,
+              spec.contentClip,
+              blend,
+              nestedPaint.fill && fillOverprint,
+              nestedPaint.stroke && strokeOverprint,
+            ));
+            paintPathClips.add(List.unmodifiable([
+              ...pathClips,
+              ...spec.contentPathClips,
+            ]));
+            paintComposites[paintIndex] = spec;
+            contentClip = spec.contentClip;
+            i = nestedEnd;
+            break;
+          }
+          if (nested.$1 case _FlattenSoftMaskSpec(paints: final flattenedPaints)
+              when flattenedPaints.isNotEmpty) {
+            for (final paint in flattenedPaints) {
+              final paintIndex = paints.length;
+              final paintCommand = commands[paint.commandIndex];
+              paints.add((
+                null,
+                paintCommand,
+                paint.clip,
+                paint.blendMode,
+                false,
+                false,
+              ));
+              paintPathClips.add(List.unmodifiable([
+                ...pathClips,
+                if (paint.pathClip case final path?)
+                  (path: path, rule: PdfFillRule.nonzero),
+              ]));
+              final composite = paint.composite;
+              if (composite != null) {
+                paintComposites[paintIndex] = composite;
+              }
+              paintBounds[paintIndex] = paint.bounds;
+              contentClip = paint.clip;
+            }
+            i = nestedEnd;
+            break;
+          }
+          // Preserve the established single-image group parser for variants
+          // not retained as an ordinary group paint above.
           softDepth++;
           softCount++;
         case PdfEndSoftMaskedCommand():
@@ -1847,11 +1936,10 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         case PdfSetOverprintCommand(:final fill, :final stroke):
           fillOverprint = fill;
           strokeOverprint = stroke;
-        case PdfBeginGroupCommand(:final backdropColor):
+        case PdfBeginGroupCommand():
           if (blend != PdfBlendMode.normal ||
               fillOverprint ||
-              strokeOverprint ||
-              backdropColor != null) {
+              strokeOverprint) {
             return (null, 'nested image group');
           }
           final nestedEnd = _matchingGroupEnd(commands, i, end);
@@ -1867,6 +1955,73 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           );
           final nestedSpec = nested.$1;
           switch (nestedSpec) {
+            case _GroupPaintSpec(
+                  :final commands,
+                  :final paintClips,
+                  :final paintBlends,
+                  paintAlphaScales: final nestedPaintAlphaScales,
+                  paintBounds: final nestedPaintBounds,
+                  :final contentClip,
+                  :final groupAlpha,
+                  :final knockout,
+                  :final backdropColor,
+                )
+                when groupAlpha == 1 &&
+                    knockout &&
+                    backdropColor != null &&
+                    contentClip != null &&
+                    pathClips.isEmpty &&
+                    paintBlends.every(
+                      (mode) => mode == PdfBlendMode.normal,
+                    ):
+              final backdropClip = clip == null
+                  ? contentClip
+                  : _pdfIntersection(clip, contentClip);
+              paints.add((
+                null,
+                PdfFillPathCommand(
+                  _pdfRectPath(contentClip),
+                  backdropColor,
+                  PdfFillRule.nonzero,
+                  1,
+                ),
+                backdropClip,
+                PdfBlendMode.normal,
+                false,
+                false,
+              ));
+              paintPathClips.add(const []);
+              for (var nestedIndex = 0;
+                  nestedIndex < commands.length;
+                  nestedIndex++) {
+                final outerIndex = paints.length;
+                paints.add((
+                  null,
+                  commands[nestedIndex],
+                  paintClips[nestedIndex],
+                  paintBlends[nestedIndex],
+                  false,
+                  false,
+                ));
+                final nestedAlphaScale = nestedPaintAlphaScales[nestedIndex];
+                if (nestedAlphaScale != null) {
+                  paintAlphaScales[outerIndex] = nestedAlphaScale;
+                }
+                if (nestedSpec.sourceReplacesAt(nestedIndex)) {
+                  sourceReplacementPaints.add(outerIndex);
+                }
+                final nestedBounds = nestedPaintBounds[nestedIndex];
+                if (nestedBounds != null) {
+                  paintBounds[outerIndex] = nestedBounds;
+                }
+                final nestedComposite = nestedSpec.paintComposites[nestedIndex];
+                if (nestedComposite != null) {
+                  paintComposites[outerIndex] = nestedComposite;
+                }
+                paintPathClips.add(
+                  nestedSpec.pathClipsForPaint(nestedIndex),
+                );
+              }
             case _FlattenGroupSpec(paints: final nestedPaints):
               for (final nestedPaint in nestedPaints) {
                 paints.add((
@@ -1916,10 +2071,12 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 )
                 when nestedSpec.groupAlpha == 1 &&
                     !nestedSpec.knockout &&
+                    nestedSpec.backdropColor == null &&
                     paintBlends.every((mode) => mode == PdfBlendMode.normal):
               for (var nestedIndex = 0;
                   nestedIndex < commands.length;
                   nestedIndex++) {
+                final outerIndex = paints.length;
                 paints.add((
                   null,
                   commands[nestedIndex],
@@ -1931,7 +2088,18 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 final nestedAlphaScale =
                     nestedSpec.paintAlphaScales[nestedIndex];
                 if (nestedAlphaScale != null) {
-                  paintAlphaScales[paints.length - 1] = nestedAlphaScale;
+                  paintAlphaScales[outerIndex] = nestedAlphaScale;
+                }
+                if (nestedSpec.sourceReplacesAt(nestedIndex)) {
+                  sourceReplacementPaints.add(outerIndex);
+                }
+                final nestedBounds = nestedSpec.paintBounds[nestedIndex];
+                if (nestedBounds != null) {
+                  paintBounds[outerIndex] = nestedBounds;
+                }
+                final nestedComposite = nestedSpec.paintComposites[nestedIndex];
+                if (nestedComposite != null) {
+                  paintComposites[outerIndex] = nestedComposite;
                 }
                 paintPathClips.add(nestedSpec.pathClipsForPaint(nestedIndex));
               }
@@ -2016,6 +2184,32 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           );
         }
         return (null, 'non-identity single-paint transparency group');
+      }
+      final composite = paintComposites[0];
+      if (composite != null) {
+        // A single paint inside an isolated group sees a transparent
+        // backdrop, so every PDF blend function reduces to the source. A
+        // non-isolated group instead blends against the page backdrop; that
+        // backdrop is not available to this bounded retained target.
+        if (!isolated && paint.$4 != PdfBlendMode.normal) {
+          return (
+            null,
+            'non-isolated soft-mask group requires page backdrop',
+          );
+        }
+        return (
+          _GroupPaintSpec(
+            commands: [paint.$2],
+            paintClips: [paint.$3],
+            paintBlends: const [PdfBlendMode.normal],
+            paintComposites: {0: composite},
+            contentClip: paint.$3,
+            contentPathClips: paintPaths,
+            groupAlpha: alpha,
+            offscreen: alpha != 1,
+          ),
+          null,
+        );
       }
       return switch (paint.$2) {
         PdfFillPathCommand content => (
@@ -2114,6 +2308,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           ]);
       final canFlatten = alpha == 1 &&
           !knockout &&
+          sourceReplacementPaints.isEmpty &&
           backdropColor == null &&
           normalPaints &&
           (initialBlend == PdfBlendMode.normal || disjointOuterBlend);
@@ -2192,6 +2387,9 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           paintPathClips: commonPaintPathClip
               ? const []
               : List.unmodifiable(paintPathClips),
+          paintBounds: Map.unmodifiable(paintBounds),
+          sourceReplacementPaints: Set.unmodifiable(sourceReplacementPaints),
+          paintComposites: Map.unmodifiable(paintComposites),
           paintAlphaScales: Map.unmodifiable(paintAlphaScales),
           contentClip: canRenderSeededKnockout
               ? groupBounds
@@ -2754,6 +2952,52 @@ int? _matchingGroupEnd(
   }
   return null;
 }
+
+int? _matchingSoftMaskEnd(
+  List<PdfRenderCommand> commands,
+  int start,
+  int outerEnd,
+) {
+  var depth = 1;
+  for (var index = start + 1; index < outerEnd; index++) {
+    switch (commands[index]) {
+      case PdfBeginSoftMaskedCommand():
+        depth++;
+      case PdfEndSoftMaskedCommand():
+        depth--;
+        if (depth == 0) return index;
+      default:
+        break;
+    }
+  }
+  return null;
+}
+
+({PdfRenderCommand command, bool fill, bool stroke})? _nestedSoftMaskPaint(
+  _GpuCompositeSpec? spec,
+) =>
+    switch (spec) {
+      _SoftMaskFillSpec(:final content) ||
+      _SoftMaskVectorFillSpec(:final content) ||
+      _SoftMaskGradientFillSpec(:final content) =>
+        (command: content, fill: true, stroke: false),
+      _SoftMaskStrokeSpec(:final content) ||
+      _SoftMaskGradientStrokeSpec(:final content) =>
+        (command: content, fill: false, stroke: true),
+      _SoftMaskTextSpec(:final content) ||
+      _SoftMaskGradientTextSpec(:final content) =>
+        (
+          command: content,
+          fill: content.run.fill,
+          stroke: content.run.strokeColor != null,
+        ),
+      _SoftMaskImageSpec(:final content) => (
+          command: PdfDrawImageCommand(content),
+          fill: false,
+          stroke: false,
+        ),
+      _ => null,
+    };
 
 /// Flattens one narrow nested-mask shape without allocating an offscreen
 /// group: an opaque Normal base covering a binary white vector mask, followed
@@ -3537,6 +3781,14 @@ PdfRect _pdfUnion(PdfRect? a, PdfRect b) => a == null
         a.right > b.right ? a.right : b.right,
         a.top > b.top ? a.top : b.top,
       );
+
+PdfPath _pdfRectPath(PdfRect rect) => PdfPath([
+      PdfMoveTo(rect.left, rect.bottom),
+      PdfLineTo(rect.right, rect.bottom),
+      PdfLineTo(rect.right, rect.top),
+      PdfLineTo(rect.left, rect.top),
+      const PdfClosePath(),
+    ]);
 
 PdfRect _inflatePdf(PdfRect r, double amount) => PdfRect(
       r.left - amount,
@@ -5791,7 +6043,63 @@ Future<_GpuDraw?> _compileGroupPaint(
     }
     final alphaScale = spec.paintAlphaScales[index] ?? 1;
     final _GpuDraw? draw;
-    if (command case PdfDrawImageCommand(:final request) when alphaScale != 1) {
+    final composite = spec.paintComposites[index];
+    if (composite != null) {
+      draw = switch (composite) {
+        _SoftMaskImageSpec spec => await _compileSoftMaskImage(
+            context,
+            geometry,
+            scene,
+            spec,
+            stats,
+            imageCache,
+            textureLeases,
+            mipmapImages: mipmapImages,
+          ),
+        _SoftMaskFillSpec spec => await _compileSoftMaskFill(
+            context,
+            geometry,
+            scene,
+            spec,
+            stats,
+            imageCache,
+            textureLeases,
+            mipmapImages: mipmapImages,
+          ),
+        _SoftMaskStrokeSpec spec => await _compileSoftMaskStroke(
+            context,
+            geometry,
+            scene,
+            spec,
+            stats,
+            imageCache,
+            textureLeases,
+            mipmapImages: mipmapImages,
+          ),
+        _SoftMaskVectorFillSpec spec =>
+          _compileSoftMaskVectorFill(geometry, spec),
+        _SoftMaskGradientFillSpec spec =>
+          _compileSoftMaskGradientFill(geometry, spec),
+        _SoftMaskGradientStrokeSpec spec =>
+          _compileSoftMaskGradientStroke(geometry, spec),
+        _SoftMaskTextSpec spec => await _compileSoftMaskText(
+            context,
+            geometry,
+            scene,
+            spec,
+            stats,
+            imageCache,
+            textureLeases,
+            mipmapImages: mipmapImages,
+          ),
+        _SoftMaskGradientTextSpec spec =>
+          _compileSoftMaskGradientText(geometry, spec),
+        _ => throw StateError(
+            'unsupported retained group paint ${composite.runtimeType}',
+          ),
+      };
+    } else if (command case PdfDrawImageCommand(:final request)
+        when alphaScale != 1) {
       draw = await _compileImageCommand(
         context,
         geometry,
@@ -5819,7 +6127,7 @@ Future<_GpuDraw?> _compileGroupPaint(
     }
     if (draw != null) {
       final clip = spec.paintClips[index];
-      final bounds = pdfRenderCommandBounds(command);
+      final bounds = spec.paintBounds[index] ?? pdfRenderCommandBounds(command);
       final clippedBounds = bounds == null || clip == null
           ? bounds
           : _pdfIntersection(bounds, clip);
@@ -5827,7 +6135,7 @@ Future<_GpuDraw?> _compileGroupPaint(
         draw: draw,
         clip: clip,
         blendMode: spec.paintBlends[index],
-        sourceReplacement: spec.knockout && index > 0,
+        sourceReplacement: spec.sourceReplacesAt(index),
         clipState: paintClipStates?[index],
         // Match the page unit's conservative antialias/stroke fringe. A
         // wider blend scissor is harmless because the source target is clear

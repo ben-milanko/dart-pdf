@@ -110,9 +110,12 @@ paint types in the bounded offscreen tile pass before applying group alpha and
 the outer blend once. A nested one-image group with a transparent backdrop and
 Normal blend folds its group alpha into that image before joining its retained
 parent; the equivalent premultiplied source avoids a redundant nested pass.
-Opaque non-isolated knockout groups with a declared
-uniform backdrop also retain ordered vector fills and strokes: their bounded
-attachment is seeded with that color and clipped to the form BBox. The
+An alpha-one nested knockout group with a uniform declared backdrop can also
+join an isolated parent: the backdrop becomes its first bounded paint and the
+following shapes preserve source replacement in the parent's attachment.
+Opaque non-isolated knockout groups at page level retain ordered vector fills
+and strokes the same way: their bounded attachment is seeded with that color
+and clipped to the form BBox. The
 intermediate group target stays single-sample while
 the final page target retains 4x MSAA, avoiding a redundant color/stencil
 raster and resolve. Every PDF blend mode remains per-paint state inside that
@@ -144,11 +147,13 @@ group. An isolated multi-paint offscreen group preserves either a shared or a
 distinct arbitrary clip stack for every source paint before resolving the
 group alpha, preserving antialiased overlap coverage. Unisolated groups that
 need a page-backdrop-aware group result remain on Canvas.
-A single ordinary soft-masked source may itself sit inside a transparency
-group: the backend resolves that source in a bounded offscreen target and then
-applies the enclosing group alpha once. This exact route requires no explicit
-group backdrop, a Normal internal blend, and no enabled overprint; the other
-forms remain on Canvas.
+Ordinary image-, vector-, gradient-, and text-soft-masked sources may sit beside
+other retained paints inside a transparency group. Each mask resolves as one
+bounded parent paint before the enclosing group alpha is applied. The common
+opaque vector/text-mask stack also expands its base and nested image-masked
+paint directly into the parent while preserving the outer stencil and exact
+blend bounds. Enabled overprint and non-isolated groups that require the page
+backdrop remain on Canvas.
 Paints behind a degenerate or disjoint rectangular clip are discarded while
 capturing a transparency group, including balanced soft-mask content that can
 no longer affect a pixel. Save/restore still reinstates the prior clip for any

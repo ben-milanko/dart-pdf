@@ -14,6 +14,13 @@
   bounded ping-pong attachments before group alpha and the outer blend are
   applied once. The programmable path now implements Multiply and Screen as
   well as the advanced modes instead of falling through to Exclusion.
+- Retain ordinary soft-masked images, fills, strokes, gradients, and text as
+  individual paints inside transparency groups. Common opaque vector/text mask
+  stacks expand into the parent with their exact stencil, composite, clip, and
+  conservative blend bounds instead of forcing the whole page onto Canvas.
+- Expand alpha-one nested knockout groups with a uniform declared backdrop into
+  an isolated parent attachment. The seed becomes a bounded first paint and
+  later siblings preserve their shape-limited source-replacement semantics.
 - Import compatible platform-decoded `ui.Image` textures directly into
   Flutter GPU instead of reading their pixels back to the CPU and uploading
   them again. CPU-backed and mipmapped images keep the proven upload fallback.
