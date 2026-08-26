@@ -39,6 +39,10 @@
   parsing transparency groups, carrying that clip state through save/restore
   and balanced soft-mask structures. Empty group content no longer forces an
   otherwise supported page onto Canvas.
+- Retain arbitrary content-side path clips for a single soft-masked source,
+  including the single-image transparency-group route. The resolved source is
+  constrained by the existing exact stencil clip instead of requiring an
+  axis-aligned shortcut.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

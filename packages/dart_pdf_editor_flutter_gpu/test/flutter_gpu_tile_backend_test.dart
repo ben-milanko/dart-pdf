@@ -3411,6 +3411,110 @@ void main() {
     });
   });
 
+  testWidgets('soft-masked sources retain arbitrary content clips',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      const diamond = PdfPath([
+        PdfMoveTo(140, 90),
+        PdfLineTo(230, 180),
+        PdfLineTo(140, 270),
+        PdfLineTo(50, 180),
+        PdfClosePath(),
+      ]);
+      final mask = _decodedImage(
+        Uint8List.fromList([
+          0,
+          0,
+          0,
+          255,
+          255,
+          255,
+          255,
+          255,
+          0,
+          0,
+          0,
+          255,
+          255,
+          255,
+          255,
+          255,
+        ]),
+        const PdfMatrix(180, 0, 0, 180, 50, 90),
+        'path-clipped-mask',
+      );
+
+      Future<void> expectParity(PdfRetainedScene scene) async {
+        addTearDown(scene.dispose);
+        final backend = FlutterGpuTileRasterBackend();
+        final session = backend.createSession(scene);
+        expect(session, isNotNull, reason: backend.stats.lastRejection);
+        addTearDown(session!.dispose);
+        const region = Rect.fromLTWH(30, 70, 220, 220);
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+        final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+        addTearDown(expected.dispose);
+        addTearDown(actual.dispose);
+        final a = await _pixels(expected), b = await _pixels(actual);
+        var difference = 0;
+        for (var index = 0; index < a.length; index++) {
+          difference += (a[index] - b[index]).abs();
+        }
+        expect(difference / a.length, lessThan(8));
+        expect(backend.stats.clipPathsCompiled, 1);
+      }
+
+      await expectParity(await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginSoftMaskedCommand(),
+          const PdfClipPathCommand(diamond, PdfFillRule.nonzero),
+          PdfFillPathCommand(
+            _rect(40, 80, 240, 280),
+            const PdfColor(0.1, 0.65, 0.3),
+            PdfFillRule.nonzero,
+            0.85,
+          ),
+          PdfEndSoftMaskedCommand(
+            luminosity: true,
+            backdrop: page.cropBox,
+            maskCommands: [mask],
+          ),
+        ],
+        retainDecodedPixels: true,
+      ));
+
+      final content = _decodedImage(
+        Uint8List.fromList([
+          for (var i = 0; i < 4; i++) ...const [220, 55, 25, 255],
+        ]),
+        const PdfMatrix(200, 0, 0, 200, 40, 80),
+        'path-clipped-content',
+      );
+      await expectParity(await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginGroupCommand(0.75),
+          const PdfClipPathCommand(diamond, PdfFillRule.nonzero),
+          const PdfBeginSoftMaskedCommand(),
+          content,
+          PdfEndSoftMaskedCommand(
+            luminosity: true,
+            backdrop: page.cropBox,
+            maskCommands: [mask],
+          ),
+          const PdfEndGroupCommand(),
+        ],
+        retainDecodedPixels: true,
+      ));
+    });
+  });
+
   testWidgets('single vector fills use an image soft mask directly',
       (tester) async {
     await tester.runAsync(() async {
