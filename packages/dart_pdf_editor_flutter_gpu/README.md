@@ -200,11 +200,14 @@ fallback, never a reason to reject the page.
 
 After useful page pixels land and foreground work stays quiet for 750 ms, the
 viewer asks the backend to warm its context. The backend submits one transparent
-pixel through each tile pipeline and the nonzero stencil-cover state used by
-retained fills, moving Impeller/driver compilation out of the first deep-zoom
+pixel through the common stencil, solid, and texture pipelines and the nonzero
+stencil-cover state used by retained fills. Page-specific glyph, soft-mask, and
+destination-sampling blend variants wait for the live scene warm-up below, so
+an ordinary document does not pay one uninterrupted compile for every optional
+path. This moves Impeller/driver compilation out of the first deep-zoom
 interaction without delaying initial document paint or competing with an
-immediate scroll. This work is coalesced per native view and MSAA mode, even
-when several readers share the same process.
+immediate scroll. The common work is coalesced per native view and MSAA mode,
+even when several readers share the same process.
 
 Proactive warm-up defaults on for macOS, Windows, and Linux. Android and iOS
 stay on-demand by default because merely creating an Impeller GPU context can

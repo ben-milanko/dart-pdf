@@ -168,12 +168,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   /// resources they are currently drawing.
   void clearImageCache() => _imageCache.clear(stats);
 
-  /// Compiles this view's tile pipelines with a one-pixel GPU submission.
+  /// Compiles the common tile pipelines with a one-pixel GPU submission.
   ///
-  /// The driver otherwise compiles the pipelines on the first deep-zoom tile,
-  /// which can leave the coarse page visible for hundreds of milliseconds.
-  /// This is safe to call repeatedly: work is shared per Impeller context and
-  /// MSAA mode, including between backend instances.
+  /// The driver otherwise compiles the stencil, solid, and texture pipelines
+  /// on the first deep-zoom tile, which can leave the coarse page visible for
+  /// hundreds of milliseconds. Page-specific glyph, soft-mask, and advanced-
+  /// blend variants are compiled by the later scene warm-up instead of making
+  /// every document pay for them. This is safe to call repeatedly: work is
+  /// shared per Impeller context and MSAA mode, including between backend
+  /// instances.
   @override
   Future<void> warmUp() async {
     final clock = Stopwatch()..start();
@@ -8107,24 +8110,6 @@ class _GpuPipelines {
       1,
       format: gpu.PixelFormat.r8g8b8a8UNormInt,
     );
-    final blendTarget = context.createTexture(
-      gpu.StorageMode.devicePrivate,
-      1,
-      1,
-      format: context.defaultColorFormat,
-    );
-    final blendBackdrop = context.createTexture(
-      gpu.StorageMode.devicePrivate,
-      1,
-      1,
-      format: context.defaultColorFormat,
-    );
-    final blendSource = context.createTexture(
-      gpu.StorageMode.devicePrivate,
-      1,
-      1,
-      format: context.defaultColorFormat,
-    );
     sample.overwrite(ByteData.sublistView(Uint8List.fromList(
       const [255, 255, 255, 255],
     )));
@@ -8195,79 +8180,6 @@ class _GpuPipelines {
     final textureInfo = transient.emplace(ByteData.sublistView(
       Float32List.fromList(const [1, 1, 1, 1, 0, 0, 0, 0]),
     ));
-    final glyphVertices = transient.emplace(ByteData.sublistView(
-      Float32List.fromList(const [
-        -1,
-        -1,
-        0,
-        0,
-        0,
-        1,
-        1,
-        1,
-        1,
-        3,
-        -1,
-        1,
-        0,
-        0,
-        1,
-        1,
-        1,
-        1,
-        -1,
-        3,
-        0,
-        1,
-        0,
-        1,
-        1,
-        1,
-        1,
-      ]),
-    ));
-    final glyphInfo = transient.emplace(ByteData.sublistView(
-      Float32List.fromList(const [1, 1]),
-    ));
-    final softMaskInfo = Float32List(36)
-      ..setRange(0, 16, const [
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
-        0,
-        0,
-        0,
-        0,
-        1,
-      ])
-      ..setRange(16, 20, const [1, 1, 1, 1])
-      ..setRange(20, 24, const [1, 1, 1, 1])
-      ..setRange(24, 28, const [0, 0, 0, 1])
-      ..setRange(28, 32, const [1, 0, 0, 0])
-      ..setRange(32, 36, const [-1, -1, 1, 1]);
-    final softMaskUniform =
-        transient.emplace(ByteData.sublistView(softMaskInfo));
-    final blendInfo = transient.emplace(ByteData.sublistView(
-      Float32List.fromList([
-        PdfBlendMode.overlay.index.toDouble(),
-        0,
-        0,
-        0,
-        0,
-        0,
-        1,
-        1,
-      ]),
-    ));
-
     final commandBuffer = context.createCommandBuffer();
     final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
       colorAttachments: [
@@ -8337,67 +8249,7 @@ class _GpuPipelines {
       ..bindUniform(this.textureInfo, textureInfo)
       ..bindTexture(textureSampler, sample);
     _warmUpDraw(pass, textureVertices, 3);
-    pass
-      ..clearBindings()
-      ..bindPipeline(glyph)
-      ..bindUniform(glyphTransform, transform)
-      ..bindUniform(this.glyphInfo, glyphInfo)
-      ..bindTexture(
-        glyphSampler,
-        sample,
-        sampler: gpu.SamplerOptions(
-          minFilter: gpu.MinMagFilter.nearest,
-          magFilter: gpu.MinMagFilter.nearest,
-          mipFilter: gpu.MipFilter.nearest,
-        ),
-      );
-    _warmUpDraw(pass, glyphVertices, 3);
-    pass
-      ..clearBindings()
-      ..bindPipeline(softMask)
-      ..bindUniform(softMaskTransform, transform)
-      ..bindUniform(this.softMaskInfo, softMaskUniform)
-      ..bindTexture(softMaskContentSampler, sample)
-      ..bindTexture(softMaskMaskSampler, sample);
-    _warmUpDraw(pass, textureVertices, 3);
     pass.clearBindings();
-
-    // Destination-sampling blends render without fixed-function blending or
-    // a stencil attachment. Metal keys pipeline state on those attachment and
-    // blend settings, so touching the same shaders in the page pass above does
-    // not compile the variants used by [_CompiledScene._renderAdvanced].
-    // Prime both its page-copy and PDF-blend draws while the viewer is idle;
-    // otherwise the first advanced-blend tile still waits on the driver even
-    // after this general warm-up completed.
-    // Flutter GPU 3.47 cannot safely encode two render passes into this
-    // experimental command-buffer wrapper on Metal. Queue the independent
-    // no-blend variant after the general pass instead; submission order keeps
-    // the completion callback a fence for both.
-    final blendCommandBuffer = context.createCommandBuffer();
-    final blendPass = blendCommandBuffer.createRenderPass(
-      gpu.RenderTarget.singleColor(gpu.ColorAttachment(
-        texture: blendTarget,
-        clearValue: vm.Vector4.zero(),
-      )),
-    )
-      ..setCullMode(gpu.CullMode.none)
-      ..setWindingOrder(gpu.WindingOrder.counterClockwise)
-      ..setPrimitiveType(gpu.PrimitiveType.triangle)
-      ..setColorBlendEnable(false)
-      ..bindPipeline(texture)
-      ..bindUniform(textureTransform, transform)
-      ..bindUniform(this.textureInfo, textureInfo)
-      ..bindTexture(textureSampler, sample);
-    _warmUpDraw(blendPass, textureVertices, 3);
-    blendPass
-      ..clearBindings()
-      ..bindPipeline(blend)
-      ..bindUniform(blendTransform, transform)
-      ..bindUniform(this.blendInfo, blendInfo)
-      ..bindTexture(blendBackdropSampler, blendBackdrop)
-      ..bindTexture(blendSourceSampler, blendSource);
-    _warmUpDraw(blendPass, textureVertices, 3);
-    blendPass.clearBindings();
 
     final completer = Completer<void>();
     // Keep every command-buffer resource strongly reachable until Impeller's
@@ -8407,26 +8259,16 @@ class _GpuPipelines {
       color,
       stencilTexture,
       sample,
-      blendTarget,
-      blendBackdrop,
-      blendSource,
       transient,
       commandBuffer,
-      blendCommandBuffer,
       pass,
-      blendPass,
     ];
     transient.flush();
     try {
-      var completed = 0;
-      var succeeded = true;
       void complete(bool success) {
         resources.length;
         if (completer.isCompleted) return;
-        succeeded = succeeded && success;
-        completed++;
-        if (completed != 2) return;
-        if (succeeded) {
+        if (success) {
           completer.complete();
         } else {
           completer.completeError(StateError('GPU pipeline warm-up failed'));
@@ -8434,7 +8276,6 @@ class _GpuPipelines {
       }
 
       commandBuffer.submit(completionCallback: complete);
-      blendCommandBuffer.submit(completionCallback: complete);
     } catch (error, stack) {
       if (!completer.isCompleted) completer.completeError(error, stack);
     }

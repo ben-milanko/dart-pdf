@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- Stage proactive pipeline compilation: the context-wide idle pass now primes
+  only common stencil, solid, and texture variants, while the existing live-
+  scene warm-up compiles glyph, soft-mask, and destination-sampling variants
+  only for pages that use them. This shortens the universal Metal warm-up
+  without moving compilation back onto the first real tile.
 - Retry only non-black-overprint scene rejections with a lazily re-recorded
   512-cell colourant grid. Exact scenes such as Ghent GWG164 move to native
   Flutter GPU, while any remaining mismatch continues through Canvas.
