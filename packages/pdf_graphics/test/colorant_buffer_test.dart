@@ -501,5 +501,49 @@ void main() {
       );
       expect(c.takeSpatialPaint(), isNull);
     });
+
+    test('a sub-cell stroke still discovers every backdrop it crosses', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('Black'), const CosName('GWG Green')]),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0, 0, 1]),
+          ]));
+      final c = buffer();
+      fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
+      fill(c, rect(50, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+
+      // At this buffer scale 0.1pt covers less than half a cell and its
+      // centreline lies exactly between two sample rows. The colorant grid
+      // must retain one cell of coverage; the renderer later clips the
+      // substitute regions through this original vector stroke.
+      const stroke = PdfStroke(width: 0.1);
+      expect(
+        c.strokeShape(
+          PdfPath([
+            const PdfMoveTo(10, 50),
+            const PdfLineTo(90, 50),
+          ]),
+          stroke,
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      final regions = c.takeSpatialPaint();
+      expect(regions, isNotNull);
+      expect(
+        {for (final region in regions!) region.color},
+        containsAll([green, inkColor]),
+      );
+    });
   });
 }

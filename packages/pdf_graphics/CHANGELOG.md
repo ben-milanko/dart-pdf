@@ -17,6 +17,9 @@
   per-backdrop regions instead of leaving those strokes to an RGB `darken`
   approximation. The region clips preserve the original vector stroke edge
   and let retained GPU scenes accept three additional Ghent pages exactly.
+- Preserve one colorant-grid sample for strokes narrower than a grid cell so
+  spatial overprint can discover every crossed backdrop; the substitute
+  regions remain clipped through the original vector stroke at replay.
 
 - Export an OpenType CFF face reader that retains Unicode cmap mappings and
   selects collection entries, allowing native substitution adapters to obtain

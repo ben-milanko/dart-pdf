@@ -56,6 +56,10 @@
 - Consume `pdf_graphics` exact region-clipped spatial overprint strokes as
   ordinary retained clip and stroke commands. Three additional Ghent pages
   stay on the GPU path; unresolved non-black overprint remains on Canvas.
+- Preserve shared and per-paint arbitrary path clips while flattening
+  alpha-one Normal transparency groups, and keep sub-cell strokes visible to
+  the colorant compositor before exact vector replay. One additional Ghent
+  transparency page stays on the GPU path.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

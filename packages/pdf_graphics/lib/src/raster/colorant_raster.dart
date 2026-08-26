@@ -518,8 +518,12 @@ class PdfColorantRaster {
           subpaths, [for (final d in dashArray) d * scale], dashPhase * scale);
     }
     final contours = StrokeContours();
+    final mappedWidth = width * scale;
     strokeToContours(subpaths,
-        width: width * scale,
+        // The colorant grid cannot represent a stroke narrower than one cell.
+        // Preserve one sample cell here; spatial replay still clips the result
+        // through the original vector stroke, so its visible width is exact.
+        width: mappedWidth < 1 ? 1 : mappedWidth,
         cap: cap,
         join: join,
         miterLimit: miterLimit,

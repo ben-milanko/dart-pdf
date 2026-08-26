@@ -793,7 +793,8 @@ class _FlattenSoftMaskPaint {
 class _FlattenGroupSpec extends _GpuCompositeSpec {
   const _FlattenGroupSpec(this.paints);
 
-  final List<({int commandIndex, PdfRect? clip})> paints;
+  final List<({int commandIndex, PdfRect? clip, List<_GpuPathClip> pathClips})>
+      paints;
 
   @override
   PdfRect? get contentClip => null;
@@ -1361,7 +1362,14 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
           } else if (spec is _FlattenGroupSpec) {
             for (final paint in spec.paints) {
               final paintCommand = commands[paint.commandIndex];
-              final paintClip = _withGpuRectClip(capture.clip, paint.clip);
+              var paintClip = _withGpuRectClip(capture.clip, paint.clip);
+              for (final pathClip in paint.pathClips) {
+                paintClip = _pushGpuClip(
+                  paintClip,
+                  pathClip.path,
+                  pathClip.rule,
+                );
+              }
               final paintBounds = pdfRenderCommandBounds(paintCommand);
               final clipped = paintBounds == null || paintClip.empty
                   ? null
@@ -1745,7 +1753,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   PdfBlendMode.normal,
                   false,
                 ));
-                paintPathClips.add(const []);
+                paintPathClips.add(nestedPaint.pathClips);
               }
             case _GroupFillSpec(:final content, :final groupAlpha):
               paints.add((
@@ -1921,9 +1929,10 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       };
     }
     if (softCount == 0 && softDepth == 0 && paints.length > 1) {
-      if (paintPathClips.any((clips) => clips.isNotEmpty)) {
-        return (null, 'non-rectangular multi-paint transparency group clip');
-      }
+      final commonPathClips = paintPathClips.first;
+      final commonPaintPathClip = paintPathClips.every(
+        (clips) => _samePathClipStack(clips, commonPathClips),
+      );
       final commonClip = paints.first.$3;
       final normalPaints = paints.every((paint) =>
           paint.$4 == PdfBlendMode.normal &&
@@ -1966,23 +1975,37 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               fixedFunctionPaints) ||
           canRenderKnockout ||
           canRenderSeededKnockout;
+      if (canFlatten &&
+          paints.every((paint) => paint.$1 != null) &&
+          (!commonPaintClip || !commonPaintPathClip)) {
+        return (
+          _FlattenGroupSpec(List.unmodifiable([
+            for (var index = 0; index < paints.length; index++)
+              (
+                commandIndex: paints[index].$1!,
+                clip: paints[index].$3,
+                pathClips: paintPathClips[index],
+              ),
+          ])),
+          null,
+        );
+      }
+      if (!commonPaintPathClip) {
+        return (null, 'non-rectangular multi-paint transparency group clip');
+      }
+      // A shared path clip can stay active across a flattened draw sequence,
+      // which applies the same retained stencil to every paint. Do not move it
+      // to the resolved texture of an offscreen group: repeated translucent
+      // paints can accumulate different edge coverage from one final mask.
+      if (commonPathClips.isNotEmpty && (!canFlatten || !commonPaintClip)) {
+        return (null, 'non-rectangular multi-paint transparency group clip');
+      }
       if (!canFlatten && !canRenderOffscreen) {
         for (final paint in paints) {
           final reason = _compositeOverprintReason(paint.$2, paint.$5);
           if (reason != null) return (null, reason);
         }
         return (null, 'non-identity multi-paint transparency group');
-      }
-      if (canFlatten &&
-          !commonPaintClip &&
-          paints.every((paint) => paint.$1 != null)) {
-        return (
-          _FlattenGroupSpec(List.unmodifiable([
-            for (final paint in paints)
-              (commandIndex: paint.$1!, clip: paint.$3),
-          ])),
-          null,
-        );
       }
       // Synthesized paints from a nested group no longer have source command
       // indices, so they cannot use [_FlattenGroupSpec]'s per-command clips.
@@ -2003,6 +2026,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               : canFlatten && commonPaintClip
                   ? commonClip
                   : null,
+          contentPathClips: commonPathClips,
           groupAlpha: alpha,
           offscreen: !canFlatten || !commonPaintClip,
           knockout: canRenderKnockout || canRenderSeededKnockout,
@@ -3317,6 +3341,21 @@ bool _samePdfRect(PdfRect? a, PdfRect? b) =>
         a.bottom == b.bottom &&
         a.right == b.right &&
         a.top == b.top);
+
+bool _samePathClipStack(
+  List<_GpuPathClip> a,
+  List<_GpuPathClip> b,
+) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    if (!identical(a[index].path, b[index].path) ||
+        a[index].rule != b[index].rule) {
+      return false;
+    }
+  }
+  return true;
+}
 
 PdfRect _pdfUnion(PdfRect? a, PdfRect b) => a == null
     ? b
