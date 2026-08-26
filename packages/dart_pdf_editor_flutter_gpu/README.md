@@ -119,6 +119,11 @@ their dashed caps and joins become the same exact stencil geometry used by
 ordinary retained strokes before the mask is applied. Masked zero-width
 hairlines stay on Canvas because their one-device-pixel geometry is tile-scale
 dependent.
+A single ordinary soft-masked source may itself sit inside a transparency
+group: the backend resolves that source in a bounded offscreen target and then
+applies the enclosing group alpha once. This exact route requires no explicit
+group backdrop, a Normal internal blend, and no enabled overprint; the other
+forms remain on Canvas.
 Tiles that sit at least one device pixel inside the transformed crop box use
 the folded opaque paper color as their render-pass clear, avoiding a separate
 transparent clear and full-tile paper draw. Boundary tiles retain the paper

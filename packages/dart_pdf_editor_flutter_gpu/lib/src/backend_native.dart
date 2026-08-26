@@ -310,6 +310,12 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           case _SoftMaskGradientTextSpec():
             final reason = _unsupportedTextReason(composite.content.run);
             if (reason != null) return reason;
+          case _SoftMaskGroupSpec():
+            final reason = _unsupportedNestedSoftMaskReason(
+              scene,
+              composite.content,
+            );
+            if (reason != null) return reason;
           case _GroupFillSpec():
             break;
           case _GroupStrokeSpec():
@@ -400,6 +406,41 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         default:
           break;
       }
+    }
+    return null;
+  }
+
+  static String? _unsupportedNestedSoftMaskReason(
+    PdfRetainedScene scene,
+    _GpuCompositeSpec composite,
+  ) {
+    switch (composite) {
+      case _SoftMaskImageSpec():
+        if (scene.imageFor(composite.content) == null ||
+            scene.imageFor(composite.mask) == null) {
+          return 'missing soft-mask image pixels';
+        }
+      case _SoftMaskFillSpec():
+        if (scene.imageFor(composite.mask) == null) {
+          return 'missing soft-mask image pixels';
+        }
+      case _SoftMaskStrokeSpec():
+        if (scene.imageFor(composite.mask) == null) {
+          return 'missing soft-mask image pixels';
+        }
+      case _SoftMaskVectorFillSpec() ||
+            _SoftMaskGradientFillSpec() ||
+            _SoftMaskGradientStrokeSpec():
+        break;
+      case _SoftMaskTextSpec():
+        if (scene.imageFor(composite.mask) == null) {
+          return 'missing soft-mask image pixels';
+        }
+        return _unsupportedTextReason(composite.content.run);
+      case _SoftMaskGradientTextSpec():
+        return _unsupportedTextReason(composite.content.run);
+      default:
+        return 'unsupported nested soft-mask group';
     }
     return null;
   }
@@ -901,6 +942,18 @@ class _SoftMaskGradientTextSpec extends _GpuCompositeSpec {
   @override
   final PdfRect? contentClip;
   final bool luminosity;
+}
+
+/// One already-masked source that must be composited through its enclosing
+/// transparency-group alpha after the mask has resolved.
+class _SoftMaskGroupSpec extends _GpuCompositeSpec {
+  const _SoftMaskGroupSpec(this.content, this.groupAlpha);
+
+  final _GpuCompositeSpec content;
+  final double groupAlpha;
+
+  @override
+  PdfRect? get contentClip => content.contentClip;
 }
 
 class _VectorMaskFill {
@@ -1432,6 +1485,18 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       );
       if (knockoutFill != null) return (knockoutFill, null);
     }
+    final singleSoftMask = _parseSingleSoftMaskGroup(
+      commands,
+      start,
+      end,
+      groupAlpha: alpha,
+      backdropColor: backdropColor,
+      initialClip: initialClip,
+      initialFillOverprint: initialFillOverprint,
+      initialStrokeOverprint: initialStrokeOverprint,
+      initialBlend: initialBlend,
+    );
+    if (singleSoftMask != null) return (singleSoftMask, null);
     // Knockout only changes how multiple sibling elements interact inside a
     // group. A one-element group is therefore identical either way. The
     // multi-paint path below is deliberately narrower: alpha-one, normal
@@ -2073,6 +2138,117 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     };
   }
   return (null, 'unsupported composite ${commands[start].runtimeType}');
+}
+
+/// Retains a one-element soft-masked transparency group as one bounded layer.
+///
+/// The soft mask first resolves the source shape inside a transparent group;
+/// only then does the enclosing group alpha apply to that completed source.
+/// Keeping those stages separate mirrors Canvas' saveLayer ordering and avoids
+/// edge-coverage differences from folding the alpha into the masked paint.
+/// State-only commands may surround the element; additional paints, explicit
+/// backdrops, and non-Normal internal blends stay on Canvas.
+_GpuCompositeSpec? _parseSingleSoftMaskGroup(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end, {
+  required double groupAlpha,
+  required PdfColor? backdropColor,
+  required PdfRect? initialClip,
+  required bool initialFillOverprint,
+  required bool initialStrokeOverprint,
+  required PdfBlendMode initialBlend,
+}) {
+  if (backdropColor != null || !groupAlpha.isFinite) return null;
+  var clip = initialClip;
+  var blend = initialBlend;
+  var fillOverprint = initialFillOverprint;
+  var strokeOverprint = initialStrokeOverprint;
+  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
+  _GpuCompositeSpec? nested;
+
+  int? nestedEnd(int nestedStart) {
+    var depth = 1;
+    for (var index = nestedStart + 1; index < end; index++) {
+      switch (commands[index]) {
+        case PdfBeginSoftMaskedCommand():
+          depth++;
+        case PdfEndSoftMaskedCommand():
+          depth--;
+          if (depth == 0) return index;
+        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          return null;
+        default:
+          break;
+      }
+    }
+    return null;
+  }
+
+  for (var index = start + 1; index < end; index++) {
+    final command = commands[index];
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return null;
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) return null;
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (clip == null) return null;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      case PdfBeginSoftMaskedCommand():
+        if (nested != null ||
+            blend != PdfBlendMode.normal ||
+            fillOverprint ||
+            strokeOverprint) {
+          return null;
+        }
+        final stop = nestedEnd(index);
+        if (stop == null) return null;
+        for (var scan = index + 1; scan < stop; scan++) {
+          if (commands[scan]
+              case PdfSetOverprintCommand(:final fill, :final stroke)
+              when fill || stroke) {
+            // Canvas' RGB overprint fallback is destination-dependent inside
+            // the transparent soft-mask capture. Do not treat it as a plain
+            // one-source layer; keep the exact Canvas route.
+            return null;
+          }
+        }
+        final parsed = _parseComposite(
+          commands,
+          index,
+          stop,
+          initialClip: clip,
+          initialFillOverprint: fillOverprint,
+          initialStrokeOverprint: strokeOverprint,
+          initialBlend: blend,
+        ).$1;
+        if (parsed == null) return null;
+        nested = _SoftMaskGroupSpec(
+          parsed,
+          groupAlpha.clamp(0.0, 1.0).toDouble(),
+        );
+        index = stop;
+      case PdfBeginGroupCommand() ||
+            PdfEndGroupCommand() ||
+            PdfEndSoftMaskedCommand():
+        return null;
+      default:
+        if (pdfRenderCommandBounds(command) != null) return null;
+    }
+  }
+  return saved.isEmpty ? nested : null;
 }
 
 /// Recognizes the exact isolated-knockout shape emitted by PDF.js's
@@ -3465,6 +3641,16 @@ class _CompiledScene {
               ),
             _SoftMaskGradientTextSpec spec =>
               _compileSoftMaskGradientText(geometry, spec),
+            _SoftMaskGroupSpec spec => await _compileSoftMaskGroup(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
           };
         }
         if (draw != null) draws[unit.commandIndex] = draw;
@@ -4828,6 +5014,82 @@ _GpuDraw? _compileKnockoutSoftMaskFill(
   if (paints.isEmpty) return null;
   return _OffscreenGroupDraw(
     paints,
+    spec.groupAlpha,
+    0,
+  );
+}
+
+Future<_GpuDraw?> _compileSoftMaskGroup(
+  gpu.GpuContext context,
+  _GpuGeometryArena geometry,
+  PdfRetainedScene scene,
+  _SoftMaskGroupSpec spec,
+  FlutterGpuTileBackendStats stats,
+  _GpuImageCache imageCache,
+  List<_GpuImageTexture> textureLeases, {
+  required bool mipmapImages,
+}) async {
+  final content = spec.content;
+  final _GpuDraw? draw;
+  switch (content) {
+    case _SoftMaskImageSpec():
+      draw = await _compileSoftMaskImage(
+        context,
+        geometry,
+        scene,
+        content,
+        stats,
+        imageCache,
+        textureLeases,
+        mipmapImages: mipmapImages,
+      );
+    case _SoftMaskFillSpec():
+      draw = await _compileSoftMaskFill(
+        context,
+        geometry,
+        scene,
+        content,
+        stats,
+        imageCache,
+        textureLeases,
+        mipmapImages: mipmapImages,
+      );
+    case _SoftMaskStrokeSpec():
+      draw = await _compileSoftMaskStroke(
+        context,
+        geometry,
+        scene,
+        content,
+        stats,
+        imageCache,
+        textureLeases,
+        mipmapImages: mipmapImages,
+      );
+    case _SoftMaskVectorFillSpec():
+      draw = _compileSoftMaskVectorFill(geometry, content);
+    case _SoftMaskGradientFillSpec():
+      draw = _compileSoftMaskGradientFill(geometry, content);
+    case _SoftMaskGradientStrokeSpec():
+      draw = _compileSoftMaskGradientStroke(geometry, content);
+    case _SoftMaskTextSpec():
+      draw = await _compileSoftMaskText(
+        context,
+        geometry,
+        scene,
+        content,
+        stats,
+        imageCache,
+        textureLeases,
+        mipmapImages: mipmapImages,
+      );
+    case _SoftMaskGradientTextSpec():
+      draw = _compileSoftMaskGradientText(geometry, content);
+    default:
+      return null;
+  }
+  if (draw == null) return null;
+  return _OffscreenGroupDraw(
+    [(draw, null, PdfBlendMode.normal, false)],
     spec.groupAlpha,
     0,
   );

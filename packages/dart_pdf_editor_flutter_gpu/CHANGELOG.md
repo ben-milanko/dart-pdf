@@ -31,6 +31,10 @@
 - Retain positive-width vector strokes under image and axial-gradient soft
   masks, including dashed caps and joins. Zero-width masked hairlines remain
   on the exact Canvas fallback because their geometry depends on tile scale.
+- Retain a single ordinary soft-masked source nested inside a transparency
+  group by resolving the mask in one bounded offscreen target before applying
+  the enclosing group alpha. Explicit backdrops, non-Normal internal blends,
+  enabled overprint, and additional paints remain exact Canvas fallbacks.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

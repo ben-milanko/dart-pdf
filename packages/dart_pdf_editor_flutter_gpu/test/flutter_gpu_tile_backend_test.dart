@@ -3793,6 +3793,153 @@ void main() {
     });
   });
 
+  testWidgets('single soft-masked groups retain their layer alpha exactly',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      const maskGradient = PdfGradient(
+        isRadial: false,
+        coords: [0, 0, 1, 0],
+        colors: [PdfColor(0.05, 0.05, 0.05), PdfColor(1, 1, 1)],
+        stops: [0, 1],
+        transform: PdfMatrix(210, 0, 0, 210, 45, 85),
+      );
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfBeginGroupCommand(
+          0.42,
+          knockout: false,
+          isolated: false,
+          bounds: const PdfRect(40, 80, 260, 310),
+        ),
+        const PdfSaveCommand(),
+        PdfClipPathCommand(
+          _rect(50, 90, 250, 300),
+          PdfFillRule.nonzero,
+        ),
+        const PdfBeginSoftMaskedCommand(),
+        const PdfSetOverprintCommand(fill: false, stroke: false, mode: 1),
+        PdfFillPathCommand(
+          _rect(35, 75, 265, 315),
+          const PdfColor(0.82, 0.24, 0.48),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: page.cropBox,
+          maskCommands: [
+            PdfFillPathGradientCommand(
+              _rect(30, 70, 270, 320),
+              PdfFillRule.nonzero,
+              maskGradient,
+              1,
+            ),
+          ],
+        ),
+        const PdfSetOverprintCommand(fill: false, stroke: false, mode: 1),
+        const PdfRestoreCommand(),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(30, 460, 250, 270);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(6));
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+      expect(backend.stats.offscreenGroupPasses, 1,
+          reason: 'the group alpha applies after the masked source resolves');
+
+      final unsafe = await PdfRetainedScene.fromCommands(page, [
+        PdfBeginGroupCommand(
+          0.42,
+          knockout: false,
+          isolated: false,
+          bounds: const PdfRect(40, 80, 260, 310),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginSoftMaskedCommand(),
+        PdfFillPathCommand(
+          _rect(50, 90, 250, 300),
+          const PdfColor(0.82, 0.24, 0.48),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: page.cropBox,
+          maskCommands: [
+            PdfFillPathGradientCommand(
+              _rect(30, 70, 270, 320),
+              PdfFillRule.nonzero,
+              maskGradient,
+              1,
+            ),
+          ],
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(unsafe.dispose);
+      final conservative = FlutterGpuTileRasterBackend();
+      expect(conservative.createSession(unsafe), isNull);
+      expect(
+        conservative.lastSessionRejection,
+        contains('soft-mask group contains'),
+      );
+
+      final overprint = await PdfRetainedScene.fromCommands(page, [
+        PdfBeginGroupCommand(
+          0.42,
+          knockout: false,
+          isolated: false,
+          bounds: const PdfRect(40, 80, 260, 310),
+        ),
+        const PdfBeginSoftMaskedCommand(),
+        const PdfSetOverprintCommand(fill: true, stroke: true, mode: 1),
+        PdfFillPathCommand(
+          _rect(50, 90, 250, 300),
+          const PdfColor(0.82, 0.24, 0.48),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: page.cropBox,
+          maskCommands: [
+            PdfFillPathGradientCommand(
+              _rect(30, 70, 270, 320),
+              PdfFillRule.nonzero,
+              maskGradient,
+              1,
+            ),
+          ],
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(overprint.dispose);
+      final overprintBackend = FlutterGpuTileRasterBackend();
+      expect(overprintBackend.createSession(overprint), isNull);
+      expect(
+        overprintBackend.lastSessionRejection,
+        contains('soft-mask group contains'),
+      );
+    });
+  });
+
   testWidgets('axial gradient soft masks tint retained vector strokes',
       (tester) async {
     await tester.runAsync(() async {
