@@ -40,6 +40,7 @@ class FlutterGpuTileBackendStats {
   int analyticSparseAtlasSkips = 0;
   int analyticTextFallbackRuns = 0;
   int glyphBindingReuses = 0;
+  int imageBindingReuses = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
   int paperClearTiles = 0;
@@ -127,6 +128,7 @@ class FlutterGpuTileBackendStats {
         'analyticSparseAtlasSkips': analyticSparseAtlasSkips,
         'analyticTextFallbackRuns': analyticTextFallbackRuns,
         'glyphBindingReuses': glyphBindingReuses,
+        'imageBindingReuses': imageBindingReuses,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
         'paperClearTiles': paperClearTiles,
@@ -213,6 +215,7 @@ class FlutterGpuTileBackendStats {
     analyticSparseAtlasSkips = 0;
     analyticTextFallbackRuns = 0;
     glyphBindingReuses = 0;
+    imageBindingReuses = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
     paperClearTiles = 0;
@@ -279,6 +282,7 @@ class FlutterGpuTileBackendStats {
       'analyticSparseSkips=$analyticSparseAtlasSkips '
       'analyticFallbackRuns=$analyticTextFallbackRuns '
       'glyphBindingReuses=$glyphBindingReuses '
+      'imageBindingReuses=$imageBindingReuses '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'paperClearTiles=$paperClearTiles '
       'paperOnlyTiles=$paperOnlyTiles '

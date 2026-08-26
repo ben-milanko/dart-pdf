@@ -8218,6 +8218,8 @@ class _SoftMaskFillDraw implements _GpuDraw {
       encoder.softMaskFill(fan, cover, rule, maskTexture, info);
 }
 
+enum _GpuRetainedBindingKind { glyph, image }
+
 class _GpuEncoder {
   _GpuEncoder({
     required this.pass,
@@ -8261,7 +8263,9 @@ class _GpuEncoder {
   int clipMaskRebuilds = 0;
   bool? _separateVertexCountApi;
   gpu.ColorBlendEquation _paintBlend = _srcOver;
+  _GpuRetainedBindingKind? _retainedBindingKind;
   _GpuGlyphAtlas? _boundGlyphAtlas;
+  gpu.Texture? _boundImageTexture;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
@@ -8389,7 +8393,7 @@ class _GpuEncoder {
   }
 
   void solid(_GpuBuffer vertices) {
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     _defaultStencil();
     pass
       ..setColorBlendEquation(_paintBlend)
@@ -8526,7 +8530,7 @@ class _GpuEncoder {
     required bool union,
     required int requiredClipBit,
   }) {
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     final compare = requiredClipBit == 0
         ? gpu.CompareFunction.always
         : gpu.CompareFunction.equal;
@@ -8563,7 +8567,7 @@ class _GpuEncoder {
 
   void _clearStencil(int mask) {
     if (mask == 0) return;
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     pass
       ..setStencilReference(0)
       ..setColorBlendEquation(_noWrite)
@@ -8579,14 +8583,23 @@ class _GpuEncoder {
   }
 
   void texture(_GpuBuffer vertices, gpu.Texture texture, gpu.BufferView info) {
-    _dropRetainedGlyphBindings();
     _defaultStencil();
-    pass
-      ..setColorBlendEquation(_paintBlend)
-      ..bindPipeline(pipelines.texture)
-      ..bindUniform(pipelines.textureTransform, transform)
-      ..bindUniform(pipelines.textureInfo, info)
-      ..bindTexture(
+    pass.setColorBlendEquation(_paintBlend);
+    // Every ordinary image shares this pass transform and pipeline. Keep
+    // those bindings across adjacent draws; only the fragment metadata and,
+    // when it changes, the source texture need another Dart-to-native call.
+    final retained = _retainedBindingKind == _GpuRetainedBindingKind.image;
+    if (retained) {
+      stats.imageBindingReuses++;
+    } else {
+      _replaceRetainedBindings(_GpuRetainedBindingKind.image);
+      pass
+        ..bindPipeline(pipelines.texture)
+        ..bindUniform(pipelines.textureTransform, transform);
+    }
+    pass.bindUniform(pipelines.textureInfo, info);
+    if (!retained || !identical(_boundImageTexture, texture)) {
+      pass.bindTexture(
         pipelines.textureSampler,
         texture,
         sampler: gpu.SamplerOptions(
@@ -8595,8 +8608,9 @@ class _GpuEncoder {
           mipFilter: gpu.MipFilter.linear,
         ),
       );
+      _boundImageTexture = texture;
+    }
     _drawBuffer(vertices);
-    pass.clearBindings();
   }
 
   /// Samples a tile-sized offscreen group back into the same raster region.
@@ -8604,7 +8618,7 @@ class _GpuEncoder {
   /// sampling is a one-to-one texel copy; [alpha] and [_paintBlend] apply to
   /// the completed group once, as required by PDF transparency semantics.
   void tileTexture(gpu.Texture texture, Rect textureRegion, double alpha) {
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     final vertices = _tileTextureVertices(textureRegion);
     final info = Float32List(8)..[3] = alpha.clamp(0.0, 1.0);
     _defaultStencil();
@@ -8630,7 +8644,7 @@ class _GpuEncoder {
   /// the PDF blend equations. This runs in a separate pass because Flutter GPU
   /// deliberately forbids sampling the color attachment being written.
   void copyTile(gpu.Texture texture) {
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     final vertices = _tileTextureVertices(region);
     final info = Float32List(8)..[3] = 1;
     pass
@@ -8658,7 +8672,7 @@ class _GpuEncoder {
     PdfBlendMode mode,
     PdfRect? bounds,
   ) {
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     final vertices = _tileTextureVertices(region);
     final info = Float32List(8)
       ..[0] = mode.index.toDouble()
@@ -8751,11 +8765,12 @@ class _GpuEncoder {
   void glyphs(_GpuBuffer vertices, _GpuGlyphAtlas atlas) {
     _defaultStencil();
     pass.setColorBlendEquation(_paintBlend);
-    if (identical(_boundGlyphAtlas, atlas)) {
+    if (_retainedBindingKind == _GpuRetainedBindingKind.glyph &&
+        identical(_boundGlyphAtlas, atlas)) {
       stats.glyphBindingReuses++;
     } else {
+      _replaceRetainedBindings(_GpuRetainedBindingKind.glyph);
       pass
-        ..clearBindings()
         ..bindPipeline(pipelines.glyph)
         ..bindUniform(pipelines.glyphTransform, transform)
         ..bindUniform(pipelines.glyphInfo, atlas.info)
@@ -8775,7 +8790,7 @@ class _GpuEncoder {
 
   void softMask(_GpuBuffer vertices, gpu.Texture contentTexture,
       gpu.Texture maskTexture, gpu.BufferView info) {
-    _dropRetainedGlyphBindings();
+    _dropRetainedBindings();
     _defaultStencil();
     final sampler = gpu.SamplerOptions(
       minFilter: gpu.MinMagFilter.linear,
@@ -8833,10 +8848,19 @@ class _GpuEncoder {
     _clearStencil(_pathMask);
   }
 
-  void _dropRetainedGlyphBindings() {
-    if (_boundGlyphAtlas == null) return;
+  void _replaceRetainedBindings(_GpuRetainedBindingKind kind) {
     pass.clearBindings();
+    _retainedBindingKind = kind;
     _boundGlyphAtlas = null;
+    _boundImageTexture = null;
+  }
+
+  void _dropRetainedBindings() {
+    if (_retainedBindingKind == null) return;
+    pass.clearBindings();
+    _retainedBindingKind = null;
+    _boundGlyphAtlas = null;
+    _boundImageTexture = null;
   }
 
   // flutter_gpu is experimental. Flutter 3.47 split vertex count out of

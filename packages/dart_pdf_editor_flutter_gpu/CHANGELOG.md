@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Retain the image pipeline and page transform across adjacent image draws,
+  reusing an unchanged texture/sampler while updating only per-image metadata.
+  Intervening geometry invalidates the retained bindings.
 - Retain the glyph pipeline, transform, atlas metadata, and sampler bindings
   across adjacent analytic text runs. Intervening geometry invalidates that
   state, while dense text tiles avoid five redundant native calls per run.

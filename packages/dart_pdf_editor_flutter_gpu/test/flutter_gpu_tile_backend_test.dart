@@ -1609,6 +1609,94 @@ void main() {
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('retains image bindings only across adjacent draws',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
+        }),
+        Uint8List(0),
+      );
+      final alternateStream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
+        }),
+        Uint8List(0),
+      );
+      final pixels = PdfDecodedPixels(
+        Uint8List.fromList([
+          235,
+          55,
+          45,
+          255,
+          45,
+          120,
+          235,
+          255,
+          55,
+          205,
+          95,
+          255,
+          240,
+          190,
+          40,
+          255,
+        ]),
+        2,
+        2,
+      );
+      PdfDrawImageCommand image(CosStream source, double x) =>
+          PdfDrawImageCommand(
+            PdfImageRequest(
+              stream: source,
+              transform: PdfMatrix(70, 0, 0, 70, x, 650),
+              decoded: pixels,
+            ),
+          );
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        image(stream, 40),
+        image(stream, 130),
+        image(alternateStream, 220),
+        PdfFillPathCommand(
+          _rect(310, 650, 380, 720),
+          const PdfColor(0.2, 0.7, 0.35),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        image(stream, 400),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final expectedPixels = await _pixels(expected);
+      final actualPixels = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < expectedPixels.length; index++) {
+        difference += (expectedPixels[index] - actualPixels[index]).abs();
+      }
+      expect(difference / expectedPixels.length, lessThan(8));
+      expect(backend.stats.imageBindingReuses, 2,
+          reason: 'an adjacent texture change keeps static image state, while '
+              'the solid draw must invalidate it');
+    });
+  });
+
   testWidgets('local portable pixels upload without an image readback',
       (tester) async {
     await tester.runAsync(() async {
