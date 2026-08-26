@@ -129,6 +129,7 @@ Future<void> runNativeGpuPerfScenario() async {
         ),
       ),
     );
+    await _waitForGpuIdle(backend);
 
     expect(backend.stats.contextsSeen, 1);
     expect(backend.stats.sessionsCreated, 1);
@@ -156,6 +157,19 @@ Future<void> runNativeGpuPerfScenario() async {
     backend.clearImageCache();
     scene.dispose();
   }
+}
+
+Future<void> _waitForGpuIdle(FlutterGpuTileRasterBackend backend) async {
+  for (var attempt = 0;
+      attempt < 100 && backend.stats.inFlightSubmissions != 0;
+      attempt++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  expect(
+    backend.stats.inFlightSubmissions,
+    0,
+    reason: 'readback may complete before the GPU completion callback runs',
+  );
 }
 
 Future<_NativeGpuRaster?> _measureNativeGpuScenario(
