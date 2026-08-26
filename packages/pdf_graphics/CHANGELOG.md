@@ -2,6 +2,8 @@
 
 ## 4.0.0
 
+- Allow retained renderers to request a larger overprint colourant grid when
+  retrying a scene that the default exact-GPU route conservatively rejected.
 - **Breaking:** `PdfOverprintCompositor.image` now requires the image
   transform, source dimensions, and a spatial resolver. Custom compositor
   callers must pass those values so one image can be resolved against several

@@ -217,10 +217,6 @@ jobs:
             cd "$destination"
             flutter pub get
           )
-          # Run the PR's report-capable corpus harness against main's package
-          # sources so route changes are compared page by page.
-          cp packages/dart_pdf_editor_flutter_gpu/test/gpu_corpus_test.dart \
-            "$destination/packages/dart_pdf_editor_flutter_gpu/test/gpu_corpus_compare_test.dart"
           echo "dir=$destination" >> "$GITHUB_OUTPUT"
           echo "commit=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
@@ -236,7 +232,7 @@ jobs:
           set -euo pipefail
           cd "$BASE_WORKSPACE/packages/dart_pdf_editor_flutter_gpu"
           flutter test --enable-impeller --enable-flutter-gpu \
-            test/gpu_corpus_compare_test.dart --reporter expanded
+            test/gpu_corpus_test.dart --reporter expanded
 
       - name: Compare Flutter GPU corpus routes with main
         if: github.event_name == 'pull_request'
@@ -288,6 +284,7 @@ jobs:
                   "$label" == "advanced-blend-stress" ||
                   "$label" == "knockout-mask" ||
                   "$label" == "knockout-overlap" ||
+                  "$label" == "overprint-retry" ||
                   "$label" == "hairline" ]]; then
               route_change=1
             fi
@@ -369,6 +366,7 @@ jobs:
           advanced-blend-stress generated advanced-blend-stress
           knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
           knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
+          overprint-retry pdf ../../test_corpora/ghent/3-ICC-CMS/GWG164_Transp_Basic_BM_ICCbasedCMYK_x4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           fi
@@ -406,6 +404,7 @@ jobs:
           advanced-blend-stress generated advanced-blend-stress
           knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
           knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
+          overprint-retry pdf ../../test_corpora/ghent/3-ICC-CMS/GWG164_Transp_Basic_BM_ICCbasedCMYK_x4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           done
@@ -462,6 +461,8 @@ jobs:
             --require-scenario-runs gpu-knockout-mask-page-0-canvas-tile=6
             --require-scenario-runs gpu-knockout-overlap-page-0-first-tile=6
             --require-scenario-runs gpu-knockout-overlap-page-0-canvas-tile=6
+            --require-scenario-runs gpu-overprint-retry-page-0-first-tile=6
+            --require-scenario-runs gpu-overprint-retry-page-0-canvas-tile=6
             --require-scenario-runs gpu-hairline-page-0-first-tile=6
             --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
           )

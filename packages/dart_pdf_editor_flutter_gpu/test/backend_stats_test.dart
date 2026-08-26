@@ -16,6 +16,12 @@ void main() {
       final desktop = FlutterGpuTileRasterBackend();
       expect(desktop.supportsWarmUp, isTrue);
       expect(desktop.supportsSessionWarmUp, isTrue);
+      expect(desktop.overprintRetryMaxDimension, 512);
+      expect(
+        FlutterGpuTileRasterBackend(overprintRetryMaxDimension: null)
+            .overprintRetryMaxDimension,
+        isNull,
+      );
 
       final optedIn = FlutterGpuTileRasterBackend(enableProactiveWarmUp: true);
       expect(optedIn.supportsWarmUp, isTrue);
@@ -34,6 +40,10 @@ void main() {
       ..sessionsCreated = 4
       ..sessionsRejected = 2
       ..sessionsDisposed = 1
+      ..overprintRetryRequests = 3
+      ..overprintRetrySuccesses = 2
+      ..overprintRetryFallbacks = 1
+      ..overprintRetryMicros = 24000
       ..rasterFallbacks = 1
       ..lastContextIdentity = 1234
       ..contextsSeen = 2
@@ -87,6 +97,10 @@ void main() {
       ..lastRejection = 'test fallback';
 
     expect(stats.toJson(), containsPair('rasterFallbacks', 1));
+    expect(stats.toJson(), containsPair('overprintRetryRequests', 3));
+    expect(stats.toJson(), containsPair('overprintRetrySuccesses', 2));
+    expect(stats.toJson(), containsPair('overprintRetryFallbacks', 1));
+    expect(stats.toJson(), containsPair('overprintRetryMicros', 24000));
     expect(stats.toJson(), containsPair('lastRejection', 'test fallback'));
     expect(stats.toJson(), containsPair('lastTileRoute', 'canvas-fallback'));
     expect(stats.toJson(), containsPair('completedSubmissions', 8));
@@ -125,6 +139,10 @@ void main() {
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
+    expect(stats.overprintRetryRequests, 0);
+    expect(stats.overprintRetrySuccesses, 0);
+    expect(stats.overprintRetryFallbacks, 0);
+    expect(stats.overprintRetryMicros, 0);
     expect(stats.rasterFallbacks, 0);
     expect(stats.lastContextIdentity, 1234);
     expect(stats.contextsSeen, 2);

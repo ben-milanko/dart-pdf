@@ -20,6 +20,10 @@ class FlutterGpuTileBackendStats {
   int sessionsCreated = 0;
   int sessionsRejected = 0;
   int sessionsDisposed = 0;
+  int overprintRetryRequests = 0;
+  int overprintRetrySuccesses = 0;
+  int overprintRetryFallbacks = 0;
+  int overprintRetryMicros = 0;
   int rasterFallbacks = 0;
   int activeSessions = 0;
   int peakActiveSessions = 0;
@@ -101,6 +105,10 @@ class FlutterGpuTileBackendStats {
         'sessionsCreated': sessionsCreated,
         'sessionsRejected': sessionsRejected,
         'sessionsDisposed': sessionsDisposed,
+        'overprintRetryRequests': overprintRetryRequests,
+        'overprintRetrySuccesses': overprintRetrySuccesses,
+        'overprintRetryFallbacks': overprintRetryFallbacks,
+        'overprintRetryMicros': overprintRetryMicros,
         'rasterFallbacks': rasterFallbacks,
         'activeSessions': activeSessions,
         'peakActiveSessions': peakActiveSessions,
@@ -170,6 +178,10 @@ class FlutterGpuTileBackendStats {
     sessionsCreated = 0;
     sessionsRejected = 0;
     sessionsDisposed = 0;
+    overprintRetryRequests = 0;
+    overprintRetrySuccesses = 0;
+    overprintRetryFallbacks = 0;
+    overprintRetryMicros = 0;
     rasterFallbacks = 0;
     contextSwitches = 0;
     warmUpRequests = 0;

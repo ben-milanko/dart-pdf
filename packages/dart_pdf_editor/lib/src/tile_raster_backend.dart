@@ -74,6 +74,18 @@ abstract class PdfTileRasterBackend {
   PdfTileRasterSession? createSession(PdfRetainedScene scene);
 }
 
+/// Optional asynchronous second chance after [PdfTileRasterBackend.createSession]
+/// conservatively declines a retained scene.
+///
+/// The viewer calls [retrySession] immediately after the synchronous result is
+/// null. Returning null keeps the normal Canvas fallback. Returning a future
+/// starts the extra work asynchronously; if that future later completes with
+/// null or throws, the same exact Canvas fallback takes over.
+/// This is intended for bounded re-recording strategies, not approximations.
+abstract interface class PdfTileRasterRetryBackend {
+  Future<PdfTileRasterSession?>? retrySession(PdfRetainedScene scene);
+}
+
 /// Scene-lifetime resources used to rasterize many tile regions.
 abstract class PdfTileRasterSession {
   /// The retained scene this session was built for.

@@ -38,10 +38,12 @@ import 'text_outliner.dart';
 /// pixels reject the whole scene. Zero-width PDF hairlines are expanded at
 /// tile submission time so they remain exactly one device pixel at every LoD.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
-class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
+class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
+    implements PdfTileRasterRetryBackend {
   FlutterGpuTileRasterBackend({
     this.msaa = true,
     this.allowOverprintApproximation = false,
+    this.overprintRetryMaxDimension = 512,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
@@ -49,7 +51,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     FlutterGpuTextOutliner? textOutliner,
     this.systemTextOutlines = false,
     FlutterGpuTileBackendStats? stats,
-  })  : stats = stats ?? FlutterGpuTileBackendStats(),
+  })  : assert(overprintRetryMaxDimension == null ||
+            overprintRetryMaxDimension > 0),
+        stats = stats ?? FlutterGpuTileBackendStats(),
         textOutliner = textOutliner ??
             (systemTextOutlines
                 ? FlutterGpuSystemTextOutliner.tryCreate()
@@ -68,6 +72,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// channels as PDF overprint requires. Keep this for controlled benchmarking
   /// only; ordinary clients get the exact Canvas fallback instead.
   final bool allowOverprintApproximation;
+
+  /// Long-side colorant-grid size for one exact retry after the default scene
+  /// is rejected specifically for unresolved non-black overprint.
+  ///
+  /// Null disables the retry. It is lazy—the ordinary 384-cell page walk and
+  /// every already-accepted scene are unchanged—and a retry that remains
+  /// unsupported is handed back to the viewer's exact Canvas fallback.
+  final int? overprintRetryMaxDimension;
 
   /// Byte budget for decoded image textures shared by every scene/session
   /// created from this backend instance. Cached and active scene leases both
@@ -267,6 +279,49 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       stats.sessionsRejected++;
       return null;
     }
+  }
+
+  @override
+  Future<PdfTileRasterSession?>? retrySession(PdfRetainedScene scene) {
+    final maxDimension = overprintRetryMaxDimension;
+    if (maxDimension == null ||
+        _lastSessionRejection !=
+            'non-black overprint requires Canvas fallback' ||
+        !scene.canRerecordWithOverprint) {
+      return null;
+    }
+    stats
+      ..overprintRetryRequests += 1
+      ..lastTileRoute = 'flutter_gpu-overprint-retry';
+    return Future<PdfTileRasterSession?>.microtask(() async {
+      final clock = Stopwatch()..start();
+      PdfRetainedScene? retried;
+      try {
+        final retry = scene.rerecordWithOverprintMaxDimension(maxDimension);
+        if (retry == null) {
+          stats.overprintRetryFallbacks++;
+          return null;
+        }
+        retried = await retry;
+        final session = createSession(retried);
+        if (session == null) {
+          stats.overprintRetryFallbacks++;
+          retried.dispose();
+          return null;
+        }
+        stats.overprintRetrySuccesses++;
+        return _RetriedSceneTileRasterSession(session, retried);
+      } catch (error) {
+        retried?.dispose();
+        stats
+          ..overprintRetryFallbacks += 1
+          ..lastRejection = 'overprint retry failed: $error'
+          ..lastTileRoute = 'canvas-fallback';
+        return null;
+      } finally {
+        stats.overprintRetryMicros += clock.elapsedMicroseconds;
+      }
+    });
   }
 
   static String? _unsupportedReason(
@@ -3533,6 +3588,62 @@ bool _commandNeedsDarken(
               nonBlack(run.strokeColor!)),
     _ => false,
   };
+}
+
+/// Couples a successful denser re-recording to the GPU session built from it.
+/// The original retained scene remains owned by the viewer for its base image
+/// and ready Canvas fallback; this wrapper owns only the retry transcript.
+class _RetriedSceneTileRasterSession
+    implements
+        PdfTileRasterSession,
+        PdfTileRasterScheduling,
+        PdfTileRasterWarmUp {
+  _RetriedSceneTileRasterSession(this._session, this.scene) {
+    assert(identical(_session.scene, scene));
+  }
+
+  final PdfTileRasterSession _session;
+
+  @override
+  final PdfRetainedScene scene;
+
+  @override
+  bool get batchAdjacentTiles => _session is PdfTileRasterScheduling
+      ? (_session as PdfTileRasterScheduling).batchAdjacentTiles
+      : true;
+
+  @override
+  int? get maxNewTilesPerPaint => _session is PdfTileRasterScheduling
+      ? (_session as PdfTileRasterScheduling).maxNewTilesPerPaint
+      : null;
+
+  @override
+  Future<void> warmUp() async {
+    if (_session is PdfTileRasterWarmUp) {
+      await (_session as PdfTileRasterWarmUp).warmUp();
+    }
+  }
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) =>
+      _session.rasterizeRegion(
+        region,
+        pixelRatio: pixelRatio,
+        tracePage: tracePage,
+      );
+
+  @override
+  void dispose() {
+    try {
+      _session.dispose();
+    } finally {
+      scene.dispose();
+    }
+  }
 }
 
 class _FlutterGpuTileSession

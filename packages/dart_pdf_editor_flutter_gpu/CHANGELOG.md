@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Retry only non-black-overprint scene rejections with a lazily re-recorded
+  512-cell colourant grid. Exact scenes such as Ghent GWG164 move to native
+  Flutter GPU, while any remaining mismatch continues through Canvas.
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 

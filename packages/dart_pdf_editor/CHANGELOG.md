@@ -2,6 +2,9 @@
 
 ## 4.0.0
 
+- Add an optional asynchronous tile-backend retry hook and exact retained-scene
+  re-recording, while preserving the existing Canvas fallback when a retry is
+  unavailable, fails, or remains inexact.
 - **Breaking:** classes that `implements PdfTileRasterBackend` must add
   `supportsWarmUp`, `supportsSessionWarmUp`, and `warmUp()`. Extending the base
   class keeps the default no-op implementations.

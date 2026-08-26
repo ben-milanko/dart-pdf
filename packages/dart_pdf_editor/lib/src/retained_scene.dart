@@ -13,6 +13,7 @@
 /// runs after [record] returns.
 library;
 
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -29,6 +30,8 @@ import 'renderer.dart';
 import 'render_worker.dart';
 import 'region_replay_index.dart';
 import 'strips/strip_device.dart';
+
+const _overprintRerecordMaxSourceBytes = 64 << 20;
 
 /// Mutable carrier for the image-decode half of a [PdfRetainedScene.fromCommands]
 /// build, so the perf log can split the render 'build' phase into decode vs
@@ -65,10 +68,15 @@ class PdfRetainedScene {
     this.page,
     this.plan,
     this.commands,
-    this._images, [
-    this._retainedDecodedRequests,
+    this._images, {
+    List<PdfImageRequest>? retainedDecodedRequests,
     this.imageDecodingAttempted = true,
-  ]);
+    ({
+      double? maxImagePixelRatio,
+      double imageDecodeHeadroom
+    })? recordingOptions,
+  })  : _retainedDecodedRequests = retainedDecodedRequests,
+        _recordingOptions = recordingOptions;
 
   /// Whether image requests were passed through the decoder for this scene.
   ///
@@ -77,6 +85,15 @@ class PdfRetainedScene {
   /// vector-only progressive buffer and a later complete scene may still
   /// supply the image.
   final bool imageDecodingAttempted;
+
+  final ({
+    double? maxImagePixelRatio,
+    double imageDecodeHeadroom
+  })? _recordingOptions;
+
+  /// Whether this scene retains enough complete recording inputs for an exact
+  /// overprint-resolution retry.
+  bool get canRerecordWithOverprint => !_disposed && _recordingOptions != null;
 
   /// Scenes holding sheddable spatial metadata (a region index or banded
   /// transcript), weakly held so a coordinated memory-pressure sweep can drop
@@ -351,14 +368,18 @@ class PdfRetainedScene {
     PdfPage page, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool Function(PdfAnnotation)? skipAnnotation,
+    int overprintMaxDimension = 384,
     double? maxImagePixelRatio,
     double imageDecodeHeadroom = 2,
     PdfSceneBuildTiming? timing,
   }) async {
     final cos = page.document.cos;
     final recorder = RecordingPdfDevice();
-    final recording = PdfInterpreter(cos: cos, device: recorder)
-      ..drawPageContent(page, page.contentBytes());
+    final recording = PdfInterpreter(
+      cos: cos,
+      device: recorder,
+      overprintMaxDimension: overprintMaxDimension,
+    )..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
     final clock = timing == null ? null : (Stopwatch()..start());
     final images = await decodeImages(cos, recorder.imageRequests,
@@ -368,7 +389,93 @@ class PdfRetainedScene {
     if (clock != null) {
       timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
     }
-    return PdfRetainedScene._(page, plan, recorder.commands, images);
+    return PdfRetainedScene._(
+      page,
+      plan,
+      recorder.commands,
+      images,
+      recordingOptions: skipAnnotation == null
+          ? (
+              maxImagePixelRatio: maxImagePixelRatio,
+              imageDecodeHeadroom: imageDecodeHeadroom,
+            )
+          : null,
+    );
+  }
+
+  /// Repeats a complete scene with a denser overprint colorant grid.
+  ///
+  /// The pure-Dart page walk and image-command serialization run on a temporary
+  /// isolate so a difficult overprint page cannot stall the UI isolate. The
+  /// ordinary page walk never retries by itself; an optional tile backend can
+  /// use this only after conservatively rejecting the default transcript.
+  ///
+  /// Returns null for partial/imported command buffers, encrypted sources (the
+  /// parsed document does not retain its password), sources above 64 MiB (to
+  /// keep the isolate hand-off bounded), recordings that skipped annotations,
+  /// and pages no longer reachable from their document.
+  Future<PdfRetainedScene>? rerecordWithOverprintMaxDimension(
+    int maxDimension,
+  ) {
+    final options = _recordingOptions;
+    final document = page.document;
+    if (_disposed ||
+        options == null ||
+        maxDimension <= 0 ||
+        document.cos.isEncrypted ||
+        document.cos.bytes.length > _overprintRerecordMaxSourceBytes) {
+      return null;
+    }
+    final pageIndex = document.pageIndexOf(page.dict);
+    if (pageIndex < 0) return null;
+    return _rerecordWithOverprint(
+      pageIndex,
+      maxDimension,
+      options,
+    );
+  }
+
+  Future<PdfRetainedScene> _rerecordWithOverprint(
+    int pageIndex,
+    int maxDimension,
+    ({double? maxImagePixelRatio, double imageDecodeHeadroom}) options,
+  ) async {
+    final source = TransferableTypedData.fromList([page.document.cos.bytes]);
+    final annotations = plan.annotations;
+    final decodeRatio = options.maxImagePixelRatio == null
+        ? null
+        : options.maxImagePixelRatio! * options.imageDecodeHeadroom;
+    final encoded = await Isolate.run(() {
+      final document = PdfDocument.open(source.materialize().asUint8List());
+      if (pageIndex >= document.pageCount) return null;
+      final retryPage = document.page(pageIndex);
+      final recorder = RecordingPdfDevice();
+      final interpreter = PdfInterpreter(
+        cos: document.cos,
+        device: recorder,
+        overprintMaxDimension: maxDimension,
+      )..drawPageContent(retryPage, retryPage.contentBytes());
+      if (annotations) interpreter.drawAnnotations(retryPage);
+      return serializeCommands(
+        recorder.commands,
+        cos: document.cos,
+        decodeImages: true,
+        maxImagePixelRatio: decodeRatio,
+        pageRasterPixels: pdfPageRasterPixels(
+          retryPage.cropBox,
+          decodeRatio,
+        ),
+      );
+    });
+    if (encoded == null) {
+      throw StateError('overprint retry command buffer is not transferable');
+    }
+    return fromCommands(
+      page,
+      deserializeCommands(encoded),
+      plan: plan,
+      maxImagePixelRatio: options.maxImagePixelRatio,
+    );
   }
 
   /// Builds a scene from an already-recorded [commands] buffer (e.g. one a
@@ -376,6 +483,8 @@ class PdfRetainedScene {
   /// must have been recorded for [page] under [plan]. Set [includeImages] to
   /// false for a deliberate vector-only progressive buffer; image draws then
   /// stay transparent until a complete scene replaces it.
+  /// [allowOverprintRerecord] marks a complete, unfiltered worker transcript
+  /// as reconstructible for an optional exact overprint retry.
   ///
   /// [timing], when non-null, receives the duration of the decode pass - the
   /// perf log's way of splitting the render 'build' phase into image decode
@@ -391,6 +500,7 @@ class PdfRetainedScene {
     List<PdfRenderCommand> commands, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool includeImages = true,
+    bool allowOverprintRerecord = false,
     bool retainDecodedPixels = false,
     PdfSceneBuildTiming? timing,
     double? maxImagePixelRatio,
@@ -426,8 +536,14 @@ class PdfRetainedScene {
       plan,
       commands,
       images,
-      retainedRequests,
-      includeImages,
+      retainedDecodedRequests: retainedRequests,
+      imageDecodingAttempted: includeImages,
+      recordingOptions: allowOverprintRerecord && includeImages
+          ? (
+              maxImagePixelRatio: maxImagePixelRatio,
+              imageDecodeHeadroom: 1,
+            )
+          : null,
     );
   }
 
