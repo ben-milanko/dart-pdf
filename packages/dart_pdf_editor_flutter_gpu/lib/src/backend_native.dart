@@ -8679,6 +8679,9 @@ class _GpuEncoder {
   _GpuRetainedBindingKind? _retainedBindingKind;
   _GpuGlyphAtlas? _boundGlyphAtlas;
   gpu.Texture? _boundImageTexture;
+  // This cache is valid only for the common non-writing stencil state. Every
+  // operation that changes either face's config clears it before encoding.
+  int? _appliedDefaultStencilBit;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
@@ -8911,6 +8914,7 @@ class _GpuEncoder {
   }
 
   void _paintStencilCover(gpu.BufferView cover, int vertices) {
+    _appliedDefaultStencilBit = null;
     pass
       ..setStencilReference(0)
       ..setColorBlendEquation(_paintBlend)
@@ -8933,6 +8937,7 @@ class _GpuEncoder {
       union: false,
       requiredClipBit: _activeClipBit,
     );
+    _appliedDefaultStencilBit = null;
     pass
       ..setStencilReference(0)
       ..setColorBlendEquation(_paintBlend)
@@ -8974,6 +8979,7 @@ class _GpuEncoder {
     required int requiredClipBit,
   }) {
     _dropRetainedBindings();
+    _appliedDefaultStencilBit = null;
     final compare = requiredClipBit == 0
         ? gpu.CompareFunction.always
         : gpu.CompareFunction.equal;
@@ -9011,6 +9017,7 @@ class _GpuEncoder {
   void _clearStencil(int mask) {
     if (mask == 0) return;
     _dropRetainedBindings();
+    _appliedDefaultStencilBit = null;
     pass
       ..setStencilReference(0)
       ..setColorBlendEquation(_noWrite)
@@ -9240,6 +9247,7 @@ class _GpuEncoder {
       union: false,
       requiredClipBit: _activeClipBit,
     );
+    _appliedDefaultStencilBit = null;
     pass
       ..setStencilReference(0)
       ..setColorBlendEquation(_paintBlend)
@@ -9312,6 +9320,7 @@ class _GpuEncoder {
   }
 
   void _defaultStencil() {
+    if (_appliedDefaultStencilBit == _activeClipBit) return;
     pass
       ..setStencilReference(_activeClipBit)
       ..setStencilConfig(switch (_activeClipBit) {
@@ -9320,6 +9329,7 @@ class _GpuEncoder {
         _clipBitB => _stencilDefaultClipB,
         _ => throw StateError('unsupported active clip bit: $_activeClipBit'),
       });
+    _appliedDefaultStencilBit = _activeClipBit;
   }
 }
 
