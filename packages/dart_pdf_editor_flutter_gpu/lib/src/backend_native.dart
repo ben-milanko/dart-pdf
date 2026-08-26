@@ -1509,11 +1509,13 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     PdfRect? clip = initialClip;
     PdfRect? contentClip;
     var emptyClipOnly = false;
+    PdfRect? emptyClipBounds;
+    var skippedEmptyPaint = false;
     var fillOverprint = initialFillOverprint;
     var strokeOverprint = initialStrokeOverprint;
     var blend = initialBlend;
     var invisibleGroupDepth = 0;
-    final saved = <(PdfRect?, bool, bool, PdfBlendMode)>[];
+    final saved = <(PdfRect?, bool, bool, bool, PdfBlendMode)>[];
     for (var i = start + 1; i < end; i++) {
       final command = commands[i];
       if (invisibleGroupDepth != 0) {
@@ -1528,14 +1530,21 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       }
       switch (command) {
         case PdfSaveCommand():
-          saved.add((clip, fillOverprint, strokeOverprint, blend));
+          saved.add((
+            clip,
+            emptyClipOnly,
+            fillOverprint,
+            strokeOverprint,
+            blend,
+          ));
         case PdfRestoreCommand():
           if (saved.isEmpty) return (null, 'unbalanced soft-mask image state');
           final restored = saved.removeLast();
           clip = restored.$1;
-          fillOverprint = restored.$2;
-          strokeOverprint = restored.$3;
-          blend = restored.$4;
+          emptyClipOnly = restored.$2;
+          fillOverprint = restored.$3;
+          strokeOverprint = restored.$4;
+          blend = restored.$5;
         case PdfClipPathCommand(:final path):
           if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
             return (null, 'non-rectangular soft-mask image clip');
@@ -1549,6 +1558,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               (clip != null && pathBounds != null && narrowed == null)) {
             emptyClipOnly = true;
             clip = pathBounds;
+            emptyClipBounds ??= pathBounds;
             break;
           }
           clip = narrowed;
@@ -1560,7 +1570,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           softEnd = command;
         case PdfDrawImageCommand():
           if (emptyClipOnly) {
-            return (null, 'empty transparency group contains paint');
+            skippedEmptyPaint = true;
+            break;
           }
           if (softDepth == 0 && content == null) {
             paints.add((i, command, clip, blend, false));
@@ -1574,7 +1585,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           contentClip = clip;
         case PdfFillPathCommand():
           if (emptyClipOnly) {
-            return (null, 'empty transparency group contains paint');
+            skippedEmptyPaint = true;
+            break;
           }
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfFillPathCommand');
@@ -1583,7 +1595,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           contentClip = clip;
         case PdfFillPathGradientCommand() || PdfFillMeshCommand():
           if (emptyClipOnly) {
-            return (null, 'empty transparency group contains paint');
+            skippedEmptyPaint = true;
+            break;
           }
           if (softDepth != 0 || content != null) {
             return (
@@ -1595,7 +1608,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           contentClip = clip;
         case PdfStrokePathCommand():
           if (emptyClipOnly) {
-            return (null, 'empty transparency group contains paint');
+            skippedEmptyPaint = true;
+            break;
           }
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfStrokePathCommand');
@@ -1604,7 +1618,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           contentClip = clip;
         case PdfDrawTextCommand(:final run):
           if (emptyClipOnly) {
-            return (null, 'empty transparency group contains paint');
+            skippedEmptyPaint = true;
+            break;
           }
           if (softDepth != 0 || content != null) {
             return (null, 'soft-mask group contains PdfDrawTextCommand');
@@ -1719,8 +1734,11 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     if (invisibleGroupDepth != 0) {
       return (null, 'unbalanced invisible transparency group');
     }
-    if (emptyClipOnly && softCount == 0 && paints.isEmpty && content == null) {
-      return (_EmptyGroupSpec(clip!), null);
+    if ((emptyClipOnly || skippedEmptyPaint) &&
+        softDepth == 0 &&
+        paints.isEmpty &&
+        content == null) {
+      return (_EmptyGroupSpec(emptyClipBounds ?? clip!), null);
     }
     if (softCount == 0 && softDepth == 0 && paints.length == 1) {
       final paint = paints.single;

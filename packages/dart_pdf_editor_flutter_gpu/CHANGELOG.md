@@ -35,6 +35,10 @@
   group by resolving the mask in one bounded offscreen target before applying
   the enclosing group alpha. Explicit backdrops, non-Normal internal blends,
   enabled overprint, and additional paints remain exact Canvas fallbacks.
+- Treat paints behind a provably empty rectangular clip as no-ops while
+  parsing transparency groups, carrying that clip state through save/restore
+  and balanced soft-mask structures. Empty group content no longer forces an
+  otherwise supported page onto Canvas.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

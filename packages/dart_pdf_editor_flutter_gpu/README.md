@@ -124,6 +124,10 @@ group: the backend resolves that source in a bounded offscreen target and then
 applies the enclosing group alpha once. This exact route requires no explicit
 group backdrop, a Normal internal blend, and no enabled overprint; the other
 forms remain on Canvas.
+Paints behind a degenerate or disjoint rectangular clip are discarded while
+capturing a transparency group, including balanced soft-mask content that can
+no longer affect a pixel. Save/restore still reinstates the prior clip for any
+later visible paint.
 Tiles that sit at least one device pixel inside the transformed crop box use
 the folded opaque paper color as their render-pass clear, avoiding a separate
 transparent clear and full-tile paper draw. Boundary tiles retain the paper

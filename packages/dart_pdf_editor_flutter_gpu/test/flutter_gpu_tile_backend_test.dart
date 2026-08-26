@@ -1916,9 +1916,113 @@ void main() {
         const PdfEndGroupCommand(),
       ]);
       addTearDown(painted.dispose);
-      final conservative = FlutterGpuTileRasterBackend();
-      expect(conservative.createSession(painted), isNull);
-      expect(conservative.stats.lastRejection, contains('contains paint'));
+      final paintedBackend = FlutterGpuTileRasterBackend();
+      final paintedSession = paintedBackend.createSession(painted);
+      expect(paintedSession, isNotNull,
+          reason: paintedBackend.stats.lastRejection);
+      addTearDown(paintedSession!.dispose);
+      const paintedRegion = Rect.fromLTWH(40, 70, 80, 180);
+      final paintedExpected =
+          await painted.rasterizeRegion(paintedRegion, pixelRatio: 1);
+      final paintedActual =
+          await paintedSession.rasterizeRegion(paintedRegion, pixelRatio: 1);
+      addTearDown(paintedExpected.dispose);
+      addTearDown(paintedActual.dispose);
+      expect(await _pixels(paintedActual), await _pixels(paintedExpected));
+
+      final restored = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(1),
+        const PdfSaveCommand(),
+        PdfClipPathCommand(_rect(80, 100, 80, 220), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(60, 90, 100, 230),
+          const PdfColor(0.8, 0.2, 0.1),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfRestoreCommand(),
+        PdfFillPathCommand(
+          _rect(140, 90, 260, 230),
+          const PdfColor(0.15, 0.45, 0.85),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(restored.dispose);
+      final restoredBackend = FlutterGpuTileRasterBackend();
+      final restoredSession = restoredBackend.createSession(restored);
+      expect(restoredSession, isNotNull,
+          reason: restoredBackend.stats.lastRejection);
+      addTearDown(restoredSession!.dispose);
+      const restoredRegion = Rect.fromLTWH(40, 70, 240, 180);
+      final restoredExpected =
+          await restored.rasterizeRegion(restoredRegion, pixelRatio: 1);
+      final restoredActual =
+          await restoredSession.rasterizeRegion(restoredRegion, pixelRatio: 1);
+      addTearDown(restoredExpected.dispose);
+      addTearDown(restoredActual.dispose);
+      final restoredA = await _pixels(restoredExpected);
+      final restoredB = await _pixels(restoredActual);
+      var restoredDifference = 0;
+      for (var index = 0; index < restoredA.length; index++) {
+        restoredDifference += (restoredA[index] - restoredB[index]).abs();
+      }
+      expect(restoredDifference / restoredA.length, lessThan(1));
+
+      final transform = const PdfMatrix(80, 0, 0, 80, 60, 90);
+      final maskedEmpty = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginGroupCommand(1),
+          const PdfSaveCommand(),
+          PdfClipPathCommand(_rect(80, 100, 80, 220), PdfFillRule.nonzero),
+          const PdfBeginSoftMaskedCommand(),
+          _decodedImage(
+            Uint8List.fromList([
+              for (var i = 0; i < 4; i++) ...const [200, 40, 20, 255],
+            ]),
+            transform,
+            'empty-clipped-content',
+          ),
+          PdfEndSoftMaskedCommand(
+            luminosity: false,
+            backdrop: page.cropBox,
+            maskCommands: [
+              _decodedImage(
+                Uint8List.fromList([
+                  for (var i = 0; i < 4; i++) ...const [255, 255, 255, 255],
+                ]),
+                transform,
+                'empty-clipped-mask',
+              ),
+            ],
+          ),
+          const PdfRestoreCommand(),
+          const PdfEndGroupCommand(),
+          PdfFillPathCommand(
+            _rect(180, 90, 300, 230),
+            const PdfColor(0.2, 0.55, 0.85),
+            PdfFillRule.nonzero,
+            0.9,
+          ),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(maskedEmpty.dispose);
+      final maskedBackend = FlutterGpuTileRasterBackend();
+      final maskedSession = maskedBackend.createSession(maskedEmpty);
+      expect(maskedSession, isNotNull,
+          reason: maskedBackend.stats.lastRejection);
+      addTearDown(maskedSession!.dispose);
+      const maskedRegion = Rect.fromLTWH(40, 70, 280, 180);
+      final maskedExpected =
+          await maskedEmpty.rasterizeRegion(maskedRegion, pixelRatio: 1);
+      final maskedActual =
+          await maskedSession.rasterizeRegion(maskedRegion, pixelRatio: 1);
+      addTearDown(maskedExpected.dispose);
+      addTearDown(maskedActual.dispose);
+      expect(await _pixels(maskedActual), await _pixels(maskedExpected));
     });
   });
 
