@@ -267,6 +267,68 @@ void main() {
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('completion-fenced attachments respect the retention budget',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final attachmentsPerTile =
+          gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
+      for (final budget in [0, 64 << 20]) {
+        final page = PdfDocument.open(buildClassicPdf()).page(0);
+        final scene = await PdfRetainedScene.fromCommands(page, [
+          PdfFillPathCommand(
+            _rect(40, 40, 572, 752),
+            const PdfColor(0.2, 0.45, 0.8),
+            PdfFillRule.nonzero,
+            0.8,
+          ),
+        ]);
+        final backend = FlutterGpuTileRasterBackend(
+          maxTransientAttachmentBytes: budget,
+        );
+        final session = backend.createSession(scene);
+        expect(session, isNotNull, reason: backend.stats.lastRejection);
+        final active = session!;
+        try {
+          const region = Rect.fromLTWH(30, 50, 300, 220);
+          final warm = await active.rasterizeRegion(region, pixelRatio: 1);
+          await _pixels(warm);
+          warm.dispose();
+
+          backend.stats.reset();
+          final replay = await active.rasterizeRegion(region, pixelRatio: 1);
+          await _pixels(replay);
+          replay.dispose();
+          expect(backend.stats.failedSubmissions, 0);
+          if (budget == 0) {
+            expect(
+              backend.stats.transientAttachmentTextures,
+              attachmentsPerTile,
+            );
+            expect(backend.stats.transientAttachmentReuses, 0);
+            expect(backend.stats.transientAttachmentResidentBytes, 0);
+          } else {
+            expect(backend.stats.transientAttachmentTextures, 0);
+            expect(
+              backend.stats.transientAttachmentReuses,
+              attachmentsPerTile,
+            );
+            expect(
+              backend.stats.transientAttachmentResidentBytes,
+              greaterThan(0),
+            );
+          }
+        } finally {
+          active.dispose();
+          scene.dispose();
+        }
+      }
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('rotation and rectangular clips match Canvas', (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {

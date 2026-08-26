@@ -68,6 +68,12 @@ class FlutterGpuTileBackendStats {
   int transientResidentBytes = 0;
   int peakTransientResidentBytes = 0;
   int peakTransientTileBytes = 0;
+  int transientAttachmentTextures = 0;
+  int transientAttachmentReuses = 0;
+  int transientAttachmentAllocatedBytes = 0;
+  int transientAttachmentResidentBytes = 0;
+  int peakTransientAttachmentResidentBytes = 0;
+  int peakTransientAttachmentTileBytes = 0;
   int texturesUploaded = 0;
   int textureImports = 0;
   int textureDirectUploads = 0;
@@ -160,6 +166,13 @@ class FlutterGpuTileBackendStats {
         'transientResidentBytes': transientResidentBytes,
         'peakTransientResidentBytes': peakTransientResidentBytes,
         'peakTransientTileBytes': peakTransientTileBytes,
+        'transientAttachmentTextures': transientAttachmentTextures,
+        'transientAttachmentReuses': transientAttachmentReuses,
+        'transientAttachmentAllocatedBytes': transientAttachmentAllocatedBytes,
+        'transientAttachmentResidentBytes': transientAttachmentResidentBytes,
+        'peakTransientAttachmentResidentBytes':
+            peakTransientAttachmentResidentBytes,
+        'peakTransientAttachmentTileBytes': peakTransientAttachmentTileBytes,
         'texturesUploaded': texturesUploaded,
         'textureImports': textureImports,
         'textureDirectUploads': textureDirectUploads,
@@ -248,6 +261,11 @@ class FlutterGpuTileBackendStats {
     transientAllocatedBytes = 0;
     peakTransientResidentBytes = transientResidentBytes;
     peakTransientTileBytes = 0;
+    transientAttachmentTextures = 0;
+    transientAttachmentReuses = 0;
+    transientAttachmentAllocatedBytes = 0;
+    peakTransientAttachmentResidentBytes = transientAttachmentResidentBytes;
+    peakTransientAttachmentTileBytes = 0;
     texturesUploaded = 0;
     textureImports = 0;
     textureDirectUploads = 0;
@@ -319,6 +337,13 @@ class FlutterGpuTileBackendStats {
       'transientResidentBytes=$transientResidentBytes '
       'peakTransientResidentBytes=$peakTransientResidentBytes '
       'peakTransientTileBytes=$peakTransientTileBytes '
+      'transientAttachmentTextures=$transientAttachmentTextures '
+      'transientAttachmentReuses=$transientAttachmentReuses '
+      'transientAttachmentAllocatedBytes=$transientAttachmentAllocatedBytes '
+      'transientAttachmentResidentBytes=$transientAttachmentResidentBytes '
+      'peakTransientAttachmentResidentBytes='
+      '$peakTransientAttachmentResidentBytes '
+      'peakTransientAttachmentTileBytes=$peakTransientAttachmentTileBytes '
       'uploads=$texturesUploaded imports=$textureImports '
       'directUploads=$textureDirectUploads '
       'readbacks=$textureReadbacks textureHits=$textureCacheHits '

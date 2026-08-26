@@ -189,6 +189,16 @@ void main() {
       expect(backend.stats.transientBufferReuses, settled.length);
       expect(backend.stats.transientAllocatedBytes, 0);
       expect(backend.stats.transientResidentBytes, 4 << 10);
+      final attachmentsPerTile =
+          gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
+      expect(backend.stats.transientAttachmentTextures, 0,
+          reason: 'settled tiles should reuse warmed final-pass attachments');
+      expect(
+        backend.stats.transientAttachmentReuses,
+        settled.length * attachmentsPerTile,
+      );
+      expect(backend.stats.transientAttachmentAllocatedBytes, 0);
+      expect(backend.stats.transientAttachmentResidentBytes, greaterThan(0));
       // ignore: avoid_print
       print('flutter_gpu analytic text benchmark: runs=${commands.length} '
           'settledMedian=${_median(settled).toStringAsFixed(0)}us '
@@ -287,6 +297,16 @@ void main() {
       expect(backend.stats.transientBufferReuses, settled.length);
       expect(backend.stats.transientAllocatedBytes, 0);
       expect(backend.stats.transientResidentBytes, 4 << 10);
+      final attachmentsPerTile =
+          gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
+      expect(backend.stats.transientAttachmentTextures, 0,
+          reason: 'settled tiles should reuse warmed final-pass attachments');
+      expect(
+        backend.stats.transientAttachmentReuses,
+        settled.length * attachmentsPerTile,
+      );
+      expect(backend.stats.transientAttachmentAllocatedBytes, 0);
+      expect(backend.stats.transientAttachmentResidentBytes, greaterThan(0));
       // ignore: avoid_print
       print('flutter_gpu texture benchmark: draws=${commands.length} '
           'compile=${compileMicros}us compileCacheHits=$compileCacheHits '
@@ -461,6 +481,21 @@ void main() {
       expect(backend.stats.transientBufferReuses,
           backend.stats.tilesRendered - backend.stats.transientBuffers,
           reason: 'completed submissions should return buffers to the pool');
+      final attachmentsPerTile =
+          gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
+      expect(
+        backend.stats.transientAttachmentTextures,
+        greaterThanOrEqualTo(
+          backend.stats.peakInFlightSubmissions * attachmentsPerTile,
+        ),
+        reason: 'in-flight tiles must receive distinct attachment leases',
+      );
+      expect(
+        backend.stats.transientAttachmentTextures +
+            backend.stats.transientAttachmentReuses,
+        backend.stats.tilesRendered * attachmentsPerTile,
+        reason: 'every final-pass attachment should be allocated or reused',
+      );
       // ignore: avoid_print
       print('flutter_gpu isolated group benchmark: cold=${coldGpu}us '
           'issueMedian=${issueMedian.toStringAsFixed(0)}us '

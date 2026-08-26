@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- Reuse final-pass multisample color and stencil attachments only after every
+  command buffer that references them reaches its completion fence. Final
+  resolve textures still remain one-shot because their `ui.Image` escapes to
+  Flutter; settled tiles avoid two native texture allocations where MSAA is
+  available without risking an in-use output surface. Retention is bounded by
+  the configurable `maxTransientAttachmentBytes` budget.
 - Reuse transient host-visible buffers only after every command buffer that
   references them reaches its completion fence. Settled tiles stop allocating
   one native `DeviceBuffer` apiece, while concurrent and multi-pass group

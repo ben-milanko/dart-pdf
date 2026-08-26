@@ -17,10 +17,16 @@ void main() {
       expect(desktop.supportsWarmUp, isTrue);
       expect(desktop.supportsSessionWarmUp, isTrue);
       expect(desktop.overprintRetryMaxDimension, 512);
+      expect(desktop.maxTransientAttachmentBytes, 64 << 20);
       expect(
         FlutterGpuTileRasterBackend(overprintRetryMaxDimension: null)
             .overprintRetryMaxDimension,
         isNull,
+      );
+      expect(
+        FlutterGpuTileRasterBackend(maxTransientAttachmentBytes: 0)
+            .maxTransientAttachmentBytes,
+        0,
       );
 
       final optedIn = FlutterGpuTileRasterBackend(enableProactiveWarmUp: true);
@@ -75,6 +81,12 @@ void main() {
       ..transientResidentBytes = 2 << 20
       ..peakTransientResidentBytes = 3 << 20
       ..peakTransientTileBytes = 896 << 10
+      ..transientAttachmentTextures = 4
+      ..transientAttachmentReuses = 12
+      ..transientAttachmentAllocatedBytes = 20 << 20
+      ..transientAttachmentResidentBytes = 24 << 20
+      ..peakTransientAttachmentResidentBytes = 32 << 20
+      ..peakTransientAttachmentTileBytes = 16 << 20
       ..textureImports = 6
       ..analyticTextRuns = 7
       ..analyticGlyphQuads = 18
@@ -129,6 +141,16 @@ void main() {
     expect(stats.toJson(), containsPair('transientResidentBytes', 2 << 20));
     expect(stats.toJson(), containsPair('peakTransientResidentBytes', 3 << 20));
     expect(stats.toJson(), containsPair('peakTransientTileBytes', 896 << 10));
+    expect(stats.toJson(), containsPair('transientAttachmentTextures', 4));
+    expect(stats.toJson(), containsPair('transientAttachmentReuses', 12));
+    expect(stats.toJson(),
+        containsPair('transientAttachmentAllocatedBytes', 20 << 20));
+    expect(stats.toJson(),
+        containsPair('transientAttachmentResidentBytes', 24 << 20));
+    expect(stats.toJson(),
+        containsPair('peakTransientAttachmentResidentBytes', 32 << 20));
+    expect(stats.toJson(),
+        containsPair('peakTransientAttachmentTileBytes', 16 << 20));
     expect(stats.toJson(), containsPair('textureImports', 6));
     expect(stats.toJson(), containsPair('analyticGlyphQuads', 18));
     expect(stats.toJson(), containsPair('analyticGlyphSlots', 4));
@@ -185,6 +207,12 @@ void main() {
     expect(stats.transientResidentBytes, 2 << 20);
     expect(stats.peakTransientResidentBytes, 2 << 20);
     expect(stats.peakTransientTileBytes, 0);
+    expect(stats.transientAttachmentTextures, 0);
+    expect(stats.transientAttachmentReuses, 0);
+    expect(stats.transientAttachmentAllocatedBytes, 0);
+    expect(stats.transientAttachmentResidentBytes, 24 << 20);
+    expect(stats.peakTransientAttachmentResidentBytes, 24 << 20);
+    expect(stats.peakTransientAttachmentTileBytes, 0);
     expect(stats.textureImports, 0);
     expect(stats.analyticTextRuns, 0);
     expect(stats.analyticGlyphQuads, 0);

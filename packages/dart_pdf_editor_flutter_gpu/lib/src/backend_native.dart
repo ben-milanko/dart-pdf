@@ -46,6 +46,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
     this.overprintRetryMaxDimension = 512,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
+    this.maxTransientAttachmentBytes = 64 << 20,
     this.enableProactiveWarmUp,
     this.analyticText = true,
     FlutterGpuTextOutliner? textOutliner,
@@ -53,6 +54,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
     FlutterGpuTileBackendStats? stats,
   })  : assert(overprintRetryMaxDimension == null ||
             overprintRetryMaxDimension > 0),
+        assert(maxTransientAttachmentBytes >= 0),
         stats = stats ?? FlutterGpuTileBackendStats(),
         textOutliner = textOutliner ??
             (systemTextOutlines
@@ -60,7 +62,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
                 : null),
         _imageCache = _GpuImageCache(maxTextureBytes),
         _geometryPool = _GpuGeometryPool(maxGeometryBytes),
-        _transientPool = _GpuTransientPool();
+        _transientPool = _GpuTransientPool(),
+        _attachmentPool = _GpuAttachmentPool(maxTransientAttachmentBytes);
 
   /// Enables 4x MSAA on the final tile target where Impeller supports it.
   /// Intermediate transparency-group targets stay single-sample and are
@@ -100,6 +103,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   /// cannot fit falls back to Canvas.
   final int maxGeometryBytes;
 
+  /// Maximum estimated bytes retained for reusable final-pass attachments.
+  ///
+  /// The estimate deliberately uses eight bytes per pixel sample so the
+  /// budget remains conservative across Flutter 3.44+ default attachment
+  /// formats. In-flight attachments may temporarily exceed this value because
+  /// budget misses remain one-shot instead of rejecting a valid render. Set
+  /// this to zero to disable attachment retention.
+  final int maxTransientAttachmentBytes;
+
   /// Whether the viewer should prepare GPU pipelines and live scenes at idle.
   ///
   /// Null (the default) enables proactive work on desktop and leaves mobile
@@ -133,6 +145,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
   final _GpuTransientPool _transientPool;
+  final _GpuAttachmentPool _attachmentPool;
   // Contexts belong to Flutter views and can disappear when a native window
   // closes. Keep only weak membership so diagnostics do not turn every view
   // ever opened into a process-lifetime root.
@@ -304,6 +317,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
         imageCache: _imageCache,
         geometryPool: _geometryPool,
         transientPool: _transientPool,
+        attachmentPool: _attachmentPool,
         analyticText: analyticText,
         analyticTextMinimumGlyphs:
             systemTextOutlines && usesHostOutlines ? 32 : 1,
@@ -4089,6 +4103,7 @@ class _FlutterGpuTileSession
     required this.imageCache,
     required this.geometryPool,
     required this.transientPool,
+    required this.attachmentPool,
     required this.analyticText,
     required this.analyticTextMinimumGlyphs,
   });
@@ -4117,6 +4132,7 @@ class _FlutterGpuTileSession
   final _GpuImageCache imageCache;
   final _GpuGeometryPool geometryPool;
   final _GpuTransientPool transientPool;
+  final _GpuAttachmentPool attachmentPool;
   final bool analyticText;
   final int analyticTextMinimumGlyphs;
 
@@ -4135,6 +4151,7 @@ class _FlutterGpuTileSession
         imageCache,
         geometryPool,
         transientPool,
+        attachmentPool,
         analyticText: analyticText,
         analyticTextMinimumGlyphs: analyticTextMinimumGlyphs,
         mipmapImages: mipmapImages,
@@ -4300,6 +4317,7 @@ class _CompiledScene {
     required this.geometryPool,
     required this.geometryLeases,
     required this.transientPool,
+    required this.attachmentPool,
   });
 
   static Future<_CompiledScene> build(
@@ -4311,6 +4329,7 @@ class _CompiledScene {
       _GpuImageCache imageCache,
       _GpuGeometryPool geometryPool,
       _GpuTransientPool transientPool,
+      _GpuAttachmentPool attachmentPool,
       {required bool analyticText,
       required int analyticTextMinimumGlyphs,
       required bool mipmapImages}) async {
@@ -4513,6 +4532,7 @@ class _CompiledScene {
         geometryPool: geometryPool,
         geometryLeases: geometry.leases,
         transientPool: transientPool,
+        attachmentPool: attachmentPool,
       );
       stats
         ..scenesCompiled += 1
@@ -4538,6 +4558,7 @@ class _CompiledScene {
   final _GpuGeometryPool geometryPool;
   final List<_GpuGeometryResource> geometryLeases;
   final _GpuTransientPool transientPool;
+  final _GpuAttachmentPool attachmentPool;
   bool _disposed = false;
   bool _texturesReleased = false;
   bool _geometryReleased = false;
@@ -4612,7 +4633,12 @@ class _CompiledScene {
         tracePage: tracePage,
       );
     }
-    final transient = _GpuTransientArena(context, stats, transientPool);
+    final transient = _GpuTransientArena(
+      context,
+      stats,
+      transientPool,
+      attachmentPool,
+    );
     try {
       if (selected.any((unit) =>
           !FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
@@ -5641,18 +5667,16 @@ class _CompiledScene {
       format: context.defaultColorFormat,
     );
     final color = multisampled
-        ? context.createTexture(
-            gpu.StorageMode.deviceTransient,
-            width,
-            height,
+        ? transient.attachment(
+            width: width,
+            height: height,
             format: context.defaultColorFormat,
             sampleCount: 4,
           )
         : resolve;
-    final stencil = context.createTexture(
-      gpu.StorageMode.deviceTransient,
-      width,
-      height,
+    final stencil = transient.attachment(
+      width: width,
+      height: height,
       format: context.defaultStencilFormat,
       sampleCount: multisampled ? 4 : 1,
     );
@@ -7920,7 +7944,12 @@ class _GpuGeometryArena {
 /// dense dynamic geometry, tests the complete aligned range before every
 /// write, and is retained until the command-buffer completion fence fires.
 class _GpuTransientArena {
-  _GpuTransientArena(this.context, [this.stats, this.pool]);
+  _GpuTransientArena(
+    this.context, [
+    this.stats,
+    this.pool,
+    this.attachmentPool,
+  ]);
 
   static const _firstBlockBytes = 4 << 10;
   static const _secondBlockBytes = 16 << 10;
@@ -7929,9 +7958,12 @@ class _GpuTransientArena {
   final gpu.GpuContext context;
   final FlutterGpuTileBackendStats? stats;
   final _GpuTransientPool? pool;
+  final _GpuAttachmentPool? attachmentPool;
   final List<_GpuTransientBlock> _blocks = [];
+  final List<_GpuAttachmentResource> _attachments = [];
   _GpuTransientBlock? _active;
   var _allocatedBytes = 0;
+  var _attachmentBytes = 0;
   var _nextBlockBytes = _secondBlockBytes;
   var _pendingSubmissions = 0;
   var _sealed = false;
@@ -7993,6 +8025,60 @@ class _GpuTransientArena {
     );
   }
 
+  /// Leases a render-pass attachment until every submission using this arena
+  /// reaches its completion callback.
+  ///
+  /// These textures must never escape as a [ui.Image]. Final resolve textures
+  /// remain caller-owned because Flutter may sample them after GPU completion.
+  gpu.Texture attachment({
+    required int width,
+    required int height,
+    required gpu.PixelFormat format,
+    int sampleCount = 1,
+  }) {
+    if (_sealed) throw StateError('GPU transient arena is sealed');
+    // Conservatively budget eight logical bytes per sample without depending
+    // on PixelFormat sizing helpers added after the package's Flutter 3.44
+    // minimum. deviceTransient heaps may alias or use less physical memory.
+    final estimatedBytes = width * height * sampleCount * 8;
+    final resource = attachmentPool?.acquire(
+          context,
+          width: width,
+          height: height,
+          format: format,
+          sampleCount: sampleCount,
+          estimatedBytes: estimatedBytes,
+          stats: stats,
+        ) ??
+        _GpuAttachmentResource(
+          context,
+          context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            width,
+            height,
+            format: format,
+            sampleCount: sampleCount,
+          ),
+          width,
+          height,
+          format,
+          sampleCount,
+          estimatedBytes,
+        );
+    _attachments.add(resource);
+    _attachmentBytes += resource.estimatedBytes;
+    if (attachmentPool == null) {
+      stats
+        ?..transientAttachmentTextures += 1
+        ..transientAttachmentAllocatedBytes += resource.estimatedBytes;
+    }
+    stats?.peakTransientAttachmentTileBytes = math.max(
+      stats!.peakTransientAttachmentTileBytes,
+      _attachmentBytes,
+    );
+    return resource.texture;
+  }
+
   void flush() {
     for (final block in _blocks) {
       if (block.flushedBytes == block.usedBytes) continue;
@@ -8046,7 +8132,9 @@ class _GpuTransientArena {
       [for (final block in _blocks) block.resource],
       stats,
     );
+    attachmentPool?.releaseAll(_attachments, stats);
     _blocks.clear();
+    _attachments.clear();
     _active = null;
   }
 
@@ -8138,6 +8226,107 @@ class _GpuTransientResource {
   final gpu.GpuContext context;
   final gpu.DeviceBuffer buffer;
   final int capacity;
+  bool leased = false;
+}
+
+/// Exact-shape pool for render-pass attachments that never escape to Flutter.
+///
+/// A texture remains leased until the owning [_GpuTransientArena] is sealed
+/// and all of its command buffers complete. Oversized or budget-exceeding
+/// attachments stay one-shot, so valid rendering never depends on a pool hit.
+class _GpuAttachmentPool {
+  _GpuAttachmentPool(this.maxBytes);
+
+  final int maxBytes;
+  final List<_GpuAttachmentResource> _resources = [];
+  var _bytes = 0;
+
+  _GpuAttachmentResource acquire(
+    gpu.GpuContext context, {
+    required int width,
+    required int height,
+    required gpu.PixelFormat format,
+    required int sampleCount,
+    required int estimatedBytes,
+    required FlutterGpuTileBackendStats? stats,
+  }) {
+    for (final resource in _resources) {
+      if (!resource.leased &&
+          identical(resource.context, context) &&
+          resource.width == width &&
+          resource.height == height &&
+          resource.format == format &&
+          resource.sampleCount == sampleCount) {
+        resource.leased = true;
+        stats?.transientAttachmentReuses++;
+        return resource;
+      }
+    }
+
+    final pooled =
+        estimatedBytes <= maxBytes && _bytes + estimatedBytes <= maxBytes;
+    final resource = _GpuAttachmentResource(
+      context,
+      context.createTexture(
+        gpu.StorageMode.deviceTransient,
+        width,
+        height,
+        format: format,
+        sampleCount: sampleCount,
+      ),
+      width,
+      height,
+      format,
+      sampleCount,
+      estimatedBytes,
+    )..leased = true;
+    if (pooled) {
+      _resources.add(resource);
+      _bytes += estimatedBytes;
+    }
+    stats
+      ?..transientAttachmentTextures += 1
+      ..transientAttachmentAllocatedBytes += estimatedBytes;
+    if (stats != null) {
+      stats
+        ..transientAttachmentResidentBytes = _bytes
+        ..peakTransientAttachmentResidentBytes = math.max(
+          stats.peakTransientAttachmentResidentBytes,
+          _bytes,
+        );
+    }
+    return resource;
+  }
+
+  void releaseAll(
+    Iterable<_GpuAttachmentResource> resources,
+    FlutterGpuTileBackendStats? stats,
+  ) {
+    for (final resource in resources) {
+      resource.leased = false;
+    }
+    if (stats != null) stats.transientAttachmentResidentBytes = _bytes;
+  }
+}
+
+class _GpuAttachmentResource {
+  _GpuAttachmentResource(
+    this.context,
+    this.texture,
+    this.width,
+    this.height,
+    this.format,
+    this.sampleCount,
+    this.estimatedBytes,
+  );
+
+  final gpu.GpuContext context;
+  final gpu.Texture texture;
+  final int width;
+  final int height;
+  final gpu.PixelFormat format;
+  final int sampleCount;
+  final int estimatedBytes;
   bool leased = false;
 }
 
