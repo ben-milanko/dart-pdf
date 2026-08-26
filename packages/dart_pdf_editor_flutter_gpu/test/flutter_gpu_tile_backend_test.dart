@@ -1675,13 +1675,15 @@ void main() {
       ]);
       addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend();
-      final session = backend.createSession(scene);
-      expect(session, isNotNull, reason: backend.stats.lastRejection);
-      addTearDown(session!.dispose);
+      final firstSession = backend.createSession(scene);
+      expect(firstSession, isNotNull, reason: backend.stats.lastRejection);
+      final liveFirstSession = firstSession!;
+      addTearDown(liveFirstSession.dispose);
 
       final region = Offset.zero & scene.pageSize;
       final expected = await scene.rasterizeRegion(region, pixelRatio: 0.5);
-      final actual = await session.rasterizeRegion(region, pixelRatio: 0.5);
+      final actual =
+          await liveFirstSession.rasterizeRegion(region, pixelRatio: 0.5);
       addTearDown(expected.dispose);
       addTearDown(actual.dispose);
       final expectedPixels = await _pixels(expected);
@@ -1694,6 +1696,30 @@ void main() {
       expect(backend.stats.imageBindingReuses, 2,
           reason: 'an adjacent texture change keeps static image state, while '
               'the solid draw must invalidate it');
+      expect(backend.stats.texturesUploaded, 2);
+      expect(backend.stats.textureCacheMisses, 2);
+      expect(backend.stats.textureCacheHits, 0,
+          reason: 'repeated draws in one scene must reuse its existing lease '
+              'before touching the shared cache');
+      expect(backend.stats.activeTextureLeases, 2,
+          reason: 'one scene pins each unique texture once, not once per draw');
+
+      final secondSession = backend.createSession(scene)!;
+      addTearDown(secondSession.dispose);
+      final second =
+          await secondSession.rasterizeRegion(region, pixelRatio: 0.5);
+      addTearDown(second.dispose);
+      await _pixels(second);
+      expect(backend.stats.texturesUploaded, 2);
+      expect(backend.stats.textureCacheHits, 2,
+          reason: 'a distinct scene must acquire its own lease for each '
+              'shared cache resource');
+      expect(backend.stats.activeTextureLeases, 4);
+
+      liveFirstSession.dispose();
+      expect(backend.stats.activeTextureLeases, 2);
+      secondSession.dispose();
+      expect(backend.stats.activeTextureLeases, 0);
     });
   });
 

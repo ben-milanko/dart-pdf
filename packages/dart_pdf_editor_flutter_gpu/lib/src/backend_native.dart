@@ -4309,7 +4309,7 @@ class _CompiledScene {
     final draws = <int, _GpuDraw>{};
     final straightStrokes = <int, _StraightStrokeFootprint>{};
     final clipDraws = Map<_GpuClipNode, _GpuClipDraw>.identity();
-    final textureLeases = <_GpuImageTexture>[];
+    final textureLeases = _GpuTextureLeases();
     final geometry = _GpuGeometryArena(context, stats, geometryPool);
     final pageToRaster = PdfPageRenderer.pageToDeviceMatrix(
       scene.page,
@@ -4524,7 +4524,7 @@ class _CompiledScene {
   final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
-  final List<_GpuImageTexture> textureLeases;
+  final _GpuTextureLeases textureLeases;
   final _GpuGeometryPool geometryPool;
   final List<_GpuGeometryResource> geometryLeases;
   bool _disposed = false;
@@ -5895,7 +5895,7 @@ Future<_GpuDraw> _compileSoftMaskImage(
     _SoftMaskImageSpec spec,
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
-    List<_GpuImageTexture> textureLeases,
+    _GpuTextureLeases textureLeases,
     {required bool mipmapImages}) async {
   final contentImage = scene.imageFor(spec.content)!;
   final maskImage = scene.imageFor(spec.mask)!;
@@ -5905,16 +5905,16 @@ Future<_GpuDraw> _compileSoftMaskImage(
     contentImage,
     stats,
     mipmapped: mipmapImages,
+    leases: textureLeases,
   );
-  textureLeases.add(contentResource);
   final maskResource = await imageCache.acquire(
     context,
     spec.mask,
     maskImage,
     stats,
     mipmapped: mipmapImages,
+    leases: textureLeases,
   );
-  textureLeases.add(maskResource);
   final vertices = _imageVertices(spec.content.transform);
   final contentAlpha = (spec.content.alpha * spec.groupAlpha).clamp(0.0, 1.0);
   final contentTint = spec.content.isStencil
@@ -6027,7 +6027,7 @@ Future<_GpuDraw?> _compileGroupPaint(
   _GroupPaintSpec spec,
   FlutterGpuTileBackendStats stats,
   _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
+  _GpuTextureLeases textureLeases,
   _GpuGlyphAtlas? glyphAtlas,
   PdfMatrix pageToRaster, {
   List<_GpuClipState>? paintClipStates,
@@ -6209,7 +6209,7 @@ Future<_GpuDraw?> _compileSoftMaskGroup(
   _SoftMaskGroupSpec spec,
   FlutterGpuTileBackendStats stats,
   _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases, {
+  _GpuTextureLeases textureLeases, {
   required bool mipmapImages,
 }) async {
   final content = spec.content;
@@ -6294,7 +6294,7 @@ Future<_GpuDraw> _compileSoftMaskFill(
     _SoftMaskFillSpec spec,
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
-    List<_GpuImageTexture> textureLeases,
+    _GpuTextureLeases textureLeases,
     {required bool mipmapImages}) async {
   final maskImage = scene.imageFor(spec.mask)!;
   final maskResource = await imageCache.acquire(
@@ -6303,8 +6303,8 @@ Future<_GpuDraw> _compileSoftMaskFill(
     maskImage,
     stats,
     mipmapped: mipmapImages,
+    leases: textureLeases,
   );
-  textureLeases.add(maskResource);
   final subpaths = flattenPath(
     spec.content.path,
     PdfMatrix.identity,
@@ -6349,7 +6349,7 @@ Future<_GpuDraw> _compileSoftMaskStroke(
     _SoftMaskStrokeSpec spec,
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
-    List<_GpuImageTexture> textureLeases,
+    _GpuTextureLeases textureLeases,
     {required bool mipmapImages}) async {
   final maskImage = scene.imageFor(spec.mask)!;
   final maskResource = await imageCache.acquire(
@@ -6358,8 +6358,8 @@ Future<_GpuDraw> _compileSoftMaskStroke(
     maskImage,
     stats,
     mipmapped: mipmapImages,
+    leases: textureLeases,
   );
-  textureLeases.add(maskResource);
   final source = flattenPath(
     spec.content.path,
     PdfMatrix.identity,
@@ -6408,7 +6408,7 @@ Future<_GpuDraw> _compileSoftMaskText(
     _SoftMaskTextSpec spec,
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
-    List<_GpuImageTexture> textureLeases,
+    _GpuTextureLeases textureLeases,
     {required bool mipmapImages}) async {
   final maskImage = scene.imageFor(spec.mask)!;
   final maskResource = await imageCache.acquire(
@@ -6417,8 +6417,8 @@ Future<_GpuDraw> _compileSoftMaskText(
     maskImage,
     stats,
     mipmapped: mipmapImages,
+    leases: textureLeases,
   );
-  textureLeases.add(maskResource);
   final subpaths = _textSubpaths(spec.content.run)!;
   final stencil = _stencilGeometry(geometry, subpaths);
   if (stencil == null) throw StateError('empty soft-mask text outline');
@@ -6851,6 +6851,26 @@ class _GpuTextureKey {
       );
 }
 
+/// The unique image resources pinned by one compiled scene.
+///
+/// The shared cache counts leases per scene, not per draw. Repeated image
+/// commands therefore look up an existing entry here before touching the
+/// cache's reference count. Different scenes own different instances and
+/// continue to pin the same cached texture independently.
+class _GpuTextureLeases {
+  final Map<_GpuTextureKey, _GpuImageTexture> _resources = {};
+
+  _GpuImageTexture? operator [](_GpuTextureKey key) => _resources[key];
+
+  void operator []=(_GpuTextureKey key, _GpuImageTexture resource) {
+    _resources[key] = resource;
+  }
+
+  Iterable<_GpuImageTexture> get resources => _resources.values;
+
+  void clear() => _resources.clear();
+}
+
 class _GpuImageCache {
   _GpuImageCache(this.maxBytes);
 
@@ -6865,7 +6885,8 @@ class _GpuImageCache {
           PdfImageRequest request,
           ui.Image image,
           FlutterGpuTileBackendStats stats,
-          {required bool mipmapped}) =>
+          {required bool mipmapped,
+          required _GpuTextureLeases leases}) =>
       acquireSurface(
         context,
         pdfImageContentKey(request),
@@ -6873,11 +6894,14 @@ class _GpuImageCache {
         stats,
         decoded: request.decoded,
         mipmapped: mipmapped,
+        leases: leases,
       );
 
   Future<_GpuImageTexture> acquireSurface(gpu.GpuContext context,
       Object content, ui.Image image, FlutterGpuTileBackendStats stats,
-      {PdfDecodedPixels? decoded, required bool mipmapped}) async {
+      {PdfDecodedPixels? decoded,
+      required bool mipmapped,
+      required _GpuTextureLeases leases}) async {
     final key = _GpuTextureKey(
       context,
       content,
@@ -6885,10 +6909,13 @@ class _GpuImageCache {
       image.height,
       mipmapped,
     );
+    final leased = leases[key];
+    if (leased != null) return leased;
     final hit = _entries.remove(key);
     if (hit != null) {
       _entries[key] = hit;
       hit.leases++;
+      leases[key] = hit;
       stats.textureCacheHits++;
       stats.activeTextureLeases++;
       stats.textureBytes = _bytes;
@@ -6920,6 +6947,7 @@ class _GpuImageCache {
       uploaded.cacheable = false;
       _detached.add(uploaded);
     }
+    leases[key] = uploaded;
     stats.activeTextureLeases++;
     stats.textureBytes = _bytes;
     stats.peakTextureBytes = math.max(stats.peakTextureBytes, _bytes);
@@ -6945,9 +6973,8 @@ class _GpuImageCache {
     return true;
   }
 
-  void releaseAll(
-      List<_GpuImageTexture> resources, FlutterGpuTileBackendStats stats) {
-    for (final resource in resources) {
+  void releaseAll(_GpuTextureLeases leases, FlutterGpuTileBackendStats stats) {
+    for (final resource in leases.resources) {
       if (resource.leases <= 0) continue;
       resource.leases--;
       stats.activeTextureLeases = math.max(0, stats.activeTextureLeases - 1);
@@ -6955,7 +6982,7 @@ class _GpuImageCache {
         if (_detached.remove(resource)) _bytes -= resource.bytes;
       }
     }
-    resources.clear();
+    leases.clear();
     stats.textureBytes = _bytes;
   }
 
@@ -7244,7 +7271,7 @@ FutureOr<_GpuDraw?> _compileCommand(
     PdfRenderCommand command,
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
-    List<_GpuImageTexture> textureLeases,
+    _GpuTextureLeases textureLeases,
     _GpuGlyphAtlas? glyphAtlas,
     PdfMatrix pageToRaster,
     {required bool mipmapImages}) async {
@@ -7365,7 +7392,7 @@ Future<_GpuDraw?> _compileImageCommand(
   PdfImageRequest request,
   FlutterGpuTileBackendStats stats,
   _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases, {
+  _GpuTextureLeases textureLeases, {
   double alphaScale = 1,
   required bool mipmapImages,
 }) async {
@@ -7378,8 +7405,8 @@ Future<_GpuDraw?> _compileImageCommand(
     image,
     stats,
     mipmapped: mipmapImages,
+    leases: textureLeases,
   );
-  textureLeases.add(resource);
   final vertices = _imageVertices(request.transform);
   final alpha = (request.alpha * alphaScale).clamp(0.0, 1.0);
   final tint = request.isStencil
@@ -7392,8 +7419,8 @@ Future<_GpuDraw?> _compileImageCommand(
       maskImage,
       stats,
       mipmapped: mipmapImages,
+      leases: textureLeases,
     );
-    textureLeases.add(maskResource);
     // Platform-codec `/SMask` companions are opaque grayscale surfaces. The
     // PDF alpha is their gray sample (Canvas applies red-to-alpha), so the
     // luminosity branch of the existing soft-mask shader is the exact match.

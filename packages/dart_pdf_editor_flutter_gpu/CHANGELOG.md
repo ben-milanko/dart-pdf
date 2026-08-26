@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Pin each unique image texture once per compiled scene instead of once per
+  draw. Repeated image commands bypass the shared cache's lease bookkeeping,
+  while distinct scenes still acquire independent lifetime-safe leases.
 - Retain the image pipeline and page transform across adjacent image draws,
   reusing an unchanged texture/sampler while updating only per-image metadata.
   Intervening geometry invalidates the retained bindings.
