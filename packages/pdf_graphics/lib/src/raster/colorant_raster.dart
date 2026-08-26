@@ -576,6 +576,42 @@ class PdfColorantRaster {
     return ColorantSpans._(out, n ~/ 3);
   }
 
+  /// Spans for every cell whose interior intersects an axis-aligned
+  /// page-space box.
+  ///
+  /// Ordinary coverage is sampled at cell centres. This conservative variant
+  /// is only for a real vector shape that covered no centre at all: it keeps a
+  /// sub-cell mark represented in the colorant grid while the caller retains
+  /// the original vector path for exact visible replay.
+  ColorantSpans coveringBoxSpans(
+      double left, double bottom, double right, double top) {
+    final m = mapping.matrix;
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (var corner = 0; corner < 4; corner++) {
+      final px = corner.isEven ? left : right;
+      final py = corner < 2 ? bottom : top;
+      final x = m.transformX(px, py), y = m.transformY(px, py);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    final y0 = minY.floor().clamp(0, height);
+    final y1 = maxY.ceil().clamp(0, height);
+    final x0 = minX.floor().clamp(0, width);
+    final x1 = maxX.ceil().clamp(0, width);
+    if (x1 <= x0 || y1 <= y0) return ColorantSpans.empty;
+    final out = Int32List((y1 - y0) * 3);
+    var n = 0;
+    for (var y = y0; y < y1; y++) {
+      out[n++] = y;
+      out[n++] = x0;
+      out[n++] = x1;
+    }
+    return ColorantSpans._(out, n ~/ 3);
+  }
+
   /// First cell whose centre (`x + 0.5`) is at or past [edge].
   static int _cellFrom(double edge) => (edge - 0.5).ceil();
 

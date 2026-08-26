@@ -22,6 +22,10 @@
   compound sub-cell paths conservative rather than inflating their joins and
   caps into unrelated backdrops. Substitute regions remain clipped through
   the original vector stroke at replay.
+- Retain an intersected colorant-grid cell for a single embedded glyph whose
+  real outline is smaller than the grid sampling interval. The original glyph
+  remains the visible geometry while its overprint resolves against the
+  correct backdrop.
 
 - Export an OpenType CFF face reader that retains Unicode cmap mappings and
   selects collection entries, allowing native substitution adapters to obtain

@@ -212,6 +212,59 @@ void main() {
     expect(nonBlackOverprintStrokes(true), 0,
         reason: 'exact region-clipped replay clears stroked overprint');
   });
+
+  test('sub-cell glyph overprint resolves and stays selectable', () {
+    final file =
+        File('../../test_corpora/ghent/2-SPOT/GWG030_Gray_K_black_OP_X1.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('test_corpora/ghent not found');
+      return;
+    }
+    final doc = PdfDocument.open(file.readAsBytesSync());
+
+    ({Set<String> fallbacks, Set<String> texts}) run(bool resolve) {
+      final recorder = RecordingPdfDevice();
+      final previous = PdfInterpreter.debugResolveOverprint;
+      PdfInterpreter.debugResolveOverprint = resolve;
+      try {
+        PdfInterpreter(cos: doc.cos, device: recorder).drawPage(doc.page(0));
+      } finally {
+        PdfInterpreter.debugResolveOverprint = previous;
+      }
+      var fillOverprint = false;
+      final fallbacks = <String>{};
+      final texts = <String>{};
+      final saved = <bool>[];
+      for (final command in recorder.commands) {
+        switch (command) {
+          case PdfSaveCommand():
+            saved.add(fillOverprint);
+          case PdfRestoreCommand() when saved.isNotEmpty:
+            fillOverprint = saved.removeLast();
+          case PdfSetOverprintCommand(:final fill):
+            fillOverprint = fill;
+          case PdfDrawTextCommand(:final run):
+            texts.add(run.text);
+            if (fillOverprint &&
+                !run.invisible &&
+                run.color != PdfColor.black) {
+              fallbacks.add(run.text);
+            }
+          default:
+        }
+      }
+      return (fallbacks: fallbacks, texts: texts);
+    }
+
+    final control = run(false);
+    expect(control.fallbacks, isNotEmpty,
+        reason: 'the fixture must exercise the RGB text fallback control');
+    final exact = run(true);
+    expect(exact.fallbacks, isEmpty,
+        reason: 'the colorant sample resolves non-black glyph overprint');
+    expect(exact.texts, containsAll(control.fallbacks),
+        reason: 'resolved glyphs remain available to extraction and selection');
+  });
 }
 
 /// Smallest valid PDF the interpreter can resolve names against - the content

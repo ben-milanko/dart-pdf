@@ -60,6 +60,9 @@
   alpha-one Normal transparency groups, and keep sub-cell strokes visible to
   the colorant compositor before exact vector replay. One additional Ghent
   transparency page stays on the GPU path.
+- Keep sub-cell embedded glyphs represented in the colorant compositor so one
+  additional Ghent overprint page stays on the GPU path. Sub-cell multi-glyph
+  and unresolved process-color cases remain conservative Canvas fallbacks.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

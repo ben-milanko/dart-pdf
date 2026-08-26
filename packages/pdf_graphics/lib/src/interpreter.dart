@@ -2873,6 +2873,8 @@ class PdfInterpreter {
               runFill,
               ink,
               blendInk: blendInk,
+              subCellBounds:
+                  glyphs?.length == 1 ? _pathBounds(glyphPath) : null,
               overprint: isOverprint,
               mode: _state.overprintMode,
               opaque: _opaquePaint(alpha),

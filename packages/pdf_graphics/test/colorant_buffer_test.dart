@@ -17,6 +17,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -517,7 +518,6 @@ void main() {
       fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
       fill(c, rect(50, 0, 100, 100), green,
           PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
-
       // At this buffer scale 0.1pt covers less than half a cell and its
       // centreline lies exactly between two sample rows. The colorant grid
       // must retain one cell of coverage; the renderer later clips the
@@ -577,6 +577,44 @@ void main() {
         isNull,
       );
       expect(c.takeSpatialPaint(), isNull);
+    });
+
+    test('explicit bounds preserve a sub-cell fill for spatial replay', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('Black'), const CosName('GWG Green')]),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0, 0, 1]),
+          ]));
+      final c = buffer();
+      fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
+      fill(c, rect(50, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+      final skinny = rect(49.95, 10, 50.05, 90);
+
+      expect(
+        c.fill(
+          skinny,
+          PdfFillRule.nonzero,
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          subCellBounds: const PdfRect(49.95, 10, 50.05, 90),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      final regions = c.takeSpatialPaint();
+      expect(regions, isNotNull);
+      expect(
+        {for (final region in regions!) region.color},
+        containsAll([green, inkColor]),
+      );
     });
   });
 }
