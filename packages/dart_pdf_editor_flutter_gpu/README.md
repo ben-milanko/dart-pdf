@@ -186,9 +186,10 @@ Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
 mask case keeps the base and mask as two GPU textures and combines them during
 tile replay; it never builds an eager full-size RGBA composite or reads pixels
-back to the CPU. Worker-retained RGBA uploads directly; locally
-platform-decoded images pay at most one readback before entering the shared
-texture cache. A
+back to the CPU. Worker-retained RGBA uploads directly; compatible locally
+platform-decoded images import their GPU texture directly into the shared
+cache without a pixel readback. CPU-backed images and the uncommon mipmapped
+bitmap-font path retain the existing readback/upload fallback. A
 backend-wide byte-budgeted LRU preserves decoded texture identity
 across scenes, pages, workers, zoom levels, and LoDs.
 Pinned scene textures count toward the same ceiling; if no unpinned entry can

@@ -63,6 +63,7 @@ class FlutterGpuTileBackendStats {
   int transientAllocatedBytes = 0;
   int peakTransientTileBytes = 0;
   int texturesUploaded = 0;
+  int textureImports = 0;
   int textureDirectUploads = 0;
   int textureReadbacks = 0;
   int textureCacheHits = 0;
@@ -148,6 +149,7 @@ class FlutterGpuTileBackendStats {
         'transientAllocatedBytes': transientAllocatedBytes,
         'peakTransientTileBytes': peakTransientTileBytes,
         'texturesUploaded': texturesUploaded,
+        'textureImports': textureImports,
         'textureDirectUploads': textureDirectUploads,
         'textureReadbacks': textureReadbacks,
         'textureCacheHits': textureCacheHits,
@@ -230,6 +232,7 @@ class FlutterGpuTileBackendStats {
     transientAllocatedBytes = 0;
     peakTransientTileBytes = 0;
     texturesUploaded = 0;
+    textureImports = 0;
     textureDirectUploads = 0;
     textureReadbacks = 0;
     textureCacheHits = 0;
@@ -293,7 +296,8 @@ class FlutterGpuTileBackendStats {
       'transientEmplacedBytes=$transientEmplacedBytes '
       'transientAllocatedBytes=$transientAllocatedBytes '
       'peakTransientTileBytes=$peakTransientTileBytes '
-      'uploads=$texturesUploaded directUploads=$textureDirectUploads '
+      'uploads=$texturesUploaded imports=$textureImports '
+      'directUploads=$textureDirectUploads '
       'readbacks=$textureReadbacks textureHits=$textureCacheHits '
       'textureMisses=$textureCacheMisses evictions=$textureEvictions '
       'budgetFallbacks=$textureBudgetFallbacks '

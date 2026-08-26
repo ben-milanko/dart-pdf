@@ -6299,6 +6299,23 @@ FloatBuilder _imageVertices(PdfMatrix transform) {
 Future<_GpuImageTexture> _uploadImageTexture(
     gpu.GpuContext context, ui.Image image, FlutterGpuTileBackendStats stats,
     {PdfDecodedPixels? decoded, required int mipLevelCount}) async {
+  if (decoded == null && mipLevelCount == 1) {
+    try {
+      final texture = gpu.Texture.fromImage(context, image);
+      stats
+        ..textureImports += 1
+        ..texturesUploaded += 1;
+      return _GpuImageTexture(
+        texture,
+        texture.width,
+        texture.height,
+        texture.getBaseMipLevelSizeInBytes(),
+      );
+    } on Exception {
+      // CPU-backed or cross-context images cannot be wrapped. Preserve the
+      // established readback/upload path for those uncommon inputs.
+    }
+  }
   final ByteData bytes;
   if (decoded != null &&
       decoded.width == image.width &&

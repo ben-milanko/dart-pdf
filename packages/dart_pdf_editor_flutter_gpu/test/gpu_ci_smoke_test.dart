@@ -60,6 +60,8 @@ void main() {
           expect(backend.stats.tilesRendered, 1);
           expect(backend.stats.rasterFallbacks, 0);
           expect(backend.stats.completedSubmissions, 1);
+          expect(backend.stats.textureImports, greaterThan(0));
+          expect(backend.stats.textureReadbacks, 0);
           expect(backend.stats.lastTileRoute, 'flutter_gpu');
         } finally {
           session?.dispose();

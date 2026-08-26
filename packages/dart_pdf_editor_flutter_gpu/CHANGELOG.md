@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Import compatible platform-decoded `ui.Image` textures directly into
+  Flutter GPU instead of reading their pixels back to the CPU and uploading
+  them again. CPU-backed and mipmapped images keep the proven upload fallback.
 - Stage proactive pipeline compilation: the context-wide idle pass now primes
   only common stencil, solid, and texture variants, while the existing live-
   scene warm-up compiles glyph, soft-mask, and destination-sampling variants

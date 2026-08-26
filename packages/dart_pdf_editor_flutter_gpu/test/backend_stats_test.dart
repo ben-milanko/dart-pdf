@@ -71,6 +71,7 @@ void main() {
       ..transientEmplacedBytes = 768 << 10
       ..transientAllocatedBytes = 1 << 20
       ..peakTransientTileBytes = 896 << 10
+      ..textureImports = 6
       ..analyticTextRuns = 7
       ..analyticGlyphQuads = 18
       ..analyticGlyphSlots = 4
@@ -120,6 +121,7 @@ void main() {
     expect(stats.toJson(), containsPair('transientEmplacedBytes', 768 << 10));
     expect(stats.toJson(), containsPair('transientAllocatedBytes', 1 << 20));
     expect(stats.toJson(), containsPair('peakTransientTileBytes', 896 << 10));
+    expect(stats.toJson(), containsPair('textureImports', 6));
     expect(stats.toJson(), containsPair('analyticGlyphQuads', 18));
     expect(stats.toJson(), containsPair('analyticGlyphSlots', 4));
     expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
@@ -171,6 +173,7 @@ void main() {
     expect(stats.transientEmplacedBytes, 0);
     expect(stats.transientAllocatedBytes, 0);
     expect(stats.peakTransientTileBytes, 0);
+    expect(stats.textureImports, 0);
     expect(stats.analyticTextRuns, 0);
     expect(stats.analyticGlyphQuads, 0);
     expect(stats.analyticGlyphSlots, 0);

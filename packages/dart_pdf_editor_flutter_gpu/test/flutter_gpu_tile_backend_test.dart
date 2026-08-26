@@ -1533,10 +1533,20 @@ void main() {
 
       final first = backend.createSession(scene)!;
       final firstImage = await first.rasterizeRegion(region, pixelRatio: 0.25);
-      await _pixels(firstImage);
+      final canvas = await scene.rasterizeRegion(region, pixelRatio: 0.25);
+      final expected = await _pixels(canvas);
+      final actual = await _pixels(firstImage);
+      var difference = 0;
+      for (var i = 0; i < expected.length; i++) {
+        difference += (expected[i] - actual[i]).abs();
+      }
+      expect(difference / expected.length, lessThan(4));
+      canvas.dispose();
       firstImage.dispose();
       first.dispose();
       expect(backend.stats.texturesUploaded, 1);
+      expect(backend.stats.textureImports, 1);
+      expect(backend.stats.textureReadbacks, 0);
       expect(backend.stats.textureBytes, greaterThan(0));
 
       final second = backend.createSession(scene)!;
@@ -1556,6 +1566,8 @@ void main() {
       thirdImage.dispose();
       third.dispose();
       expect(backend.stats.texturesUploaded, 2);
+      expect(backend.stats.textureImports, 2);
+      expect(backend.stats.textureReadbacks, 0);
     });
   });
 
