@@ -114,6 +114,7 @@ void main() {
       ..blendDrawCalls = 2
       ..softMaskDrawCalls = 2
       ..directRectangleDraws = 96
+      ..directTriangleDraws = 24
       ..paperClearTiles = 6
       ..paperOnlyTiles = 3
       ..subpixelStrokeFallbacks = 2
@@ -190,6 +191,7 @@ void main() {
     expect(stats.toJson(), containsPair('blendDrawCalls', 2));
     expect(stats.toJson(), containsPair('softMaskDrawCalls', 2));
     expect(stats.toJson(), containsPair('directRectangleDraws', 96));
+    expect(stats.toJson(), containsPair('directTriangleDraws', 24));
     expect(stats.toJson(), containsPair('paperClearTiles', 6));
     expect(stats.toJson(), containsPair('paperOnlyTiles', 3));
     expect(stats.toJson(), containsPair('subpixelStrokeFallbacks', 2));
@@ -266,6 +268,7 @@ void main() {
     expect(stats.blendDrawCalls, 0);
     expect(stats.softMaskDrawCalls, 0);
     expect(stats.directRectangleDraws, 0);
+    expect(stats.directTriangleDraws, 0);
     expect(stats.paperClearTiles, 0);
     expect(stats.paperOnlyTiles, 0);
     expect(stats.subpixelStrokeFallbacks, 0);

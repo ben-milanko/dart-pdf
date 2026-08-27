@@ -191,6 +191,9 @@ The route rejects before allocating when its temporary attachments would
 exceed 256 MiB.
 Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
+solid-fill path sends axis-aligned rectangles and non-degenerate closed
+triangles straight to the color pipeline. Longer polygons retain the stencil
+cover so internal triangulation edges cannot change multisample coverage. The
 mask case keeps the base and mask as two GPU textures and combines them during
 tile replay; it never builds an eager full-size RGBA composite or reads pixels
 back to the CPU. Worker-retained RGBA uploads directly; compatible locally
@@ -249,6 +252,7 @@ tile route, runtime fallback reasons, context and scene warm-up outcomes,
 scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
+Direct-primitive diagnostics count rectangle and triangle fills separately.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
 Paper diagnostics report how many tiles used the exact interior clear path and
 how many of those were content-free color-only submissions.

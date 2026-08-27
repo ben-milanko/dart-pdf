@@ -353,6 +353,7 @@ jobs:
               prime_index=$((prime_index + 1))
             done <<'SCENARIOS'
           tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          type3-triangles pdf ../../test_corpora/pdfjs/Type3WordSpacing.pdf
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
@@ -391,6 +392,7 @@ jobs:
               fi
             done <<'SCENARIOS'
           tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          type3-triangles pdf ../../test_corpora/pdfjs/Type3WordSpacing.pdf
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
@@ -429,6 +431,10 @@ jobs:
             --require-scenario-runs gpu-tiling-page-0-scene-warm=6
             --require-scenario-runs gpu-tiling-page-0-first-tile=6
             --require-scenario-runs gpu-tiling-page-0-canvas-tile=6
+            --require-scenario-runs gpu-type3-triangles-pipeline-warm=6
+            --require-scenario-runs gpu-type3-triangles-page-0-scene-warm=6
+            --require-scenario-runs gpu-type3-triangles-page-0-first-tile=6
+            --require-scenario-runs gpu-type3-triangles-page-0-canvas-tile=6
             --require-scenario-runs gpu-radial-pipeline-warm=6
             --require-scenario-runs gpu-radial-page-0-scene-warm=6
             --require-scenario-runs gpu-radial-page-0-first-tile=6

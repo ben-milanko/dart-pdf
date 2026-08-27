@@ -697,6 +697,94 @@ void main() {
     });
   });
 
+  testWidgets('draws a closed triangle without a stencil cover',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const triangle = PdfPath([
+        PdfMoveTo(80, 120),
+        PdfLineTo(500, 180),
+        PdfLineTo(210, 620),
+        PdfClosePath(),
+      ]);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, const [
+        PdfFillPathCommand(
+          triangle,
+          PdfColor(0.08, 0.24, 0.82),
+          PdfFillRule.evenOdd,
+          0.65,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.directTriangleDraws, 1);
+      expect(backend.stats.directSolidDrawCalls, 2,
+          reason: 'one paper draw plus the triangle');
+      expect(backend.stats.stencilFanDrawCalls, 0);
+      expect(backend.stats.stencilCoverDrawCalls, 0);
+    });
+  });
+
+  testWidgets('keeps longer convex polygons on the stencil path',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const quadrilateral = PdfPath([
+        PdfMoveTo(80, 120),
+        PdfLineTo(500, 180),
+        PdfLineTo(450, 620),
+        PdfLineTo(140, 560),
+        PdfClosePath(),
+      ]);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, const [
+        PdfFillPathCommand(
+          quadrilateral,
+          PdfColor(0.08, 0.24, 0.82),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final image = await session.rasterizeRegion(
+        Offset.zero & scene.pageSize,
+        pixelRatio: 1,
+      );
+      await _pixels(image);
+      image.dispose();
+      expect(backend.stats.directTriangleDraws, 0);
+      expect(backend.stats.stencilFanDrawCalls, 1);
+      expect(backend.stats.stencilCoverDrawCalls, 1);
+    });
+  });
+
   testWidgets('coalesces disjoint opaque stencil fans and covers',
       (tester) async {
     await tester.runAsync(() async {
@@ -707,13 +795,19 @@ void main() {
       const first = PdfPath([
         PdfMoveTo(60, 100),
         PdfLineTo(150, 100),
-        PdfLineTo(105, 190),
+        PdfLineTo(120, 145),
+        PdfLineTo(150, 190),
+        PdfLineTo(60, 190),
+        PdfLineTo(90, 145),
         PdfClosePath(),
       ]);
       const second = PdfPath([
         PdfMoveTo(240, 100),
         PdfLineTo(330, 100),
-        PdfLineTo(285, 190),
+        PdfLineTo(300, 145),
+        PdfLineTo(330, 190),
+        PdfLineTo(240, 190),
+        PdfLineTo(270, 145),
         PdfClosePath(),
       ]);
       final page = PdfDocument.open(buildClassicPdf()).page(0);

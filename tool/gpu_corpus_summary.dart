@@ -270,23 +270,29 @@ class GpuCorpusComparison {
       ..writeln('| Metric | Main | PR | Change |')
       ..writeln('| --- | ---: | ---: | ---: |');
     for (final metric in const [
-      ('Native draw calls', 'drawCalls'),
-      ('Direct solid draws', 'directSolidDrawCalls'),
-      ('Stencil fan draws', 'stencilFanDrawCalls'),
-      ('Stencil cover draws', 'stencilCoverDrawCalls'),
-      ('Stencil clear draws', 'stencilClearDrawCalls'),
-      ('Texture draws', 'textureDrawCalls'),
-      ('Glyph draws', 'glyphDrawCalls'),
-      ('Advanced blend draws', 'blendDrawCalls'),
-      ('Soft-mask draws', 'softMaskDrawCalls'),
-      ('Selected commands', 'selectedCommands'),
-      ('Draw calls saved', 'drawCallsSaved'),
-      ('Direct rectangle draws', 'directRectangleDraws'),
-      ('Geometry vertices', 'geometryVertices'),
+      ('Native draw calls', 'drawCalls', false),
+      ('Direct solid draws', 'directSolidDrawCalls', false),
+      ('Stencil fan draws', 'stencilFanDrawCalls', false),
+      ('Stencil cover draws', 'stencilCoverDrawCalls', false),
+      ('Stencil clear draws', 'stencilClearDrawCalls', false),
+      ('Texture draws', 'textureDrawCalls', false),
+      ('Glyph draws', 'glyphDrawCalls', false),
+      ('Advanced blend draws', 'blendDrawCalls', false),
+      ('Soft-mask draws', 'softMaskDrawCalls', false),
+      ('Selected commands', 'selectedCommands', false),
+      ('Draw calls saved', 'drawCallsSaved', false),
+      ('Direct rectangle draws', 'directRectangleDraws', false),
+      // This counter is introduced by the current report. Older base
+      // revisions omitted it, which is equivalent to observing zero direct
+      // triangles rather than having no comparable page statistics.
+      ('Direct triangle draws', 'directTriangleDraws', true),
+      ('Geometry vertices', 'geometryVertices', false),
     ]) {
-      if (!samples.every((sample) =>
-          sample.$1.stat(metric.$2) != null &&
-          sample.$2.stat(metric.$2) != null)) {
+      final hasCurrent =
+          samples.every((sample) => sample.$2.stat(metric.$2) != null);
+      final hasBaseline =
+          samples.every((sample) => sample.$1.stat(metric.$2) != null);
+      if (!hasCurrent || !hasBaseline && !metric.$3) {
         continue;
       }
       final main = _sumStats(samples.map((sample) => sample.$1), metric.$2);
@@ -323,15 +329,17 @@ class GpuCorpusComparison {
           'stencil clear / texture / glyph / advanced blend / soft mask.')
       ..writeln()
       ..writeln('| Page | Draws | Commands | Saved | Direct rectangles | '
-          'Draw mix | Issue | Compile | Canvas mean delta |')
-      ..writeln(
-          '| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |');
+          'Direct triangles | Draw mix | Issue | Compile | '
+          'Canvas mean delta |')
+      ..writeln('| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | '
+          '---: | ---: |');
     for (final page in pages.take(15)) {
       buffer.writeln(
         '| `${_escape(page.id)}` | ${_integerStat(page, 'drawCalls')} | '
         '${_integerStat(page, 'selectedCommands')} | '
         '${_integerStat(page, 'drawCallsSaved')} | '
         '${_integerStat(page, 'directRectangleDraws')} | '
+        '${_integerStat(page, 'directTriangleDraws')} | '
         '${_drawMix(page)} | '
         '${_millisecondsStat(page, 'issueMicros')} | '
         '${_millisecondsStat(page, 'compileMicros')} | '

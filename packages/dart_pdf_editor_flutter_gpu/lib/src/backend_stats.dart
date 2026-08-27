@@ -54,6 +54,7 @@ class FlutterGpuTileBackendStats {
   int blendDrawCalls = 0;
   int softMaskDrawCalls = 0;
   int directRectangleDraws = 0;
+  int directTriangleDraws = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
   int paperClearTiles = 0;
@@ -165,6 +166,7 @@ class FlutterGpuTileBackendStats {
         'blendDrawCalls': blendDrawCalls,
         'softMaskDrawCalls': softMaskDrawCalls,
         'directRectangleDraws': directRectangleDraws,
+        'directTriangleDraws': directTriangleDraws,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
         'paperClearTiles': paperClearTiles,
@@ -276,6 +278,7 @@ class FlutterGpuTileBackendStats {
     blendDrawCalls = 0;
     softMaskDrawCalls = 0;
     directRectangleDraws = 0;
+    directTriangleDraws = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
     paperClearTiles = 0;
@@ -359,6 +362,7 @@ class FlutterGpuTileBackendStats {
       '$stencilCoverDrawCalls/$stencilClearDrawCalls/$textureDrawCalls/'
       '$glyphDrawCalls/$blendDrawCalls/$softMaskDrawCalls '
       'directRectangleDraws=$directRectangleDraws '
+      'directTriangleDraws=$directTriangleDraws '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'paperClearTiles=$paperClearTiles '
       'paperOnlyTiles=$paperOnlyTiles '

@@ -8045,18 +8045,34 @@ _GpuDraw? _stencilDraw(
   bool union,
 ) {
   if (alpha <= 0) return null;
+  final a = alpha.clamp(0.0, 1.0);
   final rectangle = _axisAlignedRectangle(subpaths);
   if (rectangle != null) {
     geometry.stats.directRectangleDraws++;
-    final a = alpha.clamp(0.0, 1.0);
     return _SolidDraw(
       _coverGeometry(geometry, rectangle, _premul(color, a)),
     );
   }
+  final triangle = _closedTriangle(subpaths);
+  if (triangle != null) {
+    geometry.stats.directTriangleDraws++;
+    final rgba = _premul(color, a);
+    final vertices = FloatBuilder(18);
+    for (var index = 0; index < 3; index++) {
+      vertices.add6(
+        triangle[2 * index],
+        triangle[2 * index + 1],
+        rgba[0],
+        rgba[1],
+        rgba[2],
+        rgba[3],
+      );
+    }
+    return _SolidDraw(geometry.add(vertices.bytes, 3));
+  }
   final parts = _stencilGeometry(geometry, subpaths);
   if (parts == null) return null;
   final fanBuffer = parts.$1;
-  final a = alpha.clamp(0.0, 1.0);
   final rgba = _premul(color, a);
   return _StencilDraw(
     fanBuffer,
@@ -8065,6 +8081,26 @@ _GpuDraw? _stencilDraw(
     union,
     opaquePaint: a == 1 ? (bounds: parts.$2, color: color) : null,
   );
+}
+
+/// Returns the three vertices when [subpaths] is one non-degenerate triangle.
+///
+/// A triangle has no internal triangulation edge, so painting it directly has
+/// exactly the same per-sample coverage as the stencil fan. Longer convex
+/// paths deliberately stay on the stencil route: a triangle fan introduces
+/// internal MSAA edges whose coverage can differ slightly from the resolved
+/// path union.
+Float64List? _closedTriangle(List<FlatSubpath> subpaths) {
+  if (subpaths.length != 1) return null;
+  final subpath = subpaths.single;
+  final points = subpath.points;
+  if (!subpath.closed || points.length != 8) return null;
+  if (points[0] != points[6] || points[1] != points[7]) return null;
+  if (!points.every((coordinate) => coordinate.isFinite)) return null;
+  final area2 = (points[2] - points[0]) * (points[5] - points[1]) -
+      (points[3] - points[1]) * (points[4] - points[0]);
+  if (!area2.isFinite || area2 == 0) return null;
+  return points;
 }
 
 /// Returns the bounds when [subpaths] describes one non-degenerate,

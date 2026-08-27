@@ -75,6 +75,7 @@ void main() {
               'selectedCommands': 12,
               'drawCallsSaved': 4,
               'directRectangleDraws': 3,
+              'directTriangleDraws': 3,
               'geometryVertices': 240,
               'issueMicros': 6000,
               'compileMicros': 3000,
@@ -103,6 +104,7 @@ void main() {
               'selectedCommands': 5,
               'drawCallsSaved': 4,
               'directRectangleDraws': 2,
+              'directTriangleDraws': 2,
               'geometryVertices': 90,
               'issueMicros': 3500,
               'compileMicros': 1800,
@@ -161,8 +163,13 @@ void main() {
   );
   _expectContains(
     comparison.toMarkdown(),
+    '| Direct triangle draws | 0 | 2 | new |',
+    'direct-triangle comparison',
+  );
+  _expectContains(
+    comparison.toMarkdown(),
     '| `Ghent/fallback.pdf page 0` | 20 | 12 | 4 | 3 | '
-        '4/6/4/2/1/1/1/1 | 6.000 ms | 3.000 ms | 0.250 |',
+        '3 | 4/6/4/2/1/1/1/1 | 6.000 ms | 3.000 ms | 0.250 |',
     'ranked draw hotspot',
   );
 
