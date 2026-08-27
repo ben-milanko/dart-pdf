@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -165,7 +167,7 @@ abstract interface class PdfTileRasterWarmUp {
 /// whether that page had already fallen back to Canvas. This registry records
 /// the latest route and raster for up to [maxEntries] page namespaces without
 /// retaining documents, scenes, or viewer objects.
-class PdfTileRasterDiagnostics {
+class PdfTileRasterDiagnostics extends ChangeNotifier {
   PdfTileRasterDiagnostics._();
 
   static final PdfTileRasterDiagnostics instance = PdfTileRasterDiagnostics._();
@@ -207,6 +209,7 @@ class PdfTileRasterDiagnostics {
     while (_entries.length > maxEntries) {
       _entries.remove(_entries.keys.first);
     }
+    _scheduleNotify();
   }
 
   void reportFallback({
@@ -222,6 +225,7 @@ class PdfTileRasterDiagnostics {
       ..fallbackReason = error.toString()
       ..updatedAt = DateTime.now();
     _entries[(entry.namespaceIdentity, pageIndex)] = entry;
+    _scheduleNotify();
   }
 
   void reportTile({
@@ -254,7 +258,28 @@ class PdfTileRasterDiagnostics {
       }
       ..updatedAt = DateTime.now();
     _entries[(entry.namespaceIdentity, pageIndex)] = entry;
+    _scheduleNotify();
   }
+
+  /// The latest typed diagnostics for [pageIndex] in [cacheNamespace].
+  ///
+  /// The returned value is an immutable snapshot. It remains safe to retain
+  /// while later tile submissions update this process-wide registry.
+  PdfTileRasterDiagnostic? page(
+    Object cacheNamespace,
+    int pageIndex,
+  ) =>
+      _entries[(identityHashCode(cacheNamespace), pageIndex)]?.snapshot();
+
+  /// Typed diagnostics for one viewer namespace, oldest update first.
+  ///
+  /// [namespaceIdentity] is exposed by
+  /// [PdfViewerController.tileCacheNamespaceIdentity].
+  List<PdfTileRasterDiagnostic> forNamespace(int namespaceIdentity) =>
+      <PdfTileRasterDiagnostic>[
+        for (final entry in _entries.values)
+          if (entry.namespaceIdentity == namespaceIdentity) entry.snapshot(),
+      ];
 
   /// A JSON-safe, least-recently-updated-first snapshot.
   List<Map<String, Object?>> snapshot() => <Map<String, Object?>>[
@@ -262,7 +287,92 @@ class PdfTileRasterDiagnostics {
       ];
 
   /// Clears support history without changing any renderer or cache state.
-  void clear() => _entries.clear();
+  void clear() {
+    if (_entries.isEmpty) return;
+    _entries.clear();
+    _scheduleNotify();
+  }
+
+  bool _notifyScheduled = false;
+
+  // Sessions can be created from a lazy page's build/layout path. Coalesce a
+  // burst and notify after the current stack so a listening devtool never
+  // triggers a build-during-build exception.
+  void _scheduleNotify() {
+    // The support registry remains always-on, but the extra UI work is truly
+    // opt-in: without a visible devtool there is no listener and no queued
+    // microtask on each tile completion.
+    if (!hasListeners || _notifyScheduled) return;
+    _notifyScheduled = true;
+    scheduleMicrotask(() {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
+}
+
+/// How a page's deep-zoom detail tiles are currently rasterized.
+enum PdfTileRasterRoute {
+  /// No tile session has been requested yet; the fitted base raster is Canvas.
+  unrouted,
+
+  /// Canvas was explicitly requested as the tile backend.
+  canvas,
+
+  /// An accelerated backend declined or failed and Canvas took over.
+  canvasFallback,
+
+  /// The requested non-Canvas backend owns the tile session.
+  accelerated,
+}
+
+/// Immutable, typed view of one page's latest tile-routing diagnostics.
+@immutable
+class PdfTileRasterDiagnostic {
+  const PdfTileRasterDiagnostic({
+    required this.namespaceIdentity,
+    required this.documentIdentity,
+    required this.sceneIdentity,
+    required this.pageIndex,
+    required this.requestedBackend,
+    required this.effectiveBackend,
+    required this.fallbackReason,
+    required this.commandCount,
+    required this.pageColor,
+    required this.annotations,
+    required this.rotation,
+    required this.updatedAt,
+    required this.tileRasters,
+    required this.tileFailures,
+    required this.lastTileError,
+    required this.lastTile,
+  });
+
+  final int namespaceIdentity;
+  final int documentIdentity;
+  final int sceneIdentity;
+  final int pageIndex;
+  int get pageNumber => pageIndex + 1;
+  final String requestedBackend;
+  final String effectiveBackend;
+  final String? fallbackReason;
+  final int commandCount;
+  final int pageColor;
+  final bool annotations;
+  final int? rotation;
+  final DateTime updatedAt;
+  final int tileRasters;
+  final int tileFailures;
+  final String? lastTileError;
+  final Map<String, Object?>? lastTile;
+
+  PdfTileRasterRoute get route {
+    if (effectiveBackend != 'canvas') return PdfTileRasterRoute.accelerated;
+    if (requestedBackend == 'canvas' && fallbackReason == null) {
+      return PdfTileRasterRoute.canvas;
+    }
+    return PdfTileRasterRoute.canvasFallback;
+  }
 }
 
 class _PdfTileRasterDiagnosticEntry {
@@ -318,6 +428,27 @@ class _PdfTileRasterDiagnosticEntry {
         'lastTileError': lastTileError,
         'lastTile': lastTile,
       };
+
+  PdfTileRasterDiagnostic snapshot() => PdfTileRasterDiagnostic(
+        namespaceIdentity: namespaceIdentity,
+        documentIdentity: documentIdentity,
+        sceneIdentity: sceneIdentity,
+        pageIndex: pageIndex,
+        requestedBackend: requestedBackend,
+        effectiveBackend: effectiveBackend,
+        fallbackReason: fallbackReason,
+        commandCount: commandCount,
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+        updatedAt: updatedAt,
+        tileRasters: tileRasters,
+        tileFailures: tileFailures,
+        lastTileError: lastTileError,
+        lastTile: lastTile == null
+            ? null
+            : Map<String, Object?>.unmodifiable(lastTile!),
+      );
 }
 
 /// The universal retained-scene renderer used today and as a fallback for

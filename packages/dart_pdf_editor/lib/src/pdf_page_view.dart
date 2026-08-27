@@ -6095,6 +6095,13 @@ class _PdfPageViewState extends State<PdfPageView>
                       ),
                     ),
                   if (tileLayer != null && sharpTilesInFront) tileLayer,
+                  Positioned.fill(
+                    child: PdfGpuRasterRouteOverlay(
+                      cacheNamespace: _effectiveTileCacheNamespace,
+                      pageIndex: widget.previewIndex,
+                      transformScale: widget.transformScale,
+                    ),
+                  ),
                 ],
               );
             },

@@ -10,6 +10,97 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('PdfTileRasterDiagnostics', () {
+    final diagnostics = PdfTileRasterDiagnostics.instance;
+
+    setUp(() async {
+      diagnostics.clear();
+      await pumpEventQueue();
+    });
+
+    tearDown(() async {
+      diagnostics.clear();
+      await pumpEventQueue();
+    });
+
+    test('publishes immutable typed routes and coalesces notifications',
+        () async {
+      final namespace = Object();
+      var ticks = 0;
+      void listener() => ticks++;
+      diagnostics.addListener(listener);
+      addTearDown(() => diagnostics.removeListener(listener));
+
+      diagnostics.reportSession(
+        cacheNamespace: namespace,
+        document: Object(),
+        scene: Object(),
+        pageIndex: 2,
+        requestedBackend: 'flutter_gpu',
+        effectiveBackend: 'flutter_gpu',
+        commandCount: 41,
+        pageColor: 0xFFFFFFFF,
+        annotations: true,
+        rotation: 90,
+      );
+      diagnostics.reportTile(
+        cacheNamespace: namespace,
+        pageIndex: 2,
+        region: const Rect.fromLTWH(0, 0, 10, 20),
+        pixelRatio: 2,
+        width: 20,
+        height: 40,
+      );
+
+      expect(ticks, 0, reason: 'reports may arrive during lazy-page build');
+      await pumpEventQueue();
+      expect(ticks, 1);
+
+      final accelerated = diagnostics.page(namespace, 2)!;
+      expect(accelerated.pageNumber, 3);
+      expect(accelerated.route, PdfTileRasterRoute.accelerated);
+      expect(accelerated.tileRasters, 1);
+      expect(accelerated.commandCount, 41);
+      final namespaceEntries =
+          diagnostics.forNamespace(identityHashCode(namespace));
+      expect(namespaceEntries, hasLength(1));
+      expect(namespaceEntries.single.pageIndex, accelerated.pageIndex);
+      expect(namespaceEntries.single.route, accelerated.route);
+
+      diagnostics.reportFallback(
+        cacheNamespace: namespace,
+        pageIndex: 2,
+        error: StateError('device lost'),
+      );
+      await pumpEventQueue();
+      final fallback = diagnostics.page(namespace, 2)!;
+      expect(fallback.route, PdfTileRasterRoute.canvasFallback);
+      expect(fallback.fallbackReason, contains('device lost'));
+      expect(accelerated.route, PdfTileRasterRoute.accelerated,
+          reason: 'previous snapshots stay immutable');
+    });
+
+    test('distinguishes an explicitly requested Canvas backend', () {
+      final namespace = Object();
+      diagnostics.reportSession(
+        cacheNamespace: namespace,
+        document: Object(),
+        scene: Object(),
+        pageIndex: 0,
+        requestedBackend: 'canvas',
+        effectiveBackend: 'canvas',
+        commandCount: 3,
+        pageColor: 0xFFFFFFFF,
+        annotations: false,
+        rotation: null,
+      );
+      expect(
+        diagnostics.page(namespace, 0)!.route,
+        PdfTileRasterRoute.canvas,
+      );
+    });
+  });
+
   group('PdfLivePageRegistry', () {
     final registry = PdfLivePageRegistry.instance;
 
@@ -145,6 +236,7 @@ void main() {
     test('default off', () {
       expect(pdfDebugPaintDetailBounds.value, isFalse);
       expect(pdfDebugShowRenderWindow.value, isFalse);
+      expect(pdfDebugShowGpuRasterRoutes.value, isFalse);
     });
 
     test('are ValueNotifiers that notify on change', () {
@@ -154,6 +246,7 @@ void main() {
       addTearDown(() {
         pdfDebugPaintDetailBounds.removeListener(listener);
         pdfDebugPaintDetailBounds.value = false;
+        pdfDebugShowGpuRasterRoutes.value = false;
       });
       pdfDebugPaintDetailBounds.value = true;
       expect(ticks, 1);

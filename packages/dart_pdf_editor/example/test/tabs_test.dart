@@ -89,6 +89,26 @@ void main() {
     expect(find.text('Compare with another PDF…'), findsOneWidget);
   });
 
+  testWidgets('the app menu toggles the GPU rendering devtool', (tester) async {
+    pdfDebugShowGpuRasterRoutes.value = false;
+    addTearDown(() => pdfDebugShowGpuRasterRoutes.value = false);
+    await openDemo(tester);
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    final devtool = find.byKey(
+      const ValueKey('dartpdf-gpu-route-devtool'),
+    );
+    await tester.ensureVisible(devtool);
+    await tester.pumpAndSettle();
+    await tester.tap(devtool);
+    await tester.pump();
+
+    expect(pdfDebugShowGpuRasterRoutes.value, isTrue);
+    expect(find.byKey(const ValueKey('pdf-gpu-route-overlay')), findsWidgets);
+    expect(find.text('Detail tiles: not active'), findsWidgets);
+  });
+
   testWidgets('performance menu switches between Auto and fixed workers',
       (tester) async {
     await openDemo(tester);

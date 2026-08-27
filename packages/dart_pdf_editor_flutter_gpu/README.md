@@ -270,6 +270,27 @@ budget fallbacks.
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
+### Live GPU route devtool
+
+Turn on the viewer overlay while investigating a document:
+
+```dart
+pdfDebugShowGpuRasterRoutes.value = true;
+```
+
+Every page gets a screen-sized route badge and border. Green is an accelerated
+detail-tile session, amber is an exact Canvas fallback (with its rejection or
+runtime-failure reason), blue is an explicitly requested Canvas session, and
+grey means detail tiles have not been requested yet. The badge says *detail
+tiles* deliberately: the fitted base page raster remains Canvas even when deep
+zoom detail uses `flutter_gpu`.
+
+For spatial tile/LoD boundaries, also enable
+`pdfDebugPaintDetailBounds.value`. Hosts can build their own diagnostics panel
+from `PdfTileRasterDiagnostics.instance`, which is a `Listenable` and exposes
+typed `page(...)` / `forNamespace(...)` snapshots as well as the existing
+JSON-safe support export.
+
 Pages with other transparency groups or soft masks, non-nested radial
 gradients, gradient overprint, unsafe overprint, complex
 clips around a non-zero soft-mask backdrop, unresolved

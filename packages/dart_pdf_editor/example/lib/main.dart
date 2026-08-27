@@ -694,6 +694,18 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
         ),
         PopupMenuItem(
+          key: const ValueKey('dartpdf-gpu-route-devtool'),
+          value: () => pdfDebugShowGpuRasterRoutes.value =
+              !pdfDebugShowGpuRasterRoutes.value,
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: Icons.developer_mode,
+            title: pdfDebugShowGpuRasterRoutes.value
+                ? 'Hide GPU rendering overlay'
+                : 'Show GPU rendering overlay',
+          ),
+        ),
+        PopupMenuItem(
           value: () => unawaited(_exportImage()),
           enabled: tab?.session != null,
           child: _appMenuTile(
