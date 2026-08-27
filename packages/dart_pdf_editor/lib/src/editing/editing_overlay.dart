@@ -934,13 +934,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _elementMoveStart;
   Offset? _elementMoveCurrent;
 
-  /// The page as it stands, captured when a content-element drag begins so
-  /// the dragged artwork can float with the pointer instead of the drag
-  /// showing a bare box. Rendered lazily; a drag before it lands just moves
-  /// the chrome. Keyed by [_elementLiftKey] so a second drag on the same
-  /// revision reuses it.
-  ui.Picture? _elementLift;
+  /// The pair a content-element drag paints with, captured when it begins:
+  /// the page WITHOUT the dragged element, and that element ALONE on
+  /// transparent paper. Clipping one page picture to the element's box
+  /// cannot separate it from whatever else shares that box - a neighbouring
+  /// run, a rule, a filled panel - so the two are rendered apart. Lazily;
+  /// a drag before they land just moves the chrome. Keyed by
+  /// [_elementLiftKey] so a second drag on the same revision reuses them.
+  ui.Picture? _elementClean;
+  ui.Picture? _elementOnly;
   Object? _elementLiftKey;
+
+  /// The same pair, held past the commit and painted over the whole page
+  /// until the new raster lands: a content edit drops the page's cached
+  /// raster, so without this the page blanks while it re-renders. Cleared
+  /// by [_clearAfterimage] like every other afterimage.
+  ui.Picture? _afterElementClean;
+  ui.Picture? _afterElementOnly;
+  Rect? _afterElementFrom;
+  Offset _afterElementOffset = Offset.zero;
 
   // Edge auto-scroll: while a region/selection drag is in flight the ticker
   // runs every frame, scrolling the viewer when the pointer rests against a
@@ -1821,6 +1833,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterEraseRects = null;
     _afterEraseFade = null;
     _afterEraseInk = null;
+    _afterElementClean?.dispose();
+    _afterElementClean = null;
+    _afterElementOnly?.dispose();
+    _afterElementOnly = null;
+    _afterElementFrom = null;
+    _afterElementOffset = Offset.zero;
     _afterRevisionId = null;
   }
 
@@ -2213,42 +2231,103 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     unawaited(_ensureElementLift());
   }
 
-  /// Renders the page as it currently stands, so a content-element drag can
-  /// paint the dragged artwork at the pointer (clipped out of this picture)
-  /// over paper where it used to be. Cached per revision: a nudge-and-nudge
-  /// -again session renders once.
+  /// Renders the pair a content-element drag paints with: the page without
+  /// the selected element, and that element by itself on transparent paper.
+  /// Both come from one parse, filtered two ways
+  /// ([PdfPageElements.operationsRetaining]), so the artwork that travels
+  /// carries only its own pixels and the hole it leaves shows the real page
+  /// behind it rather than a wash of paper.
+  ///
+  /// Cached per revision and element: a drag, a nudge, and another drag all
+  /// render once.
   Future<void> _ensureElementLift() async {
+    final element = _tool == PdfEditTool.content &&
+            _controller.selectedElementPage == widget.pageIndex
+        ? _controller.selectedElement
+        : null;
+    if (element == null) {
+      // nothing selected here: let the pair go rather than hold two page
+      // pictures for a selection the user has moved on from
+      if (_elementClean != null || _elementOnly != null) {
+        _elementClean?.dispose();
+        _elementOnly?.dispose();
+        _elementClean = null;
+        _elementOnly = null;
+        _elementLiftKey = null;
+      }
+      return;
+    }
     final key = (
       document: _controller.document,
       revision: _controller.revisionId,
       page: widget.pageIndex,
+      element: element.id,
       color: widget.pageColor,
       annotations: widget.showAnnotations,
     );
-    if (_elementLiftKey == key && _elementLift != null) return;
+    if (_elementLiftKey == key &&
+        _elementClean != null &&
+        _elementOnly != null) {
+      return;
+    }
     _elementLiftKey = key;
     // the press-to-first-frame path must not wait on a page interpretation
     await SchedulerBinding.instance.endOfFrame;
     if (!mounted || _elementLiftKey != key) return;
     try {
-      final picture = await PdfPageRenderer.renderPicture(
-        _controller.pageAt(widget.pageIndex),
-        pageColor: widget.pageColor,
-        annotations: widget.showAnnotations,
+      final elements = _controller.elementsOn(widget.pageIndex);
+      final page = _controller.pageAt(widget.pageIndex);
+      final id = element.id;
+      final clean = await PdfPageRenderer.renderPictureWithPlan(
+        page,
+        PdfPageRenderPlan(
+          pageColor: widget.pageColor,
+          annotations: widget.showAnnotations,
+        ),
+        operations: elements.operationsRetaining((e) => e.id != id),
+      );
+      final only = await PdfPageRenderer.renderPictureWithPlan(
+        page,
+        // no paper and no annotations: this picture is composited over the
+        // live page, so anything but the drawing itself would occlude it
+        const PdfPageRenderPlan(annotations: false, paper: false),
+        operations: elements.operationsRetaining((e) => e.id == id),
       );
       if (!mounted || _elementLiftKey != key) {
-        picture.dispose();
+        clean.dispose();
+        only.dispose();
         return;
       }
       setState(() {
-        _elementLift?.dispose();
-        _elementLift = picture;
+        _elementClean?.dispose();
+        _elementOnly?.dispose();
+        _elementClean = clean;
+        _elementOnly = only;
       });
     } catch (_) {
       // no lift: the drag still moves its chrome box, and the commit
       // re-renders the page either way
       _elementLiftKey = null;
     }
+  }
+
+  /// Hands the drag's pictures to the commit afterimage, which paints the
+  /// page as it now looks - clean, plus the element at [offset] - until the
+  /// committed revision's raster lands. Ownership transfers: the cache entry
+  /// is dead anyway, since its key names the revision just superseded.
+  void _holdElementAfterimage(Rect from, Offset offset) {
+    final clean = _elementClean;
+    final only = _elementOnly;
+    if (clean == null || only == null) return;
+    _elementClean = null;
+    _elementOnly = null;
+    _elementLiftKey = null;
+    _clearAfterimage();
+    _afterElementClean = clean;
+    _afterElementOnly = only;
+    _afterElementFrom = from;
+    _afterElementOffset = offset;
+    _afterRevisionId = _controller.revisionId;
   }
 
   /// Keeps [_ghost] current: the selected annotation's appearance as a
@@ -2471,7 +2550,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _ghost?.dispose();
     _clearAfterimage();
     _resizeCleanPicture?.dispose();
-    _elementLift?.dispose();
+    _elementClean?.dispose();
+    _elementOnly?.dispose();
     _clearSourceClean();
     _flashController.dispose();
     _activeStrokeRepaint.dispose();
@@ -3879,7 +3959,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // mapping both endpoints keeps the delta right on a rotated page
       final (x0, y0) = _geometry.toPagePoint(elementMoveStart);
       final (x1, y1) = _geometry.toPagePoint(elementMoveCurrent);
+      final from = _selectedElementRestRect;
+      final before = _controller.revisionId;
       _controller.moveSelectedElement(x1 - x0, y1 - y0);
+      if (from != null && before != _controller.revisionId) {
+        _holdElementAfterimage(from, elementMoveCurrent - elementMoveStart);
+      }
     } else if (moveStart != null && moveCurrent != null) {
       if ((moveCurrent - moveStart).distance < 2) return; // a click
       // mapping both endpoints keeps the delta correct on rotated pages
@@ -5256,6 +5341,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.previewLetterSpacing = _textEditCharSpacing * _geometry.scale;
     _ensureGhost();
     _ensureSourceClean();
+    // Start the content-element pair as soon as one is selected, not when a
+    // drag begins: a quick press-and-flick would otherwise commit before the
+    // render lands, leaving the page to blank on its own.
+    unawaited(_ensureElementLift());
     // the afterimage has served once the committed revision's raster is
     // on screen - or is stale once the document moved past that revision
     if (_afterRevisionId != null &&
@@ -5603,14 +5692,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],
                     elementRect: _selectedElementViewRect,
-                    elementLift:
-                        _elementMoveOffset == null ? null : _elementLift,
-                    elementLiftFrom: _elementMoveOffset == null
-                        ? null
-                        : _selectedElementRestRect,
-                    elementLiftOffset: _elementMoveOffset ?? Offset.zero,
-                    elementLiftWash: Color.alphaBlend(
-                        widget.pageColor, const Color(0xFFFFFFFF)),
+                    elementClean: _elementMoveOffset != null
+                        ? _elementClean
+                        : _afterElementClean,
+                    elementOnly: _elementMoveOffset != null
+                        ? _elementOnly
+                        : _afterElementOnly,
+                    elementLiftFrom: _elementMoveOffset != null
+                        ? _selectedElementRestRect
+                        : _afterElementFrom,
+                    elementLiftOffset:
+                        _elementMoveOffset ?? _afterElementOffset,
+                    elementLiftSettled: _elementMoveOffset == null,
                     flashRect:
                         _flashController.isAnimating && _flashRect != null
                             ? _geometry.toViewRect(_flashRect!)
@@ -6624,10 +6717,11 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.showRotateHandle,
     required this.vertexHandles,
     required this.elementRect,
-    this.elementLift,
+    this.elementClean,
+    this.elementOnly,
     this.elementLiftFrom,
     this.elementLiftOffset = Offset.zero,
-    this.elementLiftWash = const Color(0xFFFFFFFF),
+    this.elementLiftSettled = false,
     this.flashRect,
     this.flashProgress = 0,
     this.redactionRects = const [],
@@ -6777,18 +6871,26 @@ class _EditingPreviewPainter extends CustomPainter {
   /// content", distinct from the blue annotation chrome.
   final Rect? elementRect;
 
-  /// A content-element move in flight: the page as it stands
-  /// ([elementLift], page-point space like [resizeClean]), the element's
-  /// resting footprint ([elementLiftFrom], a view rect) and how far it has
-  /// been dragged ([elementLiftOffset]). The footprint is washed with
-  /// [elementLiftWash] and the artwork clipped out of the lift is painted
-  /// at the offset, so the drawing reads as travelling with the pointer
-  /// rather than being copied. Null until the lift render lands - the
-  /// chrome box alone carries the drag until then.
-  final ui.Picture? elementLift;
+  /// A content-element move: the page WITHOUT the moved element
+  /// ([elementClean]) and that element ALONE on transparent paper
+  /// ([elementOnly]), both in page-point space like [resizeClean], plus the
+  /// element's resting footprint ([elementLiftFrom], a view rect) and how far
+  /// it has moved ([elementLiftOffset]).
+  ///
+  /// Drawing them apart is what keeps a neighbour that merely shares the
+  /// element's bounding box from travelling with it. While the drag is live
+  /// the clean page fills just the footprint - everywhere else the page's own
+  /// raster is already right. After the commit ([elementLiftSettled]) it
+  /// covers the whole page instead: a content edit drops the cached raster,
+  /// and this stands in until the new one lands.
+  ///
+  /// Null until the pair renders - the chrome box alone carries the drag
+  /// until then.
+  final ui.Picture? elementClean;
+  final ui.Picture? elementOnly;
   final Rect? elementLiftFrom;
   final Offset elementLiftOffset;
-  final Color elementLiftWash;
+  final bool elementLiftSettled;
 
   /// An attention pulse around [flashRect] (the annotation a sidebar
   /// tile zoomed to), animated by [flashProgress] 0→1: an amber ring
@@ -7176,20 +7278,31 @@ class _EditingPreviewPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // a content-element move: paper over where the drawing sits in the
-    // page raster, then the drawing itself - cut out of the same raster -
-    // carried to the pointer. Under the chrome, which is drawn last.
+    // A content-element move, in two layers: the page without the element,
+    // which erases it truthfully (neighbours sharing its box keep their
+    // pixels), and the element by itself, carried to where it has been
+    // dragged. Under the chrome, which is drawn last.
     final liftFrom = elementLiftFrom;
-    final lift = elementLift;
-    if (liftFrom != null && lift != null) {
-      // a hair of inflation swallows the original's anti-aliased edge
-      final footprint = liftFrom.inflate(1);
-      canvas.drawRect(footprint, Paint()..color = elementLiftWash);
+    final liftClean = elementClean;
+    final liftOnly = elementOnly;
+    if (liftFrom != null && liftClean != null && liftOnly != null) {
+      canvas.save();
+      if (!elementLiftSettled) {
+        // mid-drag the page's own raster is still right everywhere but the
+        // footprint, so clip to it and let Skia cull the rest of the replay.
+        // A hair of inflation swallows the original's anti-aliased edge.
+        canvas.clipRect(liftFrom.inflate(1));
+      }
+      // settled: no clip. The commit dropped the page raster, so this covers
+      // the whole page until the replacement lands.
+      canvas.scale(geometry.scale);
+      canvas.drawPicture(liftClean);
+      canvas.restore();
+
       canvas.save();
       canvas.translate(elementLiftOffset.dx, elementLiftOffset.dy);
-      canvas.clipRect(footprint);
       canvas.scale(geometry.scale);
-      canvas.drawPicture(lift);
+      canvas.drawPicture(liftOnly);
       canvas.restore();
     }
 
@@ -7489,10 +7602,11 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.showHandles != showHandles ||
       oldDelegate.showRotateHandle != showRotateHandle ||
       oldDelegate.elementRect != elementRect ||
-      oldDelegate.elementLift != elementLift ||
+      oldDelegate.elementClean != elementClean ||
+      oldDelegate.elementOnly != elementOnly ||
       oldDelegate.elementLiftFrom != elementLiftFrom ||
       oldDelegate.elementLiftOffset != elementLiftOffset ||
-      oldDelegate.elementLiftWash != elementLiftWash ||
+      oldDelegate.elementLiftSettled != elementLiftSettled ||
       oldDelegate.flashRect != flashRect ||
       oldDelegate.flashProgress != flashProgress ||
       oldDelegate.strokes.length != strokes.length ||

@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:test/test.dart';
 
@@ -16,8 +19,9 @@ PdfRect shift(PdfRect rect, double dx, double dy) =>
 
 // The rewrite carries the shift through the drawing's own transform, so a
 // scaled placement pays one rounding of [ContentWriter.fmt] on the way in.
-void expectRect(PdfRect? actual, PdfRect expected, {double epsilon = 0.01}) {
-  expect(actual, isNotNull);
+void expectRect(PdfRect? actual, PdfRect expected,
+    {double epsilon = 0.01, String? reason}) {
+  expect(actual, isNotNull, reason: reason);
   expect(actual!.left, closeTo(expected.left, epsilon));
   expect(actual.bottom, closeTo(expected.bottom, epsilon));
   expect(actual.right, closeTo(expected.right, epsilon));
@@ -163,6 +167,57 @@ void main() {
       expect(move(doc, 3, 10, 0), 1);
       expect(move(doc, 3, 0, 10), 1);
       expectRect(boundsOf(doc)[3], shift(before[3]!, 10, 10));
+    });
+
+    test('operationsRetaining drops the others and keeps the geometry', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final before = boundsOf(doc);
+
+      // "the page without element 1"
+      final without = elements.operationsRetaining((e) => e.id != 1);
+      // "element 1 by itself"
+      final only = elements.operationsRetaining((e) => e.id == 1);
+
+      expect(latin1.decode(ContentStreamSerializer.serialize(without)),
+          isNot(contains('(first line)')));
+      final onlyText = latin1.decode(ContentStreamSerializer.serialize(only));
+      expect(onlyText, contains('(first line)'));
+      expect(onlyText, isNot(contains('(second line)')));
+      expect(onlyText, isNot(contains('/Im1 Do')));
+
+      // the surviving runs must not have moved in either list: a dropped run
+      // hands back the advance it owed the rest of its text object
+      PdfRect? boundsIn(List<ContentOperation> ops, String text) {
+        final reopened = PdfDocument.open(buildContentPdf(
+            latin1.decode(ContentStreamSerializer.serialize(ops))));
+        for (final e in PdfPageElements.of(reopened, 0).elements) {
+          if (e.text == text) return e.bounds;
+        }
+        return null;
+      }
+
+      expectRect(boundsIn(without, 'second line'), before[2]!);
+      expectRect(boundsIn(only, 'first line'), before[1]!);
+    });
+
+    test('a dropped mid-line run leaves its neighbours in place', () {
+      const content =
+          'BT /F1 12 Tf 72 700 Td (one ) Tj (two) Tj 0 -14 Td (three) Tj ET\n';
+      final doc = PdfDocument.open(buildContentPdf(content));
+      final elements = PdfPageElements.of(doc, 0);
+      final before = boundsOf(doc);
+
+      // drop "one ", the run the other two are positioned relative to
+      final ops = elements.operationsRetaining((e) => e.id != 0);
+      final after = PdfDocument.open(buildContentPdf(
+          latin1.decode(ContentStreamSerializer.serialize(ops))));
+      final runs = PdfPageElements.of(after, 0).elements;
+
+      expect(runs.map((e) => e.text), ['two', 'three']);
+      expectRect(runs[0].bounds, before[1]!,
+          reason: 'the rest of the line must not slide left');
+      expectRect(runs[1].bounds, before[2]!);
     });
 
     test('a kern-only TJ is not an element', () {

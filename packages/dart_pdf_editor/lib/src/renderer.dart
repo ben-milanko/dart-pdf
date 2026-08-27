@@ -114,10 +114,17 @@ class PdfPageRenderPlan {
     this.pageColor = const Color(0xFFFFFFFF),
     this.annotations = true,
     this.rotation,
+    this.paper = true,
   });
 
   /// The paper color painted behind page contents.
   final Color pageColor;
+
+  /// Whether the paper is painted at all. False leaves the picture
+  /// transparent wherever the content does not draw, so it can be composited
+  /// over something else - a page fragment floating above the live page.
+  /// [pageColor] is then unused.
+  final bool paper;
 
   /// Whether page annotations are included in the render.
   final bool annotations;
@@ -133,10 +140,12 @@ class PdfPageRenderPlan {
       other is PdfPageRenderPlan &&
       pageColor == other.pageColor &&
       annotations == other.annotations &&
-      rotation == other.rotation;
+      rotation == other.rotation &&
+      paper == other.paper;
 
   @override
-  int get hashCode => Object.hash(pageColor.toARGB32(), annotations, rotation);
+  int get hashCode =>
+      Object.hash(pageColor.toARGB32(), annotations, rotation, paper);
 }
 
 /// Rasterizes PDF pages.
@@ -184,16 +193,22 @@ class PdfPageRenderer {
   /// display resolution; see [decodeImages]. Callers that know the final raster
   /// scale (e.g. [renderImageWithPlan]) pass it so a giant raster underlay is
   /// not decoded at full native resolution.
+  /// [operations] renders those operations in place of the page's own
+  /// content stream - the page still supplies resources, boxes and
+  /// annotations. Callers pass a filtered list to paint a subset of the page
+  /// (see `PdfPageElements.operationsRetaining`); null parses the page.
   static Future<ui.Picture> renderPictureWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
       {bool Function(PdfAnnotation)? skipAnnotation,
-      double? maxImagePixelRatio}) async {
+      double? maxImagePixelRatio,
+      List<ContentOperation>? operations}) async {
     final cos = page.document.cos;
 
     // Parsing the content stream (and decompressing it) dominates rendering on
     // graphics-rich pages, and the page is interpreted twice here - once to
     // discover images to decode, once to paint. Parse it once and feed both.
-    final pageOps = ContentStreamParser.parse(page.contentBytes());
+    final pageOps =
+        operations ?? ContentStreamParser.parse(page.contentBytes());
 
     // Discover the images to decode with a scan-only interpretation: it walks
     // the same content (so it sees every image - including those drawn by
@@ -214,7 +229,7 @@ class PdfPageRenderer {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    _paintBackground(canvas, size, plan.pageColor);
+    if (plan.paper) _paintBackground(canvas, size, plan.pageColor);
     _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
 
     final painting = PdfInterpreter(

@@ -462,6 +462,67 @@ class PdfPageElements {
           if (element.bounds?.contains(x, y) ?? false) element,
       ];
 
+  /// The page's operations with only the elements [keep] accepts still
+  /// drawing.
+  ///
+  /// A dropped text run is replaced by the advance it would have made - a
+  /// kern-only `TJ`, preceded by the line move `'` and `"` perform
+  /// themselves - so every run after it in the same text object stays
+  /// exactly where it was. Other kinds simply disappear; nothing downstream
+  /// depends on a path or an image having been painted.
+  ///
+  /// Two useful lists come out of one parse: "the page without this
+  /// element" (`(e) => e.id != id`) and "this element by itself"
+  /// (`(e) => e.id == id`). The editor renders both to float a dragged
+  /// drawing - the first fills the hole it leaves, the second is the
+  /// artwork that travels, free of whatever else shares its bounding box.
+  List<ContentOperation> operationsRetaining(
+      bool Function(PdfContentElement element) keep) {
+    final dropped = <int, PdfContentElement>{};
+    for (final element in elements) {
+      if (keep(element)) continue;
+      for (var i = element.start; i < element.end; i++) {
+        dropped[i] = element;
+      }
+    }
+    if (dropped.isEmpty) return operations;
+    final out = <ContentOperation>[];
+    for (var i = 0; i < operations.length; i++) {
+      final element = dropped[i];
+      if (element == null) {
+        out.add(operations[i]);
+      } else if (i == element.start) {
+        out.addAll(_standIn(element, operations[i]));
+      }
+    }
+    return out;
+  }
+
+  /// What a dropped element leaves behind: nothing at all, unless it is text,
+  /// which owes the rest of its text object the advance it would have made.
+  static List<ContentOperation> _standIn(
+      PdfContentElement element, ContentOperation op) {
+    if (element.kind != PdfElementKind.text) return const [];
+    final out = <ContentOperation>[];
+    if (op.operator == '"' && op.operands.length >= 3) {
+      out
+        ..add(ContentOperation('Tw', [op.operands[0]]))
+        ..add(ContentOperation('Tc', [op.operands[1]]));
+    }
+    if (op.operator == "'" || op.operator == '"') {
+      out.add(ContentOperation('T*', const []));
+    }
+    final placement = element.textPlacement;
+    if (placement != null &&
+        placement.fontSize > 0 &&
+        placement.advance.abs() > 1e-9) {
+      out.add(ContentOperation('TJ', [
+        CosArray([CosReal(-1000 * placement.advance / placement.fontSize)]),
+      ]));
+    }
+    return out;
+  }
+
   /// Serializes [operations] back into content-stream bytes, skipping the
   /// operation indexes in [drop] and writing [replacements] instead where
   /// provided (used to keep the side effects of `'` and `"`).

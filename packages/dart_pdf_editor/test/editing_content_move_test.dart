@@ -281,29 +281,34 @@ void main() {
       expect(regionCursor(tester), SystemMouseCursors.basic);
     });
 
-    testWidgets('the drag floats the artwork over a washed footprint',
+    testWidgets('the drag floats the element alone, over a clean page',
         (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.content;
       await tester.pump();
       expect(editing.selectElementAt(0, 140, 620), isTrue);
+      // the pair renders off the selection, deferred past a frame
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
       final from = view(140, 620);
       final gesture = await tester.startGesture(from);
       await gesture.moveTo(from + const Offset(10, 10));
       await gesture.moveTo(from + const Offset(40, 25));
-      // the lift render is deferred past a frame, then awaits the raster
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
 
       final painter = overlayPainter(tester);
       expect(painter.elementLiftOffset, const Offset(40, 25),
           reason: 'the float tracks the pointer');
       expect(painter.elementLiftFrom, isNotNull,
-          reason: 'the resting footprint is what gets washed');
-      expect(painter.elementLift, isA<ui.Picture>(),
-          reason: 'the page render backing the float has landed');
+          reason: 'the resting footprint is where the clean page shows');
+      expect(painter.elementClean, isA<ui.Picture>(),
+          reason: 'the page without the element fills the hole it leaves');
+      expect(painter.elementOnly, isA<ui.Picture>(),
+          reason: 'the element alone is what travels - not a clip of the '
+              'page, which would carry whatever shares its box');
+      expect(painter.elementLiftSettled, isFalse,
+          reason: 'mid-drag the clean page is clipped to the footprint');
       // the chrome box travels with it
       expect(painter.elementRect!.center - painter.elementLiftFrom!.center,
           const Offset(40, 25));
@@ -311,9 +316,15 @@ void main() {
       await gesture.up();
       await tester.pump();
 
-      // and it is torn down on release
-      expect(overlayPainter(tester).elementLiftFrom, isNull);
-      expect(overlayPainter(tester).elementLiftOffset, Offset.zero);
+      // the pair is held past the commit, now unclipped, so the page does not
+      // blank while the edited revision re-renders
+      final after = overlayPainter(tester);
+      expect(after.elementClean, isA<ui.Picture>());
+      expect(after.elementOnly, isA<ui.Picture>());
+      expect(after.elementLiftSettled, isTrue,
+          reason: 'settled paints the whole page, covering the dropped raster');
+      expect(after.elementLiftOffset, const Offset(40, 25),
+          reason: 'the afterimage sits where the element was dropped');
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
     });
 
