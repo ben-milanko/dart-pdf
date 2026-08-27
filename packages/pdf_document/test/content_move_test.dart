@@ -220,12 +220,12 @@ void main() {
       expectRect(runs[1].bounds, before[2]!);
     });
 
-    test("dropping a `'` or `\" run keeps the lines after it in place", () {
+    test('dropping a quote-operator run keeps the lines after it in place', () {
       // `"` carries word/char spacing that outlives the run, and both
       // operators move to the next line before showing - a dropped run owes
       // the text object all of it.
       const content = 'BT /F1 12 Tf 14 TL 72 700 Td (top) Tj '
-          '1 2 (middle) \" (last) \' ET\n';
+          '1 2 (middle) " (last) \' ET\n';
       final doc = PdfDocument.open(buildContentPdf(content));
       final elements = PdfPageElements.of(doc, 0);
       final before = boundsOf(doc);
