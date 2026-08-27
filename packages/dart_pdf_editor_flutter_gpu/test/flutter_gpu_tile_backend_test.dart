@@ -697,6 +697,64 @@ void main() {
     });
   });
 
+  testWidgets('coalesces disjoint opaque stencil fans and covers',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const first = PdfPath([
+        PdfMoveTo(60, 100),
+        PdfLineTo(150, 100),
+        PdfLineTo(105, 190),
+        PdfClosePath(),
+      ]);
+      const second = PdfPath([
+        PdfMoveTo(240, 100),
+        PdfLineTo(330, 100),
+        PdfLineTo(285, 190),
+        PdfClosePath(),
+      ]);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, const [
+        PdfFillPathCommand(
+          first,
+          PdfColor(0.08, 0.24, 0.82),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          second,
+          PdfColor(0.82, 0.18, 0.12),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 2);
+      expect(backend.stats.stencilFanDrawCalls, 1);
+      expect(backend.stats.stencilCoverDrawCalls, 1);
+    });
+  });
+
   testWidgets(
       'coalesces matching opaque stroke unions without merging alpha or blend',
       (tester) async {
@@ -746,13 +804,13 @@ void main() {
       }
       expect(difference / a.length, lessThan(3));
       expect(backend.stats.coalescedDrawBatches, 1);
-      expect(backend.stats.drawCallsSaved, 1,
-          reason: 'two opaque strokes keep their two stencil fans and share '
+      expect(backend.stats.drawCallsSaved, 2,
+          reason: 'two opaque strokes share one stencil fan submission and '
               'one cover; the translucent and Multiply strokes stay split');
     });
   });
 
-  testWidgets('bounds opaque stroke batches to one 256-cover upload',
+  testWidgets('bounds opaque stroke batches to 256 fan-and-cover submissions',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -783,8 +841,9 @@ void main() {
       await _pixels(image);
       image.dispose();
       expect(backend.stats.coalescedDrawBatches, 1);
-      expect(backend.stats.drawCallsSaved, 255,
-          reason: 'the 257th stroke begins a new bounded batch');
+      expect(backend.stats.drawCallsSaved, 510,
+          reason: 'the first 256 fans and covers each collapse to one draw; '
+              'the 257th stroke begins a new bounded batch');
     });
   });
 

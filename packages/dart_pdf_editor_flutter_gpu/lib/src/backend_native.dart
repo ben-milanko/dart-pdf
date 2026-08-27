@@ -5931,12 +5931,16 @@ class _CompiledScene {
           nextUnitIndex++;
         }
         if (batch.length > 1) {
+          final fan = _coalescedGpuBuffers([
+            for (final draw in batch) draw.fan,
+          ]);
           stats
             ..coalescedDrawBatches += 1
-            ..drawCallsSaved += batch.length - 1;
+            ..drawCallsSaved += (batch.length - 1) * (fan == null ? 1 : 2);
           draw = _OpaqueStencilBatchDraw(
             batch,
             draw.opaquePaint!.color,
+            fan,
           );
         }
       } else if (draw is _StencilDraw &&
@@ -5960,12 +5964,16 @@ class _CompiledScene {
           nextUnitIndex++;
         }
         if (batch.length > 1) {
+          final fan = _coalescedGpuBuffers([
+            for (final draw in batch) draw.fan,
+          ]);
           stats
             ..coalescedDrawBatches += 1
-            ..drawCallsSaved += batch.length - 1;
+            ..drawCallsSaved += (batch.length - 1) * (fan == null ? 1 : 2);
           draw = _OpaqueStencilFillBatchDraw(
             batch,
             draw.rule,
+            fan,
           );
         }
       } else if (draw is _HairlineDraw &&
@@ -8088,7 +8096,7 @@ FlatBounds? _axisAlignedRectangle(List<FlatSubpath> subpaths) {
     }
   }
   if (fan.isEmpty) return null;
-  return (geometry.add(fan.bytes, fan.length ~/ 2), bounds);
+  return (geometry.addStencilFan(fan.bytes, fan.length ~/ 2), bounds);
 }
 
 _GpuBuffer _coverGeometry(
@@ -8133,25 +8141,32 @@ class _GpuGeometryArena {
   List<_GpuGeometryResource> get leases => List.unmodifiable(_leases);
 
   _GpuBuffer add(ByteData bytes, int vertices) =>
-      _add(bytes, vertices, alignment: 1);
+      _add(bytes, vertices, alignment: 1, lane: _GpuGeometryLane.general);
+
+  _GpuBuffer addStencilFan(ByteData bytes, int vertices) =>
+      _add(bytes, vertices, alignment: 1, lane: _GpuGeometryLane.stencilFan);
 
   _GpuBuffer addUniform(ByteData bytes) => _add(
         bytes,
         0,
         alignment: math.max(1, context.minimumUniformByteAlignment),
+        lane: _GpuGeometryLane.general,
       );
 
-  _GpuBuffer _add(ByteData bytes, int vertices, {required int alignment}) {
+  _GpuBuffer _add(
+    ByteData bytes,
+    int vertices, {
+    required int alignment,
+    required _GpuGeometryLane lane,
+  }) {
     if (_finalized) throw StateError('GPU geometry arena already finalized');
-    var offset = _align(_pendingBytes, alignment);
-    if (_slices.isNotEmpty &&
-        offset + bytes.lengthInBytes > _GpuGeometryPool.chunkBytes) {
+    final projected = _pendingBytes + alignment - 1 + bytes.lengthInBytes;
+    if (_slices.isNotEmpty && projected > _GpuGeometryPool.chunkBytes) {
       _flush();
-      offset = 0;
     }
-    final result = _GpuBuffer(vertices).._offsetInBytes = offset;
-    _slices.add(_GpuGeometrySlice(bytes, result));
-    _pendingBytes = offset + bytes.lengthInBytes;
+    final result = _GpuBuffer(vertices);
+    _slices.add(_GpuGeometrySlice(bytes, result, alignment, lane));
+    _pendingBytes += alignment - 1 + bytes.lengthInBytes;
     stats.geometryVertices += vertices;
     return result;
   }
@@ -8169,8 +8184,23 @@ class _GpuGeometryArena {
 
   void _flush() {
     if (_slices.isEmpty) return;
-    final packed = Uint8List(_pendingBytes);
-    for (final slice in _slices) {
+    // Stencil fans all share one two-float vertex layout. Packing that lane
+    // contiguously lets an already-safe opaque paint batch issue all of its
+    // fans with one draw instead of rebinding non-contiguous ranges.
+    final ordered = <_GpuGeometrySlice>[
+      for (final slice in _slices)
+        if (slice.lane == _GpuGeometryLane.stencilFan) slice,
+      for (final slice in _slices)
+        if (slice.lane == _GpuGeometryLane.general) slice,
+    ];
+    var length = 0;
+    for (final slice in ordered) {
+      length = _align(length, slice.alignment);
+      slice.buffer._offsetInBytes = length;
+      length += slice.bytes.lengthInBytes;
+    }
+    final packed = Uint8List(length);
+    for (final slice in ordered) {
       final source = slice.bytes.buffer.asUint8List(
         slice.bytes.offsetInBytes,
         slice.bytes.lengthInBytes,
@@ -8688,10 +8718,14 @@ class _GpuBuffer {
 }
 
 class _GpuGeometrySlice {
-  const _GpuGeometrySlice(this.bytes, this.buffer);
+  const _GpuGeometrySlice(this.bytes, this.buffer, this.alignment, this.lane);
   final ByteData bytes;
   final _GpuBuffer buffer;
+  final int alignment;
+  final _GpuGeometryLane lane;
 }
+
+enum _GpuGeometryLane { stencilFan, general }
 
 sealed class _GpuDraw {
   void encode(_GpuEncoder encoder);
@@ -8798,24 +8832,27 @@ class _StencilDraw implements _GpuDraw {
 }
 
 class _OpaqueStencilBatchDraw implements _GpuDraw {
-  const _OpaqueStencilBatchDraw(this.draws, this.color);
+  const _OpaqueStencilBatchDraw(this.draws, this.color, this.fan);
 
   final List<_StencilDraw> draws;
   final PdfColor color;
-
-  @override
-  void encode(_GpuEncoder encoder) => encoder.opaqueStencilBatch(draws, color);
-}
-
-class _OpaqueStencilFillBatchDraw implements _GpuDraw {
-  const _OpaqueStencilFillBatchDraw(this.draws, this.rule);
-
-  final List<_StencilDraw> draws;
-  final PdfFillRule rule;
+  final _GpuBuffer? fan;
 
   @override
   void encode(_GpuEncoder encoder) =>
-      encoder.opaqueStencilFillBatch(draws, rule);
+      encoder.opaqueStencilBatch(draws, color, fan);
+}
+
+class _OpaqueStencilFillBatchDraw implements _GpuDraw {
+  const _OpaqueStencilFillBatchDraw(this.draws, this.rule, this.fan);
+
+  final List<_StencilDraw> draws;
+  final PdfFillRule rule;
+  final _GpuBuffer? fan;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      encoder.opaqueStencilFillBatch(draws, rule, fan);
 }
 
 /// A PDF zero-width stroke. Its source polyline is retained with the scene,
@@ -8934,6 +8971,27 @@ _GpuDraw _coalescedGpuDraw(_GpuDraw first, _GpuDraw last, int vertices) {
     _AnalyticTextDraw(:final atlas) => _AnalyticTextDraw(buffer, atlas),
     _ => throw StateError('unsupported coalesced GPU draw'),
   };
+}
+
+_GpuBuffer? _coalescedGpuBuffers(List<_GpuBuffer> buffers) {
+  if (buffers.isEmpty) return null;
+  final first = buffers.first.view;
+  var end = first.offsetInBytes + first.lengthInBytes;
+  var vertices = buffers.first.vertices;
+  for (final buffer in buffers.skip(1)) {
+    final view = buffer.view;
+    if (!identical(first.buffer, view.buffer) || view.offsetInBytes != end) {
+      return null;
+    }
+    end += view.lengthInBytes;
+    vertices += buffer.vertices;
+  }
+  return _GpuBuffer(vertices)
+    .._view = gpu.BufferView(
+      first.buffer,
+      offsetInBytes: first.offsetInBytes,
+      lengthInBytes: end - first.offsetInBytes,
+    );
 }
 
 /// Fully opaque source-over is idempotent at each raster sample, so adjacent
@@ -9249,7 +9307,11 @@ class _GpuEncoder {
     _paintStencilCover(cover.view, cover.vertices);
   }
 
-  void opaqueStencilBatch(List<_StencilDraw> draws, PdfColor color) {
+  void opaqueStencilBatch(
+    List<_StencilDraw> draws,
+    PdfColor color,
+    _GpuBuffer? fan,
+  ) {
     _dropRetainedBindings();
     _appliedDefaultStencilBit = null;
     final compare = _activeClipBit == 0
@@ -9267,8 +9329,12 @@ class _GpuEncoder {
         readMask: _activeClipBit == 0 ? 0 : _activeClipBit,
         writeMask: 1,
       ));
-    for (final draw in draws) {
-      _drawBuffer(draw.fan, _GpuDrawKind.stencilFan);
+    if (fan != null) {
+      _drawBuffer(fan, _GpuDrawKind.stencilFan);
+    } else {
+      for (final draw in draws) {
+        _drawBuffer(draw.fan, _GpuDrawKind.stencilFan);
+      }
     }
     _paintOpaqueStencilBatchCover(draws, color);
   }
@@ -9276,6 +9342,7 @@ class _GpuEncoder {
   void opaqueStencilFillBatch(
     List<_StencilDraw> draws,
     PdfFillRule rule,
+    _GpuBuffer? fan,
   ) {
     _dropRetainedBindings();
     _appliedDefaultStencilBit = null;
@@ -9308,8 +9375,12 @@ class _GpuEncoder {
           targetFace: gpu.StencilFace.back,
         );
     }
-    for (final draw in draws) {
-      _drawBuffer(draw.fan, _GpuDrawKind.stencilFan);
+    if (fan != null) {
+      _drawBuffer(fan, _GpuDrawKind.stencilFan);
+    } else {
+      for (final draw in draws) {
+        _drawBuffer(draw.fan, _GpuDrawKind.stencilFan);
+      }
     }
     _paintOpaqueStencilFillBatchCover(draws);
   }
