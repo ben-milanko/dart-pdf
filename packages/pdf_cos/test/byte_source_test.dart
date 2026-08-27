@@ -521,6 +521,33 @@ void main() {
       expect(sparse.getObject(5, 0), isA<CosDictionary>());
     });
 
+    test('re-opening the same sparse buffer inherits its holes', () async {
+      // How the freeze actually reached the UI: the app paints its preview by
+      // handing the sparse bytes to another reader, which opens its own
+      // session over them - a plain CosDocument.open, with no way to be told
+      // the buffer is full of holes. The map follows the buffer.
+      final bytes = buildMultiPagePdf(8);
+      final first = await CosDocument.openSource(RecordingSource(bytes),
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+
+      final again = CosDocument.open(first.bytes);
+      final pages = again.resolve(again.catalog['Pages']) as CosDictionary;
+      final kids = (pages['Kids'] as CosArray).items;
+      expect(
+          again.resolve(
+              (again.resolve(kids.first) as CosDictionary)['Contents']),
+          isA<CosStream>());
+      expect(
+          again
+              .resolve((again.resolve(kids.last) as CosDictionary)['Contents']),
+          isA<CosNull>(),
+          reason: 'the unfetched page is a hole in this document too');
+    });
+
     test('an appended revision is real bytes, not another hole', () {
       // A sparse document that later takes an incremental update must not read
       // the appended revision as a hole - its objects would silently vanish.

@@ -201,6 +201,10 @@ Future<CosSourceOpenResult> openCosDocumentFromSourceWithStatus(
     buffer = await _downloadFully(source, options);
   }
   PdfPerf.end(PdfPerfPhase.sourceFetch, t0);
+  // Sparseness travels with the buffer, not just with this document: hosts
+  // paint the preview by handing these same bytes to another reader/session,
+  // which opens them again (see [cosSparseBufferRanges]).
+  if (populated != null) cosSparseBufferRanges[buffer] = populated;
   return CosSourceOpenResult(
     CosDocument.open(buffer, password: password, populatedRanges: populated),
     isFirstPaintBuffer: isFirstPaintBuffer,
@@ -268,8 +272,9 @@ class _ProgressiveLoader {
   /// The fetched ranges as the flat, sorted `[start, end)` pair list
   /// [CosDocument.open] takes, so the parser can tell a real byte from the
   /// zeros this buffer is padded with.
-  List<int> get populatedRanges =>
-      [for (final r in _present) ...[r.start, r.end]];
+  List<int> get populatedRanges => [
+        for (final r in _present) ...[r.start, r.end]
+      ];
 
   Future<({Uint8List bytes, bool isFirstPaintBuffer})> load() async {
     final len = await source.length;

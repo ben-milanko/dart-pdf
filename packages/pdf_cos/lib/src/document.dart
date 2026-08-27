@@ -10,6 +10,20 @@ import 'parser.dart';
 import 'perf/perf.dart';
 import 'xref.dart';
 
+/// Populated-range maps for sparse buffers, keyed by the buffer itself.
+///
+/// A progressive open hands its buffer onward as plain bytes - a host paints
+/// the preview through `PdfReader(bytes:)`, which opens its own session over
+/// the same buffer - and a `Uint8List` cannot carry "these are the parts of me
+/// that hold real bytes" in its type. Recording it here means every later
+/// [CosDocument.open] of that exact buffer inherits the map instead of
+/// treating the zeros as file content; unreferenced buffers drop out with the
+/// expando. Sparseness is a property of the buffer, so this is where it
+/// belongs, not in the signature of every widget between the loader and the
+/// parser.
+final Expando<List<int>> cosSparseBufferRanges =
+    Expando<List<int>>('cos populated ranges');
+
 /// A parsed PDF file at the COS level: header, cross-reference machinery, and
 /// on-demand object loading. Page-level semantics live in `pdf_document`.
 class CosDocument {
@@ -147,8 +161,12 @@ class CosDocument {
     final t0 = PdfPerf.begin();
     // Owned and growable: [applyIncrementalUpdate] extends it in place, and a
     // caller's literal may be neither.
-    final populated =
-        populatedRanges == null ? null : List<int>.of(populatedRanges);
+    final declared = populatedRanges ?? cosSparseBufferRanges[bytes];
+    final populated = declared == null ? null : List<int>.of(declared);
+    if (PdfPerf.enabled) {
+      PdfPerf.sink?.call('cos open bytes=${bytes.length} '
+          '${populated == null ? 'whole-file' : 'sparse spans=${populated.length >> 1}'}');
+    }
     try {
       final shift = _findHeader(bytes);
       try {
@@ -641,7 +659,15 @@ class CosDocument {
     // starts in so an object that runs off the end of a fetched range cannot
     // walk into the next hole either (a view, not a copy).
     final limit = _populatedEnd(at);
-    if (limit < 0) return null;
+    if (limit < 0) {
+      // One line per document, not per object: the interesting fact is that
+      // this buffer is being read outside what it holds at all.
+      if (!_reportedHoleRead && PdfPerf.enabled) {
+        _reportedHoleRead = true;
+        PdfPerf.sink?.call('cos hole read refused object=$objectNumber at=$at');
+      }
+      return null;
+    }
     try {
       final parser = CosParser(
           limit == bytes.length
@@ -657,6 +683,8 @@ class CosDocument {
       return null;
     }
   }
+
+  bool _reportedHoleRead = false;
 
   /// End of the populated run containing [offset], or -1 when it lies in a
   /// hole. A complete buffer answers [bytes].length for every offset.

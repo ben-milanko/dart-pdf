@@ -74,6 +74,42 @@ their holes"): a hole dangles instead of scanning, a hole stays authoritative
 even when real bytes sit inside it, and a parse cannot run off the end of its
 range.
 
+### …and the map has to follow the buffer, not the document
+
+That fixed the repro and changed nothing in the app: still an 11.5 s frame,
+still the same stack. A `cos open` diagnostic line (kept - it is worth having)
+showed why:
+
+```
+[perf 538] cos open bytes=219314443 sparse spans=110    ← the preview document
+[perf 558] cos open bytes=219314443 whole-file          ← what the viewer reads
+```
+
+The app paints a preview tab with `PdfReader(bytes: tab.previewBytes!)`, and
+`PdfReader` opens **its own session** over those bytes
+(`PdfShellSessionLifecycle` → `PdfEditingController` → `CosDocument.open`). The
+carefully-loaded sparse document is used for nothing but its byte buffer, and
+a `Uint8List` cannot carry "these are the parts of me that hold real bytes".
+
+So sparseness now belongs to the buffer: `cosSparseBufferRanges`, an `Expando`
+the loader stamps and `CosDocument.open` consults when no ranges are passed.
+Every later open of that exact buffer inherits the map - no signature change in
+the four widgets between the loader and the parser, and nothing to remember at
+a future call site.
+
+Measured in the app, same document, same machine:
+
+| | before | after |
+|---|---|---|
+| worst frame during open | 11 619 ms | 86 ms |
+| page 1 on screen | ~10.4 s | 0.6 s |
+
+The render worker still opens its own *copy* of a sparse buffer whole-file (a
+copy is a different object, so it inherits nothing). It is harmless here - a
+worker records page content, which is exactly what the first-paint closure
+fetched - and it is off the UI thread either way. If a worker-side hole scan
+ever shows up, the init message is where the ranges would go.
+
 No viewer change was needed in the end: with holes cheap, the layout-time
 `annotations` read is ~0 ms, and `_visibleAnnotCache`/`_fieldRectCache` are
 already cleared on the document swap, so the preview's empty answers never
