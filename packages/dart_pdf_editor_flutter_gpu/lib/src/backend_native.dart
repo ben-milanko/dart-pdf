@@ -298,8 +298,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
         stats.sessionsRejected++;
         return null;
       }
+      final visibleUnits = _visibleGpuUnits(scene, units);
+      stats.offCropUnitsCulled += units.length - visibleUnits.length;
       final rejection = _unsupportedReason(
-          scene, commands, units, allowOverprintApproximation);
+        scene,
+        commands,
+        units,
+        visibleUnits,
+        allowOverprintApproximation,
+      );
       if (rejection != null) {
         _lastSessionRejection = rejection;
         stats.lastRejection = rejection;
@@ -307,7 +314,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
         stats.sessionsRejected++;
         return null;
       }
-      if (allowOverprintApproximation && units.any((unit) => unit.darken)) {
+      if (allowOverprintApproximation &&
+          visibleUnits.any((unit) => unit.darken)) {
         stats.overprintApproximationSessions++;
       }
       stats.sessionsCreated++;
@@ -321,7 +329,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
         mipmapImages: commandBuild.mipmapImages,
         context: context,
         pipelines: _GpuPipelines.instance(context),
-        units: units,
+        units: visibleUnits,
         msaa: msaa,
         stats: stats,
         imageCache: _imageCache,
@@ -392,15 +400,17 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   static String? _unsupportedReason(
       PdfRetainedScene scene,
       List<PdfRenderCommand> commands,
-      List<_GpuUnit> units,
+      List<_GpuUnit> allUnits,
+      List<_GpuUnit> visibleUnits,
       bool allowOverprintApproximation) {
     final hasAdvancedBlend =
-        units.any((unit) => !_isFixedFunctionBlendMode(unit.blendMode));
+        visibleUnits.any((unit) => !_isFixedFunctionBlendMode(unit.blendMode));
     if (hasAdvancedBlend &&
-        units.any((unit) => unit.composite is _KnockoutSoftMaskFillSpec)) {
+        visibleUnits
+            .any((unit) => unit.composite is _KnockoutSoftMaskFillSpec)) {
       return 'advanced blend with knockout soft mask';
     }
-    for (final unit in units) {
+    for (final unit in visibleUnits) {
       if (!_isGpuBlendMode(unit.blendMode)) {
         return 'blend mode ${unit.blendMode.name}';
       }
@@ -509,7 +519,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
       }
     }
     final covered = <int>{
-      for (final unit in units)
+      for (final unit in allUnits)
         if (unit.endCommandIndex > unit.commandIndex)
           for (var i = unit.commandIndex; i <= unit.endCommandIndex; i++) i,
     };
@@ -616,6 +626,7 @@ class _GpuUnit {
   const _GpuUnit({
     required this.commandIndex,
     required this.endCommandIndex,
+    required this.contentBounds,
     required this.bounds,
     required this.clip,
     required this.blendMode,
@@ -629,6 +640,11 @@ class _GpuUnit {
 
   final int commandIndex;
   final int endCommandIndex;
+
+  /// Exact clipped paint bounds before the tile-selection antialiasing pad.
+  final PdfRect contentBounds;
+
+  /// Conservative spatial-index bounds, including the replay fringe.
   final PdfRect bounds;
   final _GpuClipState clip;
   final PdfBlendMode blendMode;
@@ -1571,6 +1587,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
               units.add(_GpuUnit(
                 commandIndex: paint.commandIndex,
                 endCommandIndex: paint.endCommandIndex,
+                contentBounds: paint.bounds,
                 bounds: _inflatePdf(paint.bounds, 2),
                 clip: paintClip,
                 blendMode: paint.blendMode,
@@ -1593,6 +1610,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
               units.add(_GpuUnit(
                 commandIndex: capture.start,
                 endCommandIndex: i,
+                contentBounds: bounds,
                 bounds: _inflatePdf(bounds, 2),
                 clip: capture.clip,
                 blendMode: PdfBlendMode.normal,
@@ -1623,6 +1641,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
               units.add(_GpuUnit(
                 commandIndex: paint.commandIndex,
                 endCommandIndex: paint.commandIndex,
+                contentBounds: clipped,
                 bounds: _inflatePdf(clipped, 2),
                 clip: paintClip,
                 blendMode: capture.blendMode,
@@ -1647,6 +1666,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
               units.add(_GpuUnit(
                 commandIndex: capture.start,
                 endCommandIndex: i,
+                contentBounds: groupBounds,
                 bounds: _inflatePdf(groupBounds, 2),
                 clip: capture.clip,
                 blendMode: PdfBlendMode.normal,
@@ -1680,6 +1700,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
               units.add(_GpuUnit(
                 commandIndex: capture.start,
                 endCommandIndex: i,
+                contentBounds: bounds,
                 bounds: _inflatePdf(bounds, 2),
                 clip: compositeClip,
                 blendMode: capture.blendMode,
@@ -1712,6 +1733,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
           units.add(_GpuUnit(
             commandIndex: i,
             endCommandIndex: i,
+            contentBounds: clipped,
             bounds: _inflatePdf(clipped, 2),
             clip: clip,
             blendMode: blend,
@@ -3968,6 +3990,34 @@ bool _pdfIntersects(PdfRect a, PdfRect b) =>
     a.right > b.left &&
     a.bottom < b.top &&
     a.top > b.bottom;
+
+bool _pdfTouches(PdfRect a, PdfRect b) =>
+    a.left <= b.right &&
+    a.right >= b.left &&
+    a.bottom <= b.top &&
+    a.top >= b.bottom;
+
+/// Paint units wholly outside the page crop cannot affect any detail tile.
+///
+/// PDF content streams frequently retain imposition marks or malformed-form
+/// content far beyond a tiny `/CropBox`. Auditing those unreachable paints can
+/// reject an otherwise empty GPU scene (for example an off-crop overprint),
+/// and compiling them spends geometry memory that no tile can select. Unit
+/// `contentBounds` already include the active graphics-state clip but exclude
+/// the spatial index's two-point replay fringe. The crop is a mathematical
+/// clip boundary, so geometry outside it cannot contribute antialiasing even
+/// when its padded lookup bounds overlap the last tile.
+List<_GpuUnit> _visibleGpuUnits(
+  PdfRetainedScene scene,
+  List<_GpuUnit> units,
+) {
+  final crop = scene.page.cropBox;
+  final visible = [
+    for (final unit in units)
+      if (_pdfTouches(unit.contentBounds, crop)) unit,
+  ];
+  return visible.length == units.length ? units : List.unmodifiable(visible);
+}
 
 String? _compositeOverprintReason(
   PdfRenderCommand command,

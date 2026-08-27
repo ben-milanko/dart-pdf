@@ -73,6 +73,7 @@ void main() {
       ..lastSceneWarmUpError = 'test scene warm-up failure'
       ..activeSessions = 3
       ..peakActiveSessions = 4
+      ..offCropUnitsCulled = 7
       ..activeTextureLeases = 5
       ..textureBytes = 12 << 20
       ..peakTextureBytes = 18 << 20
@@ -134,6 +135,7 @@ void main() {
       ..lastRejection = 'test fallback';
 
     expect(stats.toJson(), containsPair('rasterFallbacks', 1));
+    expect(stats.toJson(), containsPair('offCropUnitsCulled', 7));
     expect(stats.toJson(), containsPair('overprintRetryRequests', 3));
     expect(stats.toJson(), containsPair('overprintRetrySuccesses', 2));
     expect(stats.toJson(), containsPair('overprintRetryFallbacks', 1));
@@ -211,6 +213,7 @@ void main() {
     expect(stats.overprintRetryCostSkips, 0);
     expect(stats.overprintRetryMicros, 0);
     expect(stats.rasterFallbacks, 0);
+    expect(stats.offCropUnitsCulled, 0);
     expect(stats.lastContextIdentity, 1234);
     expect(stats.contextsSeen, 2);
     expect(stats.contextSwitches, 0);

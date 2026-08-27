@@ -166,6 +166,10 @@ When spatial selection finds no retained command for one of those interior
 tiles, the backend submits a color-only clear pass. It does not allocate a
 stencil or multisample attachment, create a transient host buffer, or bind a
 draw pipeline; tiles near the crop edge continue through the ordinary path.
+Paint units whose clipped bounds are wholly outside the page `/CropBox` are
+discarded even earlier, before route compatibility checks and scene
+compilation. Off-page imposition marks therefore cannot reject the visible
+page or consume retained geometry.
 Advanced blend paints use bounded ping-pong tile attachments. Paints whose
 bounds prove they cannot affect one another share one destination-sampling
 pass; overlapping paints replay sequentially inside their conservative command
@@ -252,6 +256,8 @@ tile route, runtime fallback reasons, context and scene warm-up outcomes,
 scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
+It also reports `offCropUnitsCulled` for unreachable paints removed before
+the route audit.
 Direct-primitive diagnostics count rectangle and triangle fills separately.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
 Paper diagnostics report how many tiles used the exact interior clear path and

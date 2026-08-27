@@ -29,6 +29,7 @@ class FlutterGpuTileBackendStats {
   int activeSessions = 0;
   int peakActiveSessions = 0;
   int overprintApproximationSessions = 0;
+  int offCropUnitsCulled = 0;
   int scenesCompiled = 0;
   int compileMicros = 0;
   int geometryBuffers = 0;
@@ -141,6 +142,7 @@ class FlutterGpuTileBackendStats {
         'activeSessions': activeSessions,
         'peakActiveSessions': peakActiveSessions,
         'overprintApproximationSessions': overprintApproximationSessions,
+        'offCropUnitsCulled': offCropUnitsCulled,
         'scenesCompiled': scenesCompiled,
         'compileMicros': compileMicros,
         'geometryBuffers': geometryBuffers,
@@ -254,6 +256,7 @@ class FlutterGpuTileBackendStats {
     lastSceneWarmUpError = null;
     peakActiveSessions = activeSessions;
     overprintApproximationSessions = 0;
+    offCropUnitsCulled = 0;
     scenesCompiled = 0;
     compileMicros = 0;
     geometryVertices = 0;
@@ -346,6 +349,7 @@ class FlutterGpuTileBackendStats {
       'activeSessions=$activeSessions peakActiveSessions=$peakActiveSessions '
       'overprintRetryCostSkips=$overprintRetryCostSkips '
       'overprintApprox=$overprintApproximationSessions '
+      'offCropUnitsCulled=$offCropUnitsCulled '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
       'analyticRuns=$analyticTextRuns analyticQuads=$analyticGlyphQuads '

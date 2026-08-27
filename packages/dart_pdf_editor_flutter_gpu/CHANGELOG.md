@@ -66,6 +66,11 @@
 - Retry only non-black-overprint scene rejections with a lazily re-recorded
   512-cell colourant grid. Exact scenes such as Ghent GWG164 move to native
   Flutter GPU, while any remaining mismatch continues through Canvas.
+- Cull paint units wholly outside the page crop before compatibility checks
+  and scene compilation. Unreachable imposition or malformed-form content can
+  no longer force a Canvas fallback or consume retained geometry.
+- Keep the unsupported-platform/web constructor surface in sync with the
+  native transient-attachment budget option.
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 - Keep sparse native system-font outlines on retained stencil geometry instead

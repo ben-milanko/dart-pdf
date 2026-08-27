@@ -2730,6 +2730,42 @@ void main() {
     });
   });
 
+  testWidgets('off-crop unsupported paints are culled before route audit',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        PdfFillPathCommand(
+          _rect(2000, 2000, 2100, 2100),
+          const PdfColor(0.2, 0.6, 0.8),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      expect(backend.stats.offCropUnitsCulled, 1);
+
+      const region = Rect.fromLTWH(0, 0, 128, 128);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      expect(await _pixels(actual), await _pixels(expected));
+      expect(backend.stats.geometryVertices, 6,
+          reason: 'only the page-paper quad should be compiled');
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+    });
+  });
+
   testWidgets('solid black overprint remains exact inside groups',
       (tester) async {
     await tester.runAsync(() async {
