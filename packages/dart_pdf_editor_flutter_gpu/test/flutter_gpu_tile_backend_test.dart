@@ -2092,6 +2092,9 @@ void main() {
       expect(backend.stats.clipPathsCompiled, 2);
       expect(backend.stats.clipMaskRebuilds, greaterThanOrEqualTo(3),
           reason: 'nested state and restored ancestor are rebuilt exactly');
+      expect(backend.stats.stencilClearDrawCalls, 2,
+          reason: 'the first clip uses the render-pass clear; later rebuilds '
+              'clear once while each cover also clears its scratch field');
     });
   });
 

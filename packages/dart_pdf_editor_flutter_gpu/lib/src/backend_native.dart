@@ -9137,6 +9137,7 @@ class _GpuEncoder {
 
   _GpuClipState? _clipState;
   int _activeClipBit = 0;
+  bool _clipBitsDirty = false;
   int clipMaskRebuilds = 0;
   bool? _separateVertexCountApi;
   gpu.ColorBlendEquation _paintBlend = _srcOver;
@@ -9268,15 +9269,26 @@ class _GpuEncoder {
 
     // A restored clip can be broader than the state used by the preceding
     // draw. Rebuild from the persistent root rather than trying to preserve an
-    // ancestor bit whose alternating slot may since have been reused.
-    _clearStencil(_allStencilBits);
+    // ancestor bit whose alternating slot may since have been reused. A new
+    // render pass starts with stencilClearValue=0, so its first clip needs no
+    // draw just to reproduce that clear.
+    if (_clipBitsDirty) {
+      _clearStencil(_allStencilBits);
+      _clipBitsDirty = false;
+    }
     final chain = <_GpuClipNode>[];
     for (_GpuClipNode? node = leaf; node != null; node = node.previous) {
       chain.add(node);
     }
+    var usedClipBits = 0;
     for (final node in chain.reversed) {
       final nextBit = _activeClipBit == _clipBitA ? _clipBitB : _clipBitA;
-      _clearStencil(_pathMask | nextBit);
+      // The full clear above already zeroed both clip bits, and the previous
+      // iteration zeroed the scratch path bits after resolving its mask. Only
+      // clear [nextBit] once this rebuild is deep enough to reuse it.
+      if ((usedClipBits & nextBit) != 0) {
+        _clearStencil(nextBit);
+      }
       final draw = clipDraws[node]!;
       _accumulateStencil(
         draw.fan,
@@ -9292,16 +9304,16 @@ class _GpuEncoder {
           depthStencilPassOperation: gpu.StencilOperation.setToReferenceValue,
           stencilFailureOperation: gpu.StencilOperation.keep,
           readMask: _pathMask,
-          writeMask: nextBit,
+          writeMask: _pathMask | nextBit,
         ))
         ..bindPipeline(pipelines.solid)
         ..bindUniform(pipelines.solidTransform, transform);
       _drawBuffer(draw.cover, _GpuDrawKind.stencilCover);
-      // The lower bits are scratch. Clearing them here leaves the final clip
-      // bit intact and makes the following PDF fill independent of how many
-      // contours built this mask.
-      _clearStencil(_pathMask);
+      // setToReferenceValue writes zero into the scratch bits while setting
+      // [nextBit], so the following path starts from an empty winding field.
       _activeClipBit = nextBit;
+      _clipBitsDirty = true;
+      usedClipBits |= nextBit;
     }
   }
 
