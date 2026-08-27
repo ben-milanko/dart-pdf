@@ -5822,6 +5822,34 @@ class _CompiledScene {
             ..drawCallsSaved += nextUnitIndex - unitIndex - 1;
           draw = _coalescedGpuDraw(draw, lastDraw, vertices);
         }
+      } else if (draw is _StencilDraw &&
+          unit.blendMode == PdfBlendMode.normal &&
+          draw.opaqueUnion != null) {
+        final batch = <_StencilDraw>[draw];
+        while (nextUnitIndex < selected.length &&
+            batch.length < _maxOpaqueStencilBatchDraws) {
+          final nextUnit = selected[nextUnitIndex];
+          if (!identical(unit.clip, nextUnit.clip) ||
+              nextUnit.blendMode != PdfBlendMode.normal) {
+            break;
+          }
+          final nextDraw = draws[nextUnit.commandIndex];
+          if (nextDraw is! _StencilDraw ||
+              !_sameOpaqueStencilUnion(draw, nextDraw)) {
+            break;
+          }
+          batch.add(nextDraw);
+          nextUnitIndex++;
+        }
+        if (batch.length > 1) {
+          stats
+            ..coalescedDrawBatches += 1
+            ..drawCallsSaved += batch.length - 1;
+          draw = _OpaqueStencilBatchDraw(
+            batch,
+            draw.opaqueUnion!.color,
+          );
+        }
       } else if (draw is _HairlineDraw &&
           unit.blendMode == PdfBlendMode.normal &&
           draw.alpha == 1) {
@@ -7886,6 +7914,7 @@ _StencilDraw? _stencilDraw(
     _coverGeometry(geometry, parts.$2, rgba),
     rule,
     union,
+    opaqueUnion: union && a == 1 ? (bounds: parts.$2, color: color) : null,
   );
 }
 
@@ -7916,6 +7945,12 @@ _StencilDraw? _stencilDraw(
 _GpuBuffer _coverGeometry(
     _GpuGeometryArena geometry, FlatBounds bounds, List<double> rgba) {
   final cover = FloatBuilder(36);
+  _appendCoverVertices(cover, bounds, rgba);
+  return geometry.add(cover.bytes, 6);
+}
+
+void _appendCoverVertices(
+    FloatBuilder cover, FlatBounds bounds, List<double> rgba) {
   for (final (x, y) in <(double, double)>[
     (bounds.left, bounds.bottom),
     (bounds.right, bounds.bottom),
@@ -7926,7 +7961,6 @@ _GpuBuffer _coverGeometry(
   ]) {
     cover.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
   }
-  return geometry.add(cover.bytes, 6);
 }
 
 List<double> _premul(PdfColor color, double alpha) => [
@@ -8601,15 +8635,27 @@ class _PaperDraw extends _SolidDraw {
 }
 
 class _StencilDraw implements _GpuDraw {
-  const _StencilDraw(this.fan, this.cover, this.rule, this.union);
+  const _StencilDraw(this.fan, this.cover, this.rule, this.union,
+      {this.opaqueUnion});
   final _GpuBuffer fan;
   final _GpuBuffer cover;
   final PdfFillRule rule;
   final bool union;
+  final ({FlatBounds bounds, PdfColor color})? opaqueUnion;
 
   @override
   void encode(_GpuEncoder encoder) =>
       encoder.stencil(fan, cover, rule: rule, union: union);
+}
+
+class _OpaqueStencilBatchDraw implements _GpuDraw {
+  const _OpaqueStencilBatchDraw(this.draws, this.color);
+
+  final List<_StencilDraw> draws;
+  final PdfColor color;
+
+  @override
+  void encode(_GpuEncoder encoder) => encoder.opaqueStencilBatch(draws, color);
 }
 
 /// A PDF zero-width stroke. Its source polyline is retained with the scene,
@@ -8677,6 +8723,11 @@ _GpuBuffer? _batchableDrawBuffer(_GpuDraw draw) => switch (draw) {
       _ => null,
     };
 
+// One cover quad is rebuilt per selected stroke at tile time. Bound that
+// transient upload on adversarial streams while still collapsing dense CAD
+// runs into a small number of batches.
+const _maxOpaqueStencilBatchDraws = 256;
+
 /// Proves that [next] immediately extends the same ordered vertex stream as
 /// [last]. The shared clip and blend equation are checked by the caller.
 bool _canCoalesceGpuDraws(
@@ -8741,6 +8792,15 @@ bool _sameOpaqueHairline(_HairlineDraw first, _HairlineDraw next) {
       firstStroke.cap == nextStroke.cap &&
       firstStroke.join == nextStroke.join &&
       firstStroke.miterLimit == nextStroke.miterLimit;
+}
+
+bool _sameOpaqueStencilUnion(_StencilDraw first, _StencilDraw next) {
+  final a = first.opaqueUnion, b = next.opaqueUnion;
+  return a != null &&
+      b != null &&
+      a.color.red == b.color.red &&
+      a.color.green == b.color.green &&
+      a.color.blue == b.color.blue;
 }
 
 class _SoftMaskDraw implements _GpuDraw {
@@ -8995,6 +9055,38 @@ class _GpuEncoder {
     _accumulateStencil(fan,
         rule: rule, union: union, requiredClipBit: _activeClipBit);
     _paintStencilCover(cover.view, cover.vertices);
+  }
+
+  void opaqueStencilBatch(List<_StencilDraw> draws, PdfColor color) {
+    _dropRetainedBindings();
+    _appliedDefaultStencilBit = null;
+    final compare = _activeClipBit == 0
+        ? gpu.CompareFunction.always
+        : gpu.CompareFunction.equal;
+    _setBlendEquation(_noWrite);
+    pass
+      ..bindPipeline(pipelines.stencil)
+      ..bindUniform(pipelines.stencilTransform, transform)
+      ..setStencilReference(_activeClipBit | 1)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: compare,
+        depthStencilPassOperation: gpu.StencilOperation.setToReferenceValue,
+        stencilFailureOperation: gpu.StencilOperation.keep,
+        readMask: _activeClipBit == 0 ? 0 : _activeClipBit,
+        writeMask: 1,
+      ));
+    for (final draw in draws) {
+      _drawBuffer(draw.fan);
+    }
+    final rgba = _premul(color, 1);
+    final cover = FloatBuilder(draws.length * 36);
+    for (final draw in draws) {
+      _appendCoverVertices(cover, draw.opaqueUnion!.bounds, rgba);
+    }
+    _paintStencilCover(
+      emplaceTransient(cover.bytes),
+      cover.length ~/ 6,
+    );
   }
 
   void hairline(List<FlatSubpath> subpaths, PdfColor color, PdfStroke stroke,

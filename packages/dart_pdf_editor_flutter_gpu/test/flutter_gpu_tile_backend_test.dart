@@ -605,6 +605,97 @@ void main() {
   });
 
   testWidgets(
+      'coalesces matching opaque stroke unions without merging alpha or blend',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const stroke = PdfStroke(width: 8, cap: 1, join: 1);
+      const color = PdfColor(0.08, 0.24, 0.82);
+      const first = PdfPath([
+        PdfMoveTo(80, 180),
+        PdfLineTo(500, 500),
+      ]);
+      const second = PdfPath([
+        PdfMoveTo(80, 500),
+        PdfLineTo(500, 180),
+      ]);
+      const translucent = PdfPath([
+        PdfMoveTo(80, 340),
+        PdfLineTo(500, 340),
+      ]);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, const [
+        PdfStrokePathCommand(first, color, stroke, 1),
+        PdfStrokePathCommand(second, color, stroke, 1),
+        PdfStrokePathCommand(translucent, color, stroke, 0.5),
+        PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        PdfStrokePathCommand(first, color, stroke, 1),
+        PdfStrokePathCommand(second, color, stroke, 1),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 1,
+          reason: 'two opaque strokes keep their two stencil fans and share '
+              'one cover; the translucent and Multiply strokes stay split');
+    });
+  });
+
+  testWidgets('bounds opaque stroke batches to one 256-cover upload',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const path = PdfPath([
+        PdfMoveTo(80, 300),
+        PdfLineTo(500, 300),
+      ]);
+      const stroke = PdfStroke(width: 8, cap: 1, join: 1);
+      const color = PdfColor(0.08, 0.24, 0.82);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        for (var index = 0; index < 257; index++)
+          const PdfStrokePathCommand(path, color, stroke, 1),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend(msaa: false);
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final image = await session.rasterizeRegion(
+        Offset.zero & scene.pageSize,
+        pixelRatio: 0.25,
+      );
+      await _pixels(image);
+      image.dispose();
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 255,
+          reason: 'the 257th stroke begins a new bounded batch');
+    });
+  });
+
+  testWidgets(
       'coalesces matching opaque hairlines without merging alpha or blend',
       (tester) async {
     await tester.runAsync(() async {
