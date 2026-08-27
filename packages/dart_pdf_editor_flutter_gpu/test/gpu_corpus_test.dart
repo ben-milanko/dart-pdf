@@ -58,6 +58,16 @@ Future<double> _meanDifference(ui.Image expected, ui.Image actual) async {
   return difference / a.length;
 }
 
+int _classifiedDrawCalls(FlutterGpuTileBackendStats stats) =>
+    stats.directSolidDrawCalls +
+    stats.stencilFanDrawCalls +
+    stats.stencilCoverDrawCalls +
+    stats.stencilClearDrawCalls +
+    stats.textureDrawCalls +
+    stats.glyphDrawCalls +
+    stats.blendDrawCalls +
+    stats.softMaskDrawCalls;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   if (!_gpuAvailable()) {
@@ -204,6 +214,12 @@ void _corpus(
               );
               try {
                 final mean = await _meanDifference(canvas, accelerated);
+                expect(
+                  _classifiedDrawCalls(backend.stats),
+                  backend.stats.drawCalls,
+                  reason: '$suite/$name page $pageIndex: every issued GPU '
+                      'draw must have one diagnostic kind',
+                );
                 if (mean >= 16) {
                   await _writeFailure(
                       suite, name, pageIndex, canvas, accelerated, mean);

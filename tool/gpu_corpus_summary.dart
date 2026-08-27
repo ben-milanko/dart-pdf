@@ -271,11 +271,24 @@ class GpuCorpusComparison {
       ..writeln('| --- | ---: | ---: | ---: |');
     for (final metric in const [
       ('Native draw calls', 'drawCalls'),
+      ('Direct solid draws', 'directSolidDrawCalls'),
+      ('Stencil fan draws', 'stencilFanDrawCalls'),
+      ('Stencil cover draws', 'stencilCoverDrawCalls'),
+      ('Stencil clear draws', 'stencilClearDrawCalls'),
+      ('Texture draws', 'textureDrawCalls'),
+      ('Glyph draws', 'glyphDrawCalls'),
+      ('Advanced blend draws', 'blendDrawCalls'),
+      ('Soft-mask draws', 'softMaskDrawCalls'),
       ('Selected commands', 'selectedCommands'),
       ('Draw calls saved', 'drawCallsSaved'),
       ('Direct rectangle draws', 'directRectangleDraws'),
       ('Geometry vertices', 'geometryVertices'),
     ]) {
+      if (!samples.every((sample) =>
+          sample.$1.stat(metric.$2) != null &&
+          sample.$2.stat(metric.$2) != null)) {
+        continue;
+      }
       final main = _sumStats(samples.map((sample) => sample.$1), metric.$2);
       final pullRequest =
           _sumStats(samples.map((sample) => sample.$2), metric.$2);
@@ -306,15 +319,20 @@ class GpuCorpusComparison {
       return;
     }
     buffer
+      ..writeln('Draw mix is direct solid / stencil fan / stencil cover / '
+          'stencil clear / texture / glyph / advanced blend / soft mask.')
+      ..writeln()
       ..writeln('| Page | Draws | Commands | Saved | Direct rectangles | '
-          'Issue | Compile | Canvas mean delta |')
-      ..writeln('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+          'Draw mix | Issue | Compile | Canvas mean delta |')
+      ..writeln(
+          '| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |');
     for (final page in pages.take(15)) {
       buffer.writeln(
         '| `${_escape(page.id)}` | ${_integerStat(page, 'drawCalls')} | '
         '${_integerStat(page, 'selectedCommands')} | '
         '${_integerStat(page, 'drawCallsSaved')} | '
         '${_integerStat(page, 'directRectangleDraws')} | '
+        '${_drawMix(page)} | '
         '${_millisecondsStat(page, 'issueMicros')} | '
         '${_millisecondsStat(page, 'compileMicros')} | '
         '${page.meanDifference?.toStringAsFixed(3) ?? '—'} |',
@@ -408,6 +426,21 @@ String _deltaPercent(int baseline, int current) {
 
 String _integerStat(GpuCorpusPage page, String name) =>
     page.stat(name)?.toInt().toString() ?? '—';
+
+String _drawMix(GpuCorpusPage page) {
+  const names = [
+    'directSolidDrawCalls',
+    'stencilFanDrawCalls',
+    'stencilCoverDrawCalls',
+    'stencilClearDrawCalls',
+    'textureDrawCalls',
+    'glyphDrawCalls',
+    'blendDrawCalls',
+    'softMaskDrawCalls',
+  ];
+  if (names.any((name) => page.stat(name) == null)) return '—';
+  return names.map((name) => page.stat(name)!.toInt()).join('/');
+}
 
 String _millisecondsStat(GpuCorpusPage page, String name) {
   final micros = page.stat(name);

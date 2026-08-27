@@ -689,6 +689,10 @@ void main() {
               'each same-blend run becomes one ordered triangle draw');
       expect(backend.stats.drawCalls, 3,
           reason: 'one paper draw plus the two blend-state runs');
+      expect(backend.stats.directSolidDrawCalls, 3);
+      expect(backend.stats.stencilFanDrawCalls, 0);
+      expect(backend.stats.stencilCoverDrawCalls, 0);
+      expect(backend.stats.stencilClearDrawCalls, 0);
       expect(backend.stats.directRectangleDraws, 8);
     });
   });

@@ -26,6 +26,14 @@ void main() {
             'meanDifference': 0.5,
             'stats': {
               'drawCalls': 10,
+              'directSolidDrawCalls': 2,
+              'stencilFanDrawCalls': 3,
+              'stencilCoverDrawCalls': 2,
+              'stencilClearDrawCalls': 1,
+              'textureDrawCalls': 1,
+              'glyphDrawCalls': 1,
+              'blendDrawCalls': 0,
+              'softMaskDrawCalls': 0,
               'selectedCommands': 5,
               'drawCallsSaved': 2,
               'directRectangleDraws': 0,
@@ -56,6 +64,14 @@ void main() {
             'meanDifference': 0.25,
             'stats': {
               'drawCalls': 20,
+              'directSolidDrawCalls': 4,
+              'stencilFanDrawCalls': 6,
+              'stencilCoverDrawCalls': 4,
+              'stencilClearDrawCalls': 2,
+              'textureDrawCalls': 1,
+              'glyphDrawCalls': 1,
+              'blendDrawCalls': 1,
+              'softMaskDrawCalls': 1,
               'selectedCommands': 12,
               'drawCallsSaved': 4,
               'directRectangleDraws': 3,
@@ -76,6 +92,14 @@ void main() {
             'meanDifference': 0.4,
             'stats': {
               'drawCalls': 8,
+              'directSolidDrawCalls': 2,
+              'stencilFanDrawCalls': 2,
+              'stencilCoverDrawCalls': 1,
+              'stencilClearDrawCalls': 1,
+              'textureDrawCalls': 1,
+              'glyphDrawCalls': 1,
+              'blendDrawCalls': 0,
+              'softMaskDrawCalls': 0,
               'selectedCommands': 5,
               'drawCallsSaved': 4,
               'directRectangleDraws': 2,
@@ -132,8 +156,13 @@ void main() {
   );
   _expectContains(
     comparison.toMarkdown(),
-    '| `Ghent/fallback.pdf page 0` | 20 | 12 | 4 | 3 | 6.000 ms | '
-        '3.000 ms | 0.250 |',
+    '| Stencil fan draws | 3 | 2 | -33.3% |',
+    'structural draw-kind comparison',
+  );
+  _expectContains(
+    comparison.toMarkdown(),
+    '| `Ghent/fallback.pdf page 0` | 20 | 12 | 4 | 3 | '
+        '4/6/4/2/1/1/1/1 | 6.000 ms | 3.000 ms | 0.250 |',
     'ranked draw hotspot',
   );
 

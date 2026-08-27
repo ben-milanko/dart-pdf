@@ -98,6 +98,14 @@ void main() {
       ..coalescedDrawBatches = 8
       ..drawCallsSaved = 120
       ..drawCalls = 64
+      ..directSolidDrawCalls = 10
+      ..stencilFanDrawCalls = 20
+      ..stencilCoverDrawCalls = 15
+      ..stencilClearDrawCalls = 8
+      ..textureDrawCalls = 4
+      ..glyphDrawCalls = 3
+      ..blendDrawCalls = 2
+      ..softMaskDrawCalls = 2
       ..directRectangleDraws = 96
       ..paperClearTiles = 6
       ..paperOnlyTiles = 3
@@ -165,6 +173,14 @@ void main() {
     expect(stats.toJson(), containsPair('coalescedDrawBatches', 8));
     expect(stats.toJson(), containsPair('drawCallsSaved', 120));
     expect(stats.toJson(), containsPair('drawCalls', 64));
+    expect(stats.toJson(), containsPair('directSolidDrawCalls', 10));
+    expect(stats.toJson(), containsPair('stencilFanDrawCalls', 20));
+    expect(stats.toJson(), containsPair('stencilCoverDrawCalls', 15));
+    expect(stats.toJson(), containsPair('stencilClearDrawCalls', 8));
+    expect(stats.toJson(), containsPair('textureDrawCalls', 4));
+    expect(stats.toJson(), containsPair('glyphDrawCalls', 3));
+    expect(stats.toJson(), containsPair('blendDrawCalls', 2));
+    expect(stats.toJson(), containsPair('softMaskDrawCalls', 2));
     expect(stats.toJson(), containsPair('directRectangleDraws', 96));
     expect(stats.toJson(), containsPair('paperClearTiles', 6));
     expect(stats.toJson(), containsPair('paperOnlyTiles', 3));
@@ -232,6 +248,14 @@ void main() {
     expect(stats.coalescedDrawBatches, 0);
     expect(stats.drawCallsSaved, 0);
     expect(stats.drawCalls, 0);
+    expect(stats.directSolidDrawCalls, 0);
+    expect(stats.stencilFanDrawCalls, 0);
+    expect(stats.stencilCoverDrawCalls, 0);
+    expect(stats.stencilClearDrawCalls, 0);
+    expect(stats.textureDrawCalls, 0);
+    expect(stats.glyphDrawCalls, 0);
+    expect(stats.blendDrawCalls, 0);
+    expect(stats.softMaskDrawCalls, 0);
     expect(stats.directRectangleDraws, 0);
     expect(stats.paperClearTiles, 0);
     expect(stats.paperOnlyTiles, 0);

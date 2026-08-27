@@ -44,6 +44,14 @@ class FlutterGpuTileBackendStats {
   int coalescedDrawBatches = 0;
   int drawCallsSaved = 0;
   int drawCalls = 0;
+  int directSolidDrawCalls = 0;
+  int stencilFanDrawCalls = 0;
+  int stencilCoverDrawCalls = 0;
+  int stencilClearDrawCalls = 0;
+  int textureDrawCalls = 0;
+  int glyphDrawCalls = 0;
+  int blendDrawCalls = 0;
+  int softMaskDrawCalls = 0;
   int directRectangleDraws = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
@@ -146,6 +154,14 @@ class FlutterGpuTileBackendStats {
         'coalescedDrawBatches': coalescedDrawBatches,
         'drawCallsSaved': drawCallsSaved,
         'drawCalls': drawCalls,
+        'directSolidDrawCalls': directSolidDrawCalls,
+        'stencilFanDrawCalls': stencilFanDrawCalls,
+        'stencilCoverDrawCalls': stencilCoverDrawCalls,
+        'stencilClearDrawCalls': stencilClearDrawCalls,
+        'textureDrawCalls': textureDrawCalls,
+        'glyphDrawCalls': glyphDrawCalls,
+        'blendDrawCalls': blendDrawCalls,
+        'softMaskDrawCalls': softMaskDrawCalls,
         'directRectangleDraws': directRectangleDraws,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
@@ -248,6 +264,14 @@ class FlutterGpuTileBackendStats {
     coalescedDrawBatches = 0;
     drawCallsSaved = 0;
     drawCalls = 0;
+    directSolidDrawCalls = 0;
+    stencilFanDrawCalls = 0;
+    stencilCoverDrawCalls = 0;
+    stencilClearDrawCalls = 0;
+    textureDrawCalls = 0;
+    glyphDrawCalls = 0;
+    blendDrawCalls = 0;
+    softMaskDrawCalls = 0;
     directRectangleDraws = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
@@ -327,6 +351,9 @@ class FlutterGpuTileBackendStats {
       'coalescedDrawBatches=$coalescedDrawBatches '
       'drawCallsSaved=$drawCallsSaved '
       'drawCalls=$drawCalls '
+      'drawMix=$directSolidDrawCalls/$stencilFanDrawCalls/'
+      '$stencilCoverDrawCalls/$stencilClearDrawCalls/$textureDrawCalls/'
+      '$glyphDrawCalls/$blendDrawCalls/$softMaskDrawCalls '
       'directRectangleDraws=$directRectangleDraws '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'paperClearTiles=$paperClearTiles '

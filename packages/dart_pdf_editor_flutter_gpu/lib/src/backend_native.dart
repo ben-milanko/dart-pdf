@@ -9013,6 +9013,17 @@ class _SoftMaskFillDraw implements _GpuDraw {
 
 enum _GpuRetainedBindingKind { glyph, image }
 
+enum _GpuDrawKind {
+  directSolid,
+  stencilFan,
+  stencilCover,
+  stencilClear,
+  texture,
+  glyph,
+  blend,
+  softMask,
+}
+
 class _GpuEncoder {
   _GpuEncoder({
     required this.pass,
@@ -9212,7 +9223,7 @@ class _GpuEncoder {
         ))
         ..bindPipeline(pipelines.solid)
         ..bindUniform(pipelines.solidTransform, transform);
-      _drawBuffer(draw.cover);
+      _drawBuffer(draw.cover, _GpuDrawKind.stencilCover);
       // The lower bits are scratch. Clearing them here leaves the final clip
       // bit intact and makes the following PDF fill independent of how many
       // contours built this mask.
@@ -9228,7 +9239,7 @@ class _GpuEncoder {
     pass
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
-    _drawBuffer(vertices);
+    _drawBuffer(vertices, _GpuDrawKind.directSolid);
   }
 
   void stencil(_GpuBuffer fan, _GpuBuffer cover,
@@ -9257,7 +9268,7 @@ class _GpuEncoder {
         writeMask: 1,
       ));
     for (final draw in draws) {
-      _drawBuffer(draw.fan);
+      _drawBuffer(draw.fan, _GpuDrawKind.stencilFan);
     }
     _paintOpaqueStencilBatchCover(draws, color);
   }
@@ -9298,7 +9309,7 @@ class _GpuEncoder {
         );
     }
     for (final draw in draws) {
-      _drawBuffer(draw.fan);
+      _drawBuffer(draw.fan, _GpuDrawKind.stencilFan);
     }
     _paintOpaqueStencilFillBatchCover(draws);
   }
@@ -9399,7 +9410,7 @@ class _GpuEncoder {
       ))
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
-    _drawView(cover, vertices);
+    _drawView(cover, vertices, _GpuDrawKind.stencilCover);
   }
 
   void gradient(_GpuBuffer fan, _GpuBuffer mesh, PdfFillRule rule) {
@@ -9422,7 +9433,7 @@ class _GpuEncoder {
       ))
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
-    _drawBuffer(mesh);
+    _drawBuffer(mesh, _GpuDrawKind.stencilCover);
     // The gradient mesh conservatively covers the path bounds, but clearing
     // the scratch bits explicitly keeps a malformed transform or degenerate
     // interval from leaking winding state into the next draw.
@@ -9496,7 +9507,7 @@ class _GpuEncoder {
           targetFace: gpu.StencilFace.back,
         );
     }
-    _drawView(fan, vertices);
+    _drawView(fan, vertices, _GpuDrawKind.stencilFan);
   }
 
   void _clearStencil(int mask) {
@@ -9514,7 +9525,7 @@ class _GpuEncoder {
       ))
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
-    _drawBuffer(stencilClear);
+    _drawBuffer(stencilClear, _GpuDrawKind.stencilClear);
   }
 
   void texture(_GpuBuffer vertices, gpu.Texture texture) {
@@ -9541,7 +9552,7 @@ class _GpuEncoder {
       );
       _boundImageTexture = texture;
     }
-    _drawBuffer(vertices);
+    _drawBuffer(vertices, _GpuDrawKind.texture);
   }
 
   /// Samples a tile-sized offscreen group back into the same raster region.
@@ -9564,7 +9575,7 @@ class _GpuEncoder {
         texture,
         sampler: _nearestSampler,
       );
-    _drawView(emplaceTransient(vertices.bytes), 6);
+    _drawView(emplaceTransient(vertices.bytes), 6, _GpuDrawKind.texture);
     pass.clearBindings();
   }
 
@@ -9583,7 +9594,7 @@ class _GpuEncoder {
         texture,
         sampler: _nearestSampler,
       );
-    _drawView(emplaceTransient(vertices.bytes), 6);
+    _drawView(emplaceTransient(vertices.bytes), 6, _GpuDrawKind.texture);
     pass.clearBindings();
   }
 
@@ -9620,7 +9631,7 @@ class _GpuEncoder {
         source,
         sampler: _nearestSampler,
       );
-    _drawView(emplaceTransient(vertices.bytes), 6);
+    _drawView(emplaceTransient(vertices.bytes), 6, _GpuDrawKind.blend);
     pass.clearBindings();
   }
 
@@ -9704,7 +9715,7 @@ class _GpuEncoder {
         );
       _boundGlyphAtlas = atlas;
     }
-    _drawBuffer(vertices);
+    _drawBuffer(vertices, _GpuDrawKind.glyph);
   }
 
   void softMask(_GpuBuffer vertices, gpu.Texture contentTexture,
@@ -9720,7 +9731,7 @@ class _GpuEncoder {
           sampler: _linearSampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
           sampler: _linearSampler);
-    _drawBuffer(vertices);
+    _drawBuffer(vertices, _GpuDrawKind.softMask);
     pass.clearBindings();
   }
 
@@ -9753,7 +9764,7 @@ class _GpuEncoder {
           sampler: _linearSampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
           sampler: _linearSampler);
-    _drawBuffer(cover);
+    _drawBuffer(cover, _GpuDrawKind.softMask);
     pass.clearBindings();
     _clearStencil(_pathMask);
   }
@@ -9783,12 +9794,30 @@ class _GpuEncoder {
   // bindVertexBuffer and into draw; 3.44 uses the original pair. Keep this
   // package usable across both stable SDKs without exposing that churn to
   // callers. The one-time dynamic probe is cached for every render pass.
-  void _drawBuffer(_GpuBuffer buffer) {
-    _drawView(buffer.view, buffer.vertices);
+  void _drawBuffer(_GpuBuffer buffer, _GpuDrawKind kind) {
+    _drawView(buffer.view, buffer.vertices, kind);
   }
 
-  void _drawView(gpu.BufferView view, int vertices) {
+  void _drawView(gpu.BufferView view, int vertices, _GpuDrawKind kind) {
     stats.drawCalls++;
+    switch (kind) {
+      case _GpuDrawKind.directSolid:
+        stats.directSolidDrawCalls++;
+      case _GpuDrawKind.stencilFan:
+        stats.stencilFanDrawCalls++;
+      case _GpuDrawKind.stencilCover:
+        stats.stencilCoverDrawCalls++;
+      case _GpuDrawKind.stencilClear:
+        stats.stencilClearDrawCalls++;
+      case _GpuDrawKind.texture:
+        stats.textureDrawCalls++;
+      case _GpuDrawKind.glyph:
+        stats.glyphDrawCalls++;
+      case _GpuDrawKind.blend:
+        stats.blendDrawCalls++;
+      case _GpuDrawKind.softMask:
+        stats.softMaskDrawCalls++;
+    }
     final dynamic dynamicPass = pass;
     if (_separateVertexCountApi == true) {
       dynamicPass.bindVertexBuffer(view);
