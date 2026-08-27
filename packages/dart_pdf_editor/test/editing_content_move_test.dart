@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'dart:ui' as ui;
+
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -147,6 +150,48 @@ void main() {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
 
+    /// The overlay's preview painter, where the drag's floating artwork and
+    /// the selection chrome are staged.
+    dynamic overlayPainter(WidgetTester tester) => tester
+        .widgetList<CustomPaint>(find.descendant(
+          of: find.byType(EditingPageOverlay),
+          matching: find.byType(CustomPaint),
+        ))
+        .map((paint) => paint.painter)
+        .singleWhere(
+          (painter) =>
+              painter.runtimeType.toString() == '_EditingPreviewPainter',
+        );
+
+    /// The overlay's own MouseRegion cursor - what the system shows on hover.
+    MouseCursor regionCursor(WidgetTester tester) {
+      final paint = find
+          .descendant(
+              of: find.byType(EditingPageOverlay),
+              matching: find.byType(CustomPaint))
+          .first;
+      final region =
+          find.ancestor(of: paint, matching: find.byType(MouseRegion)).first;
+      return tester.widget<MouseRegion>(region).cursor;
+    }
+
+    /// A mouse hovering the overlay. One pointer per test - the binding is
+    /// shared across a file, so a second added pointer on the same device
+    /// trips the mouse tracker.
+    Future<TestGesture> hover(WidgetTester tester) async {
+      final g = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await g.addPointer(location: const Offset(5, 5));
+      addTearDown(g.removePointer);
+      await tester.pump();
+      return g;
+    }
+
+    Future<void> hoverTo(
+        WidgetTester tester, TestGesture g, Offset target) async {
+      await g.moveTo(target);
+      await tester.pump();
+    }
+
     Future<void> drag(WidgetTester tester, Offset from, Offset to) async {
       final gesture = await tester.startGesture(from);
       await gesture.moveTo(Offset.lerp(from, to, 0.5)!);
@@ -212,6 +257,63 @@ void main() {
 
       expect(editing.selectedElement?.kind, PdfElementKind.path);
       expect(editing.selectedElement!.bounds!.bottom, closeTo(650, 1));
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    });
+
+    testWidgets('the selected element hovers as draggable', (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.content;
+      await tester.pump();
+
+      final mouse = await hover(tester);
+
+      // before selecting, an element under the pointer is click-to-select
+      await hoverTo(tester, mouse, view(140, 620));
+      expect(regionCursor(tester), SystemMouseCursors.click);
+
+      expect(editing.selectElementAt(0, 140, 620), isTrue);
+      await tester.pump();
+      await hoverTo(tester, mouse, view(141, 621));
+      expect(regionCursor(tester), SystemMouseCursors.move);
+
+      // empty page area is neither
+      await hoverTo(tester, mouse, view(450, 500));
+      expect(regionCursor(tester), SystemMouseCursors.basic);
+    });
+
+    testWidgets('the drag floats the artwork over a washed footprint',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.content;
+      await tester.pump();
+      expect(editing.selectElementAt(0, 140, 620), isTrue);
+      await tester.pump();
+
+      final from = view(140, 620);
+      final gesture = await tester.startGesture(from);
+      await gesture.moveTo(from + const Offset(10, 10));
+      await gesture.moveTo(from + const Offset(40, 25));
+      // the lift render is deferred past a frame, then awaits the raster
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final painter = overlayPainter(tester);
+      expect(painter.elementLiftOffset, const Offset(40, 25),
+          reason: 'the float tracks the pointer');
+      expect(painter.elementLiftFrom, isNotNull,
+          reason: 'the resting footprint is what gets washed');
+      expect(painter.elementLift, isA<ui.Picture>(),
+          reason: 'the page render backing the float has landed');
+      // the chrome box travels with it
+      expect(painter.elementRect!.center - painter.elementLiftFrom!.center,
+          const Offset(40, 25));
+
+      await gesture.up();
+      await tester.pump();
+
+      // and it is torn down on release
+      expect(overlayPainter(tester).elementLiftFrom, isNull);
+      expect(overlayPainter(tester).elementLiftOffset, Offset.zero);
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
     });
 

@@ -959,7 +959,8 @@ class _SimpleRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(
+          List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
@@ -1045,7 +1046,8 @@ class _StyledRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(
+          List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
