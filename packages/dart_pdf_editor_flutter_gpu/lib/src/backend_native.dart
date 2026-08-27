@@ -1227,6 +1227,7 @@ PdfTextRun? _tryOutlineGpuText(
 _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
   const maxExpandedCommands = 1000000;
   source = _dropInvisibleGroups(source);
+  source = _dropRedundantTiledCellClips(source);
   var hasTiledCell = false;
   final mipmapImages = _requiresMipmappedImages(source);
 
@@ -1309,6 +1310,93 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
     null,
     mipmapImages: mipmapImages,
   );
+}
+
+/// Drops a tiled cell's leading rectangular clip when every paint is already
+/// contained by it.
+///
+/// Pattern cells routinely spell their `/BBox` as `q`, a rectangular clip,
+/// several fills, then `Q`. Repeating that cell hundreds of times otherwise
+/// rebuilds the same translated stencil mask even though the clip cannot
+/// remove a sample. The proof deliberately recognizes only this balanced,
+/// fill-only shape; strokes, images, nested state, and non-rectangular clips
+/// retain the ordinary exact clip path.
+List<PdfRenderCommand> _dropRedundantTiledCellClips(
+  List<PdfRenderCommand> source,
+) {
+  List<PdfRenderCommand>? rewritten;
+  for (var index = 0; index < source.length; index++) {
+    final command = source[index];
+    final PdfRenderCommand replacement;
+    switch (command) {
+      case PdfEndSoftMaskedCommand():
+        final mask = _dropRedundantTiledCellClips(command.maskCommands);
+        replacement = identical(mask, command.maskCommands)
+            ? command
+            : PdfEndSoftMaskedCommand(
+                luminosity: command.luminosity,
+                backdrop: command.backdrop,
+                maskCommands: mask,
+                backdropLuminance: command.backdropLuminance,
+                transferScale: command.transferScale,
+                transferOffset: command.transferOffset,
+              );
+      case PdfDrawTiledCellCommand():
+        final nested = _dropRedundantTiledCellClips(command.cellCommands);
+        final cell = _dropRedundantCellClip(nested);
+        replacement = identical(cell, command.cellCommands)
+            ? command
+            : PdfDrawTiledCellCommand(
+                cell,
+                command.originsX,
+                command.originsY,
+              );
+      default:
+        replacement = command;
+    }
+    if (!identical(replacement, command)) {
+      rewritten ??= List<PdfRenderCommand>.of(source);
+      rewritten[index] = replacement;
+    }
+  }
+  return rewritten == null ? source : List.unmodifiable(rewritten);
+}
+
+List<PdfRenderCommand> _dropRedundantCellClip(
+  List<PdfRenderCommand> commands,
+) {
+  if (commands.length < 4 ||
+      commands.first is! PdfSaveCommand ||
+      commands[1] is! PdfClipPathCommand ||
+      commands.last is! PdfRestoreCommand) {
+    return commands;
+  }
+  final clip = commands[1] as PdfClipPathCommand;
+  if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(clip.path)) {
+    return commands;
+  }
+  final clipBounds = pdfRenderPathBounds(clip.path);
+  if (clipBounds == null ||
+      clipBounds.right <= clipBounds.left ||
+      clipBounds.top <= clipBounds.bottom) {
+    return commands;
+  }
+  for (var index = 2; index < commands.length - 1; index++) {
+    final command = commands[index];
+    if (command is! PdfFillPathCommand) return commands;
+    final bounds = pdfRenderPathBounds(command.path);
+    if (bounds != null &&
+        (bounds.left < clipBounds.left ||
+            bounds.bottom < clipBounds.bottom ||
+            bounds.right > clipBounds.right ||
+            bounds.top > clipBounds.top)) {
+      return commands;
+    }
+  }
+  return List.unmodifiable([
+    commands.first,
+    ...commands.sublist(2),
+  ]);
 }
 
 /// Whether Canvas parity requires the scene-wide hand-built mip chain.

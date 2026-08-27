@@ -1720,6 +1720,101 @@ void main() {
     });
   });
 
+  testWidgets('tiled cells elide only proven redundant rectangular clips',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+
+      Future<(double, FlutterGpuTileBackendStats)> render(
+        List<PdfRenderCommand> cell,
+      ) async {
+        final page = PdfDocument.open(buildClassicPdf()).page(0);
+        final scene = await PdfRetainedScene.fromCommands(page, [
+          const PdfSaveCommand(),
+          PdfClipPathCommand(
+            const PdfPath([
+              PdfMoveTo(0, 0),
+              PdfLineTo(400, 0),
+              PdfLineTo(0, 400),
+              PdfClosePath(),
+            ]),
+            PdfFillRule.nonzero,
+          ),
+          PdfDrawTiledCellCommand(
+            cell,
+            Float64List.fromList([0, 40, 80]),
+            Float64List.fromList([0, 30, 60]),
+          ),
+          const PdfRestoreCommand(),
+        ]);
+        addTearDown(scene.dispose);
+        final backend = FlutterGpuTileRasterBackend();
+        final session = backend.createSession(scene);
+        expect(session, isNotNull, reason: backend.stats.lastRejection);
+        addTearDown(session!.dispose);
+        final region = Offset.zero & scene.pageSize;
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+        final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+        addTearDown(expected.dispose);
+        addTearDown(actual.dispose);
+        final a = await _pixels(expected), b = await _pixels(actual);
+        var difference = 0;
+        for (var index = 0; index < a.length; index++) {
+          difference += (a[index] - b[index]).abs();
+        }
+        return (difference / a.length, backend.stats);
+      }
+
+      final redundant = await render([
+        const PdfSaveCommand(),
+        PdfClipPathCommand(
+          _rect(60, 100, 92, 132),
+          PdfFillRule.nonzero,
+        ),
+        PdfFillPathCommand(
+          _rect(60, 100, 92, 132),
+          const PdfColor(0.65, 0.65, 0.65),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(60, 100, 76, 116),
+          const PdfColor(0.15, 0.15, 0.15),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfRestoreCommand(),
+      ]);
+      expect(redundant.$1, lessThan(3));
+      expect(redundant.$2.clipPathsCompiled, 1);
+      expect(redundant.$2.clipMaskRebuilds, 1);
+
+      final required = await render([
+        const PdfSaveCommand(),
+        PdfClipPathCommand(
+          _rect(60, 100, 92, 132),
+          PdfFillRule.nonzero,
+        ),
+        PdfFillPathCommand(
+          _rect(0, 0, 200, 200),
+          const PdfColor(0.15, 0.15, 0.15),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfRestoreCommand(),
+      ]);
+      expect(required.$1, lessThan(3));
+      expect(required.$2.clipPathsCompiled, 1);
+      expect(
+        required.$2.clipMaskRebuilds,
+        greaterThan(redundant.$2.clipMaskRebuilds),
+      );
+    });
+  });
+
   testWidgets('axial gradients use exact path stencil and stop geometry',
       (tester) async {
     await tester.runAsync(() async {
