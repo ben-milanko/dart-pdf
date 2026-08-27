@@ -17,10 +17,16 @@ void main() {
       expect(desktop.supportsWarmUp, isTrue);
       expect(desktop.supportsSessionWarmUp, isTrue);
       expect(desktop.overprintRetryMaxDimension, 512);
+      expect(desktop.overprintRetryMaxCommands, 768);
       expect(desktop.maxTransientAttachmentBytes, 64 << 20);
       expect(
         FlutterGpuTileRasterBackend(overprintRetryMaxDimension: null)
             .overprintRetryMaxDimension,
+        isNull,
+      );
+      expect(
+        FlutterGpuTileRasterBackend(overprintRetryMaxCommands: null)
+            .overprintRetryMaxCommands,
         isNull,
       );
       expect(
@@ -49,6 +55,7 @@ void main() {
       ..overprintRetryRequests = 3
       ..overprintRetrySuccesses = 2
       ..overprintRetryFallbacks = 1
+      ..overprintRetryCostSkips = 4
       ..overprintRetryMicros = 24000
       ..rasterFallbacks = 1
       ..lastContextIdentity = 1234
@@ -129,6 +136,7 @@ void main() {
     expect(stats.toJson(), containsPair('overprintRetryRequests', 3));
     expect(stats.toJson(), containsPair('overprintRetrySuccesses', 2));
     expect(stats.toJson(), containsPair('overprintRetryFallbacks', 1));
+    expect(stats.toJson(), containsPair('overprintRetryCostSkips', 4));
     expect(stats.toJson(), containsPair('overprintRetryMicros', 24000));
     expect(stats.toJson(), containsPair('lastRejection', 'test fallback'));
     expect(stats.toJson(), containsPair('lastTileRoute', 'canvas-fallback'));
@@ -198,6 +206,7 @@ void main() {
     expect(stats.overprintRetryRequests, 0);
     expect(stats.overprintRetrySuccesses, 0);
     expect(stats.overprintRetryFallbacks, 0);
+    expect(stats.overprintRetryCostSkips, 0);
     expect(stats.overprintRetryMicros, 0);
     expect(stats.rasterFallbacks, 0);
     expect(stats.lastContextIdentity, 1234);

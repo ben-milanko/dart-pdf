@@ -9,6 +9,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.msaa = true,
     this.allowOverprintApproximation = false,
     this.overprintRetryMaxDimension = 512,
+    this.overprintRetryMaxCommands = 768,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
@@ -18,11 +19,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     FlutterGpuTileBackendStats? stats,
   })  : assert(overprintRetryMaxDimension == null ||
             overprintRetryMaxDimension > 0),
+        assert(
+            overprintRetryMaxCommands == null || overprintRetryMaxCommands > 0),
         stats = stats ?? FlutterGpuTileBackendStats();
 
   final bool msaa;
   final bool allowOverprintApproximation;
   final int? overprintRetryMaxDimension;
+  final int? overprintRetryMaxCommands;
   final int maxTextureBytes;
   final int maxGeometryBytes;
   final bool? enableProactiveWarmUp;

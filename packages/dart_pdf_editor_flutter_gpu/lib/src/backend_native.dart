@@ -44,6 +44,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
     this.msaa = true,
     this.allowOverprintApproximation = false,
     this.overprintRetryMaxDimension = 512,
+    this.overprintRetryMaxCommands = 768,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.maxTransientAttachmentBytes = 64 << 20,
@@ -54,6 +55,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
     FlutterGpuTileBackendStats? stats,
   })  : assert(overprintRetryMaxDimension == null ||
             overprintRetryMaxDimension > 0),
+        assert(
+            overprintRetryMaxCommands == null || overprintRetryMaxCommands > 0),
         assert(maxTransientAttachmentBytes >= 0),
         stats = stats ?? FlutterGpuTileBackendStats(),
         textOutliner = textOutliner ??
@@ -84,6 +87,13 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   /// every already-accepted scene are unchanged—and a retry that remains
   /// unsupported is handed back to the viewer's exact Canvas fallback.
   final int? overprintRetryMaxDimension;
+
+  /// Maximum retained commands eligible for the exact overprint retry.
+  ///
+  /// The default preserves small successful retries while declining complex
+  /// scenes before a denser colorant walk can add seconds to Canvas fallback.
+  /// Null removes the guard for exhaustive diagnostics.
+  final int? overprintRetryMaxCommands;
 
   /// Byte budget for decoded image textures shared by every scene/session
   /// created from this backend instance. Cached and active scene leases both
@@ -336,10 +346,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
     final maxDimension = overprintRetryMaxDimension;
     if (maxDimension == null ||
         _lastSessionRejection !=
-            'non-black overprint requires Canvas fallback' ||
-        !scene.canRerecordWithOverprint) {
+            'non-black overprint requires Canvas fallback') {
       return null;
     }
+    final maxCommands = overprintRetryMaxCommands;
+    if (maxCommands != null && scene.commands.length > maxCommands) {
+      stats.overprintRetryCostSkips++;
+      return null;
+    }
+    if (!scene.canRerecordWithOverprint) return null;
     stats
       ..overprintRetryRequests += 1
       ..lastTileRoute = 'flutter_gpu-overprint-retry';

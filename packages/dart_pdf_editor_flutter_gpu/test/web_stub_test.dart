@@ -9,6 +9,7 @@ void main() {
     expect(backend.debugLabel, contains('flutter_gpu'));
     expect(backend.msaa, isFalse);
     expect(backend.overprintRetryMaxDimension, 512);
+    expect(backend.overprintRetryMaxCommands, 768);
     expect(backend.stats, same(stats));
   });
 }

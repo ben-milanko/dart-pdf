@@ -23,6 +23,7 @@ class FlutterGpuTileBackendStats {
   int overprintRetryRequests = 0;
   int overprintRetrySuccesses = 0;
   int overprintRetryFallbacks = 0;
+  int overprintRetryCostSkips = 0;
   int overprintRetryMicros = 0;
   int rasterFallbacks = 0;
   int activeSessions = 0;
@@ -133,6 +134,7 @@ class FlutterGpuTileBackendStats {
         'overprintRetryRequests': overprintRetryRequests,
         'overprintRetrySuccesses': overprintRetrySuccesses,
         'overprintRetryFallbacks': overprintRetryFallbacks,
+        'overprintRetryCostSkips': overprintRetryCostSkips,
         'overprintRetryMicros': overprintRetryMicros,
         'rasterFallbacks': rasterFallbacks,
         'activeSessions': activeSessions,
@@ -232,6 +234,7 @@ class FlutterGpuTileBackendStats {
     overprintRetryRequests = 0;
     overprintRetrySuccesses = 0;
     overprintRetryFallbacks = 0;
+    overprintRetryCostSkips = 0;
     overprintRetryMicros = 0;
     rasterFallbacks = 0;
     contextSwitches = 0;
@@ -338,6 +341,7 @@ class FlutterGpuTileBackendStats {
       'sceneWarmUpUs=$sceneWarmUpMicros '
       'lastContext=$lastContextIdentity '
       'activeSessions=$activeSessions peakActiveSessions=$peakActiveSessions '
+      'overprintRetryCostSkips=$overprintRetryCostSkips '
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '

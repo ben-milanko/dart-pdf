@@ -365,6 +365,11 @@ full parity matrix on every change.
 Set `PDF_GPU_BENCHMARK_ANALYTIC_TEXT=0` or
 `GPU_CORPUS_ANALYTIC_TEXT=0` for a same-build comparison against the retained
 stencil-fan text path.
+The exact overprint rerecord keeps its 512-cell default but skips scenes above
+768 retained commands so a failed GPU retry cannot add seconds before Canvas
+fallback. Set `GPU_CORPUS_OVERPRINT_RETRY_MAX_COMMANDS` to override that corpus
+guard; `FlutterGpuTileRasterBackend.overprintRetryMaxCommands` is the runtime
+equivalent, and null removes the guard for exhaustive diagnostics.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

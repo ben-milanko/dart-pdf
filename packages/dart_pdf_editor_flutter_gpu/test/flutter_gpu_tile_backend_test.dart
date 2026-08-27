@@ -2619,6 +2619,11 @@ void main() {
       expect(exact.stats.lastRejection, contains('overprint'));
       expect(exact.stats.lastTileRoute, 'canvas-fallback');
 
+      final guarded = FlutterGpuTileRasterBackend(overprintRetryMaxCommands: 1);
+      expect(guarded.createSession(scene), isNull);
+      expect(guarded.retrySession(scene), isNull);
+      expect(guarded.stats.overprintRetryCostSkips, 1);
+
       final benchmark =
           FlutterGpuTileRasterBackend(allowOverprintApproximation: true);
       final session = benchmark.createSession(scene);

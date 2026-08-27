@@ -157,6 +157,12 @@ void _corpus(
                       '',
                 ) ??
                 512,
+            overprintRetryMaxCommands: int.tryParse(
+                  Platform.environment[
+                          'GPU_CORPUS_OVERPRINT_RETRY_MAX_COMMANDS'] ??
+                      '',
+                ) ??
+                768,
           );
           final scene = await PdfRetainedScene.record(
             document.page(pageIndex),
