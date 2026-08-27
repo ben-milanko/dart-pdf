@@ -8679,6 +8679,9 @@ class _GpuEncoder {
   _GpuRetainedBindingKind? _retainedBindingKind;
   _GpuGlyphAtlas? _boundGlyphAtlas;
   gpu.Texture? _boundImageTexture;
+  // Every equation used by this encoder is a private immutable singleton, so
+  // identity also describes the fixed-function state already on the pass.
+  gpu.ColorBlendEquation? _appliedBlendEquation;
   // This cache is valid only for the common non-writing stencil state. Every
   // operation that changes either face's config clears it before encoding.
   int? _appliedDefaultStencilBit;
@@ -8817,9 +8820,9 @@ class _GpuEncoder {
         union: false,
         requiredClipBit: _activeClipBit,
       );
+      _setBlendEquation(_noWrite);
       pass
         ..setStencilReference(nextBit)
-        ..setColorBlendEquation(_noWrite)
         ..setStencilConfig(gpu.StencilConfig(
           compareFunction: gpu.CompareFunction.notEqual,
           depthStencilPassOperation: gpu.StencilOperation.setToReferenceValue,
@@ -8841,8 +8844,8 @@ class _GpuEncoder {
   void solid(_GpuBuffer vertices) {
     _dropRetainedBindings();
     _defaultStencil();
+    _setBlendEquation(_paintBlend);
     pass
-      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
     _drawBuffer(vertices);
@@ -8915,9 +8918,9 @@ class _GpuEncoder {
 
   void _paintStencilCover(gpu.BufferView cover, int vertices) {
     _appliedDefaultStencilBit = null;
+    _setBlendEquation(_paintBlend);
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -8938,9 +8941,9 @@ class _GpuEncoder {
       requiredClipBit: _activeClipBit,
     );
     _appliedDefaultStencilBit = null;
+    _setBlendEquation(_paintBlend);
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -8991,9 +8994,9 @@ class _GpuEncoder {
           readMask: requiredClipBit == 0 ? 0 : requiredClipBit,
           writeMask: _pathMask,
         );
+    _setBlendEquation(_noWrite);
     pass
       ..setStencilReference(requiredClipBit)
-      ..setColorBlendEquation(_noWrite)
       ..bindPipeline(pipelines.stencil)
       ..bindUniform(pipelines.stencilTransform, transform);
     if (union) {
@@ -9018,9 +9021,9 @@ class _GpuEncoder {
     if (mask == 0) return;
     _dropRetainedBindings();
     _appliedDefaultStencilBit = null;
+    _setBlendEquation(_noWrite);
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_noWrite)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.always,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -9034,7 +9037,7 @@ class _GpuEncoder {
 
   void texture(_GpuBuffer vertices, gpu.Texture texture) {
     _defaultStencil();
-    pass.setColorBlendEquation(_paintBlend);
+    _setBlendEquation(_paintBlend);
     // Every ordinary image shares this pass transform and pipeline. Keep
     // those bindings across adjacent draws; per-image metadata travels with
     // the retained vertices, so only a changed source texture needs another
@@ -9070,8 +9073,8 @@ class _GpuEncoder {
       tint: <double>[0, 0, 0, alpha.clamp(0.0, 1.0)],
     );
     _defaultStencil();
+    _setBlendEquation(_paintBlend);
     pass
-      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.texture)
       ..bindUniform(pipelines.textureTransform, transform)
       ..bindTexture(
@@ -9202,7 +9205,7 @@ class _GpuEncoder {
 
   void glyphs(_GpuBuffer vertices, _GpuGlyphAtlas atlas) {
     _defaultStencil();
-    pass.setColorBlendEquation(_paintBlend);
+    _setBlendEquation(_paintBlend);
     if (_retainedBindingKind == _GpuRetainedBindingKind.glyph &&
         identical(_boundGlyphAtlas, atlas)) {
       stats.glyphBindingReuses++;
@@ -9226,8 +9229,8 @@ class _GpuEncoder {
       gpu.Texture maskTexture, gpu.BufferView info) {
     _dropRetainedBindings();
     _defaultStencil();
+    _setBlendEquation(_paintBlend);
     pass
-      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.softMask)
       ..bindUniform(pipelines.softMaskTransform, transform)
       ..bindUniform(pipelines.softMaskInfo, info)
@@ -9248,9 +9251,9 @@ class _GpuEncoder {
       requiredClipBit: _activeClipBit,
     );
     _appliedDefaultStencilBit = null;
+    _setBlendEquation(_paintBlend);
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -9286,6 +9289,12 @@ class _GpuEncoder {
     _retainedBindingKind = null;
     _boundGlyphAtlas = null;
     _boundImageTexture = null;
+  }
+
+  void _setBlendEquation(gpu.ColorBlendEquation equation) {
+    if (identical(_appliedBlendEquation, equation)) return;
+    pass.setColorBlendEquation(equation);
+    _appliedBlendEquation = equation;
   }
 
   // flutter_gpu is experimental. Flutter 3.47 split vertex count out of
