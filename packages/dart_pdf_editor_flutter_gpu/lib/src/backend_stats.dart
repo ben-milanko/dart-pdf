@@ -43,6 +43,8 @@ class FlutterGpuTileBackendStats {
   int imageBindingReuses = 0;
   int coalescedDrawBatches = 0;
   int drawCallsSaved = 0;
+  int drawCalls = 0;
+  int directRectangleDraws = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
   int paperClearTiles = 0;
@@ -143,6 +145,8 @@ class FlutterGpuTileBackendStats {
         'imageBindingReuses': imageBindingReuses,
         'coalescedDrawBatches': coalescedDrawBatches,
         'drawCallsSaved': drawCallsSaved,
+        'drawCalls': drawCalls,
+        'directRectangleDraws': directRectangleDraws,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
         'paperClearTiles': paperClearTiles,
@@ -243,6 +247,8 @@ class FlutterGpuTileBackendStats {
     imageBindingReuses = 0;
     coalescedDrawBatches = 0;
     drawCallsSaved = 0;
+    drawCalls = 0;
+    directRectangleDraws = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
     paperClearTiles = 0;
@@ -320,6 +326,8 @@ class FlutterGpuTileBackendStats {
       'imageBindingReuses=$imageBindingReuses '
       'coalescedDrawBatches=$coalescedDrawBatches '
       'drawCallsSaved=$drawCallsSaved '
+      'drawCalls=$drawCalls '
+      'directRectangleDraws=$directRectangleDraws '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'paperClearTiles=$paperClearTiles '
       'paperOnlyTiles=$paperOnlyTiles '

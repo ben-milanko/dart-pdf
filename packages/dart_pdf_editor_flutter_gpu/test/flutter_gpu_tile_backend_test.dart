@@ -605,7 +605,7 @@ void main() {
   });
 
   testWidgets(
-      'coalesces disjoint opaque fills without merging overlap alpha or blend',
+      'emits axis-aligned fills directly and preserves overlap alpha and blend',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -684,10 +684,12 @@ void main() {
       }
       expect(difference / a.length, lessThan(3));
       expect(backend.stats.coalescedDrawBatches, 2);
-      expect(backend.stats.drawCallsSaved, 2,
-          reason: 'the mixed-color disjoint nonzero and even-odd pairs share '
-              'covers; '
-              'overlap, translucency, and Multiply retain painter order');
+      expect(backend.stats.drawCallsSaved, 6,
+          reason: 'rectangle color and alpha live in the vertex stream, so '
+              'each same-blend run becomes one ordered triangle draw');
+      expect(backend.stats.drawCalls, 3,
+          reason: 'one paper draw plus the two blend-state runs');
+      expect(backend.stats.directRectangleDraws, 8);
     });
   });
 

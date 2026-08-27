@@ -8013,7 +8013,7 @@ _GradientDraw? _compileRadialGradientSubpaths(
   );
 }
 
-_StencilDraw? _stencilDraw(
+_GpuDraw? _stencilDraw(
   _GpuGeometryArena geometry,
   List<FlatSubpath> subpaths,
   PdfColor color,
@@ -8022,6 +8022,14 @@ _StencilDraw? _stencilDraw(
   bool union,
 ) {
   if (alpha <= 0) return null;
+  final rectangle = _axisAlignedRectangle(subpaths);
+  if (rectangle != null) {
+    geometry.stats.directRectangleDraws++;
+    final a = alpha.clamp(0.0, 1.0);
+    return _SolidDraw(
+      _coverGeometry(geometry, rectangle, _premul(color, a)),
+    );
+  }
   final parts = _stencilGeometry(geometry, subpaths);
   if (parts == null) return null;
   final fanBuffer = parts.$1;
@@ -8034,6 +8042,29 @@ _StencilDraw? _stencilDraw(
     union,
     opaquePaint: a == 1 ? (bounds: parts.$2, color: color) : null,
   );
+}
+
+/// Returns the bounds when [subpaths] describes one non-degenerate,
+/// axis-aligned rectangle. Both PDF fill rules agree for this shape, so it can
+/// go straight to two triangles instead of a stencil fan plus cover.
+FlatBounds? _axisAlignedRectangle(List<FlatSubpath> subpaths) {
+  if (subpaths.length != 1) return null;
+  final subpath = subpaths.single;
+  final points = subpath.points;
+  if (!subpath.closed || points.length != 10) return null;
+  if (points[0] != points[8] || points[1] != points[9]) return null;
+  for (var i = 0; i < 4; i++) {
+    final j = (i + 1) & 3;
+    final horizontal = points[2 * i + 1] == points[2 * j + 1];
+    final vertical = points[2 * i] == points[2 * j];
+    if (horizontal == vertical) return null;
+  }
+  final bounds = FlatBounds(points[0], points[1], points[0], points[1]);
+  for (var i = 1; i < 4; i++) {
+    bounds.include(points[2 * i], points[2 * i + 1]);
+  }
+  if (bounds.left == bounds.right || bounds.top == bounds.bottom) return null;
+  return bounds;
 }
 
 /// Compiles the shared fan + bounds cover used by both painted paths and clip
@@ -9757,6 +9788,7 @@ class _GpuEncoder {
   }
 
   void _drawView(gpu.BufferView view, int vertices) {
+    stats.drawCalls++;
     final dynamic dynamicPass = pass;
     if (_separateVertexCountApi == true) {
       dynamicPass.bindVertexBuffer(view);
