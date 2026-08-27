@@ -1,3 +1,5 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfPerfLog;
+
 /// Aggregated diagnostics for one flutter_gpu tile backend instance.
 class FlutterGpuTileBackendStats {
   String? lastRejection;
@@ -110,6 +112,53 @@ class FlutterGpuTileBackendStats {
   int failedSubmissions = 0;
   int inFlightSubmissions = 0;
   int peakInFlightSubmissions = 0;
+
+  /// Emits this instance's lifetime totals as one [PdfPerfLog] line.
+  ///
+  /// The per-event GPU lines (`tile gpu compile`/`issue`/`complete`) say what
+  /// each scene and tile cost; this says what the run cost, which is the
+  /// question a trace is usually opened to answer: how many scenes the backend
+  /// actually kept, how many it handed back to Canvas and why, and whether the
+  /// texture/geometry ceilings were the thing doing the handing back. The host
+  /// calls it at the ends of a trace (see the app's Verbose render log toggle)
+  /// so an exported trace is self-contained.
+  ///
+  /// Costs nothing while the log is off - every field below is read behind
+  /// that check.
+  void logPerfSummary(String reason) {
+    if (!PdfPerfLog.enabled) return;
+    PdfPerfLog.log(
+      'tile gpu summary reason=$reason '
+      'sessions=$sessionsCreated/${sessionsCreated + sessionsRejected} '
+      'active=$activeSessions peakActive=$peakActiveSessions '
+      'rasterFallbacks=$rasterFallbacks '
+      'tiles=$tilesRendered paperOnly=$paperOnlyTiles '
+      'compile=${_avgMs(compileMicros, scenesCompiled)}/scene '
+      'issue=${_avgMs(issueMicros, tilesRendered)}/tile '
+      'submit=${_avgMs(submitMicros, tilesRendered)}/tile '
+      'queue=${_avgMs(completionMicros, completedSubmissions)}/submit '
+      'maxQueue=${_ms(maxCompletionMicros)} '
+      'peakInFlight=$peakInFlightSubmissions failed=$failedSubmissions '
+      'draws=$drawCalls saved=$drawCallsSaved '
+      'tex=${_mb(peakTextureBytes)}MB '
+      'hit=$textureCacheHits miss=$textureCacheMisses '
+      'evict=$textureEvictions texBudgetFallbacks=$textureBudgetFallbacks '
+      'geo=${_mb(peakGeometryBytes)}MB '
+      'geoBudgetFallbacks=$geometryBudgetFallbacks '
+      'blendBudgetFallbacks=$advancedBlendBudgetFallbacks '
+      'groupBudgetFallbacks=$offscreenGroupBudgetFallbacks '
+      'warm=$warmUpCompletions/$warmUpRequests '
+      'sceneWarm=$sceneWarmUpCompletions/$sceneWarmUpRequests '
+      'lastRoute=$lastTileRoute lastRejection=${lastRejection ?? '-'}',
+    );
+  }
+
+  static String _ms(int micros) => '${(micros / 1000).toStringAsFixed(1)}ms';
+
+  static String _avgMs(int micros, int count) =>
+      count == 0 ? 'n/a' : _ms(micros ~/ count);
+
+  static int _mb(int bytes) => (bytes / (1 << 20)).round();
 
   /// A JSON-safe snapshot suitable for diagnostics and benchmark artifacts.
   Map<String, Object?> toJson() => {

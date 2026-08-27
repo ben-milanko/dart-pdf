@@ -17,6 +17,7 @@ void main() {
     AppDevTools.instance.setDeepZoomMode(AppDevTools.modePatch);
     pdfDebugPaintDetailBounds.value = false;
     pdfDebugShowRenderWindow.value = false;
+    pdfDebugShowGpuRasterRoutes.value = false;
     AppDevTools.instance.showPerformanceOverlay.value = false;
     AppDevTools.instance.setPageRasterCachePolicy(
       const PdfPageRasterCachePolicy(),
@@ -59,6 +60,7 @@ void main() {
     tools.setGpuOverprintApproximation(true);
     pdfDebugPaintDetailBounds.value = true;
     pdfDebugShowRenderWindow.value = true;
+    pdfDebugShowGpuRasterRoutes.value = true;
     pdfRenderWorkerPoolSize = 5;
     tools.setPageRasterCachePolicy(const PdfPageRasterCachePolicy(
       maxBytes: 5 * 1024 * 1024 * 1024,
@@ -76,6 +78,7 @@ void main() {
     tools.setGpuOverprintApproximation(false);
     pdfDebugPaintDetailBounds.value = false;
     pdfDebugShowRenderWindow.value = false;
+    pdfDebugShowGpuRasterRoutes.value = false;
     pdfRenderWorkerPoolSize = 3;
     tools.setPageRasterCachePolicy(const PdfPageRasterCachePolicy());
     await tools.restoreOptions();
@@ -91,6 +94,7 @@ void main() {
     expect(PdfPageView.debugTileStoreOverride!.batchRasters, isTrue);
     expect(pdfDebugPaintDetailBounds.value, isTrue);
     expect(pdfDebugShowRenderWindow.value, isTrue);
+    expect(pdfDebugShowGpuRasterRoutes.value, isTrue);
     expect(pdfRenderWorkerPoolSize, 5);
     expect(
       tools.pageRasterCachePolicy.value,

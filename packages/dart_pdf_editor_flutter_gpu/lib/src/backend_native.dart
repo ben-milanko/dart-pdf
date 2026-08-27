@@ -18,6 +18,12 @@ import 'backend_stats.dart';
 import 'system_text_outliner_native.dart';
 import 'text_outliner.dart';
 
+/// Microseconds as a `12.3ms` trace field.
+String _ms(int micros) => '${(micros / 1000).toStringAsFixed(1)}ms';
+
+/// Bytes as a whole-megabyte trace field.
+int _mb(int bytes) => (bytes / (1 << 20)).round();
+
 /// Scene-retained flutter_gpu backend for final LoD tile textures.
 ///
 /// The first tile lazily compiles supported retained commands into page-space
@@ -234,10 +240,23 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
       );
       if (submitted) stats.warmUpSubmissions++;
       stats.warmUpCompletions++;
+      if (PdfPerfLog.enabled) {
+        PdfPerfLog.log(
+          'tile gpu pipeline warm submitted=$submitted '
+          'msaa=${msaa && context.doesSupportOffscreenMSAA} '
+          'elapsed=${_ms(clock.elapsedMicroseconds)}',
+        );
+      }
     } catch (error) {
       stats
         ..warmUpFailures += 1
         ..lastWarmUpError = error.toString();
+      if (PdfPerfLog.enabled) {
+        PdfPerfLog.log(
+          'tile gpu pipeline warm FAILED '
+          'elapsed=${_ms(clock.elapsedMicroseconds)} error=$error',
+        );
+      }
       rethrow;
     } finally {
       stats.warmUpMicros += clock.elapsedMicroseconds;
@@ -4359,6 +4378,12 @@ class _FlutterGpuTileSession
       stats
         ..sceneWarmUpFailures += 1
         ..lastSceneWarmUpError = error.toString();
+      if (PdfPerfLog.enabled) {
+        PdfPerfLog.log(
+          'tile gpu scene warm FAILED commands=${units.length} '
+          'elapsed=${clock.elapsedMilliseconds}ms error=$error',
+        );
+      }
       rethrow;
     } finally {
       image?.dispose();
@@ -4438,6 +4463,15 @@ class _FlutterGpuTileSession
         stats.rasterFallbacks++;
         stats.lastRejection = 'rasterization failed: $error';
         stats.lastTileRoute = 'canvas-fallback';
+        // The one route change a trace could not see before: this scene was
+        // accepted, so the session line said flutter_gpu, and every later tile
+        // silently came from Canvas.
+        if (PdfPerfLog.enabled) {
+          PdfPerfLog.log(
+            'tile gpu raster fallback page=${tracePage ?? '-'} '
+            'route=canvas error=$error',
+          );
+        }
       }
       rethrow;
     }
@@ -4691,6 +4725,21 @@ class _CompiledScene {
         ..scenesCompiled += 1
         ..clipPathsCompiled += clipDraws.length
         ..compileMicros += clock.elapsedMicroseconds;
+      // The scene's one-off GPU cost - geometry build plus every texture
+      // upload - which a trace previously saw only as an unexplained gap
+      // before the first `tile gpu issue` line.
+      if (PdfPerfLog.enabled) {
+        PdfPerfLog.log(
+          'tile gpu compile units=${units.length} draws=${draws.length} '
+          'clips=${clipDraws.length} '
+          'textures=${textureLeases.resources.length} '
+          'uploaded=${stats.texturesUploaded} hit=${stats.textureCacheHits} '
+          'miss=${stats.textureCacheMisses} '
+          'texBytes=${_mb(stats.textureBytes)}MB '
+          'geoBytes=${_mb(stats.geometryBytes)}MB '
+          'elapsed=${_ms(clock.elapsedMicroseconds)}${PdfPerfLog.rssSuffix()}',
+        );
+      }
       return result;
     } catch (_) {
       imageCache.releaseAll(textureLeases, stats);

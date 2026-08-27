@@ -185,11 +185,16 @@ Future<CosSourceOpenResult> openCosDocumentFromSourceWithStatus(
 }) async {
   late final Uint8List buffer;
   var isFirstPaintBuffer = false;
+  // Null once a full download replaces the sparse buffer: those bytes are all
+  // real, so the parser needs no hole map.
+  List<int>? populated;
   final t0 = PdfPerf.begin();
   try {
-    final loaded = await _ProgressiveLoader(source, options).load();
+    final loader = _ProgressiveLoader(source, options);
+    final loaded = await loader.load();
     buffer = loaded.bytes;
     isFirstPaintBuffer = loaded.isFirstPaintBuffer;
+    populated = loader.populatedRanges;
   } on _FallbackToFullDownload {
     PdfPerf.add(PdfPerfCount.fullDownloadFallback);
     PdfPerf.event(PdfPerfEvent.rangedSourceFellBack);
@@ -197,7 +202,7 @@ Future<CosSourceOpenResult> openCosDocumentFromSourceWithStatus(
   }
   PdfPerf.end(PdfPerfPhase.sourceFetch, t0);
   return CosSourceOpenResult(
-    CosDocument.open(buffer, password: password),
+    CosDocument.open(buffer, password: password, populatedRanges: populated),
     isFirstPaintBuffer: isFirstPaintBuffer,
   );
 }
@@ -259,6 +264,12 @@ class _ProgressiveLoader {
   /// pulled twice.
   final List<_Range> _present = [];
   int _fetched = 0;
+
+  /// The fetched ranges as the flat, sorted `[start, end)` pair list
+  /// [CosDocument.open] takes, so the parser can tell a real byte from the
+  /// zeros this buffer is padded with.
+  List<int> get populatedRanges =>
+      [for (final r in _present) ...[r.start, r.end]];
 
   Future<({Uint8List bytes, bool isFirstPaintBuffer})> load() async {
     final len = await source.length;
