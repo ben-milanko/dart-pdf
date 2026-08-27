@@ -220,6 +220,34 @@ void main() {
       expectRect(runs[1].bounds, before[2]!);
     });
 
+    test("dropping a `'` or `\" run keeps the lines after it in place", () {
+      // `"` carries word/char spacing that outlives the run, and both
+      // operators move to the next line before showing - a dropped run owes
+      // the text object all of it.
+      const content = 'BT /F1 12 Tf 14 TL 72 700 Td (top) Tj '
+          '1 2 (middle) \" (last) \' ET\n';
+      final doc = PdfDocument.open(buildContentPdf(content));
+      final elements = PdfPageElements.of(doc, 0);
+      final before = boundsOf(doc);
+      expect(before, hasLength(3));
+
+      for (final drop in [0, 1]) {
+        final ops = elements.operationsRetaining((e) => e.id != drop);
+        final after = PdfDocument.open(buildContentPdf(
+            latin1.decode(ContentStreamSerializer.serialize(ops))));
+        final runs = PdfPageElements.of(after, 0).elements;
+        expect(runs.map((e) => e.text), [
+          for (var i = 0; i < 3; i++)
+            if (i != drop) ['top', 'middle', 'last'][i],
+        ]);
+        for (final run in runs) {
+          final original = before[['top', 'middle', 'last'].indexOf(run.text!)];
+          expectRect(run.bounds, original!,
+              reason: 'dropping element $drop moved "\${run.text}"');
+        }
+      }
+    });
+
     test('a kern-only TJ is not an element', () {
       const content = 'BT /F1 12 Tf 72 700 Td [ -500 ] TJ (word) Tj ET\n';
       final doc = PdfDocument.open(buildContentPdf(content));
