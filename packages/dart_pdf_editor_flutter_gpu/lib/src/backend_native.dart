@@ -5822,6 +5822,35 @@ class _CompiledScene {
             ..drawCallsSaved += nextUnitIndex - unitIndex - 1;
           draw = _coalescedGpuDraw(draw, lastDraw, vertices);
         }
+      } else if (draw is _HairlineDraw &&
+          unit.blendMode == PdfBlendMode.normal &&
+          draw.alpha == 1) {
+        final subpaths = <FlatSubpath>[...draw.subpaths];
+        while (nextUnitIndex < selected.length) {
+          final nextUnit = selected[nextUnitIndex];
+          if (!identical(unit.clip, nextUnit.clip) ||
+              nextUnit.blendMode != PdfBlendMode.normal) {
+            break;
+          }
+          final nextDraw = draws[nextUnit.commandIndex];
+          if (nextDraw is! _HairlineDraw ||
+              !_sameOpaqueHairline(draw, nextDraw)) {
+            break;
+          }
+          subpaths.addAll(nextDraw.subpaths);
+          nextUnitIndex++;
+        }
+        if (nextUnitIndex > unitIndex + 1) {
+          stats
+            ..coalescedDrawBatches += 1
+            ..drawCallsSaved += 2 * (nextUnitIndex - unitIndex - 1);
+          draw = _HairlineDraw(
+            List.unmodifiable(subpaths),
+            draw.color,
+            draw.stroke,
+            draw.alpha,
+          );
+        }
       }
       encoder
         ..setClip(unit.clip)
@@ -8696,6 +8725,24 @@ _GpuDraw _coalescedGpuDraw(_GpuDraw first, _GpuDraw last, int vertices) {
   };
 }
 
+/// Fully opaque source-over is idempotent at each raster sample, so adjacent
+/// matching hairlines can share one stencil union even when their contours
+/// overlap. Other blend equations and translucent sources deliberately keep
+/// their individual stencil/cover pairs because repeated coverage changes the
+/// result there.
+bool _sameOpaqueHairline(_HairlineDraw first, _HairlineDraw next) {
+  final a = first.color, b = next.color;
+  final firstStroke = first.stroke, nextStroke = next.stroke;
+  return next.alpha == 1 &&
+      a.red == b.red &&
+      a.green == b.green &&
+      a.blue == b.blue &&
+      firstStroke.width == nextStroke.width &&
+      firstStroke.cap == nextStroke.cap &&
+      firstStroke.join == nextStroke.join &&
+      firstStroke.miterLimit == nextStroke.miterLimit;
+}
+
 class _SoftMaskDraw implements _GpuDraw {
   const _SoftMaskDraw(
       this.vertices, this.contentTexture, this.maskTexture, this.info);
@@ -9088,15 +9135,28 @@ class _GpuEncoder {
         );
     _setBlendEquation(_noWrite);
     pass
-      ..setStencilReference(requiredClipBit)
       ..bindPipeline(pipelines.stencil)
       ..bindUniform(pipelines.stencilTransform, transform);
     if (union) {
-      pass.setStencilConfig(config(gpu.StencilOperation.incrementWrap));
+      // A union only needs one path bit. Setting it is idempotent, so any
+      // number of overlapping contours stays non-zero; incrementing the
+      // six-bit scratch field would wrap after 64 overlapping fragments.
+      pass
+        ..setStencilReference(requiredClipBit | 1)
+        ..setStencilConfig(gpu.StencilConfig(
+          compareFunction: compare,
+          depthStencilPassOperation: gpu.StencilOperation.setToReferenceValue,
+          stencilFailureOperation: gpu.StencilOperation.keep,
+          readMask: requiredClipBit == 0 ? 0 : requiredClipBit,
+          writeMask: 1,
+        ));
     } else if (rule == PdfFillRule.evenOdd) {
-      pass.setStencilConfig(config(gpu.StencilOperation.invert));
+      pass
+        ..setStencilReference(requiredClipBit)
+        ..setStencilConfig(config(gpu.StencilOperation.invert));
     } else {
       pass
+        ..setStencilReference(requiredClipBit)
         ..setStencilConfig(
           config(gpu.StencilOperation.incrementWrap),
           targetFace: gpu.StencilFace.front,

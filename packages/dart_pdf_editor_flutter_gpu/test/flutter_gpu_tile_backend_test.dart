@@ -604,6 +604,124 @@ void main() {
     });
   });
 
+  testWidgets(
+      'coalesces matching opaque hairlines without merging alpha or blend',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const stroke = PdfStroke(width: 0, cap: 1, join: 1);
+      const color = PdfColor(0.08, 0.24, 0.82);
+      const first = PdfPath([
+        PdfMoveTo(80, 180),
+        PdfLineTo(500, 500),
+      ]);
+      const second = PdfPath([
+        PdfMoveTo(80, 500),
+        PdfLineTo(500, 180),
+      ]);
+      const translucent = PdfPath([
+        PdfMoveTo(80, 340),
+        PdfLineTo(500, 340),
+      ]);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, const [
+        PdfStrokePathCommand(first, color, stroke, 1),
+        PdfStrokePathCommand(second, color, stroke, 1),
+        PdfStrokePathCommand(translucent, color, stroke, 0.5),
+        PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        PdfStrokePathCommand(first, color, stroke, 1),
+        PdfStrokePathCommand(second, color, stroke, 1),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 2,
+          reason: 'two opaque hairlines share one stencil and one cover; '
+              'the translucent and Multiply lines keep their own pairs');
+    });
+  });
+
+  testWidgets('opaque hairline unions stay set past the stencil counter range',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const path = PdfPath([
+        PdfMoveTo(80, 300),
+        PdfLineTo(500, 300),
+      ]);
+      const stroke = PdfStroke(width: 0, cap: 1, join: 1);
+      const color = PdfColor(0.08, 0.24, 0.82);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        for (var index = 0; index < 64; index++)
+          const PdfStrokePathCommand(path, color, stroke, 1),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend(msaa: false);
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      (int, int) darkest(Uint8List pixels) {
+        var best = -1, value = 4 * 255;
+        for (var y = 489; y <= 495; y++) {
+          final offset = 4 * (y * expected.width + 300);
+          final sum = pixels[offset] +
+              pixels[offset + 1] +
+              pixels[offset + 2] +
+              pixels[offset + 3];
+          if (sum < value) {
+            value = sum;
+            best = offset;
+          }
+        }
+        return (best, value);
+      }
+
+      final expectedDarkest = darkest(a), actualDarkest = darkest(b);
+      expect(expectedDarkest.$1, isNonNegative);
+      expect(actualDarkest.$1, isNonNegative);
+      expect(actualDarkest.$2, lessThan(900));
+      expect(
+        (a[expectedDarkest.$1] - b[actualDarkest.$1]).abs() +
+            (a[expectedDarkest.$1 + 1] - b[actualDarkest.$1 + 1]).abs() +
+            (a[expectedDarkest.$1 + 2] - b[actualDarkest.$1 + 2]).abs(),
+        lessThan(40),
+        reason: '64 overlapping contours must set rather than wrap the '
+            'six-bit path stencil back to zero',
+      );
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 126);
+    });
+  });
+
   testWidgets('sub-MSAA positive strokes request exact Canvas fallback',
       (tester) async {
     await tester.runAsync(() async {
