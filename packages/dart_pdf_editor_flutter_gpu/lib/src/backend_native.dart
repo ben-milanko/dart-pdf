@@ -5823,11 +5823,12 @@ class _CompiledScene {
           draw = _coalescedGpuDraw(draw, lastDraw, vertices);
         }
       } else if (draw is _StencilDraw &&
+          draw.union &&
           unit.blendMode == PdfBlendMode.normal &&
-          draw.opaqueUnion != null) {
+          draw.opaquePaint != null) {
         final batch = <_StencilDraw>[draw];
         while (nextUnitIndex < selected.length &&
-            batch.length < _maxOpaqueStencilBatchDraws) {
+            batch.length < _maxOpaqueStencilBatchPaints) {
           final nextUnit = selected[nextUnitIndex];
           if (!identical(unit.clip, nextUnit.clip) ||
               nextUnit.blendMode != PdfBlendMode.normal) {
@@ -5847,7 +5848,36 @@ class _CompiledScene {
             ..drawCallsSaved += batch.length - 1;
           draw = _OpaqueStencilBatchDraw(
             batch,
-            draw.opaqueUnion!.color,
+            draw.opaquePaint!.color,
+          );
+        }
+      } else if (draw is _StencilDraw &&
+          !draw.union &&
+          unit.blendMode == PdfBlendMode.normal &&
+          draw.opaquePaint != null) {
+        final batch = <_StencilDraw>[draw];
+        while (nextUnitIndex < selected.length &&
+            batch.length < _maxOpaqueStencilBatchPaints) {
+          final nextUnit = selected[nextUnitIndex];
+          if (!identical(unit.clip, nextUnit.clip) ||
+              nextUnit.blendMode != PdfBlendMode.normal) {
+            break;
+          }
+          final nextDraw = draws[nextUnit.commandIndex];
+          if (nextDraw is! _StencilDraw ||
+              !_sameDisjointOpaqueFill(draw, batch, nextDraw)) {
+            break;
+          }
+          batch.add(nextDraw);
+          nextUnitIndex++;
+        }
+        if (batch.length > 1) {
+          stats
+            ..coalescedDrawBatches += 1
+            ..drawCallsSaved += batch.length - 1;
+          draw = _OpaqueStencilFillBatchDraw(
+            batch,
+            draw.rule,
           );
         }
       } else if (draw is _HairlineDraw &&
@@ -7914,7 +7944,7 @@ _StencilDraw? _stencilDraw(
     _coverGeometry(geometry, parts.$2, rgba),
     rule,
     union,
-    opaqueUnion: union && a == 1 ? (bounds: parts.$2, color: color) : null,
+    opaquePaint: a == 1 ? (bounds: parts.$2, color: color) : null,
   );
 }
 
@@ -8636,12 +8666,12 @@ class _PaperDraw extends _SolidDraw {
 
 class _StencilDraw implements _GpuDraw {
   const _StencilDraw(this.fan, this.cover, this.rule, this.union,
-      {this.opaqueUnion});
+      {this.opaquePaint});
   final _GpuBuffer fan;
   final _GpuBuffer cover;
   final PdfFillRule rule;
   final bool union;
-  final ({FlatBounds bounds, PdfColor color})? opaqueUnion;
+  final ({FlatBounds bounds, PdfColor color})? opaquePaint;
 
   @override
   void encode(_GpuEncoder encoder) =>
@@ -8656,6 +8686,17 @@ class _OpaqueStencilBatchDraw implements _GpuDraw {
 
   @override
   void encode(_GpuEncoder encoder) => encoder.opaqueStencilBatch(draws, color);
+}
+
+class _OpaqueStencilFillBatchDraw implements _GpuDraw {
+  const _OpaqueStencilFillBatchDraw(this.draws, this.rule);
+
+  final List<_StencilDraw> draws;
+  final PdfFillRule rule;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      encoder.opaqueStencilFillBatch(draws, rule);
 }
 
 /// A PDF zero-width stroke. Its source polyline is retained with the scene,
@@ -8723,10 +8764,10 @@ _GpuBuffer? _batchableDrawBuffer(_GpuDraw draw) => switch (draw) {
       _ => null,
     };
 
-// One cover quad is rebuilt per selected stroke at tile time. Bound that
-// transient upload on adversarial streams while still collapsing dense CAD
-// runs into a small number of batches.
-const _maxOpaqueStencilBatchDraws = 256;
+// One cover quad is rebuilt per selected paint at tile time. Bound that
+// transient upload on adversarial streams while still collapsing dense runs
+// into a small number of batches.
+const _maxOpaqueStencilBatchPaints = 256;
 
 /// Proves that [next] immediately extends the same ordered vertex stream as
 /// [last]. The shared clip and blend equation are checked by the caller.
@@ -8795,13 +8836,34 @@ bool _sameOpaqueHairline(_HairlineDraw first, _HairlineDraw next) {
 }
 
 bool _sameOpaqueStencilUnion(_StencilDraw first, _StencilDraw next) {
-  final a = first.opaqueUnion, b = next.opaqueUnion;
+  final a = first.opaquePaint, b = next.opaquePaint;
   return a != null &&
       b != null &&
+      next.union &&
       a.color.red == b.color.red &&
       a.color.green == b.color.green &&
       a.color.blue == b.color.blue;
 }
+
+bool _sameDisjointOpaqueFill(
+  _StencilDraw first,
+  List<_StencilDraw> batch,
+  _StencilDraw next,
+) {
+  final a = first.opaquePaint, b = next.opaquePaint;
+  return a != null &&
+      b != null &&
+      !next.union &&
+      first.rule == next.rule &&
+      batch.every(
+          (draw) => _strictlyDisjoint(draw.opaquePaint!.bounds, b.bounds));
+}
+
+bool _strictlyDisjoint(FlatBounds a, FlatBounds b) =>
+    a.right < b.left ||
+    b.right < a.left ||
+    a.bottom < b.top ||
+    b.bottom < a.top;
 
 class _SoftMaskDraw implements _GpuDraw {
   const _SoftMaskDraw(
@@ -9078,10 +9140,67 @@ class _GpuEncoder {
     for (final draw in draws) {
       _drawBuffer(draw.fan);
     }
+    _paintOpaqueStencilBatchCover(draws, color);
+  }
+
+  void opaqueStencilFillBatch(
+    List<_StencilDraw> draws,
+    PdfFillRule rule,
+  ) {
+    _dropRetainedBindings();
+    _appliedDefaultStencilBit = null;
+    final compare = _activeClipBit == 0
+        ? gpu.CompareFunction.always
+        : gpu.CompareFunction.equal;
+    gpu.StencilConfig config(gpu.StencilOperation operation) =>
+        gpu.StencilConfig(
+          compareFunction: compare,
+          depthStencilPassOperation: operation,
+          stencilFailureOperation: gpu.StencilOperation.keep,
+          readMask: _activeClipBit == 0 ? 0 : _activeClipBit,
+          writeMask: _pathMask,
+        );
+    _setBlendEquation(_noWrite);
+    pass
+      ..bindPipeline(pipelines.stencil)
+      ..bindUniform(pipelines.stencilTransform, transform)
+      ..setStencilReference(_activeClipBit);
+    if (rule == PdfFillRule.evenOdd) {
+      pass.setStencilConfig(config(gpu.StencilOperation.invert));
+    } else {
+      pass
+        ..setStencilConfig(
+          config(gpu.StencilOperation.incrementWrap),
+          targetFace: gpu.StencilFace.front,
+        )
+        ..setStencilConfig(
+          config(gpu.StencilOperation.decrementWrap),
+          targetFace: gpu.StencilFace.back,
+        );
+    }
+    for (final draw in draws) {
+      _drawBuffer(draw.fan);
+    }
+    _paintOpaqueStencilFillBatchCover(draws);
+  }
+
+  void _paintOpaqueStencilFillBatchCover(List<_StencilDraw> draws) {
+    final cover = FloatBuilder(draws.length * 36);
+    for (final draw in draws) {
+      final paint = draw.opaquePaint!;
+      _appendCoverVertices(cover, paint.bounds, _premul(paint.color, 1));
+    }
+    _paintStencilCover(
+      emplaceTransient(cover.bytes),
+      cover.length ~/ 6,
+    );
+  }
+
+  void _paintOpaqueStencilBatchCover(List<_StencilDraw> draws, PdfColor color) {
     final rgba = _premul(color, 1);
     final cover = FloatBuilder(draws.length * 36);
     for (final draw in draws) {
-      _appendCoverVertices(cover, draw.opaqueUnion!.bounds, rgba);
+      _appendCoverVertices(cover, draw.opaquePaint!.bounds, rgba);
     }
     _paintStencilCover(
       emplaceTransient(cover.bytes),

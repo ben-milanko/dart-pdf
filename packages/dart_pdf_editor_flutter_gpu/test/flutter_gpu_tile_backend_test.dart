@@ -605,6 +605,93 @@ void main() {
   });
 
   testWidgets(
+      'coalesces disjoint opaque fills without merging overlap alpha or blend',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const color = PdfColor(0.08, 0.24, 0.82);
+      const otherColor = PdfColor(0.82, 0.18, 0.12);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(60, 100, 150, 190),
+          color,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(190, 100, 280, 190),
+          otherColor,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(240, 140, 330, 230),
+          color,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(370, 100, 460, 190),
+          color,
+          PdfFillRule.nonzero,
+          0.5,
+        ),
+        PdfFillPathCommand(
+          _rect(60, 270, 150, 360),
+          color,
+          PdfFillRule.evenOdd,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(190, 270, 280, 360),
+          otherColor,
+          PdfFillRule.evenOdd,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        PdfFillPathCommand(
+          _rect(60, 420, 150, 510),
+          color,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(190, 420, 280, 510),
+          color,
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(backend.stats.coalescedDrawBatches, 2);
+      expect(backend.stats.drawCallsSaved, 2,
+          reason: 'the mixed-color disjoint nonzero and even-odd pairs share '
+              'covers; '
+              'overlap, translucency, and Multiply retain painter order');
+    });
+  });
+
+  testWidgets(
       'coalesces matching opaque stroke unions without merging alpha or blend',
       (tester) async {
     await tester.runAsync(() async {
