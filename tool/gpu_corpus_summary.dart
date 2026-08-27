@@ -123,6 +123,8 @@ class GpuCorpusPage {
     required this.id,
     required this.route,
     this.reason,
+    this.meanDifference,
+    this.stats = const {},
   });
 
   factory GpuCorpusPage.parse(Object? value) {
@@ -137,14 +139,20 @@ class GpuCorpusPage {
       id: value['id'] as String,
       route: route,
       reason: value['reason'] as String?,
+      meanDifference: (value['meanDifference'] as num?)?.toDouble(),
+      stats: _stringKeyedMap(value['stats']),
     );
   }
 
   final String id;
   final String route;
   final String? reason;
+  final double? meanDifference;
+  final Map<String, Object?> stats;
 
   bool get accepted => route == 'flutter-gpu';
+
+  num? stat(String name) => stats[name] as num?;
 }
 
 class GpuCorpusComparison {
@@ -198,6 +206,8 @@ class GpuCorpusComparison {
 
   String toMarkdown() {
     final buffer = StringBuffer(toHeadlineMarkdown());
+    _writeStructuralComparison(buffer);
+    _writeHotspots(buffer);
     _writeChanges(buffer, 'New GPU coverage', improvements);
     _writeChanges(buffer, 'New Canvas fallbacks', regressions);
 
@@ -224,6 +234,92 @@ class GpuCorpusComparison {
       }
     }
     return buffer.toString().trimRight();
+  }
+
+  void _writeStructuralComparison(StringBuffer buffer) {
+    final samples = <(GpuCorpusPage, GpuCorpusPage)>[];
+    for (final suiteName in _suiteNames) {
+      final mainPages = baseline.suites[suiteName]?.pages;
+      final currentPages = current.suites[suiteName]?.pages;
+      if (mainPages == null || currentPages == null) continue;
+      for (final entry in mainPages.entries) {
+        final pullRequest = currentPages[entry.key];
+        if (entry.value.accepted &&
+            pullRequest?.accepted == true &&
+            entry.value.stats.isNotEmpty &&
+            pullRequest!.stats.isNotEmpty) {
+          samples.add((entry.value, pullRequest));
+        }
+      }
+    }
+    buffer
+      ..writeln()
+      ..writeln()
+      ..writeln('#### GPU corpus structural comparison')
+      ..writeln();
+    if (samples.isEmpty) {
+      buffer.writeln(
+        'Per-page backend statistics are unavailable for one side of this '
+        'comparison.',
+      );
+      return;
+    }
+    buffer
+      ..writeln('Common accelerated pages: ${samples.length}.')
+      ..writeln()
+      ..writeln('| Metric | Main | PR | Change |')
+      ..writeln('| --- | ---: | ---: | ---: |');
+    for (final metric in const [
+      ('Native draw calls', 'drawCalls'),
+      ('Selected commands', 'selectedCommands'),
+      ('Draw calls saved', 'drawCallsSaved'),
+      ('Direct rectangle draws', 'directRectangleDraws'),
+      ('Geometry vertices', 'geometryVertices'),
+    ]) {
+      final main = _sumStats(samples.map((sample) => sample.$1), metric.$2);
+      final pullRequest =
+          _sumStats(samples.map((sample) => sample.$2), metric.$2);
+      buffer.writeln(
+        '| ${metric.$1} | $main | $pullRequest | '
+        '${_deltaPercent(main, pullRequest)} |',
+      );
+    }
+  }
+
+  void _writeHotspots(StringBuffer buffer) {
+    final pages = <GpuCorpusPage>[
+      for (final suite in current.suites.values)
+        for (final page in suite.pages.values)
+          if (page.accepted && page.stat('drawCalls') != null) page,
+    ]..sort((a, b) {
+        final draws =
+            (b.stat('drawCalls') ?? 0).compareTo(a.stat('drawCalls') ?? 0);
+        return draws != 0 ? draws : a.id.compareTo(b.id);
+      });
+    buffer
+      ..writeln()
+      ..writeln()
+      ..writeln('#### Current GPU corpus draw hotspots')
+      ..writeln();
+    if (pages.isEmpty) {
+      buffer.writeln('Per-page backend statistics were not recorded.');
+      return;
+    }
+    buffer
+      ..writeln('| Page | Draws | Commands | Saved | Direct rectangles | '
+          'Issue | Compile | Canvas mean delta |')
+      ..writeln('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+    for (final page in pages.take(15)) {
+      buffer.writeln(
+        '| `${_escape(page.id)}` | ${_integerStat(page, 'drawCalls')} | '
+        '${_integerStat(page, 'selectedCommands')} | '
+        '${_integerStat(page, 'drawCallsSaved')} | '
+        '${_integerStat(page, 'directRectangleDraws')} | '
+        '${_millisecondsStat(page, 'issueMicros')} | '
+        '${_millisecondsStat(page, 'compileMicros')} | '
+        '${page.meanDifference?.toStringAsFixed(3) ?? '—'} |',
+      );
+    }
   }
 
   List<String> get _suiteNames => {
@@ -290,3 +386,30 @@ String _inlinePages(
 String _signed(int value) => value > 0 ? '+$value' : '$value';
 
 String _escape(String value) => value.replaceAll('|', r'\|');
+
+Map<String, Object?> _stringKeyedMap(Object? value) {
+  if (value == null) return const {};
+  if (value is! Map || value.keys.any((key) => key is! String)) {
+    throw const FormatException('Invalid Flutter GPU page statistics');
+  }
+  return {for (final entry in value.entries) entry.key as String: entry.value};
+}
+
+int _sumStats(Iterable<GpuCorpusPage> pages, String name) => pages.fold(
+      0,
+      (total, page) => total + (page.stat(name)?.toInt() ?? 0),
+    );
+
+String _deltaPercent(int baseline, int current) {
+  if (baseline == 0) return current == 0 ? '0.0%' : 'new';
+  final percent = (current - baseline) * 100 / baseline;
+  return '${percent >= 0 ? '+' : ''}${percent.toStringAsFixed(1)}%';
+}
+
+String _integerStat(GpuCorpusPage page, String name) =>
+    page.stat(name)?.toInt().toString() ?? '—';
+
+String _millisecondsStat(GpuCorpusPage page, String name) {
+  final micros = page.stat(name);
+  return micros == null ? '—' : '${(micros / 1000).toStringAsFixed(3)} ms';
+}

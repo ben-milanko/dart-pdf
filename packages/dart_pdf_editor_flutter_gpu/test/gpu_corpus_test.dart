@@ -136,7 +136,7 @@ void _corpus(
         );
         final limit = math.min(document.pageCount, maxPages);
         for (var pageIndex = 0; pageIndex < limit; pageIndex++) {
-          final PdfTileRasterBackend backend = FlutterGpuTileRasterBackend(
+          final backend = FlutterGpuTileRasterBackend(
             analyticText:
                 Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
             systemTextOutlines:
@@ -155,9 +155,8 @@ void _corpus(
           );
           try {
             var session = backend.createSession(scene);
-            if (session == null && backend is PdfTileRasterRetryBackend) {
-              final retry =
-                  (backend as PdfTileRasterRetryBackend).retrySession(scene);
+            if (session == null) {
+              final retry = backend.retrySession(scene);
               if (retry != null) session = await retry;
             }
             if (session == null) {
@@ -167,6 +166,7 @@ void _corpus(
                 'id': '$suite/$relativeName page $pageIndex',
                 'route': 'canvas-fallback',
                 'reason': reason,
+                'stats': backend.stats.toJson(),
               });
               rejectionReasons.update(reason, (count) => count + 1,
                   ifAbsent: () => 1);
@@ -183,10 +183,11 @@ void _corpus(
               continue;
             }
             accepted++;
-            pages.add({
+            final pageReport = <String, Object?>{
               'id': '$suite/$relativeName page $pageIndex',
               'route': 'flutter-gpu',
-            });
+            };
+            pages.add(pageReport);
             try {
               final region = Offset.zero & scene.pageSize;
               final ratio = math.min(
@@ -207,6 +208,9 @@ void _corpus(
                   await _writeFailure(
                       suite, name, pageIndex, canvas, accelerated, mean);
                 }
+                pageReport
+                  ..['meanDifference'] = mean
+                  ..['stats'] = backend.stats.toJson();
                 expect(mean, lessThan(16),
                     reason: '$suite/$name page $pageIndex: GPU accepted the '
                         'scene, so it must agree with Canvas (mean=$mean)');

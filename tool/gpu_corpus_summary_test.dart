@@ -20,7 +20,20 @@ void main() {
         'accepted': 1,
         'rejected': 0,
         'pages': [
-          {'id': 'PDF.js/stable.pdf page 0', 'route': 'flutter-gpu'},
+          {
+            'id': 'PDF.js/stable.pdf page 0',
+            'route': 'flutter-gpu',
+            'meanDifference': 0.5,
+            'stats': {
+              'drawCalls': 10,
+              'selectedCommands': 5,
+              'drawCallsSaved': 2,
+              'directRectangleDraws': 0,
+              'geometryVertices': 100,
+              'issueMicros': 4000,
+              'compileMicros': 2000,
+            },
+          },
         ],
       },
     },
@@ -37,14 +50,40 @@ void main() {
             'route': 'canvas-fallback',
             'reason': 'new rejection',
           },
-          {'id': 'Ghent/fallback.pdf page 0', 'route': 'flutter-gpu'},
+          {
+            'id': 'Ghent/fallback.pdf page 0',
+            'route': 'flutter-gpu',
+            'meanDifference': 0.25,
+            'stats': {
+              'drawCalls': 20,
+              'selectedCommands': 12,
+              'drawCallsSaved': 4,
+              'directRectangleDraws': 3,
+              'geometryVertices': 240,
+              'issueMicros': 6000,
+              'compileMicros': 3000,
+            },
+          },
         ],
       },
       'PDF.js': {
         'accepted': 1,
         'rejected': 0,
         'pages': [
-          {'id': 'PDF.js/stable.pdf page 0', 'route': 'flutter-gpu'},
+          {
+            'id': 'PDF.js/stable.pdf page 0',
+            'route': 'flutter-gpu',
+            'meanDifference': 0.4,
+            'stats': {
+              'drawCalls': 8,
+              'selectedCommands': 5,
+              'drawCallsSaved': 4,
+              'directRectangleDraws': 2,
+              'geometryVertices': 90,
+              'issueMicros': 3500,
+              'compileMicros': 1800,
+            },
+          },
         ],
       },
     },
@@ -85,6 +124,17 @@ void main() {
     comparison.toMarkdown(),
     '| `Ghent/accepted.pdf page 0` | new rejection |',
     'fallback detail',
+  );
+  _expectContains(
+    comparison.toMarkdown(),
+    '| Native draw calls | 10 | 8 | -20.0% |',
+    'structural draw comparison',
+  );
+  _expectContains(
+    comparison.toMarkdown(),
+    '| `Ghent/fallback.pdf page 0` | 20 | 12 | 4 | 3 | 6.000 ms | '
+        '3.000 ms | 0.250 |',
+    'ranked draw hotspot',
   );
 
   final safe = summary.GpuCorpusComparison(
