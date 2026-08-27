@@ -95,6 +95,8 @@ void main() {
       ..analyticAtlasFallbacks = 1
       ..analyticSparseAtlasSkips = 3
       ..analyticTextFallbackRuns = 2
+      ..coalescedDrawBatches = 8
+      ..drawCallsSaved = 120
       ..paperClearTiles = 6
       ..paperOnlyTiles = 3
       ..subpixelStrokeFallbacks = 2
@@ -158,6 +160,8 @@ void main() {
     expect(stats.toJson(), containsPair('analyticAtlasFallbacks', 1));
     expect(stats.toJson(), containsPair('analyticSparseAtlasSkips', 3));
     expect(stats.toJson(), containsPair('analyticTextFallbackRuns', 2));
+    expect(stats.toJson(), containsPair('coalescedDrawBatches', 8));
+    expect(stats.toJson(), containsPair('drawCallsSaved', 120));
     expect(stats.toJson(), containsPair('paperClearTiles', 6));
     expect(stats.toJson(), containsPair('paperOnlyTiles', 3));
     expect(stats.toJson(), containsPair('subpixelStrokeFallbacks', 2));
@@ -221,6 +225,8 @@ void main() {
     expect(stats.analyticAtlasFallbacks, 0);
     expect(stats.analyticSparseAtlasSkips, 0);
     expect(stats.analyticTextFallbackRuns, 0);
+    expect(stats.coalescedDrawBatches, 0);
+    expect(stats.drawCallsSaved, 0);
     expect(stats.paperClearTiles, 0);
     expect(stats.paperOnlyTiles, 0);
     expect(stats.subpixelStrokeFallbacks, 0);

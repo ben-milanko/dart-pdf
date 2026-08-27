@@ -1814,9 +1814,12 @@ void main() {
         difference += (expectedPixels[index] - actualPixels[index]).abs();
       }
       expect(difference / expectedPixels.length, lessThan(8));
-      expect(backend.stats.imageBindingReuses, 2,
-          reason: 'an adjacent texture change keeps static image state, while '
-              'the solid draw must invalidate it');
+      expect(backend.stats.imageBindingReuses, 1,
+          reason: 'the first adjacent pair emits one coalesced draw; the '
+              'alternate texture keeps static image state, while the solid '
+              'draw invalidates it');
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 1);
       expect(backend.stats.texturesUploaded, 2);
       expect(backend.stats.textureCacheMisses, 2);
       expect(backend.stats.textureCacheHits, 0,
@@ -1843,6 +1846,65 @@ void main() {
       expect(backend.stats.activeTextureLeases, 2);
       secondSession.dispose();
       expect(backend.stats.activeTextureLeases, 0);
+    });
+  });
+
+  testWidgets('coalesces solid draws only while paint state is identical',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      PdfFillMeshCommand triangle(
+        double left,
+        double bottom,
+        double right,
+        double top,
+        PdfColor color,
+        double alpha,
+      ) =>
+          PdfFillMeshCommand(
+            PdfMesh(
+              [
+                PdfMeshVertex(left, bottom, color),
+                PdfMeshVertex(right, bottom, color),
+                PdfMeshVertex((left + right) / 2, top, color),
+              ],
+              const [0, 1, 2],
+            ),
+            alpha,
+          );
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        triangle(60, 540, 250, 720, const PdfColor(0.85, 0.15, 0.25), 0.75),
+        triangle(150, 500, 340, 680, const PdfColor(0.15, 0.35, 0.9), 0.65),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        triangle(100, 460, 290, 640, const PdfColor(0.95, 0.75, 0.1), 0.7),
+        triangle(200, 420, 390, 600, const PdfColor(0.1, 0.8, 0.4), 0.6),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final expectedPixels = await _pixels(expected);
+      final actualPixels = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < expectedPixels.length; index++) {
+        difference += (expectedPixels[index] - actualPixels[index]).abs();
+      }
+      expect(difference / expectedPixels.length, lessThan(4));
+      expect(backend.stats.coalescedDrawBatches, 2,
+          reason: 'normal and Multiply draws form separate batches');
+      expect(backend.stats.drawCallsSaved, 2);
     });
   });
 
@@ -5783,8 +5845,11 @@ void main() {
       }
       expect(difference / expectedPixels.length, lessThan(8));
       expect(backend.stats.analyticTextRuns, 3);
-      expect(backend.stats.glyphBindingReuses, 1,
-          reason: 'the solid draw must invalidate the retained atlas state');
+      expect(backend.stats.glyphBindingReuses, 0,
+          reason: 'the adjacent runs emit one coalesced draw, then the solid '
+              'draw invalidates the retained atlas state');
+      expect(backend.stats.coalescedDrawBatches, 1);
+      expect(backend.stats.drawCallsSaved, 1);
     });
   });
 

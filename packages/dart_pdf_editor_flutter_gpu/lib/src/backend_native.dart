@@ -5788,9 +5788,41 @@ class _CompiledScene {
         ..setClip(_rootGpuClip)
         ..solid(paper.vertices);
     }
-    for (final unit in selected) {
-      final draw = draws[unit.commandIndex];
-      if (draw == null) continue;
+    var unitIndex = 0;
+    while (unitIndex < selected.length) {
+      final unit = selected[unitIndex];
+      var draw = draws[unit.commandIndex];
+      if (draw == null) {
+        unitIndex++;
+        continue;
+      }
+      var nextUnitIndex = unitIndex + 1;
+      final firstBuffer = _batchableDrawBuffer(draw);
+      if (firstBuffer != null) {
+        var lastDraw = draw;
+        var vertices = firstBuffer.vertices;
+        while (nextUnitIndex < selected.length) {
+          final nextUnit = selected[nextUnitIndex];
+          if (!identical(unit.clip, nextUnit.clip) ||
+              unit.blendMode != nextUnit.blendMode) {
+            break;
+          }
+          final nextDraw = draws[nextUnit.commandIndex];
+          if (nextDraw == null ||
+              !_canCoalesceGpuDraws(draw, lastDraw, nextDraw)) {
+            break;
+          }
+          vertices += _batchableDrawBuffer(nextDraw)!.vertices;
+          lastDraw = nextDraw;
+          nextUnitIndex++;
+        }
+        if (!identical(lastDraw, draw)) {
+          stats
+            ..coalescedDrawBatches += 1
+            ..drawCallsSaved += nextUnitIndex - unitIndex - 1;
+          draw = _coalescedGpuDraw(draw, lastDraw, vertices);
+        }
+      }
       encoder
         ..setClip(unit.clip)
         ..setBlendMode(unit.blendMode);
@@ -5800,6 +5832,7 @@ class _CompiledScene {
       } else {
         draw.encode(encoder);
       }
+      unitIndex = nextUnitIndex;
     }
     stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
     transient.flush();
@@ -8602,6 +8635,65 @@ class _AnalyticTextDraw implements _GpuDraw {
 
   @override
   void encode(_GpuEncoder encoder) => encoder.glyphs(vertices, atlas);
+}
+
+/// Returns the retained triangle-list range for draws whose complete varying
+/// state lives in their vertices and one immutable texture or glyph atlas.
+/// Stencil, gradient, mask, sequence, and group draws keep their pass boundary.
+_GpuBuffer? _batchableDrawBuffer(_GpuDraw draw) => switch (draw) {
+      _SolidDraw(:final vertices) when draw.runtimeType == _SolidDraw =>
+        vertices,
+      _TextureDraw(:final vertices) => vertices,
+      _AnalyticTextDraw(:final vertices) => vertices,
+      _ => null,
+    };
+
+/// Proves that [next] immediately extends the same ordered vertex stream as
+/// [last]. The shared clip and blend equation are checked by the caller.
+bool _canCoalesceGpuDraws(
+  _GpuDraw first,
+  _GpuDraw last,
+  _GpuDraw next,
+) {
+  final compatible = switch ((first, next)) {
+    (_SolidDraw(), _SolidDraw()) =>
+      first.runtimeType == _SolidDraw && next.runtimeType == _SolidDraw,
+    (
+      _TextureDraw(texture: final texture),
+      _TextureDraw(texture: final nextTexture),
+    ) =>
+      identical(texture, nextTexture),
+    (
+      _AnalyticTextDraw(atlas: final atlas),
+      _AnalyticTextDraw(atlas: final nextAtlas),
+    ) =>
+      identical(atlas, nextAtlas),
+    _ => false,
+  };
+  if (!compatible) return false;
+  final lastView = _batchableDrawBuffer(last)!.view;
+  final nextView = _batchableDrawBuffer(next)!.view;
+  return identical(lastView.buffer, nextView.buffer) &&
+      lastView.offsetInBytes + lastView.lengthInBytes == nextView.offsetInBytes;
+}
+
+_GpuDraw _coalescedGpuDraw(_GpuDraw first, _GpuDraw last, int vertices) {
+  final firstView = _batchableDrawBuffer(first)!.view;
+  final lastView = _batchableDrawBuffer(last)!.view;
+  final buffer = _GpuBuffer(vertices)
+    .._view = gpu.BufferView(
+      firstView.buffer,
+      offsetInBytes: firstView.offsetInBytes,
+      lengthInBytes: lastView.offsetInBytes +
+          lastView.lengthInBytes -
+          firstView.offsetInBytes,
+    );
+  return switch (first) {
+    _SolidDraw() when first.runtimeType == _SolidDraw => _SolidDraw(buffer),
+    _TextureDraw(:final texture) => _TextureDraw(buffer, texture),
+    _AnalyticTextDraw(:final atlas) => _AnalyticTextDraw(buffer, atlas),
+    _ => throw StateError('unsupported coalesced GPU draw'),
+  };
 }
 
 class _SoftMaskDraw implements _GpuDraw {
