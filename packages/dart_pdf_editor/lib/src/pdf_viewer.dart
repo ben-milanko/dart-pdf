@@ -8149,11 +8149,13 @@ class _PdfViewerState extends State<PdfViewer>
                       editing.deleteSelected,
                   const SingleActivator(LogicalKeyboardKey.backspace):
                       editing.deleteSelected,
-                  // arrow keys nudge the selected annotation(s) - 1 pt per
-                  // press, 10 pt with Shift for a coarse move. Only bound
-                  // while something is selected so a bare arrow still scrolls
-                  // the page when it isn't.
-                  if (editing.hasAnnotationSelection) ...{
+                  // arrow keys nudge the selection - the annotation(s), or
+                  // the selected page-content element - 1 pt per press, 10 pt
+                  // with Shift for a coarse move. Only bound while something
+                  // is selected so a bare arrow still scrolls the page when
+                  // it isn't.
+                  if (editing.hasAnnotationSelection ||
+                      editing.selectedElement != null) ...{
                     const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
                         editing.nudgeSelected(-_annotationNudgeStep, 0),
                     const SingleActivator(LogicalKeyboardKey.arrowRight): () =>

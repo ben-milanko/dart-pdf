@@ -30,6 +30,42 @@ enum PdfElementKind {
   shading,
 }
 
+/// Where a [PdfElementKind.text] run sits in the content stream's own text
+/// space, captured at the moment it draws.
+///
+/// This is what [PdfContentEditing.moveElements] needs to reposition a run
+/// without disturbing the rest of its text object: the matrices to restore
+/// afterwards, and the advance to replay so whatever follows on the line
+/// still starts where it did.
+class PdfTextPlacement {
+  const PdfTextPlacement({
+    required this.matrix,
+    required this.lineMatrix,
+    required this.entryLineMatrix,
+    required this.fontSize,
+    required this.advance,
+  });
+
+  /// The text matrix the glyphs draw under - after any line move the
+  /// operator performs itself (`'` and `\"` begin with a `T*`).
+  final PdfMatrix matrix;
+
+  /// The line matrix in effect for the run: the origin a following
+  /// `Td`/`TD`/`T*`/`'`/`\"` moves relative to.
+  final PdfMatrix lineMatrix;
+
+  /// The line matrix *before* the operator's own line move. Equal to
+  /// [lineMatrix] for `Tj` and `TJ`.
+  final PdfMatrix entryLineMatrix;
+
+  /// The font size (`Tf`) in effect.
+  final double fontSize;
+
+  /// How far the run advances the text matrix, in text space: the sum of
+  /// the glyph widths and `TJ` kerns, already scaled by [fontSize].
+  final double advance;
+}
+
 /// One deletable drawing on a page: a contiguous run of content-stream
 /// operations together with what they paint and roughly where.
 class PdfContentElement {
@@ -38,11 +74,13 @@ class PdfContentElement {
     required this.kind,
     required this.start,
     required this.end,
+    required this.ctm,
     this.text,
     this.resourceName,
     this.bounds,
     this.imageWidth,
     this.imageHeight,
+    this.textPlacement,
   });
 
   /// Stable handle for [PdfContentEditing.deleteElements].
@@ -80,6 +118,15 @@ class PdfContentElement {
   /// Pixel height for image-like elements when declared by the content stream
   /// or image XObject dictionary.
   final int? imageHeight;
+
+  /// The transformation matrix in effect when the element paints, mapping
+  /// the space its operators speak in onto page (user) space. Repositioning
+  /// works through it: a page-space shift becomes
+  /// `ctm × translation × ctm⁻¹` (see [translationUnder]).
+  final PdfMatrix ctm;
+
+  /// Text-space placement, for [PdfElementKind.text] elements only.
+  final PdfTextPlacement? textPlacement;
 
   @override
   String toString() => 'PdfContentElement#$id($kind'
@@ -124,17 +171,20 @@ class PdfPageElements {
         String? resource,
         PdfRect? bounds,
         int? imageWidth,
-        int? imageHeight}) {
+        int? imageHeight,
+        PdfTextPlacement? placement}) {
       elements.add(PdfContentElement._(
         id: elements.length,
         kind: kind,
         start: start,
         end: end,
+        ctm: ctm,
         text: shown,
         resourceName: resource,
         bounds: bounds,
         imageWidth: imageWidth,
         imageHeight: imageHeight,
+        textPlacement: placement,
       ));
     }
 
@@ -282,14 +332,19 @@ class PdfPageElements {
         case 'T*':
           text.newline(0, -text.leading);
         case 'Tj' || "'" || '"' || 'TJ':
+          // captured before the operator's own line move: repositioning the
+          // run has to seed the text matrix *ahead* of that move
+          final entryLine = text.lineMatrix;
           if (op.operator == "'") text.newline(0, -text.leading);
           if (op.operator == '"') text.newline(0, -text.leading);
           final decoder = type0For(text.fontName);
           final simple = decoder == null ? simpleFor(text.fontName) : null;
           final shown = StringBuffer();
           var advanceEm = 0.0; // thousandths of an em, for measurement
+          var showedString = false;
           void show(CosObject o) {
             if (o is! CosString) return;
+            showedString = true;
             final b = o.bytes;
             if (simple != null) {
               for (final code in b) {
@@ -326,15 +381,29 @@ class PdfPageElements {
           // metrics now, so the estimate no longer assumes Helvetica.
           final width = advanceEm / 1000 * text.size;
           final m = text.matrix.concat(ctm);
-          addElement(PdfElementKind.text, i, i + 1,
-              shown: string,
-              resource: text.fontName,
-              bounds: boundsOfPoints([
-                m.apply(0, -0.2 * text.size),
-                m.apply(width, -0.2 * text.size),
-                m.apply(0, text.size),
-                m.apply(width, text.size),
-              ]));
+          // A `TJ` array of pure kerns shows nothing - it only advances the
+          // text matrix. It is not a drawing, so it is not an element; and
+          // keeping it out is what lets [PdfContentEditing.moveElements]
+          // splice its advance compensation in without renumbering the
+          // elements after it.
+          if (showedString) {
+            addElement(PdfElementKind.text, i, i + 1,
+                shown: string,
+                resource: text.fontName,
+                bounds: boundsOfPoints([
+                  m.apply(0, -0.2 * text.size),
+                  m.apply(width, -0.2 * text.size),
+                  m.apply(0, text.size),
+                  m.apply(width, text.size),
+                ]),
+                placement: PdfTextPlacement(
+                  matrix: text.matrix,
+                  lineMatrix: text.lineMatrix,
+                  entryLineMatrix: entryLine,
+                  fontSize: text.size,
+                  advance: width,
+                ));
+          }
           text.advance(width);
 
         // XObjects, inline images, shading
@@ -396,18 +465,29 @@ class PdfPageElements {
   /// Serializes [operations] back into content-stream bytes, skipping the
   /// operation indexes in [drop] and writing [replacements] instead where
   /// provided (used to keep the side effects of `'` and `"`).
+  ///
+  /// [before] and [after] splice raw operator text around an operation
+  /// without disturbing its index - how
+  /// [PdfContentEditing.moveElements] brackets a drawing with a
+  /// `q`/`cm`…`Q` or a pair of `Tm`s.
   Uint8List serialize({
     Set<int> drop = const {},
     Map<int, String> replacements = const {},
+    Map<int, String> before = const {},
+    Map<int, String> after = const {},
   }) {
     final out = BytesBuilder();
     for (var i = 0; i < operations.length; i++) {
+      final prefix = before[i];
+      if (prefix != null) out.add(latin1.encode('$prefix\n'));
       if (drop.contains(i)) {
         final replacement = replacements[i];
         if (replacement != null) out.add(latin1.encode('$replacement\n'));
-        continue;
+      } else {
+        ContentStreamSerializer.writeOperation(operations[i], out);
       }
-      ContentStreamSerializer.writeOperation(operations[i], out);
+      final suffix = after[i];
+      if (suffix != null) out.add(latin1.encode('$suffix\n'));
     }
     return out.takeBytes();
   }

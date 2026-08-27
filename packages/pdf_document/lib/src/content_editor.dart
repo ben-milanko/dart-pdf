@@ -140,6 +140,116 @@ extension PdfContentEditing on PdfEditor {
     );
   }
 
+  /// Tier 2b - element repositioning. Shifts the [ids] listed in [elements]
+  /// (a snapshot from [PdfPageElements.of]) by [dx], [dy] **page points**
+  /// and rewrites the page's content stream. Returns how many elements
+  /// actually moved.
+  ///
+  /// The drawing is left exactly as it was - same operators, same operands,
+  /// same resources - and only the space it draws in is shifted, so a
+  /// rotated logo stays rotated and a scaled image keeps its scale. Paths,
+  /// images, forms, inline images and shadings are bracketed with
+  /// `q`/`cm`…`Q`; a text run gets a `Tm` in front of it and a `Tm`
+  /// behind, putting the text object's own state back so the rest of the
+  /// line - and every `Td`/`T*` after it - lands where it did before. Where
+  /// a following run shares the line, the moved run's advance is replayed
+  /// as a kern-only `TJ` so its neighbours do not slide.
+  ///
+  /// An element is skipped (and not counted) when it cannot be shifted
+  /// safely: a degenerate transform with no inverse, a path that also
+  /// establishes a clip (`W`/`W*` - bracketing it would confine the clip to
+  /// the moved drawing), or a text run at font size 0.
+  ///
+  /// Element ids survive the rewrite: the splices are `q`/`cm`/`Q`/`Tm` and
+  /// kern-only `TJ` operators, none of which is a drawing, so re-reading the
+  /// page with [PdfPageElements.of] yields the same elements in the same
+  /// order. Note that this repositions the *drawing*, not the text flow: a
+  /// moved run does not re-wrap, and moving it out from under a clip or a
+  /// tiling pattern's phase can change what it looks like.
+  int moveElements(
+    PdfPageElements elements,
+    Iterable<int> ids, {
+    required double dx,
+    required double dy,
+  }) {
+    final page = document.page(elements.pageIndex);
+    final before = <int, String>{};
+    final after = <int, String>{};
+    var moved = 0;
+    for (final id in ids) {
+      if (id < 0 || id >= elements.elements.length) {
+        throw RangeError.range(id, 0, elements.elements.length - 1, 'ids');
+      }
+      final element = elements.elements[id];
+      if (before.containsKey(element.start)) continue; // a repeated id
+      if (dx == 0 && dy == 0) continue;
+      final delta = translationUnder(element.ctm, dx, dy);
+      if (delta == null) continue;
+      if (element.kind == PdfElementKind.text) {
+        final placement = element.textPlacement;
+        if (placement == null || placement.fontSize <= 0) continue;
+        // `'` and `"` perform their own `T*` after this `Tm`, so they are
+        // seeded with the matrix the operator *enters* on and left to do the
+        // line move; everything else is seeded with the run's own matrix, so
+        // a run that starts partway along its line stays there.
+        final operator = elements.operations[element.start].operator;
+        final seed = operator == "'" || operator == '"'
+            ? placement.entryLineMatrix
+            : placement.matrix;
+        before[element.start] = '${_matrixOperands(seed.concat(delta))} Tm';
+        // Put the text state back: the line matrix exactly (so a following
+        // `Td`/`T*` still measures from the real line), then the run's own
+        // advance as a kern-only `TJ` so a neighbour sharing the line starts
+        // where it did. `Tm` is the only operator that sets the text matrix,
+        // and it always resets the line matrix with it - hence the two steps.
+        final restore =
+            StringBuffer('${_matrixOperands(placement.lineMatrix)} Tm');
+        final advance = placement.advance + _lineAdvance(placement);
+        if (advance.abs() > 1e-9) {
+          final kern = -1000 * advance / placement.fontSize;
+          restore.write(' [ ${ContentWriter.fmt(kern)} ] TJ');
+        }
+        after[element.start] = restore.toString();
+      } else {
+        if (_establishesClip(elements, element)) continue;
+        before[element.start] = 'q ${_matrixOperands(delta)} cm';
+        after[element.end - 1] = 'Q';
+      }
+      moved++;
+    }
+    if (moved == 0) return 0;
+    _setContent(
+      elements.pageIndex,
+      page,
+      elements.serialize(before: before, after: after),
+    );
+    return moved;
+  }
+
+  /// How far into its line the run already sits: the text matrix differs
+  /// from the line matrix only by the advances of the runs before it, so
+  /// `matrix × lineMatrix⁻¹` is that pure translation.
+  static double _lineAdvance(PdfTextPlacement placement) {
+    final inverse = placement.lineMatrix.inverted();
+    if (inverse == null) return 0;
+    return placement.matrix.concat(inverse).e;
+  }
+
+  /// Whether [element]'s operations also make a clipping path. Bracketing
+  /// such a run in `q`…`Q` would drop the clip the rest of the page expects.
+  static bool _establishesClip(
+      PdfPageElements elements, PdfContentElement element) {
+    for (var i = element.start; i < element.end; i++) {
+      final operator = elements.operations[i].operator;
+      if (operator == 'W' || operator == 'W*') return true;
+    }
+    return false;
+  }
+
+  static String _matrixOperands(PdfMatrix m) => [
+        for (final value in m.toList()) ContentWriter.fmt(value),
+      ].join(' ');
+
   /// Tier 3 - text editing. Replaces occurrences of [find] with [replace]
   /// in the text-showing operations on page [index] and returns how many
   /// were rewritten.
@@ -849,8 +959,7 @@ class _SimpleRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(
-          List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
@@ -936,8 +1045,7 @@ class _StyledRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(
-          List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));

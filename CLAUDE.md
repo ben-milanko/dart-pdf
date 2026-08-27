@@ -174,7 +174,16 @@ custom IdP). Loopback needs `dart:io`, so web gets a stub via conditional
 import.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
-enumeration with approximate bounds, stream rewriting), and
+enumeration with approximate bounds, stream rewriting),
+`PdfEditor.moveElements` (repositioning: the drawing is left byte-identical
+and only the space it draws in shifts, so scale/rotation/skew survive -
+paths/images/forms/inline images/shadings get bracketed with `q`/`cm`...`Q`,
+a text run gets a `Tm` in front and a restoring `Tm` (plus a kern-only `TJ`
+replaying its advance) behind so the rest of the line and every later
+`Td`/`T*` hold; `translationUnder` is the `ctm x T x ctm-1` conversion.
+Refused for a path that also clips and for size-0 text. Element ids survive
+a move - the splices are transform operators, and a kern-only `TJ` is no
+longer listed as an element), and
 `PdfEditor.replaceText` (matches across a line's shown
 strings and consecutive Tj/TJ runs, with width-compensated re-measurement
 from the font's /Widths so following text holds position; composite
@@ -369,7 +378,16 @@ per revision in the controller - orange selection chrome; delete via
 action (`pdf-reflow-element-text`) re-wraps the selected line's whole
 paragraph, toasting a fallback hint when the shape isn't reflowable;
 element ids die with every revision, so any edit clears the element
-selection).
+selection). Page content also **moves**: a drag on the selected element (or
+on any element, grabbing it in the same gesture) repositions it via
+`moveSelectedElement`, and the arrow keys nudge it - `nudgeSelected` falls
+through to the element when no annotation is selected. The drag floats the
+artwork itself: the overlay renders the page once per revision
+(`_ensureElementLift`), washes the element's resting footprint with paper
+and paints the same pixels clipped out of that picture at the pointer. A
+move is the one element edit that keeps its selection, because `moveElements`
+preserves element ids. See
+doc/dev-log/2026-08-27-reposition-page-content.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder

@@ -49,3 +49,20 @@ PdfMatrix fitFormToRect(PdfRect bbox, PdfMatrix matrix, PdfRect rect) {
     rect.bottom - bounds.bottom * sy,
   );
 }
+
+/// The transform to concatenate under [ctm] so that content drawn through it
+/// lands [dx], [dy] further along the *page's* axes: `ctm × T × ctm⁻¹`.
+///
+/// Content-stream operators speak in whatever space the current
+/// transformation matrix establishes, so a shift the user made in page
+/// points has to be carried back through it. Emitting the result as a `cm`
+/// (or post-multiplying it onto a text matrix) shifts exactly that drawing
+/// and leaves its scale, skew, and rotation alone.
+///
+/// Null when [ctm] is degenerate (no inverse), so nothing can be said about
+/// where a page-space shift lands.
+PdfMatrix? translationUnder(PdfMatrix ctm, double dx, double dy) {
+  final inverse = ctm.inverted();
+  if (inverse == null) return null;
+  return ctm.concat(PdfMatrix.translation(dx, dy)).concat(inverse);
+}

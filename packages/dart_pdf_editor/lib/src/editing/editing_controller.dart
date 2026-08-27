@@ -5893,12 +5893,17 @@ class PdfEditingController extends ChangeNotifier {
   /// Nudges the selection by ([screenDx], [screenDy]) view-space units - the
   /// way the arrow keys point on screen, with y running *down* as the reader
   /// sees the page. The delta is translated through the primary selected
-  /// page's /Rotate so an annotation always slides the direction the key
+  /// page's /Rotate so the selection always slides the direction the key
   /// points regardless of how the page is turned, then handed to
   /// [moveSelected] (one revision; the selection survives). A no-op with
   /// nothing selected.
+  ///
+  /// With no annotation selected this nudges the selected *page-content*
+  /// element instead ([moveSelectedElement]), so a logo or a line of text
+  /// answers the arrow keys exactly like a stamp does.
   void nudgeSelected(double screenDx, double screenDy) {
-    final page = selectedPage;
+    final annotationPage = selectedPage;
+    final page = annotationPage ?? selectedElementPage;
     if (page == null) return;
     // Mirror of PdfPageGeometry.toPagePoint: view y is down and /Rotate turns
     // the page clockwise, so recover the page-space (y-up) delta per rotation.
@@ -5908,7 +5913,11 @@ class PdfEditingController extends ChangeNotifier {
       270 => (-screenDy, -screenDx),
       _ => (screenDx, -screenDy),
     };
-    moveSelected(dx, dy);
+    if (annotationPage != null) {
+      moveSelected(dx, dy);
+    } else {
+      moveSelectedElement(dx, dy);
+    }
   }
 
   /// The selected annotations that share the primary selection's page, in
@@ -7528,6 +7537,56 @@ class PdfEditingController extends ChangeNotifier {
     apply(
       (e) => e.deleteElements(elementsOn(selected.$1), [element.id]),
     );
+  }
+
+  /// Whether the selected content element can be repositioned on the page.
+  ///
+  /// Everything the content tool can select moves except a path that also
+  /// establishes a clip and text drawn at size 0 - see
+  /// [PdfContentEditing.moveElements].
+  bool get canMoveSelectedElement {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null) return false;
+    if (element.ctm.inverted() == null) return false;
+    if (element.kind == PdfElementKind.text) {
+      final placement = element.textPlacement;
+      return placement != null && placement.fontSize > 0;
+    }
+    final operations = elementsOn(selected.$1).operations;
+    for (var i = element.start; i < element.end; i++) {
+      final operator = operations[i].operator;
+      if (operator == 'W' || operator == 'W*') return false;
+    }
+    return true;
+  }
+
+  /// Shifts the selected content element by [dx], [dy] page points and
+  /// keeps it selected. Returns whether the page changed.
+  ///
+  /// This repositions the drawing itself - a text run, a logo, a placed
+  /// image, a filled path - not an annotation on top of it. The element
+  /// survives the rewrite with its id intact (the splices are transform
+  /// operators, not drawings), so the selection can carry straight over into
+  /// the next drag.
+  bool moveSelectedElement(double dx, double dy) {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null) return false;
+    if (!canMoveSelectedElement) return false;
+    var moved = 0;
+    final changed = apply((e) => moved = e.moveElements(
+          elementsOn(selected.$1),
+          [element.id],
+          dx: dx,
+          dy: dy,
+        ));
+    if (!changed || moved == 0) return false;
+    // the rewrite splices only transform operators, so paint order - and
+    // with it every element id - is exactly what it was
+    _selectedElement = selected;
+    notifyListeners();
+    return true;
   }
 
   /// Rewrites the selected text element's characters to [text] and
