@@ -10,11 +10,44 @@ import 'parser.dart';
 import 'perf/perf.dart';
 import 'xref.dart';
 
+/// Populated-range maps for sparse buffers, keyed by the buffer itself.
+///
+/// A progressive open hands its buffer onward as plain bytes - a host paints
+/// the preview through `PdfReader(bytes:)`, which opens its own session over
+/// the same buffer - and a `Uint8List` cannot carry "these are the parts of me
+/// that hold real bytes" in its type. Recording it here means every later
+/// [CosDocument.open] of that exact buffer inherits the map instead of
+/// treating the zeros as file content; unreferenced buffers drop out with the
+/// expando. Sparseness is a property of the buffer, so this is where it
+/// belongs, not in the signature of every widget between the loader and the
+/// parser.
+final Expando<List<int>> cosSparseBufferRanges =
+    Expando<List<int>>('cos populated ranges');
+
 /// A parsed PDF file at the COS level: header, cross-reference machinery, and
 /// on-demand object loading. Page-level semantics live in `pdf_document`.
 class CosDocument {
-  CosDocument._(
-      this.bytes, this._offsetShift, this._xref, this.trailer, this.startXref);
+  CosDocument._(this.bytes, this._offsetShift, this._xref, this.trailer,
+      this.startXref, this._populated);
+
+  /// Half-open `[start, end)` byte ranges of [bytes] that actually hold file
+  /// bytes, flattened and sorted, or null when the buffer is the whole file.
+  ///
+  /// A progressive/ranged open assembles a **sparse** buffer: the header, the
+  /// cross-reference chain and the fetched objects are populated, and
+  /// everything else - free space, superseded revisions, and (for a
+  /// page-scoped first paint) every object outside that page's closure - is
+  /// left as zeros. Nothing in the parser can tell those zeros from real
+  /// bytes, and 0x00 is PDF whitespace, so a parse that starts in a hole
+  /// skips whitespace forward until the next populated byte - hundreds of
+  /// megabytes on a large file, per object, on whatever thread asked. That is
+  /// exactly what a viewer does the moment it reads an annotation outside the
+  /// preview's closure: an 83-page 219 MB pack spent 13.2 s inside one
+  /// `page.annotations` call, and answered 0 annotations instead of 65.
+  ///
+  /// With the ranges known, a hole is a miss instead of a scan: the reference
+  /// dangles the same way a not-yet-fetched compressed object already does.
+  final List<int>? _populated;
 
   /// The document image the xref offsets refer to. Grows in place when an
   /// append-only incremental revision is fed through [applyIncrementalUpdate];
@@ -118,12 +151,26 @@ class CosDocument {
   /// When the cross-reference machinery is broken (missing `startxref`,
   /// corrupt offsets, truncated tables), falls back to rebuilding the xref
   /// by scanning the file for object headers - see [_recover].
-  static CosDocument open(Uint8List bytes, {String password = ''}) {
+  /// [populatedRanges] declares which parts of [bytes] were actually read,
+  /// for the sparse buffer a ranged/progressive open assembles (see
+  /// [_populated]). Flattened, sorted, non-overlapping `[start, end)` pairs in
+  /// buffer coordinates. Null - the default, and every whole-file open - means
+  /// the buffer is complete.
+  static CosDocument open(Uint8List bytes,
+      {String password = '', List<int>? populatedRanges}) {
     final t0 = PdfPerf.begin();
+    // Owned and growable: [applyIncrementalUpdate] extends it in place, and a
+    // caller's literal may be neither.
+    final declared = populatedRanges ?? cosSparseBufferRanges[bytes];
+    final populated = declared == null ? null : List<int>.of(declared);
+    if (PdfPerf.enabled) {
+      PdfPerf.sink?.call('cos open bytes=${bytes.length} '
+          '${populated == null ? 'whole-file' : 'sparse spans=${populated.length >> 1}'}');
+    }
     try {
       final shift = _findHeader(bytes);
       try {
-        final document = _openFromXref(bytes, shift);
+        final document = _openFromXref(bytes, shift, populated);
         document._initEncryption(password);
         final root = document.resolve(document.trailer['Root']);
         if (root is! CosDictionary) {
@@ -139,7 +186,7 @@ class CosDocument {
       } on RangeError {
         // ditto: an xref offset pointing outside the file
       }
-      return _recover(bytes, shift, password);
+      return _recover(bytes, shift, password, populated);
     } finally {
       PdfPerf.end(PdfPerfPhase.docOpen, t0);
     }
@@ -180,6 +227,17 @@ class CosDocument {
     final changed = appended.entries.keys.toSet();
     appended.entries.forEach((number, entry) => _xref[number] = entry);
 
+    // An appended revision is real bytes end to end, so a sparse buffer's hole
+    // map has to grow with it - otherwise every object the update defines
+    // would read as an unfetched hole and the revision would apply invisibly.
+    final populated = _populated;
+    if (populated != null) {
+      if (populated.isNotEmpty && populated.last == bytes.length) {
+        populated[populated.length - 1] = newBytes.length;
+      } else {
+        populated.addAll([bytes.length, newBytes.length]);
+      }
+    }
     bytes = newBytes;
     startXref = newStartXref;
     // Only a section the walk actually parsed carries a trailer to refresh the
@@ -224,12 +282,13 @@ class CosDocument {
   }) =>
       openCosDocumentFromSource(source, password: password, options: options);
 
-  static CosDocument _openFromXref(Uint8List bytes, int shift) {
+  static CosDocument _openFromXref(
+      Uint8List bytes, int shift, List<int>? populated) {
     final t0 = PdfPerf.begin();
     try {
       final xref = CosXrefReader(bytes, shift: shift).read();
       return CosDocument._(
-          bytes, shift, xref.entries, xref.trailer, xref.startXref);
+          bytes, shift, xref.entries, xref.trailer, xref.startXref, populated);
     } finally {
       PdfPerf.end(PdfPerfPhase.xrefParse, t0);
     }
@@ -242,20 +301,21 @@ class CosDocument {
   /// dictionaries and cross-reference stream dictionaries, indexes any
   /// object streams so compressed objects stay reachable, and - failing a
   /// recovered /Root - locates the catalog by its /Type.
-  static CosDocument _recover(Uint8List bytes, int shift, String password) {
+  static CosDocument _recover(
+      Uint8List bytes, int shift, String password, List<int>? populated) {
     final t0 = PdfPerf.begin();
     PdfPerf.add(PdfPerfCount.xrefRecovered);
     PdfPerf.event(PdfPerfEvent.xrefRecoveryTriggered, 'bytes=${bytes.length}');
     try {
-      return _recoverTimed(bytes, shift, password);
+      return _recoverTimed(bytes, shift, password, populated);
     } finally {
       PdfPerf.end(PdfPerfPhase.xrefRecovery, t0);
     }
   }
 
   static CosDocument _recoverTimed(
-      Uint8List bytes, int shift, String password) {
-    final entries = _scanObjectHeaders(bytes, shift);
+      Uint8List bytes, int shift, String password, List<int>? populated) {
+    final entries = _scanObjectHeaders(bytes, shift, populated);
     if (entries.isEmpty) {
       throw CosParseException(
           'cross-reference recovery found no objects in the file');
@@ -283,7 +343,8 @@ class CosDocument {
       t += 'trailer'.length;
     }
 
-    final document = CosDocument._(bytes, shift, entries, trailer, 0);
+    final document =
+        CosDocument._(bytes, shift, entries, trailer, 0, populated);
 
     // Doc-level keys from xref stream dictionaries. This pass runs before
     // encryption is initialized (it has to: it may recover /Encrypt), so
@@ -363,9 +424,25 @@ class CosDocument {
 
   /// Scans the whole file for `N G obj` headers; the last definition of
   /// each object number wins, matching incremental-update semantics.
-  static Map<int, CosXrefEntry> _scanObjectHeaders(Uint8List bytes, int shift) {
+  /// [populated] bounds the scan to the byte ranges a sparse buffer actually
+  /// holds (see [_populated]); a hole is all zeros, so scanning it can only
+  /// cost time.
+  static Map<int, CosXrefEntry> _scanObjectHeaders(
+      Uint8List bytes, int shift, List<int>? populated) {
     final entries = <int, CosXrefEntry>{};
+    var hole = 0; // index of the populated range the cursor is at or before
     for (var i = shift; i + 3 <= bytes.length; i++) {
+      if (populated != null) {
+        while (
+            hole * 2 + 1 < populated.length && i >= populated[hole * 2 + 1]) {
+          hole++;
+        }
+        if (hole * 2 >= populated.length) break;
+        if (i < populated[hole * 2]) {
+          i = populated[hole * 2] - 1;
+          continue;
+        }
+      }
       if (bytes[i] != 0x6F /* o */ ||
           bytes[i + 1] != 0x62 /* b */ ||
           bytes[i + 2] != 0x6A /* j */) {
@@ -575,9 +652,29 @@ class CosDocument {
   /// Parses the indirect object at xref [offset], or null when the bytes
   /// there are junk or define a different object number.
   CosIndirectObject? _parseIndirectAt(int offset, int objectNumber) {
+    final at = offset + _offsetShift;
+    // A sparse buffer's holes are zeros, and 0x00 is whitespace: parsing one
+    // would skip forward to the next populated byte, however far away that is.
+    // Treat the object as missing instead, and bound the parse to the run it
+    // starts in so an object that runs off the end of a fetched range cannot
+    // walk into the next hole either (a view, not a copy).
+    final limit = _populatedEnd(at);
+    if (limit < 0) {
+      // One line per document, not per object: the interesting fact is that
+      // this buffer is being read outside what it holds at all.
+      if (!_reportedHoleRead && PdfPerf.enabled) {
+        _reportedHoleRead = true;
+        PdfPerf.sink?.call('cos hole read refused object=$objectNumber at=$at');
+      }
+      return null;
+    }
     try {
-      final parser = CosParser(bytes,
-          offset: offset + _offsetShift, resolver: _resolveRef);
+      final parser = CosParser(
+          limit == bytes.length
+              ? bytes
+              : Uint8List.sublistView(bytes, 0, limit),
+          offset: at,
+          resolver: _resolveRef);
       final indirect = parser.parseIndirectObject();
       return indirect.objectNumber == objectNumber ? indirect : null;
     } on Exception {
@@ -587,13 +684,36 @@ class CosDocument {
     }
   }
 
+  bool _reportedHoleRead = false;
+
+  /// End of the populated run containing [offset], or -1 when it lies in a
+  /// hole. A complete buffer answers [bytes].length for every offset.
+  int _populatedEnd(int offset) {
+    final ranges = _populated;
+    if (ranges == null) return bytes.length;
+    var lo = 0;
+    var hi = (ranges.length >> 1) - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if (offset < ranges[mid * 2]) {
+        hi = mid - 1;
+      } else if (offset >= ranges[mid * 2 + 1]) {
+        lo = mid + 1;
+      } else {
+        return ranges[mid * 2 + 1];
+      }
+    }
+    return -1;
+  }
+
   /// Looks [objectNumber] up in the lazily built header scan (the same
   /// scan full recovery uses) - the rescue for xrefs whose offsets lie.
   CosIndirectObject? _parseScannedHeader(int objectNumber) {
     if (_scannedHeaders == null) {
       PdfPerf.event(PdfPerfEvent.objectRescueScanBuilt);
     }
-    final headers = _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift);
+    final headers =
+        _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift, _populated);
     final entry = headers[objectNumber];
     if (entry == null || entry.type != CosXrefEntryType.inUse) return null;
     final rescued = _parseIndirectAt(entry.offset, objectNumber);

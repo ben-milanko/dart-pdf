@@ -9,6 +9,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'render_worker.dart';
 import 'strips/strip_device.dart';
 
 /// Which device family [PdfPageRenderer.renderImageWithPlan] paints with.
@@ -817,39 +818,75 @@ class PdfPageRenderer {
 /// per event would be far too slow.
 ///
 /// Points are page raster space: post-rotation points with y down, the
-/// view position divided by the view scale.
+/// view position divided by the view scale. The backing raster may be
+/// smaller than that (see [maxPixels]); [colorAt] maps into it, so callers
+/// never deal in the raster's own pixels.
 class PdfPageColorSampler {
-  PdfPageColorSampler._(this._pixels, this._width, this._height);
+  PdfPageColorSampler._(this._pixels, this._width, this._height, this._scale);
 
   final ByteData _pixels;
   final int _width;
   final int _height;
 
-  /// Renders and rasterizes [page] at 1 px per point. [pageColor] and
+  /// Raster pixels per page point. 1 unless the page was too large for
+  /// [maxPixels] and the raster was scaled down to fit.
+  final double _scale;
+
+  /// The pixel ceiling a sampler's raster is built under. A page is
+  /// rasterized at 1 px per point until that would exceed this, and scaled
+  /// down to fit beyond it: an ISO A0 sheet (3370x2384 pt) would otherwise
+  /// allocate 32 MB of RGBA on the UI thread for what is only ever read a
+  /// few pixels at a time, and a large-format CAD plan is worse again.
+  /// 4 MP keeps every ordinary page (a letter page is 0.5 MP) at 1:1.
+  static const maxPixels = 4 * 1000 * 1000;
+
+  /// Renders and rasterizes [page] for sampling. [pageColor] and
   /// [annotations] must match how the page is displayed, so samples
   /// read the color the user actually sees.
+  ///
+  /// [worker] (with [pageIndex]) moves the interpreter walk - the dominant
+  /// cost, and the reason a UI-thread render of a busy page reads as a
+  /// freeze - onto the render worker's isolate, exactly as page rendering
+  /// does. The worker's cache usually already holds the buffer for a page
+  /// on screen, so an eyedropper armed over a rendered page pays only the
+  /// replay and the raster. A worker that declines (an inline image, no
+  /// worker on this platform) falls back to the local render.
   static Future<PdfPageColorSampler> of(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
       int? rotation,
-      PdfPageRenderPlan? plan}) async {
+      PdfPageRenderPlan? plan,
+      PdfRenderWorker? worker,
+      int? pageIndex}) async {
     final renderPlan = plan ??
         PdfPageRenderPlan(
           pageColor: pageColor,
           annotations: annotations,
           rotation: rotation,
         );
-    final picture =
-        await PdfPageRenderer.renderPictureRecordedWithPlan(page, renderPlan);
+    final size = renderPlan.pageSize(page);
+    // 1 px per point, scaled down only when the page is big enough that a
+    // full-resolution raster would be a memory event of its own.
+    final area = size.width * size.height;
+    final scale = area > maxPixels ? math.sqrt(maxPixels / area) : 1.0;
+    final commands = worker == null || pageIndex == null
+        ? null
+        : await worker.record(pageIndex,
+            annotations: renderPlan.annotations, imagePixelRatio: scale);
+    final picture = commands != null
+        ? await PdfPageRenderer.pictureFromCommandsWithPlan(
+            page, commands, renderPlan, maxImagePixelRatio: scale)
+        : await PdfPageRenderer.renderPictureRecordedWithPlan(page, renderPlan,
+            maxImagePixelRatio: scale, imageDecodeHeadroom: 1);
     try {
-      final image = await PdfPageRenderer.rasterize(
-          picture, renderPlan.pageSize(page), 1);
+      final image = await PdfPageRenderer.rasterize(picture, size, scale);
       try {
         final data = await image.toByteData();
         if (data == null) {
           throw StateError('page raster yielded no pixels');
         }
-        return PdfPageColorSampler._(data, image.width, image.height);
+        return PdfPageColorSampler._(
+            data, image.width, image.height, image.width / size.width);
       } finally {
         image.dispose();
       }
@@ -858,22 +895,44 @@ class PdfPageColorSampler {
     }
   }
 
-  /// The color at [point], averaged over a 3×3-point patch so
-  /// anti-aliased strokes still read as their color. Null off the page.
-  ui.Color? colorAt(ui.Offset point) {
-    final cx = point.dx.round(), cy = point.dy.round();
-    var r = 0, g = 0, b = 0, n = 0;
-    for (var y = cy - 1; y <= cy + 1; y++) {
-      for (var x = cx - 1; x <= cx + 1; x++) {
+  /// The color at [point] (page raster space - see the class docs),
+  /// averaged over the (2*[radius]+1)-square patch of raster pixels around
+  /// it so anti-aliased strokes still read as their color. Null off the
+  /// page.
+  ///
+  /// [radius] is in raster pixels, so a caller showing the page zoomed in
+  /// can narrow the patch to what the pointer actually covers on screen -
+  /// see [patchRadiusForZoom]. The default 1 (a 3x3 patch) is the
+  /// unzoomed reading.
+  ui.Color? colorAt(ui.Offset point, {int radius = 1}) {
+    final cx = (point.dx * _scale).round(), cy = (point.dy * _scale).round();
+    final r = radius < 0 ? 0 : radius;
+    var red = 0, green = 0, blue = 0, n = 0;
+    for (var y = cy - r; y <= cy + r; y++) {
+      for (var x = cx - r; x <= cx + r; x++) {
         if (x < 0 || y < 0 || x >= _width || y >= _height) continue;
         final i = (y * _width + x) * 4;
         if (_pixels.getUint8(i + 3) == 0) continue; // past the page edge
-        r += _pixels.getUint8(i);
-        g += _pixels.getUint8(i + 1);
-        b += _pixels.getUint8(i + 2);
+        red += _pixels.getUint8(i);
+        green += _pixels.getUint8(i + 1);
+        blue += _pixels.getUint8(i + 2);
         n++;
       }
     }
-    return n == 0 ? null : ui.Color.fromARGB(255, r ~/ n, g ~/ n, b ~/ n);
+    return n == 0
+        ? null
+        : ui.Color.fromARGB(255, red ~/ n, green ~/ n, blue ~/ n);
+  }
+
+  /// The [colorAt] patch radius that covers about the same *screen* area at
+  /// [zoom] as the default 3x3 patch does unzoomed - so the sample tracks
+  /// what the pointer is over rather than blurring a 3pt disc of the page
+  /// at 8x, where 3pt is most of a glyph stem. Zoomed in past 2x it
+  /// collapses to the single pixel under the pointer.
+  int patchRadiusForZoom(double zoom) {
+    if (!zoom.isFinite || zoom <= 0) return 1;
+    // (2r+1) raster px should span ~3 screen px; screen px per raster px
+    // is zoom / _scale.
+    return ((3 * _scale / zoom - 1) / 2).floor().clamp(0, 8);
   }
 }

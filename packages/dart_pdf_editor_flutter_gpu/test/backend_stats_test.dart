@@ -1,8 +1,68 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  // PdfPerfLog installs a frame-timings callback on its first line.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('perf summary line', () {
+    final lines = <String>[];
+
+    setUp(() {
+      lines.clear();
+      PdfPerfLog.sink = lines.add;
+    });
+
+    tearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    test('stays silent while the perf log is off', () {
+      FlutterGpuTileBackendStats().logPerfSummary('trace-start');
+      expect(lines, isEmpty);
+    });
+
+    test('reports the totals a fallback diagnosis needs', () {
+      PdfPerfLog.enabled = true;
+      final stats = FlutterGpuTileBackendStats()
+        ..sessionsCreated = 3
+        ..sessionsRejected = 1
+        ..rasterFallbacks = 2
+        ..tilesRendered = 8
+        ..scenesCompiled = 3
+        ..compileMicros = 90000
+        ..issueMicros = 16000
+        ..textureBudgetFallbacks = 4
+        ..peakTextureBytes = 192 << 20
+        ..lastTileRoute = 'canvas-fallback'
+        ..lastRejection = 'GPU texture budget exceeded';
+
+      stats.logPerfSummary('trace-end');
+
+      final line = lines.singleWhere((l) => l.contains('tile gpu summary'));
+      expect(line, contains('reason=trace-end'));
+      expect(line, contains('sessions=3/4'));
+      expect(line, contains('rasterFallbacks=2'));
+      expect(line, contains('tiles=8'));
+      expect(line, contains('compile=30.0ms/scene'));
+      expect(line, contains('issue=2.0ms/tile'));
+      expect(line, contains('texBudgetFallbacks=4'));
+      expect(line, contains('tex=192MB'));
+      expect(line, contains('lastRejection=GPU texture budget exceeded'));
+    });
+
+    test('an untouched backend reports n/a rather than a fake average', () {
+      PdfPerfLog.enabled = true;
+      FlutterGpuTileBackendStats().logPerfSummary('idle');
+      final line = lines.singleWhere((l) => l.contains('tile gpu summary'));
+      expect(line, contains('compile=n/a/scene'));
+      expect(line, contains('issue=n/a/tile'));
+      expect(line, contains('lastRejection=-'));
+    });
+  });
   test('proactive warm-up defaults to desktop and remains opt-in on mobile',
       () {
     final previous = debugDefaultTargetPlatformOverride;

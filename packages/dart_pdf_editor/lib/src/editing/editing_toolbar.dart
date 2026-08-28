@@ -768,8 +768,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       context,
       initialColor: controller.color,
       initialStrokeWidth: controller.preferences.strokeWidth,
-      pickColor: (context, initial) =>
-          pickEditingColor(context, controller, initial: initial),
+      // the signature dialog is modal over the page, so the picker it opens
+      // has no page to sample: no eyedropper there
+      pickColor: (context, initial) => pickEditingColor(context, controller,
+          initial: initial, fromPage: false),
     );
     if (signature == null) return false;
     controller.preferences.signature = signature;

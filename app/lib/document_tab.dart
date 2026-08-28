@@ -58,6 +58,16 @@ class DocumentHandoff {
 /// while the full bytes stream in, an [error] placeholder, or a two-file
 /// [comparison].
 class DocumentTab {
+  /// A document opens as a reader, not as an editor: the session starts in
+  /// explicit Hand mode, so a mouse drag pans the page instead of starting a
+  /// text selection and a touch long-press does not select text. Every tool,
+  /// text selection included, stays one toolbar click away.
+  static PdfEditingController _handModeController(
+    Uint8List bytes,
+    PdfEditingPreferences preferences,
+  ) =>
+      PdfEditingController(bytes, preferences: preferences)..activateHandMode();
+
   DocumentTab.loading(
       {required this.title,
       this.originPath,
@@ -82,7 +92,7 @@ class DocumentTab {
     this.cachePath,
     bool initiallyDirty = false,
     int? savedLength,
-  })  : session = PdfEditingController(bytes, preferences: preferences),
+  })  : session = _handModeController(bytes, preferences),
         viewer = PdfViewerController(),
         // Normally the opened bytes *are* the saved baseline. Crash recovery is
         // the exception: it reopens a document at the revision that was in

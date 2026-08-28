@@ -138,7 +138,14 @@ Uint8List buildXrefStreamPdf() {
 }
 
 /// Builds a [pageCount]-page PDF; page N shows the text "Page N".
-Uint8List buildMultiPagePdf(int pageCount) {
+///
+/// [width]/[height] size the /MediaBox in points - US Letter by default.
+/// Oversize a page when the test is about what a page's dimensions cost
+/// (raster budgets, sampling rasters), not about its content.
+Uint8List buildMultiPagePdf(int pageCount,
+    {double width = 612, double height = 792}) {
+  // whole points write as integers - PDF accepts either, tests read better
+  String num(double v) => v == v.roundToDouble() ? '${v.round()}' : '$v';
   final objects = <String>[];
   final kids = [
     for (var i = 0; i < pageCount; i++) '${3 + i * 2} 0 R',
@@ -148,7 +155,8 @@ Uint8List buildMultiPagePdf(int pageCount) {
   objects.add('<< /Type /Pages /Kids [$kids] /Count $pageCount >>');
   for (var i = 0; i < pageCount; i++) {
     final content = 'BT /F1 24 Tf 72 720 Td (Page ${i + 1}) Tj ET';
-    objects.add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+    objects.add('<< /Type /Page /Parent 2 0 R '
+        '/MediaBox [0 0 ${num(width)} ${num(height)}] '
         '/Contents ${4 + i * 2} 0 R '
         '/Resources << /Font << /F1 $fontNumber 0 R >> >> >>');
     objects.add('<< /Length ${content.length} >>\nstream\n$content\nendstream');

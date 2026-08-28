@@ -256,6 +256,11 @@ class PdfColorantRaster {
       var from = spans.startAt(i), to = spans.endAt(i);
       if (from < _clipX0) from = _clipX0;
       if (to > _clipX1) to = _clipX1;
+      // A scanline can lie inside the clip's rows while its run sits entirely
+      // outside its columns (any slanted shape crossing a narrow clip), which
+      // leaves an inverted range the span loops no-op on but fillRange throws
+      // on.
+      if (to <= from) continue;
       if (mask == null) {
         cells.fillRange(row + from, row + to, value);
         continue;
@@ -284,6 +289,7 @@ class PdfColorantRaster {
       var from = spans.startAt(i), to = spans.endAt(i);
       if (from < _clipX0) from = _clipX0;
       if (to > _clipX1) to = _clipX1;
+      if (to <= from) continue;
       if (clip == null) {
         mask.fillRange(row + from, row + to, 1);
         continue;

@@ -454,6 +454,7 @@ class PdfEditingController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _settlePick(null);
     _inkTimer?.cancel();
     _flashTimer?.cancel();
     _changeFeed?.close();
@@ -2016,6 +2017,10 @@ class PdfEditingController extends ChangeNotifier {
 
   bool _pickingColor = false;
 
+  /// Set while the eyedropper is serving a [pickColorFromPage] caller, which
+  /// wants the sample handed back rather than adopted as [color].
+  Completer<Color?>? _pickCompleter;
+
   /// Whether the eyedropper is armed: the next tap on a page samples the
   /// rendered color there and becomes [color].
   bool get isPickingColor => _pickingColor;
@@ -2030,15 +2035,48 @@ class PdfEditingController extends ChangeNotifier {
   void cancelColorPick() {
     if (!_pickingColor) return;
     _pickingColor = false;
+    _settlePick(null);
     notifyListeners();
   }
 
   /// Disarms the eyedropper and adopts [picked] (forced opaque - alpha is
   /// [preferences.opacity]'s job) as the annotation [color].
+  ///
+  /// A sample a [pickColorFromPage] caller is waiting on goes to that caller
+  /// instead: it opened the eyedropper to fill in a colour of its own (a
+  /// dialog's swatch, a form field's border), and silently repainting the
+  /// annotation tool with it would be a second, unasked-for edit.
   void finishColorPick(Color picked) {
     _pickingColor = false;
-    color = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF));
+    final opaque = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF));
+    if (!_settlePick(opaque)) color = opaque;
     notifyListeners();
+  }
+
+  /// Arms the eyedropper and resolves with the colour the next page tap
+  /// samples, or null if the pick is cancelled (Escape, the toolbar button,
+  /// another caller arming it). Unlike the toolbar's own eyedropper this
+  /// does *not* adopt the sample as [color] - the caller decides what the
+  /// colour is for. This is the seam the colour dialog's "pick from page"
+  /// button uses, so sampling off the page is available anywhere a colour is
+  /// chosen and not only from the toolbar.
+  Future<Color?> pickColorFromPage() {
+    _settlePick(null); // a second caller supersedes the first
+    final completer = Completer<Color?>();
+    _pickCompleter = completer;
+    _pickingColor = true;
+    notifyListeners();
+    return completer.future;
+  }
+
+  /// Hands [color] to a waiting [pickColorFromPage] caller. Returns whether
+  /// there was one.
+  bool _settlePick(Color? color) {
+    final completer = _pickCompleter;
+    if (completer == null) return false;
+    _pickCompleter = null;
+    if (!completer.isCompleted) completer.complete(color);
+    return true;
   }
 
   // ---------------------------------------------------------------------

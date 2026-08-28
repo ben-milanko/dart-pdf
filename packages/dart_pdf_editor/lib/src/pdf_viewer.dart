@@ -2231,6 +2231,16 @@ class _PdfViewerState extends State<PdfViewer>
   Duration? _lastMouseDownStamp;
   Offset? _lastMouseDownLocal;
   bool _wordDrag = false;
+
+  /// Whether the press the current mouse drag began with was the middle
+  /// button.
+  ///
+  /// A middle drag is the pan every other document viewer offers: it grabs the
+  /// page whatever the primary button would have done there - select text,
+  /// draw, marquee, drag an annotation - so a user with a tool armed can still
+  /// move around without disarming it. [DragStartDetails] carries no buttons,
+  /// so the raw pointer-down records it.
+  bool _middleButtonDrag = false;
   ((int, int), (int, int))? _wordAnchor;
 
   /// The device kind of the latest pointer down - tap callbacks don't
@@ -6630,6 +6640,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (_textEditController?.isEditingText != true) _focusNode.requestFocus();
     if (event.kind != PointerDeviceKind.mouse) {
       _wordDrag = false;
+      _middleButtonDrag = false;
       return;
     }
     final lastStamp = _lastMouseDownStamp;
@@ -6640,6 +6651,7 @@ class _PdfViewerState extends State<PdfViewer>
         (event.localPosition - lastLocal).distance < kDoubleTapSlop;
     _lastMouseDownStamp = event.timeStamp;
     _lastMouseDownLocal = event.localPosition;
+    _middleButtonDrag = event.buttons == kMiddleMouseButton;
   }
 
   /// Completes a mouse double-click (second press, released without
@@ -6730,6 +6742,14 @@ class _PdfViewerState extends State<PdfViewer>
     // document out from under its own stroke
     if (_kindDrawsInk(details.kind)) return;
     _focusNode.requestFocus();
+    if (_middleButtonDrag) {
+      // The middle button is the temporary hand: it pans past whatever else
+      // this drag would have meant, without touching the armed tool.
+      _grabPanning = true;
+      _beginMotionRenderHold();
+      setState(() => _hoverCursor = grabbingCursor);
+      return;
+    }
     if (widget.editing?.isHandMode == true) {
       // Explicit Hand mode is navigation-only. Unlike the tool-free reader
       // state, a drag that begins over page text must grab the document
@@ -7518,10 +7538,15 @@ class _PdfViewerState extends State<PdfViewer>
     // An armed tool, eyedropper, or selected annotation mounts an editing
     // overlay whose touch pan already calls _touchGrabPanBy. Do not enter the
     // arena twice for those gestures.
+    //
+    // The eyedropper is the exception among those: it has no drag of its own
+    // (a sample is a tap), and while it is armed the overlay stands its pan
+    // recognizer down, so the viewer must take the drag or a zoomed page
+    // cannot be panned at all - which is half of why the eyedropper only ever
+    // reached the page it was armed over.
     if (editing == null ||
-        (editing.tool == null &&
-            !editing.isPickingColor &&
-            !editing.hasAnnotationSelection)) {
+        editing.isPickingColor ||
+        (editing.tool == null && !editing.hasAnnotationSelection)) {
       pdfLogGesture('touch-pan gate: ENABLED (viewer owns pan)',
           () => 'tool=${editing?.tool?.name ?? 'none'} zoomed=$_zoomed');
       return true;
@@ -8340,6 +8365,14 @@ class _PdfViewerState extends State<PdfViewer>
                                       PointerDeviceKind.mouse,
                                       PointerDeviceKind.trackpad,
                                     },
+                                    // the middle button pans (see
+                                    // [_middleButtonDrag]); Flutter's default
+                                    // filter is primary-only, so without this
+                                    // a middle drag reaches no recognizer at
+                                    // all
+                                    allowedButtonsFilter: (buttons) =>
+                                        buttons == kPrimaryButton ||
+                                        buttons == kMiddleMouseButton,
                                   ),
                                   (recognizer) => recognizer
                                     ..gestureSettings = gestureSettings
@@ -9383,6 +9416,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 predictStrokes: widget.predictStrokes,
                                 contextMenuEnabled: widget.contextMenuEnabled,
                                 showSelectionChip: widget.showSelectionChip,
+                                renderWorker: widget.renderWorker,
                               ),
                             ),
                           );
