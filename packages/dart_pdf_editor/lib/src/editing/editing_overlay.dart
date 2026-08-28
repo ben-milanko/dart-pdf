@@ -4008,7 +4008,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final before = _controller.revisionId;
       _controller.moveSelectedElement(x1 - x0, y1 - y0);
       if (from != null && before != _controller.revisionId) {
-        _holdElementAfterimage(from, elementMoveCurrent - elementMoveStart);
+        // Where the commit actually put it, not where the pointer went: a
+        // drag toward a neighbouring page is tethered to this page's edge,
+        // and an afterimage drawn at the raw pointer delta would show the
+        // element off the paper until the raster landed under it.
+        final to = _selectedElementRestRect;
+        _holdElementAfterimage(
+            from,
+            to == null
+                ? elementMoveCurrent - elementMoveStart
+                : to.topLeft - from.topLeft);
       }
     } else if (moveStart != null && moveCurrent != null) {
       if ((moveCurrent - moveStart).distance < 2) return; // a click

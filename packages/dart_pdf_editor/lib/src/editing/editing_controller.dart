@@ -7612,6 +7612,23 @@ class PdfEditingController extends ChangeNotifier {
     final element = selectedElement;
     if (selected == null || element == null) return false;
     if (!canMoveSelectedElement) return false;
+    // A drawing dragged off the paper is lost: the renderer's page clip
+    // hides it, and unlike an annotation nothing reaches past the edge to
+    // pick it up again ([PdfEditingReach] works on the annotation
+    // selection, and hit-testing an element needs bounds under the
+    // pointer). So a drag toward a neighbouring page parks the element at
+    // this page's edge with a strip still on the paper, rather than
+    // committing it out of sight. Content does not cross pages; moving it
+    // to another page is a copy/paste, not a drag.
+    final bounds = element.bounds;
+    if (bounds != null) {
+      final box = _page(selected.$1).cropBox;
+      dx += _tetherShift(
+          bounds.left + dx, bounds.right + dx, box.left, box.right);
+      dy += _tetherShift(
+          bounds.bottom + dy, bounds.top + dy, box.bottom, box.top);
+      if (dx == 0 && dy == 0) return false;
+    }
     var moved = 0;
     final changed = apply((e) => moved = e.moveElements(
           elementsOn(selected.$1),

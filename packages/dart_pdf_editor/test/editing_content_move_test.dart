@@ -125,6 +125,59 @@ void main() {
       expect(editing.moveSelectedElement(10, 10), isFalse);
     });
 
+    test('a drag toward the next page parks it at the edge, still on paper',
+        () {
+      final editing = PdfEditingController(buildParagraphPdf(mixedContent));
+      addTearDown(editing.dispose);
+      expect(selectElementByText(editing, 'Alpha beta gamma delta'), isTrue);
+      final before = boundsOf(editing, editing.selectedElement!.id);
+
+      // far past the bottom edge - a drag aimed at the page below
+      expect(editing.moveSelectedElement(0, -2000), isTrue);
+
+      final after = editing.selectedElement!.bounds!;
+      final height = before.top - before.bottom;
+      expect(after.top - after.bottom, closeTo(height, 0.1),
+          reason: 'the tether shifts, it does not squash');
+      // the run is shorter than pageTether, so the tether keeps all of it
+      expect(after.bottom, closeTo(0, 1),
+          reason: 'it parks flush with the page edge, not below it');
+      expect(after.top, lessThanOrEqualTo(792));
+      expect(editing.selectedElement?.text, 'Alpha beta gamma delta');
+    });
+
+    test('a drag toward the page above leaves it grabbable', () {
+      final editing = PdfEditingController(buildParagraphPdf(mixedContent));
+      addTearDown(editing.dispose);
+      expect(selectElementByText(editing, 'Alpha beta gamma delta'), isTrue);
+
+      final before = boundsOf(editing, editing.selectedElement!.id);
+      expect(editing.moveSelectedElement(0, 2000), isTrue);
+      final after = editing.selectedElement!.bounds!;
+      expect(after.top, closeTo(792, 1),
+          reason: 'it parks flush with the top edge, not above it');
+      expect(after.bottom, closeTo(792 - (before.top - before.bottom), 1));
+      // the whole point of the tether: it can still be hit-tested, so the
+      // user can pick it up again
+      expect(
+          editing.selectElementAt(
+              0, (after.left + after.right) / 2, after.bottom + 1),
+          isTrue);
+    });
+
+    test('an already tethered element does not jump back on a further drag',
+        () {
+      final editing = PdfEditingController(buildParagraphPdf(mixedContent));
+      addTearDown(editing.dispose);
+      expect(selectElementByText(editing, 'Alpha beta gamma delta'), isTrue);
+      expect(editing.moveSelectedElement(0, -2000), isTrue);
+      final parked = editing.selectedElement!.bounds!;
+      // pushing further the same way is refused, not silently re-centred
+      expect(editing.moveSelectedElement(0, -50), isFalse);
+      expect(editing.selectedElement!.bounds!.bottom,
+          closeTo(parked.bottom, 0.01));
+    });
+
     test('moving an image element keeps its size', () {
       final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
         [tinyPngBytes],
