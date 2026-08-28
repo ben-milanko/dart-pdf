@@ -15,6 +15,7 @@ import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
 import '../popup_position.dart';
+import '../render_worker.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_color_pick.dart';
@@ -511,6 +512,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onTextEditClosed,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
+    this.renderWorker,
   });
 
   final PdfEditingController controller;
@@ -602,6 +604,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// draws a forward-extrapolated lead so the painted line keeps up with
   /// the pen tip.
   final bool predictStrokes;
+
+  /// The viewer's render worker, used to build the eyedropper's sampling
+  /// raster off the UI isolate - see [PdfPageColorSampler.of]. Null falls
+  /// back to a local render.
+  final PdfRenderWorker? renderWorker;
 
   @override
   State<EditingPageOverlay> createState() => _EditingPageOverlayState();
@@ -730,6 +737,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _pickPosition;
   Color? _pickPreview;
 
+  /// Where the pointer that is currently down went down, and whether it has
+  /// since travelled far enough to be a drag rather than a tap. While the
+  /// eyedropper is armed the overlay stands aside for the scroll view (see
+  /// the pan callbacks in [build]) so the user can reach the rest of the
+  /// document, which means a touch scroll's pointer-up arrives here like any
+  /// other: only a tap may commit a sample. A mouse/trackpad press keeps its
+  /// press-drag-release pick - those devices don't drag-scroll the list.
+  Offset? _pickDownPosition;
+  bool _pickDragged = false;
+
   // ink
   List<(double, double)>? _activeStroke;
   List<double>? _activeStrokePressures;
@@ -745,7 +762,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// thing that drives it, including the clear on commit/bail).
   final ValueNotifier<int> _activeStrokeRepaint = ValueNotifier<int>(0);
 
-  void _bumpActiveStroke() => _activeStrokeRepaint.value++;
+  /// A pointer's whole gesture keeps being routed to the render object it
+  /// went down on, so a page scrolled out from under a live pointer - which
+  /// is exactly what a touch scroll with the eyedropper armed does - still
+  /// delivers moves and an up to this state after it has been unmounted.
+  /// Both repaint signals therefore have to tolerate being ticked late.
+  void _bumpActiveStroke() {
+    if (!mounted) return;
+    _activeStrokeRepaint.value++;
+  }
 
   /// Repaint signal for the hover-cursor layer - the pen dot, eraser ring,
   /// count/stamp/signature previews, the rotate glyph and the eyedropper
@@ -763,7 +788,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// painter's shouldRepaint is true - so the rarer paths keep using it).
   final ValueNotifier<int> _cursorRepaint = ValueNotifier<int>(0);
 
-  void _bumpCursor() => _cursorRepaint.value++;
+  void _bumpCursor() {
+    if (!mounted) return;
+    _cursorRepaint.value++;
+  }
 
   /// Extends the in-progress ink stroke to the view-space [localPosition].
   /// Normally each sample appends, tracing the freehand path; while Shift is
@@ -1309,6 +1337,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// stream, stylus detection for palm rejection, multi-touch bail, and
   /// - with ink or the eraser armed - the stroke itself.
   void _onPointerDown(PointerDownEvent event) {
+    // a gesture outlives the page it started on (see [_bumpActiveStroke])
+    if (!mounted) return;
     // the crop overlay owns all input while a crop is armed
     if (_controller.isCroppingImage) return;
     _pointerPressure = _normalizedPressure(event);
@@ -1330,6 +1360,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
     }
     if (_controller.isPickingColor) {
+      _pickDownPosition = event.localPosition;
+      _pickDragged = false;
       _updatePickPreview(event.localPosition);
       return;
     }
@@ -1392,9 +1424,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onPointerMove(PointerMoveEvent event) {
+    if (!mounted) return;
     final pressure = _normalizedPressure(event);
     if (pressure != null) _pointerPressure = pressure;
     if (_controller.isPickingColor) {
+      final down = _pickDownPosition;
+      // A touch/stylus drag is the scroll view's, not a sample: mark it so
+      // pointer-up doesn't pick the colour the finger happened to lift over.
+      if (down != null &&
+          !_pickDragged &&
+          event.kind != PointerDeviceKind.mouse &&
+          event.kind != PointerDeviceKind.trackpad &&
+          (event.localPosition - down).distance > kTouchSlop) {
+        _pickDragged = true;
+      }
       _updatePickPreview(event.localPosition);
       return;
     }
@@ -3397,6 +3440,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// the menu is suppressed.
   bool _menuLongPressClaims(Offset position) {
     if (_pointers.gestureBailed) return false;
+    // The eyedropper owns the page: a press is a sample or a scroll.
+    if (_controller.isPickingColor) return false;
     final (x, y) = _geometry.toPagePoint(position);
     if (_tool == PdfEditTool.form) return false;
     if (!_selectMode || _host.showAnnotationMenu == null) {
@@ -4204,8 +4249,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   /// Rasterizes this page once for the eyedropper, keyed on the revision id
-  /// (it changes every revision). The page raster at scale 1 shares the
-  /// view's orientation, so view → raster is just the geometry scale.
+  /// (it changes every revision). The page raster shares the view's
+  /// orientation, so view → raster is just the geometry scale.
+  ///
+  /// Called only for the page the pointer is actually over ([_updatePickPreview]
+  /// and the mouse entering this page). Arming the eyedropper used to warm
+  /// every mounted overlay from [build] instead, so a multi-page view kicked
+  /// off one full page render per mounted page at once - and every one of them
+  /// ran the interpreter walk on the UI isolate, which is what the freeze was.
   Future<PdfPageColorSampler> _ensureSampler() {
     final document = _controller.document;
     final revisionId = _controller.revisionId;
@@ -4221,7 +4272,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
               pageColor: pageColor,
               annotations: annotations,
-              rotation: widget.geometry.rotation)
+              rotation: widget.geometry.rotation,
+              worker: widget.renderWorker,
+              pageIndex: widget.pageIndex)
           .then((s) {
         // resolve the preview that was waiting on the raster
         if (mounted &&
@@ -4232,7 +4285,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _sampler = s;
             final position = _pickPosition;
             if (position != null) {
-              _pickPreview = s.colorAt(position / _geometry.scale);
+              _pickPreview = _sampleAt(position);
             }
           });
         }
@@ -4242,14 +4295,37 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _samplerFuture!;
   }
 
+  /// Releases the sampling raster (a page's worth of RGBA - megabytes) once
+  /// the eyedropper is put away. The overlay itself often stays mounted for
+  /// an armed tool or a live selection, so it cannot rely on being disposed.
+  void _dropSampler() {
+    if (_samplerFuture == null && _sampler == null) return;
+    _sampler = null;
+    _samplerFuture = null;
+    _samplerRevisionId = null;
+    _samplerPageColor = null;
+    _samplerAnnotations = null;
+  }
+
   /// Moves the eyedropper's swatch. Hover-frequency, so it repaints the
   /// cursor layer (and the chip, which rides its own ValueListenableBuilder)
   /// instead of rebuilding the overlay - see [_cursorRepaint].
   void _updatePickPreview(Offset position) {
     unawaited(_ensureSampler());
     _pickPosition = position;
-    _pickPreview = _sampler?.colorAt(position / _geometry.scale);
+    _pickPreview = _sampleAt(position);
     _bumpCursor();
+  }
+
+  /// The sampled colour under a view-space [position], read at the patch
+  /// width the current zoom makes sense of: at 1:1 the 3x3 default, tighter
+  /// as the page is magnified (the pointer then covers a fraction of a point,
+  /// and averaging 3 points would sample the paper either side of a stem).
+  Color? _sampleAt(Offset position) {
+    final sampler = _sampler;
+    if (sampler == null) return null;
+    return sampler.colorAt(position / _geometry.scale,
+        radius: sampler.patchRadiusForZoom(widget.zoom * _geometry.scale));
   }
 
   /// Releasing the pointer commits the raw gesture (stroke or erase
@@ -4257,21 +4333,34 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// plain tap and press-drag-release (watching the preview) work. A
   /// raw listener, so it fires regardless of the gesture arena.
   Future<void> _onPointerUp(PointerUpEvent event) async {
+    if (!mounted) return;
     _endRawPointer(event, canceled: false);
     if (!_controller.isPickingColor) return;
+    final dragged = _pickDragged;
+    _pickDownPosition = null;
+    _pickDragged = false;
+    // The lift that ends a scroll flings the document on; it must not also
+    // pick a colour and put the eyedropper away.
+    if (dragged) return;
     final revisionAtStart = _controller.revisionId;
     final sampler = await _ensureSampler();
     if (!mounted || revisionAtStart != _controller.revisionId) return;
+    if (!_controller.isPickingColor) return;
     setState(() {
       _pickPosition = null;
       _pickPreview = null;
     });
-    final color = sampler.colorAt(event.localPosition / _geometry.scale);
+    final color = sampler.colorAt(event.localPosition / _geometry.scale,
+        radius: sampler.patchRadiusForZoom(widget.zoom * _geometry.scale));
     if (color != null) _controller.finishColorPick(color);
   }
 
-  void _onPointerCancel(PointerCancelEvent event) =>
-      _endRawPointer(event, canceled: true);
+  void _onPointerCancel(PointerCancelEvent event) {
+    if (!mounted) return;
+    _pickDownPosition = null;
+    _pickDragged = false;
+    _endRawPointer(event, canceled: true);
+  }
 
   Future<void> _onTapUp(TapUpDetails details) async {
     // the crop overlay owns taps while a crop is armed
@@ -5189,6 +5278,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final selectedAnnotation = _controller.selectedAnnotation;
     final cropping = _controller.isCroppingImage &&
         _controller.selectedPage == widget.pageIndex;
+    final picking = _controller.isPickingColor;
     final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
@@ -5267,8 +5357,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _flashRect = _controller.annotationAt(flash.page, flash.slot)?.rect;
       if (_flashRect != null) _flashController.forward(from: 0);
     }
-    // warm the eyedropper's raster so the first preview is instant-ish
-    if (_controller.isPickingColor) unawaited(_ensureSampler());
+    // The sampling raster is built for the page the pointer reaches, not for
+    // every mounted page the moment the eyedropper is armed; put it away
+    // again as soon as the tool is.
+    if (!_controller.isPickingColor) _dropSampler();
     // placed vertices are already snapped; only the live rubber-band edge to
     // the hover point snaps here (and only while Shift is held)
     final polyPreview = _polyPoints == null
@@ -5318,18 +5410,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         dragStartBehavior: DragStartBehavior.down,
         // while cropping, the crop overlay owns the page: drop this detector's
         // recognizers entirely so they never win the gesture arena over the
-        // crop rectangle's own handles and confirm/cancel chips
-        onPanStart: cropping ? null : _panStart,
-        onPanUpdate: cropping ? null : _panUpdate,
-        onPanEnd: cropping ? null : _panEnd,
-        onTapUp: cropping ? null : _onTapUp,
+        // crop rectangle's own handles and confirm/cancel chips.
+        //
+        // The eyedropper drops them too. It has no drag of its own (a sample
+        // is a tap, and the hover/press preview is driven by the raw
+        // [Listener] above, which never enters the arena), but a pan
+        // recognizer that claims the gesture and does nothing with it left
+        // the document unscrollable for as long as the tool was armed - so
+        // the eyedropper only ever reached the pages that happened to be on
+        // screen when it was armed.
+        onPanStart: cropping || picking ? null : _panStart,
+        onPanUpdate: cropping || picking ? null : _panUpdate,
+        onPanEnd: cropping || picking ? null : _panEnd,
+        onTapUp: cropping || picking ? null : _onTapUp,
         onDoubleTapDown: !cropping &&
+                !picking &&
                 (_polyTool ||
                     _tool == PdfEditTool.cloudPolygon ||
                     _tool == PdfEditTool.form)
             ? _onDoubleTapDown
             : null,
         onDoubleTap: !cropping &&
+                !picking &&
                 (_polyTool ||
                     _tool == PdfEditTool.cloudPolygon ||
                     _tool == PdfEditTool.form)
@@ -5337,6 +5439,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             : null,
         child: MouseRegion(
           cursor: _cursor,
+          // the mouse arriving over this page is the cue to build its
+          // sampling raster - by the time the pointer stops moving the first
+          // preview is ready
+          onEnter: picking ? (_) => unawaited(_ensureSampler()) : null,
           onHover: _onHover,
           onExit: (_) {
             if (_pickPosition == null &&
@@ -5554,7 +5660,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 ),
               // the eyedropper's swatch: a widget, so it can't join the
               // cursor painter - it subscribes to the same notifier instead,
-              // rebuilding just the chip as the pointer moves
+              // rebuilding just the chip as the pointer moves.
+              //
+              // It lives inside the viewer's zoom transform like the rest of
+              // the overlay, so - like every other piece of chrome here - it
+              // counter-scales by [_chromeScale]: the swatch stays the size
+              // the theme drew it at whether the page is at 25% or 800%,
+              // instead of becoming a billboard that hides what is being
+              // sampled. Its offset from the pointer scales with it, and it
+              // anchors at the top-left so the counter-scale doesn't drag it
+              // away from the cursor.
               Positioned.fill(
                 child: IgnorePointer(
                   child: ValueListenableBuilder<int>(
@@ -5563,11 +5678,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       final preview =
                           _controller.isPickingColor ? _pickPosition : null;
                       if (preview == null) return const SizedBox.shrink();
+                      final scale = _chromeScale;
                       return Stack(children: [
                         Positioned(
-                          left: preview.dx + 14,
-                          top: preview.dy - 38,
-                          child: _EyedropperChip(color: _pickPreview),
+                          left: preview.dx + 14 * scale,
+                          top: preview.dy - 38 * scale,
+                          child: Transform.scale(
+                            scale: scale,
+                            alignment: Alignment.topLeft,
+                            child: _EyedropperChip(
+                              key: const ValueKey('pdf-eyedropper-chip'),
+                              color: _pickPreview,
+                            ),
+                          ),
                         ),
                       ]);
                     },
@@ -5818,7 +5941,7 @@ class _MenuLongPressRecognizer extends LongPressGestureRecognizer {
 /// The eyedropper's floating preview: the color under the pointer and
 /// its hex value, riding beside the cursor.
 class _EyedropperChip extends StatelessWidget {
-  const _EyedropperChip({required this.color});
+  const _EyedropperChip({super.key, required this.color});
 
   /// Null while the page raster is still being built (or off the page).
   final Color? color;

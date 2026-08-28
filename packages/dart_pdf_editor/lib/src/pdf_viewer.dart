@@ -7538,10 +7538,15 @@ class _PdfViewerState extends State<PdfViewer>
     // An armed tool, eyedropper, or selected annotation mounts an editing
     // overlay whose touch pan already calls _touchGrabPanBy. Do not enter the
     // arena twice for those gestures.
+    //
+    // The eyedropper is the exception among those: it has no drag of its own
+    // (a sample is a tap), and while it is armed the overlay stands its pan
+    // recognizer down, so the viewer must take the drag or a zoomed page
+    // cannot be panned at all - which is half of why the eyedropper only ever
+    // reached the page it was armed over.
     if (editing == null ||
-        (editing.tool == null &&
-            !editing.isPickingColor &&
-            !editing.hasAnnotationSelection)) {
+        editing.isPickingColor ||
+        (editing.tool == null && !editing.hasAnnotationSelection)) {
       pdfLogGesture('touch-pan gate: ENABLED (viewer owns pan)',
           () => 'tool=${editing?.tool?.name ?? 'none'} zoomed=$_zoomed');
       return true;
@@ -9409,6 +9414,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 predictStrokes: widget.predictStrokes,
                                 contextMenuEnabled: widget.contextMenuEnabled,
                                 showSelectionChip: widget.showSelectionChip,
+                                renderWorker: widget.renderWorker,
                               ),
                             ),
                           );

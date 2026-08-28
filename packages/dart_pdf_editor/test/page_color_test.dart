@@ -64,6 +64,40 @@ void main() {
     });
   });
 
+  testWidgets('the sampler narrows its patch as the page is magnified',
+      (tester) async {
+    await tester.runAsync(() async {
+      final document = PdfDocument.open(buildMultiPagePdf(1));
+      final sampler = await PdfPageColorSampler.of(document.page(0));
+      // 3x3 at 1:1, and no wider than the pointer covers once zoomed in -
+      // 3 points of a magnified page is most of a glyph stem
+      expect(sampler.patchRadiusForZoom(1), 1);
+      expect(sampler.patchRadiusForZoom(2), 0);
+      expect(sampler.patchRadiusForZoom(8), 0);
+      expect(sampler.patchRadiusForZoom(0.5), 2);
+      // a nonsense zoom falls back to the unzoomed reading
+      expect(sampler.patchRadiusForZoom(0), 1);
+      expect(sampler.patchRadiusForZoom(double.nan), 1);
+    });
+  });
+
+  testWidgets('an oversized page samples through a scaled-down raster',
+      (tester) async {
+    await tester.runAsync(() async {
+      // 4000x4000 pt is 16 MP at 1 px per point - 64 MB of RGBA for a
+      // handful of reads. The raster scales down; sampling still speaks
+      // page points.
+      final document =
+          PdfDocument.open(buildMultiPagePdf(1, width: 4000, height: 4000));
+      final sampler = await PdfPageColorSampler.of(document.page(0),
+          pageColor: const Color(0xFF1B5E20));
+      expect(
+          sampler.colorAt(const Offset(2000, 2000)), const Color(0xFF1B5E20));
+      expect(sampler.colorAt(const Offset(4200, 2000)), isNull,
+          reason: 'off the page is still off the page');
+    });
+  });
+
   testWidgets('PdfViewer pages display on the given paper', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
