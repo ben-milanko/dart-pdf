@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -406,6 +407,76 @@ void main() {
       expect(pixels.sublist(12, 16), [0, 0, 0, 0]);
     });
   });
+
+  testWidgets(
+      'Apple JPX codec preserves and antialiases a higher-res MRC stencil',
+      (tester) async {
+    await tester.runAsync(() async {
+      const maskWidth = 32;
+      const height = 16;
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(maskWidth),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        Uint8List.fromList(List.filled(height * 4, 0x55)),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('JPXDecode'),
+          'Mask': mask,
+        }),
+        grayJpxCodestream,
+      );
+
+      // Without a display cap, the colour plane is promoted to the stencil's
+      // native resolution instead of flattening its 300-DPI detail to the
+      // scanner's lower-resolution colour grid.
+      final full = (await decodeImages(cos, [req(stream)]))[stream]!;
+      expect((full.width, full.height), (maskWidth, height));
+      expect(pdfGpuSoftMaskOf(full), isNotNull);
+      disposePdfDecodedImage(full);
+
+      // At a 16px display footprint every adjacent paint/skip pair becomes a
+      // half-covered edge. The companion mask must upload coverage as opaque
+      // grayscale: storing it in both RGB and alpha makes the canvas colour
+      // filter unpremultiply every partial sample back to fully opaque.
+      final request = PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(16, 0, 0, 16, 0, 0),
+      );
+      final decoded = (await decodeImages(
+        cos,
+        [request],
+        maxImagePixelRatio: 1,
+        imageDecodeHeadroom: 1,
+      ))[stream]!;
+      expect((decoded.width, decoded.height), (16, height));
+      expect(pdfGpuSoftMaskOf(decoded), isNotNull);
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      CanvasPdfDevice(canvas, images: {stream: decoded}).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(16, height);
+      final pixels = await pixelsOf(rendered);
+      for (var i = 3; i < pixels.length; i += 4) {
+        expect(pixels[i], inInclusiveRange(120, 135));
+      }
+
+      rendered.dispose();
+      picture.dispose();
+      disposePdfDecodedImage(decoded);
+    });
+  },
+      variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+      skip: !Platform.isMacOS);
 
   testWidgets('/Decode [1 0] inverts gray samples', (tester) async {
     await tester.runAsync(() async {

@@ -475,6 +475,43 @@ void main() {
     expect(decodePdfImageBase(cos, stream), isNull);
   });
 
+  test('targeted MRC decode keeps detail from a higher-res stencil', () {
+    // Scanner MRC: the 1x1 colour plane is deliberately low resolution and
+    // the 4x1 stencil carries the sharp text edges. At a 2x1 display target,
+    // each adjacent paint/skip mask pair averages to half coverage. Passing
+    // the base's 1x1 size into the mask decoder would crush the result to a
+    // single pixel before the two halves meet.
+    final mask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, [
+      0x50, // bits 0,1,0,1 -> paint,skip,paint,skip
+    ]);
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Mask': mask,
+    }, [
+      255,
+      0,
+      0,
+    ]);
+
+    final pixels = decodePdfImage(
+      cos,
+      stream,
+      targetWidth: 2,
+      targetHeight: 1,
+    )!;
+
+    expect((pixels.width, pixels.height), (2, 1));
+    expect(pixels.rgba, [127, 0, 0, 127, 127, 0, 0, 127]);
+  });
+
   group('CMYK JPEG polarity (#370)', () {
     // Two 16x8 baseline JPEGs, hand-built with constant 8x8 blocks and custom
     // Huffman tables so the stored samples are exact by construction. The

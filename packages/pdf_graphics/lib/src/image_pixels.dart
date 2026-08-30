@@ -712,14 +712,14 @@ PdfDecodedPixels? _decodePdfImagePixelsTargeted(
     final mask = pdfImageSoftMask(
           cos,
           dict,
-          targetWidth: base.width,
-          targetHeight: base.height,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
         ) ??
         pdfImageStencilMask(
           cos,
           dict,
-          targetWidth: base.width,
-          targetHeight: base.height,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
         );
     if (mask == null && pdfImageDctSoftMaskBytes(cos, dict) != null) {
       return null;

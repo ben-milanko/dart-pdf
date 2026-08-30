@@ -3,8 +3,10 @@ import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:pdf_cos/pdf_cos.dart' show CosDocument;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugPrint, defaultTargetPlatform;
+import 'package:pdf_cos/pdf_cos.dart'
+    show CosBoolean, CosDocument, CosName, CosStream;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -1230,11 +1232,48 @@ bool _decodeImageInBackgroundIsolate(
   CosDocument document,
   PdfImageRequest request,
 ) {
+  // Apple's asynchronous ImageIO-backed codec is dramatically faster for the
+  // plain JPX layers emitted by MRC scanners. Leave that narrow shape encoded
+  // in the command buffer so the consumer can use the platform codec and keep
+  // an explicit JBIG2 stencil as a GPU mask. Other platforms and uncommon PDF
+  // colour/mask semantics retain the portable worker decode.
+  if (_preferAppleJpxCodec(document, request)) return false;
   if (pdfImageDctSoftMaskBytes(document, request.stream.dictionary) == null) {
     return true;
   }
   final filters = pdfImageFilters(document, request.stream.dictionary);
   return filters.contains('DCTDecode') || filters.contains('DCT');
+}
+
+bool _preferAppleJpxCodec(
+  CosDocument document,
+  PdfImageRequest request,
+) {
+  if (defaultTargetPlatform != TargetPlatform.macOS &&
+      defaultTargetPlatform != TargetPlatform.iOS) {
+    return false;
+  }
+  final dict = request.stream.dictionary;
+  final filters = pdfImageFilters(document, dict);
+  if (!filters.contains('JPXDecode') ||
+      request.isLuminosityMask ||
+      document.resolve(dict['ImageMask']) == const CosBoolean(true) ||
+      dict.containsKey('SMask')) {
+    return false;
+  }
+  final space = document.resolve(dict['ColorSpace']);
+  if (space is! CosName ||
+      const {'DeviceRGB', 'RGB', 'DeviceGray', 'G'}.contains(space.value) ==
+          false) {
+    return false;
+  }
+  final components = space.value == 'DeviceGray' || space.value == 'G' ? 1 : 3;
+  if (pdfImageDecodeRanges(document, dict, components) != null ||
+      pdfImageColorKeyRanges(document, dict, components) != null) {
+    return false;
+  }
+  final mask = document.resolve(dict['Mask']);
+  return !dict.containsKey('Mask') || mask is CosStream;
 }
 
 /// A full-page record cancelled mid-walk, held so the next record of the same

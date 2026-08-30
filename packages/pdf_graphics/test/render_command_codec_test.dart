@@ -1108,6 +1108,46 @@ void main() {
   // them; a null/huge ratio must leave them at native resolution; and the
   // command transcript must be untouched either way (only the pixels change).
   group('image resolution cap', () {
+    test('uses a higher-resolution MRC stencil as the composite source size',
+        () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        Uint8List.fromList([0x50]),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Mask': mask,
+        }),
+        Uint8List.fromList([255, 0, 0]),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(2, 0, 0, 1, 0, 0),
+      ));
+
+      final bytes = serializeCommands(
+        [command],
+        cos: cos,
+        decodeImages: true,
+        maxImagePixelRatio: 1,
+      );
+      final decoded =
+          _imageCommands(deserializeCommands(bytes!)).single.request.decoded!;
+
+      expect((decoded.width, decoded.height), (2, 1));
+      expect(decoded.rgba, [127, 0, 0, 127, 127, 0, 0, 127]);
+    });
+
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/'
           'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',
