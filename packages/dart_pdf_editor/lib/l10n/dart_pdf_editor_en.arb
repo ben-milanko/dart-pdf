@@ -2631,5 +2631,45 @@
   "viewerSelectAll": "Select all",
   "@viewerSelectAll": {
     "description": "Menu/chip action that selects all text on the current page."
+  },
+  "annotationLibraryTitle": "Annotation library",
+  "@annotationLibraryTitle": {
+    "description": "Title and toolbar tooltip for the reusable annotation library."
+  },
+  "annotationLibraryEmpty": "No saved annotations.",
+  "@annotationLibraryEmpty": {
+    "description": "Empty-state text in the reusable annotation library."
+  },
+  "annotationLibraryHelp": "Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.",
+  "@annotationLibraryHelp": {
+    "description": "Explanation of how to save reusable annotations and which interactive types are deliberately unsupported."
+  },
+  "annotationLibrarySave": "Save to annotation library",
+  "@annotationLibrarySave": {
+    "description": "Annotation context-menu action that saves the selected annotation for reuse."
+  },
+  "annotationLibrarySaveTitle": "Save annotation",
+  "@annotationLibrarySaveTitle": {
+    "description": "Title of the prompt that names an annotation library item."
+  },
+  "annotationLibraryRenameTitle": "Rename library item",
+  "@annotationLibraryRenameTitle": {
+    "description": "Title of the prompt that renames an annotation library item."
+  },
+  "annotationLibraryCustomStamps": "Custom stamps…",
+  "@annotationLibraryCustomStamps": {
+    "description": "Button that opens custom stamps from the broader annotation library."
+  },
+  "signatureLibraryManage": "Manage signatures",
+  "@signatureLibraryManage": {
+    "description": "Toolbar tooltip that opens the saved handwritten-signature library."
+  },
+  "signatureLibraryRenameTitle": "Rename signature",
+  "@signatureLibraryRenameTitle": {
+    "description": "Title of the prompt that renames a saved handwritten signature."
+  },
+  "signatureLibraryEmpty": "No saved signatures.",
+  "@signatureLibraryEmpty": {
+    "description": "Empty-state text in the saved handwritten-signature library."
   }
 }

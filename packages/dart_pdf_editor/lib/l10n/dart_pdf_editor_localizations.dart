@@ -3733,6 +3733,66 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Select all'**
   String get viewerSelectAll;
+
+  /// Title and toolbar tooltip for the reusable annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotation library'**
+  String get annotationLibraryTitle;
+
+  /// Empty-state text in the reusable annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved annotations.'**
+  String get annotationLibraryEmpty;
+
+  /// Explanation of how to save reusable annotations and which interactive types are deliberately unsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.'**
+  String get annotationLibraryHelp;
+
+  /// Annotation context-menu action that saves the selected annotation for reuse.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to annotation library'**
+  String get annotationLibrarySave;
+
+  /// Title of the prompt that names an annotation library item.
+  ///
+  /// In en, this message translates to:
+  /// **'Save annotation'**
+  String get annotationLibrarySaveTitle;
+
+  /// Title of the prompt that renames an annotation library item.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename library item'**
+  String get annotationLibraryRenameTitle;
+
+  /// Button that opens custom stamps from the broader annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom stamps…'**
+  String get annotationLibraryCustomStamps;
+
+  /// Toolbar tooltip that opens the saved handwritten-signature library.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage signatures'**
+  String get signatureLibraryManage;
+
+  /// Title of the prompt that renames a saved handwritten signature.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename signature'**
+  String get signatureLibraryRenameTitle;
+
+  /// Empty-state text in the saved handwritten-signature library.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved signatures.'**
+  String get signatureLibraryEmpty;
 }
 
 class _DartPdfEditorLocalizationsDelegate

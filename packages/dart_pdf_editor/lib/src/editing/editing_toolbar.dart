@@ -18,15 +18,16 @@ import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../toast.dart';
 import 'annotation_presentation.dart';
+import 'editing_annotation_library.dart';
 import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
 import 'editing_form_style.dart';
-import 'editing_value_field.dart';
 import 'editing_measure.dart';
 import 'editing_panel.dart';
+import 'editing_value_field.dart';
 import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -755,12 +756,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       controller.tool = PdfEditTool.select;
       return;
     }
-    final drawn = controller.preferences.signature == null;
+    final drawn = controller.activeSavedSignature == null;
     if (drawn && !await _drawSignature(context)) return;
     _toggleTool(PdfEditTool.signature);
     // Arming the tool restores the signature style scope over whatever
     // _drawSignature just seeded, so seed it again now the scope is live.
-    if (drawn) _seedSignatureStyle(controller.preferences.signature!);
+    if (drawn) {
+      _seedSignatureStyle(controller.activeSavedSignature!.signature);
+    }
   }
 
   Future<bool> _drawSignature(BuildContext context) async {
@@ -774,10 +777,78 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           initial: initial, fromPage: false),
     );
     if (signature == null) return false;
-    controller.preferences.signature = signature;
+    controller.addSavedSignature(signature);
     _seedSignatureStyle(signature);
     return true;
   }
+
+  Future<void> _manageSignatures(BuildContext context) =>
+      showPdfSignatureLibrary(
+        context,
+        signatures: controller.savedSignatures,
+        activeId: controller.activeSavedSignature?.id,
+        onAdd: (context) async {
+          final drawing = await _captureSignature(context);
+          return drawing == null ? null : controller.addSavedSignature(drawing);
+        },
+        onRename: (context, signature) async {
+          final name = await widget.textPrompt(
+            context,
+            title: pdfL10n(context).signatureLibraryRenameTitle,
+            initial: signature.name,
+            multiline: false,
+          );
+          if (name == null ||
+              !controller.renameSavedSignature(signature, name)) {
+            return null;
+          }
+          return controller.savedSignatures
+              .firstWhere((entry) => entry.id == signature.id);
+        },
+        onRedraw: (context, signature) async {
+          final drawing = await _captureSignature(
+            context,
+            initial: signature.signature,
+          );
+          if (drawing == null ||
+              !controller.redrawSavedSignature(signature, drawing)) {
+            return null;
+          }
+          return controller.savedSignatures
+              .firstWhere((entry) => entry.id == signature.id);
+        },
+        onSelect: controller.selectSavedSignature,
+        onDelete: controller.removeSavedSignature,
+      );
+
+  Future<PdfInkSignature?> _captureSignature(
+    BuildContext context, {
+    PdfInkSignature? initial,
+  }) =>
+      showPdfSignatureDialog(
+        context,
+        initialColor: initial == null
+            ? controller.color
+            : Color(0xFF000000 | initial.color),
+        initialStrokeWidth:
+            initial?.strokeWidth ?? controller.preferences.strokeWidth,
+        pickColor: (context, color) => pickEditingColor(
+          context,
+          controller,
+          initial: color,
+          fromPage: false,
+        ),
+      );
+
+  Future<void> _manageAnnotationLibrary(BuildContext context) =>
+      showPdfAnnotationLibrary(
+        context,
+        controller: controller,
+        pageIndex: viewerController.currentPage,
+        imagePicker: widget.imagePicker,
+        onExportStamps: widget.onExportCustomStamps,
+        onImportStamps: widget.onImportCustomStamps,
+      );
 
   /// Points the tool's colour and pen width at what [signature] was drawn
   /// with - the placed ink follows the toolbar, not the record, so this is
@@ -1763,10 +1834,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return [
       if (controller.tool == PdfEditTool.signature)
         IconButton(
+          key: const ValueKey('pdf-signature-library'),
+          icon: const Icon(Icons.library_books_outlined),
+          tooltip: pdfL10n(context).signatureLibraryManage,
+          onPressed: () => _manageSignatures(context),
+        ),
+      if (controller.tool == PdfEditTool.signature)
+        IconButton(
           icon: const Icon(Icons.restart_alt),
           tooltip: pdfL10n(context).tbDrawNewSignature,
           onPressed: () => _drawSignature(context),
         ),
+      IconButton(
+        key: const ValueKey('pdf-annotation-library'),
+        icon: const Icon(Icons.collections_bookmark_outlined),
+        tooltip: pdfL10n(context).annotationLibraryTitle,
+        onPressed: () => _manageAnnotationLibrary(context),
+      ),
       if (controller.tool == PdfEditTool.count)
         Tooltip(
           message: pdfL10n(context).tbCheckMarksOnDocument,

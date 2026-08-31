@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
 import '../popup_position.dart';
+import 'annotation_presentation.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_form_style.dart';
@@ -97,6 +98,7 @@ Future<void> showPdfAnnotationMenu({
   required PdfEditingController controller,
   required int pageIndex,
   PdfAnnotationMenuBuilder? customActions,
+  PdfTextPrompt textPrompt = showPdfTextPrompt,
   (double, double)? pagePoint,
   (int page, int slot)? unlockTarget,
 }) async {
@@ -262,6 +264,23 @@ Future<void> showPdfAnnotationMenu({
               content: Text(pdfL10n(context).stampSavedToCollection),
               behavior: SnackBarBehavior.floating,
             ));
+        },
+      ),
+    if (hasSelection && controller.canSaveSelectedAnnotation)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-save-library'),
+        label: pdfL10n(context).annotationLibrarySave,
+        icon: Icons.collections_bookmark_outlined,
+        onSelected: (request) async {
+          final annotation = request.primary;
+          if (annotation == null) return;
+          final name = await textPrompt(
+            context,
+            title: pdfL10n(context).annotationLibrarySaveTitle,
+            initial: pdfAnnotationLabel(context, annotation.subtype),
+            multiline: false,
+          );
+          if (name != null) request.controller.saveSelectedAnnotation(name);
         },
       ),
   ];

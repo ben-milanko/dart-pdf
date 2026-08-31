@@ -2028,6 +2028,37 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => '全选';
+
+  @override
+  String get annotationLibraryTitle => 'Annotation library';
+
+  @override
+  String get annotationLibraryEmpty => 'No saved annotations.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+
+  @override
+  String get annotationLibrarySave => 'Save to annotation library';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Save annotation';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Rename library item';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Custom stamps…';
+
+  @override
+  String get signatureLibraryManage => 'Manage signatures';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Rename signature';
+
+  @override
+  String get signatureLibraryEmpty => 'No saved signatures.';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).

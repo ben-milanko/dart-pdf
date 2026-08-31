@@ -13,6 +13,7 @@ import 'editing_color_picker.dart' show PdfColorFormat;
 import 'editing_panel.dart' show PdfDockablePanel, PdfPanelDock;
 import 'line_style.dart';
 import 'editing_measure.dart';
+import 'saved_annotation.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 
@@ -68,7 +69,9 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _showBookmarkSidebar = false;
   bool _showAnnotationSidebar = false;
   String? _author;
-  PdfInkSignature? _signature;
+  List<PdfSavedSignature> _savedSignatures = const [];
+  String? _activeSignatureId;
+  List<PdfSavedAnnotation> _savedAnnotations = const [];
   List<PdfCustomStamp> _customStamps = const [];
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
@@ -157,6 +160,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     } catch (_) {
       return; // no local storage here (e.g. widget tests) - defaults stand
     }
+    var migratedLegacySignature = false;
     // a value set while the disk read was in flight wins over the stored one
     if (!_modified) {
       final color = store.getInt('${_prefix}color');
@@ -210,8 +214,44 @@ class PdfEditingPreferences extends ChangeNotifier {
           store.getBool('${_prefix}showAnnotationSidebar') ??
               _showAnnotationSidebar;
       _author = store.getString('${_prefix}author') ?? _author;
-      final signature = store.getString('${_prefix}signature');
-      if (signature != null) _signature = PdfInkSignature.decode(signature);
+      final signatures = store.getStringList('${_prefix}signatures');
+      if (signatures != null) {
+        _savedSignatures = List.unmodifiable([
+          for (final signature in signatures)
+            if (PdfSavedSignature.decode(signature) case final decoded?)
+              decoded,
+        ]);
+      } else {
+        // Migrate the pre-library singleton without losing it. Keep the old
+        // key mirrored on future writes so an older app build can still use
+        // whichever signature is active.
+        final legacy = store.getString('${_prefix}signature');
+        final decoded = legacy == null ? null : PdfInkSignature.decode(legacy);
+        if (decoded != null) {
+          final entry = PdfSavedSignature(
+            id: 'legacy-signature',
+            name: 'Signature 1',
+            signature: decoded,
+          );
+          _savedSignatures = List.unmodifiable([entry]);
+          _activeSignatureId = entry.id;
+          migratedLegacySignature = true;
+        }
+      }
+      _activeSignatureId =
+          store.getString('${_prefix}activeSignatureId') ?? _activeSignatureId;
+      if (!_savedSignatures.any((entry) => entry.id == _activeSignatureId)) {
+        _activeSignatureId =
+            _savedSignatures.isEmpty ? null : _savedSignatures.first.id;
+      }
+      final annotations = store.getStringList('${_prefix}savedAnnotations');
+      if (annotations != null) {
+        _savedAnnotations = List.unmodifiable([
+          for (final annotation in annotations)
+            if (PdfSavedAnnotation.decode(annotation) case final decoded?)
+              decoded,
+        ]);
+      }
       final themeMode = store.getString('${_prefix}themeMode');
       if (themeMode != null) {
         _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
@@ -336,6 +376,7 @@ class PdfEditingPreferences extends ChangeNotifier {
       _viewports.putIfAbsent(entry.$1, () => entry.$2);
     }
     _store = store;
+    if (migratedLegacySignature) _writeSignatureLibrary();
     if (_viewportsDirty) _writeViewports();
     notifyListeners();
   }
@@ -781,16 +822,114 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool get hasShowThumbnailSidebarPreference =>
       _hasShowThumbnailSidebarPreference;
 
-  /// The saved hand-drawn signature the signature tool stamps, or null
-  /// when none has been drawn yet.
-  PdfInkSignature? get signature => _signature;
+  /// The active hand-drawn signature the signature tool stamps, or null when
+  /// the library is empty.
+  ///
+  /// This singleton-shaped property is retained for source and storage
+  /// compatibility. New code can use [savedSignatures] and
+  /// [activeSavedSignature] to manage the whole library.
+  PdfInkSignature? get signature => activeSavedSignature?.signature;
 
   set signature(PdfInkSignature? value) {
-    if (value == _signature) return;
-    _signature = value;
-    _write((s) => value == null
-        ? s.remove('${_prefix}signature')
-        : s.setString('${_prefix}signature', value.encode()));
+    if (value == null) {
+      if (_savedSignatures.isEmpty) return;
+      _savedSignatures = const [];
+      _activeSignatureId = null;
+      _writeSignatureLibrary();
+      notifyListeners();
+      return;
+    }
+    final active = activeSavedSignature;
+    if (active == null) {
+      final entry = PdfSavedSignature.create(
+        name: 'Signature 1',
+        signature: value,
+      );
+      _savedSignatures = List.unmodifiable([entry]);
+      _activeSignatureId = entry.id;
+    } else {
+      _savedSignatures = List.unmodifiable([
+        for (final entry in _savedSignatures)
+          if (entry.id == active.id)
+            entry.copyWith(signature: value)
+          else
+            entry,
+      ]);
+    }
+    _writeSignatureLibrary();
+    notifyListeners();
+  }
+
+  /// The user's saved signatures, oldest first.
+  List<PdfSavedSignature> get savedSignatures => _savedSignatures;
+
+  set savedSignatures(List<PdfSavedSignature> value) {
+    final next = List<PdfSavedSignature>.unmodifiable(value);
+    if (_encodedListsEqual(next.map((entry) => entry.encode()),
+        _savedSignatures.map((entry) => entry.encode()))) {
+      return;
+    }
+    _savedSignatures = next;
+    if (!next.any((entry) => entry.id == _activeSignatureId)) {
+      _activeSignatureId = next.isEmpty ? null : next.first.id;
+    }
+    _writeSignatureLibrary();
+    notifyListeners();
+  }
+
+  /// The signature currently chosen for placement.
+  PdfSavedSignature? get activeSavedSignature {
+    for (final entry in _savedSignatures) {
+      if (entry.id == _activeSignatureId) return entry;
+    }
+    return _savedSignatures.isEmpty ? null : _savedSignatures.first;
+  }
+
+  set activeSavedSignature(PdfSavedSignature? value) {
+    final id = value?.id ??
+        (_savedSignatures.isEmpty ? null : _savedSignatures.first.id);
+    if (id == _activeSignatureId ||
+        (id != null && !_savedSignatures.any((entry) => entry.id == id))) {
+      return;
+    }
+    _activeSignatureId = id;
+    _writeSignatureLibrary();
+    notifyListeners();
+  }
+
+  void _writeSignatureLibrary() {
+    final active = activeSavedSignature;
+    // Invoke every setter before yielding. Successive library mutations can
+    // arrive faster than the platform store completes a write; awaiting each
+    // key here would let an older call resume between a newer call's writes
+    // and leave the active id or legacy mirror stale.
+    _write((store) => Future.wait<Object?>([
+          store.setStringList('${_prefix}signatures', [
+            for (final entry in _savedSignatures) entry.encode(),
+          ]),
+          if (active == null) ...[
+            store.remove('${_prefix}activeSignatureId'),
+            store.remove('${_prefix}signature'),
+          ] else ...[
+            store.setString('${_prefix}activeSignatureId', active.id),
+            store.setString('${_prefix}signature', active.signature.encode()),
+          ],
+        ]));
+  }
+
+  /// Named reusable annotation snapshots saved on this device.
+  List<PdfSavedAnnotation> get savedAnnotations => _savedAnnotations;
+
+  set savedAnnotations(List<PdfSavedAnnotation> value) {
+    final next = List<PdfSavedAnnotation>.unmodifiable(value);
+    if (_encodedListsEqual(next.map((entry) => entry.encode()),
+        _savedAnnotations.map((entry) => entry.encode()))) {
+      return;
+    }
+    _savedAnnotations = next;
+    _write((store) => store.setStringList('${_prefix}savedAnnotations', [
+          for (final entry in next) entry.encode(),
+        ]));
     notifyListeners();
   }
 
@@ -1389,5 +1528,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     _searchAnnotations = value;
     _write((s) => s.setBool('${_prefix}searchAnnotations', value));
     notifyListeners();
+  }
+}
+
+bool _encodedListsEqual(Iterable<String> a, Iterable<String> b) {
+  final left = a.iterator;
+  final right = b.iterator;
+  while (true) {
+    final hasLeft = left.moveNext();
+    final hasRight = right.moveNext();
+    if (hasLeft != hasRight) return false;
+    if (!hasLeft) return true;
+    if (left.current != right.current) return false;
   }
 }
