@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Bergelombang",
   "viewerMarkupStrikeOut": "Coret",
   "viewerMarkupUnderline": "Garis bawah",
-  "viewerSelectAll": "Pilih semua"
+  "viewerSelectAll": "Pilih semua",
+  "annotationLibraryTitle": "Pustaka anotasi",
+  "annotationLibraryEmpty": "Tidak ada anotasi tersimpan.",
+  "annotationLibraryHelp": "Pilih anotasi yang didukung, lalu pilih “Simpan ke pustaka anotasi” dari menunya. Tautan dan bidang formulir tidak dapat disimpan.",
+  "annotationLibrarySave": "Simpan ke pustaka anotasi",
+  "annotationLibrarySaveTitle": "Simpan anotasi",
+  "annotationLibraryRenameTitle": "Ganti nama item pustaka",
+  "annotationLibraryCustomStamps": "Stempel khusus…",
+  "signatureLibraryManage": "Kelola tanda tangan",
+  "signatureLibraryRenameTitle": "Ganti nama tanda tangan",
+  "signatureLibraryEmpty": "Tidak ada tanda tangan tersimpan."
 }

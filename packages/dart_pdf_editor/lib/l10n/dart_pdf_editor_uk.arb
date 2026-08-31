@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Хвиляста лінія",
   "viewerMarkupStrikeOut": "Закреслити",
   "viewerMarkupUnderline": "Підкреслення",
-  "viewerSelectAll": "Виділити все"
+  "viewerSelectAll": "Виділити все",
+  "annotationLibraryTitle": "Бібліотека анотацій",
+  "annotationLibraryEmpty": "Немає збережених анотацій.",
+  "annotationLibraryHelp": "Виберіть підтримувану анотацію й у її меню натисніть «Зберегти до бібліотеки анотацій». Посилання та поля форм зберегти не можна.",
+  "annotationLibrarySave": "Зберегти до бібліотеки анотацій",
+  "annotationLibrarySaveTitle": "Зберегти анотацію",
+  "annotationLibraryRenameTitle": "Перейменувати елемент бібліотеки",
+  "annotationLibraryCustomStamps": "Користувацькі штампи…",
+  "signatureLibraryManage": "Керувати підписами",
+  "signatureLibraryRenameTitle": "Перейменувати підпис",
+  "signatureLibraryEmpty": "Немає збережених підписів."
 }

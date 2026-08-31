@@ -2047,33 +2047,33 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'เลือกทั้งหมด';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'คลังคำอธิบายประกอบ';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'ไม่มีคำอธิบายประกอบที่บันทึกไว้';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'เลือกคำอธิบายประกอบที่รองรับ แล้วเลือก “บันทึกไปยังคลังคำอธิบายประกอบ” จากเมนู ไม่สามารถบันทึกลิงก์และช่องแบบฟอร์มได้';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'บันทึกไปยังคลังคำอธิบายประกอบ';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'บันทึกคำอธิบายประกอบ';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => 'เปลี่ยนชื่อรายการในคลัง';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'ตราประทับแบบกำหนดเอง…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'จัดการลายเซ็น';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'เปลี่ยนชื่อลายเซ็น';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'ไม่มีลายเซ็นที่บันทึกไว้';
 }

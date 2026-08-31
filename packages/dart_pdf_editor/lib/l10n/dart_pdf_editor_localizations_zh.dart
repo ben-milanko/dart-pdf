@@ -2030,35 +2030,34 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get viewerSelectAll => '全选';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => '注释库';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => '没有已保存的注释。';
 
   @override
-  String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+  String get annotationLibraryHelp => '选择支持的注释，然后从其菜单中选择“保存到注释库”。链接和表单字段无法保存。';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => '保存到注释库';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => '保存注释';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => '重命名库项目';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => '自定义图章…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => '管理签名';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => '重命名签名';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => '没有已保存的签名。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4085,4 +4084,34 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get viewerSelectAll => '全選';
+
+  @override
+  String get annotationLibraryTitle => '註解資料庫';
+
+  @override
+  String get annotationLibraryEmpty => '沒有已儲存的註解。';
+
+  @override
+  String get annotationLibraryHelp => '選取支援的註解，然後從其選單選擇「儲存至註解資料庫」。連結和表單欄位無法儲存。';
+
+  @override
+  String get annotationLibrarySave => '儲存至註解資料庫';
+
+  @override
+  String get annotationLibrarySaveTitle => '儲存註解';
+
+  @override
+  String get annotationLibraryRenameTitle => '重新命名資料庫項目';
+
+  @override
+  String get annotationLibraryCustomStamps => '自訂戳記…';
+
+  @override
+  String get signatureLibraryManage => '管理簽名';
+
+  @override
+  String get signatureLibraryRenameTitle => '重新命名簽名';
+
+  @override
+  String get signatureLibraryEmpty => '沒有已儲存的簽名。';
 }

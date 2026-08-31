@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Dalgalı",
   "viewerMarkupStrikeOut": "Üstünü çiz",
   "viewerMarkupUnderline": "Altı çizili",
-  "viewerSelectAll": "Tümünü seç"
+  "viewerSelectAll": "Tümünü seç",
+  "annotationLibraryTitle": "Ek açıklama kitaplığı",
+  "annotationLibraryEmpty": "Kayıtlı ek açıklama yok.",
+  "annotationLibraryHelp": "Desteklenen bir ek açıklamayı seçin ve menüsünden “Ek açıklama kitaplığına kaydet” seçeneğini belirleyin. Bağlantılar ve form alanları kaydedilemez.",
+  "annotationLibrarySave": "Ek açıklama kitaplığına kaydet",
+  "annotationLibrarySaveTitle": "Ek açıklamayı kaydet",
+  "annotationLibraryRenameTitle": "Kitaplık öğesini yeniden adlandır",
+  "annotationLibraryCustomStamps": "Özel damgalar…",
+  "signatureLibraryManage": "İmzaları yönet",
+  "signatureLibraryRenameTitle": "İmzayı yeniden adlandır",
+  "signatureLibraryEmpty": "Kayıtlı imza yok."
 }

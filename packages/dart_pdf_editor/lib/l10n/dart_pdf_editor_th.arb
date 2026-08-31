@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "เส้นหยัก",
   "viewerMarkupStrikeOut": "ขีดฆ่า",
   "viewerMarkupUnderline": "ขีดเส้นใต้",
-  "viewerSelectAll": "เลือกทั้งหมด"
+  "viewerSelectAll": "เลือกทั้งหมด",
+  "annotationLibraryTitle": "คลังคำอธิบายประกอบ",
+  "annotationLibraryEmpty": "ไม่มีคำอธิบายประกอบที่บันทึกไว้",
+  "annotationLibraryHelp": "เลือกคำอธิบายประกอบที่รองรับ แล้วเลือก “บันทึกไปยังคลังคำอธิบายประกอบ” จากเมนู ไม่สามารถบันทึกลิงก์และช่องแบบฟอร์มได้",
+  "annotationLibrarySave": "บันทึกไปยังคลังคำอธิบายประกอบ",
+  "annotationLibrarySaveTitle": "บันทึกคำอธิบายประกอบ",
+  "annotationLibraryRenameTitle": "เปลี่ยนชื่อรายการในคลัง",
+  "annotationLibraryCustomStamps": "ตราประทับแบบกำหนดเอง…",
+  "signatureLibraryManage": "จัดการลายเซ็น",
+  "signatureLibraryRenameTitle": "เปลี่ยนชื่อลายเซ็น",
+  "signatureLibraryEmpty": "ไม่มีลายเซ็นที่บันทึกไว้"
 }

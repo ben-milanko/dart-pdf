@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Ondulé",
   "viewerMarkupStrikeOut": "Barrer",
   "viewerMarkupUnderline": "Souligner",
-  "viewerSelectAll": "Tout sélectionner"
+  "viewerSelectAll": "Tout sélectionner",
+  "annotationLibraryTitle": "Bibliothèque d’annotations",
+  "annotationLibraryEmpty": "Aucune annotation enregistrée.",
+  "annotationLibraryHelp": "Sélectionnez une annotation prise en charge, puis choisissez « Enregistrer dans la bibliothèque d’annotations » dans son menu. Les liens et les champs de formulaire ne peuvent pas être enregistrés.",
+  "annotationLibrarySave": "Enregistrer dans la bibliothèque d’annotations",
+  "annotationLibrarySaveTitle": "Enregistrer l’annotation",
+  "annotationLibraryRenameTitle": "Renommer l’élément de la bibliothèque",
+  "annotationLibraryCustomStamps": "Tampons personnalisés…",
+  "signatureLibraryManage": "Gérer les signatures",
+  "signatureLibraryRenameTitle": "Renommer la signature",
+  "signatureLibraryEmpty": "Aucune signature enregistrée."
 }

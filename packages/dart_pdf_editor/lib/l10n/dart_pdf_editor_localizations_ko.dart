@@ -2037,33 +2037,33 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get viewerSelectAll => '모두 선택';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => '주석 라이브러리';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => '저장된 주석이 없습니다.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      '지원되는 주석을 선택한 다음 메뉴에서 “주석 라이브러리에 저장”을 선택하세요. 링크와 양식 필드는 저장할 수 없습니다.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => '주석 라이브러리에 저장';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => '주석 저장';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => '라이브러리 항목 이름 바꾸기';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => '사용자 지정 스탬프…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => '서명 관리';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => '서명 이름 바꾸기';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => '저장된 서명이 없습니다.';
 }

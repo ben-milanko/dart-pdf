@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Волнистое",
   "viewerMarkupStrikeOut": "Зачеркнуть",
   "viewerMarkupUnderline": "Подчёркивание",
-  "viewerSelectAll": "Выбрать всё"
+  "viewerSelectAll": "Выбрать всё",
+  "annotationLibraryTitle": "Библиотека аннотаций",
+  "annotationLibraryEmpty": "Нет сохранённых аннотаций.",
+  "annotationLibraryHelp": "Выберите поддерживаемую аннотацию и в её меню нажмите «Сохранить в библиотеку аннотаций». Ссылки и поля форм сохранить нельзя.",
+  "annotationLibrarySave": "Сохранить в библиотеку аннотаций",
+  "annotationLibrarySaveTitle": "Сохранить аннотацию",
+  "annotationLibraryRenameTitle": "Переименовать элемент библиотеки",
+  "annotationLibraryCustomStamps": "Пользовательские штампы…",
+  "signatureLibraryManage": "Управление подписями",
+  "signatureLibraryRenameTitle": "Переименовать подпись",
+  "signatureLibraryEmpty": "Нет сохранённых подписей."
 }

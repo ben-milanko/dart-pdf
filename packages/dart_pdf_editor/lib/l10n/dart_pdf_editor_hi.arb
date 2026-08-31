@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "लहरदार",
   "viewerMarkupStrikeOut": "स्ट्राइक आउट",
   "viewerMarkupUnderline": "रेखांकन",
-  "viewerSelectAll": "सभी चुनें"
+  "viewerSelectAll": "सभी चुनें",
+  "annotationLibraryTitle": "एनोटेशन लाइब्रेरी",
+  "annotationLibraryEmpty": "कोई सहेजा गया एनोटेशन नहीं है।",
+  "annotationLibraryHelp": "किसी समर्थित एनोटेशन को चुनें और उसके मेनू से “एनोटेशन लाइब्रेरी में सहेजें” चुनें। लिंक और फ़ॉर्म फ़ील्ड सहेजे नहीं जा सकते।",
+  "annotationLibrarySave": "एनोटेशन लाइब्रेरी में सहेजें",
+  "annotationLibrarySaveTitle": "एनोटेशन सहेजें",
+  "annotationLibraryRenameTitle": "लाइब्रेरी आइटम का नाम बदलें",
+  "annotationLibraryCustomStamps": "कस्टम स्टैम्प…",
+  "signatureLibraryManage": "हस्ताक्षर प्रबंधित करें",
+  "signatureLibraryRenameTitle": "हस्ताक्षर का नाम बदलें",
+  "signatureLibraryEmpty": "कोई सहेजा गया हस्ताक्षर नहीं है।"
 }

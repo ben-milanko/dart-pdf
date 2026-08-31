@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Wellenlinie",
   "viewerMarkupStrikeOut": "Durchstreichen",
   "viewerMarkupUnderline": "Unterstreichen",
-  "viewerSelectAll": "Alles auswählen"
+  "viewerSelectAll": "Alles auswählen",
+  "annotationLibraryTitle": "Anmerkungsbibliothek",
+  "annotationLibraryEmpty": "Keine gespeicherten Anmerkungen.",
+  "annotationLibraryHelp": "Wählen Sie eine unterstützte Anmerkung aus und wählen Sie in ihrem Menü „In Anmerkungsbibliothek speichern“. Links und Formularfelder können nicht gespeichert werden.",
+  "annotationLibrarySave": "In Anmerkungsbibliothek speichern",
+  "annotationLibrarySaveTitle": "Anmerkung speichern",
+  "annotationLibraryRenameTitle": "Bibliothekseintrag umbenennen",
+  "annotationLibraryCustomStamps": "Benutzerdefinierte Stempel…",
+  "signatureLibraryManage": "Unterschriften verwalten",
+  "signatureLibraryRenameTitle": "Unterschrift umbenennen",
+  "signatureLibraryEmpty": "Keine gespeicherten Unterschriften."
 }

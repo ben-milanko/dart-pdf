@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "波浪线",
   "viewerMarkupStrikeOut": "删除线",
   "viewerMarkupUnderline": "下划线",
-  "viewerSelectAll": "全选"
+  "viewerSelectAll": "全选",
+  "annotationLibraryTitle": "注释库",
+  "annotationLibraryEmpty": "没有已保存的注释。",
+  "annotationLibraryHelp": "选择支持的注释，然后从其菜单中选择“保存到注释库”。链接和表单字段无法保存。",
+  "annotationLibrarySave": "保存到注释库",
+  "annotationLibrarySaveTitle": "保存注释",
+  "annotationLibraryRenameTitle": "重命名库项目",
+  "annotationLibraryCustomStamps": "自定义图章…",
+  "signatureLibraryManage": "管理签名",
+  "signatureLibraryRenameTitle": "重命名签名",
+  "signatureLibraryEmpty": "没有已保存的签名。"
 }

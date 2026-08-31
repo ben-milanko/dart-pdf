@@ -2066,33 +2066,33 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'Alles auswählen';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'Anmerkungsbibliothek';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'Keine gespeicherten Anmerkungen.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'Wählen Sie eine unterstützte Anmerkung aus und wählen Sie in ihrem Menü „In Anmerkungsbibliothek speichern“. Links und Formularfelder können nicht gespeichert werden.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'In Anmerkungsbibliothek speichern';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'Anmerkung speichern';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => 'Bibliothekseintrag umbenennen';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'Benutzerdefinierte Stempel…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'Unterschriften verwalten';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'Unterschrift umbenennen';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'Keine gespeicherten Unterschriften.';
 }

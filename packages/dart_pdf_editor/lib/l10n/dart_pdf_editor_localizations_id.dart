@@ -2062,33 +2062,33 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'Pilih semua';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'Pustaka anotasi';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'Tidak ada anotasi tersimpan.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'Pilih anotasi yang didukung, lalu pilih “Simpan ke pustaka anotasi” dari menunya. Tautan dan bidang formulir tidak dapat disimpan.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'Simpan ke pustaka anotasi';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'Simpan anotasi';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => 'Ganti nama item pustaka';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'Stempel khusus…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'Kelola tanda tangan';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'Ganti nama tanda tangan';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'Tidak ada tanda tangan tersimpan.';
 }

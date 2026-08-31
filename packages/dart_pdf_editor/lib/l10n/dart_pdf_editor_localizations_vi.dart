@@ -2053,33 +2053,33 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'Chọn tất cả';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'Thư viện chú thích';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'Không có chú thích đã lưu.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'Chọn một chú thích được hỗ trợ rồi chọn “Lưu vào thư viện chú thích” trong menu của chú thích đó. Không thể lưu liên kết và trường biểu mẫu.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'Lưu vào thư viện chú thích';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'Lưu chú thích';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => 'Đổi tên mục thư viện';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'Con dấu tùy chỉnh…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'Quản lý chữ ký';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'Đổi tên chữ ký';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'Không có chữ ký đã lưu.';
 }

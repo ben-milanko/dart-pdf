@@ -2057,33 +2057,33 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'सभी चुनें';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'एनोटेशन लाइब्रेरी';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'कोई सहेजा गया एनोटेशन नहीं है।';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'किसी समर्थित एनोटेशन को चुनें और उसके मेनू से “एनोटेशन लाइब्रेरी में सहेजें” चुनें। लिंक और फ़ॉर्म फ़ील्ड सहेजे नहीं जा सकते।';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'एनोटेशन लाइब्रेरी में सहेजें';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'एनोटेशन सहेजें';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => 'लाइब्रेरी आइटम का नाम बदलें';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'कस्टम स्टैम्प…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'हस्ताक्षर प्रबंधित करें';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'हस्ताक्षर का नाम बदलें';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'कोई सहेजा गया हस्ताक्षर नहीं है।';
 }

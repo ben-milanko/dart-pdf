@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Ondulato",
   "viewerMarkupStrikeOut": "Barra",
   "viewerMarkupUnderline": "Sottolinea",
-  "viewerSelectAll": "Seleziona tutto"
+  "viewerSelectAll": "Seleziona tutto",
+  "annotationLibraryTitle": "Libreria annotazioni",
+  "annotationLibraryEmpty": "Nessuna annotazione salvata.",
+  "annotationLibraryHelp": "Seleziona un'annotazione supportata e scegli “Salva nella libreria annotazioni” dal relativo menu. I collegamenti e i campi modulo non possono essere salvati.",
+  "annotationLibrarySave": "Salva nella libreria annotazioni",
+  "annotationLibrarySaveTitle": "Salva annotazione",
+  "annotationLibraryRenameTitle": "Rinomina elemento della libreria",
+  "annotationLibraryCustomStamps": "Timbri personalizzati…",
+  "signatureLibraryManage": "Gestisci firme",
+  "signatureLibraryRenameTitle": "Rinomina firma",
+  "signatureLibraryEmpty": "Nessuna firma salvata."
 }

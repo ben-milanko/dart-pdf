@@ -2062,33 +2062,34 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'Seleccionar todo';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'Biblioteca de anotaciones';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'No hay anotaciones guardadas.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'Selecciona una anotación compatible y elige «Guardar en la biblioteca de anotaciones» en su menú. No se pueden guardar enlaces ni campos de formulario.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'Guardar en la biblioteca de anotaciones';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'Guardar anotación';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle =>
+      'Cambiar nombre del elemento de la biblioteca';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'Sellos personalizados…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'Administrar firmas';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'Cambiar nombre de la firma';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'No hay firmas guardadas.';
 }

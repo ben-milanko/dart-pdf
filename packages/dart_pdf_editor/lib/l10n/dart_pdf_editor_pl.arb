@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Faliste",
   "viewerMarkupStrikeOut": "Przekreślenie",
   "viewerMarkupUnderline": "Podkreślenie",
-  "viewerSelectAll": "Zaznacz wszystko"
+  "viewerSelectAll": "Zaznacz wszystko",
+  "annotationLibraryTitle": "Biblioteka adnotacji",
+  "annotationLibraryEmpty": "Brak zapisanych adnotacji.",
+  "annotationLibraryHelp": "Wybierz obsługiwaną adnotację, a następnie wybierz z jej menu „Zapisz w bibliotece adnotacji”. Nie można zapisywać łączy ani pól formularzy.",
+  "annotationLibrarySave": "Zapisz w bibliotece adnotacji",
+  "annotationLibrarySaveTitle": "Zapisz adnotację",
+  "annotationLibraryRenameTitle": "Zmień nazwę elementu biblioteki",
+  "annotationLibraryCustomStamps": "Niestandardowe stemple…",
+  "signatureLibraryManage": "Zarządzaj podpisami",
+  "signatureLibraryRenameTitle": "Zmień nazwę podpisu",
+  "signatureLibraryEmpty": "Brak zapisanych podpisów."
 }

@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "波浪線",
   "viewerMarkupStrikeOut": "刪除線",
   "viewerMarkupUnderline": "底線",
-  "viewerSelectAll": "全選"
+  "viewerSelectAll": "全選",
+  "annotationLibraryTitle": "註解資料庫",
+  "annotationLibraryEmpty": "沒有已儲存的註解。",
+  "annotationLibraryHelp": "選取支援的註解，然後從其選單選擇「儲存至註解資料庫」。連結和表單欄位無法儲存。",
+  "annotationLibrarySave": "儲存至註解資料庫",
+  "annotationLibrarySaveTitle": "儲存註解",
+  "annotationLibraryRenameTitle": "重新命名資料庫項目",
+  "annotationLibraryCustomStamps": "自訂戳記…",
+  "signatureLibraryManage": "管理簽名",
+  "signatureLibraryRenameTitle": "重新命名簽名",
+  "signatureLibraryEmpty": "沒有已儲存的簽名。"
 }

@@ -2100,33 +2100,33 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'تحديد الكل';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'مكتبة التعليقات التوضيحية';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'لا توجد تعليقات توضيحية محفوظة.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'حدِّد تعليقًا توضيحيًا مدعومًا واختر «حفظ في مكتبة التعليقات التوضيحية» من قائمته. لا يمكن حفظ الروابط وحقول النماذج.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'حفظ في مكتبة التعليقات التوضيحية';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'حفظ التعليق التوضيحي';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle => 'إعادة تسمية عنصر المكتبة';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'أختام مخصصة…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'إدارة التوقيعات';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'إعادة تسمية التوقيع';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'لا توجد توقيعات محفوظة.';
 }

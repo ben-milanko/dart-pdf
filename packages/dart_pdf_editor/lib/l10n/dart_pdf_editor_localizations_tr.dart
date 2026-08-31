@@ -2056,33 +2056,34 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get viewerSelectAll => 'Tümünü seç';
 
   @override
-  String get annotationLibraryTitle => 'Annotation library';
+  String get annotationLibraryTitle => 'Ek açıklama kitaplığı';
 
   @override
-  String get annotationLibraryEmpty => 'No saved annotations.';
+  String get annotationLibraryEmpty => 'Kayıtlı ek açıklama yok.';
 
   @override
   String get annotationLibraryHelp =>
-      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+      'Desteklenen bir ek açıklamayı seçin ve menüsünden “Ek açıklama kitaplığına kaydet” seçeneğini belirleyin. Bağlantılar ve form alanları kaydedilemez.';
 
   @override
-  String get annotationLibrarySave => 'Save to annotation library';
+  String get annotationLibrarySave => 'Ek açıklama kitaplığına kaydet';
 
   @override
-  String get annotationLibrarySaveTitle => 'Save annotation';
+  String get annotationLibrarySaveTitle => 'Ek açıklamayı kaydet';
 
   @override
-  String get annotationLibraryRenameTitle => 'Rename library item';
+  String get annotationLibraryRenameTitle =>
+      'Kitaplık öğesini yeniden adlandır';
 
   @override
-  String get annotationLibraryCustomStamps => 'Custom stamps…';
+  String get annotationLibraryCustomStamps => 'Özel damgalar…';
 
   @override
-  String get signatureLibraryManage => 'Manage signatures';
+  String get signatureLibraryManage => 'İmzaları yönet';
 
   @override
-  String get signatureLibraryRenameTitle => 'Rename signature';
+  String get signatureLibraryRenameTitle => 'İmzayı yeniden adlandır';
 
   @override
-  String get signatureLibraryEmpty => 'No saved signatures.';
+  String get signatureLibraryEmpty => 'Kayıtlı imza yok.';
 }

@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "Ondulado",
   "viewerMarkupStrikeOut": "Tachar",
   "viewerMarkupUnderline": "Subrayar",
-  "viewerSelectAll": "Seleccionar todo"
+  "viewerSelectAll": "Seleccionar todo",
+  "annotationLibraryTitle": "Biblioteca de anotaciones",
+  "annotationLibraryEmpty": "No hay anotaciones guardadas.",
+  "annotationLibraryHelp": "Selecciona una anotación compatible y elige «Guardar en la biblioteca de anotaciones» en su menú. No se pueden guardar enlaces ni campos de formulario.",
+  "annotationLibrarySave": "Guardar en la biblioteca de anotaciones",
+  "annotationLibrarySaveTitle": "Guardar anotación",
+  "annotationLibraryRenameTitle": "Cambiar nombre del elemento de la biblioteca",
+  "annotationLibraryCustomStamps": "Sellos personalizados…",
+  "signatureLibraryManage": "Administrar firmas",
+  "signatureLibraryRenameTitle": "Cambiar nombre de la firma",
+  "signatureLibraryEmpty": "No hay firmas guardadas."
 }

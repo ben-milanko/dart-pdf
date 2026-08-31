@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "متموّج",
   "viewerMarkupStrikeOut": "شطب",
   "viewerMarkupUnderline": "تسطير",
-  "viewerSelectAll": "تحديد الكل"
+  "viewerSelectAll": "تحديد الكل",
+  "annotationLibraryTitle": "مكتبة التعليقات التوضيحية",
+  "annotationLibraryEmpty": "لا توجد تعليقات توضيحية محفوظة.",
+  "annotationLibraryHelp": "حدِّد تعليقًا توضيحيًا مدعومًا واختر «حفظ في مكتبة التعليقات التوضيحية» من قائمته. لا يمكن حفظ الروابط وحقول النماذج.",
+  "annotationLibrarySave": "حفظ في مكتبة التعليقات التوضيحية",
+  "annotationLibrarySaveTitle": "حفظ التعليق التوضيحي",
+  "annotationLibraryRenameTitle": "إعادة تسمية عنصر المكتبة",
+  "annotationLibraryCustomStamps": "أختام مخصصة…",
+  "signatureLibraryManage": "إدارة التوقيعات",
+  "signatureLibraryRenameTitle": "إعادة تسمية التوقيع",
+  "signatureLibraryEmpty": "لا توجد توقيعات محفوظة."
 }

@@ -599,5 +599,15 @@
   "viewerMarkupSquiggly": "물결 밑줄",
   "viewerMarkupStrikeOut": "취소선",
   "viewerMarkupUnderline": "밑줄",
-  "viewerSelectAll": "모두 선택"
+  "viewerSelectAll": "모두 선택",
+  "annotationLibraryTitle": "주석 라이브러리",
+  "annotationLibraryEmpty": "저장된 주석이 없습니다.",
+  "annotationLibraryHelp": "지원되는 주석을 선택한 다음 메뉴에서 “주석 라이브러리에 저장”을 선택하세요. 링크와 양식 필드는 저장할 수 없습니다.",
+  "annotationLibrarySave": "주석 라이브러리에 저장",
+  "annotationLibrarySaveTitle": "주석 저장",
+  "annotationLibraryRenameTitle": "라이브러리 항목 이름 바꾸기",
+  "annotationLibraryCustomStamps": "사용자 지정 스탬프…",
+  "signatureLibraryManage": "서명 관리",
+  "signatureLibraryRenameTitle": "서명 이름 바꾸기",
+  "signatureLibraryEmpty": "저장된 서명이 없습니다."
 }
