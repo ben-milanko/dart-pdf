@@ -74,6 +74,20 @@ PdfEditorView(
 )
 ```
 
+The stock toolbar includes cursor-guide and grid controls. Custom chrome can
+configure the same persisted preferences directly (grid units are PDF points):
+
+```dart
+editing.preferences
+  ..showVerticalCursorGuide = true
+  ..showHorizontalCursorGuide = true
+  ..snapToGrid = true
+  ..gridSpacing = 10;
+```
+
+Grid snapping covers annotation placement, movement, resizing, and line or
+polygon vertices. Hold Alt during a gesture for a temporary off-grid edit.
+
 Try the [live demo](https://dart-pdf-demo.web.app) of the example app
 on Flutter web, with a built-in feature showcase document.
 

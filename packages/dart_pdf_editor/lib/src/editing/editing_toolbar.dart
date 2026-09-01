@@ -28,6 +28,7 @@ import 'editing_form_style.dart';
 import 'editing_measure.dart';
 import 'editing_panel.dart';
 import 'editing_value_field.dart';
+import 'editing_preferences.dart';
 import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -43,6 +44,127 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfEditingController controller,
   PdfViewerController viewerController,
 );
+
+/// Opens the stock cursor-guide and grid-snap settings.
+///
+/// The switches update [preferences] live and persist through
+/// [PdfEditingPreferences]. They are display/interaction settings only; no
+/// guide or grid is written into the PDF.
+Future<void> showPdfEditingGuidesDialog(
+  BuildContext context, {
+  required PdfEditingPreferences preferences,
+}) async {
+  String spacingLabel(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(1);
+
+  await showPdfDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Cursor guides and grid'),
+      contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      content: SizedBox(
+        width: 360,
+        child: ListenableBuilder(
+          listenable: preferences,
+          builder: (context, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SwitchListTile(
+                key: const ValueKey('pdf-cursor-guide-vertical'),
+                secondary: const Icon(Icons.vertical_align_center),
+                title: const Text('Vertical cursor line'),
+                value: preferences.showVerticalCursorGuide,
+                onChanged: (value) =>
+                    preferences.showVerticalCursorGuide = value,
+              ),
+              SwitchListTile(
+                key: const ValueKey('pdf-cursor-guide-horizontal'),
+                secondary: const Icon(Icons.horizontal_rule),
+                title: const Text('Horizontal cursor line'),
+                value: preferences.showHorizontalCursorGuide,
+                onChanged: (value) =>
+                    preferences.showHorizontalCursorGuide = value,
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                key: const ValueKey('pdf-grid-snap'),
+                secondary: const Icon(Icons.grid_4x4),
+                title: const Text('Snap to grid'),
+                subtitle: const Text('Hold Alt to bypass snapping'),
+                value: preferences.snapToGrid,
+                onChanged: (value) => preferences.snapToGrid = value,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Row(children: [
+                  const Text('Grid spacing'),
+                  Expanded(
+                    child: Slider(
+                      key: const ValueKey('pdf-grid-spacing'),
+                      value: preferences.gridSpacing.clamp(1, 144),
+                      min: 1,
+                      max: 144,
+                      divisions: 143,
+                      label: '${spacingLabel(preferences.gridSpacing)} pt',
+                      onChanged: (value) => preferences.gridSpacing = value,
+                    ),
+                  ),
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      '${spacingLabel(preferences.gridSpacing)} pt',
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('pdf-guides-done'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(pdfL10n(context).done),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The compact stock button for [showPdfEditingGuidesDialog].
+class PdfEditingGuidesButton extends StatelessWidget {
+  const PdfEditingGuidesButton({
+    super.key,
+    required this.preferences,
+    this.visualDensity,
+  });
+
+  final PdfEditingPreferences preferences;
+  final VisualDensity? visualDensity;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: preferences,
+      builder: (context, _) => IconButton(
+        key: const ValueKey('pdf-editing-guides'),
+        icon: const Icon(Icons.grid_4x4),
+        tooltip: 'Cursor guides and grid',
+        isSelected: preferences.showVerticalCursorGuide ||
+            preferences.showHorizontalCursorGuide ||
+            preferences.snapToGrid,
+        visualDensity: visualDensity,
+        onPressed: () => showPdfEditingGuidesDialog(
+          context,
+          preferences: preferences,
+        ),
+      ),
+    );
+  }
+}
 
 /// A ready-made toolbar for [PdfEditingController].
 ///
@@ -91,6 +213,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showFlatten = true,
     this.showColorProcessing = true,
     this.showAnnotationLibrary = true,
+    this.showGuides = true,
     this.dock = PdfPanelDock.bottom,
     this.compact,
     this.cardAlignment = Alignment.center,
@@ -207,6 +330,10 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Whether the Insert strip includes the reusable annotation library.
   final bool showAnnotationLibrary;
+
+  /// Whether the dock exposes the cursor-guide and grid-snap settings.
+  /// The preferences remain directly configurable when this is false.
+  final bool showGuides;
 
   /// The edge this toolbar is docked to.
   ///
@@ -1593,11 +1720,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onHand: _activateHandMode,
           onSelect: _activateSelectMode,
         ),
-        if (editingGroups.isNotEmpty ||
-            widget.onSave != null ||
-            widget.trailing.isNotEmpty)
-          _DockDivider(axis: axis),
       ],
+      if (showNavigationModes && editingGroups.isNotEmpty)
+        _DockDivider(axis: axis),
       for (final group in editingGroups)
         _GroupChip(
           key: ValueKey('pdf-group-${group.id}'),
@@ -1606,6 +1731,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           vertical: axis == Axis.vertical,
           onTap: () => _openGroupTap(group),
         ),
+      if (widget.showGuides) ...[
+        if (showNavigationModes || editingGroups.isNotEmpty)
+          _DockDivider(axis: axis),
+        PdfEditingGuidesButton(preferences: controller.preferences),
+      ],
       // Flatten now lives in the Edit group's strip, not the dock.
       // Save stays available for standalone hosts, but the drop-in
       // shells hide it here and surface it in their header (near Open).
@@ -3000,6 +3130,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     ),
                     const SizedBox(height: 10),
                     _sheetToolGrid(sheetContext, group),
+                    if (widget.showGuides) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('pdf-mobile-editing-guides'),
+                          icon: const Icon(Icons.grid_4x4),
+                          label: const Text('Cursor guides and grid'),
+                          onPressed: () => showPdfEditingGuidesDialog(
+                            sheetContext,
+                            preferences: controller.preferences,
+                          ),
+                        ),
+                      ),
+                    ],
                     ..._sheetSettings(sheetContext, group),
                   ],
                 ),

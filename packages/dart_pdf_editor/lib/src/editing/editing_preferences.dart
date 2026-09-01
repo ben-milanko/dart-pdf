@@ -55,6 +55,10 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _strokeWidth = 2;
   double _cornerRadius = 0;
   double _eraserRadius = 8;
+  bool _showVerticalCursorGuide = false;
+  bool _showHorizontalCursorGuide = false;
+  bool _snapToGrid = false;
+  double _gridSpacing = 10;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   PdfTextAlign? _textAlign;
@@ -173,6 +177,17 @@ class PdfEditingPreferences extends ChangeNotifier {
           store.getDouble('${_prefix}cornerRadius') ?? _cornerRadius;
       _eraserRadius =
           store.getDouble('${_prefix}eraserRadius') ?? _eraserRadius;
+      _showVerticalCursorGuide =
+          store.getBool('${_prefix}showVerticalCursorGuide') ??
+              _showVerticalCursorGuide;
+      _showHorizontalCursorGuide =
+          store.getBool('${_prefix}showHorizontalCursorGuide') ??
+              _showHorizontalCursorGuide;
+      _snapToGrid = store.getBool('${_prefix}snapToGrid') ?? _snapToGrid;
+      final gridSpacing = store.getDouble('${_prefix}gridSpacing');
+      if (gridSpacing != null && gridSpacing.isFinite && gridSpacing > 0) {
+        _gridSpacing = gridSpacing;
+      }
       _fontSize = store.getDouble('${_prefix}fontSize') ?? _fontSize;
       final fontFamily = store.getString('${_prefix}fontFamily');
       if (fontFamily != null) {
@@ -700,6 +715,53 @@ class PdfEditingPreferences extends ChangeNotifier {
     _eraserRadius = value;
     _write((s) => s.setDouble('${_prefix}eraserRadius', value));
     _recordScoped('eraserRadius', value);
+    notifyListeners();
+  }
+
+  /// Whether a page-height guide follows the mouse pointer's horizontal
+  /// position. The guide is display-only and is not written into the PDF.
+  bool get showVerticalCursorGuide => _showVerticalCursorGuide;
+
+  set showVerticalCursorGuide(bool value) {
+    if (value == _showVerticalCursorGuide) return;
+    _showVerticalCursorGuide = value;
+    _write((s) => s.setBool('${_prefix}showVerticalCursorGuide', value));
+    notifyListeners();
+  }
+
+  /// Whether a page-width guide follows the mouse pointer's vertical
+  /// position. The guide is display-only and is not written into the PDF.
+  bool get showHorizontalCursorGuide => _showHorizontalCursorGuide;
+
+  set showHorizontalCursorGuide(bool value) {
+    if (value == _showHorizontalCursorGuide) return;
+    _showHorizontalCursorGuide = value;
+    _write((s) => s.setBool('${_prefix}showHorizontalCursorGuide', value));
+    notifyListeners();
+  }
+
+  /// Whether annotation placement, movement, resizing, and line vertices
+  /// snap to a page-space grid. Hold Alt during a gesture to bypass it.
+  bool get snapToGrid => _snapToGrid;
+
+  set snapToGrid(bool value) {
+    if (value == _snapToGrid) return;
+    _snapToGrid = value;
+    _write((s) => s.setBool('${_prefix}snapToGrid', value));
+    notifyListeners();
+  }
+
+  /// The grid interval in PDF points. Grid coordinates are measured from
+  /// the visible crop box's lower-left corner and stay stable across zoom.
+  double get gridSpacing => _gridSpacing;
+
+  set gridSpacing(double value) {
+    if (!value.isFinite || value <= 0) {
+      throw ArgumentError.value(value, 'gridSpacing', 'must be positive');
+    }
+    if (value == _gridSpacing) return;
+    _gridSpacing = value;
+    _write((s) => s.setDouble('${_prefix}gridSpacing', value));
     notifyListeners();
   }
 
