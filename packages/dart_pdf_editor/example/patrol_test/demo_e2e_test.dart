@@ -248,13 +248,11 @@ void main() {
         'Revised Patrol note',
       );
       await $.tester.tap(find.text('OK'));
-      await $.pump(const Duration(milliseconds: 400));
-
-      expect(
-        demo.editing.pageAt(0).annotations.any(
+      await demo.waitFor(
+        () => demo.editing.pageAt(0).annotations.any(
               (a) => a.subtype == 'Text' && a.contents == 'Revised Patrol note',
             ),
-        isTrue,
+        reason: 'the edited note should be committed',
       );
     } finally {
       await demo.close();
