@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -17,6 +17,23 @@ Future<Uint8List> pixelsOf(ui.Image image) async {
   return data!.buffer.asUint8List();
 }
 
+Future<ui.Image> solidGrayImage(int width, int height) {
+  final pixels = Uint8List(width * height * 4);
+  for (var i = 0; i < pixels.length; i += 4) {
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = 128;
+    pixels[i + 3] = 255;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    pixels,
+    width,
+    height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  return completer.future;
+}
+
 /// Wraps a stream the way the interpreter hands images to the decoder.
 PdfImageRequest req(CosStream stream) =>
     PdfImageRequest(stream: stream, transform: PdfMatrix.identity);
@@ -25,6 +42,7 @@ void main() {
   late CosDocument cos;
 
   setUp(() => cos = CosDocument.open(buildClassicPdf()));
+  tearDown(() => debugAppleJpxDecoder = null);
 
   test('inline image key survives the worker-pixel handoff', () {
     final stream = CosStream(
@@ -411,6 +429,17 @@ void main() {
   testWidgets(
       'Apple JPX codec preserves and antialiases a higher-res MRC stencil',
       (tester) async {
+    final calls = <(int?, int?, bool)>[];
+    debugAppleJpxDecoder = (
+      bytes, {
+      targetWidth,
+      targetHeight,
+      required allowUpscaling,
+    }) async {
+      expect(bytes, grayJpxCodestream);
+      calls.add((targetWidth, targetHeight, allowUpscaling));
+      return solidGrayImage(targetWidth ?? 16, targetHeight ?? 16);
+    };
     await tester.runAsync(() async {
       const maskWidth = 32;
       const height = 16;
@@ -474,9 +503,8 @@ void main() {
       picture.dispose();
       disposePdfDecodedImage(decoded);
     });
-  },
-      variant: TargetPlatformVariant.only(TargetPlatform.macOS),
-      skip: !Platform.isMacOS);
+    expect(calls, [(32, 16, true), (16, 16, true)]);
+  });
 
   testWidgets('/Decode [1 0] inverts gray samples', (tester) async {
     await tester.runAsync(() async {

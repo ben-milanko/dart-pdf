@@ -29,6 +29,83 @@ void main() {
   CosStream flateImage(Map<String, CosObject> dict, List<int> data) => image(
       {...dict, 'Filter': const CosName('FlateDecode')}, zlib.encode(data));
 
+  group('platform JPX codec eligibility', () {
+    CosDictionary jpx(String colorSpace) => CosDictionary({
+          'Filter': const CosName('JPXDecode'),
+          'ColorSpace': CosName(colorSpace),
+        });
+
+    test('accepts simple device colour with an optional stream mask', () {
+      for (final colorSpace in const ['DeviceRGB', 'RGB', 'DeviceGray', 'G']) {
+        expect(
+          pdfCanUsePlatformJpxCodec(
+            cos,
+            jpx(colorSpace),
+            luminosityMask: false,
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        pdfCanUsePlatformJpxCodec(
+          cos,
+          CosDictionary({
+            ...jpx('DeviceGray').entries,
+            'Mask': CosStream(CosDictionary({}), Uint8List(0)),
+          }),
+          luminosityMask: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects semantics a display-RGB codec cannot preserve', () {
+      expect(
+        pdfCanUsePlatformJpxCodec(
+          cos,
+          jpx('DeviceRGB'),
+          luminosityMask: true,
+        ),
+        isFalse,
+      );
+
+      final rejected = <CosDictionary>[
+        CosDictionary({'ColorSpace': const CosName('DeviceRGB')}),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'ImageMask': const CosBoolean(true),
+        }),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'SMask': CosStream(CosDictionary({}), Uint8List(0)),
+        }),
+        jpx('DeviceCMYK'),
+        CosDictionary({
+          'Filter': const CosName('JPXDecode'),
+          'ColorSpace': CosArray([const CosName('Indexed')]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceGray').entries,
+          'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceGray').entries,
+          'Mask': CosArray([const CosInteger(0), const CosInteger(1)]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'Mask': const CosName('unexpected'),
+        }),
+      ];
+      for (final dict in rejected) {
+        expect(
+          pdfCanUsePlatformJpxCodec(cos, dict, luminosityMask: false),
+          isFalse,
+        );
+      }
+    });
+  });
+
   test('DeviceRGB 8-bit decodes opaque, straight through', () {
     final stream = image({
       'Width': const CosInteger(2),

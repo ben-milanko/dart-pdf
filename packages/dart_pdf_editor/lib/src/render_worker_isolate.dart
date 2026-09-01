@@ -5,8 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugPrint, defaultTargetPlatform;
-import 'package:pdf_cos/pdf_cos.dart'
-    show CosBoolean, CosDocument, CosName, CosStream;
+import 'package:pdf_cos/pdf_cos.dart' show CosDocument;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -1253,27 +1252,11 @@ bool _preferAppleJpxCodec(
       defaultTargetPlatform != TargetPlatform.iOS) {
     return false;
   }
-  final dict = request.stream.dictionary;
-  final filters = pdfImageFilters(document, dict);
-  if (!filters.contains('JPXDecode') ||
-      request.isLuminosityMask ||
-      document.resolve(dict['ImageMask']) == const CosBoolean(true) ||
-      dict.containsKey('SMask')) {
-    return false;
-  }
-  final space = document.resolve(dict['ColorSpace']);
-  if (space is! CosName ||
-      const {'DeviceRGB', 'RGB', 'DeviceGray', 'G'}.contains(space.value) ==
-          false) {
-    return false;
-  }
-  final components = space.value == 'DeviceGray' || space.value == 'G' ? 1 : 3;
-  if (pdfImageDecodeRanges(document, dict, components) != null ||
-      pdfImageColorKeyRanges(document, dict, components) != null) {
-    return false;
-  }
-  final mask = document.resolve(dict['Mask']);
-  return !dict.containsKey('Mask') || mask is CosStream;
+  return pdfCanUsePlatformJpxCodec(
+    document,
+    request.stream.dictionary,
+    luminosityMask: request.isLuminosityMask,
+  );
 }
 
 /// A full-page record cancelled mid-walk, held so the next record of the same

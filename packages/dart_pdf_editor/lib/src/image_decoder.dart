@@ -716,8 +716,12 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
   // synchronous portable path. A stencil stays as a companion GPU mask: that
   // avoids both reading the JPX surface back and multiplying every RGBA pixel
   // in Dart. Unsupported/malformed codestreams fall through unchanged.
-  if (_canUseAppleJpxCodec(cos, dict, filters,
-      luminosityMask: luminosityMask)) {
+  if (_isApplePlatform &&
+      pdfCanUsePlatformJpxCodec(
+        cos,
+        dict,
+        luminosityMask: luminosityMask,
+      )) {
     final accelerated = await _decodeAppleJpx(
       cos,
       stream,
@@ -1066,45 +1070,22 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
 }
 
 bool get _isApplePlatform =>
-    !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.iOS);
+    debugAppleJpxDecoder != null ||
+    (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.iOS));
 
-/// Whether an Apple platform codec can preserve every PDF semantic this layer
-/// needs while decoding [dict]'s JPX bytes directly.
+/// Test seam for the asynchronous Apple JPX codec.
 ///
-/// Keep the gate intentionally narrow. ImageIO returns display RGB rather than
-/// the raw component samples, so PDF-side colour transforms, non-identity
-/// `/Decode`, colour-key masks, stencils-as-images, and `/SMask` stay on the
-/// portable decoder. The common scanner shape is plain DeviceRGB
-/// (or DeviceGray), optionally under an explicit 1-bit `/Mask` stream.
-bool _canUseAppleJpxCodec(
-  CosDocument cos,
-  CosDictionary dict,
-  List<String> filters, {
-  required bool luminosityMask,
-}) {
-  if (!_isApplePlatform || luminosityMask || !filters.contains('JPXDecode')) {
-    return false;
-  }
-  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true) ||
-      dict.containsKey('SMask')) {
-    return false;
-  }
-  final space = cos.resolve(dict['ColorSpace']);
-  if (space is! CosName ||
-      const {'DeviceRGB', 'RGB', 'DeviceGray', 'G'}.contains(space.value) ==
-          false) {
-    return false;
-  }
-  final components = space.value == 'DeviceGray' || space.value == 'G' ? 1 : 3;
-  if (pdfImageDecodeRanges(cos, dict, components) != null ||
-      pdfImageColorKeyRanges(cos, dict, components) != null) {
-    return false;
-  }
-  final mask = cos.resolve(dict['Mask']);
-  return !dict.containsKey('Mask') || mask is CosStream;
-}
+/// Installing this also enables the Apple route on non-Apple test hosts. It is
+/// intentionally not exported from the package entry point.
+@visibleForTesting
+Future<ui.Image?> Function(
+  Uint8List bytes, {
+  int? targetWidth,
+  int? targetHeight,
+  required bool allowUpscaling,
+})? debugAppleJpxDecoder;
 
 Future<ui.Image?> _decodeAppleJpx(
   CosDocument cos,
@@ -1142,18 +1123,30 @@ Future<ui.Image?> _decodeAppleJpx(
         decodeHeight = maskHeight;
       }
     }
-    codec = decodeWidth != null && decodeHeight != null
-        ? await ui.instantiateImageCodec(
-            bytes,
-            targetWidth: decodeWidth,
-            targetHeight: decodeHeight,
-            // A high-resolution stencil carries real detail beyond the colour
-            // plane's own grid. Upscaling the colour to the display-sized mask
-            // is the same operation the portable composite performs.
-            allowUpscaling: declaredMask,
-          )
-        : await ui.instantiateImageCodec(bytes);
-    base = (await codec.getNextFrame()).image;
+    final testDecoder = debugAppleJpxDecoder;
+    if (testDecoder != null) {
+      base = await testDecoder(
+        bytes,
+        targetWidth: decodeWidth,
+        targetHeight: decodeHeight,
+        allowUpscaling: declaredMask,
+      );
+      if (base == null) return null;
+    } else {
+      codec = decodeWidth != null && decodeHeight != null
+          ? await ui.instantiateImageCodec(
+              bytes,
+              targetWidth: decodeWidth,
+              targetHeight: decodeHeight,
+              // A high-resolution stencil carries real detail beyond the
+              // colour plane's own grid. Upscaling the colour to the
+              // display-sized mask is the same operation the portable
+              // composite performs.
+              allowUpscaling: declaredMask,
+            )
+          : await ui.instantiateImageCodec(bytes);
+      base = (await codec.getNextFrame()).image;
+    }
 
     if (declaredMask) {
       final mask = await _maskImageForGpu(
