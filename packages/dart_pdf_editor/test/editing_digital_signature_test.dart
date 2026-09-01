@@ -80,12 +80,14 @@ void main() {
     // A chosen certificate file that isn't valid X.509 (1-based index).
     expectCode(PdfSignatureIdentityError.invalidCertificate,
         privateKey: key,
-        certificates: [Uint8List.fromList(const [1, 2, 3, 4])],
+        certificates: [
+          Uint8List.fromList(const [1, 2, 3, 4])
+        ],
         certificateIndex: 1);
     // An encrypted PEM private key (unsupported).
     expectCode(PdfSignatureIdentityError.encryptedKeyUnsupported,
-        privateKey: Uint8List.fromList(
-            '-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n'
+        privateKey:
+            Uint8List.fromList('-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n'
                     '-----END ENCRYPTED PRIVATE KEY-----\n'
                 .codeUnits),
         certificates: [cert]);
@@ -155,6 +157,33 @@ void main() {
     expect(rect.top, closeTo(720, 0.5));
     // a rendered appearance stream was installed (visible box)
     expect(widget['AP'], isNotNull);
+  });
+
+  test('a placed appearance invalidates every page that displays it', () async {
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final before = [
+      for (var page = 0; page < 3; page++) editing.pageRenderStamp(page),
+    ];
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [2],
+        ),
+      ),
+      isTrue,
+    );
+
+    expect(editing.lastRevisionImpact!.visualPages, {0, 2});
+    expect(editing.lastRevisionImpact!.contentPages, isEmpty);
+    expect(editing.lastRevisionImpact!.annotationPages, {0, 2});
+    expect(editing.pageRenderStamp(0), greaterThan(before[0]));
+    expect(editing.pageRenderStamp(1), before[1]);
+    expect(editing.pageRenderStamp(2), greaterThan(before[2]));
   });
 
   test('removeSignature drops the field and its apply-to-pages copies',

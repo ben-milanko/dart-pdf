@@ -18,6 +18,8 @@
   `PdfEditorView` when a host has not supplied a signing handler.
 - Let users select a signed box and remove its digital signature from the
   contextual toolbar on desktop or mobile, with confirmation and undo.
+- Refresh signed pages immediately after placement so the visible signature
+  box appears as soon as signing completes.
 - Add an optional asynchronous tile-backend retry hook and exact retained-scene
   re-recording, while preserving the existing Canvas fallback when a retry is
   unavailable, fails, or remains inexact.

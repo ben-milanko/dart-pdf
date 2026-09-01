@@ -927,7 +927,11 @@ class PdfEditingController extends ChangeNotifier {
       signingTime: signingTime,
       appearance: appearance,
     );
-    return _adoptDigitalSignature(signed, before: before);
+    return _adoptDigitalSignature(
+      signed,
+      before: before,
+      appearance: appearance,
+    );
   }
 
   /// Like [addDigitalSignature] but signs with a one-tap self-signed
@@ -954,7 +958,11 @@ class PdfEditingController extends ChangeNotifier {
       signingTime: signingTime,
       appearance: appearance,
     );
-    return _adoptDigitalSignature(signed, before: before);
+    return _adoptDigitalSignature(
+      signed,
+      before: before,
+      appearance: appearance,
+    );
   }
 
   /// Signs with a **keyless** [PdfSigningIdentity] - a short-lived
@@ -988,10 +996,18 @@ class PdfEditingController extends ChangeNotifier {
       signingTime: signingTime,
       appearance: appearance,
     );
-    return _adoptDigitalSignature(signed, before: before);
+    return _adoptDigitalSignature(
+      signed,
+      before: before,
+      appearance: appearance,
+    );
   }
 
-  bool _adoptDigitalSignature(Uint8List signed, {required Uint8List before}) {
+  bool _adoptDigitalSignature(
+    Uint8List signed, {
+    required Uint8List before,
+    PdfSignatureAppearance? appearance,
+  }) {
     if (signed.length <= before.length) {
       throw const FormatException(
         'The signer did not return a new incremental PDF revision.',
@@ -1020,10 +1036,28 @@ class PdfEditingController extends ChangeNotifier {
                 '${validation.problems.join('; ')}',
       );
     }
+    final signature = signatures.last;
+    final visualPages = <int>{
+      for (var i = 0; i < signature.field.widgets.length; i++)
+        if (signature.field.widgetPageIndex(i) case final page when page >= 0)
+          page,
+      if (appearance != null)
+        for (final page in appearance.repeatPages)
+          if (page >= 0 && page < candidate.pageCount) page,
+    };
     _commitSavedRevision(
       signed,
       beforeLength: before.length,
-      impact: PdfEditImpact.none,
+      // A signature is an annotation-only edit, but it is still visible: its
+      // widget gains an /AP and apply-to-pages boxes add Stamp annotations.
+      // Reporting no impact retains the old PdfPage wrapper in the viewer's
+      // incremental reconcile, so its annotation layer never discovers the
+      // new appearance until an unrelated refresh.
+      impact: PdfEditImpact.reported(
+        visualPages: visualPages,
+        contentPages: const <int>[],
+        annotationPages: visualPages,
+      ),
     );
     return true;
   }
