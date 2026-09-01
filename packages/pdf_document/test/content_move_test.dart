@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -16,6 +17,40 @@ int move(PdfDocument doc, int id, double dx, double dy) => PdfEditor(doc)
 
 PdfRect shift(PdfRect rect, double dx, double dy) =>
     PdfRect(rect.left + dx, rect.bottom + dy, rect.right + dx, rect.top + dy);
+
+Uint8List buildTwoPageMovePdf() {
+  const source = 'BT /F1 12 Tf 72 700 Td (move me) Tj (stay put) Tj ET\n';
+  const target = 'BT /F1 12 Tf 72 500 Td (target) Tj ET\n';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>',
+    '<< /Length ${source.length} >>\nstream\n$source\nendstream',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 6 0 R /Resources << /Font << /F1 8 0 R >> >> >>',
+    '<< /Length ${target.length} >>\nstream\n$target\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii.encode(buffer.toString());
+}
 
 // The rewrite carries the shift through the drawing's own transform, so a
 // scaled placement pays one rounding of [ContentWriter.fmt] on the way in.
@@ -167,6 +202,48 @@ void main() {
       expect(move(doc, 3, 10, 0), 1);
       expect(move(doc, 3, 0, 10), 1);
       expectRect(boundsOf(doc)[3], shift(before[3]!, 10, 10));
+    });
+
+    test('moves operators and their resources onto another page', () {
+      final doc = PdfDocument.open(buildTwoPageMovePdf());
+      final source = PdfPageElements.of(doc, 0);
+      final moving = source.elements.singleWhere((e) => e.text == 'move me');
+      final staying = source.elements.singleWhere((e) => e.text == 'stay put');
+      final movingBefore = moving.bounds!;
+      final stayingBefore = staying.bounds!;
+      final editor = PdfEditor(doc);
+
+      expect(
+        editor.moveElementsToPage(
+          source,
+          [moving.id],
+          1,
+          transform: const PdfMatrix.translation(100, -200),
+        ),
+        1,
+      );
+      expect(editor.impact.visualPages, {0, 1});
+      expect(editor.impact.contentPages, {0, 1});
+
+      final out = PdfDocument.open(editor.save());
+      final sourceAfter = PdfPageElements.of(out, 0).elements;
+      expect(sourceAfter.map((e) => e.text), ['stay put']);
+      expectRect(sourceAfter.single.bounds, stayingBefore,
+          reason: 'removing the earlier run must not slide its neighbour');
+
+      final targetAfter = PdfPageElements.of(out, 1).elements;
+      expect(targetAfter.map((e) => e.text), ['target', 'move me']);
+      final moved = targetAfter.last;
+      expect(moved.kind, PdfElementKind.text);
+      expectRect(moved.bounds, shift(movingBefore, 100, -200));
+
+      // Both pages called their font /F1, but they meant different fonts.
+      // The appended Tf is remapped to the imported Helvetica resource.
+      expect(moved.resourceName, isNot('F1'));
+      final fonts =
+          out.cos.resolve(out.page(1).resources['Font']) as CosDictionary;
+      final font = out.cos.resolve(fonts[moved.resourceName!]) as CosDictionary;
+      expect(font['BaseFont'], const CosName('Helvetica'));
     });
 
     test('operationsRetaining drops the others and keeps the geometry', () {

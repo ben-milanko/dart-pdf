@@ -7616,10 +7616,10 @@ class PdfEditingController extends ChangeNotifier {
     // hides it, and unlike an annotation nothing reaches past the edge to
     // pick it up again ([PdfEditingReach] works on the annotation
     // selection, and hit-testing an element needs bounds under the
-    // pointer). So a drag toward a neighbouring page parks the element at
-    // this page's edge with a strip still on the paper, rather than
-    // committing it out of sight. Content does not cross pages; moving it
-    // to another page is a copy/paste, not a drag.
+    // pointer). So a same-page move that ends outside every page parks the
+    // element at this page's edge with a strip still on the paper, rather
+    // than committing it out of sight. A drop resolved onto a different page
+    // takes the dedicated [moveSelectedElementToPage] path instead.
     final bounds = element.bounds;
     if (bounds != null) {
       final box = _page(selected.$1).cropBox;
@@ -7642,6 +7642,108 @@ class PdfEditingController extends ChangeNotifier {
     _selectedElement = selected;
     notifyListeners();
     return true;
+  }
+
+  /// Re-homes the selected page-content element onto [targetPage].
+  ///
+  /// [sourceX], [sourceY] are the point where the drag started in the source
+  /// page's user space; [targetX], [targetY] are the drop point in the target
+  /// page's user space. Mapping the two anchors through each page's /Rotate
+  /// keeps the drawing under the pointer and preserves its displayed
+  /// orientation even when the pages have different rotations.
+  ///
+  /// The element's original content operators and resources move to the
+  /// target page, so text remains editable text and images remain replaceable
+  /// images. One revision; the moved element stays selected. A same-page
+  /// target falls back to [moveSelectedElement].
+  bool moveSelectedElementToPage(
+    int targetPage, {
+    required double sourceX,
+    required double sourceY,
+    required double targetX,
+    required double targetY,
+  }) {
+    if (targetPage < 0 || targetPage >= _document.pageCount) return false;
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canMoveSelectedElement) {
+      return false;
+    }
+    if (selected.$1 == targetPage) {
+      return moveSelectedElement(targetX - sourceX, targetY - sourceY);
+    }
+
+    final transform = _elementPageTransform(
+      selected.$1,
+      targetPage,
+      sourceX: sourceX,
+      sourceY: sourceY,
+      targetX: targetX,
+      targetY: targetY,
+    );
+    final elements = elementsOn(selected.$1);
+    var moved = 0;
+    final changed = apply(
+      (editor) => moved = editor.moveElementsToPage(
+        elements,
+        [element.id],
+        targetPage,
+        transform: transform,
+      ),
+    );
+    if (!changed || moved == 0) return false;
+    final targetElements = elementsOn(targetPage).elements;
+    if (targetElements.isEmpty) return true;
+    // The moved operators append to the target page, so their one drawing is
+    // the last content element there. Keep it live for a follow-up nudge,
+    // retype, image replacement, or another drag.
+    _selectedElement = (targetPage, targetElements.length - 1);
+    notifyListeners();
+    return true;
+  }
+
+  /// Source page user space -> target page user space, preserving the
+  /// direction the drawing has on screen and pinning the drag anchors.
+  PdfMatrix _elementPageTransform(
+    int sourcePage,
+    int targetPage, {
+    required double sourceX,
+    required double sourceY,
+    required double targetX,
+    required double targetY,
+  }) {
+    PdfPageGeometry geometry(int pageIndex) {
+      final page = _page(pageIndex);
+      return PdfPageGeometry(
+        cropBox: page.cropBox,
+        rotation: page.rotation,
+        viewSize: ui.Size(
+          _visualPageWidth(pageIndex),
+          _visualPageHeight(pageIndex),
+        ),
+      );
+    }
+
+    final source = geometry(sourcePage);
+    final target = geometry(targetPage);
+    final sourceAnchor = source.toViewOffset(sourceX, sourceY);
+    final targetAnchor = target.toViewOffset(targetX, targetY);
+    (double, double) map(double x, double y) {
+      final displayed = source.toViewOffset(x, y) - sourceAnchor + targetAnchor;
+      return target.toPagePoint(displayed);
+    }
+
+    final origin = map(0, 0);
+    final xAxis = map(1, 0);
+    final yAxis = map(0, 1);
+    return PdfMatrix(
+      xAxis.$1 - origin.$1,
+      xAxis.$2 - origin.$2,
+      yAxis.$1 - origin.$1,
+      yAxis.$2 - origin.$2,
+      origin.$1,
+      origin.$2,
+    );
   }
 
   /// Rewrites the selected text element's characters to [text] and

@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,6 +26,40 @@ const mixedContent = 'BT /F1 12 Tf 14 TL 72 700 Td '
     '(Alpha beta gamma delta) Tj '
     'T* (epsilon zeta eta theta) Tj ET\n'
     '0 0 1 rg 100 600 80 40 re f\n';
+
+Uint8List buildTwoPageContentPdf({int targetRotation = 0}) {
+  const targetContent = 'BT /F1 12 Tf 72 500 Td (Target page) Tj ET\n';
+  final rotate = targetRotation == 0 ? '' : '/Rotate $targetRotation ';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>',
+    '<< /Length ${mixedContent.length} >>\nstream\n$mixedContent\nendstream',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] $rotate'
+        '/Contents 6 0 R /Resources << /Font << /F1 8 0 R >> >> >>',
+    '<< /Length ${targetContent.length} >>\nstream\n$targetContent\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii.encode(buffer.toString());
+}
 
 double bottomOf(PdfEditingController editing, String text) => textRuns(
       editing.document,
@@ -197,6 +232,102 @@ void main() {
       expect(after.width, closeTo(before.width, 0.05));
       expect(after.height, closeTo(before.height, 0.05));
     });
+
+    test('moves a text element onto another page and keeps it editable', () {
+      final editing = PdfEditingController(buildTwoPageContentPdf());
+      addTearDown(editing.dispose);
+      expect(selectElementByText(editing, 'Alpha beta gamma delta'), isTrue);
+      final source = editing.selectedElement!.bounds!;
+      final sourceX = (source.left + source.right) / 2;
+      final sourceY = (source.bottom + source.top) / 2;
+
+      expect(
+        editing.moveSelectedElementToPage(
+          1,
+          sourceX: sourceX,
+          sourceY: sourceY,
+          targetX: 240,
+          targetY: 420,
+        ),
+        isTrue,
+      );
+
+      expect(
+        editing.elementsOn(0).elements.map((e) => e.text),
+        isNot(contains('Alpha beta gamma delta')),
+      );
+      expect(bottomOf(editing, 'epsilon zeta eta theta'), closeTo(683.6, 0.1),
+          reason: 'the following source line stays where it was');
+      expect(editing.selectedElementPage, 1);
+      expect(editing.selectedElement?.kind, PdfElementKind.text);
+      expect(editing.selectedElement?.text, 'Alpha beta gamma delta');
+      expect(editing.canEditSelectedElementText, isTrue);
+      final moved = editing.selectedElement!.bounds!;
+      expect((moved.left + moved.right) / 2, closeTo(240, 0.1));
+      expect((moved.bottom + moved.top) / 2, closeTo(420, 0.1));
+
+      // Page 2 already owns a different /F1 (Courier). The moved run keeps
+      // its source Helvetica under a remapped resource name.
+      final page = editing.document.page(1);
+      final fonts =
+          editing.document.cos.resolve(page.resources['Font']) as CosDictionary;
+      final font = editing.document.cos
+              .resolve(fonts[editing.selectedElement!.resourceName!])
+          as CosDictionary;
+      expect(font['BaseFont'], const CosName('Helvetica'));
+
+      // The cross-page move is one revision.
+      editing.undo();
+      expect(
+        editing.elementsOn(0).elements.map((e) => e.text),
+        contains('Alpha beta gamma delta'),
+      );
+      expect(
+        editing.elementsOn(1).elements.map((e) => e.text),
+        isNot(contains('Alpha beta gamma delta')),
+      );
+    });
+
+    test('a cross-page move preserves screen orientation across /Rotate', () {
+      final editing = PdfEditingController(
+        buildTwoPageContentPdf(targetRotation: 90),
+      );
+      addTearDown(editing.dispose);
+      expect(selectElementByText(editing, 'Alpha beta gamma delta'), isTrue);
+      final before = editing.selectedElement!.bounds!;
+      final sourceGeometry = PdfPageGeometry(
+        cropBox: editing.document.page(0).cropBox,
+        rotation: 0,
+        viewSize: const Size(612, 792),
+      );
+      final sourceRect = sourceGeometry.toViewRect(before);
+      final sourceX = (before.left + before.right) / 2;
+      final sourceY = (before.bottom + before.top) / 2;
+
+      expect(
+        editing.moveSelectedElementToPage(
+          1,
+          sourceX: sourceX,
+          sourceY: sourceY,
+          targetX: 300,
+          targetY: 400,
+        ),
+        isTrue,
+      );
+
+      final targetGeometry = PdfPageGeometry(
+        cropBox: editing.document.page(1).cropBox,
+        rotation: 90,
+        viewSize: const Size(792, 612),
+      );
+      final movedRect = targetGeometry.toViewRect(
+        editing.selectedElement!.bounds!,
+      );
+      expect(movedRect.center,
+          offsetMoreOrLessEquals(targetGeometry.toViewOffset(300, 400)));
+      expect(movedRect.size.width, closeTo(sourceRect.width, 0.1));
+      expect(movedRect.size.height, closeTo(sourceRect.height, 0.1));
+    });
   });
 
   group('dragging page content in the viewer', () {
@@ -253,8 +384,13 @@ void main() {
       await tester.pump();
     }
 
-    Future<PdfEditingController> pumpEditor(WidgetTester tester) async {
-      final editing = PdfEditingController(buildParagraphPdf(mixedContent));
+    Future<PdfEditingController> pumpEditor(
+      WidgetTester tester, {
+      Uint8List? bytes,
+      PdfPageLayout pageLayout = const PdfPageLayout.verticalContinuous(),
+    }) async {
+      final editing =
+          PdfEditingController(bytes ?? buildParagraphPdf(mixedContent));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -267,6 +403,7 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              pageLayout: pageLayout,
             ),
           ),
         ),
@@ -378,6 +515,68 @@ void main() {
           reason: 'settled paints the whole page, covering the dropped raster');
       expect(after.elementLiftOffset, const Offset(40, 25),
           reason: 'the afterimage sits where the element was dropped');
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    });
+
+    testWidgets('dropping content on another page re-homes it there',
+        (tester) async {
+      final editing = await pumpEditor(
+        tester,
+        bytes: buildTwoPageContentPdf(),
+        pageLayout: const PdfPageLayout.horizontalContinuous(),
+      );
+      editing.tool = PdfEditTool.content;
+      await tester.pump();
+      expect(selectElementByText(editing, 'Alpha beta gamma delta'), isTrue);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+
+      final overlays = find.byType(EditingPageOverlay);
+      expect(overlays, findsNWidgets(2));
+      final sourcePage = tester.getRect(overlays.at(0));
+      final targetPage = tester.getRect(overlays.at(1));
+      final sourceGeometry = PdfPageGeometry(
+        cropBox: editing.document.page(0).cropBox,
+        rotation: 0,
+        viewSize: sourcePage.size,
+      );
+      final targetGeometry = PdfPageGeometry(
+        cropBox: editing.document.page(1).cropBox,
+        rotation: 0,
+        viewSize: targetPage.size,
+      );
+      final from = sourcePage.topLeft + sourceGeometry.toViewOffset(100, 703);
+      final to = targetPage.topLeft + targetGeometry.toViewOffset(160, 500);
+
+      final gesture = await tester.startGesture(
+        from,
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveTo(Offset.lerp(from, to, 0.5)!);
+      await gesture.moveTo(to);
+      await tester.pump();
+
+      expect(
+        tester.widgetList<CustomPaint>(find.byType(CustomPaint)).where(
+            (paint) =>
+                paint.painter.runtimeType.toString() ==
+                '_MoveDragPreviewPainter'),
+        isNotEmpty,
+        reason: 'the isolated content paints over the destination page',
+      );
+
+      await gesture.up();
+      await tester.pump();
+
+      expect(editing.selectedElementPage, 1);
+      expect(editing.selectedElement?.text, 'Alpha beta gamma delta');
+      expect(
+        editing.elementsOn(0).elements.map((element) => element.text),
+        isNot(contains('Alpha beta gamma delta')),
+      );
+      final moved = editing.selectedElement!.bounds!;
+      expect((moved.left + moved.right) / 2, greaterThan(100));
+      expect((moved.bottom + moved.top) / 2, closeTo(500, 2));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
     });
 

@@ -949,16 +949,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _moveStart;
   Offset? _moveCurrent;
 
-  /// The global position of [_moveCurrent] - captured during a move drag
-  /// so a drop over another page can be resolved to a page point (drag-end
-  /// details carry no position).
+  /// The global position of the annotation or content move's current point -
+  /// captured so a drop over another page can be resolved to a page point
+  /// (drag-end details carry no position).
   Offset? _moveCurrentGlobal;
 
   // Content-tool drags: repositioning the selected page-content element (a
   // text run, a placed image or logo, a filled path) rather than an
-  // annotation. Kept apart from the select-tool move state above because
-  // none of that machinery - cross-page drops, annotation ghosts, resize
-  // handles - applies to a drawing inside the content stream.
+  // annotation. Kept apart from the select-tool move state above because its
+  // lift is a filtered page picture rather than an annotation appearance.
   Offset? _elementMoveStart;
   Offset? _elementMoveCurrent;
 
@@ -2270,6 +2269,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     setState(() {
       _elementMoveStart = position;
       _elementMoveCurrent = position;
+      _moveCurrentGlobal = null;
     });
     unawaited(_ensureElementLift());
   }
@@ -2347,11 +2347,41 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _elementClean = clean;
         _elementOnly = only;
       });
+      if (_elementMoveStart != null) _reportElementMovePreview();
     } catch (_) {
       // no lift: the drag still moves its chrome box, and the commit
       // re-renders the page either way
       _elementLiftKey = null;
     }
+  }
+
+  /// Pushes a content-element drag's isolated drawing up to the viewer when
+  /// it crosses this page's boundary, so the destination page can paint the
+  /// part that lands there. The source overlay keeps painting its own slice.
+  void _reportElementMovePreview() {
+    final report = _host.moveDragPreview;
+    if (report == null) return;
+    final picture = _elementOnly;
+    final from = _selectedElementRestRect;
+    final start = _elementMoveStart;
+    final current = _elementMoveCurrent;
+    if (picture == null || from == null || start == null || current == null) {
+      report(null);
+      return;
+    }
+    final to = from.shift(current - start);
+    final page = Offset.zero & _geometry.viewSize;
+    if (page.contains(to.topLeft) && page.contains(to.bottomRight)) {
+      report(null);
+      return;
+    }
+    report(PdfMoveDragPreview(
+      pageIndex: widget.pageIndex,
+      picture: picture,
+      from: from,
+      to: to,
+      scale: _geometry.scale,
+    ));
   }
 
   /// Hands the drag's pictures to the commit afterimage, which paints the
@@ -2370,6 +2400,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterElementOnly = only;
     _afterElementFrom = from;
     _afterElementOffset = offset;
+    _afterRevisionId = _controller.revisionId;
+  }
+
+  /// Holds the clean source page after a cross-page drop. The isolated
+  /// drawing now belongs to the destination, so only the clean half remains
+  /// on this page while its new raster catches up.
+  void _holdElementSourceAfterimage(Rect from) {
+    final clean = _elementClean;
+    if (clean == null) return;
+    _elementClean = null;
+    _elementOnly?.dispose();
+    _elementOnly = null;
+    _elementLiftKey = null;
+    _clearAfterimage();
+    _afterElementClean = clean;
+    _afterElementFrom = from;
+    _afterElementOffset = Offset.zero;
     _afterRevisionId = _controller.revisionId;
   }
 
@@ -2581,7 +2628,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // before disposing [_ghost] so a neighbour page can't paint freed
     // pixels. Guarded by _moveStart so disposing some other (off-screen)
     // page's overlay never clears a preview the dragging page still owns.
-    if (_moveStart != null) _host.moveDragPreview?.call(null);
+    if (_moveStart != null || _elementMoveStart != null) {
+      _host.moveDragPreview?.call(null);
+    }
     if (_chipFocusHeld) {
       _chipFocusHeld = false;
       _controller.endEditingTextFocusHold();
@@ -3751,7 +3800,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _resizeRect = _anchorResized(resized);
       });
     } else if (_elementMoveStart != null) {
+      _moveCurrentGlobal = _autoScrollGlobal;
       setState(() => _elementMoveCurrent = position);
+      _reportElementMovePreview();
     } else if (_moveStart != null) {
       _moveCurrentGlobal = _autoScrollGlobal;
       setState(() => _moveCurrent = position);
@@ -4003,6 +4054,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
       // mapping both endpoints keeps the delta right on a rotated page
       final (x0, y0) = _geometry.toPagePoint(elementMoveStart);
+      final resolve = _host.resolvePagePoint;
+      if (resolve != null && moveCurrentGlobal != null) {
+        final drop = resolve(moveCurrentGlobal);
+        if (drop != null && drop.$1 != widget.pageIndex) {
+          final from = _selectedElementRestRect;
+          final moved = _controller.moveSelectedElementToPage(
+            drop.$1,
+            sourceX: x0,
+            sourceY: y0,
+            targetX: drop.$2,
+            targetY: drop.$3,
+          );
+          if (moved && from != null) _holdElementSourceAfterimage(from);
+          return;
+        }
+      }
       final (x1, y1) = _geometry.toPagePoint(elementMoveCurrent);
       final from = _selectedElementRestRect;
       final before = _controller.revisionId;
@@ -7417,7 +7484,7 @@ class _EditingPreviewPainter extends CustomPainter {
     final liftFrom = elementLiftFrom;
     final liftClean = elementClean;
     final liftOnly = elementOnly;
-    if (liftFrom != null && liftClean != null && liftOnly != null) {
+    if (liftFrom != null && liftClean != null) {
       canvas.save();
       if (!elementLiftSettled) {
         // mid-drag the page's own raster is still right everywhere but the
@@ -7431,11 +7498,13 @@ class _EditingPreviewPainter extends CustomPainter {
       canvas.drawPicture(liftClean);
       canvas.restore();
 
-      canvas.save();
-      canvas.translate(elementLiftOffset.dx, elementLiftOffset.dy);
-      canvas.scale(geometry.scale);
-      canvas.drawPicture(liftOnly);
-      canvas.restore();
+      if (liftOnly != null) {
+        canvas.save();
+        canvas.translate(elementLiftOffset.dx, elementLiftOffset.dy);
+        canvas.scale(geometry.scale);
+        canvas.drawPicture(liftOnly);
+        canvas.restore();
+      }
     }
 
     // the wash goes under every stroke preview: the eraser's sliced
