@@ -2076,6 +2076,35 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Kitaplık öğesini yeniden adlandır';
 
   @override
+  String get annotationLibrarySearchHint => 'Kitaplıkta ara';
+
+  @override
+  String get annotationLibraryNoMatches => 'Eşleşen ek açıklama yok.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Gruplanmamış';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Gruba taşı';
+
+  @override
+  String get annotationLibraryNewGroup => 'Yeni grup…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Yeni ek açıklama grubu';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Ek açıklama grubunu yeniden adlandır';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Grubu kaldır';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Yerleştirmek için sayfaya tıklayın. İptal etmek için Escape tuşuna basın.';
+
+  @override
   String get annotationLibraryCustomStamps => 'Özel damgalar…';
 
   @override

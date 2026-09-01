@@ -15,17 +15,20 @@ class PdfSavedAnnotation {
     required this.id,
     required this.name,
     required this.snapshot,
+    this.group,
   });
 
   /// Creates a library item with a process-unique persistent identifier.
   factory PdfSavedAnnotation.create({
     required String name,
     required PdfAnnotationSnapshot snapshot,
+    String? group,
   }) =>
       PdfSavedAnnotation(
         id: _nextLibraryId('annotation'),
         name: name,
         snapshot: snapshot,
+        group: _normalizedGroup(group),
       );
 
   /// Stable identity used by rename/delete operations.
@@ -37,16 +40,24 @@ class PdfSavedAnnotation {
   /// Fully detached annotation payload, including its appearance.
   final PdfAnnotationSnapshot snapshot;
 
-  PdfSavedAnnotation copyWith({String? name}) => PdfSavedAnnotation(
+  /// Optional user-defined library group. Null means the item is ungrouped.
+  final String? group;
+
+  /// Copies this entry. Pass `group: (null,)` to move it to Ungrouped;
+  /// omitting [group] keeps its current group.
+  PdfSavedAnnotation copyWith({String? name, (String?,)? group}) =>
+      PdfSavedAnnotation(
         id: id,
         name: name ?? this.name,
         snapshot: snapshot,
+        group: group == null ? this.group : _normalizedGroup(group.$1),
       );
 
   String encode() => jsonEncode({
         'v': 1,
         'id': id,
         'name': name,
+        if (group != null) 'group': group,
         'snapshot': snapshot.toJson(),
       });
 
@@ -57,17 +68,20 @@ class PdfSavedAnnotation {
       if (map is! Map<String, dynamic> || map['v'] != 1) return null;
       final id = map['id'];
       final name = map['name'];
+      final group = map['group'];
       final snapshot = map['snapshot'];
       if (id is! String ||
           id.isEmpty ||
           name is! String ||
           name.trim().isEmpty ||
+          (group != null && group is! String) ||
           snapshot is! Map) {
         return null;
       }
       return PdfSavedAnnotation(
         id: id,
         name: name,
+        group: _normalizedGroup(group as String?),
         snapshot: PdfAnnotationSnapshot.fromJson(
           Map<String, dynamic>.from(snapshot),
         ),
@@ -83,6 +97,11 @@ class PdfSavedAnnotation {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+String? _normalizedGroup(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }
 
 int _libraryIdCounter = 0;

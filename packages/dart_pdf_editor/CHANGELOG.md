@@ -5,9 +5,10 @@
 - Add a persistent named handwritten-signature library with previews,
   selection, rename/redraw/delete management, and automatic migration from the
   previous single saved signature.
-- Add a persistent reusable-annotation library backed by detached
-  `PdfAnnotationSnapshot`s, with context-menu capture, cross-document
-  placement, repeat Paste, and a direct path to the custom-stamp collection.
+- Add a dockable, searchable reusable-annotation library backed by detached
+  `PdfAnnotationSnapshot`s, with named groups, context-menu capture,
+  cross-document placement, cursor-following drop previews, repeat Paste, and
+  a direct path to the custom-stamp collection.
 - Add an optional asynchronous tile-backend retry hook and exact retained-scene
   re-recording, while preserving the existing Canvas fallback when a retry is
   unavailable, fails, or remains inexact.

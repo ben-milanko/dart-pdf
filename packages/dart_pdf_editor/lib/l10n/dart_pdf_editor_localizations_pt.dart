@@ -2082,6 +2082,34 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
       'Mudar o nome do item da biblioteca';
 
   @override
+  String get annotationLibrarySearchHint => 'Pesquisar na biblioteca';
+
+  @override
+  String get annotationLibraryNoMatches => 'Nenhuma anotação correspondente.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Sem grupo';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Mover para o grupo';
+
+  @override
+  String get annotationLibraryNewGroup => 'Novo grupo…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Novo grupo de anotações';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Renomear grupo de anotações';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Remover grupo';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Clique na página para posicionar. Pressione Escape para cancelar.';
+
+  @override
   String get annotationLibraryCustomStamps => 'Carimbos personalizados…';
 
   @override

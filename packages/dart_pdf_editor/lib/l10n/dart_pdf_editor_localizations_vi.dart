@@ -2072,6 +2072,34 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'Đổi tên mục thư viện';
 
   @override
+  String get annotationLibrarySearchHint => 'Tìm trong thư viện';
+
+  @override
+  String get annotationLibraryNoMatches => 'Không có chú thích phù hợp.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Chưa nhóm';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Chuyển vào nhóm';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nhóm mới…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nhóm chú thích mới';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Đổi tên nhóm chú thích';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Xóa nhóm';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Nhấp vào trang để đặt. Nhấn Escape để hủy.';
+
+  @override
   String get annotationLibraryCustomStamps => 'Con dấu tùy chỉnh…';
 
   @override

@@ -2119,6 +2119,35 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'Перейменувати елемент бібліотеки';
 
   @override
+  String get annotationLibrarySearchHint => 'Пошук у бібліотеці';
+
+  @override
+  String get annotationLibraryNoMatches => 'Відповідних анотацій немає.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Без групи';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Перемістити до групи';
+
+  @override
+  String get annotationLibraryNewGroup => 'Нова група…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Нова група анотацій';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Перейменувати групу анотацій';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Видалити групу';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Клацніть сторінку, щоб розмістити. Натисніть Escape, щоб скасувати.';
+
+  @override
   String get annotationLibraryCustomStamps => 'Користувацькі штампи…';
 
   @override

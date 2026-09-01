@@ -68,6 +68,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _hasShowThumbnailSidebarPreference = false;
   bool _showBookmarkSidebar = false;
   bool _showAnnotationSidebar = false;
+  bool _showAnnotationLibraryPanel = false;
   String? _author;
   List<PdfSavedSignature> _savedSignatures = const [];
   String? _activeSignatureId;
@@ -97,6 +98,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
+  double? _annotationLibraryPanelWidth;
   double? _propertiesPanelWidth;
   double? _searchPanelWidth;
   // Which edge each dockable panel is attached to. Defaults reproduce the
@@ -107,6 +109,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfPanelDock _bookmarkSidebarDock = PdfPanelDock.left;
   PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
   PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
+  PdfPanelDock _annotationLibraryPanelDock = PdfPanelDock.right;
   PdfPanelDock _toolbarDock = PdfPanelDock.bottom;
   // Tab-group membership: panels sharing the same dock AND the same group id
   // render as one tabbed panel; a panel alone in its group is a standalone
@@ -213,6 +216,9 @@ class PdfEditingPreferences extends ChangeNotifier {
       _showAnnotationSidebar =
           store.getBool('${_prefix}showAnnotationSidebar') ??
               _showAnnotationSidebar;
+      _showAnnotationLibraryPanel =
+          store.getBool('${_prefix}showAnnotationLibraryPanel') ??
+              _showAnnotationLibraryPanel;
       _author = store.getString('${_prefix}author') ?? _author;
       final signatures = store.getStringList('${_prefix}signatures');
       if (signatures != null) {
@@ -302,6 +308,9 @@ class PdfEditingPreferences extends ChangeNotifier {
       _annotationSidebarWidth =
           store.getDouble('${_prefix}annotationSidebarWidth') ??
               _annotationSidebarWidth;
+      _annotationLibraryPanelWidth =
+          store.getDouble('${_prefix}annotationLibraryPanelWidth') ??
+              _annotationLibraryPanelWidth;
       _showPropertiesPanel = store.getBool('${_prefix}showPropertiesPanel') ??
           _showPropertiesPanel;
       _showSearchResultsPanel =
@@ -329,6 +338,8 @@ class PdfEditingPreferences extends ChangeNotifier {
           _readDock(store, 'bookmarkSidebarDock', _bookmarkSidebarDock);
       _annotationSidebarDock =
           _readDock(store, 'annotationSidebarDock', _annotationSidebarDock);
+      _annotationLibraryPanelDock = _readDock(
+          store, 'annotationLibraryPanelDock', _annotationLibraryPanelDock);
       _propertiesPanelDock =
           _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
       _toolbarDock = _readDock(store, 'toolbarDock', _toolbarDock);
@@ -1279,6 +1290,29 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether the host shows the reusable annotation-library panel.
+  bool get showAnnotationLibraryPanel => _showAnnotationLibraryPanel;
+
+  set showAnnotationLibraryPanel(bool value) {
+    if (value == _showAnnotationLibraryPanel) return;
+    _showAnnotationLibraryPanel = value;
+    _write((s) => s.setBool('${_prefix}showAnnotationLibraryPanel', value));
+    notifyListeners();
+  }
+
+  /// The annotation-library panel's user-dragged width, or null until it has
+  /// been resized.
+  double? get annotationLibraryPanelWidth => _annotationLibraryPanelWidth;
+
+  set annotationLibraryPanelWidth(double? value) {
+    if (value == _annotationLibraryPanelWidth) return;
+    _annotationLibraryPanelWidth = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}annotationLibraryPanelWidth')
+        : s.setDouble('${_prefix}annotationLibraryPanelWidth', value));
+    notifyListeners();
+  }
+
   /// Whether the host shows the document bookmarks/outline panel.
   bool get showBookmarkSidebar => _showBookmarkSidebar;
 
@@ -1404,6 +1438,15 @@ class PdfEditingPreferences extends ChangeNotifier {
     _setDock('propertiesPanelDock', value);
   }
 
+  /// Which edge the reusable annotation-library panel is docked on.
+  PdfPanelDock get annotationLibraryPanelDock => _annotationLibraryPanelDock;
+
+  set annotationLibraryPanelDock(PdfPanelDock value) {
+    if (value == _annotationLibraryPanelDock) return;
+    _annotationLibraryPanelDock = value;
+    _setDock('annotationLibraryPanelDock', value);
+  }
+
   /// Which edge the floating editing toolbar is attached to. Persisted so a
   /// dragged toolbar returns to the same edge in later sessions. Compact
   /// layouts still use their fixed bottom bar regardless of this preference.
@@ -1423,6 +1466,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         PdfDockablePanel.bookmarks => _bookmarkSidebarDock,
         PdfDockablePanel.annotations => _annotationSidebarDock,
         PdfDockablePanel.properties => _propertiesPanelDock,
+        PdfDockablePanel.annotationLibrary => _annotationLibraryPanelDock,
       };
 
   /// Sets [panel]'s dock, keyed by identity.
@@ -1438,6 +1482,8 @@ class PdfEditingPreferences extends ChangeNotifier {
         annotationSidebarDock = dock;
       case PdfDockablePanel.properties:
         propertiesPanelDock = dock;
+      case PdfDockablePanel.annotationLibrary:
+        annotationLibraryPanelDock = dock;
     }
   }
 

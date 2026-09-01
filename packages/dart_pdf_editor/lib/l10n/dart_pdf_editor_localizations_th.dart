@@ -2066,6 +2066,35 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'เปลี่ยนชื่อรายการในคลัง';
 
   @override
+  String get annotationLibrarySearchHint => 'ค้นหาในคลัง';
+
+  @override
+  String get annotationLibraryNoMatches => 'ไม่พบคำอธิบายประกอบที่ตรงกัน';
+
+  @override
+  String get annotationLibraryUngrouped => 'ไม่ได้จัดกลุ่ม';
+
+  @override
+  String get annotationLibraryChooseGroup => 'ย้ายไปยังกลุ่ม';
+
+  @override
+  String get annotationLibraryNewGroup => 'กลุ่มใหม่…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'กลุ่มคำอธิบายประกอบใหม่';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'เปลี่ยนชื่อกลุ่มคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'ลบกลุ่ม';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'คลิกหน้าเพื่อวาง กด Escape เพื่อยกเลิก';
+
+  @override
   String get annotationLibraryCustomStamps => 'ตราประทับแบบกำหนดเอง…';
 
   @override

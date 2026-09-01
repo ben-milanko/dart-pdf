@@ -2055,6 +2055,34 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'ライブラリ項目の名前を変更';
 
   @override
+  String get annotationLibrarySearchHint => 'ライブラリを検索';
+
+  @override
+  String get annotationLibraryNoMatches => '一致する注釈はありません。';
+
+  @override
+  String get annotationLibraryUngrouped => '未分類';
+
+  @override
+  String get annotationLibraryChooseGroup => 'グループに移動';
+
+  @override
+  String get annotationLibraryNewGroup => '新しいグループ…';
+
+  @override
+  String get annotationLibraryGroupTitle => '新しい注釈グループ';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '注釈グループの名前を変更';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'グループを削除';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'ページをクリックして配置します。キャンセルは Escape キーを押します。';
+
+  @override
   String get annotationLibraryCustomStamps => 'カスタムスタンプ…';
 
   @override

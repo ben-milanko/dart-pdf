@@ -2048,6 +2048,33 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => '重命名库项目';
 
   @override
+  String get annotationLibrarySearchHint => '搜索注释库';
+
+  @override
+  String get annotationLibraryNoMatches => '没有匹配的注释。';
+
+  @override
+  String get annotationLibraryUngrouped => '未分组';
+
+  @override
+  String get annotationLibraryChooseGroup => '移动到分组';
+
+  @override
+  String get annotationLibraryNewGroup => '新建分组…';
+
+  @override
+  String get annotationLibraryGroupTitle => '新建注释分组';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '重命名注释分组';
+
+  @override
+  String get annotationLibraryRemoveGroup => '移除分组';
+
+  @override
+  String get annotationLibraryPlacementHint => '单击页面以放置。按 Escape 取消。';
+
+  @override
   String get annotationLibraryCustomStamps => '自定义图章…';
 
   @override
@@ -4102,6 +4129,33 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get annotationLibraryRenameTitle => '重新命名資料庫項目';
+
+  @override
+  String get annotationLibrarySearchHint => '搜尋註解資料庫';
+
+  @override
+  String get annotationLibraryNoMatches => '沒有符合的註解。';
+
+  @override
+  String get annotationLibraryUngrouped => '未分組';
+
+  @override
+  String get annotationLibraryChooseGroup => '移到分組';
+
+  @override
+  String get annotationLibraryNewGroup => '新增分組…';
+
+  @override
+  String get annotationLibraryGroupTitle => '新增註解分組';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '重新命名註解分組';
+
+  @override
+  String get annotationLibraryRemoveGroup => '移除分組';
+
+  @override
+  String get annotationLibraryPlacementHint => '點擊頁面以放置。按 Escape 取消。';
 
   @override
   String get annotationLibraryCustomStamps => '自訂戳記…';

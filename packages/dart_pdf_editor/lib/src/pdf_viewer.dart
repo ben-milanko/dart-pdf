@@ -6578,6 +6578,10 @@ class _PdfViewerState extends State<PdfViewer>
         editing.cancelImageCrop();
         return;
       }
+      if (editing.activeSavedAnnotation != null) {
+        editing.cancelSavedAnnotationPlacement();
+        return;
+      }
       if (editing.hasAnnotationSelection) {
         editing.clearAnnotationSelection();
         return;
@@ -9390,6 +9394,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             widget.page.document.cos, editing.document.cos);
                     return editing.tool == null &&
                             !editing.isPickingColor &&
+                            editing.activeSavedAnnotation == null &&
                             !editing.hasAnnotationSelection &&
                             editing.pendingFlash == null &&
                             (rasterCurrent ||

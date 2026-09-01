@@ -2656,6 +2656,42 @@
   "@annotationLibraryRenameTitle": {
     "description": "Title of the prompt that renames an annotation library item."
   },
+  "annotationLibrarySearchHint": "Search library",
+  "@annotationLibrarySearchHint": {
+    "description": "Placeholder in the reusable annotation-library panel search field."
+  },
+  "annotationLibraryNoMatches": "No matching annotations.",
+  "@annotationLibraryNoMatches": {
+    "description": "Empty state when annotation-library search filters out every item."
+  },
+  "annotationLibraryUngrouped": "Ungrouped",
+  "@annotationLibraryUngrouped": {
+    "description": "Heading for reusable annotations that have no user-defined group."
+  },
+  "annotationLibraryChooseGroup": "Move to group",
+  "@annotationLibraryChooseGroup": {
+    "description": "Action that assigns a reusable annotation to a library group."
+  },
+  "annotationLibraryNewGroup": "New group…",
+  "@annotationLibraryNewGroup": {
+    "description": "Action that creates and assigns a new annotation-library group."
+  },
+  "annotationLibraryGroupTitle": "New annotation group",
+  "@annotationLibraryGroupTitle": {
+    "description": "Title of the prompt that names a new annotation-library group."
+  },
+  "annotationLibraryRenameGroupTitle": "Rename annotation group",
+  "@annotationLibraryRenameGroupTitle": {
+    "description": "Title of the prompt that renames an annotation-library group."
+  },
+  "annotationLibraryRemoveGroup": "Remove group",
+  "@annotationLibraryRemoveGroup": {
+    "description": "Tooltip that removes a group while leaving its annotations ungrouped."
+  },
+  "annotationLibraryPlacementHint": "Click the page to place. Press Escape to cancel.",
+  "@annotationLibraryPlacementHint": {
+    "description": "Hint shown while a reusable annotation follows the pointer ready for placement."
+  },
   "annotationLibraryCustomStamps": "Custom stamps…",
   "@annotationLibraryCustomStamps": {
     "description": "Button that opens custom stamps from the broader annotation library."

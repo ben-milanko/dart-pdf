@@ -2118,6 +2118,35 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'Переименовать элемент библиотеки';
 
   @override
+  String get annotationLibrarySearchHint => 'Поиск в библиотеке';
+
+  @override
+  String get annotationLibraryNoMatches => 'Подходящих аннотаций нет.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Без группы';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Переместить в группу';
+
+  @override
+  String get annotationLibraryNewGroup => 'Новая группа…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Новая группа аннотаций';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Переименовать группу аннотаций';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Удалить группу';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Щёлкните по странице, чтобы разместить. Нажмите Escape для отмены.';
+
+  @override
   String get annotationLibraryCustomStamps => 'Пользовательские штампы…';
 
   @override

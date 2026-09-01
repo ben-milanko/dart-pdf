@@ -1491,7 +1491,12 @@ class PdfEditingController extends ChangeNotifier {
   set tool(PdfEditTool? value) {
     // Assigning null while a markup tool is armed is an intentional clear
     // (Escape and the mobile tool switcher's Clear both use this path).
-    if (value == _tool && _markupTool == null && !_handMode) return;
+    if (value == _tool &&
+        _markupTool == null &&
+        !_handMode &&
+        _activeSavedAnnotationId == null) {
+      return;
+    }
     preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
     // leaving an ink-like tool commits the drawing, like lifting the pen.
     //
@@ -1514,6 +1519,7 @@ class PdfEditingController extends ChangeNotifier {
     _tool = value;
     _markupTool = null;
     _handMode = false;
+    _activeSavedAnnotationId = null;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
     _cropModeArmed = false;
@@ -1576,6 +1582,7 @@ class PdfEditingController extends ChangeNotifier {
     if (_tool != null || _handMode) tool = null;
     preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
     _markupTool = value;
+    _activeSavedAnnotationId = null;
     _selected.clear();
     _selectedElement = null;
     _cropModeArmed = false;
@@ -5315,9 +5322,33 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // clipboard
 
+  String? _activeSavedAnnotationId;
+
   /// The persisted reusable-annotation library shared through
   /// [preferences].
   List<PdfSavedAnnotation> get savedAnnotations => preferences.savedAnnotations;
+
+  /// The library item currently riding the pointer, ready to drop onto a
+  /// page. It resolves by id on every read so renames/group moves update in
+  /// place and deleting the item cancels placement automatically.
+  PdfSavedAnnotation? get activeSavedAnnotation {
+    final id = _activeSavedAnnotationId;
+    if (id == null) return null;
+    for (final entry in savedAnnotations) {
+      if (entry.id == id) return entry;
+    }
+    return null;
+  }
+
+  /// Distinct, alphabetized group names currently used by library items.
+  List<String> get savedAnnotationGroups {
+    final groups = <String>{
+      for (final entry in savedAnnotations)
+        if (entry.group != null) entry.group!,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return List.unmodifiable(groups);
+  }
 
   /// Whether the single selected annotation can be captured into the
   /// reusable library. Links, widgets, and popups are intentionally excluded
@@ -5370,13 +5401,115 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
+  /// Moves a library item into [group], or to Ungrouped when null/blank.
+  /// Returns false for a stale item.
+  bool groupSavedAnnotation(PdfSavedAnnotation annotation, String? group) {
+    final index =
+        savedAnnotations.indexWhere((entry) => entry.id == annotation.id);
+    if (index == -1) return false;
+    final normalized = group?.trim();
+    final nextGroup =
+        normalized == null || normalized.isEmpty ? null : normalized;
+    if (savedAnnotations[index].group == nextGroup) return true;
+    preferences.savedAnnotations = [
+      for (var i = 0; i < savedAnnotations.length; i++)
+        i == index
+            ? savedAnnotations[index].copyWith(group: (nextGroup,))
+            : savedAnnotations[i],
+    ];
+    return true;
+  }
+
+  /// Renames a group across all of its entries. Renaming to an existing
+  /// group merges them; a blank name is rejected.
+  bool renameSavedAnnotationGroup(String group, String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+    if (!savedAnnotations.any((entry) => entry.group == group)) return false;
+    final next = [
+      for (final entry in savedAnnotations)
+        if (entry.group == group) ...[
+          entry.copyWith(group: (trimmed,)),
+        ] else ...[
+          entry,
+        ],
+    ];
+    preferences.savedAnnotations = next;
+    return true;
+  }
+
+  /// Removes a group without deleting its annotations; its entries become
+  /// ungrouped.
+  bool removeSavedAnnotationGroup(String group) {
+    if (!savedAnnotations.any((entry) => entry.group == group)) return false;
+    preferences.savedAnnotations = [
+      for (final entry in savedAnnotations)
+        entry.group == group ? entry.copyWith(group: (null,)) : entry,
+    ];
+    return true;
+  }
+
   /// Deletes a library item without touching annotations already placed in a
   /// document.
   void removeSavedAnnotation(PdfSavedAnnotation annotation) {
+    if (_activeSavedAnnotationId == annotation.id) {
+      _activeSavedAnnotationId = null;
+    }
     preferences.savedAnnotations = [
       for (final entry in savedAnnotations)
         if (entry.id != annotation.id) entry,
     ];
+  }
+
+  /// Arms a reusable annotation as a placement tool. The snapshot also fills
+  /// the ordinary annotation clipboard, so keyboard/menu Paste remains an
+  /// alternative and works across document tabs.
+  bool beginSavedAnnotationPlacement(PdfSavedAnnotation annotation) {
+    final current = savedAnnotations
+        .where((entry) => entry.id == annotation.id)
+        .firstOrNull;
+    if (current == null) return false;
+    // A library placement is its own mutually-exclusive interaction mode.
+    // Going through the normal setter commits pending ink and clears markup,
+    // hand mode, selections, and any previously active library item.
+    tool = null;
+    clearAnnotationSelection();
+    clearElementSelection();
+    _activeSavedAnnotationId = current.id;
+    annotationClipboard.set(
+      [current.snapshot],
+      owner: current,
+      sourcePage: -1,
+    );
+    snapshotClipboard.clear();
+    notifyListeners();
+    return true;
+  }
+
+  /// Cancels the pointer-following library placement mode.
+  void cancelSavedAnnotationPlacement() {
+    if (_activeSavedAnnotationId == null) return;
+    _activeSavedAnnotationId = null;
+    notifyListeners();
+  }
+
+  /// Drops the active library item centered on ([x], [y]) and keeps it armed
+  /// for repeat placement until Escape or another tool is chosen.
+  bool placeActiveSavedAnnotation(int pageIndex, double x, double y) {
+    final annotation = activeSavedAnnotation;
+    if (annotation == null) {
+      cancelSavedAnnotationPlacement();
+      return false;
+    }
+    // Refill defensively: another tab may have replaced the shared clipboard
+    // since this item was armed.
+    annotationClipboard.set(
+      [annotation.snapshot],
+      owner: annotation,
+      sourcePage: -1,
+    );
+    snapshotClipboard.clear();
+    return pasteAnnotations(pageIndex, at: (x, y), selectPasted: false);
   }
 
   /// Loads [annotation] into the ordinary annotation clipboard. The existing
@@ -5457,7 +5590,11 @@ class PdfEditingController extends ChangeNotifier {
   /// page; the cascade, which has no point the user aimed at, stays
   /// tethered to the page ([_tetherShift]). Returns whether anything was
   /// pasted.
-  bool pasteAnnotations(int pageIndex, {(double, double)? at}) {
+  bool pasteAnnotations(
+    int pageIndex, {
+    (double, double)? at,
+    bool selectPasted = true,
+  }) {
     final clipboard = annotationClipboard.snapshots;
     if (clipboard.isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
@@ -5500,13 +5637,15 @@ class PdfEditingController extends ChangeNotifier {
     );
     if (!pasted) return false;
     annotationClipboard.markPasted();
-    // pasted entries appended to /Annots - select them, like any editor
-    tool = PdfEditTool.select;
-    final total = _page(pageIndex).annotations.length;
-    _selected
-      ..clear()
-      ..addAll([for (var i = total - count; i < total; i++) (pageIndex, i)]);
-    notifyListeners();
+    if (selectPasted) {
+      // pasted entries appended to /Annots - select them, like any editor
+      tool = PdfEditTool.select;
+      final total = _page(pageIndex).annotations.length;
+      _selected
+        ..clear()
+        ..addAll([for (var i = total - count; i < total; i++) (pageIndex, i)]);
+      notifyListeners();
+    }
     return true;
   }
 

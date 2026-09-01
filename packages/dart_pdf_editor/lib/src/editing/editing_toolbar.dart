@@ -79,6 +79,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.fontPicker,
     this.onExportCustomStamps,
     this.onImportCustomStamps,
+    this.onAnnotationLibraryPressed,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -89,6 +90,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showStyle = true,
     this.showFlatten = true,
     this.showColorProcessing = true,
+    this.showAnnotationLibrary = true,
     this.dock = PdfPanelDock.bottom,
     this.compact,
     this.cardAlignment = Alignment.center,
@@ -140,6 +142,12 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Host-provided import for the Manage Stamps dialog.
   final PdfStampImportCallback? onImportCustomStamps;
+
+  /// Opens or toggles the host's annotation-library panel. The stock
+  /// [PdfEditorView] supplies this to toggle its dockable panel. When null,
+  /// the toolbar falls back to the legacy modal library dialog so standalone
+  /// toolbars keep a working entry point.
+  final VoidCallback? onAnnotationLibraryPressed;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -196,6 +204,9 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Whether the Edit group includes the colour-processing action.
   final bool showColorProcessing;
+
+  /// Whether the Insert strip includes the reusable annotation library.
+  final bool showAnnotationLibrary;
 
   /// The edge this toolbar is docked to.
   ///
@@ -840,15 +851,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
       );
 
-  Future<void> _manageAnnotationLibrary(BuildContext context) =>
-      showPdfAnnotationLibrary(
-        context,
-        controller: controller,
-        pageIndex: viewerController.currentPage,
-        imagePicker: widget.imagePicker,
-        onExportStamps: widget.onExportCustomStamps,
-        onImportStamps: widget.onImportCustomStamps,
-      );
+  Future<void> _manageAnnotationLibrary(BuildContext context) async {
+    final toggle = widget.onAnnotationLibraryPressed;
+    if (toggle != null) {
+      toggle();
+      return;
+    }
+    await showPdfAnnotationLibrary(
+      context,
+      controller: controller,
+      pageIndex: viewerController.currentPage,
+      imagePicker: widget.imagePicker,
+      onExportStamps: widget.onExportCustomStamps,
+      onImportStamps: widget.onImportCustomStamps,
+    );
+  }
 
   /// Points the tool's colour and pen width at what [signature] was drawn
   /// with - the placed ink follows the toolbar, not the record, so this is
@@ -1845,12 +1862,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           tooltip: pdfL10n(context).tbDrawNewSignature,
           onPressed: () => _drawSignature(context),
         ),
-      IconButton(
-        key: const ValueKey('pdf-annotation-library'),
-        icon: const Icon(Icons.collections_bookmark_outlined),
-        tooltip: pdfL10n(context).annotationLibraryTitle,
-        onPressed: () => _manageAnnotationLibrary(context),
-      ),
+      if (widget.showAnnotationLibrary)
+        IconButton(
+          key: const ValueKey('pdf-annotation-library'),
+          icon: const Icon(Icons.collections_bookmark_outlined),
+          tooltip: pdfL10n(context).annotationLibraryTitle,
+          onPressed: () => _manageAnnotationLibrary(context),
+        ),
       if (controller.tool == PdfEditTool.count)
         Tooltip(
           message: pdfL10n(context).tbCheckMarksOnDocument,

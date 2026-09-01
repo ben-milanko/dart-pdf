@@ -2081,6 +2081,34 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'Ganti nama item pustaka';
 
   @override
+  String get annotationLibrarySearchHint => 'Cari di pustaka';
+
+  @override
+  String get annotationLibraryNoMatches => 'Tidak ada anotasi yang cocok.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Tanpa grup';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Pindahkan ke grup';
+
+  @override
+  String get annotationLibraryNewGroup => 'Grup baru…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Grup anotasi baru';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Ganti nama grup anotasi';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Hapus grup';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Klik halaman untuk menempatkan. Tekan Escape untuk membatalkan.';
+
+  @override
   String get annotationLibraryCustomStamps => 'Stempel khusus…';
 
   @override

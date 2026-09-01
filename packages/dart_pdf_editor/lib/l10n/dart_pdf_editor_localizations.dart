@@ -3770,6 +3770,60 @@ abstract class DartPdfEditorLocalizations {
   /// **'Rename library item'**
   String get annotationLibraryRenameTitle;
 
+  /// Placeholder in the reusable annotation-library panel search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search library'**
+  String get annotationLibrarySearchHint;
+
+  /// Empty state when annotation-library search filters out every item.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching annotations.'**
+  String get annotationLibraryNoMatches;
+
+  /// Heading for reusable annotations that have no user-defined group.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungrouped'**
+  String get annotationLibraryUngrouped;
+
+  /// Action that assigns a reusable annotation to a library group.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to group'**
+  String get annotationLibraryChooseGroup;
+
+  /// Action that creates and assigns a new annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'New group…'**
+  String get annotationLibraryNewGroup;
+
+  /// Title of the prompt that names a new annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'New annotation group'**
+  String get annotationLibraryGroupTitle;
+
+  /// Title of the prompt that renames an annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename annotation group'**
+  String get annotationLibraryRenameGroupTitle;
+
+  /// Tooltip that removes a group while leaving its annotations ungrouped.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove group'**
+  String get annotationLibraryRemoveGroup;
+
+  /// Hint shown while a reusable annotation follows the pointer ready for placement.
+  ///
+  /// In en, this message translates to:
+  /// **'Click the page to place. Press Escape to cancel.'**
+  String get annotationLibraryPlacementHint;
+
   /// Button that opens custom stamps from the broader annotation library.
   ///
   /// In en, this message translates to:

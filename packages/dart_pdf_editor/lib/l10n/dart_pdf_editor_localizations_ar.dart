@@ -2119,6 +2119,35 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => 'إعادة تسمية عنصر المكتبة';
 
   @override
+  String get annotationLibrarySearchHint => 'البحث في المكتبة';
+
+  @override
+  String get annotationLibraryNoMatches => 'لا توجد تعليقات توضيحية مطابقة.';
+
+  @override
+  String get annotationLibraryUngrouped => 'غير مجمّعة';
+
+  @override
+  String get annotationLibraryChooseGroup => 'نقل إلى مجموعة';
+
+  @override
+  String get annotationLibraryNewGroup => 'مجموعة جديدة…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'مجموعة تعليقات توضيحية جديدة';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'إعادة تسمية مجموعة التعليقات التوضيحية';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'إزالة المجموعة';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'انقر على الصفحة للوضع. اضغط Escape للإلغاء.';
+
+  @override
   String get annotationLibraryCustomStamps => 'أختام مخصصة…';
 
   @override

@@ -2056,6 +2056,34 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get annotationLibraryRenameTitle => '라이브러리 항목 이름 바꾸기';
 
   @override
+  String get annotationLibrarySearchHint => '라이브러리 검색';
+
+  @override
+  String get annotationLibraryNoMatches => '일치하는 주석이 없습니다.';
+
+  @override
+  String get annotationLibraryUngrouped => '그룹 없음';
+
+  @override
+  String get annotationLibraryChooseGroup => '그룹으로 이동';
+
+  @override
+  String get annotationLibraryNewGroup => '새 그룹…';
+
+  @override
+  String get annotationLibraryGroupTitle => '새 주석 그룹';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '주석 그룹 이름 바꾸기';
+
+  @override
+  String get annotationLibraryRemoveGroup => '그룹 제거';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      '배치할 페이지를 클릭하세요. 취소하려면 Escape를 누르세요.';
+
+  @override
   String get annotationLibraryCustomStamps => '사용자 지정 스탬프…';
 
   @override
