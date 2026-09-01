@@ -8,6 +8,7 @@ import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
+import 'editing/editing_toolbar.dart' show showPdfEditingGuidesDialog;
 import 'editing/tool_shortcuts.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
@@ -1371,6 +1372,7 @@ enum _ViewOption {
   reflow,
   pageGrid,
   pageColor,
+  editingGuides,
   author,
   shortcuts
 }
@@ -1413,6 +1415,11 @@ Future<void> _selectViewOption(
         preferences.noteRecentColor(color);
         preferences.pageColor = color;
       }
+    case _ViewOption.editingGuides:
+      await showPdfEditingGuidesDialog(
+        context,
+        preferences: preferences,
+      );
     case _ViewOption.author:
       onAuthorPressed?.call();
     case _ViewOption.shortcuts:
@@ -1676,6 +1683,7 @@ Future<void> showPdfShellViewOptionsSheet(
   bool reflow = false,
   bool pageGrid = false,
   bool pageColor = true,
+  bool editingGuides = false,
   bool author = false,
   String? authorName,
   VoidCallback? onAuthorPressed,
@@ -1827,6 +1835,23 @@ Future<void> showPdfShellViewOptionsSheet(
                     setSheetState(() {});
                   },
                 ),
+              if (editingGuides)
+                ListTile(
+                  key: const ValueKey('pdf-shell-editing-guides'),
+                  leading: const Icon(Icons.grid_4x4),
+                  title: const Text('Cursor guides and grid'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await _selectViewOption(
+                      context,
+                      _ViewOption.editingGuides,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                    );
+                    setSheetState(() {});
+                  },
+                ),
               if (author)
                 ListTile(
                   key: const ValueKey('pdf-shell-author'),
@@ -1864,8 +1889,9 @@ Future<void> showPdfShellViewOptionsSheet(
 }
 
 /// The "view options" popup both shells offer: display-only settings
-/// (annotation visibility, form-field highlight, paper color) that live
-/// in [PdfEditingPreferences] and never touch the document.
+/// (annotation visibility, form-field highlight, paper color, and optional
+/// editing guides) that live in [PdfEditingPreferences] and never touch the
+/// document.
 class PdfShellViewOptionsButton extends StatelessWidget {
   const PdfShellViewOptionsButton({
     super.key,
@@ -1873,6 +1899,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
     this.reflow = false,
     this.pageGrid = false,
     this.pageColor = true,
+    this.editingGuides = false,
     this.author = false,
     this.authorName,
     this.onAuthorPressed,
@@ -1892,6 +1919,9 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   /// color can't be changed here - for hosts that set [pageColor] from
   /// the document programmatically and lock it.
   final bool pageColor;
+
+  /// Whether the menu offers the cursor-guide and snap-grid settings.
+  final bool editingGuides;
 
   /// Whether the display menu includes the default annotation author.
   /// The shell owns the prompt because the author affects new annotations,
@@ -1985,6 +2015,17 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               ),
               title: Text(pdfL10n(context).shellPageColor),
               trailing: Text(_hex(preferences.pageColor)),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        if (editingGuides)
+          const PopupMenuItem(
+            key: ValueKey('pdf-shell-editing-guides'),
+            value: _ViewOption.editingGuides,
+            child: ListTile(
+              leading: Icon(Icons.grid_4x4),
+              title: Text('Cursor guides and grid'),
+              trailing: Icon(Icons.chevron_right),
               contentPadding: EdgeInsets.zero,
             ),
           ),

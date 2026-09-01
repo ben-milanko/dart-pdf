@@ -106,7 +106,8 @@ class PdfEditorFeatures {
   final bool authorEditable;
 
   /// The view-options menu: annotation visibility, form-field
-  /// highlight, text reflow, and page (paper) color - display settings only.
+  /// highlight, text reflow, page (paper) color, cursor guides, and the snap
+  /// grid - display and interaction settings only.
   final bool viewOptions;
 
   /// Whether the view-options menu offers "Reflow text". Reflow is a
@@ -1319,6 +1320,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 reflow: features.reflowView,
                 pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
+                editingGuides: true,
                 author: features.author,
                 authorName: session.preferences.author,
                 onAuthorPressed: _promptAuthor,
@@ -1442,6 +1444,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         reflow: features.reflowView,
                         pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,
+                        editingGuides: true,
                         author: features.author,
                         authorName: session.preferences.author,
                         onAuthorPressed: _promptAuthor,

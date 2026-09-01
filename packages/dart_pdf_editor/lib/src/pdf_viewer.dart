@@ -9401,6 +9401,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             editing.pendingFlash == null &&
                             !editing.preferences.showVerticalCursorGuide &&
                             !editing.preferences.showHorizontalCursorGuide &&
+                            !editing.preferences.showSnapGrid &&
                             (rasterCurrent ||
                                 editing.committedInkOn(widget.index) == null)
                         ? const SizedBox.shrink()

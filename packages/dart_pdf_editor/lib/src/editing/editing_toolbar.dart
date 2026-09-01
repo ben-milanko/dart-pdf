@@ -95,6 +95,14 @@ Future<void> showPdfEditingGuidesDialog(
                 value: preferences.snapToGrid,
                 onChanged: (value) => preferences.snapToGrid = value,
               ),
+              SwitchListTile(
+                key: const ValueKey('pdf-grid-visible'),
+                secondary: const Icon(Icons.grid_on_outlined),
+                title: const Text('Show grid lines'),
+                subtitle: const Text('Display only; not added to the PDF'),
+                value: preferences.showSnapGrid,
+                onChanged: (value) => preferences.showSnapGrid = value,
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                 child: Row(children: [
@@ -132,38 +140,6 @@ Future<void> showPdfEditingGuidesDialog(
       ],
     ),
   );
-}
-
-/// The compact stock button for [showPdfEditingGuidesDialog].
-class PdfEditingGuidesButton extends StatelessWidget {
-  const PdfEditingGuidesButton({
-    super.key,
-    required this.preferences,
-    this.visualDensity,
-  });
-
-  final PdfEditingPreferences preferences;
-  final VisualDensity? visualDensity;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: preferences,
-      builder: (context, _) => IconButton(
-        key: const ValueKey('pdf-editing-guides'),
-        icon: const Icon(Icons.grid_4x4),
-        tooltip: 'Cursor guides and grid',
-        isSelected: preferences.showVerticalCursorGuide ||
-            preferences.showHorizontalCursorGuide ||
-            preferences.snapToGrid,
-        visualDensity: visualDensity,
-        onPressed: () => showPdfEditingGuidesDialog(
-          context,
-          preferences: preferences,
-        ),
-      ),
-    );
-  }
 }
 
 /// A ready-made toolbar for [PdfEditingController].
@@ -213,7 +189,6 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showFlatten = true,
     this.showColorProcessing = true,
     this.showAnnotationLibrary = true,
-    this.showGuides = true,
     this.dock = PdfPanelDock.bottom,
     this.compact,
     this.cardAlignment = Alignment.center,
@@ -330,10 +305,6 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Whether the Insert strip includes the reusable annotation library.
   final bool showAnnotationLibrary;
-
-  /// Whether the dock exposes the cursor-guide and grid-snap settings.
-  /// The preferences remain directly configurable when this is false.
-  final bool showGuides;
 
   /// The edge this toolbar is docked to.
   ///
@@ -1731,11 +1702,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           vertical: axis == Axis.vertical,
           onTap: () => _openGroupTap(group),
         ),
-      if (widget.showGuides) ...[
-        if (showNavigationModes || editingGroups.isNotEmpty)
-          _DockDivider(axis: axis),
-        PdfEditingGuidesButton(preferences: controller.preferences),
-      ],
       // Flatten now lives in the Edit group's strip, not the dock.
       // Save stays available for standalone hosts, but the drop-in
       // shells hide it here and surface it in their header (near Open).
@@ -3130,21 +3096,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     ),
                     const SizedBox(height: 10),
                     _sheetToolGrid(sheetContext, group),
-                    if (widget.showGuides) ...[
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: OutlinedButton.icon(
-                          key: const ValueKey('pdf-mobile-editing-guides'),
-                          icon: const Icon(Icons.grid_4x4),
-                          label: const Text('Cursor guides and grid'),
-                          onPressed: () => showPdfEditingGuidesDialog(
-                            sheetContext,
-                            preferences: controller.preferences,
-                          ),
-                        ),
-                      ),
-                    ],
                     ..._sheetSettings(sheetContext, group),
                   ],
                 ),

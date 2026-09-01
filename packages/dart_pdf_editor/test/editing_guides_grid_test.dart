@@ -17,6 +17,16 @@ dynamic cursorPainter(WidgetTester tester) => tester
       (painter) => painter.runtimeType.toString() == '_HoverCursorPainter',
     );
 
+dynamic gridPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .singleWhere(
+      (painter) => painter.runtimeType.toString() == '_SnapGridPainter',
+    );
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -77,12 +87,43 @@ void main() {
     final painter = cursorPainter(tester);
     expect(painter.verticalGuide, isTrue);
     expect(painter.horizontalGuide, isTrue);
+    expect(painter.guideStrokeWidth, 0.75);
+    expect(painter.guideHaloWidth, 1.75);
     expect(painter.guideCursor.dx, closeTo(view(220, 700).dx, 0.1));
     expect(painter.guideCursor.dy, closeTo(view(220, 700).dy, 0.1));
 
     await gesture.moveTo(const Offset(-30, -30));
     await tester.pump();
     expect(cursorPainter(tester).guideCursor, isNull);
+  });
+
+  testWidgets('visible snap grid follows the page-space snapping interval',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.preferences
+      ..gridSpacing = 25
+      ..showSnapGrid = true;
+    await tester.pump();
+
+    // A visible grid alone mounts the otherwise passive overlay. It does not
+    // require snapping or an editing tool to be enabled.
+    expect(editing.tool, isNull);
+    expect(editing.preferences.snapToGrid, isFalse);
+    expect(find.byKey(const ValueKey('pdf-snap-grid')), findsWidgets);
+    final painter = gridPainter(tester);
+    expect(painter.gridSpacing, 25);
+    expect(painter.strokeWidth, 0.5);
+
+    final paint = find.byKey(const ValueKey('pdf-snap-grid')).first;
+    final segments = List<dynamic>.from(
+        painter.segmentsFor(tester.getSize(paint)) as Iterable);
+    expect(
+      segments.any((segment) =>
+          (segment.$1 - view(100, 0)).distance < 0.1 &&
+          (segment.$2 - view(100, 792)).distance < 0.1),
+      isTrue,
+      reason: 'the x=100pt grid line should span the crop box',
+    );
   });
 
   testWidgets('grid snaps creation, movement, and resizing in page points',
@@ -145,47 +186,35 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
   });
 
-  testWidgets('stock toolbar exposes persistent guide and grid controls',
+  testWidgets('editor settings exposes persistent guide and grid controls',
       (tester) async {
-    final editing = PdfEditingController(buildMultiPagePdf(1));
-    final viewer = PdfViewerController();
-    addTearDown(editing.dispose);
-    addTearDown(viewer.dispose);
+    final preferences = PdfEditingPreferences();
+    addTearDown(preferences.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-        body: const SizedBox.expand(),
-        bottomNavigationBar: PdfEditingToolbar(
-          controller: editing,
-          viewerController: viewer,
+        body: PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: preferences,
         ),
       ),
     ));
+    await tester.pump();
 
-    final guidesButton = find.byKey(const ValueKey('pdf-editing-guides'));
-    await tester.scrollUntilVisible(
-      guidesButton,
-      100,
-      scrollable: find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    await tester.tap(guidesButton);
+    expect(find.byKey(const ValueKey('pdf-editing-guides')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-shell-editing-guides')),
+        kind: PointerDeviceKind.mouse);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('pdf-cursor-guide-vertical')));
     await tester.tap(find.byKey(const ValueKey('pdf-grid-snap')));
+    await tester.tap(find.byKey(const ValueKey('pdf-grid-visible')));
     await tester.pump();
 
-    expect(editing.preferences.showVerticalCursorGuide, isTrue);
-    expect(editing.preferences.snapToGrid, isTrue);
-    expect(
-        tester
-            .widget<IconButton>(
-                find.byKey(const ValueKey('pdf-editing-guides')))
-            .isSelected,
-        isTrue);
+    expect(preferences.showVerticalCursorGuide, isTrue);
+    expect(preferences.snapToGrid, isTrue);
+    expect(preferences.showSnapGrid, isTrue);
 
     await tester.tap(find.byKey(const ValueKey('pdf-guides-done')));
     await tester.pumpAndSettle();
@@ -197,6 +226,7 @@ void main() {
     first
       ..showVerticalCursorGuide = true
       ..showHorizontalCursorGuide = true
+      ..showSnapGrid = true
       ..snapToGrid = true
       ..gridSpacing = 12.5;
     await pumpEventQueue();
@@ -205,6 +235,7 @@ void main() {
     await second.ready;
     expect(second.showVerticalCursorGuide, isTrue);
     expect(second.showHorizontalCursorGuide, isTrue);
+    expect(second.showSnapGrid, isTrue);
     expect(second.snapToGrid, isTrue);
     expect(second.gridSpacing, 12.5);
     first.dispose();

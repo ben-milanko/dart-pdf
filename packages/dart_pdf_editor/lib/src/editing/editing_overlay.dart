@@ -4954,8 +4954,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _updatePickPreview(event.localPosition);
       cursor = SystemMouseCursors.precise;
     } else if (_controller.activeSavedAnnotation != null) {
-      if (_savedAnnotationPreview != event.localPosition) {
-        _savedAnnotationPreview = event.localPosition;
+      final snapped = _snapPointToGrid(event.localPosition);
+      if (_savedAnnotationPreview != snapped) {
+        _savedAnnotationPreview = snapped;
         _bumpCursor();
       }
       unawaited(_ensureSavedAnnotationPicture());
@@ -5735,7 +5736,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // In that passive state the MouseRegion paints the guides, but no gesture
     // recognizer may enter the arena and steal scrolling or text selection
     // from the viewer underneath.
-    final acceptsEditingGestures = _tool != null || _selectMode;
+    final acceptsEditingGestures = _tool != null ||
+        _selectMode ||
+        _controller.activeSavedAnnotation != null;
     final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
@@ -5947,6 +5950,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               ),
             },
             child: Stack(children: [
+              if (_controller.preferences.showSnapGrid)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      key: const ValueKey('pdf-snap-grid'),
+                      painter: _SnapGridPainter(
+                        geometry: _geometry,
+                        gridSpacing: _controller.preferences.gridSpacing,
+                        chromeScale: _chromeScale,
+                        color:
+                            (PdfViewerTheme.of(context).annotationChromeColor ??
+                                    Theme.of(context).colorScheme.primary)
+                                .withValues(alpha: 0.22),
+                      ),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
               Positioned.fill(
                 child: CustomPaint(
                   painter: _EditingPreviewPainter(
@@ -6663,6 +6684,12 @@ class _HoverCursorPainter extends CustomPainter {
   bool get horizontalGuide =>
       _state._controller.preferences.showHorizontalCursorGuide;
 
+  @visibleForTesting
+  double get guideStrokeWidth => 0.75 * _state._chromeScale;
+
+  @visibleForTesting
+  double get guideHaloWidth => 1.75 * _state._chromeScale;
+
   /// The marks this layer would paint right now, as the old snapshot fields
   /// exposed them. These *are* the paint gates (paint() reads them), so a
   /// test asserting on them asserts on what is drawn - the state fields
@@ -6751,10 +6778,10 @@ class _HoverCursorPainter extends CustomPainter {
       final color = theme.annotationChromeColor ?? const Color(0xFF1E88E5);
       final halo = Paint()
         ..color = const Color(0x52000000)
-        ..strokeWidth = 3 * chromeScale;
+        ..strokeWidth = guideHaloWidth;
       final line = Paint()
         ..color = color.withValues(alpha: 0.88)
-        ..strokeWidth = 1 * chromeScale;
+        ..strokeWidth = guideStrokeWidth;
       if (verticalGuide) {
         final from = Offset(guide.dx, 0);
         final to = Offset(guide.dx, size.height);
@@ -6900,6 +6927,80 @@ class _HoverCursorPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_HoverCursorPainter oldDelegate) => true;
+}
+
+/// Draws the page-space snapping grid above the page raster but below all
+/// live editing previews and selection chrome.
+class _SnapGridPainter extends CustomPainter {
+  const _SnapGridPainter({
+    required this.geometry,
+    required this.gridSpacing,
+    required this.chromeScale,
+    required this.color,
+  });
+
+  final PdfPageGeometry geometry;
+
+  @visibleForTesting
+  final double gridSpacing;
+
+  final double chromeScale;
+  final Color color;
+
+  @visibleForTesting
+  double get strokeWidth => 0.5 * chromeScale;
+
+  /// Returns the visible grid segments in view coordinates. When the chosen
+  /// interval would place lines less than four screen pixels apart, a stable
+  /// multiple of the interval is drawn to avoid a solid moire pattern; every
+  /// visible line remains an actual snap line.
+  @visibleForTesting
+  List<(Offset, Offset)> segmentsFor(Size size) {
+    if (!gridSpacing.isFinite || gridSpacing <= 0 || size.isEmpty) {
+      return const [];
+    }
+    final interval = gridSpacing * geometry.scale;
+    final stride = math.max(1, (4 * chromeScale / interval).ceil());
+    final box = geometry.cropBox;
+    final segments = <(Offset, Offset)>[];
+    final xCount = (box.width / gridSpacing).floor();
+    for (var i = 0; i <= xCount; i += stride) {
+      final x = box.left + i * gridSpacing;
+      segments.add((
+        geometry.toViewOffset(x, box.bottom),
+        geometry.toViewOffset(x, box.top),
+      ));
+    }
+    final yCount = (box.height / gridSpacing).floor();
+    for (var i = 0; i <= yCount; i += stride) {
+      final y = box.bottom + i * gridSpacing;
+      segments.add((
+        geometry.toViewOffset(box.left, y),
+        geometry.toViewOffset(box.right, y),
+      ));
+    }
+    return segments;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.clipRect(Offset.zero & size);
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth;
+    for (final (from, to) in segmentsFor(size)) {
+      canvas.drawLine(from, to, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SnapGridPainter oldDelegate) =>
+      oldDelegate.geometry.cropBox != geometry.cropBox ||
+      oldDelegate.geometry.rotation != geometry.rotation ||
+      oldDelegate.geometry.viewSize != geometry.viewSize ||
+      oldDelegate.gridSpacing != gridSpacing ||
+      oldDelegate.chromeScale != chromeScale ||
+      oldDelegate.color != color;
 }
 
 /// Paints a stamp/count afterimage (or hover preview) at its already

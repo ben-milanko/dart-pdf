@@ -10,8 +10,9 @@
   cross-document placement, cursor-following drop previews, repeat Paste, and
   a direct path to the custom-stamp collection.
 - Add independently configurable horizontal and vertical cursor guide lines,
-  plus persisted page-space grid snapping for annotation placement, movement,
-  resizing, and vertices (hold Alt to bypass snapping temporarily).
+  an optional visible page-space grid, and persisted grid snapping for
+  annotation placement, movement, resizing, and vertices (hold Alt to bypass
+  snapping temporarily). These controls live in the editor Settings popup.
 - Add an optional asynchronous tile-backend retry hook and exact retained-scene
   re-recording, while preserving the existing Canvas fallback when a retry is
   unavailable, fails, or remains inexact.

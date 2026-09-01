@@ -57,6 +57,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _eraserRadius = 8;
   bool _showVerticalCursorGuide = false;
   bool _showHorizontalCursorGuide = false;
+  bool _showSnapGrid = false;
   bool _snapToGrid = false;
   double _gridSpacing = 10;
   double _fontSize = 14;
@@ -183,6 +184,7 @@ class PdfEditingPreferences extends ChangeNotifier {
       _showHorizontalCursorGuide =
           store.getBool('${_prefix}showHorizontalCursorGuide') ??
               _showHorizontalCursorGuide;
+      _showSnapGrid = store.getBool('${_prefix}showSnapGrid') ?? _showSnapGrid;
       _snapToGrid = store.getBool('${_prefix}snapToGrid') ?? _snapToGrid;
       final gridSpacing = store.getDouble('${_prefix}gridSpacing');
       if (gridSpacing != null && gridSpacing.isFinite && gridSpacing > 0) {
@@ -737,6 +739,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showHorizontalCursorGuide) return;
     _showHorizontalCursorGuide = value;
     _write((s) => s.setBool('${_prefix}showHorizontalCursorGuide', value));
+    notifyListeners();
+  }
+
+  /// Whether the page-space snap grid is drawn over the page. This is a
+  /// display-only preference and is independent of [snapToGrid].
+  bool get showSnapGrid => _showSnapGrid;
+
+  set showSnapGrid(bool value) {
+    if (value == _showSnapGrid) return;
+    _showSnapGrid = value;
+    _write((s) => s.setBool('${_prefix}showSnapGrid', value));
     notifyListeners();
   }
 
