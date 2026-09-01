@@ -13,6 +13,11 @@
   an optional visible page-space grid, and persisted grid snapping for
   annotation placement, movement, resizing, and vertices (hold Alt to bypass
   snapping temporarily). These controls live in the editor Settings popup.
+- Enable the example's visible digital-signature tool with a secure, persisted
+  signing identity on macOS and web, and hide that tool from the stock
+  `PdfEditorView` when a host has not supplied a signing handler.
+- Let users select a signed box and remove its digital signature from the
+  contextual toolbar on desktop or mobile, with confirmation and undo.
 - Add an optional asynchronous tile-backend retry hook and exact retained-scene
   re-recording, while preserving the existing Canvas fallback when a retry is
   unavailable, fails, or remains inexact.

@@ -9,6 +9,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfFieldType,
         PdfFormField,
         PdfLineEnding,
+        PdfSignature,
         PdfStandardFont,
         PdfTextAlign,
         PdfTextFont;
@@ -18,6 +19,7 @@ import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../toast.dart';
 import 'annotation_presentation.dart';
+import 'digital_signature_removal.dart';
 import 'editing_annotation_library.dart';
 import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
@@ -1246,6 +1248,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final name = controller.selectedWidgetFieldName;
     final field = name == null ? null : controller.acroForm?.fieldNamed(name);
     if (field == null) return const [];
+    final signature = controller.signatureByFieldName[name];
+    if (signature != null) {
+      return [_digitalSignatureDeleteButton(context, signature)];
+    }
     final edit = _selectedFormEditAction(field);
     return [
       IconButton(
@@ -1288,6 +1294,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final name = controller.selectedWidgetFieldName;
     final field = name == null ? null : controller.acroForm?.fieldNamed(name);
     if (field == null) return const [];
+    final signature = controller.signatureByFieldName[name];
+    if (signature != null) {
+      return [_digitalSignatureDeleteButton(context, signature)];
+    }
     final edit = _selectedFormEditAction(field);
     return [
       PopupMenuButton<_SelectedFormOverflowAction>(
@@ -1409,6 +1419,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
     ];
   }
+
+  Widget _digitalSignatureDeleteButton(
+    BuildContext context,
+    PdfSignature signature,
+  ) =>
+      IconButton(
+        key: const ValueKey('pdf-selected-signature-delete'),
+        icon: const Icon(Icons.delete_outline),
+        tooltip: pdfL10n(context).sidebarDeleteSignature,
+        onPressed: () async {
+          if (!await showPdfRemoveSignatureDialog(context, signature) ||
+              !context.mounted) {
+            return;
+          }
+          controller.removeSignature(signature);
+        },
+      );
 
   void _flattenToast(BuildContext context, String message,
       {required bool undoable}) {

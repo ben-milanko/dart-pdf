@@ -2,6 +2,10 @@
 
 ## 4.0.0
 
+- Fix importing private keys and certificate chains for digital signatures in
+  the cross-origin-isolated web app.
+- Allow a visible digital signature to be selected and removed, with
+  confirmation and undo.
 - Add slimmer, dockable editor controls and improve page, panel, and
   recent-document navigation.
 - Auto-fit free text to its box, flatten selected annotations, and reliably

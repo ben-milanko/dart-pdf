@@ -5,11 +5,11 @@ import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
-import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../search_field_style.dart';
 import 'annotation_presentation.dart';
+import 'digital_signature_removal.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
@@ -465,27 +465,10 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   Future<void> _confirmRemoveSignature(
       BuildContext context, PdfSignature signature) async {
-    final name = signature.signerName;
-    final confirmed = await showPdfDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(pdfL10n(context).sidebarRemoveSignatureTitle),
-        content: Text(name == null || name.isEmpty
-            ? pdfL10n(context).sidebarRemoveSignatureBody
-            : pdfL10n(context).sidebarRemoveSignatureBodyNamed(name)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(pdfL10n(context).cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(pdfL10n(context).remove),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) widget.controller.removeSignature(signature);
+    if (!await showPdfRemoveSignatureDialog(context, signature) || !mounted) {
+      return;
+    }
+    widget.controller.removeSignature(signature);
   }
 
   /// The inline validation section under a signed signature-field row: a

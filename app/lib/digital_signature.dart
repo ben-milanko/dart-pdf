@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:pdf_cos/pdf_cos.dart' show X509Certificate;
 import 'package:pdf_document/pdf_document.dart';
@@ -10,6 +11,8 @@ import 'package:pdf_document/pdf_document.dart';
 import 'l10n/app_l10n.dart';
 import 'signature_appearance_store.dart';
 import 'signature_raster.dart';
+import 'web_file_picker_stub.dart'
+    if (dart.library.js_interop) 'web_file_picker.dart';
 
 /// How opaque the logo backdrop is drawn - a light watermark so the signer
 /// name and details stay readable. Kept in sync between the live preview and
@@ -93,7 +96,7 @@ class DigitalSignatureOptions {
     this.contactInfo,
     this.signingTime,
     this.appearance,
-  }) : assert(
+  })  : assert(
             (identity == null ? 0 : 1) +
                     (selfSignedIdentity == null ? 0 : 1) +
                     (keylessIdentity == null ? 0 : 1) ==
@@ -132,9 +135,7 @@ class DigitalSignatureOptions {
 
   /// The signer name to show, regardless of which identity kind is set.
   String? get signerName =>
-      identity?.signerName ??
-      selfSignedIdentity?.name ??
-      keylessIdentity?.name;
+      identity?.signerName ?? selfSignedIdentity?.name ?? keylessIdentity?.name;
 }
 
 Future<DigitalSignatureOptions?> showDigitalSigningDialog(
@@ -174,13 +175,24 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
       ),
     );
 
-Future<XFile?> _pickPrivateKey(String label) => openFile(
-      acceptedTypeGroups: [digitalSignatureKeyTypeGroup(label)],
-    );
+Future<XFile?> _pickPrivateKey(String label) => kIsWeb
+    ? pickInMemoryFileWeb(
+        accept: '.pem,.key,.der,application/x-pem-file,application/pkcs8',
+        fallbackMimeType: 'application/octet-stream',
+      )
+    : openFile(
+        acceptedTypeGroups: [digitalSignatureKeyTypeGroup(label)],
+      );
 
-Future<List<XFile>> _pickCertificates(String label) => openFiles(
-      acceptedTypeGroups: [digitalSignatureCertificateTypeGroup(label)],
-    );
+Future<List<XFile>> _pickCertificates(String label) => kIsWeb
+    ? pickInMemoryFilesWeb(
+        accept: '.pem,.crt,.cer,.der,application/pkix-cert,'
+            'application/x-x509-ca-cert',
+        fallbackMimeType: 'application/octet-stream',
+      )
+    : openFiles(
+        acceptedTypeGroups: [digitalSignatureCertificateTypeGroup(label)],
+      );
 
 class DigitalSignatureDialog extends StatefulWidget {
   const DigitalSignatureDialog({
@@ -512,8 +524,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     try {
       PdfEmbeddableImage.decode(bytes);
     } catch (_) {
-      setState(
-          () => _appearanceError = appL10n(context).appSigChoosePngOrJpeg);
+      setState(() => _appearanceError = appL10n(context).appSigChoosePngOrJpeg);
       return;
     }
     setState(() {
@@ -783,8 +794,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   child: ListTile(
                     key: const ValueKey('digital-signature-identity'),
                     leading: const Icon(Icons.verified_outlined),
-                    title: Text(
-                        identity.signerName ?? appL10n(context).appSigX509Signer),
+                    title: Text(identity.signerName ??
+                        appL10n(context).appSigX509Signer),
                     subtitle: Text(
                       appL10n(context).appSigIdentitySubtitle(
                         identity.certificateCount,
@@ -910,9 +921,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                 _AppearancePreview(
                   signaturePng: _signaturePng,
                   logoBytes: _logoBytes,
-                  signerName: identity?.signerName ??
-                      selfSigned?.name ??
-                      keyless?.name,
+                  signerName:
+                      identity?.signerName ?? selfSigned?.name ?? keyless?.name,
                   reason: _value(_reason),
                   aspectRatio: widget.placement == null
                       ? 2.0
@@ -950,7 +960,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         ),
         FilledButton.icon(
           key: const ValueKey('digital-signature-sign'),
-          onPressed: (canSign && !_submitting) ? () => unawaited(_submit()) : null,
+          onPressed:
+              (canSign && !_submitting) ? () => unawaited(_submit()) : null,
           icon: _submitting
               ? const SizedBox(
                   width: 18,
@@ -1058,9 +1069,7 @@ class _AppearancePreview extends StatelessWidget {
                 for (final line in details)
                   Text(line,
                       style: const TextStyle(
-                          fontSize: 9,
-                          height: 1.3,
-                          color: Color(0xFF1A1A1A))),
+                          fontSize: 9, height: 1.3, color: Color(0xFF1A1A1A))),
               ],
             ),
             Alignment.centerLeft,

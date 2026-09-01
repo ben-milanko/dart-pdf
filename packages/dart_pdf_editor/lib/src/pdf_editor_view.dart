@@ -569,7 +569,9 @@ class PdfEditorView extends StatefulWidget {
   /// exports the captured raster image (copy/save/share).
   final PdfSnapshotHandler? onSnapshot;
 
-  /// See [PdfViewer.onPlaceSignature].
+  /// See [PdfViewer.onPlaceSignature]. Supply this to enable the digital-
+  /// signature box tool; when null it is hidden from the stock toolbar rather
+  /// than left as a no-op button.
   final PdfSignaturePlacer? onPlaceSignature;
 
   /// Saves or shares a figure the reader taps to open fullscreen in the text
@@ -904,6 +906,20 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   Widget build(BuildContext context) {
     if (_isSource) return _buildFromSource();
     final features = widget.features;
+    // A signature box is only a placement request; the host still has to
+    // supply the identity/signing flow. Do not advertise an inert tool in the
+    // stock shell when that callback is absent.
+    final availableTools = widget.onPlaceSignature != null
+        ? features.tools
+        : <PdfEditTool>{
+            for (final tool in features.tools ?? PdfEditTool.values)
+              if (tool != PdfEditTool.signatureBox) tool,
+          };
+    final availableShortcuts =
+        Map<PdfEditTool, PdfToolShortcut>.of(_toolShortcuts);
+    if (widget.onPlaceSignature == null) {
+      availableShortcuts.remove(PdfEditTool.signatureBox);
+    }
     Widget body = LayoutBuilder(builder: (context, constraints) {
       return ListenableBuilder(
         // the session owns the document revisions: the viewer must
@@ -1282,9 +1298,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             !prefs.showAnnotationLibraryPanel
                         : null,
                     palette: widget.palette,
-                    tools: features.tools,
+                    tools: availableTools,
                     groups: features.toolGroups,
-                    toolShortcuts: _toolShortcuts,
+                    toolShortcuts: availableShortcuts,
                     showMarkup: features.markup,
                     showUndoRedo: features.undoRedo,
                     showColor: features.colorControls,
@@ -1324,10 +1340,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 author: features.author,
                 authorName: session.preferences.author,
                 onAuthorPressed: _promptAuthor,
-                toolShortcuts: _toolShortcuts,
+                toolShortcuts: availableShortcuts,
                 onToolShortcutsChanged: (value) =>
                     setState(() => _toolShortcuts = value),
-                tools: features.tools,
+                tools: availableTools,
               );
             },
           );
@@ -1448,10 +1464,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         author: features.author,
                         authorName: session.preferences.author,
                         onAuthorPressed: _promptAuthor,
-                        toolShortcuts: _toolShortcuts,
+                        toolShortcuts: availableShortcuts,
                         onToolShortcutsChanged: (value) =>
                             setState(() => _toolShortcuts = value),
-                        tools: features.tools),
+                        tools: availableTools),
                   PdfShellPanelSwitch(
                     key: const ValueKey('pdf-shell-panels'),
                     items: panelItems,
@@ -1529,9 +1545,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         editingTextPrompt: widget.textPrompt,
                         editingStyledTextPrompt: widget.styledTextPrompt,
                         editingPalette: widget.palette,
-                        textSelectionEditing: (features.tools == null ||
-                                features.tools!
-                                    .contains(PdfEditTool.content)) &&
+                        textSelectionEditing: (availableTools == null ||
+                                availableTools.contains(PdfEditTool.content)) &&
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.edit)),
@@ -1551,7 +1566,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             : 0,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
-                        toolShortcuts: _toolShortcuts,
+                        toolShortcuts: availableShortcuts,
                         backgroundColor: widget.backgroundColor,
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,

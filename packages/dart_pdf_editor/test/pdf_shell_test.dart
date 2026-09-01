@@ -873,6 +873,57 @@ void main() {
       expect(find.byIcon(Icons.palette), findsNothing);
     });
 
+    testWidgets('digital signature is hidden without a signing handler',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
+
+      final insert = find.byKey(const ValueKey('pdf-group-insert'));
+      final dock = find
+          .descendant(
+            of: find.byType(PdfEditingToolbar),
+            matching: find.byType(Scrollable),
+          )
+          .last;
+      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
+      await tester.tap(insert);
+      await tester.pump();
+
+      expect(find.byIcon(Icons.draw_outlined), findsNothing);
+    });
+
+    testWidgets('digital signature is enabled by a signing handler',
+        (tester) async {
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          onPlaceSignature: (context,
+              {required pageIndex, required pageRect}) async {},
+        ),
+      );
+
+      final insert = find.byKey(const ValueKey('pdf-group-insert'));
+      final dock = find
+          .descendant(
+            of: find.byType(PdfEditingToolbar),
+            matching: find.byType(Scrollable),
+          )
+          .last;
+      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
+      await tester.tap(insert);
+      await tester.pump();
+
+      final signature = find.byIcon(Icons.draw_outlined);
+      final strip = find
+          .descendant(
+            of: find.byType(PdfEditingToolbar),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(signature, 100, scrollable: strip);
+      expect(signature, findsOneWidget);
+    });
+
     testWidgets('toolGroups hides whole tool types', (tester) async {
       await pump(
         tester,

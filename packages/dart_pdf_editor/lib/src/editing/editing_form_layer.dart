@@ -99,7 +99,8 @@ class FormFieldLabelLayer extends StatelessWidget {
 /// coexists with plain reading and annotation selection but yields the
 /// whole page to the drawing/authoring tools. Tap targets cover only the
 /// field rects, leaving the rest of the page transparent so scrolling,
-/// link taps, and text selection are untouched.
+/// link taps, and text selection are untouched. A signed signature field is
+/// a selection target too, exposing its confirmed remove action.
 class FormInteractionLayer extends StatefulWidget {
   const FormInteractionLayer({
     super.key,
@@ -263,6 +264,17 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   Future<void> _onFieldTap(
       PdfFormField field, int widgetIndex, Rect viewRect) async {
+    if (field.type == PdfFieldType.signature) {
+      if (_isSigned(field)) {
+        final pageRect = widget.geometry.toPageRect(viewRect);
+        _controller.selectFormWidgetAt(
+          widget.pageIndex,
+          (pageRect.left + pageRect.right) / 2,
+          (pageRect.bottom + pageRect.top) / 2,
+        );
+      }
+      return;
+    }
     if (field.isReadOnly) return;
     switch (field.type) {
       case PdfFieldType.text:
@@ -319,6 +331,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   }
 
   MouseCursor _cursorFor(PdfFormField field) {
+    if (field.type == PdfFieldType.signature && _isSigned(field)) {
+      return SystemMouseCursors.click;
+    }
     if (field.isReadOnly) return SystemMouseCursors.basic;
     return switch (field.type) {
       PdfFieldType.text => SystemMouseCursors.text,
@@ -330,6 +345,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   }
 
   bool _interactive(PdfFormField field) {
+    if (field.type == PdfFieldType.signature) return _isSigned(field);
     if (field.isReadOnly) return false;
     return switch (field.type) {
       PdfFieldType.text ||
@@ -344,13 +360,15 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     };
   }
 
+  bool _isSigned(PdfFormField field) =>
+      _controller.signatureByFieldName.containsKey(field.name);
+
   @override
   Widget build(BuildContext context) {
     // the afterimage has served once the committed revision's raster is
     // on screen, or is stale once the document moved past it
     if (_afterRevisionId != null &&
-        (widget.rasterCurrent ||
-            _afterRevisionId != _controller.revisionId)) {
+        (widget.rasterCurrent || _afterRevisionId != _controller.revisionId)) {
       _afterValue = null;
       _afterRect = null;
       _afterRevisionId = null;
@@ -454,10 +472,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
               // long-press selection menu off-screen
               contextMenuBuilder: (context, editableTextState) =>
                   pdfPlacedTextSelectionMenu(
-                    editableTextState,
-                    AdaptiveTextSelectionToolbar.editableText(
-                        editableTextState: editableTextState),
-                  ),
+                editableTextState,
+                AdaptiveTextSelectionToolbar.editableText(
+                    editableTextState: editableTextState),
+              ),
               textDirection: _flutterTextDirection(_text.text),
               textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
                   ? TextAlign.right

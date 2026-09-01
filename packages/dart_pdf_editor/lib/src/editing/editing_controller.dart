@@ -1146,16 +1146,29 @@ class PdfEditingController extends ChangeNotifier {
     final fieldName = signature.field.name;
     // The appearance stream object shared by the widget and its repeat stamps.
     final apObjectNumber = _appearanceObjectNumber(signature.field.widgets);
+    return _removeFormFieldsAndSignatureCopies(
+      {fieldName},
+      {if (apObjectNumber != null) apObjectNumber},
+    );
+  }
+
+  bool _removeFormFieldsAndSignatureCopies(
+    Set<String> fieldNames,
+    Set<int> signatureAppearanceObjectNumbers,
+  ) {
     clearAnnotationSelection();
     return apply((editor) {
-      final field = editor.acroForm?.fieldNamed(fieldName);
-      if (field != null) editor.removeField(field);
-      if (apObjectNumber == null) return;
+      for (final fieldName in fieldNames) {
+        final field = editor.acroForm?.fieldNamed(fieldName);
+        if (field != null) editor.removeField(field);
+      }
+      if (signatureAppearanceObjectNumbers.isEmpty) return;
       for (var page = 0; page < editor.document.pageCount; page++) {
         final copies = [
           for (final annotation in editor.document.page(page).annotations)
             if (annotation.subtype == 'Stamp' &&
-                _appearanceObjectNumber([annotation.dict]) == apObjectNumber)
+                signatureAppearanceObjectNumbers
+                    .contains(_appearanceObjectNumber([annotation.dict])))
               annotation,
         ];
         if (copies.isNotEmpty) editor.removeAnnotations(page, copies);
@@ -4743,7 +4756,9 @@ class PdfEditingController extends ChangeNotifier {
   /// entries draw on top, so they win). Skips hidden widgets and ones
   /// the host or /F Locked flag protects ([isAnnotationEditable]); a
   /// read-only field (one whose *value* can't change) is still
-  /// selectable for move/resize/rename. Null when nothing is hit.
+  /// selectable for move/resize/rename. A signed signature widget is also
+  /// selectable even when protected, so its dedicated remove action remains
+  /// reachable (matching the annotation sidebar). Null when nothing is hit.
   (int index, PdfAnnotation)? selectableWidgetAt(
     int pageIndex,
     double x,
@@ -4754,13 +4769,20 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.subtype != 'Widget' ||
           annotation.isHidden ||
-          !isAnnotationEditable(annotation)) {
+          (!isAnnotationEditable(annotation) &&
+              !_isSignedSignatureWidget(annotation))) {
         continue;
       }
       if (annotation.rect.contains(x, y)) return (i, annotation);
     }
     return null;
   }
+
+  bool _isSignedSignatureWidget(PdfAnnotation annotation) =>
+      annotation is PdfWidgetAnnotation &&
+      annotation.fieldType == 'Sig' &&
+      annotation.fieldName != null &&
+      signatureByFieldName.containsKey(annotation.fieldName);
 
   /// Selects the topmost form-field widget under ([x], [y]) on
   /// [pageIndex] for manipulation (move/resize/toolbar controls) - the form tool's
@@ -6866,13 +6888,14 @@ class PdfEditingController extends ChangeNotifier {
       if (field != null) fieldNames.add(field.$1);
     }
     if (fieldNames.isNotEmpty) {
-      clearAnnotationSelection();
-      apply((e) {
-        for (final name in fieldNames) {
-          final field = e.acroForm?.fieldNamed(name);
-          if (field != null) e.removeField(field);
-        }
-      });
+      final signatureAppearances = <int>{};
+      for (final name in fieldNames) {
+        final signature = signatureByFieldName[name];
+        if (signature == null) continue;
+        final objectNumber = _appearanceObjectNumber(signature.field.widgets);
+        if (objectNumber != null) signatureAppearances.add(objectNumber);
+      }
+      _removeFormFieldsAndSignatureCopies(fieldNames, signatureAppearances);
       return;
     }
     deleteAnnotations(List.of(_selected));
