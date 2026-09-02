@@ -2923,7 +2923,9 @@ class _PdfPageViewState extends State<PdfPageView>
     final scene = await PdfRetainedScene.record(widget.page,
         plan: _renderPlan,
         maxImagePixelRatio: localImageRatio,
-        imageDecodeHeadroom: 1);
+        imageDecodeHeadroom: 1,
+        retainDecodedPixelsForCommands:
+            widget.tileRasterBackend.shouldRetainLocallyDecodedImagePixels);
     _lastInterpretResultBytes = _logImageStats(pageIndex, scene.commands);
     if (!_retainScene(scene.commands)) {
       // Too dense or too fragmented to replay per zoom settle: take the 1:1
@@ -3055,8 +3057,11 @@ class _PdfPageViewState extends State<PdfPageView>
       plan: _renderPlan,
       retainDecodedPixels:
           widget.tileRasterBackend.prefersDirectDecodedImageUploads,
+      retainLocallyDecodedPixels: widget.tileRasterBackend
+          .shouldRetainLocallyDecodedImagePixels(commands),
       timing: timing,
       maxImagePixelRatio: maxImagePixelRatio,
+      allowOverprintRerecord: true,
     );
     if (timing != null) CanvasPdfDevice.debugResetTextShape();
     final replayClock = timing == null ? null : (Stopwatch()..start());
@@ -3404,6 +3409,7 @@ class _PdfPageViewState extends State<PdfPageView>
           widget.page,
           commands,
           plan: _renderPlan,
+          allowOverprintRerecord: true,
         );
         if (_superseded(generation, pageIndex)) {
           scene.dispose();
@@ -4986,6 +4992,8 @@ class _PdfPageViewState extends State<PdfPageView>
         plan: _renderPlan,
         retainDecodedPixels:
             widget.tileRasterBackend.prefersDirectDecodedImageUploads,
+        retainLocallyDecodedPixels: widget.tileRasterBackend
+            .shouldRetainLocallyDecodedImagePixels(commands),
         maxImagePixelRatio: imageRatio,
       );
       if (!mounted ||
@@ -5383,6 +5391,23 @@ class _PdfPageViewState extends State<PdfPageView>
             'tile backend init fallback page=${widget.previewIndex} '
             'backend=${label()} error=$error',
           );
+        }
+        if (preferred == null &&
+            initializationError == null &&
+            backend is PdfTileRasterRetryBackend) {
+          try {
+            final retry =
+                (backend as PdfTileRasterRetryBackend).retrySession(scene);
+            if (retry != null) {
+              preferred = _DeferredTileRasterSession(scene, retry);
+            }
+          } catch (error) {
+            initializationError = error;
+            PdfPerfLog.log(
+              'tile backend retry init fallback page=${widget.previewIndex} '
+              'backend=${label()} error=$error',
+            );
+          }
         }
         final fallback =
             const PdfCanvasTileRasterBackend().createSession(scene);
@@ -6070,6 +6095,13 @@ class _PdfPageViewState extends State<PdfPageView>
                       ),
                     ),
                   if (tileLayer != null && sharpTilesInFront) tileLayer,
+                  Positioned.fill(
+                    child: PdfGpuRasterRouteOverlay(
+                      cacheNamespace: _effectiveTileCacheNamespace,
+                      pageIndex: widget.previewIndex,
+                      transformScale: widget.transformScale,
+                    ),
+                  ),
                 ],
               );
             },
@@ -6077,6 +6109,108 @@ class _PdfPageViewState extends State<PdfPageView>
         );
       },
     );
+  }
+}
+
+/// Lazily resolves an optional backend's asynchronous exact-scene retry.
+///
+/// The public backend contract remains synchronous and Canvas stays ready in
+/// [_FallbackTileRasterSession]. Until the retry resolves, conservative GPU
+/// scheduling prevents a repaint burst from queueing a slab-sized batch.
+class _DeferredTileRasterSession
+    implements
+        PdfTileRasterSession,
+        PdfTileRasterScheduling,
+        PdfTileRasterWarmUp {
+  _DeferredTileRasterSession(this.scene, Future<PdfTileRasterSession?> retry) {
+    _session = _resolve(retry);
+  }
+
+  @override
+  final PdfRetainedScene scene;
+  late final Future<PdfTileRasterSession?> _session;
+  PdfTileRasterSession? _resolved;
+  Object? _resolutionError;
+  StackTrace? _resolutionStackTrace;
+  bool _disposed = false;
+
+  Future<PdfTileRasterSession?> _resolve(
+    Future<PdfTileRasterSession?> retry,
+  ) async {
+    try {
+      final session = await retry;
+      if (session == null) {
+        _resolutionError =
+            StateError('tile backend exact-scene retry declined');
+        return null;
+      }
+      if (_disposed) {
+        session.dispose();
+        _resolutionError =
+            StateError('tile backend exact-scene retry disposed');
+        return null;
+      }
+      return _resolved = session;
+    } catch (error, stackTrace) {
+      _resolutionError = error;
+      _resolutionStackTrace = stackTrace;
+      return null;
+    }
+  }
+
+  Future<PdfTileRasterSession> _requireSession() async {
+    final session = await _session;
+    if (session != null) return session;
+    Error.throwWithStackTrace(
+      _resolutionError ??
+          StateError('tile backend exact-scene retry unavailable'),
+      _resolutionStackTrace ?? StackTrace.current,
+    );
+  }
+
+  @override
+  bool get batchAdjacentTiles {
+    final session = _resolved;
+    return session is PdfTileRasterScheduling
+        ? (session as PdfTileRasterScheduling).batchAdjacentTiles
+        : false;
+  }
+
+  @override
+  int? get maxNewTilesPerPaint {
+    final session = _resolved;
+    return session is PdfTileRasterScheduling
+        ? (session as PdfTileRasterScheduling).maxNewTilesPerPaint
+        : 1;
+  }
+
+  @override
+  Future<void> warmUp() async {
+    final session = await _requireSession();
+    if (session is PdfTileRasterWarmUp) {
+      await (session as PdfTileRasterWarmUp).warmUp();
+    }
+  }
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) async {
+    final session = await _requireSession();
+    return session.rasterizeRegion(
+      region,
+      pixelRatio: pixelRatio,
+      tracePage: tracePage,
+    );
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _resolved?.dispose();
   }
 }
 

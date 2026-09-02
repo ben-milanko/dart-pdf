@@ -256,6 +256,11 @@ class PdfColorantRaster {
       var from = spans.startAt(i), to = spans.endAt(i);
       if (from < _clipX0) from = _clipX0;
       if (to > _clipX1) to = _clipX1;
+      // A scanline can lie inside the clip's rows while its run sits entirely
+      // outside its columns (any slanted shape crossing a narrow clip), which
+      // leaves an inverted range the span loops no-op on but fillRange throws
+      // on.
+      if (to <= from) continue;
       if (mask == null) {
         cells.fillRange(row + from, row + to, value);
         continue;
@@ -284,6 +289,7 @@ class PdfColorantRaster {
       var from = spans.startAt(i), to = spans.endAt(i);
       if (from < _clipX0) from = _clipX0;
       if (to > _clipX1) to = _clipX1;
+      if (to <= from) continue;
       if (clip == null) {
         mask.fillRange(row + from, row + to, 1);
         continue;
@@ -518,8 +524,18 @@ class PdfColorantRaster {
           subpaths, [for (final d in dashArray) d * scale], dashPhase * scale);
     }
     final contours = StrokeContours();
+    final mappedWidth = width * scale;
+    final isSingleOpenSegment = subpaths.length == 1 &&
+        !subpaths.single.closed &&
+        subpaths.single.pointCount == 2;
     strokeToContours(subpaths,
-        width: width * scale,
+        // A single straight stroke narrower than one cell can miss every cell
+        // centre. Preserve one probe cell for that bounded case; spatial
+        // replay still clips the result through the original vector stroke,
+        // so its visible width is exact. Inflating multi-segment paths changes
+        // joins/caps and can sample unrelated backdrops outside their exact
+        // geometry (the Ghent transparency X patches expose that error).
+        width: mappedWidth < 1 && isSingleOpenSegment ? 1 : mappedWidth,
         cap: cap,
         join: join,
         miterLimit: miterLimit,
@@ -555,6 +571,42 @@ class PdfColorantRaster {
     final y1 = _cellFrom(maxY).clamp(0, height);
     final x0 = _cellFrom(minX).clamp(0, width);
     final x1 = _cellFrom(maxX).clamp(0, width);
+    if (x1 <= x0 || y1 <= y0) return ColorantSpans.empty;
+    final out = Int32List((y1 - y0) * 3);
+    var n = 0;
+    for (var y = y0; y < y1; y++) {
+      out[n++] = y;
+      out[n++] = x0;
+      out[n++] = x1;
+    }
+    return ColorantSpans._(out, n ~/ 3);
+  }
+
+  /// Spans for every cell whose interior intersects an axis-aligned
+  /// page-space box.
+  ///
+  /// Ordinary coverage is sampled at cell centres. This conservative variant
+  /// is only for a real vector shape that covered no centre at all: it keeps a
+  /// sub-cell mark represented in the colorant grid while the caller retains
+  /// the original vector path for exact visible replay.
+  ColorantSpans coveringBoxSpans(
+      double left, double bottom, double right, double top) {
+    final m = mapping.matrix;
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (var corner = 0; corner < 4; corner++) {
+      final px = corner.isEven ? left : right;
+      final py = corner < 2 ? bottom : top;
+      final x = m.transformX(px, py), y = m.transformY(px, py);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    final y0 = minY.floor().clamp(0, height);
+    final y1 = maxY.ceil().clamp(0, height);
+    final x0 = minX.floor().clamp(0, width);
+    final x1 = maxX.ceil().clamp(0, width);
     if (x1 <= x0 || y1 <= y0) return ColorantSpans.empty;
     final out = Int32List((y1 - y0) * 3);
     var n = 0;

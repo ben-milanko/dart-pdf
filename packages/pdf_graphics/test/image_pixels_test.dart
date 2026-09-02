@@ -29,6 +29,83 @@ void main() {
   CosStream flateImage(Map<String, CosObject> dict, List<int> data) => image(
       {...dict, 'Filter': const CosName('FlateDecode')}, zlib.encode(data));
 
+  group('platform JPX codec eligibility', () {
+    CosDictionary jpx(String colorSpace) => CosDictionary({
+          'Filter': const CosName('JPXDecode'),
+          'ColorSpace': CosName(colorSpace),
+        });
+
+    test('accepts simple device colour with an optional stream mask', () {
+      for (final colorSpace in const ['DeviceRGB', 'RGB', 'DeviceGray', 'G']) {
+        expect(
+          pdfCanUsePlatformJpxCodec(
+            cos,
+            jpx(colorSpace),
+            luminosityMask: false,
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        pdfCanUsePlatformJpxCodec(
+          cos,
+          CosDictionary({
+            ...jpx('DeviceGray').entries,
+            'Mask': CosStream(CosDictionary({}), Uint8List(0)),
+          }),
+          luminosityMask: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects semantics a display-RGB codec cannot preserve', () {
+      expect(
+        pdfCanUsePlatformJpxCodec(
+          cos,
+          jpx('DeviceRGB'),
+          luminosityMask: true,
+        ),
+        isFalse,
+      );
+
+      final rejected = <CosDictionary>[
+        CosDictionary({'ColorSpace': const CosName('DeviceRGB')}),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'ImageMask': const CosBoolean(true),
+        }),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'SMask': CosStream(CosDictionary({}), Uint8List(0)),
+        }),
+        jpx('DeviceCMYK'),
+        CosDictionary({
+          'Filter': const CosName('JPXDecode'),
+          'ColorSpace': CosArray([const CosName('Indexed')]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceGray').entries,
+          'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceGray').entries,
+          'Mask': CosArray([const CosInteger(0), const CosInteger(1)]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'Mask': const CosName('unexpected'),
+        }),
+      ];
+      for (final dict in rejected) {
+        expect(
+          pdfCanUsePlatformJpxCodec(cos, dict, luminosityMask: false),
+          isFalse,
+        );
+      }
+    });
+  });
+
   test('DeviceRGB 8-bit decodes opaque, straight through', () {
     final stream = image({
       'Width': const CosInteger(2),
@@ -473,6 +550,43 @@ void main() {
     }, List.filled(16, 0));
     expect(decodePdfImagePixels(cos, stream), isNull);
     expect(decodePdfImageBase(cos, stream), isNull);
+  });
+
+  test('targeted MRC decode keeps detail from a higher-res stencil', () {
+    // Scanner MRC: the 1x1 colour plane is deliberately low resolution and
+    // the 4x1 stencil carries the sharp text edges. At a 2x1 display target,
+    // each adjacent paint/skip mask pair averages to half coverage. Passing
+    // the base's 1x1 size into the mask decoder would crush the result to a
+    // single pixel before the two halves meet.
+    final mask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, [
+      0x50, // bits 0,1,0,1 -> paint,skip,paint,skip
+    ]);
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Mask': mask,
+    }, [
+      255,
+      0,
+      0,
+    ]);
+
+    final pixels = decodePdfImage(
+      cos,
+      stream,
+      targetWidth: 2,
+      targetHeight: 1,
+    )!;
+
+    expect((pixels.width, pixels.height), (2, 1));
+    expect(pixels.rgba, [127, 0, 0, 127, 127, 0, 0, 127]);
   });
 
   group('CMYK JPEG polarity (#370)', () {

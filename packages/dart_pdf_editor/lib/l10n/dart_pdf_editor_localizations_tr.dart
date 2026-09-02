@@ -2054,4 +2054,65 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Tümünü seç';
+
+  @override
+  String get annotationLibraryTitle => 'Ek açıklama kitaplığı';
+
+  @override
+  String get annotationLibraryEmpty => 'Kayıtlı ek açıklama yok.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Desteklenen bir ek açıklamayı seçin ve menüsünden “Ek açıklama kitaplığına kaydet” seçeneğini belirleyin. Bağlantılar ve form alanları kaydedilemez.';
+
+  @override
+  String get annotationLibrarySave => 'Ek açıklama kitaplığına kaydet';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Ek açıklamayı kaydet';
+
+  @override
+  String get annotationLibraryRenameTitle =>
+      'Kitaplık öğesini yeniden adlandır';
+
+  @override
+  String get annotationLibrarySearchHint => 'Kitaplıkta ara';
+
+  @override
+  String get annotationLibraryNoMatches => 'Eşleşen ek açıklama yok.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Gruplanmamış';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Gruba taşı';
+
+  @override
+  String get annotationLibraryNewGroup => 'Yeni grup…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Yeni ek açıklama grubu';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Ek açıklama grubunu yeniden adlandır';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Grubu kaldır';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Yerleştirmek için sayfaya tıklayın. İptal etmek için Escape tuşuna basın.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Özel damgalar…';
+
+  @override
+  String get signatureLibraryManage => 'İmzaları yönet';
+
+  @override
+  String get signatureLibraryRenameTitle => 'İmzayı yeniden adlandır';
+
+  @override
+  String get signatureLibraryEmpty => 'Kayıtlı imza yok.';
 }

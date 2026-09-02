@@ -15,6 +15,7 @@ env:
   PATROL_CLI_VERSION: 4.7.0
   PATROL_ANALYTICS_ENABLED: "false"
   PATROL_PERF_REPETITIONS: 3
+  PATROL_NATIVE_PERF_REPETITIONS: 6
   EXAMPLE_DIR: packages/dart_pdf_editor/example
   PDF_PATROL_BUILD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -215,7 +216,12 @@ jobs:
             --output test-results/perf/android
             --markdown "$GITHUB_STEP_SUMMARY"
             --label Android
-            --require-scenario-runs "native-mobile-tiles=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "native-mobile-tiles=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-pipeline-warm=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-scene-warm=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-first-tile=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-canvas-tile=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-reused-tile=$PATROL_NATIVE_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
@@ -229,6 +235,7 @@ jobs:
           name: patrol-android-report
           path: |
             ${{ env.EXAMPLE_DIR }}/build/app/reports/androidTests
+            ${{ env.EXAMPLE_DIR }}/build/app/outputs/androidTest-results
             ${{ env.EXAMPLE_DIR }}/test-results/perf/android
           if-no-files-found: ignore
 
@@ -275,8 +282,8 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/patrol-ios.log"
           completed=0
           attempt=0
-          max_attempts=$((PATROL_PERF_REPETITIONS + 2))
-          while ((completed < PATROL_PERF_REPETITIONS && attempt < max_attempts)); do
+          max_attempts=$((PATROL_NATIVE_PERF_REPETITIONS + 2))
+          while ((completed < PATROL_NATIVE_PERF_REPETITIONS && attempt < max_attempts)); do
             attempt=$((attempt + 1))
             attempt_log="$RUNNER_TEMP/patrol-ios-perf-$attempt.log"
             echo "::group::Patrol native performance attempt $attempt/$max_attempts"
@@ -293,6 +300,11 @@ jobs:
               "$attempt_log" \
               --output "$RUNNER_TEMP/patrol-ios-perf-${attempt}-summary" \
               --require-scenario-runs native-mobile-tiles=1 \
+              --require-scenario-runs gpu-native-pipeline-warm=1 \
+              --require-scenario-runs gpu-native-page-0-scene-warm=1 \
+              --require-scenario-runs gpu-native-page-0-first-tile=1 \
+              --require-scenario-runs gpu-native-page-0-canvas-tile=1 \
+              --require-scenario-runs gpu-native-page-0-reused-tile=1 \
               >/dev/null 2>&1; then
               tee -a "$RUNNER_TEMP/patrol-ios.log" < "$attempt_log" >/dev/null
               completed=$((completed + 1))
@@ -300,8 +312,8 @@ jobs:
               echo "::warning::iOS Patrol attempt $attempt returned without a complete performance marker; retrying"
             fi
           done
-          if ((completed < PATROL_PERF_REPETITIONS)); then
-            echo "::error::iOS Patrol produced $completed/$PATROL_PERF_REPETITIONS complete performance repetitions"
+          if ((completed < PATROL_NATIVE_PERF_REPETITIONS)); then
+            echo "::error::iOS Patrol produced $completed/$PATROL_NATIVE_PERF_REPETITIONS complete performance repetitions"
             exit 1
           fi
       - name: Download latest main Patrol iOS baseline
@@ -344,7 +356,12 @@ jobs:
             --output test-results/perf/ios
             --markdown "$GITHUB_STEP_SUMMARY"
             --label "iOS Simulator"
-            --require-scenario-runs "native-mobile-tiles=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "native-mobile-tiles=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-pipeline-warm=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-scene-warm=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-first-tile=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-canvas-tile=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-reused-tile=$PATROL_NATIVE_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then

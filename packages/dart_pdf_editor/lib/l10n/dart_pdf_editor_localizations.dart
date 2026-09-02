@@ -3733,6 +3733,120 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Select all'**
   String get viewerSelectAll;
+
+  /// Title and toolbar tooltip for the reusable annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotation library'**
+  String get annotationLibraryTitle;
+
+  /// Empty-state text in the reusable annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved annotations.'**
+  String get annotationLibraryEmpty;
+
+  /// Explanation of how to save reusable annotations and which interactive types are deliberately unsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.'**
+  String get annotationLibraryHelp;
+
+  /// Annotation context-menu action that saves the selected annotation for reuse.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to annotation library'**
+  String get annotationLibrarySave;
+
+  /// Title of the prompt that names an annotation library item.
+  ///
+  /// In en, this message translates to:
+  /// **'Save annotation'**
+  String get annotationLibrarySaveTitle;
+
+  /// Title of the prompt that renames an annotation library item.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename library item'**
+  String get annotationLibraryRenameTitle;
+
+  /// Placeholder in the reusable annotation-library panel search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search library'**
+  String get annotationLibrarySearchHint;
+
+  /// Empty state when annotation-library search filters out every item.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching annotations.'**
+  String get annotationLibraryNoMatches;
+
+  /// Heading for reusable annotations that have no user-defined group.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungrouped'**
+  String get annotationLibraryUngrouped;
+
+  /// Action that assigns a reusable annotation to a library group.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to group'**
+  String get annotationLibraryChooseGroup;
+
+  /// Action that creates and assigns a new annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'New group…'**
+  String get annotationLibraryNewGroup;
+
+  /// Title of the prompt that names a new annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'New annotation group'**
+  String get annotationLibraryGroupTitle;
+
+  /// Title of the prompt that renames an annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename annotation group'**
+  String get annotationLibraryRenameGroupTitle;
+
+  /// Tooltip that removes a group while leaving its annotations ungrouped.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove group'**
+  String get annotationLibraryRemoveGroup;
+
+  /// Hint shown while a reusable annotation follows the pointer ready for placement.
+  ///
+  /// In en, this message translates to:
+  /// **'Click the page to place. Press Escape to cancel.'**
+  String get annotationLibraryPlacementHint;
+
+  /// Button that opens custom stamps from the broader annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom stamps…'**
+  String get annotationLibraryCustomStamps;
+
+  /// Toolbar tooltip that opens the saved handwritten-signature library.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage signatures'**
+  String get signatureLibraryManage;
+
+  /// Title of the prompt that renames a saved handwritten signature.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename signature'**
+  String get signatureLibraryRenameTitle;
+
+  /// Empty-state text in the saved handwritten-signature library.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved signatures.'**
+  String get signatureLibraryEmpty;
 }
 
 class _DartPdfEditorLocalizationsDelegate

@@ -9,6 +9,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfFieldType,
         PdfFormField,
         PdfLineEnding,
+        PdfSignature,
         PdfStandardFont,
         PdfTextAlign,
         PdfTextFont;
@@ -18,15 +19,18 @@ import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../toast.dart';
 import 'annotation_presentation.dart';
+import 'digital_signature_removal.dart';
+import 'editing_annotation_library.dart';
 import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
 import 'editing_form_style.dart';
-import 'editing_value_field.dart';
 import 'editing_measure.dart';
 import 'editing_panel.dart';
+import 'editing_value_field.dart';
+import 'editing_preferences.dart';
 import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -42,6 +46,103 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfEditingController controller,
   PdfViewerController viewerController,
 );
+
+/// Opens the stock cursor-guide and grid-snap settings.
+///
+/// The switches update [preferences] live and persist through
+/// [PdfEditingPreferences]. They are display/interaction settings only; no
+/// guide or grid is written into the PDF.
+Future<void> showPdfEditingGuidesDialog(
+  BuildContext context, {
+  required PdfEditingPreferences preferences,
+}) async {
+  String spacingLabel(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(1);
+
+  await showPdfDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Cursor guides and grid'),
+      contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      content: SizedBox(
+        width: 360,
+        child: ListenableBuilder(
+          listenable: preferences,
+          builder: (context, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SwitchListTile(
+                key: const ValueKey('pdf-cursor-guide-vertical'),
+                secondary: const Icon(Icons.vertical_align_center),
+                title: const Text('Vertical cursor line'),
+                value: preferences.showVerticalCursorGuide,
+                onChanged: (value) =>
+                    preferences.showVerticalCursorGuide = value,
+              ),
+              SwitchListTile(
+                key: const ValueKey('pdf-cursor-guide-horizontal'),
+                secondary: const Icon(Icons.horizontal_rule),
+                title: const Text('Horizontal cursor line'),
+                value: preferences.showHorizontalCursorGuide,
+                onChanged: (value) =>
+                    preferences.showHorizontalCursorGuide = value,
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                key: const ValueKey('pdf-grid-snap'),
+                secondary: const Icon(Icons.grid_4x4),
+                title: const Text('Snap to grid'),
+                subtitle: const Text('Hold Alt to bypass snapping'),
+                value: preferences.snapToGrid,
+                onChanged: (value) => preferences.snapToGrid = value,
+              ),
+              SwitchListTile(
+                key: const ValueKey('pdf-grid-visible'),
+                secondary: const Icon(Icons.grid_on_outlined),
+                title: const Text('Show grid lines'),
+                subtitle: const Text('Display only; not added to the PDF'),
+                value: preferences.showSnapGrid,
+                onChanged: (value) => preferences.showSnapGrid = value,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Row(children: [
+                  const Text('Grid spacing'),
+                  Expanded(
+                    child: Slider(
+                      key: const ValueKey('pdf-grid-spacing'),
+                      value: preferences.gridSpacing.clamp(1, 144),
+                      min: 1,
+                      max: 144,
+                      divisions: 143,
+                      label: '${spacingLabel(preferences.gridSpacing)} pt',
+                      onChanged: (value) => preferences.gridSpacing = value,
+                    ),
+                  ),
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      '${spacingLabel(preferences.gridSpacing)} pt',
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('pdf-guides-done'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(pdfL10n(context).done),
+        ),
+      ],
+    ),
+  );
+}
 
 /// A ready-made toolbar for [PdfEditingController].
 ///
@@ -78,6 +179,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.fontPicker,
     this.onExportCustomStamps,
     this.onImportCustomStamps,
+    this.onAnnotationLibraryPressed,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -88,6 +190,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showStyle = true,
     this.showFlatten = true,
     this.showColorProcessing = true,
+    this.showAnnotationLibrary = true,
     this.dock = PdfPanelDock.bottom,
     this.compact,
     this.cardAlignment = Alignment.center,
@@ -139,6 +242,12 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Host-provided import for the Manage Stamps dialog.
   final PdfStampImportCallback? onImportCustomStamps;
+
+  /// Opens or toggles the host's annotation-library panel. The stock
+  /// [PdfEditorView] supplies this to toggle its dockable panel. When null,
+  /// the toolbar falls back to the legacy modal library dialog so standalone
+  /// toolbars keep a working entry point.
+  final VoidCallback? onAnnotationLibraryPressed;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -195,6 +304,9 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Whether the Edit group includes the colour-processing action.
   final bool showColorProcessing;
+
+  /// Whether the Insert strip includes the reusable annotation library.
+  final bool showAnnotationLibrary;
 
   /// The edge this toolbar is docked to.
   ///
@@ -755,12 +867,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       controller.tool = PdfEditTool.select;
       return;
     }
-    final drawn = controller.preferences.signature == null;
+    final drawn = controller.activeSavedSignature == null;
     if (drawn && !await _drawSignature(context)) return;
     _toggleTool(PdfEditTool.signature);
     // Arming the tool restores the signature style scope over whatever
     // _drawSignature just seeded, so seed it again now the scope is live.
-    if (drawn) _seedSignatureStyle(controller.preferences.signature!);
+    if (drawn) {
+      _seedSignatureStyle(controller.activeSavedSignature!.signature);
+    }
   }
 
   Future<bool> _drawSignature(BuildContext context) async {
@@ -768,13 +882,89 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       context,
       initialColor: controller.color,
       initialStrokeWidth: controller.preferences.strokeWidth,
-      pickColor: (context, initial) =>
-          pickEditingColor(context, controller, initial: initial),
+      // the signature dialog is modal over the page, so the picker it opens
+      // has no page to sample: no eyedropper there
+      pickColor: (context, initial) => pickEditingColor(context, controller,
+          initial: initial, fromPage: false),
     );
     if (signature == null) return false;
-    controller.preferences.signature = signature;
+    controller.addSavedSignature(signature);
     _seedSignatureStyle(signature);
     return true;
+  }
+
+  Future<void> _manageSignatures(BuildContext context) =>
+      showPdfSignatureLibrary(
+        context,
+        signatures: controller.savedSignatures,
+        activeId: controller.activeSavedSignature?.id,
+        onAdd: (context) async {
+          final drawing = await _captureSignature(context);
+          return drawing == null ? null : controller.addSavedSignature(drawing);
+        },
+        onRename: (context, signature) async {
+          final name = await widget.textPrompt(
+            context,
+            title: pdfL10n(context).signatureLibraryRenameTitle,
+            initial: signature.name,
+            multiline: false,
+          );
+          if (name == null ||
+              !controller.renameSavedSignature(signature, name)) {
+            return null;
+          }
+          return controller.savedSignatures
+              .firstWhere((entry) => entry.id == signature.id);
+        },
+        onRedraw: (context, signature) async {
+          final drawing = await _captureSignature(
+            context,
+            initial: signature.signature,
+          );
+          if (drawing == null ||
+              !controller.redrawSavedSignature(signature, drawing)) {
+            return null;
+          }
+          return controller.savedSignatures
+              .firstWhere((entry) => entry.id == signature.id);
+        },
+        onSelect: controller.selectSavedSignature,
+        onDelete: controller.removeSavedSignature,
+      );
+
+  Future<PdfInkSignature?> _captureSignature(
+    BuildContext context, {
+    PdfInkSignature? initial,
+  }) =>
+      showPdfSignatureDialog(
+        context,
+        initialColor: initial == null
+            ? controller.color
+            : Color(0xFF000000 | initial.color),
+        initialStrokeWidth:
+            initial?.strokeWidth ?? controller.preferences.strokeWidth,
+        pickColor: (context, color) => pickEditingColor(
+          context,
+          controller,
+          initial: color,
+          fromPage: false,
+        ),
+      );
+
+  Future<void> _manageAnnotationLibrary(BuildContext context) async {
+    final toggle = widget.onAnnotationLibraryPressed;
+    if (toggle != null) {
+      toggle();
+      return;
+    }
+    await showPdfAnnotationLibrary(
+      context,
+      controller: controller,
+      pageIndex: viewerController.currentPage,
+      imagePicker: widget.imagePicker,
+      onExportStamps: widget.onExportCustomStamps,
+      onImportStamps: widget.onImportCustomStamps,
+    );
   }
 
   /// Points the tool's colour and pen width at what [signature] was drawn
@@ -1058,6 +1248,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final name = controller.selectedWidgetFieldName;
     final field = name == null ? null : controller.acroForm?.fieldNamed(name);
     if (field == null) return const [];
+    final signature = controller.signatureByFieldName[name];
+    if (signature != null) {
+      return [_digitalSignatureDeleteButton(context, signature)];
+    }
     final edit = _selectedFormEditAction(field);
     return [
       IconButton(
@@ -1100,6 +1294,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final name = controller.selectedWidgetFieldName;
     final field = name == null ? null : controller.acroForm?.fieldNamed(name);
     if (field == null) return const [];
+    final signature = controller.signatureByFieldName[name];
+    if (signature != null) {
+      return [_digitalSignatureDeleteButton(context, signature)];
+    }
     final edit = _selectedFormEditAction(field);
     return [
       PopupMenuButton<_SelectedFormOverflowAction>(
@@ -1221,6 +1419,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
     ];
   }
+
+  Widget _digitalSignatureDeleteButton(
+    BuildContext context,
+    PdfSignature signature,
+  ) =>
+      IconButton(
+        key: const ValueKey('pdf-selected-signature-delete'),
+        icon: const Icon(Icons.delete_outline),
+        tooltip: pdfL10n(context).sidebarDeleteSignature,
+        onPressed: () async {
+          if (!await showPdfRemoveSignatureDialog(context, signature) ||
+              !context.mounted) {
+            return;
+          }
+          controller.removeSignature(signature);
+        },
+      );
 
   void _flattenToast(BuildContext context, String message,
       {required bool undoable}) {
@@ -1503,11 +1718,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onHand: _activateHandMode,
           onSelect: _activateSelectMode,
         ),
-        if (editingGroups.isNotEmpty ||
-            widget.onSave != null ||
-            widget.trailing.isNotEmpty)
-          _DockDivider(axis: axis),
       ],
+      if (showNavigationModes && editingGroups.isNotEmpty)
+        _DockDivider(axis: axis),
       for (final group in editingGroups)
         _GroupChip(
           key: ValueKey('pdf-group-${group.id}'),
@@ -1761,9 +1974,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return [
       if (controller.tool == PdfEditTool.signature)
         IconButton(
+          key: const ValueKey('pdf-signature-library'),
+          icon: const Icon(Icons.library_books_outlined),
+          tooltip: pdfL10n(context).signatureLibraryManage,
+          onPressed: () => _manageSignatures(context),
+        ),
+      if (controller.tool == PdfEditTool.signature)
+        IconButton(
           icon: const Icon(Icons.restart_alt),
           tooltip: pdfL10n(context).tbDrawNewSignature,
           onPressed: () => _drawSignature(context),
+        ),
+      if (widget.showAnnotationLibrary)
+        IconButton(
+          key: const ValueKey('pdf-annotation-library'),
+          icon: const Icon(Icons.collections_bookmark_outlined),
+          tooltip: pdfL10n(context).annotationLibraryTitle,
+          onPressed: () => _manageAnnotationLibrary(context),
         ),
       if (controller.tool == PdfEditTool.count)
         Tooltip(

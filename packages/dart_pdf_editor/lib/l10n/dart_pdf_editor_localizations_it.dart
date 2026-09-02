@@ -2061,4 +2061,65 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Seleziona tutto';
+
+  @override
+  String get annotationLibraryTitle => 'Libreria annotazioni';
+
+  @override
+  String get annotationLibraryEmpty => 'Nessuna annotazione salvata.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Seleziona un\'annotazione supportata e scegli “Salva nella libreria annotazioni” dal relativo menu. I collegamenti e i campi modulo non possono essere salvati.';
+
+  @override
+  String get annotationLibrarySave => 'Salva nella libreria annotazioni';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Salva annotazione';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Rinomina elemento della libreria';
+
+  @override
+  String get annotationLibrarySearchHint => 'Cerca nella libreria';
+
+  @override
+  String get annotationLibraryNoMatches =>
+      'Nessuna annotazione corrispondente.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Non raggruppate';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Sposta nel gruppo';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nuovo gruppo…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nuovo gruppo di annotazioni';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Rinomina gruppo di annotazioni';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Rimuovi gruppo';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Fai clic sulla pagina per posizionare. Premi Escape per annullare.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Timbri personalizzati…';
+
+  @override
+  String get signatureLibraryManage => 'Gestisci firme';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Rinomina firma';
+
+  @override
+  String get signatureLibraryEmpty => 'Nessuna firma salvata.';
 }

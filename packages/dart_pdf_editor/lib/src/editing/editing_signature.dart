@@ -103,8 +103,7 @@ class PdfInkSignature {
   /// The pen width to draw this signature with when it is laid out
   /// [width] wide - points for a page, pixels for a raster; only the
   /// ratio to [referenceWidth] matters.
-  double strokeWidthFor(double width) =>
-      strokeWidth * width / referenceWidth;
+  double strokeWidthFor(double width) => strokeWidth * width / referenceWidth;
 
   String encode() => jsonEncode({
         'color': color,
@@ -153,6 +152,83 @@ class PdfInkSignature {
   }
 }
 
+/// A named signature in the device-side signature library.
+///
+/// [id] remains stable when the entry is renamed or redrawn, which lets the
+/// active choice survive both operations and app restarts.
+class PdfSavedSignature {
+  const PdfSavedSignature({
+    required this.id,
+    required this.name,
+    required this.signature,
+  });
+
+  factory PdfSavedSignature.create({
+    required String name,
+    required PdfInkSignature signature,
+  }) =>
+      PdfSavedSignature(
+        id: _nextSignatureId(),
+        name: name,
+        signature: signature,
+      );
+
+  final String id;
+  final String name;
+  final PdfInkSignature signature;
+
+  PdfSavedSignature copyWith({String? name, PdfInkSignature? signature}) =>
+      PdfSavedSignature(
+        id: id,
+        name: name ?? this.name,
+        signature: signature ?? this.signature,
+      );
+
+  String encode() => jsonEncode({
+        'v': 1,
+        'id': id,
+        'name': name,
+        'signature': jsonDecode(signature.encode()),
+      });
+
+  static PdfSavedSignature? decode(String source) {
+    try {
+      final map = jsonDecode(source);
+      if (map is! Map<String, dynamic> || map['v'] != 1) return null;
+      final id = map['id'];
+      final name = map['name'];
+      final signature = map['signature'];
+      if (id is! String ||
+          id.isEmpty ||
+          name is! String ||
+          name.trim().isEmpty ||
+          signature is! Map) {
+        return null;
+      }
+      final decoded = PdfInkSignature.decode(jsonEncode(signature));
+      if (decoded == null) return null;
+      return PdfSavedSignature(id: id, name: name, signature: decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfSavedSignature && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+int _signatureIdCounter = 0;
+
+String _nextSignatureId() {
+  final micros = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+  final sequence = (_signatureIdCounter++).toRadixString(36);
+  return 'signature-$micros-$sequence';
+}
+
 /// Opens a full colour picker over the signature pad, seeded with the
 /// pad's current ink; resolves to the chosen colour or null when
 /// dismissed. The stock chrome wires this to `pickEditingColor` so the
@@ -160,6 +236,256 @@ class PdfInkSignature {
 /// other colour in the editor.
 typedef PdfSignatureColorPicker = Future<Color?> Function(
     BuildContext context, Color initial);
+
+/// Opens the saved-signature picker. Callbacks keep storage and controller
+/// policy with the caller while this widget owns the list-management UI.
+Future<void> showPdfSignatureLibrary(
+  BuildContext context, {
+  required List<PdfSavedSignature> signatures,
+  required String? activeId,
+  required Future<PdfSavedSignature?> Function(BuildContext context) onAdd,
+  required Future<PdfSavedSignature?> Function(
+          BuildContext context, PdfSavedSignature signature)
+      onRename,
+  required Future<PdfSavedSignature?> Function(
+          BuildContext context, PdfSavedSignature signature)
+      onRedraw,
+  required void Function(PdfSavedSignature signature) onSelect,
+  required void Function(PdfSavedSignature signature) onDelete,
+}) =>
+    showPdfDialog<void>(
+      context: context,
+      builder: (context) => PdfSignatureLibraryDialog(
+        signatures: signatures,
+        activeId: activeId,
+        onAdd: onAdd,
+        onRename: onRename,
+        onRedraw: onRedraw,
+        onSelect: onSelect,
+        onDelete: onDelete,
+      ),
+    );
+
+/// Standard picker for adding, choosing, renaming, redrawing, and deleting
+/// handwritten signatures.
+class PdfSignatureLibraryDialog extends StatefulWidget {
+  const PdfSignatureLibraryDialog({
+    super.key,
+    required this.signatures,
+    required this.activeId,
+    required this.onAdd,
+    required this.onRename,
+    required this.onRedraw,
+    required this.onSelect,
+    required this.onDelete,
+  });
+
+  final List<PdfSavedSignature> signatures;
+  final String? activeId;
+  final Future<PdfSavedSignature?> Function(BuildContext context) onAdd;
+  final Future<PdfSavedSignature?> Function(
+      BuildContext context, PdfSavedSignature signature) onRename;
+  final Future<PdfSavedSignature?> Function(
+      BuildContext context, PdfSavedSignature signature) onRedraw;
+  final void Function(PdfSavedSignature signature) onSelect;
+  final void Function(PdfSavedSignature signature) onDelete;
+
+  @override
+  State<PdfSignatureLibraryDialog> createState() =>
+      _PdfSignatureLibraryDialogState();
+}
+
+class _PdfSignatureLibraryDialogState extends State<PdfSignatureLibraryDialog> {
+  late final List<PdfSavedSignature> _signatures = [...widget.signatures];
+  late String? _activeId = widget.activeId;
+
+  Future<void> _add() async {
+    final added = await widget.onAdd(context);
+    if (added == null || !mounted) return;
+    setState(() {
+      _signatures.add(added);
+      _activeId = added.id;
+    });
+  }
+
+  Future<void> _replace(
+    PdfSavedSignature signature,
+    Future<PdfSavedSignature?> Function(
+            BuildContext context, PdfSavedSignature signature)
+        action,
+  ) async {
+    final replacement = await action(context, signature);
+    if (replacement == null || !mounted) return;
+    final index = _signatures.indexWhere((entry) => entry.id == signature.id);
+    if (index == -1) return;
+    setState(() => _signatures[index] = replacement);
+  }
+
+  void _select(PdfSavedSignature signature) {
+    widget.onSelect(signature);
+    setState(() => _activeId = signature.id);
+  }
+
+  void _delete(PdfSavedSignature signature) {
+    widget.onDelete(signature);
+    setState(() {
+      _signatures.removeWhere((entry) => entry.id == signature.id);
+      if (_activeId == signature.id) {
+        _activeId = _signatures.isEmpty ? null : _signatures.first.id;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(pdfL10n(context).sigTitle),
+      content: SizedBox(
+        width: 390,
+        child: _signatures.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(pdfL10n(context).signatureLibraryEmpty),
+              )
+            : ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 430),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _signatures.length,
+                  itemBuilder: (context, index) {
+                    final signature = _signatures[index];
+                    return ListTile(
+                      key: ValueKey('pdf-signature-library-item-$index'),
+                      selected: signature.id == _activeId,
+                      leading: SizedBox(
+                        width: 88,
+                        height: 40,
+                        child:
+                            PdfSignaturePreview(signature: signature.signature),
+                      ),
+                      title: Text(signature.name),
+                      onTap: () => _select(signature),
+                      trailing: PopupMenuButton<String>(
+                        key: ValueKey('pdf-signature-library-menu-$index'),
+                        onSelected: (action) {
+                          switch (action) {
+                            case 'rename':
+                              _replace(signature, widget.onRename);
+                            case 'redraw':
+                              _replace(signature, widget.onRedraw);
+                            case 'delete':
+                              _delete(signature);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                              value: 'rename',
+                              child: Text(pdfL10n(context).rename)),
+                          PopupMenuItem(
+                              value: 'redraw',
+                              child: Text(pdfL10n(context).tbDrawNewSignature)),
+                          PopupMenuItem(
+                              value: 'delete',
+                              child: Text(pdfL10n(context).delete)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+      ),
+      actions: [
+        TextButton.icon(
+          key: const ValueKey('pdf-signature-library-add'),
+          onPressed: _add,
+          icon: const Icon(Icons.add),
+          label: Text(pdfL10n(context).tbDrawNewSignature),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(pdfL10n(context).close),
+        ),
+      ],
+    );
+  }
+}
+
+/// Small ink preview used by the signature library.
+class PdfSignaturePreview extends StatelessWidget {
+  const PdfSignaturePreview({super.key, required this.signature});
+
+  final PdfInkSignature signature;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        painter: _PdfSignaturePreviewPainter(
+          signature,
+          Theme.of(context).colorScheme.outlineVariant,
+        ),
+      );
+}
+
+class _PdfSignaturePreviewPainter extends CustomPainter {
+  const _PdfSignaturePreviewPainter(this.signature, this.borderColor);
+
+  final PdfInkSignature signature;
+  final Color borderColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final background = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final border = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke;
+    final bounds = Offset.zero & size;
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(bounds.deflate(0.5), const Radius.circular(5)),
+        background);
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(bounds.deflate(0.5), const Radius.circular(5)),
+        border);
+    final aspect = signature.aspect > 0 ? signature.aspect : 2.0;
+    final available = bounds.deflate(5);
+    var width = available.width;
+    var height = width / aspect;
+    if (height > available.height) {
+      height = available.height;
+      width = height * aspect;
+    }
+    final left = (size.width - width) / 2;
+    final top = (size.height - height) / 2;
+    final ink = Paint()
+      ..color = Color(0xFF000000 | signature.color)
+      ..strokeWidth = signature.strokeWidthFor(width).clamp(0.8, 4.0)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    for (final stroke in signature.strokes) {
+      if (stroke.isEmpty) continue;
+      final points = [
+        for (final (x, y) in stroke) Offset(left + x * width, top + y * height),
+      ];
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      final controls = pdfInkCurveControls([
+        for (final point in points) (point.dx, point.dy),
+      ]);
+      for (var i = 0; i < controls.length; i++) {
+        final (c1, c2) = controls[i];
+        final end = points[i + 1];
+        path.cubicTo(c1.$1, c1.$2, c2.$1, c2.$2, end.dx, end.dy);
+      }
+      if (points.length == 1) path.lineTo(points.first.dx, points.first.dy);
+      canvas.drawPath(path, ink);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PdfSignaturePreviewPainter oldDelegate) =>
+      oldDelegate.signature != signature ||
+      oldDelegate.borderColor != borderColor;
+}
 
 /// Shows the signature pad dialog; resolves to the drawn signature, or
 /// null on cancel. [predictStrokes] forward-extrapolates the in-progress
@@ -310,8 +636,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
     if (active == null) return null;
     var pressures = _activePressures;
     if (widget.predictStrokes) {
-      final lead =
-          pdfPredictStrokeLead([for (final p in active) (p.dx, p.dy)]);
+      final lead = pdfPredictStrokeLead([for (final p in active) (p.dx, p.dy)]);
       if (lead.isNotEmpty) {
         final points = [...active, for (final (x, y) in lead) Offset(x, y)];
         if (pressures != null) {

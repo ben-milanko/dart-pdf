@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+- Greatly expand exact retained-GPU coverage for blends, transparency groups,
+  soft masks, gradients, images, stroked text, overprint, and knockout groups,
+  while preserving the Canvas fallback for unsupported or inexact scenes.
+- Reduce GPU allocation and submission overhead with completion-fenced buffer
+  and attachment pools, compact transient arenas, scene-level texture leases,
+  retained bindings, and bounded advanced-blend source targets.
+- Import compatible platform-decoded image textures directly, keep mipmapped
+  fallback pixels only when needed, and accelerate MRC JPEG 2000 rendering on
+  supported Apple devices.
+- Add proactive pipeline and live-scene warm-up, exact high-resolution
+  colourant retries, off-crop command culling, and deterministic route and
+  performance diagnostics.
+- Keep dense CAD linework conservative at subpixel scale, retain more exact
+  hairlines and clipped vector content, and fix lifetime hazards around
+  in-flight GPU resources.
+- Require the dart-pdf 4.1.0 package suite. No existing public constructor or
+  rendering entry point was removed.
+
 ## 0.2.0
 
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and

@@ -2060,4 +2060,63 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Alles selecteren';
+
+  @override
+  String get annotationLibraryTitle => 'Annotatiebibliotheek';
+
+  @override
+  String get annotationLibraryEmpty => 'Geen opgeslagen annotaties.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Selecteer een ondersteunde annotatie en kies ‘Opslaan in annotatiebibliotheek’ in het menu. Koppelingen en formuliervelden kunnen niet worden opgeslagen.';
+
+  @override
+  String get annotationLibrarySave => 'Opslaan in annotatiebibliotheek';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Annotatie opslaan';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Bibliotheekitem hernoemen';
+
+  @override
+  String get annotationLibrarySearchHint => 'Bibliotheek doorzoeken';
+
+  @override
+  String get annotationLibraryNoMatches => 'Geen overeenkomende annotaties.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Niet gegroepeerd';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Naar groep verplaatsen';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nieuwe groep…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nieuwe annotatiegroep';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Annotatiegroep hernoemen';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Groep verwijderen';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Klik op de pagina om te plaatsen. Druk op Escape om te annuleren.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Aangepaste stempels…';
+
+  @override
+  String get signatureLibraryManage => 'Handtekeningen beheren';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Handtekening hernoemen';
+
+  @override
+  String get signatureLibraryEmpty => 'Geen opgeslagen handtekeningen.';
 }

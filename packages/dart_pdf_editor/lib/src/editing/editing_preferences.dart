@@ -13,6 +13,7 @@ import 'editing_color_picker.dart' show PdfColorFormat;
 import 'editing_panel.dart' show PdfDockablePanel, PdfPanelDock;
 import 'line_style.dart';
 import 'editing_measure.dart';
+import 'saved_annotation.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 
@@ -54,6 +55,11 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _strokeWidth = 2;
   double _cornerRadius = 0;
   double _eraserRadius = 8;
+  bool _showVerticalCursorGuide = false;
+  bool _showHorizontalCursorGuide = false;
+  bool _showSnapGrid = false;
+  bool _snapToGrid = false;
+  double _gridSpacing = 10;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   PdfTextAlign? _textAlign;
@@ -67,8 +73,11 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _hasShowThumbnailSidebarPreference = false;
   bool _showBookmarkSidebar = false;
   bool _showAnnotationSidebar = false;
+  bool _showAnnotationLibraryPanel = false;
   String? _author;
-  PdfInkSignature? _signature;
+  List<PdfSavedSignature> _savedSignatures = const [];
+  String? _activeSignatureId;
+  List<PdfSavedAnnotation> _savedAnnotations = const [];
   List<PdfCustomStamp> _customStamps = const [];
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
@@ -94,6 +103,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
+  double? _annotationLibraryPanelWidth;
   double? _propertiesPanelWidth;
   double? _searchPanelWidth;
   // Which edge each dockable panel is attached to. Defaults reproduce the
@@ -104,6 +114,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfPanelDock _bookmarkSidebarDock = PdfPanelDock.left;
   PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
   PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
+  PdfPanelDock _annotationLibraryPanelDock = PdfPanelDock.right;
   PdfPanelDock _toolbarDock = PdfPanelDock.bottom;
   // Tab-group membership: panels sharing the same dock AND the same group id
   // render as one tabbed panel; a panel alone in its group is a standalone
@@ -157,6 +168,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     } catch (_) {
       return; // no local storage here (e.g. widget tests) - defaults stand
     }
+    var migratedLegacySignature = false;
     // a value set while the disk read was in flight wins over the stored one
     if (!_modified) {
       final color = store.getInt('${_prefix}color');
@@ -166,6 +178,18 @@ class PdfEditingPreferences extends ChangeNotifier {
           store.getDouble('${_prefix}cornerRadius') ?? _cornerRadius;
       _eraserRadius =
           store.getDouble('${_prefix}eraserRadius') ?? _eraserRadius;
+      _showVerticalCursorGuide =
+          store.getBool('${_prefix}showVerticalCursorGuide') ??
+              _showVerticalCursorGuide;
+      _showHorizontalCursorGuide =
+          store.getBool('${_prefix}showHorizontalCursorGuide') ??
+              _showHorizontalCursorGuide;
+      _showSnapGrid = store.getBool('${_prefix}showSnapGrid') ?? _showSnapGrid;
+      _snapToGrid = store.getBool('${_prefix}snapToGrid') ?? _snapToGrid;
+      final gridSpacing = store.getDouble('${_prefix}gridSpacing');
+      if (gridSpacing != null && gridSpacing.isFinite && gridSpacing > 0) {
+        _gridSpacing = gridSpacing;
+      }
       _fontSize = store.getDouble('${_prefix}fontSize') ?? _fontSize;
       final fontFamily = store.getString('${_prefix}fontFamily');
       if (fontFamily != null) {
@@ -209,9 +233,48 @@ class PdfEditingPreferences extends ChangeNotifier {
       _showAnnotationSidebar =
           store.getBool('${_prefix}showAnnotationSidebar') ??
               _showAnnotationSidebar;
+      _showAnnotationLibraryPanel =
+          store.getBool('${_prefix}showAnnotationLibraryPanel') ??
+              _showAnnotationLibraryPanel;
       _author = store.getString('${_prefix}author') ?? _author;
-      final signature = store.getString('${_prefix}signature');
-      if (signature != null) _signature = PdfInkSignature.decode(signature);
+      final signatures = store.getStringList('${_prefix}signatures');
+      if (signatures != null) {
+        _savedSignatures = List.unmodifiable([
+          for (final signature in signatures)
+            if (PdfSavedSignature.decode(signature) case final decoded?)
+              decoded,
+        ]);
+      } else {
+        // Migrate the pre-library singleton without losing it. Keep the old
+        // key mirrored on future writes so an older app build can still use
+        // whichever signature is active.
+        final legacy = store.getString('${_prefix}signature');
+        final decoded = legacy == null ? null : PdfInkSignature.decode(legacy);
+        if (decoded != null) {
+          final entry = PdfSavedSignature(
+            id: 'legacy-signature',
+            name: 'Signature 1',
+            signature: decoded,
+          );
+          _savedSignatures = List.unmodifiable([entry]);
+          _activeSignatureId = entry.id;
+          migratedLegacySignature = true;
+        }
+      }
+      _activeSignatureId =
+          store.getString('${_prefix}activeSignatureId') ?? _activeSignatureId;
+      if (!_savedSignatures.any((entry) => entry.id == _activeSignatureId)) {
+        _activeSignatureId =
+            _savedSignatures.isEmpty ? null : _savedSignatures.first.id;
+      }
+      final annotations = store.getStringList('${_prefix}savedAnnotations');
+      if (annotations != null) {
+        _savedAnnotations = List.unmodifiable([
+          for (final annotation in annotations)
+            if (PdfSavedAnnotation.decode(annotation) case final decoded?)
+              decoded,
+        ]);
+      }
       final themeMode = store.getString('${_prefix}themeMode');
       if (themeMode != null) {
         _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
@@ -262,6 +325,9 @@ class PdfEditingPreferences extends ChangeNotifier {
       _annotationSidebarWidth =
           store.getDouble('${_prefix}annotationSidebarWidth') ??
               _annotationSidebarWidth;
+      _annotationLibraryPanelWidth =
+          store.getDouble('${_prefix}annotationLibraryPanelWidth') ??
+              _annotationLibraryPanelWidth;
       _showPropertiesPanel = store.getBool('${_prefix}showPropertiesPanel') ??
           _showPropertiesPanel;
       _showSearchResultsPanel =
@@ -289,6 +355,8 @@ class PdfEditingPreferences extends ChangeNotifier {
           _readDock(store, 'bookmarkSidebarDock', _bookmarkSidebarDock);
       _annotationSidebarDock =
           _readDock(store, 'annotationSidebarDock', _annotationSidebarDock);
+      _annotationLibraryPanelDock = _readDock(
+          store, 'annotationLibraryPanelDock', _annotationLibraryPanelDock);
       _propertiesPanelDock =
           _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
       _toolbarDock = _readDock(store, 'toolbarDock', _toolbarDock);
@@ -336,6 +404,7 @@ class PdfEditingPreferences extends ChangeNotifier {
       _viewports.putIfAbsent(entry.$1, () => entry.$2);
     }
     _store = store;
+    if (migratedLegacySignature) _writeSignatureLibrary();
     if (_viewportsDirty) _writeViewports();
     notifyListeners();
   }
@@ -651,6 +720,64 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether a page-height guide follows the mouse pointer's horizontal
+  /// position. The guide is display-only and is not written into the PDF.
+  bool get showVerticalCursorGuide => _showVerticalCursorGuide;
+
+  set showVerticalCursorGuide(bool value) {
+    if (value == _showVerticalCursorGuide) return;
+    _showVerticalCursorGuide = value;
+    _write((s) => s.setBool('${_prefix}showVerticalCursorGuide', value));
+    notifyListeners();
+  }
+
+  /// Whether a page-width guide follows the mouse pointer's vertical
+  /// position. The guide is display-only and is not written into the PDF.
+  bool get showHorizontalCursorGuide => _showHorizontalCursorGuide;
+
+  set showHorizontalCursorGuide(bool value) {
+    if (value == _showHorizontalCursorGuide) return;
+    _showHorizontalCursorGuide = value;
+    _write((s) => s.setBool('${_prefix}showHorizontalCursorGuide', value));
+    notifyListeners();
+  }
+
+  /// Whether the page-space snap grid is drawn over the page. This is a
+  /// display-only preference and is independent of [snapToGrid].
+  bool get showSnapGrid => _showSnapGrid;
+
+  set showSnapGrid(bool value) {
+    if (value == _showSnapGrid) return;
+    _showSnapGrid = value;
+    _write((s) => s.setBool('${_prefix}showSnapGrid', value));
+    notifyListeners();
+  }
+
+  /// Whether annotation placement, movement, resizing, and line vertices
+  /// snap to a page-space grid. Hold Alt during a gesture to bypass it.
+  bool get snapToGrid => _snapToGrid;
+
+  set snapToGrid(bool value) {
+    if (value == _snapToGrid) return;
+    _snapToGrid = value;
+    _write((s) => s.setBool('${_prefix}snapToGrid', value));
+    notifyListeners();
+  }
+
+  /// The grid interval in PDF points. Grid coordinates are measured from
+  /// the visible crop box's lower-left corner and stay stable across zoom.
+  double get gridSpacing => _gridSpacing;
+
+  set gridSpacing(double value) {
+    if (!value.isFinite || value <= 0) {
+      throw ArgumentError.value(value, 'gridSpacing', 'must be positive');
+    }
+    if (value == _gridSpacing) return;
+    _gridSpacing = value;
+    _write((s) => s.setDouble('${_prefix}gridSpacing', value));
+    notifyListeners();
+  }
+
   /// Font size for free-text annotations, in PDF points.
   double get fontSize => _fontSize;
 
@@ -781,16 +908,114 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool get hasShowThumbnailSidebarPreference =>
       _hasShowThumbnailSidebarPreference;
 
-  /// The saved hand-drawn signature the signature tool stamps, or null
-  /// when none has been drawn yet.
-  PdfInkSignature? get signature => _signature;
+  /// The active hand-drawn signature the signature tool stamps, or null when
+  /// the library is empty.
+  ///
+  /// This singleton-shaped property is retained for source and storage
+  /// compatibility. New code can use [savedSignatures] and
+  /// [activeSavedSignature] to manage the whole library.
+  PdfInkSignature? get signature => activeSavedSignature?.signature;
 
   set signature(PdfInkSignature? value) {
-    if (value == _signature) return;
-    _signature = value;
-    _write((s) => value == null
-        ? s.remove('${_prefix}signature')
-        : s.setString('${_prefix}signature', value.encode()));
+    if (value == null) {
+      if (_savedSignatures.isEmpty) return;
+      _savedSignatures = const [];
+      _activeSignatureId = null;
+      _writeSignatureLibrary();
+      notifyListeners();
+      return;
+    }
+    final active = activeSavedSignature;
+    if (active == null) {
+      final entry = PdfSavedSignature.create(
+        name: 'Signature 1',
+        signature: value,
+      );
+      _savedSignatures = List.unmodifiable([entry]);
+      _activeSignatureId = entry.id;
+    } else {
+      _savedSignatures = List.unmodifiable([
+        for (final entry in _savedSignatures)
+          if (entry.id == active.id)
+            entry.copyWith(signature: value)
+          else
+            entry,
+      ]);
+    }
+    _writeSignatureLibrary();
+    notifyListeners();
+  }
+
+  /// The user's saved signatures, oldest first.
+  List<PdfSavedSignature> get savedSignatures => _savedSignatures;
+
+  set savedSignatures(List<PdfSavedSignature> value) {
+    final next = List<PdfSavedSignature>.unmodifiable(value);
+    if (_encodedListsEqual(next.map((entry) => entry.encode()),
+        _savedSignatures.map((entry) => entry.encode()))) {
+      return;
+    }
+    _savedSignatures = next;
+    if (!next.any((entry) => entry.id == _activeSignatureId)) {
+      _activeSignatureId = next.isEmpty ? null : next.first.id;
+    }
+    _writeSignatureLibrary();
+    notifyListeners();
+  }
+
+  /// The signature currently chosen for placement.
+  PdfSavedSignature? get activeSavedSignature {
+    for (final entry in _savedSignatures) {
+      if (entry.id == _activeSignatureId) return entry;
+    }
+    return _savedSignatures.isEmpty ? null : _savedSignatures.first;
+  }
+
+  set activeSavedSignature(PdfSavedSignature? value) {
+    final id = value?.id ??
+        (_savedSignatures.isEmpty ? null : _savedSignatures.first.id);
+    if (id == _activeSignatureId ||
+        (id != null && !_savedSignatures.any((entry) => entry.id == id))) {
+      return;
+    }
+    _activeSignatureId = id;
+    _writeSignatureLibrary();
+    notifyListeners();
+  }
+
+  void _writeSignatureLibrary() {
+    final active = activeSavedSignature;
+    // Invoke every setter before yielding. Successive library mutations can
+    // arrive faster than the platform store completes a write; awaiting each
+    // key here would let an older call resume between a newer call's writes
+    // and leave the active id or legacy mirror stale.
+    _write((store) => Future.wait<Object?>([
+          store.setStringList('${_prefix}signatures', [
+            for (final entry in _savedSignatures) entry.encode(),
+          ]),
+          if (active == null) ...[
+            store.remove('${_prefix}activeSignatureId'),
+            store.remove('${_prefix}signature'),
+          ] else ...[
+            store.setString('${_prefix}activeSignatureId', active.id),
+            store.setString('${_prefix}signature', active.signature.encode()),
+          ],
+        ]));
+  }
+
+  /// Named reusable annotation snapshots saved on this device.
+  List<PdfSavedAnnotation> get savedAnnotations => _savedAnnotations;
+
+  set savedAnnotations(List<PdfSavedAnnotation> value) {
+    final next = List<PdfSavedAnnotation>.unmodifiable(value);
+    if (_encodedListsEqual(next.map((entry) => entry.encode()),
+        _savedAnnotations.map((entry) => entry.encode()))) {
+      return;
+    }
+    _savedAnnotations = next;
+    _write((store) => store.setStringList('${_prefix}savedAnnotations', [
+          for (final entry in next) entry.encode(),
+        ]));
     notifyListeners();
   }
 
@@ -1140,6 +1365,29 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether the host shows the reusable annotation-library panel.
+  bool get showAnnotationLibraryPanel => _showAnnotationLibraryPanel;
+
+  set showAnnotationLibraryPanel(bool value) {
+    if (value == _showAnnotationLibraryPanel) return;
+    _showAnnotationLibraryPanel = value;
+    _write((s) => s.setBool('${_prefix}showAnnotationLibraryPanel', value));
+    notifyListeners();
+  }
+
+  /// The annotation-library panel's user-dragged width, or null until it has
+  /// been resized.
+  double? get annotationLibraryPanelWidth => _annotationLibraryPanelWidth;
+
+  set annotationLibraryPanelWidth(double? value) {
+    if (value == _annotationLibraryPanelWidth) return;
+    _annotationLibraryPanelWidth = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}annotationLibraryPanelWidth')
+        : s.setDouble('${_prefix}annotationLibraryPanelWidth', value));
+    notifyListeners();
+  }
+
   /// Whether the host shows the document bookmarks/outline panel.
   bool get showBookmarkSidebar => _showBookmarkSidebar;
 
@@ -1265,6 +1513,15 @@ class PdfEditingPreferences extends ChangeNotifier {
     _setDock('propertiesPanelDock', value);
   }
 
+  /// Which edge the reusable annotation-library panel is docked on.
+  PdfPanelDock get annotationLibraryPanelDock => _annotationLibraryPanelDock;
+
+  set annotationLibraryPanelDock(PdfPanelDock value) {
+    if (value == _annotationLibraryPanelDock) return;
+    _annotationLibraryPanelDock = value;
+    _setDock('annotationLibraryPanelDock', value);
+  }
+
   /// Which edge the floating editing toolbar is attached to. Persisted so a
   /// dragged toolbar returns to the same edge in later sessions. Compact
   /// layouts still use their fixed bottom bar regardless of this preference.
@@ -1284,6 +1541,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         PdfDockablePanel.bookmarks => _bookmarkSidebarDock,
         PdfDockablePanel.annotations => _annotationSidebarDock,
         PdfDockablePanel.properties => _propertiesPanelDock,
+        PdfDockablePanel.annotationLibrary => _annotationLibraryPanelDock,
       };
 
   /// Sets [panel]'s dock, keyed by identity.
@@ -1299,6 +1557,8 @@ class PdfEditingPreferences extends ChangeNotifier {
         annotationSidebarDock = dock;
       case PdfDockablePanel.properties:
         propertiesPanelDock = dock;
+      case PdfDockablePanel.annotationLibrary:
+        annotationLibraryPanelDock = dock;
     }
   }
 
@@ -1389,5 +1649,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     _searchAnnotations = value;
     _write((s) => s.setBool('${_prefix}searchAnnotations', value));
     notifyListeners();
+  }
+}
+
+bool _encodedListsEqual(Iterable<String> a, Iterable<String> b) {
+  final left = a.iterator;
+  final right = b.iterator;
+  while (true) {
+    final hasLeft = left.moveNext();
+    final hasRight = right.moveNext();
+    if (hasLeft != hasRight) return false;
+    if (!hasLeft) return true;
+    if (left.current != right.current) return false;
   }
 }

@@ -140,6 +140,403 @@ extension PdfContentEditing on PdfEditor {
     );
   }
 
+  /// Tier 2b - element repositioning. Shifts the [ids] listed in [elements]
+  /// (a snapshot from [PdfPageElements.of]) by [dx], [dy] **page points**
+  /// and rewrites the page's content stream. Returns how many elements
+  /// actually moved.
+  ///
+  /// The drawing is left exactly as it was - same operators, same operands,
+  /// same resources - and only the space it draws in is shifted, so a
+  /// rotated logo stays rotated and a scaled image keeps its scale. Paths,
+  /// images, forms, inline images and shadings are bracketed with
+  /// `q`/`cm`…`Q`; a text run gets a `Tm` in front of it and a `Tm`
+  /// behind, putting the text object's own state back so the rest of the
+  /// line - and every `Td`/`T*` after it - lands where it did before. Where
+  /// a following run shares the line, the moved run's advance is replayed
+  /// as a kern-only `TJ` so its neighbours do not slide.
+  ///
+  /// An element is skipped (and not counted) when it cannot be shifted
+  /// safely: a degenerate transform with no inverse, a path that also
+  /// establishes a clip (`W`/`W*` - bracketing it would confine the clip to
+  /// the moved drawing), or a text run at font size 0.
+  ///
+  /// Element ids survive the rewrite: the splices are `q`/`cm`/`Q`/`Tm` and
+  /// kern-only `TJ` operators, none of which is a drawing, so re-reading the
+  /// page with [PdfPageElements.of] yields the same elements in the same
+  /// order. Note that this repositions the *drawing*, not the text flow: a
+  /// moved run does not re-wrap, and moving it out from under a clip or a
+  /// tiling pattern's phase can change what it looks like.
+  int moveElements(
+    PdfPageElements elements,
+    Iterable<int> ids, {
+    required double dx,
+    required double dy,
+  }) {
+    final page = document.page(elements.pageIndex);
+    final before = <int, String>{};
+    final after = <int, String>{};
+    var moved = 0;
+    for (final id in ids) {
+      if (id < 0 || id >= elements.elements.length) {
+        throw RangeError.range(id, 0, elements.elements.length - 1, 'ids');
+      }
+      final element = elements.elements[id];
+      if (before.containsKey(element.start)) continue; // a repeated id
+      if (dx == 0 && dy == 0) continue;
+      final delta = translationUnder(element.ctm, dx, dy);
+      if (delta == null) continue;
+      if (element.kind == PdfElementKind.text) {
+        final placement = element.textPlacement;
+        if (placement == null || placement.fontSize <= 0) continue;
+        // `'` and `"` perform their own `T*` after this `Tm`, so they are
+        // seeded with the matrix the operator *enters* on and left to do the
+        // line move; everything else is seeded with the run's own matrix, so
+        // a run that starts partway along its line stays there.
+        final operator = elements.operations[element.start].operator;
+        final seed = operator == "'" || operator == '"'
+            ? placement.entryLineMatrix
+            : placement.matrix;
+        before[element.start] = '${_matrixOperands(seed.concat(delta))} Tm';
+        // Put the text state back: the line matrix exactly (so a following
+        // `Td`/`T*` still measures from the real line), then the run's own
+        // advance as a kern-only `TJ` so a neighbour sharing the line starts
+        // where it did. `Tm` is the only operator that sets the text matrix,
+        // and it always resets the line matrix with it - hence the two steps.
+        final restore =
+            StringBuffer('${_matrixOperands(placement.lineMatrix)} Tm');
+        final advance = placement.advance + _lineAdvance(placement);
+        if (advance.abs() > 1e-9) {
+          final kern = -1000 * advance / placement.fontSize;
+          restore.write(' [ ${ContentWriter.fmt(kern)} ] TJ');
+        }
+        after[element.start] = restore.toString();
+      } else {
+        if (_establishesClip(elements, element)) continue;
+        before[element.start] = 'q ${_matrixOperands(delta)} cm';
+        after[element.end - 1] = 'Q';
+      }
+      moved++;
+    }
+    if (moved == 0) return 0;
+    _setContent(
+      elements.pageIndex,
+      page,
+      elements.serialize(before: before, after: after),
+    );
+    return moved;
+  }
+
+  /// Moves the [ids] from [elements]' source page into [targetPage], mapping
+  /// their source-page coordinates through [transform]. Returns how many
+  /// elements moved.
+  ///
+  /// Unlike wrapping the drawing in a Form XObject, this appends the original
+  /// operators to the destination page. A text run therefore remains a text
+  /// run, an image remains an image, and the content tool can keep editing the
+  /// dropped element. Graphics-state operators needed by the drawing travel
+  /// with it; the source page is rewritten with the same stand-ins
+  /// [PdfPageElements.operationsRetaining] uses for a drag preview, so text
+  /// following a moved run holds its position.
+  ///
+  /// Page resource names are local to a page. Referenced fonts, XObjects,
+  /// colour spaces, patterns, shadings, graphics states, and marked-content
+  /// properties are imported into the target under non-conflicting names and
+  /// the appended operators are remapped to those names. The resource objects
+  /// themselves stay shared within this document; only the page dictionaries
+  /// and content streams are rewritten.
+  ///
+  /// [transform] maps source page user space onto target page user space. A
+  /// simple same-orientation move is a [PdfMatrix.translation]. A viewer
+  /// moving between differently rotated pages can supply the corresponding
+  /// rotation-and-translation so the drawing keeps its displayed orientation.
+  int moveElementsToPage(
+    PdfPageElements elements,
+    Iterable<int> ids,
+    int targetPage, {
+    required PdfMatrix transform,
+  }) {
+    if (targetPage < 0 || targetPage >= document.pageCount) {
+      throw RangeError.range(
+          targetPage, 0, document.pageCount - 1, 'targetPage');
+    }
+    if (targetPage == elements.pageIndex) {
+      final origin = transform.apply(0, 0);
+      final xAxis = transform.apply(1, 0);
+      final yAxis = transform.apply(0, 1);
+      final translationOnly = (xAxis.$1 - origin.$1 - 1).abs() < 1e-9 &&
+          (xAxis.$2 - origin.$2).abs() < 1e-9 &&
+          (yAxis.$1 - origin.$1).abs() < 1e-9 &&
+          (yAxis.$2 - origin.$2 - 1).abs() < 1e-9;
+      if (!translationOnly) {
+        throw ArgumentError.value(
+            transform, 'transform', 'a same-page move must be a translation');
+      }
+      return moveElements(
+        elements,
+        ids,
+        dx: origin.$1,
+        dy: origin.$2,
+      );
+    }
+
+    final moving = <int>{};
+    for (final id in ids) {
+      if (id < 0 || id >= elements.elements.length) {
+        throw RangeError.range(id, 0, elements.elements.length - 1, 'ids');
+      }
+      final element = elements.elements[id];
+      if (!_canMoveElement(elements, element)) continue;
+      moving.add(id);
+    }
+    if (moving.isEmpty) return 0;
+
+    final source = document.page(elements.pageIndex);
+    final target = document.page(targetPage);
+    final sourceOps = elements.operationsRetaining(
+      (element) => moving.contains(element.id),
+    );
+    final resourceNames = _importContentResources(source, target, sourceOps);
+    final movedOps = [
+      for (final op in sourceOps) _remapContentResources(op, resourceNames),
+    ];
+    final movedBytes = BytesBuilder(copy: false)
+      ..add(latin1.encode('q ${_matrixOperands(transform)} cm\n'))
+      ..add(ContentStreamSerializer.serialize(movedOps))
+      ..add(latin1.encode('Q\n'));
+
+    _setContent(
+      elements.pageIndex,
+      source,
+      ContentStreamSerializer.serialize(
+        elements.operationsRetaining((element) => !moving.contains(element.id)),
+      ),
+    );
+    _appendContent(targetPage, target, movedBytes.takeBytes());
+    return moving.length;
+  }
+
+  static bool _canMoveElement(
+      PdfPageElements elements, PdfContentElement element) {
+    if (element.ctm.inverted() == null) return false;
+    if (element.kind == PdfElementKind.text) {
+      final placement = element.textPlacement;
+      return placement != null && placement.fontSize > 0;
+    }
+    return !_establishesClip(elements, element);
+  }
+
+  /// Imports the page resources referenced by [operations] and returns their
+  /// source-name -> target-name maps, keyed by resource category.
+  Map<String, Map<String, String>> _importContentResources(
+    PdfPage source,
+    PdfPage target,
+    List<ContentOperation> operations,
+  ) {
+    final references = _contentResourceReferences(operations);
+    if (references.isEmpty) return const {};
+    final cos = document.cos;
+    final sourceResources = source.resources;
+    final targetResources = _ownResources(target);
+    final out = <String, Map<String, String>>{};
+    const prefixes = {
+      'Font': 'MvF',
+      'XObject': 'MvX',
+      'ExtGState': 'MvG',
+      'ColorSpace': 'MvC',
+      'Pattern': 'MvP',
+      'Shading': 'MvS',
+      'Properties': 'MvR',
+    };
+
+    bool sameResource(CosObject a, CosObject b) {
+      if (a == b) return true;
+      try {
+        return identical(cos.resolve(a), cos.resolve(b));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    for (final category in references.entries) {
+      final sourceCategory = cos.resolve(sourceResources[category.key]);
+      final targetCategory = cos.resolve(targetResources[category.key]);
+      final targetEntries = targetCategory is CosDictionary
+          ? CosDictionary({...targetCategory.entries})
+          : CosDictionary();
+      final names = <String, String>{};
+      final reserved = <String>{...targetEntries.entries.keys};
+      var changed = false;
+
+      String freshName() {
+        final prefix = prefixes[category.key] ?? 'MvR';
+        var i = 1;
+        while (!reserved.add('$prefix$i')) {
+          i++;
+        }
+        return '$prefix$i';
+      }
+
+      for (final sourceName in category.value) {
+        final sourceValue =
+            sourceCategory is CosDictionary ? sourceCategory[sourceName] : null;
+        String? targetName;
+        if (sourceValue != null) {
+          for (final entry in targetEntries.entries.entries) {
+            if (sameResource(sourceValue, entry.value)) {
+              targetName = entry.key;
+              break;
+            }
+          }
+        }
+        if (targetName == null && sourceValue != null) {
+          targetName =
+              targetEntries.containsKey(sourceName) ? freshName() : sourceName;
+          reserved.add(targetName);
+          targetEntries[targetName] = sourceValue;
+          changed = true;
+        } else {
+          // Preserve a missing source resource as missing. If the target has
+          // a resource under that name, remap to an unused name rather than
+          // accidentally changing the drawing's meaning.
+          targetName ??=
+              targetEntries.containsKey(sourceName) ? freshName() : sourceName;
+        }
+        names[sourceName] = targetName;
+      }
+      if (changed) targetResources[category.key] = targetEntries;
+      out[category.key] = names;
+    }
+    return out;
+  }
+
+  static Map<String, Set<String>> _contentResourceReferences(
+      List<ContentOperation> operations) {
+    final out = <String, Set<String>>{};
+    void add(String category, CosObject? value) {
+      if (value case CosName(:final value)) {
+        (out[category] ??= <String>{}).add(value);
+      }
+    }
+
+    for (final op in operations) {
+      final operands = op.operands;
+      switch (op.operator) {
+        case 'Tf':
+          if (operands.isNotEmpty) add('Font', operands.first);
+        case 'Do':
+          if (operands.isNotEmpty) add('XObject', operands.first);
+        case 'gs':
+          if (operands.isNotEmpty) add('ExtGState', operands.first);
+        case 'CS' || 'cs':
+          if (operands.isNotEmpty && operands.first is CosName) {
+            final name = (operands.first as CosName).value;
+            if (!const {'DeviceGray', 'DeviceRGB', 'DeviceCMYK', 'Pattern'}
+                .contains(name)) {
+              add('ColorSpace', operands.first);
+            }
+          }
+        case 'SCN' || 'scn':
+          if (operands.isNotEmpty) add('Pattern', operands.last);
+        case 'sh':
+          if (operands.isNotEmpty) add('Shading', operands.first);
+        case 'BDC' || 'DP':
+          if (operands.length >= 2) add('Properties', operands[1]);
+        case 'BI':
+          if (operands.isNotEmpty && operands.first is CosDictionary) {
+            final dict = operands.first as CosDictionary;
+            final colorSpace = dict['CS'] ?? dict['ColorSpace'];
+            if (colorSpace is! CosName ||
+                !const {'G', 'RGB', 'CMYK', 'I'}.contains(colorSpace.value)) {
+              add('ColorSpace', colorSpace);
+            }
+          }
+      }
+    }
+    return out;
+  }
+
+  static ContentOperation _remapContentResources(
+    ContentOperation op,
+    Map<String, Map<String, String>> names,
+  ) {
+    CosObject rename(String category, CosObject value) {
+      if (value is! CosName) return value;
+      final renamed = names[category]?[value.value];
+      return renamed == null || renamed == value.value
+          ? value
+          : CosName(renamed);
+    }
+
+    final operands = List<CosObject>.of(op.operands);
+    switch (op.operator) {
+      case 'Tf':
+        if (operands.isNotEmpty) operands[0] = rename('Font', operands[0]);
+      case 'Do':
+        if (operands.isNotEmpty) operands[0] = rename('XObject', operands[0]);
+      case 'gs':
+        if (operands.isNotEmpty) {
+          operands[0] = rename('ExtGState', operands[0]);
+        }
+      case 'CS' || 'cs':
+        if (operands.isNotEmpty) {
+          operands[0] = rename('ColorSpace', operands[0]);
+        }
+      case 'SCN' || 'scn':
+        if (operands.isNotEmpty) {
+          operands[operands.length - 1] = rename('Pattern', operands.last);
+        }
+      case 'sh':
+        if (operands.isNotEmpty) operands[0] = rename('Shading', operands[0]);
+      case 'BDC' || 'DP':
+        if (operands.length >= 2) {
+          operands[1] = rename('Properties', operands[1]);
+        }
+      case 'BI':
+        if (operands.isNotEmpty && operands.first is CosDictionary) {
+          final original = operands.first as CosDictionary;
+          final dict = CosDictionary({...original.entries});
+          if (dict['CS'] case final value?) {
+            if (value is! CosName ||
+                !const {'G', 'RGB', 'CMYK', 'I'}.contains(value.value)) {
+              dict['CS'] = rename('ColorSpace', value);
+            }
+          }
+          if (dict['ColorSpace'] case final value?) {
+            if (value is! CosName ||
+                !const {'G', 'RGB', 'CMYK', 'I'}.contains(value.value)) {
+              dict['ColorSpace'] = rename('ColorSpace', value);
+            }
+          }
+          operands[0] = dict;
+        }
+    }
+    return ContentOperation(op.operator, operands);
+  }
+
+  /// How far into its line the run already sits: the text matrix differs
+  /// from the line matrix only by the advances of the runs before it, so
+  /// `matrix × lineMatrix⁻¹` is that pure translation.
+  static double _lineAdvance(PdfTextPlacement placement) {
+    final inverse = placement.lineMatrix.inverted();
+    if (inverse == null) return 0;
+    return placement.matrix.concat(inverse).e;
+  }
+
+  /// Whether [element]'s operations also make a clipping path. Bracketing
+  /// such a run in `q`…`Q` would drop the clip the rest of the page expects.
+  static bool _establishesClip(
+      PdfPageElements elements, PdfContentElement element) {
+    for (var i = element.start; i < element.end; i++) {
+      final operator = elements.operations[i].operator;
+      if (operator == 'W' || operator == 'W*') return true;
+    }
+    return false;
+  }
+
+  static String _matrixOperands(PdfMatrix m) => [
+        for (final value in m.toList()) ContentWriter.fmt(value),
+      ].join(' ');
+
   /// Tier 3 - text editing. Replaces occurrences of [find] with [replace]
   /// in the text-showing operations on page [index] and returns how many
   /// were rewritten.

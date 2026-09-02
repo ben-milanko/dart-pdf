@@ -2034,4 +2034,63 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'すべて選択';
+
+  @override
+  String get annotationLibraryTitle => '注釈ライブラリ';
+
+  @override
+  String get annotationLibraryEmpty => '保存済みの注釈はありません。';
+
+  @override
+  String get annotationLibraryHelp =>
+      '対応している注釈を選択し、メニューから「注釈ライブラリに保存」を選んでください。リンクとフォームフィールドは保存できません。';
+
+  @override
+  String get annotationLibrarySave => '注釈ライブラリに保存';
+
+  @override
+  String get annotationLibrarySaveTitle => '注釈を保存';
+
+  @override
+  String get annotationLibraryRenameTitle => 'ライブラリ項目の名前を変更';
+
+  @override
+  String get annotationLibrarySearchHint => 'ライブラリを検索';
+
+  @override
+  String get annotationLibraryNoMatches => '一致する注釈はありません。';
+
+  @override
+  String get annotationLibraryUngrouped => '未分類';
+
+  @override
+  String get annotationLibraryChooseGroup => 'グループに移動';
+
+  @override
+  String get annotationLibraryNewGroup => '新しいグループ…';
+
+  @override
+  String get annotationLibraryGroupTitle => '新しい注釈グループ';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '注釈グループの名前を変更';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'グループを削除';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'ページをクリックして配置します。キャンセルは Escape キーを押します。';
+
+  @override
+  String get annotationLibraryCustomStamps => 'カスタムスタンプ…';
+
+  @override
+  String get signatureLibraryManage => '署名を管理';
+
+  @override
+  String get signatureLibraryRenameTitle => '署名の名前を変更';
+
+  @override
+  String get signatureLibraryEmpty => '保存済みの署名はありません。';
 }

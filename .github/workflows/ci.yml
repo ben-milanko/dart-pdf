@@ -23,6 +23,8 @@ jobs:
       - run: dart analyze --fatal-infos
       - name: Test Patrol performance summarizer
         run: dart tool/patrol_perf_summary_test.dart
+      - name: Test Flutter GPU corpus summarizer
+        run: dart tool/gpu_corpus_summary_test.dart
       # Enforce the lockstep versioning invariant: every workspace package
       # must depend on its siblings at the current release version (`^x.y.z`).
       # A stale lower bound makes pub.dev's downgrade analysis fail (0/20 on
@@ -190,6 +192,7 @@ jobs:
       - name: Validate native system-font GPU corpus parity
         working-directory: packages/dart_pdf_editor_flutter_gpu
         env:
+          GPU_CORPUS_REPORT: ${{ runner.temp }}/flutter-gpu-corpus-pr.json
           GPU_CORPUS_SYSTEM_TEXT: 1
           GPU_CORPUS_REGISTER_SYSTEM_FONTS: 1
         run: >-
@@ -217,6 +220,31 @@ jobs:
           echo "dir=$destination" >> "$GITHUB_OUTPUT"
           echo "commit=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Measure main Flutter GPU corpus routes
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_WORKSPACE: ${{ steps.gpu-baseline.outputs.dir }}
+          GPU_CORPUS_REPORT: ${{ runner.temp }}/flutter-gpu-corpus-main.json
+          GPU_CORPUS_SYSTEM_TEXT: 1
+          GPU_CORPUS_REGISTER_SYSTEM_FONTS: 1
+        run: |
+          set -euo pipefail
+          cd "$BASE_WORKSPACE/packages/dart_pdf_editor_flutter_gpu"
+          flutter test --enable-impeller --enable-flutter-gpu \
+            test/gpu_corpus_test.dart --reporter expanded
+
+      - name: Compare Flutter GPU corpus routes with main
+        if: github.event_name == 'pull_request'
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        shell: bash
+        run: >-
+          dart ../../tool/gpu_corpus_summary.dart
+          "$RUNNER_TEMP/flutter-gpu-corpus-main.json"
+          "$RUNNER_TEMP/flutter-gpu-corpus-pr.json"
+          --output test-results/gpu
+          --markdown "$GITHUB_STEP_SUMMARY"
+
       - name: Measure Flutter GPU warm-up and first-tile performance
         id: gpu-performance
         working-directory: packages/dart_pdf_editor_flutter_gpu
@@ -229,8 +257,12 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/flutter-gpu-performance.log"
           baseline_log="$RUNNER_TEMP/flutter-gpu-main-performance.log"
+          stress_pdf="$RUNNER_TEMP/flutter-gpu-advanced-blend-stress.pdf"
           : > "$log"
           : > "$baseline_log"
+          # Generate once in the PR worktree, then give this absolute path to
+          # both test binaries so the first introducing PR has a valid base.
+          dart tool/advanced_blend_stress_fixture.dart "$stress_pdf"
 
           run_case() {
             local workspace="$1"
@@ -248,11 +280,11 @@ jobs:
                   "$label" == "vector-stack-2" ||
                   "$label" == "text-mask-1" ||
                   "$label" == "text-mask-2" ||
-                  "$label" == "system-text" ||
-                  "$label" == "cjk-text" ||
                   "$label" == "advanced-blend" ||
+                  "$label" == "advanced-blend-stress" ||
                   "$label" == "knockout-mask" ||
                   "$label" == "knockout-overlap" ||
+                  "$label" == "overprint-retry" ||
                   "$label" == "hairline" ]]; then
               route_change=1
             fi
@@ -268,6 +300,9 @@ jobs:
                 ;;
               fixture)
                 source_env="PDF_GPU_BENCHMARK_FIXTURE=$source"
+                ;;
+              generated)
+                source_env="PDF_GPU_BENCHMARK_PDF=$stress_pdf"
                 ;;
               *)
                 echo "Unknown Flutter GPU benchmark source kind: $source_kind" >&2
@@ -318,6 +353,7 @@ jobs:
               prime_index=$((prime_index + 1))
             done <<'SCENARIOS'
           tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          type3-triangles pdf ../../test_corpora/pdfjs/Type3WordSpacing.pdf
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
@@ -328,8 +364,10 @@ jobs:
           system-text pdf ../../test_corpora/pdfjs/hello_world_rotated.pdf
           cjk-text pdf ../../test_corpora/pdfjs/SimFang-variant.pdf
           advanced-blend pdf ../../test_corpora/pdfjs/blendmode.pdf
+          advanced-blend-stress generated advanced-blend-stress
           knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
           knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
+          overprint-retry pdf ../../test_corpora/ghent/3-ICC-CMS/GWG164_Transp_Basic_BM_ICCbasedCMYK_x4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           fi
@@ -354,6 +392,7 @@ jobs:
               fi
             done <<'SCENARIOS'
           tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          type3-triangles pdf ../../test_corpora/pdfjs/Type3WordSpacing.pdf
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
@@ -364,8 +403,10 @@ jobs:
           system-text pdf ../../test_corpora/pdfjs/hello_world_rotated.pdf
           cjk-text pdf ../../test_corpora/pdfjs/SimFang-variant.pdf
           advanced-blend pdf ../../test_corpora/pdfjs/blendmode.pdf
+          advanced-blend-stress generated advanced-blend-stress
           knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
           knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
+          overprint-retry pdf ../../test_corpora/ghent/3-ICC-CMS/GWG164_Transp_Basic_BM_ICCbasedCMYK_x4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           done
@@ -390,6 +431,10 @@ jobs:
             --require-scenario-runs gpu-tiling-page-0-scene-warm=6
             --require-scenario-runs gpu-tiling-page-0-first-tile=6
             --require-scenario-runs gpu-tiling-page-0-canvas-tile=6
+            --require-scenario-runs gpu-type3-triangles-pipeline-warm=6
+            --require-scenario-runs gpu-type3-triangles-page-0-scene-warm=6
+            --require-scenario-runs gpu-type3-triangles-page-0-first-tile=6
+            --require-scenario-runs gpu-type3-triangles-page-0-canvas-tile=6
             --require-scenario-runs gpu-radial-pipeline-warm=6
             --require-scenario-runs gpu-radial-page-0-scene-warm=6
             --require-scenario-runs gpu-radial-page-0-first-tile=6
@@ -406,16 +451,24 @@ jobs:
             --require-scenario-runs gpu-text-mask-1-page-0-canvas-tile=6
             --require-scenario-runs gpu-text-mask-2-page-0-first-tile=6
             --require-scenario-runs gpu-text-mask-2-page-0-canvas-tile=6
+            --require-scenario-runs gpu-system-text-pipeline-warm=6
+            --require-scenario-runs gpu-system-text-page-0-scene-warm=6
             --require-scenario-runs gpu-system-text-page-0-first-tile=6
             --require-scenario-runs gpu-system-text-page-0-canvas-tile=6
+            --require-scenario-runs gpu-cjk-text-pipeline-warm=6
+            --require-scenario-runs gpu-cjk-text-page-0-scene-warm=6
             --require-scenario-runs gpu-cjk-text-page-0-first-tile=6
             --require-scenario-runs gpu-cjk-text-page-0-canvas-tile=6
             --require-scenario-runs gpu-advanced-blend-page-0-first-tile=6
             --require-scenario-runs gpu-advanced-blend-page-0-canvas-tile=6
+            --require-scenario-runs gpu-advanced-blend-stress-page-0-first-tile=6
+            --require-scenario-runs gpu-advanced-blend-stress-page-0-canvas-tile=6
             --require-scenario-runs gpu-knockout-mask-page-0-first-tile=6
             --require-scenario-runs gpu-knockout-mask-page-0-canvas-tile=6
             --require-scenario-runs gpu-knockout-overlap-page-0-first-tile=6
             --require-scenario-runs gpu-knockout-overlap-page-0-canvas-tile=6
+            --require-scenario-runs gpu-overprint-retry-page-0-first-tile=6
+            --require-scenario-runs gpu-overprint-retry-page-0-canvas-tile=6
             --require-scenario-runs gpu-hairline-page-0-first-tile=6
             --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
           )
@@ -495,26 +548,38 @@ jobs:
             };
             const headlinePath = find('flutter-gpu-performance', 'patrol-perf-headline.md');
             const reportPath = find('flutter-gpu-performance', 'patrol-perf.md');
+            const corpusHeadlinePath = find('flutter-gpu-performance', 'gpu-corpus-headline.md');
+            const corpusReportPath = find('flutter-gpu-performance', 'gpu-corpus.md');
             const headline = headlinePath
               ? fs.readFileSync(headlinePath, 'utf8').trim()
               : 'No headline Flutter GPU performance summary was produced.';
             const report = reportPath
               ? fs.readFileSync(reportPath, 'utf8').trim()
               : 'No Flutter GPU performance artifact was produced. Open the workflow run for the failing step and raw logs.';
+            const corpusHeadline = corpusHeadlinePath
+              ? fs.readFileSync(corpusHeadlinePath, 'utf8').trim()
+              : 'No Flutter GPU corpus comparison was produced.';
+            const corpusReport = corpusReportPath
+              ? fs.readFileSync(corpusReportPath, 'utf8').trim()
+              : 'No Flutter GPU corpus report was produced.';
             const sha = context.payload.pull_request.head.sha.slice(0, 7);
             const baseSha = context.payload.pull_request.base.sha.slice(0, 7);
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
               marker,
-              '## Flutter GPU performance',
+              '## Flutter GPU validation',
               '',
               `Automated on macOS Metal for commit \`${sha}\` · [workflow run and downloadable traces](${runUrl})`,
               `Same-host A/B: base \`${baseSha}\` and PR were alternated on one GitHub runner.`,
               '',
+              corpusHeadline,
+              '',
               headline,
               '',
               '<details>',
-              '<summary>View Flutter GPU performance details</summary>',
+              '<summary>View Flutter GPU validation details</summary>',
+              '',
+              corpusReport,
               '',
               report,
               '',

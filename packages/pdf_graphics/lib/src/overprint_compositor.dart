@@ -34,6 +34,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
+
 import 'color.dart';
 import 'color_context.dart';
 import 'colorants.dart';
@@ -272,23 +274,30 @@ class PdfOverprintCompositor {
   /// Resolves a fill. Returns the colour to paint when the overprint composite
   /// is a single colour across the draw, or null to leave the device's own
   /// handling (its RGB approximation, or plain painting when not overprinting)
-  /// in charge.
+  /// in charge. [subCellBounds] may conservatively retain one or more
+  /// intersected grid cells when a real vector shape covered no cell centre;
+  /// the caller must clip visible replay through the original path.
   PdfColor? fill(
       PdfPath path, PdfFillRule rule, PdfColor color, PdfInkColorants? ink,
       {PdfInkColorants? blendInk,
+      PdfRect? subCellBounds,
       required bool overprint,
       required int mode,
       required bool opaque}) {
     _skipPaint = false;
     _spatialPaint = null;
-    return _resolve(
-        () => _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd),
-        color,
-        ink,
-        blendInk: blendInk,
-        overprint: overprint,
-        mode: mode,
-        opaque: opaque);
+    return _resolve(() {
+      final spans =
+          _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd);
+      if (!spans.isEmpty || subCellBounds == null) return spans;
+      return _raster.coveringBoxSpans(
+        subCellBounds.left,
+        subCellBounds.bottom,
+        subCellBounds.right,
+        subCellBounds.top,
+      );
+    }, color, ink,
+        blendInk: blendInk, overprint: overprint, mode: mode, opaque: opaque);
   }
 
   bool _skipPaint = false;
@@ -343,25 +352,28 @@ class PdfOverprintCompositor {
   /// Stroking counterpart of [fill]. [stroke] carries page-space geometry
   /// (the interpreter has already mapped the line width through the CTM).
   PdfColor? strokeShape(
-          PdfPath path, PdfStroke stroke, PdfColor color, PdfInkColorants? ink,
-          {PdfInkColorants? blendInk,
-          required bool overprint,
-          required int mode,
-          required bool opaque}) =>
-      _resolve(
-          () => _raster.strokeSpans(path,
-              width: stroke.width,
-              cap: stroke.cap,
-              join: stroke.join,
-              miterLimit: stroke.miterLimit,
-              dashArray: stroke.dashArray,
-              dashPhase: stroke.dashPhase),
-          color,
-          ink,
-          blendInk: blendInk,
-          overprint: overprint,
-          mode: mode,
-          opaque: opaque);
+      PdfPath path, PdfStroke stroke, PdfColor color, PdfInkColorants? ink,
+      {PdfInkColorants? blendInk,
+      required bool overprint,
+      required int mode,
+      required bool opaque}) {
+    _skipPaint = false;
+    _spatialPaint = null;
+    return _resolve(
+        () => _raster.strokeSpans(path,
+            width: stroke.width,
+            cap: stroke.cap,
+            join: stroke.join,
+            miterLimit: stroke.miterLimit,
+            dashArray: stroke.dashArray,
+            dashPhase: stroke.dashPhase),
+        color,
+        ink,
+        blendInk: blendInk,
+        overprint: overprint,
+        mode: mode,
+        opaque: opaque);
+  }
 
   /// Records an axial or radial shading in device-colorant space.
   ///

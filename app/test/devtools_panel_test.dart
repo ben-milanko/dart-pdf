@@ -103,6 +103,25 @@ void main() {
     expect(find.byKey(const ValueKey('devtools-panel')), findsNothing);
   });
 
+  testWidgets('the render route overlay toggles from the panel',
+      (tester) async {
+    addTearDown(() => pdfDebugShowGpuRasterRoutes.value = false);
+    await pumpWithDoc(tester);
+    expect(find.byKey(const ValueKey('pdf-gpu-route-overlay')), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+    final toggle = find.byKey(const ValueKey('devtools-gpu-route-overlay'));
+    await tester.ensureVisible(toggle);
+    await tester.pump();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(pdfDebugShowGpuRasterRoutes.value, isTrue);
+    expect(find.byKey(const ValueKey('pdf-gpu-route-overlay')),
+        findsAtLeastNWidgets(1));
+  });
+
   testWidgets('tile backend switch updates the mounted viewer in place',
       (tester) async {
     await pumpWithDoc(tester);

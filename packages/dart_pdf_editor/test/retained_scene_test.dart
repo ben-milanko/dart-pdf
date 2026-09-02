@@ -84,6 +84,81 @@ void main() {
     });
   });
 
+  testWidgets(
+      'cached local scene can recover portable pixels for accelerated upload',
+      (tester) async {
+    await tester.runAsync(() async {
+      PdfImageCache.instance.clear();
+      addTearDown(PdfImageCache.instance.clear);
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final warm = await PdfRetainedScene.record(page);
+      warm.dispose();
+
+      final scene = await PdfRetainedScene.record(
+        page,
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final request =
+          scene.commands.whereType<PdfDrawImageCommand>().first.request;
+
+      expect(request.decoded, isNotNull);
+      expect(request.decoded!.width, scene.imageFor(request)!.width);
+      expect(request.decoded!.height, scene.imageFor(request)!.height);
+
+      scene.releaseDecodedImagePixels();
+      expect(request.decoded, isNull);
+      expect(scene.imageFor(request), isNotNull,
+          reason: 'Canvas replay keeps the engine image after CPU release');
+    });
+  });
+
+  testWidgets('local retained scenes can be re-recorded for overprint retry',
+      (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final source = await PdfRetainedScene.record(
+        page,
+        maxImagePixelRatio: 1.5,
+        imageDecodeHeadroom: 1,
+      );
+      final retryFuture = source.rerecordWithOverprintMaxDimension(768);
+      expect(retryFuture, isNotNull);
+      final retry = await retryFuture!;
+      expect(retry.page, same(source.page));
+      expect(retry.plan, same(source.plan));
+      expect(retry.commands.length, source.commands.length);
+
+      final imported = await PdfRetainedScene.fromCommands(
+        page,
+        source.commands,
+        includeImages: false,
+      );
+      final completeImported = await PdfRetainedScene.fromCommands(
+        page,
+        source.commands,
+        allowOverprintRerecord: true,
+      );
+      final filtered = await PdfRetainedScene.record(
+        page,
+        skipAnnotation: (_) => false,
+      );
+      expect(imported.rerecordWithOverprintMaxDimension(768), isNull);
+      final importedRetryFuture =
+          completeImported.rerecordWithOverprintMaxDimension(768);
+      expect(importedRetryFuture, isNotNull);
+      final importedRetry = await importedRetryFuture!;
+      expect(filtered.rerecordWithOverprintMaxDimension(768), isNull);
+
+      filtered.dispose();
+      importedRetry.dispose();
+      completeImported.dispose();
+      imported.dispose();
+      retry.dispose();
+      source.dispose();
+    });
+  });
+
   testWidgets('retained scene releases uploaded worker RGBA', (tester) async {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);

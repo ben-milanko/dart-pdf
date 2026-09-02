@@ -272,9 +272,11 @@ class PdfInterpreter {
       required this.device,
       bool scanImagesOnly = false,
       this.resolveOverprint = true,
+      this.overprintMaxDimension = 384,
       this.collectCharOffsets = false,
       this.cancellation})
-      : _scanImagesOnly = scanImagesOnly,
+      : assert(overprintMaxDimension > 0),
+        _scanImagesOnly = scanImagesOnly,
         _scanImages = scanImagesOnly,
         _colorContext = PdfColorContext.forDocument(cos) {
     _state = _GraphicsState(_colorContext);
@@ -303,6 +305,12 @@ class PdfInterpreter {
   /// colour (text extraction, the image-collect scan), which would only pay
   /// for the buffer.
   final bool resolveOverprint;
+
+  /// Long-side cell count for the device-colorant buffer used to resolve
+  /// overprint. The default is the normal low-cost page walk; callers may
+  /// request a denser retry when a renderer can prove the default transcript
+  /// is otherwise unsupported.
+  final int overprintMaxDimension;
 
   /// Whether to fill in [PdfTextRun.charOffsets] - the em-space pen position
   /// of every character boundary in a run (issue #647) - for *every* run.
@@ -2220,7 +2228,7 @@ class PdfInterpreter {
     final box = page.cropBox;
     _overprint = PdfOverprintCompositor.forPageBox(
         box.left, box.bottom, box.right, box.top,
-        colorContext: _colorContext);
+        maxDimension: overprintMaxDimension, colorContext: _colorContext);
     // The buffer needs paths, clips and colours, none of which the scan-only
     // walk builds - and the substitute streams it produces have to be the ones
     // the collect pass decodes. So a page that opens a buffer is walked in
@@ -2393,14 +2401,27 @@ class PdfInterpreter {
             overprint: _state.strokeOverprint,
             mode: _state.overprintMode,
             opaque: _opaquePaint(_state.strokeAlpha));
+        final skip = overprint?.takeSkipPaint() ?? false;
+        final spatial = overprint?.takeSpatialPaint();
         _deliverOverprint(
             _state.fillOverprint,
             _state.strokeOverprint &&
                 (overprint == null || _state.strokeInk != null) &&
-                resolved == null,
+                resolved == null &&
+                !skip &&
+                spatial == null,
             _state.overprintMode);
-        device.strokePath(
-            path, resolved ?? _state.strokeColor, scaled, _state.strokeAlpha);
+        if (spatial != null && !skip) {
+          for (final region in spatial) {
+            device.save();
+            device.clipPath(region.path, PdfFillRule.nonzero);
+            device.strokePath(path, region.color, scaled, _state.strokeAlpha);
+            device.restore();
+          }
+        } else if (!skip) {
+          device.strokePath(
+              path, resolved ?? _state.strokeColor, scaled, _state.strokeAlpha);
+        }
       }
       if (_pendingClip != null) {
         overprint?.clipPath(path, _pendingClip!);
@@ -2860,6 +2881,8 @@ class PdfInterpreter {
               runFill,
               ink,
               blendInk: blendInk,
+              subCellBounds:
+                  glyphs?.length == 1 ? _pathBounds(glyphPath) : null,
               overprint: isOverprint,
               mode: _state.overprintMode,
               opaque: _opaquePaint(alpha),

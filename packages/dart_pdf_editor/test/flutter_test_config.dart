@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show PdfPageView, PdfViewer;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -54,6 +55,8 @@ var _dejaVuRegistered = false;
 Future<void> _registerBundledDejaVu() async {
   if (_dejaVuRegistered) return;
   _dejaVuRegistered = true;
+  // dart:io is unavailable in a browser test; the fallback is best-effort.
+  if (kIsWeb) return;
   final file = File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf');
   if (!file.existsSync()) return;
   final bytes = ByteData.sublistView(file.readAsBytesSync());

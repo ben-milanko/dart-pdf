@@ -41,7 +41,8 @@ void main() {
     expect(snapshot.subtype, 'Square');
     expect(snapshot.rect, const PdfRect(100, 600, 200, 660));
 
-    final out = edited(doc, (e) => e.pasteAnnotation(1, snapshot, dx: 12, dy: -12));
+    final out =
+        edited(doc, (e) => e.pasteAnnotation(1, snapshot, dx: 12, dy: -12));
     expect(out.page(0).annotations, hasLength(1)); // original untouched
     final pasted = out.page(1).annotations.single;
     expect(pasted.subtype, 'Square');
@@ -67,9 +68,12 @@ void main() {
 
   test('paste shifts ink strokes and markup quads with the rect', () {
     final doc = edited(PdfDocument.open(buildMultiPagePdf(1)), (e) {
-      e.addInk(0, [
-        [(100, 600), (150, 640)],
-      ], strokeWidth: 2);
+      e.addInk(
+          0,
+          [
+            [(100, 600), (150, 640)],
+          ],
+          strokeWidth: 2);
       e.addHighlight(0, [const PdfRect(100, 500, 200, 515)]);
     });
     final ink = PdfAnnotationSnapshot.capture(doc, doc.page(0).annotations[0])!;
@@ -99,8 +103,8 @@ void main() {
         PdfAnnotationSnapshot.capture(doc, doc.page(0).annotations.single)!;
 
     // the source moves on: the original annotation shifts 50pt right
-    final moved = edited(doc,
-        (e) => e.moveAnnotation(0, doc.page(0).annotations.single, 50, 0));
+    final moved = edited(
+        doc, (e) => e.moveAnnotation(0, doc.page(0).annotations.single, 50, 0));
     expect(moved.page(0).annotations.single.rect.left, closeTo(150, 1e-6));
 
     // pasting into the edited document still lands at the captured place
@@ -133,8 +137,8 @@ void main() {
         PdfDocument.open(buildMultiPagePdf(1)),
         (e) => e.addStamp(0, const PdfRect(100, 600, 240, 650), 'APPROVED',
             color: 0xC03030, author: 'Ben'));
-    final snapshot =
-        PdfAnnotationSnapshot.capture(source, source.page(0).annotations.single)!;
+    final snapshot = PdfAnnotationSnapshot.capture(
+        source, source.page(0).annotations.single)!;
 
     final out = edited(
         PdfDocument.open(buildMultiPagePdf(2)), // a different document
@@ -222,12 +226,35 @@ void main() {
       expect((pasted.rect.bottom + pasted.rect.top) / 2,
           closeTo((sourceRect.bottom + sourceRect.top) / 2, 1e-3));
 
-      final matrix = numbers(out, pasted.normalAppearance!.dictionary['Matrix']);
+      final matrix =
+          numbers(out, pasted.normalAppearance!.dictionary['Matrix']);
       // quarter turn: the x-axis maps onto ±y (a ~= d ~= 0, b/c non-zero)
       expect(matrix[0].abs(), lessThan(1e-6));
       expect(matrix[3].abs(), lessThan(1e-6));
       expect(matrix[1].abs(), greaterThan(1e-6));
       expect(matrix[2].abs(), greaterThan(1e-6));
+    });
+
+    test('placement preview has the same rotated geometry as the paste', () {
+      final doc = buildSourceAndRotatedDest();
+      final original = doc.page(0).annotations.single;
+      final snapshot = PdfAnnotationSnapshot.capture(doc, original,
+          sourcePageRotation: doc.page(0).rotation)!;
+
+      final preview = snapshot.annotationForPreview(doc, 1);
+      expect(doc.page(1).annotations, isEmpty,
+          reason: 'building a preview must not insert it into the page');
+      final out = edited(doc, (e) => e.pasteAnnotation(1, snapshot));
+      final pasted = out.page(1).annotations.single;
+
+      expect(preview.rect, pasted.rect);
+      final previewMatrix =
+          numbers(doc, preview.normalAppearance!.dictionary['Matrix']);
+      final pastedMatrix =
+          numbers(out, pasted.normalAppearance!.dictionary['Matrix']);
+      for (var i = 0; i < previewMatrix.length; i++) {
+        expect(previewMatrix[i], closeTo(pastedMatrix[i], 1e-9));
+      }
     });
 
     test('leaves the appearance untouched when rotations match', () {
@@ -271,8 +298,8 @@ void main() {
 
     test('an unrotated capture omits the rot key (payload stays compact)', () {
       final doc = buildSourceAndRotatedDest();
-      final snapshot = PdfAnnotationSnapshot.capture(
-          doc, doc.page(0).annotations.single)!;
+      final snapshot =
+          PdfAnnotationSnapshot.capture(doc, doc.page(0).annotations.single)!;
       expect(snapshot.sourceRotation, 0);
       expect(snapshot.toJson().containsKey('rot'), isFalse);
     });

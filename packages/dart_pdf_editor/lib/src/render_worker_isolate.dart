@@ -3,7 +3,8 @@ import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugPrint, defaultTargetPlatform;
 import 'package:pdf_cos/pdf_cos.dart' show CosDocument;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -1230,11 +1231,32 @@ bool _decodeImageInBackgroundIsolate(
   CosDocument document,
   PdfImageRequest request,
 ) {
+  // Apple's asynchronous ImageIO-backed codec is dramatically faster for the
+  // plain JPX layers emitted by MRC scanners. Leave that narrow shape encoded
+  // in the command buffer so the consumer can use the platform codec and keep
+  // an explicit JBIG2 stencil as a GPU mask. Other platforms and uncommon PDF
+  // colour/mask semantics retain the portable worker decode.
+  if (_preferAppleJpxCodec(document, request)) return false;
   if (pdfImageDctSoftMaskBytes(document, request.stream.dictionary) == null) {
     return true;
   }
   final filters = pdfImageFilters(document, request.stream.dictionary);
   return filters.contains('DCTDecode') || filters.contains('DCT');
+}
+
+bool _preferAppleJpxCodec(
+  CosDocument document,
+  PdfImageRequest request,
+) {
+  if (defaultTargetPlatform != TargetPlatform.macOS &&
+      defaultTargetPlatform != TargetPlatform.iOS) {
+    return false;
+  }
+  return pdfCanUsePlatformJpxCodec(
+    document,
+    request.stream.dictionary,
+    luminosityMask: request.isLuminosityMask,
+  );
 }
 
 /// A full-page record cancelled mid-walk, held so the next record of the same

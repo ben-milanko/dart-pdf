@@ -196,6 +196,8 @@ class AppDevTools extends ChangeNotifier {
       (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instanceOrNull)
           ?.invalidate();
     }
+    _flutterGpuTileRasterBackend?.stats
+        .logPerfSummary('backend-switch-to-${mode.name}');
     addLog('devtools: tile raster backend → ${mode.name}');
   }
 
@@ -407,6 +409,12 @@ class AppDevTools extends ChangeNotifier {
 
   set logPerfTrace(bool value) {
     if (_logPerfTrace == value) return;
+    // Bracket the trace with the GPU backend's lifetime totals: turning the
+    // log ON stamps the baseline the following lines accumulate from, and
+    // turning it OFF stamps where they ended, so an exported trace carries
+    // both without the reader having to open the panel and read counters that
+    // have since moved. Emitted while the log is still on in both directions.
+    if (!value) _flutterGpuTileRasterBackend?.stats.logPerfSummary('trace-end');
     _logPerfTrace = value;
     PdfPerfLog.enabled = value;
     // The trace is verbose - a line per worker request/reply, interpret, and
@@ -417,6 +425,9 @@ class AppDevTools extends ChangeNotifier {
         ? (m) => _record(DevLogLevel.info, 'perf: $m', notify: false)
         : null;
     addLog('devtools: perf trace logging ${value ? 'on' : 'off'}');
+    if (value) {
+      _flutterGpuTileRasterBackend?.stats.logPerfSummary('trace-start');
+    }
     _scheduleNotify();
   }
 
@@ -669,6 +680,9 @@ class AppDevTools extends ChangeNotifier {
       if (map['renderWindow'] case final bool v) {
         pdfDebugShowRenderWindow.value = v;
       }
+      if (map['gpuRouteOverlay'] case final bool v) {
+        pdfDebugShowGpuRasterRoutes.value = v;
+      }
       if (map['perfOverlay'] case final bool v) {
         showPerformanceOverlay.value = v;
       }
@@ -729,6 +743,7 @@ class AppDevTools extends ChangeNotifier {
           'gpuOverprintApproximation': _gpuOverprintApproximation,
           'tileBorders': pdfDebugPaintDetailBounds.value,
           'renderWindow': pdfDebugShowRenderWindow.value,
+          'gpuRouteOverlay': pdfDebugShowGpuRasterRoutes.value,
           'perfOverlay': showPerformanceOverlay.value,
           'perfLog': _logPerfTrace,
           'logTouchInput': _logTouchInput,

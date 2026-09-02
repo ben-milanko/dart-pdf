@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.1.0
+
+- Add document-level content movement between positions and pages, retaining
+  resource references and clipping the moved content to its destination page.
+- Preserve reusable annotation snapshots and digital-signature removal through
+  incremental edits.
+- Align dependency constraints with the dart-pdf 4.1.0 package suite and
+  update `archive` to 4.2.0.
+
 ## 4.0.0
 
 - Allow `flattenAnnotations` to target a supplied annotation selection and

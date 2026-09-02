@@ -2631,5 +2631,81 @@
   "viewerSelectAll": "Select all",
   "@viewerSelectAll": {
     "description": "Menu/chip action that selects all text on the current page."
+  },
+  "annotationLibraryTitle": "Annotation library",
+  "@annotationLibraryTitle": {
+    "description": "Title and toolbar tooltip for the reusable annotation library."
+  },
+  "annotationLibraryEmpty": "No saved annotations.",
+  "@annotationLibraryEmpty": {
+    "description": "Empty-state text in the reusable annotation library."
+  },
+  "annotationLibraryHelp": "Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.",
+  "@annotationLibraryHelp": {
+    "description": "Explanation of how to save reusable annotations and which interactive types are deliberately unsupported."
+  },
+  "annotationLibrarySave": "Save to annotation library",
+  "@annotationLibrarySave": {
+    "description": "Annotation context-menu action that saves the selected annotation for reuse."
+  },
+  "annotationLibrarySaveTitle": "Save annotation",
+  "@annotationLibrarySaveTitle": {
+    "description": "Title of the prompt that names an annotation library item."
+  },
+  "annotationLibraryRenameTitle": "Rename library item",
+  "@annotationLibraryRenameTitle": {
+    "description": "Title of the prompt that renames an annotation library item."
+  },
+  "annotationLibrarySearchHint": "Search library",
+  "@annotationLibrarySearchHint": {
+    "description": "Placeholder in the reusable annotation-library panel search field."
+  },
+  "annotationLibraryNoMatches": "No matching annotations.",
+  "@annotationLibraryNoMatches": {
+    "description": "Empty state when annotation-library search filters out every item."
+  },
+  "annotationLibraryUngrouped": "Ungrouped",
+  "@annotationLibraryUngrouped": {
+    "description": "Heading for reusable annotations that have no user-defined group."
+  },
+  "annotationLibraryChooseGroup": "Move to group",
+  "@annotationLibraryChooseGroup": {
+    "description": "Action that assigns a reusable annotation to a library group."
+  },
+  "annotationLibraryNewGroup": "New group…",
+  "@annotationLibraryNewGroup": {
+    "description": "Action that creates and assigns a new annotation-library group."
+  },
+  "annotationLibraryGroupTitle": "New annotation group",
+  "@annotationLibraryGroupTitle": {
+    "description": "Title of the prompt that names a new annotation-library group."
+  },
+  "annotationLibraryRenameGroupTitle": "Rename annotation group",
+  "@annotationLibraryRenameGroupTitle": {
+    "description": "Title of the prompt that renames an annotation-library group."
+  },
+  "annotationLibraryRemoveGroup": "Remove group",
+  "@annotationLibraryRemoveGroup": {
+    "description": "Tooltip that removes a group while leaving its annotations ungrouped."
+  },
+  "annotationLibraryPlacementHint": "Click the page to place. Press Escape to cancel.",
+  "@annotationLibraryPlacementHint": {
+    "description": "Hint shown while a reusable annotation follows the pointer ready for placement."
+  },
+  "annotationLibraryCustomStamps": "Custom stamps…",
+  "@annotationLibraryCustomStamps": {
+    "description": "Button that opens custom stamps from the broader annotation library."
+  },
+  "signatureLibraryManage": "Manage signatures",
+  "@signatureLibraryManage": {
+    "description": "Toolbar tooltip that opens the saved handwritten-signature library."
+  },
+  "signatureLibraryRenameTitle": "Rename signature",
+  "@signatureLibraryRenameTitle": {
+    "description": "Title of the prompt that renames a saved handwritten signature."
+  },
+  "signatureLibraryEmpty": "No saved signatures.",
+  "@signatureLibraryEmpty": {
+    "description": "Empty-state text in the saved handwritten-signature library."
   }
 }

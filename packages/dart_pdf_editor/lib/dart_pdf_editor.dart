@@ -4,6 +4,7 @@ library;
 export 'package:pdf_document/pdf_document.dart'
     show
         PdfDocument,
+        PdfAnnotationSnapshot,
         PdfStampTemplate,
         PdfStampTemplateComponent,
         PdfStampTemplateComponentType,
@@ -25,8 +26,10 @@ export 'src/editing/editing_color_processing.dart';
 export 'src/editing/editing_controller.dart';
 export 'src/editing/create_signing_identity_dialog.dart';
 export 'src/editing/digital_signature.dart';
+export 'src/editing/digital_signature_removal.dart';
 export 'src/editing/signing_identity_store.dart';
 export 'src/editing/editing_annotation_clipboard.dart';
+export 'src/editing/editing_annotation_library.dart';
 export 'src/editing/editing_fonts.dart';
 export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_link.dart';
@@ -39,6 +42,7 @@ export 'src/editing/editing_preferences.dart';
 export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';
 export 'src/editing/editing_signature.dart';
+export 'src/editing/saved_annotation.dart';
 export 'src/editing/editing_snapshot_clipboard.dart';
 export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_takeoff.dart';

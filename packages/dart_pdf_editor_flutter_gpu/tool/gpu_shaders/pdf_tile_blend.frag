@@ -1,5 +1,6 @@
 uniform BlendInfo {
   vec4 modes;
+  vec4 source_uv;
 }
 blend_info;
 
@@ -55,6 +56,8 @@ vec3 set_saturation(vec3 color, float sat) {
 }
 
 vec3 separable_blend(vec3 cb, vec3 cs, int mode) {
+  if (mode == 1) return cb * cs;
+  if (mode == 2) return cb + cs - cb * cs;
   if (mode == 3) {
     return mix(
       2.0 * cb * cs,
@@ -112,8 +115,14 @@ vec3 blend(vec3 cb, vec3 cs, int mode) {
 }
 
 void main() {
+  vec2 source_uv =
+    (v_uv - blend_info.source_uv.xy) / blend_info.source_uv.zw;
+  vec4 source = texture(source_tex, source_uv);
+  // The destination was copied into this target before the blend pass. A
+  // transparent source contributes exactly that existing destination, so
+  // avoid its backdrop lookup, blend arithmetic, and color write.
+  if (source.a == 0.0) discard;
   vec4 backdrop = texture(backdrop_tex, v_uv);
-  vec4 source = texture(source_tex, v_uv);
   float ab = backdrop.a;
   float as = source.a;
   vec3 cb = ab > 0.0 ? backdrop.rgb / ab : vec3(0.0);

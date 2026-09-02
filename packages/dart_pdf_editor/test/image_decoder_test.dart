@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -16,6 +17,23 @@ Future<Uint8List> pixelsOf(ui.Image image) async {
   return data!.buffer.asUint8List();
 }
 
+Future<ui.Image> solidGrayImage(int width, int height) {
+  final pixels = Uint8List(width * height * 4);
+  for (var i = 0; i < pixels.length; i += 4) {
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = 128;
+    pixels[i + 3] = 255;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    pixels,
+    width,
+    height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  return completer.future;
+}
+
 /// Wraps a stream the way the interpreter hands images to the decoder.
 PdfImageRequest req(CosStream stream) =>
     PdfImageRequest(stream: stream, transform: PdfMatrix.identity);
@@ -24,6 +42,7 @@ void main() {
   late CosDocument cos;
 
   setUp(() => cos = CosDocument.open(buildClassicPdf()));
+  tearDown(() => debugAppleJpxDecoder = null);
 
   test('inline image key survives the worker-pixel handoff', () {
     final stream = CosStream(
@@ -405,6 +424,86 @@ void main() {
       expect(pixels.sublist(8, 12), [255, 0, 0, 255]);
       expect(pixels.sublist(12, 16), [0, 0, 0, 0]);
     });
+  });
+
+  testWidgets(
+      'Apple JPX codec preserves and antialiases a higher-res MRC stencil',
+      (tester) async {
+    final calls = <(int?, int?, bool)>[];
+    debugAppleJpxDecoder = (
+      bytes, {
+      targetWidth,
+      targetHeight,
+      required allowUpscaling,
+    }) async {
+      expect(bytes, grayJpxCodestream);
+      calls.add((targetWidth, targetHeight, allowUpscaling));
+      return solidGrayImage(targetWidth ?? 16, targetHeight ?? 16);
+    };
+    await tester.runAsync(() async {
+      const maskWidth = 32;
+      const height = 16;
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(maskWidth),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        Uint8List.fromList(List.filled(height * 4, 0x55)),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('JPXDecode'),
+          'Mask': mask,
+        }),
+        grayJpxCodestream,
+      );
+
+      // Without a display cap, the colour plane is promoted to the stencil's
+      // native resolution instead of flattening its 300-DPI detail to the
+      // scanner's lower-resolution colour grid.
+      final full = (await decodeImages(cos, [req(stream)]))[stream]!;
+      expect((full.width, full.height), (maskWidth, height));
+      expect(pdfGpuSoftMaskOf(full), isNotNull);
+      disposePdfDecodedImage(full);
+
+      // At a 16px display footprint every adjacent paint/skip pair becomes a
+      // half-covered edge. The companion mask must upload coverage as opaque
+      // grayscale: storing it in both RGB and alpha makes the canvas colour
+      // filter unpremultiply every partial sample back to fully opaque.
+      final request = PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(16, 0, 0, 16, 0, 0),
+      );
+      final decoded = (await decodeImages(
+        cos,
+        [request],
+        maxImagePixelRatio: 1,
+        imageDecodeHeadroom: 1,
+      ))[stream]!;
+      expect((decoded.width, decoded.height), (16, height));
+      expect(pdfGpuSoftMaskOf(decoded), isNotNull);
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      CanvasPdfDevice(canvas, images: {stream: decoded}).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(16, height);
+      final pixels = await pixelsOf(rendered);
+      for (var i = 3; i < pixels.length; i += 4) {
+        expect(pixels[i], inInclusiveRange(120, 135));
+      }
+
+      rendered.dispose();
+      picture.dispose();
+      disposePdfDecodedImage(decoded);
+    });
+    expect(calls, [(32, 16, true), (16, 16, true)]);
   });
 
   testWidgets('/Decode [1 0] inverts gray samples', (tester) async {

@@ -13,8 +13,11 @@ import 'package:image/image.dart' as img;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
+import '../tool/advanced_blend_stress_fixture.dart';
+
 const _defaultPages = [27, 30, 29, 32, 31, 34, 37, 39, 28];
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
+const _advancedBlendStressScenario = 'advanced-blend-stress';
 const _deferredMaskFixture = 'deferred-mask';
 
 bool _gpuAvailable() {
@@ -148,6 +151,26 @@ Future<void> _registerMacSystemFonts() async {
 void main() {
   if (_buildCommit.isNotEmpty) PdfPerfLog.buildTag = 'commit=$_buildCommit';
 
+  testWidgets('advanced-blend stress fixture records twelve ordered strokes',
+      (tester) async {
+    await tester.runAsync(() async {
+      final document = PdfDocument.open(buildAdvancedBlendStressPdf());
+      final scene = await PdfRetainedScene.record(document.page(0));
+      try {
+        expect(
+          scene.commands.whereType<PdfStrokePathCommand>(),
+          hasLength(12),
+        );
+        expect(
+          scene.commands.whereType<PdfSetBlendModeCommand>().map((c) => c.mode),
+          contains(PdfBlendMode.darken),
+        );
+      } finally {
+        scene.dispose();
+      }
+    });
+  });
+
   testWidgets('deferred-mask fixture keeps its companion image surface',
       (tester) async {
     await tester.runAsync(() async {
@@ -209,7 +232,7 @@ void main() {
       final msaa = Platform.environment['PDF_GPU_BENCHMARK_MSAA'] != '0';
       final approximateOverprint =
           Platform.environment['PDF_GPU_BENCHMARK_OVERPRINT'] != '0';
-      final backend = FlutterGpuTileRasterBackend(
+      final gpuBackend = FlutterGpuTileRasterBackend(
         msaa: msaa,
         allowOverprintApproximation: approximateOverprint,
         analyticText:
@@ -223,7 +246,7 @@ void main() {
             : _scenarioName(scenarioLabel, 'pipeline-warm');
         _startScenario(scenario);
         final warmUp = Stopwatch()..start();
-        await backend.warmUp();
+        await gpuBackend.warmUp();
         final elapsedUs = warmUp.elapsedMicroseconds;
         // ignore: avoid_print
         print('REAL_GPU_BENCHMARK warmUpUs=$elapsedUs');
@@ -231,6 +254,7 @@ void main() {
       }
       final output = Platform.environment['PDF_GPU_BENCHMARK_OUT'];
       if (output != null) Directory(output).createSync(recursive: true);
+      final PdfTileRasterBackend backend = gpuBackend;
       final rssStart = ProcessInfo.currentRss;
       var peakRss = rssStart;
       final rows = <String>[];
@@ -241,6 +265,8 @@ void main() {
         final record = Stopwatch()..start();
         final scene = await PdfRetainedScene.record(
           document.page(pageIndex),
+          retainDecodedPixelsForCommands:
+              gpuBackend.shouldRetainLocallyDecodedImagePixels,
           timing: timing,
         );
         record.stop();
@@ -254,9 +280,15 @@ void main() {
             height: math.min(size.height, 512 / lod1),
           );
           final sessionClock = Stopwatch()..start();
-          final session = backend.createSession(scene);
+          var session = backend.createSession(scene);
+          if (session == null && backend is PdfTileRasterRetryBackend) {
+            final retry =
+                (backend as PdfTileRasterRetryBackend).retrySession(scene);
+            if (retry != null) session = await retry;
+          }
           sessionClock.stop();
-          if (session == null) {
+          final accelerated = session;
+          if (accelerated == null) {
             final firstScenario = _scenarioName(
               scenarioLabel,
               'first-tile',
@@ -294,7 +326,7 @@ void main() {
             rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                 'decodeUs=${(timing.decodeMs * 1000).round()} '
                 'sessionUs=${sessionClock.elapsedMicroseconds} '
-                'gpu=rejected reason=${backend.stats.lastRejection} '
+                'gpu=rejected reason=${gpuBackend.stats.lastRejection} '
                 'firstRoute=canvas-fallback firstUs=${fallback.$1} '
                 'canvasUs=${canvas.$1} '
                 'meanDiff=${_meanDiff(fallback.$2, canvas.$2).toStringAsFixed(3)} '
@@ -302,8 +334,11 @@ void main() {
             continue;
           }
           try {
+            final warmable = accelerated is PdfTileRasterWarmUp
+                ? accelerated as PdfTileRasterWarmUp
+                : null;
             if (Platform.environment['PDF_GPU_BENCHMARK_SCENE_WARMUP'] == '1' &&
-                session is PdfTileRasterWarmUp) {
+                warmable != null) {
               // Route-change cohorts compare a Canvas base with a GPU
               // candidate, so only one side can produce a scene-warm timing.
               // Still perform the warm-up—the viewer does—while suppressing
@@ -317,7 +352,7 @@ void main() {
                     );
               _startScenario(scenario);
               final warmUp = Stopwatch()..start();
-              await (session as PdfTileRasterWarmUp).warmUp();
+              await warmable.warmUp();
               final elapsedUs = warmUp.elapsedMicroseconds;
               // ignore: avoid_print
               print('REAL_GPU_BENCHMARK sceneWarmUpUs=$elapsedUs');
@@ -331,7 +366,7 @@ void main() {
               );
               _startScenario(coldScenario);
               final coldGpu = await _render(
-                () => session.rasterizeRegion(region1, pixelRatio: lod1),
+                () => accelerated.rasterizeRegion(region1, pixelRatio: lod1),
                 pngPath:
                     output == null ? null : '$output/page-$pageIndex-gpu.png',
               );
@@ -369,7 +404,7 @@ void main() {
                 height: math.min(size.height, 512 / lod2),
               );
               final warmGpu = await _render(
-                  () => session.rasterizeRegion(region2, pixelRatio: lod2));
+                  () => accelerated.rasterizeRegion(region2, pixelRatio: lod2));
               peakRss = math.max(peakRss, ProcessInfo.currentRss);
               rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                   'decodeUs=${(timing.decodeMs * 1000).round()} '
@@ -389,7 +424,7 @@ void main() {
                   'error=${error.toString().replaceAll('\n', ' ')}');
             }
           } finally {
-            session.dispose();
+            accelerated.dispose();
           }
         } finally {
           scene.dispose();
@@ -405,8 +440,20 @@ void main() {
       }
       // ignore: avoid_print
       print('REAL_GPU_BENCHMARK rssStart=$rssStart peakRss=$peakRss '
-          'delta=${peakRss - rssStart} stats=${backend.stats}');
+          'delta=${peakRss - rssStart} stats=${gpuBackend.stats}');
       expect(rows, isNotEmpty);
+      if (scenarioLabel == _advancedBlendStressScenario) {
+        final sceneWarmUp =
+            Platform.environment['PDF_GPU_BENCHMARK_SCENE_WARMUP'] == '1';
+        // The two measured LoDs each coalesce the twelve disjoint strokes
+        // into one blend. A one-pixel scene warm-up deliberately stays
+        // conservative because all strokes resolve into the same pixel.
+        expect(gpuBackend.stats.advancedBlendPasses, sceneWarmUp ? 14 : 2);
+        expect(
+          gpuBackend.stats.advancedBlendBlits,
+          gpuBackend.stats.advancedBlendPasses,
+        );
+      }
     });
   }, timeout: const Timeout(Duration(minutes: 20)));
 }

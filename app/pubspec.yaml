@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 4.0.0+33
+version: 4.1.0+34
 
 environment:
   sdk: ^3.5.0
@@ -23,19 +23,19 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^4.0.0
+  dart_pdf_editor: ^4.1.0
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
-  dart_pdf_editor_flutter_gpu: ^0.2.0
+  dart_pdf_editor_flutter_gpu: ^0.3.0
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
-  dart_pdf_editor_assets: ^4.0.0
-  pdf_document: ^4.0.0
-  pdf_cos: ^4.0.0
+  dart_pdf_editor_assets: ^4.1.0
+  pdf_document: ^4.1.0
+  pdf_cos: ^4.1.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^4.0.0
+  pdf_ocr_ondevice: ^4.1.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
@@ -98,11 +98,11 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^4.0.0
+  pdf_test_fixtures: ^4.1.0
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^4.0.0
+  pdf_graphics: ^4.1.0
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see
   # test/unsaved_changes_store_io_test.dart).

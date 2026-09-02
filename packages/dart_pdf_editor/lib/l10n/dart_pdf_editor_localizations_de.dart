@@ -2064,4 +2064,63 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Alles auswählen';
+
+  @override
+  String get annotationLibraryTitle => 'Anmerkungsbibliothek';
+
+  @override
+  String get annotationLibraryEmpty => 'Keine gespeicherten Anmerkungen.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Wählen Sie eine unterstützte Anmerkung aus und wählen Sie in ihrem Menü „In Anmerkungsbibliothek speichern“. Links und Formularfelder können nicht gespeichert werden.';
+
+  @override
+  String get annotationLibrarySave => 'In Anmerkungsbibliothek speichern';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Anmerkung speichern';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Bibliothekseintrag umbenennen';
+
+  @override
+  String get annotationLibrarySearchHint => 'Bibliothek durchsuchen';
+
+  @override
+  String get annotationLibraryNoMatches => 'Keine passenden Anmerkungen.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Nicht gruppiert';
+
+  @override
+  String get annotationLibraryChooseGroup => 'In Gruppe verschieben';
+
+  @override
+  String get annotationLibraryNewGroup => 'Neue Gruppe…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Neue Anmerkungsgruppe';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Anmerkungsgruppe umbenennen';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Gruppe entfernen';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Zum Platzieren auf die Seite klicken. Zum Abbrechen Escape drücken.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Benutzerdefinierte Stempel…';
+
+  @override
+  String get signatureLibraryManage => 'Unterschriften verwalten';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Unterschrift umbenennen';
+
+  @override
+  String get signatureLibraryEmpty => 'Keine gespeicherten Unterschriften.';
 }

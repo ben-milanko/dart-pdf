@@ -1221,6 +1221,24 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               'session so first paint is unaffected. Web uses a compile-time '
               'stub and always stays on Canvas.',
         ),
+        _helpSwitch(
+          theme,
+          key: const ValueKey('devtools-gpu-route-overlay'),
+          title: 'Render route overlay',
+          help: 'Borders and badges every mounted page with the route its '
+              'deep-zoom detail tiles actually took: green for GPU (naming '
+              'the backend, tile count, and command count), amber for a '
+              'Canvas fallback (naming the reason), blue for a deliberately '
+              'requested Canvas, grey while no detail tiles have been asked '
+              'for yet. The route is per scene, not per tile - the whole '
+              "page's detail session is accepted or declined together. The "
+              'initial fitted page raster is Canvas either way.',
+          value: pdfDebugShowGpuRasterRoutes.value,
+          onChanged: (value) => setState(() {
+            pdfDebugShowGpuRasterRoutes.value = value;
+            _persist();
+          }),
+        ),
         if (previewDownloads.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 8),

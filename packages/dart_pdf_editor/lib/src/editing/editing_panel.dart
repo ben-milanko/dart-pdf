@@ -42,7 +42,8 @@ enum PdfDockablePanel {
   search(Icons.manage_search),
   bookmarks(Icons.bookmarks_outlined),
   annotations(Icons.list_alt),
-  properties(Icons.tune);
+  properties(Icons.tune),
+  annotationLibrary(Icons.collections_bookmark_outlined);
 
   const PdfDockablePanel(this.icon);
 
@@ -60,6 +61,7 @@ enum PdfDockablePanel {
       PdfDockablePanel.bookmarks => l.shellPanelBookmarks,
       PdfDockablePanel.annotations => l.shellPanelAnnotations,
       PdfDockablePanel.properties => l.shellPanelProperties,
+      PdfDockablePanel.annotationLibrary => l.annotationLibraryTitle,
     };
   }
 }

@@ -2051,4 +2051,63 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Select all';
+
+  @override
+  String get annotationLibraryTitle => 'Annotation library';
+
+  @override
+  String get annotationLibraryEmpty => 'No saved annotations.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+
+  @override
+  String get annotationLibrarySave => 'Save to annotation library';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Save annotation';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Rename library item';
+
+  @override
+  String get annotationLibrarySearchHint => 'Search library';
+
+  @override
+  String get annotationLibraryNoMatches => 'No matching annotations.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Ungrouped';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Move to group';
+
+  @override
+  String get annotationLibraryNewGroup => 'New group…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'New annotation group';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Rename annotation group';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Remove group';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Click the page to place. Press Escape to cancel.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Custom stamps…';
+
+  @override
+  String get signatureLibraryManage => 'Manage signatures';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Rename signature';
+
+  @override
+  String get signatureLibraryEmpty => 'No saved signatures.';
 }

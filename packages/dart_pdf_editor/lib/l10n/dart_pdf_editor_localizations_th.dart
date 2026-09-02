@@ -2045,4 +2045,64 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'เลือกทั้งหมด';
+
+  @override
+  String get annotationLibraryTitle => 'คลังคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryEmpty => 'ไม่มีคำอธิบายประกอบที่บันทึกไว้';
+
+  @override
+  String get annotationLibraryHelp =>
+      'เลือกคำอธิบายประกอบที่รองรับ แล้วเลือก “บันทึกไปยังคลังคำอธิบายประกอบ” จากเมนู ไม่สามารถบันทึกลิงก์และช่องแบบฟอร์มได้';
+
+  @override
+  String get annotationLibrarySave => 'บันทึกไปยังคลังคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibrarySaveTitle => 'บันทึกคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryRenameTitle => 'เปลี่ยนชื่อรายการในคลัง';
+
+  @override
+  String get annotationLibrarySearchHint => 'ค้นหาในคลัง';
+
+  @override
+  String get annotationLibraryNoMatches => 'ไม่พบคำอธิบายประกอบที่ตรงกัน';
+
+  @override
+  String get annotationLibraryUngrouped => 'ไม่ได้จัดกลุ่ม';
+
+  @override
+  String get annotationLibraryChooseGroup => 'ย้ายไปยังกลุ่ม';
+
+  @override
+  String get annotationLibraryNewGroup => 'กลุ่มใหม่…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'กลุ่มคำอธิบายประกอบใหม่';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'เปลี่ยนชื่อกลุ่มคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'ลบกลุ่ม';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'คลิกหน้าเพื่อวาง กด Escape เพื่อยกเลิก';
+
+  @override
+  String get annotationLibraryCustomStamps => 'ตราประทับแบบกำหนดเอง…';
+
+  @override
+  String get signatureLibraryManage => 'จัดการลายเซ็น';
+
+  @override
+  String get signatureLibraryRenameTitle => 'เปลี่ยนชื่อลายเซ็น';
+
+  @override
+  String get signatureLibraryEmpty => 'ไม่มีลายเซ็นที่บันทึกไว้';
 }

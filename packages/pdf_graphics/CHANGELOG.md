@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.1.0
+
+- Allow retained renderers to request a larger overprint colourant grid when
+  retrying a scene that the default exact-GPU route conservatively rejected.
+- Replay spatially varying stroked overprint through exact clipped regions,
+  retain narrow-stroke and embedded-glyph colourant samples, and keep compound
+  sub-cell paths conservative.
+- Accelerate supported MRC JPEG 2000 image decoding on Apple platforms while
+  preserving the portable fallback.
+- Fix an inverted colorant-buffer clip range that could blank an otherwise
+  renderable page.
+- Align dependency constraints with the dart-pdf 4.1.0 package suite.
+
 ## 4.0.0
 
 - **Breaking:** `PdfOverprintCompositor.image` now requires the image
@@ -13,7 +26,6 @@
 - Add public `PdfColorContext`, `PdfRenderingIntent`, spatial overprint and
   transparency-group device interfaces, plus intent-aware colour-space and ICC
   conversion APIs.
-
 - Export an OpenType CFF face reader that retains Unicode cmap mappings and
   selects collection entries, allowing native substitution adapters to obtain
   exact glyph outlines and advances from CFF-flavoured system fonts.

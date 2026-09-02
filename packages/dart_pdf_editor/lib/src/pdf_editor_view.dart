@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'editing/editing_bookmarks.dart';
+import 'editing/editing_annotation_library.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
@@ -66,6 +67,7 @@ class PdfEditorFeatures {
     this.bookmarks = true,
     this.pageEditing = true,
     this.annotationSidebar = true,
+    this.annotationLibrary = true,
     this.propertiesPanel = true,
     this.toolbar = true,
     this.markup = true,
@@ -104,7 +106,8 @@ class PdfEditorFeatures {
   final bool authorEditable;
 
   /// The view-options menu: annotation visibility, form-field
-  /// highlight, text reflow, and page (paper) color - display settings only.
+  /// highlight, text reflow, page (paper) color, cursor guides, and the snap
+  /// grid - display and interaction settings only.
   final bool viewOptions;
 
   /// Whether the view-options menu offers "Reflow text". Reflow is a
@@ -129,6 +132,9 @@ class PdfEditorFeatures {
 
   /// The annotation-list sidebar and its toggle.
   final bool annotationSidebar;
+
+  /// The reusable annotation-library panel and its toggle.
+  final bool annotationLibrary;
 
   /// The annotation properties panel and its toggle.
   final bool propertiesPanel;
@@ -563,7 +569,9 @@ class PdfEditorView extends StatefulWidget {
   /// exports the captured raster image (copy/save/share).
   final PdfSnapshotHandler? onSnapshot;
 
-  /// See [PdfViewer.onPlaceSignature].
+  /// See [PdfViewer.onPlaceSignature]. Supply this to enable the digital-
+  /// signature box tool; when null it is hidden from the stock toolbar rather
+  /// than left as a no-op button.
   final PdfSignaturePlacer? onPlaceSignature;
 
   /// Saves or shares a figure the reader taps to open fullscreen in the text
@@ -898,6 +906,20 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   Widget build(BuildContext context) {
     if (_isSource) return _buildFromSource();
     final features = widget.features;
+    // A signature box is only a placement request; the host still has to
+    // supply the identity/signing flow. Do not advertise an inert tool in the
+    // stock shell when that callback is absent.
+    final availableTools = widget.onPlaceSignature != null
+        ? features.tools
+        : <PdfEditTool>{
+            for (final tool in features.tools ?? PdfEditTool.values)
+              if (tool != PdfEditTool.signatureBox) tool,
+          };
+    final availableShortcuts =
+        Map<PdfEditTool, PdfToolShortcut>.of(_toolShortcuts);
+    if (widget.onPlaceSignature == null) {
+      availableShortcuts.remove(PdfEditTool.signatureBox);
+    }
     Widget body = LayoutBuilder(builder: (context, constraints) {
       return ListenableBuilder(
         // the session owns the document revisions: the viewer must
@@ -1013,6 +1035,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     : () => prefs.showPropertiesPanel = false,
                 fontPicker: widget.fontPicker,
               );
+          PdfAnnotationLibraryPanel annotationLibrary(
+                  {required bool bottomSheet}) =>
+              PdfAnnotationLibraryPanel(
+                key: ValueKey(
+                    'pdf-shell-annotation-library-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: session,
+                dock: prefs.annotationLibraryPanelDock,
+                bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showAnnotationLibraryPanel = false,
+                imagePicker: widget.imagePicker,
+                onExportStamps: widget.onExportCustomStamps,
+                onImportStamps: widget.onImportCustomStamps,
+              );
           // the dedicated full-area page grid, overlaid on the (still
           // mounted) viewer so a tapped page can scroll it before the grid
           // closes to reveal the page
@@ -1059,6 +1096,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final showAnnotationsPanel = features.annotationSidebar &&
               prefs.showAnnotationSidebar &&
               !altView;
+          final showAnnotationLibraryPanel = features.annotationLibrary &&
+              prefs.showAnnotationLibraryPanel &&
+              !altView;
           final showPropertiesPanel =
               features.propertiesPanel && prefs.showPropertiesPanel && !altView;
 
@@ -1075,6 +1115,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             if (showAnnotationsPanel && !useSheets)
               PdfDockablePanel.annotations,
             if (showPropertiesPanel && !useSheets) PdfDockablePanel.properties,
+            if (showAnnotationLibraryPanel && !useSheets)
+              PdfDockablePanel.annotationLibrary,
           ];
           Widget standalonePanel(PdfDockablePanel p) => switch (p) {
                 PdfDockablePanel.thumbnails => thumbnails(bottomSheet: false),
@@ -1082,6 +1124,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 PdfDockablePanel.bookmarks => bookmarks(bottomSheet: false),
                 PdfDockablePanel.annotations => annotations(bottomSheet: false),
                 PdfDockablePanel.properties => properties(bottomSheet: false),
+                PdfDockablePanel.annotationLibrary =>
+                  annotationLibrary(bottomSheet: false),
               };
           // a chromeless body for use inside a tab group (the group supplies
           // the frame, tab strip, and close buttons); reuses the panels'
@@ -1096,6 +1140,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 PdfDockablePanel.bookmarks => bookmarks(bottomSheet: true),
                 PdfDockablePanel.annotations => annotations(bottomSheet: true),
                 PdfDockablePanel.properties => properties(bottomSheet: true),
+                PdfDockablePanel.annotationLibrary =>
+                  annotationLibrary(bottomSheet: true),
               };
           VoidCallback closePanel(PdfDockablePanel p) => switch (p) {
                 PdfDockablePanel.thumbnails => () =>
@@ -1108,6 +1154,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     prefs.showAnnotationSidebar = false,
                 PdfDockablePanel.properties => () =>
                     prefs.showPropertiesPanel = false,
+                PdfDockablePanel.annotationLibrary => () =>
+                    prefs.showAnnotationLibraryPanel = false,
               };
           List<Widget> dockedPanels(PdfPanelDock dock) {
             final onDock = [
@@ -1209,6 +1257,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       onClose: () => prefs.showPropertiesPanel = false,
                       child: properties(bottomSheet: true),
                     ),
+                  if (showAnnotationLibraryPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-annotation-library-sheet'),
+                      title: pdfL10n(context).annotationLibraryTitle,
+                      closeKey: const ValueKey(
+                          'pdf-shell-annotation-library-sheet-close'),
+                      onClose: () => prefs.showAnnotationLibraryPanel = false,
+                      child: annotationLibrary(bottomSheet: true),
+                    ),
                 ];
           // On a phone the toolbar collapses to a solid bar (see
           // PdfEditingToolbar.mobileBreakpoint); floating it over the page
@@ -1236,16 +1293,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     fontPicker: widget.fontPicker,
                     onExportCustomStamps: widget.onExportCustomStamps,
                     onImportCustomStamps: widget.onImportCustomStamps,
+                    onAnnotationLibraryPressed: features.annotationLibrary
+                        ? () => prefs.showAnnotationLibraryPanel =
+                            !prefs.showAnnotationLibraryPanel
+                        : null,
                     palette: widget.palette,
-                    tools: features.tools,
+                    tools: availableTools,
                     groups: features.toolGroups,
-                    toolShortcuts: _toolShortcuts,
+                    toolShortcuts: availableShortcuts,
                     showMarkup: features.markup,
                     showUndoRedo: features.undoRedo,
                     showColor: features.colorControls,
                     showStyle: features.styleControls,
                     showFlatten: features.flatten,
                     showColorProcessing: features.colorProcessing,
+                    showAnnotationLibrary: features.annotationLibrary,
                     dock: prefs.toolbarDock,
                     compact: dockToolbar,
                     cardAlignment: switch (prefs.toolbarDock) {
@@ -1274,13 +1336,14 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 reflow: features.reflowView,
                 pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
+                editingGuides: true,
                 author: features.author,
                 authorName: session.preferences.author,
                 onAuthorPressed: _promptAuthor,
-                toolShortcuts: _toolShortcuts,
+                toolShortcuts: availableShortcuts,
                 onToolShortcutsChanged: (value) =>
                     setState(() => _toolShortcuts = value),
-                tools: features.tools,
+                tools: availableTools,
               );
             },
           );
@@ -1333,6 +1396,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 selected: prefs.showAnnotationSidebar,
                 onPressed: () =>
                     prefs.showAnnotationSidebar = !prefs.showAnnotationSidebar,
+              ),
+            if (features.annotationLibrary)
+              PdfShellPanelItem(
+                key: const ValueKey('pdf-shell-annotation-library-toggle'),
+                icon: Icons.collections_bookmark_outlined,
+                tooltip: pdfL10n(context).annotationLibraryTitle,
+                selected: prefs.showAnnotationLibraryPanel,
+                onPressed: () => prefs.showAnnotationLibraryPanel =
+                    !prefs.showAnnotationLibraryPanel,
               ),
             if (features.propertiesPanel)
               PdfShellPanelItem(
@@ -1388,13 +1460,14 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         reflow: features.reflowView,
                         pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,
+                        editingGuides: true,
                         author: features.author,
                         authorName: session.preferences.author,
                         onAuthorPressed: _promptAuthor,
-                        toolShortcuts: _toolShortcuts,
+                        toolShortcuts: availableShortcuts,
                         onToolShortcutsChanged: (value) =>
                             setState(() => _toolShortcuts = value),
-                        tools: features.tools),
+                        tools: availableTools),
                   PdfShellPanelSwitch(
                     key: const ValueKey('pdf-shell-panels'),
                     items: panelItems,
@@ -1472,9 +1545,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         editingTextPrompt: widget.textPrompt,
                         editingStyledTextPrompt: widget.styledTextPrompt,
                         editingPalette: widget.palette,
-                        textSelectionEditing: (features.tools == null ||
-                                features.tools!
-                                    .contains(PdfEditTool.content)) &&
+                        textSelectionEditing: (availableTools == null ||
+                                availableTools.contains(PdfEditTool.content)) &&
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.edit)),
@@ -1494,7 +1566,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             : 0,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
-                        toolShortcuts: _toolShortcuts,
+                        toolShortcuts: availableShortcuts,
                         backgroundColor: widget.backgroundColor,
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,

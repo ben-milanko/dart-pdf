@@ -77,14 +77,16 @@ XTypeGroup _imageTypeGroup(String label) => XTypeGroup(
 /// The form tool's image picker: tapped push-button fields (signature
 /// and logo slots in templates) fill with the chosen PNG or JPEG.
 Future<Uint8List?> _pickFormImage(BuildContext context, PdfFormField field) =>
-    openFile(acceptedTypeGroups: [_imageTypeGroup(appL10n(context).exFileTypeImages)])
-        .then((file) => file?.readAsBytes());
+    openFile(acceptedTypeGroups: [
+      _imageTypeGroup(appL10n(context).exFileTypeImages)
+    ]).then((file) => file?.readAsBytes());
 
 /// The image tool's picker: inserts the chosen PNG or JPEG as a stamp
 /// annotation the user can move, resize, and rotate.
 Future<Uint8List?> _pickImage(BuildContext context) =>
-    openFile(acceptedTypeGroups: [_imageTypeGroup(appL10n(context).exFileTypeImages)])
-        .then((file) => file?.readAsBytes());
+    openFile(acceptedTypeGroups: [
+      _imageTypeGroup(appL10n(context).exFileTypeImages)
+    ]).then((file) => file?.readAsBytes());
 
 /// Fonts the "Load font…" entry accepts.
 XTypeGroup _fontTypeGroup(String label) => XTypeGroup(
@@ -99,9 +101,9 @@ XTypeGroup _fontTypeGroup(String label) => XTypeGroup(
 
 /// The font menu's "Load font…" picker: embeds the chosen TrueType or
 /// OpenType file so new text can use any font.
-Future<Uint8List?> _pickFont(BuildContext context) =>
-    openFile(acceptedTypeGroups: [_fontTypeGroup(appL10n(context).exFileTypeFonts)])
-        .then((file) => file?.readAsBytes());
+Future<Uint8List?> _pickFont(BuildContext context) => openFile(
+        acceptedTypeGroups: [_fontTypeGroup(appL10n(context).exFileTypeFonts)])
+    .then((file) => file?.readAsBytes());
 
 @visibleForTesting
 String pdfSavePathWithExtension(String path) {
@@ -147,12 +149,16 @@ void main() {
 }
 
 class ViewerApp extends StatefulWidget {
-  const ViewerApp({super.key, this.cacheStore});
+  const ViewerApp({super.key, this.cacheStore, this.identityStore});
 
   /// The persistent backend the on-disk caches and the recent-files list
   /// share. Defaults to the platform store (filesystem / IndexedDB); tests
   /// inject an in-memory one.
   final PdfCacheStore? cacheStore;
+
+  /// Where one-tap signing identities are persisted. The production default
+  /// is the platform secure store; tests can inject an in-memory backend.
+  final PdfIdentityStore? identityStore;
 
   @override
   State<ViewerApp> createState() => _ViewerAppState();
@@ -209,19 +215,31 @@ class _ViewerAppState extends State<ViewerApp> {
           useMaterial3: true,
         ),
         themeMode: _prefs.themeMode,
-        home: ViewerScreen(prefs: _prefs, cacheStore: widget.cacheStore),
+        home: ViewerScreen(
+          prefs: _prefs,
+          cacheStore: widget.cacheStore,
+          identityStore: widget.identityStore,
+        ),
       ),
     );
   }
 }
 
 class ViewerScreen extends StatefulWidget {
-  const ViewerScreen({super.key, required this.prefs, this.cacheStore});
+  const ViewerScreen({
+    super.key,
+    required this.prefs,
+    this.cacheStore,
+    this.identityStore,
+  });
 
   final PdfEditingPreferences prefs;
 
   /// Optional override for the persistent cache backend (see [ViewerApp]).
   final PdfCacheStore? cacheStore;
+
+  /// Optional override for the digital-signing identity backend.
+  final PdfIdentityStore? identityStore;
 
   @override
   State<ViewerScreen> createState() => _ViewerScreenState();
@@ -244,6 +262,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// namespaces keep their byte budgets independent.
   late final PdfCacheStore _cacheStore =
       widget.cacheStore ?? createPersistentCacheStore();
+
+  /// Private keys live in the platform Keychain/secure browser store. The
+  /// namespace is example-specific so a host app can choose its own policy.
+  late final PdfIdentityStore _signingIdentities = widget.identityStore ??
+      SecureIdentityStore(
+        keyPrefix: 'dart_pdf_editor.example.signing_identity.',
+      );
 
   /// `fullRasters` opts the demo into the persistent exact-raster tier: an
   /// already-rendered page at the same physical size reopens straight from
@@ -299,9 +324,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// re-running a hit test. App-wide.
   Future<void> _onContextMenuRequested(PdfContextMenuRequest request) async {
     if (!mounted) return;
-    final overlay =
-        Overlay.of(context, rootOverlay: true).context.findRenderObject()
-            as RenderBox?;
+    final overlay = Overlay.of(context, rootOverlay: true)
+        .context
+        .findRenderObject() as RenderBox?;
     if (overlay == null) return;
     // showMenu anchors at the tap point in the root overlay's coordinate
     // space; flip the global position to local with the root overlay's box.
@@ -631,8 +656,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         PopupMenuItem(
           value: () => unawaited(Navigator.of(menuContext).push(
             MaterialPageRoute<void>(
-              builder: (_) =>
-                  ScrollIndicatorDemoScreen(bytes: buildDemoPdf()),
+              builder: (_) => ScrollIndicatorDemoScreen(bytes: buildDemoPdf()),
             ),
           )),
           child: _appMenuTile(
@@ -670,8 +694,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
         ),
         PopupMenuItem(
-          value: () => setState(
-              () => _contextMenuEnabled = !_contextMenuEnabled),
+          value: () =>
+              setState(() => _contextMenuEnabled = !_contextMenuEnabled),
           enabled: tab?.session != null,
           child: _appMenuTile(
             icon: _contextMenuEnabled ? Icons.touch_app : Icons.do_not_touch,
@@ -681,16 +705,25 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
         ),
         PopupMenuItem(
-          value: () =>
-              setState(() => _horizontalLayout = !_horizontalLayout),
+          value: () => setState(() => _horizontalLayout = !_horizontalLayout),
           enabled: tab?.session != null,
           child: _appMenuTile(
-            icon: _horizontalLayout
-                ? Icons.swap_vert
-                : Icons.swap_horiz,
+            icon: _horizontalLayout ? Icons.swap_vert : Icons.swap_horiz,
             title: _horizontalLayout
                 ? appL10n(context).exVerticalLayout
                 : appL10n(context).exHorizontalLayout,
+          ),
+        ),
+        PopupMenuItem(
+          key: const ValueKey('dartpdf-gpu-route-devtool'),
+          value: () => pdfDebugShowGpuRasterRoutes.value =
+              !pdfDebugShowGpuRasterRoutes.value,
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: Icons.developer_mode,
+            title: pdfDebugShowGpuRasterRoutes.value
+                ? 'Hide GPU rendering overlay'
+                : 'Show GPU rendering overlay',
           ),
         ),
         PopupMenuItem(
@@ -850,6 +883,55 @@ class _ViewerScreenState extends State<ViewerScreen> {
         margin: pdfFloatingToastMargin(context),
         duration: const Duration(seconds: 2),
       ));
+  }
+
+  Future<PdfSigningIdentity?> _signingIdentity(
+      BuildContext dialogContext) async {
+    for (final id in await _signingIdentities.ids()) {
+      final identity = await _signingIdentities.load(id);
+      if (identity != null) return identity;
+    }
+    if (!mounted || !dialogContext.mounted) return null;
+    return showCreateSigningIdentityDialog(
+      dialogContext,
+      store: _signingIdentities,
+    );
+  }
+
+  Future<void> _placeDigitalSignature(
+    BuildContext dialogContext,
+    _DocumentTab tab, {
+    required int pageIndex,
+    required PdfRect pageRect,
+  }) async {
+    final session = tab.session;
+    if (session == null) return;
+    try {
+      final identity = await _signingIdentity(dialogContext);
+      if (identity == null ||
+          !mounted ||
+          !_tabs.contains(tab) ||
+          !identical(tab.session, session)) {
+        return;
+      }
+      final signed = await session.addSelfSignedSignature(
+        identity,
+        appearance: PdfSignatureAppearance(
+          page: pageIndex,
+          rect: pageRect,
+        ),
+      );
+      if (signed && mounted) {
+        _toast('Digitally signed by ${identity.name ?? 'signer'}');
+      }
+    } catch (e, s) {
+      AppLog.instance.error(
+        'Digital signature failed',
+        error: e,
+        stackTrace: s,
+      );
+      if (mounted) _toast('Could not digitally sign: $e');
+    }
   }
 
   /// Opens [bytes] in a brand-new tab and makes it the active one.
@@ -1023,8 +1105,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   Future<void> _pickFile() async {
-    final file =
-        await openFile(acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
+    final file = await openFile(
+        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     final loading = _openLoading(file.name);
     try {
@@ -1070,13 +1152,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
       _openError(input, l10n.exNotAValidUrl(input));
       return;
     }
-    final name =
-        uri.pathSegments.isNotEmpty && uri.pathSegments.last.isNotEmpty
-            ? uri.pathSegments.last
-            : uri.host;
+    final name = uri.pathSegments.isNotEmpty && uri.pathSegments.last.isNotEmpty
+        ? uri.pathSegments.last
+        : uri.host;
 
     final progress = ValueNotifier<double>(0);
-    final loading = _DocumentTab.loading(title: name, loadingProgress: progress);
+    final loading =
+        _DocumentTab.loading(title: name, loadingProgress: progress);
     _addTab(loading);
 
     final source = remoteByteSourceFactory(uri);
@@ -1093,8 +1175,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       final bytes = doc.cos.bytes;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.document(
-            title: name, bytes: bytes, preferences: _prefs),
+        _DocumentTab.document(title: name, bytes: bytes, preferences: _prefs),
       );
       unawaited(_recents.record(name, bytes));
     } catch (e, s) {
@@ -1117,14 +1198,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// Returns null when cancelled.
   Future<String?> _promptForUrl() => showDialog<String>(
         context: context,
-        builder: (context) => const _OpenUrlDialog(initial: _sampleRemotePdfUrl),
+        builder: (context) =>
+            const _OpenUrlDialog(initial: _sampleRemotePdfUrl),
       );
 
   /// Picks a PDF and returns its bytes (null when cancelled) - the source
   /// for the editor's "Insert PDF…" action.
   Future<Uint8List?> _pickPdfBytes() async {
-    final file =
-        await openFile(acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
+    final file = await openFile(
+        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     return file?.readAsBytes();
   }
 
@@ -1135,8 +1217,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final current = tab?.session?.bytes;
     if (current == null) return;
     final l10n = appL10n(context);
-    final file =
-        await openFile(acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
+    final file = await openFile(
+        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     try {
       final other = await file.readAsBytes();
@@ -1151,8 +1233,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     } catch (e, s) {
       AppLog.instance
           .error('Could not open ${file.name}', error: e, stackTrace: s);
-      _openError(
-          file.name, l10n.exCouldNotOpenFile(file.name, '$e'));
+      _openError(file.name, l10n.exCouldNotOpenFile(file.name, '$e'));
     }
   }
 
@@ -1178,7 +1259,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
       _replaceLoadingTab(
         loading,
         _DocumentTab.error(
-            title: name, error: appL10n(context).exCouldNotOpenPath(path, '$e')),
+            title: name,
+            error: appL10n(context).exCouldNotOpenPath(path, '$e')),
       );
     }
   }
@@ -1507,7 +1589,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
       _openBytes(result, appL10n(context).exOcrDocumentTitle(tab.title));
       _toast(appL10n(context).exOcrAddedSpans(spans));
     } on VlmOcrException catch (e, s) {
-      AppLog.instance.error('OCR failed: ${e.message}', error: e, stackTrace: s);
+      AppLog.instance
+          .error('OCR failed: ${e.message}', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       _toast(appL10n(context).exOcrFailed(e.message));
@@ -1651,10 +1734,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,
                                 contextMenuEnabled: _contextMenuEnabled,
-                                onContextMenuRequested:
-                                    _contextMenuEnabled
-                                        ? null
-                                        : _onContextMenuRequested,
+                                onContextMenuRequested: _contextMenuEnabled
+                                    ? null
+                                    : _onContextMenuRequested,
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
@@ -1685,6 +1767,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,
                                 onSnapshot: _saveSnapshot,
+                                onPlaceSignature: (context,
+                                        {required pageIndex,
+                                        required pageRect}) =>
+                                    _placeDigitalSignature(
+                                  context,
+                                  tab,
+                                  pageIndex: pageIndex,
+                                  pageRect: pageRect,
+                                ),
                                 onShareReflowImage: (context, png) =>
                                     _saveImageBytes(
                                         png, 'figure.png', 'image/png'),

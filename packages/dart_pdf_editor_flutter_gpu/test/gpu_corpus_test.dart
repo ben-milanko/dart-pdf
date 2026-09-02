@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -29,6 +30,8 @@ const _skippedPdfJs = {
   'print_protection.pdf',
 };
 
+final _corpusReports = <String, Object?>{};
+
 bool _gpuAvailable() {
   try {
     gpu.gpuContext.defaultColorFormat;
@@ -54,6 +57,16 @@ Future<double> _meanDifference(ui.Image expected, ui.Image actual) async {
   }
   return difference / a.length;
 }
+
+int _classifiedDrawCalls(FlutterGpuTileBackendStats stats) =>
+    stats.directSolidDrawCalls +
+    stats.stencilFanDrawCalls +
+    stats.stencilCoverDrawCalls +
+    stats.stencilClearDrawCalls +
+    stats.textureDrawCalls +
+    stats.glyphDrawCalls +
+    stats.blendDrawCalls +
+    stats.softMaskDrawCalls;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -115,8 +128,16 @@ void _corpus(
   var rejected = 0;
   final rejectionReasons = <String, int>{};
   final missingOutlineFonts = <String, int>{};
+  final pages = <Map<String, Object?>>[];
   for (final file in files) {
     final name = file.uri.pathSegments.last;
+    final prefix = root.path.endsWith(Platform.pathSeparator)
+        ? root.path
+        : '${root.path}${Platform.pathSeparator}';
+    final relativeName = (file.path.startsWith(prefix)
+            ? file.path.substring(prefix.length)
+            : name)
+        .replaceAll('\\', '/');
     testWidgets('$suite/$name', (tester) async {
       await tester.runAsync(() async {
         final document = PdfDocument.open(
@@ -125,18 +146,44 @@ void _corpus(
         );
         final limit = math.min(document.pageCount, maxPages);
         for (var pageIndex = 0; pageIndex < limit; pageIndex++) {
-          final scene = await PdfRetainedScene.record(document.page(pageIndex));
+          final backend = FlutterGpuTileRasterBackend(
+            analyticText:
+                Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
+            systemTextOutlines:
+                Platform.environment['GPU_CORPUS_SYSTEM_TEXT'] == '1',
+            overprintRetryMaxDimension: int.tryParse(
+                  Platform.environment[
+                          'GPU_CORPUS_OVERPRINT_RETRY_DIMENSION'] ??
+                      '',
+                ) ??
+                512,
+            overprintRetryMaxCommands: int.tryParse(
+                  Platform.environment[
+                          'GPU_CORPUS_OVERPRINT_RETRY_MAX_COMMANDS'] ??
+                      '',
+                ) ??
+                768,
+          );
+          final scene = await PdfRetainedScene.record(
+            document.page(pageIndex),
+            retainDecodedPixelsForCommands:
+                backend.shouldRetainLocallyDecodedImagePixels,
+          );
           try {
-            final backend = FlutterGpuTileRasterBackend(
-              analyticText:
-                  Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
-              systemTextOutlines:
-                  Platform.environment['GPU_CORPUS_SYSTEM_TEXT'] == '1',
-            );
-            final session = backend.createSession(scene);
+            var session = backend.createSession(scene);
+            if (session == null) {
+              final retry = backend.retrySession(scene);
+              if (retry != null) session = await retry;
+            }
             if (session == null) {
               rejected++;
               final reason = backend.lastSessionRejection ?? 'unspecified';
+              pages.add({
+                'id': '$suite/$relativeName page $pageIndex',
+                'route': 'canvas-fallback',
+                'reason': reason,
+                'stats': backend.stats.toJson(),
+              });
               rejectionReasons.update(reason, (count) => count + 1,
                   ifAbsent: () => 1);
               final fonts = <String>{
@@ -152,6 +199,11 @@ void _corpus(
               continue;
             }
             accepted++;
+            final pageReport = <String, Object?>{
+              'id': '$suite/$relativeName page $pageIndex',
+              'route': 'flutter-gpu',
+            };
+            pages.add(pageReport);
             try {
               final region = Offset.zero & scene.pageSize;
               final ratio = math.min(
@@ -168,10 +220,19 @@ void _corpus(
               );
               try {
                 final mean = await _meanDifference(canvas, accelerated);
+                expect(
+                  _classifiedDrawCalls(backend.stats),
+                  backend.stats.drawCalls,
+                  reason: '$suite/$name page $pageIndex: every issued GPU '
+                      'draw must have one diagnostic kind',
+                );
                 if (mean >= 16) {
                   await _writeFailure(
                       suite, name, pageIndex, canvas, accelerated, mean);
                 }
+                pageReport
+                  ..['meanDifference'] = mean
+                  ..['stats'] = backend.stats.toJson();
                 expect(mean, lessThan(16),
                     reason: '$suite/$name page $pageIndex: GPU accepted the '
                         'scene, so it must agree with Canvas (mean=$mean)');
@@ -215,11 +276,36 @@ void _corpus(
     // ignore: avoid_print
     print('$suite flutter_gpu missing-outline fonts: '
         '${{for (final entry in fonts) entry.key: entry.value}}');
+    pages.sort((a, b) => (a['id']! as String).compareTo(b['id']! as String));
+    _corpusReports[suite] = {
+      'accepted': accepted,
+      'rejected': rejected,
+      'pages': pages,
+      'rejectionReasons': {
+        for (final entry in grouped) entry.key: entry.value,
+      },
+      'missingOutlineFonts': {
+        for (final entry in fonts) entry.key: entry.value,
+      },
+    };
+    _writeCorpusReport();
     expect(accepted + rejected, greaterThan(0));
     // A zero acceptance rate would make the optional backend inert even if
     // all conservative-fallback tests passed.
     expect(accepted, greaterThan(0));
   });
+}
+
+void _writeCorpusReport() {
+  final path = Platform.environment['GPU_CORPUS_REPORT'];
+  if (path == null || path.isEmpty) return;
+  final file = File(path);
+  file.parent.createSync(recursive: true);
+  const encoder = JsonEncoder.withIndent('  ');
+  file.writeAsStringSync('${encoder.convert({
+        'schema': 1,
+        'suites': _corpusReports,
+      })}\n');
 }
 
 Future<void> _registerMacSystemFonts() async {

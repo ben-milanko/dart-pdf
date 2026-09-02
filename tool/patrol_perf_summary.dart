@@ -380,12 +380,14 @@ class PatrolPerfTrace {
   String toHeadlineMarkdown({String label = 'web'}) {
     final heading =
         label.toLowerCase() == 'web' ? '### Headline' : '### $label headline';
-    final speedup = _gpuTileSpeedupHeadline(toJson());
+    final json = toJson();
+    final headline =
+        _gpuTileSpeedupHeadline(json) ?? _scenarioElapsedHeadline(json);
     final buffer = StringBuffer()..writeln(heading);
-    if (speedup != null) {
+    if (headline != null) {
       buffer
         ..writeln()
-        ..writeln(speedup);
+        ..writeln(headline);
     }
     buffer
       ..writeln()
@@ -395,6 +397,11 @@ class PatrolPerfTrace {
             : 'Current Patrol $label trace. Lower timing is better.',
       );
     if (lines.isEmpty) return '${buffer.toString()}\n';
+    buffer
+      ..writeln()
+      ..writeln('<details>')
+      ..writeln('<summary>View performance samples and signals</summary>')
+      ..writeln();
     if (_scenarioMetrics.isNotEmpty) {
       buffer
         ..writeln()
@@ -432,7 +439,10 @@ class PatrolPerfTrace {
           '${pageRasterOutcomes['reject'] ?? 0} |')
       ..writeln('| Web-worker fatal fallbacks | '
           '${webWorkerOutcomes['fallback'] ?? 0} |');
-    buffer.writeln();
+    buffer
+      ..writeln()
+      ..writeln('</details>')
+      ..writeln();
     return buffer.toString();
   }
 
@@ -573,15 +583,27 @@ class PatrolPerfComparison {
       ..._jsonMapKeys(current, const ['scenarioMetrics']),
     }.toList()
       ..sort();
+    final sparseSamples = measuredScenarios.any((scenario) {
+      final before = _jsonNumber(
+        baseline,
+        ['scenarioMetrics', scenario, 'runs'],
+      );
+      final after = _jsonNumber(
+        current,
+        ['scenarioMetrics', scenario, 'runs'],
+      );
+      return before == null || after == null || before < 3 || after < 3;
+    });
     final heading = label == null || label.toLowerCase() == 'web'
         ? '### Headline comparison with `main`'
         : '### $label comparison with `main`';
-    final speedup = _gpuTileSpeedupHeadline(current, baseline: baseline);
+    final headline = _gpuTileSpeedupHeadline(current, baseline: baseline) ??
+        _scenarioElapsedHeadline(current, baseline: baseline);
     final buffer = StringBuffer()..writeln(heading);
-    if (speedup != null) {
+    if (headline != null) {
       buffer
         ..writeln()
-        ..writeln(speedup);
+        ..writeln(headline);
     }
     buffer
       ..writeln()
@@ -589,6 +611,27 @@ class PatrolPerfComparison {
         'Lower timing is better. Structural counts should stay stable unless '
         'the PR intentionally changes the exercised path.',
       );
+    if (sparseSamples) {
+      buffer
+        ..writeln()
+        ..writeln(
+          '⚠️ At least one scenario has fewer than three samples; treat '
+          'its timing delta as provisional.',
+        );
+    }
+    if (!sameCoverage) {
+      buffer
+        ..writeln()
+        ..writeln(
+          '⚠️ Scenario coverage differs from `main`; timing deltas are not '
+          'like-for-like.',
+        );
+    }
+    buffer
+      ..writeln()
+      ..writeln('<details>')
+      ..writeln('<summary>View comparison samples and signals</summary>')
+      ..writeln();
     if (measuredScenarios.isNotEmpty) {
       final samples = measuredScenarios.map((scenario) {
         final before = _jsonNumber(
@@ -602,17 +645,6 @@ class PatrolPerfComparison {
         return '${_code(scenario)} ${_numberText(before)} / '
             '${_numberText(after)}';
       }).join(', ');
-      final sparseSamples = measuredScenarios.any((scenario) {
-        final before = _jsonNumber(
-          baseline,
-          ['scenarioMetrics', scenario, 'runs'],
-        );
-        final after = _jsonNumber(
-          current,
-          ['scenarioMetrics', scenario, 'runs'],
-        );
-        return before == null || after == null || before < 3 || after < 3;
-      });
       buffer
         ..writeln()
         ..writeln(
@@ -624,22 +656,6 @@ class PatrolPerfComparison {
           'When both cohorts have at least four samples, overlapping '
           'interquartile ranges are labelled `within run spread` instead '
           'of showing a misleading percentage.',
-        );
-      if (sparseSamples) {
-        buffer
-          ..writeln()
-          ..writeln(
-            '⚠️ At least one scenario has fewer than three samples; treat '
-            'its timing delta as provisional.',
-          );
-      }
-    }
-    if (!sameCoverage) {
-      buffer
-        ..writeln()
-        ..writeln(
-          '⚠️ Scenario coverage differs from `main`; timing deltas are not '
-          'like-for-like.',
         );
     }
     buffer
@@ -699,7 +715,10 @@ class PatrolPerfComparison {
       const ['webWorker', 'outcomes', 'fallback'],
       absentIsZero: true,
     );
-    buffer.writeln();
+    buffer
+      ..writeln()
+      ..writeln('</details>')
+      ..writeln();
     return buffer.toString();
   }
 
@@ -1409,6 +1428,59 @@ typedef _GpuTileSpeedup = ({
   double canvasTileMs,
   double? pairedSpeedup,
 });
+
+String? _scenarioElapsedHeadline(
+  Object? current, {
+  Object? baseline,
+}) {
+  final scenarios = <String>{
+    if (baseline != null) ..._jsonMapKeys(baseline, const ['scenarioMetrics']),
+    ..._jsonMapKeys(current, const ['scenarioMetrics']),
+  }.toList()
+    ..sort();
+  // A large specialized matrix (the GPU benchmark currently has dozens of
+  // scenarios) already supplies its own compact headline. Keep this generic
+  // fallback for the small web/native Patrol journeys where every scenario
+  // fits on one readable line.
+  if (scenarios.isEmpty || scenarios.length > 8) return null;
+
+  if (baseline != null) {
+    final values = <String>[];
+    for (final scenario in scenarios) {
+      final before = _jsonNumber(
+        baseline,
+        ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+      );
+      final after = _jsonNumber(
+        current,
+        ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+      );
+      if (before == null && after == null) continue;
+      values.add(
+        '${_code(scenario)} **${_timingText(before)} → '
+        '${_timingText(after)} '
+        '(${_scenarioElapsedDelta(baseline, current, scenario)})**',
+      );
+    }
+    return values.isEmpty
+        ? null
+        : '**Scenario elapsed p50 (main → PR):** ${values.join('; ')}.';
+  }
+
+  final values = <String>[];
+  for (final scenario in scenarios) {
+    final elapsed = _jsonNumber(
+      current,
+      ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+    );
+    if (elapsed != null) {
+      values.add('${_code(scenario)} **${_timingText(elapsed)}**');
+    }
+  }
+  return values.isEmpty
+      ? null
+      : '**Scenario elapsed p50:** ${values.join('; ')}.';
+}
 
 Map<String, _GpuTileSpeedup> _gpuTileSpeedups(Object? trace) {
   const suffix = '-first-tile';

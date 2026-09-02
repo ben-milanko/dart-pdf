@@ -2098,4 +2098,64 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Виділити все';
+
+  @override
+  String get annotationLibraryTitle => 'Бібліотека анотацій';
+
+  @override
+  String get annotationLibraryEmpty => 'Немає збережених анотацій.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Виберіть підтримувану анотацію й у її меню натисніть «Зберегти до бібліотеки анотацій». Посилання та поля форм зберегти не можна.';
+
+  @override
+  String get annotationLibrarySave => 'Зберегти до бібліотеки анотацій';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Зберегти анотацію';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Перейменувати елемент бібліотеки';
+
+  @override
+  String get annotationLibrarySearchHint => 'Пошук у бібліотеці';
+
+  @override
+  String get annotationLibraryNoMatches => 'Відповідних анотацій немає.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Без групи';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Перемістити до групи';
+
+  @override
+  String get annotationLibraryNewGroup => 'Нова група…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Нова група анотацій';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Перейменувати групу анотацій';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Видалити групу';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Клацніть сторінку, щоб розмістити. Натисніть Escape, щоб скасувати.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Користувацькі штампи…';
+
+  @override
+  String get signatureLibraryManage => 'Керувати підписами';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Перейменувати підпис';
+
+  @override
+  String get signatureLibraryEmpty => 'Немає збережених підписів.';
 }

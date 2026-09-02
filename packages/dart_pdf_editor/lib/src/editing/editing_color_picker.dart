@@ -40,6 +40,7 @@ class PdfColorPicker extends StatefulWidget {
     this.swatches = defaultSwatches,
     this.recentColors = const [],
     this.documentColors = const [],
+    this.onPickFromPage,
   });
 
   final Color color;
@@ -63,6 +64,15 @@ class PdfColorPicker extends StatefulWidget {
   /// Colours already used in the open document (annotation strokes and
   /// fills) - shown in an "In document" grid when non-empty.
   final List<Color> documentColors;
+
+  /// Hands the eyedropper over: with this set the value row grows a
+  /// "pick color from page" button, and pressing it calls this back. The
+  /// picker cannot sample the page itself - it is showing over the page -
+  /// so the host takes the dialog down, arms the viewer's eyedropper, and
+  /// brings the picker back seeded with what was sampled. See
+  /// `showPdfColorPicker` and `pickEditingColor`. Null hides the button
+  /// (no editing session, or a picker nested inside another dialog).
+  final VoidCallback? onPickFromPage;
 
   /// A general-purpose palette: a grayscale ramp plus a spread of hues.
   /// Alpha is ignored - the picker deals in opaque colours.
@@ -313,6 +323,19 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
             ),
             const SizedBox(width: 12),
             Expanded(child: _valueFields(context)),
+            if (widget.onPickFromPage case final pickFromPage?) ...[
+              const SizedBox(width: 4),
+              SizedBox(
+                height: 38,
+                child: IconButton(
+                  key: const ValueKey('pdf-color-eyedropper'),
+                  icon: const Icon(Icons.colorize, size: 20),
+                  tooltip: pdfL10n(context).tbPickColorFromPage,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: pickFromPage,
+                ),
+              ),
+            ],
             const SizedBox(width: 8),
             // channel rows carry labels below the fields; pin the
             // switcher to the field row's height so it lines up
@@ -577,6 +600,13 @@ class _HuePainter extends CustomPainter {
 /// the device. [recentColors] and [documentColors] feed the picker's
 /// quick-pick grids (see [PdfColorPicker]); `pickEditingColor` wires
 /// them from the controller and preferences.
+///
+/// [onPickFromPage] adds the eyedropper button (see
+/// [PdfColorPicker.onPickFromPage]). The dialog closes itself - returning
+/// null, like a cancel - immediately after calling it, so the page is clear
+/// for sampling; the caller distinguishes the two by whether its callback
+/// ran. `pickEditingColor` does exactly that and reopens the picker on the
+/// sampled colour.
 Future<Color?> showPdfColorPicker(
   BuildContext context, {
   required Color initial,
@@ -584,6 +614,7 @@ Future<Color?> showPdfColorPicker(
   ValueChanged<PdfColorFormat>? onFormatChanged,
   List<Color> recentColors = const [],
   List<Color> documentColors = const [],
+  VoidCallback? onPickFromPage,
 }) {
   var current = initial;
   return showPdfDialog<Color>(
@@ -598,6 +629,12 @@ Future<Color?> showPdfColorPicker(
           onFormatChanged: onFormatChanged,
           recentColors: recentColors,
           documentColors: documentColors,
+          onPickFromPage: onPickFromPage == null
+              ? null
+              : () {
+                  onPickFromPage();
+                  Navigator.of(context).pop();
+                },
         ),
       ),
       actions: [

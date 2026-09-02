@@ -712,14 +712,14 @@ PdfDecodedPixels? _decodePdfImagePixelsTargeted(
     final mask = pdfImageSoftMask(
           cos,
           dict,
-          targetWidth: base.width,
-          targetHeight: base.height,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
         ) ??
         pdfImageStencilMask(
           cos,
           dict,
-          targetWidth: base.width,
-          targetHeight: base.height,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
         );
     if (mask == null && pdfImageDctSoftMaskBytes(cos, dict) != null) {
       return null;
@@ -3253,6 +3253,39 @@ List<String> pdfImageFilters(CosDocument cos, CosDictionary dict) {
     ];
   }
   return const [];
+}
+
+/// Whether a platform JPX codec can preserve every PDF semantic required by
+/// [dict] without exposing the codestream's raw component samples.
+///
+/// Platform codecs commonly return display RGB. Keep the gate narrow so PDF
+/// colour transforms, non-identity `/Decode`, colour-key masks, image-mask
+/// stencils, and `/SMask` processing stay on the portable decoder. A caller
+/// must separately check that its platform actually supplies a JPX codec.
+bool pdfCanUsePlatformJpxCodec(
+  CosDocument cos,
+  CosDictionary dict, {
+  required bool luminosityMask,
+}) {
+  if (luminosityMask || !pdfImageFilters(cos, dict).contains('JPXDecode')) {
+    return false;
+  }
+  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true) ||
+      dict.containsKey('SMask')) {
+    return false;
+  }
+  final space = cos.resolve(dict['ColorSpace']);
+  if (space is! CosName ||
+      !const {'DeviceRGB', 'RGB', 'DeviceGray', 'G'}.contains(space.value)) {
+    return false;
+  }
+  final components = space.value == 'DeviceGray' || space.value == 'G' ? 1 : 3;
+  if (pdfImageDecodeRanges(cos, dict, components) != null ||
+      pdfImageColorKeyRanges(cos, dict, components) != null) {
+    return false;
+  }
+  final mask = cos.resolve(dict['Mask']);
+  return !dict.containsKey('Mask') || mask is CosStream;
 }
 
 double _numOf(CosObject? value) {

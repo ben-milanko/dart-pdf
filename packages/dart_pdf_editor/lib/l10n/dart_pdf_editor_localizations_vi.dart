@@ -2051,4 +2051,63 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Chọn tất cả';
+
+  @override
+  String get annotationLibraryTitle => 'Thư viện chú thích';
+
+  @override
+  String get annotationLibraryEmpty => 'Không có chú thích đã lưu.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Chọn một chú thích được hỗ trợ rồi chọn “Lưu vào thư viện chú thích” trong menu của chú thích đó. Không thể lưu liên kết và trường biểu mẫu.';
+
+  @override
+  String get annotationLibrarySave => 'Lưu vào thư viện chú thích';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Lưu chú thích';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Đổi tên mục thư viện';
+
+  @override
+  String get annotationLibrarySearchHint => 'Tìm trong thư viện';
+
+  @override
+  String get annotationLibraryNoMatches => 'Không có chú thích phù hợp.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Chưa nhóm';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Chuyển vào nhóm';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nhóm mới…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nhóm chú thích mới';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Đổi tên nhóm chú thích';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Xóa nhóm';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Nhấp vào trang để đặt. Nhấn Escape để hủy.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Con dấu tùy chỉnh…';
+
+  @override
+  String get signatureLibraryManage => 'Quản lý chữ ký';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Đổi tên chữ ký';
+
+  @override
+  String get signatureLibraryEmpty => 'Không có chữ ký đã lưu.';
 }

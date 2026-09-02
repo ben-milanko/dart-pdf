@@ -17,6 +17,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -442,6 +443,178 @@ void main() {
                 overprint: true),
             c == overSpot ? green : inkColor);
       }
+    });
+
+    test('a stroke exposes exact regions when its backdrop varies', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('Black'), const CosName('GWG Green')]),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0, 0, 1]),
+          ]));
+      final c = buffer();
+      fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
+      fill(c, rect(50, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+      final path = PdfPath([
+        const PdfMoveTo(10, 50),
+        const PdfLineTo(90, 50),
+      ]);
+
+      expect(
+        c.strokeShape(
+          path,
+          const PdfStroke(width: 20),
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      final regions = c.takeSpatialPaint();
+      expect(regions, isNotNull);
+      expect(
+        {for (final region in regions!) region.color},
+        containsAll([green, inkColor]),
+      );
+
+      // A later stroke must not inherit the previous one-shot region list.
+      expect(
+        c.strokeShape(
+          PdfPath([
+            const PdfMoveTo(10, 20),
+            const PdfLineTo(40, 20),
+          ]),
+          const PdfStroke(width: 10),
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        green,
+      );
+      expect(c.takeSpatialPaint(), isNull);
+    });
+
+    test('a sub-cell stroke still discovers every backdrop it crosses', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('Black'), const CosName('GWG Green')]),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0, 0, 1]),
+          ]));
+      final c = buffer();
+      fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
+      fill(c, rect(50, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+      // At this buffer scale 0.1pt covers less than half a cell and its
+      // centreline lies exactly between two sample rows. The colorant grid
+      // must retain one cell of coverage; the renderer later clips the
+      // substitute regions through this original vector stroke.
+      const stroke = PdfStroke(width: 0.1);
+      expect(
+        c.strokeShape(
+          PdfPath([
+            const PdfMoveTo(10, 50),
+            const PdfLineTo(90, 50),
+          ]),
+          stroke,
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      final regions = c.takeSpatialPaint();
+      expect(regions, isNotNull);
+      expect(
+        {for (final region in regions!) region.color},
+        containsAll([green, inkColor]),
+      );
+    });
+
+    test('a multi-segment sub-cell stroke stays conservative', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final c = buffer();
+      fill(c, rect(0, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+
+      // Both exact 0.1pt segments lie between sample rows and cover no
+      // colorant cell centre. Inflating the whole compound path resolves it
+      // as [inkColor], even though joins/caps and neighbouring backdrops are
+      // unknowable at this grid resolution. Declining keeps the device's
+      // conservative overprint path; the Ghent composite pages expose the
+      // forced resolution as a visible X.
+      expect(
+        c.strokeShape(
+          PdfPath([
+            const PdfMoveTo(10, 50),
+            const PdfLineTo(40, 50),
+            const PdfMoveTo(60, 50),
+            const PdfLineTo(90, 50),
+          ]),
+          const PdfStroke(width: 0.1),
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      expect(c.takeSpatialPaint(), isNull);
+    });
+
+    test('explicit bounds preserve a sub-cell fill for spatial replay', () {
+      const green = PdfColor(0.31, 0.45, 0.13);
+      const inkColor = PdfColor(0.5, 0.5, 0.5);
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('Black'), const CosName('GWG Green')]),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0, 0, 1]),
+          ]));
+      final c = buffer();
+      fill(c, rect(0, 0, 50, 100), green, spot.inkColorants(const [0.5, 1]));
+      fill(c, rect(50, 0, 100, 100), green,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
+      final skinny = rect(49.95, 10, 50.05, 90);
+
+      expect(
+        c.fill(
+          skinny,
+          PdfFillRule.nonzero,
+          inkColor,
+          PdfInkColorants.deviceGray(0.5),
+          subCellBounds: const PdfRect(49.95, 10, 50.05, 90),
+          overprint: true,
+          mode: 0,
+          opaque: true,
+        ),
+        isNull,
+      );
+      final regions = c.takeSpatialPaint();
+      expect(regions, isNotNull);
+      expect(
+        {for (final region in regions!) region.color},
+        containsAll([green, inkColor]),
+      );
     });
   });
 }

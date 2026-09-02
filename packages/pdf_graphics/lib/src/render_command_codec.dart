@@ -397,7 +397,7 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
         if (regionPlan != null) {
           total += regionPlan.targetWidth * regionPlan.targetHeight;
         } else {
-          final size = _declaredImageSize(cos, c.request.stream);
+          final size = _declaredCompositeImageSize(cos, c.request.stream);
           if (size == null) continue;
           final t = c.request.transform;
           final wPts = math.sqrt(t.a * t.a + t.b * t.b);
@@ -433,6 +433,25 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
   final h = _cosInt(cos.resolve(stream.dictionary['Height']));
   if (w == null || h == null || w < 1 || h < 1) return null;
   return (w, h);
+}
+
+/// The resolution carried by an image after a separate `/SMask` or stencil
+/// `/Mask` is applied. A scanner's MRC colour plane is commonly 75 DPI while
+/// its 1-bit text mask is 300 DPI; the composited image can resolve the mask's
+/// pixels, so treating only the colour plane as native crushes text detail and
+/// also prevents the display-resolution cap from engaging.
+(int, int)? _declaredCompositeImageSize(CosDocument cos, CosStream stream) {
+  final base = _declaredImageSize(cos, stream);
+  if (base == null) return null;
+  final dict = stream.dictionary;
+  final softMask = cos.resolve(dict['SMask']);
+  final mask = softMask is CosStream ? softMask : cos.resolve(dict['Mask']);
+  if (mask is! CosStream) return base;
+  final maskSize = _declaredImageSize(cos, mask);
+  if (maskSize == null || maskSize.$1 * maskSize.$2 <= base.$1 * base.$2) {
+    return base;
+  }
+  return maskSize;
 }
 
 int? _cosInt(CosObject? o) {
@@ -940,7 +959,7 @@ _CommandImage? _decodeImageForCommand(
   double ratio,
   double budgetScale,
 ) {
-  final size = _declaredImageSize(document, request.stream);
+  final size = _declaredCompositeImageSize(document, request.stream);
   if (size == null) return null;
   final transform = request.transform;
   final widthPts =

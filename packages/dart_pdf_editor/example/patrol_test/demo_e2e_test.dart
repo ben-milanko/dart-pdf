@@ -248,13 +248,11 @@ void main() {
         'Revised Patrol note',
       );
       await $.tester.tap(find.text('OK'));
-      await $.pump(const Duration(milliseconds: 400));
-
-      expect(
-        demo.editing.pageAt(0).annotations.any(
+      await demo.waitFor(
+        () => demo.editing.pageAt(0).annotations.any(
               (a) => a.subtype == 'Text' && a.contents == 'Revised Patrol note',
             ),
-        isTrue,
+        reason: 'the edited note should be committed',
       );
     } finally {
       await demo.close();
@@ -416,15 +414,33 @@ class _DemoHarness {
     // be present in the tree while their tap target is covered by the dock on
     // a short Android viewport. Frame the widget before tapping it, just as a
     // user would scroll the field into view.
-    await viewer.showRect(page, rect!);
-    await $.pump(const Duration(milliseconds: 350));
     final target = find.byKey(
       ValueKey(
         'pdf-form-field-$page-$name-$widgetIndex',
       ),
     );
-    await waitForFinder(target);
-    await tester.tap(target);
+    final hitTarget = target.hitTestable();
+    // On a loaded-down Android emulator the viewer's zoom animation can
+    // advance more slowly than its scroll animation. Do not tap a stale
+    // target that is still under the floating editing dock: that activates
+    // the dock and leaves its modal sheet covering the retry. Re-frame until
+    // Flutter confirms that the live form widget owns its centre point.
+    for (var attempt = 0;
+        attempt < 3 && hitTarget.evaluate().isEmpty;
+        attempt++) {
+      await viewer.showRect(page, rect!);
+      await $.pump(const Duration(milliseconds: 350));
+      await waitForFinder(target);
+      for (var i = 0; i < 10 && hitTarget.evaluate().isEmpty; i++) {
+        await $.pump(const Duration(milliseconds: 100));
+      }
+    }
+    expect(
+      hitTarget,
+      findsOneWidget,
+      reason: '$name widget $widgetIndex should be visible and unobscured',
+    );
+    await tester.tap(hitTarget);
     await $.pump(const Duration(milliseconds: 400));
   }
 
@@ -475,6 +491,11 @@ class _DemoHarness {
     required String group,
     required PdfEditTool tool,
   }) async {
+    // Some one-shot tools return to Select after they commit. Opening the
+    // Select group in that state toggles Select off, so preserve the already
+    // satisfied state instead of driving the toolbar again.
+    if (editing.tool == tool) return;
+
     final toolButton = find.byKey(ValueKey('pdf-tool-${tool.name}'));
     final mobileHandle = find.byKey(const ValueKey('pdf-tools-handle'));
     if (mobileHandle.evaluate().isNotEmpty) {
@@ -482,7 +503,9 @@ class _DemoHarness {
       await $.pump(const Duration(milliseconds: 250));
       final groupTab = find.byKey(ValueKey('pdf-group-tab-$group'));
       await tester.ensureVisible(groupTab);
-      await tester.tap(groupTab);
+      final visibleGroupTab = groupTab.hitTestable();
+      await waitForFinder(visibleGroupTab, attempts: 30);
+      await tester.tap(visibleGroupTab);
       await $.pump(const Duration(milliseconds: 250));
       // Select is the mobile sheet's only single-option group, so tapping its
       // group tab now arms it directly and closes the sheet. Multi-tool groups
@@ -491,7 +514,9 @@ class _DemoHarness {
       expect(toolButton, findsOneWidget,
           reason: '$tool should be available in the $group tool group');
       await tester.ensureVisible(toolButton);
-      await tester.tap(toolButton);
+      final visibleToolButton = toolButton.hitTestable();
+      await waitForFinder(visibleToolButton, attempts: 30);
+      await tester.tap(visibleToolButton);
       await $.pump();
       // Mobile keeps the tools sheet open to expose the active settings.
       // Tap its modal barrier so the armed tool can reach the page.
