@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.1.0
+
+- Let `buildMultiPagePdf` create custom-size pages for deterministic raster,
+  sampling, and memory-budget tests.
+- Align with the dart-pdf 4.1.0 package suite and update `archive` to 4.2.0.
+
 ## 4.0.0
 
 - Lockstep major release for the dart-pdf 4.0.0 package suite. No public

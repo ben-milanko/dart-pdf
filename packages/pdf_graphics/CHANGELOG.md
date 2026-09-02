@@ -1,9 +1,20 @@
 # Changelog
 
-## 4.0.0
+## 4.1.0
 
 - Allow retained renderers to request a larger overprint colourant grid when
   retrying a scene that the default exact-GPU route conservatively rejected.
+- Replay spatially varying stroked overprint through exact clipped regions,
+  retain narrow-stroke and embedded-glyph colourant samples, and keep compound
+  sub-cell paths conservative.
+- Accelerate supported MRC JPEG 2000 image decoding on Apple platforms while
+  preserving the portable fallback.
+- Fix an inverted colorant-buffer clip range that could blank an otherwise
+  renderable page.
+- Align dependency constraints with the dart-pdf 4.1.0 package suite.
+
+## 4.0.0
+
 - **Breaking:** `PdfOverprintCompositor.image` now requires the image
   transform, source dimensions, and a spatial resolver. Custom compositor
   callers must pass those values so one image can be resolved against several
@@ -15,20 +26,6 @@
 - Add public `PdfColorContext`, `PdfRenderingIntent`, spatial overprint and
   transparency-group device interfaces, plus intent-aware colour-space and ICC
   conversion APIs.
-- Replay spatially varying stroked overprint through the compositor's exact
-  per-backdrop regions instead of leaving those strokes to an RGB `darken`
-  approximation. The region clips preserve the original vector stroke edge
-  and let retained GPU scenes accept three additional Ghent pages exactly.
-- Preserve one colorant-grid sample for a single straight stroke narrower than
-  a grid cell so spatial overprint can discover every crossed backdrop; keep
-  compound sub-cell paths conservative rather than inflating their joins and
-  caps into unrelated backdrops. Substitute regions remain clipped through
-  the original vector stroke at replay.
-- Retain an intersected colorant-grid cell for a single embedded glyph whose
-  real outline is smaller than the grid sampling interval. The original glyph
-  remains the visible geometry while its overprint resolves against the
-  correct backdrop.
-
 - Export an OpenType CFF face reader that retains Unicode cmap mappings and
   selects collection entries, allowing native substitution adapters to obtain
   exact glyph outlines and advances from CFF-flavoured system fonts.

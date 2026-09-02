@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.0.0
+## 4.1.0
 
 - Add a persistent named handwritten-signature library with previews,
   selection, rename/redraw/delete management, and automatic migration from the
@@ -20,6 +20,17 @@
   contextual toolbar on desktop or mobile, with confirmation and undo.
 - Refresh signed pages immediately after placement so the visible signature
   box appears as soon as signing completes.
+- Let the content tool reposition selected page content and drag it across
+  pages with destination-aware previews and undo.
+- Add the eyedropper to the colour dialog and keep it responsive across every
+  page in a document.
+- Improve retained rendering and the optional GPU route for complex blends,
+  transparency groups, images, text, and large engineering drawings.
+- Fix sparse progressive loading, digital-signature key import, and selection
+  refresh across supported platforms.
+
+## 4.0.0
+
 - Add an optional asynchronous tile-backend retry hook and exact retained-scene
   re-recording, while preserving the existing Canvas fallback when a retry is
   unavailable, fails, or remains inexact.

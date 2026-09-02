@@ -2,7 +2,7 @@ name: pdf_cos
 description: >-
   COS object layer for PDF: tokenizer, parser, filters (incl. CCITT, JBIG2,
   JPEG 2000), xref machinery, encryption, and serializer. Pure Dart, web-ready.
-version: 4.0.0
+version: 4.1.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_cos
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:

@@ -1,11 +1,25 @@
 # Changelog
 
-## 4.0.0
+## 4.1.0
 
+- Save and manage named handwritten signatures, and reuse saved annotations
+  across documents from a searchable library.
+- Add cursor guides, a visible page grid, and optional grid snapping for
+  precise annotation placement and resizing.
+- Reposition selected page content and drag it between pages.
 - Fix importing private keys and certificate chains for digital signatures in
   the cross-origin-isolated web app.
 - Allow a visible digital signature to be selected and removed, with
   confirmation and undo.
+- Keep the colour eyedropper responsive across every page and expose it from
+  the colour dialog.
+- Improve rendering speed and fidelity for complex blends, transparency,
+  overprint, images, and large engineering drawings.
+- Fix sparse remote-PDF loading and a colorant clip error that could display a
+  blank page.
+
+## 4.0.0
+
 - Add slimmer, dockable editor controls and improve page, panel, and
   recent-document navigation.
 - Auto-fit free text to its box, flatten selected annotations, and reliably

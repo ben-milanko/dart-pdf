@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.1.0
+
+- Treat holes in sparse progressive byte sources as cache misses tied to the
+  source buffer, avoiding invalid scan recovery and stale reads while remote
+  PDFs are still arriving.
+- Update `archive` to 4.2.0.
+
 ## 4.0.0
 
 - Decode TIFF Predictor 2 streams with 16-bit samples, preserving carries
