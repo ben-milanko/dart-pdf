@@ -678,7 +678,20 @@ jobs:
       - name: Validate .desktop entry
         run: desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
       - name: Validate AppStream metainfo
-        run: appstreamcli validate --no-net app/linux/dev.milanko.dartpdf.metainfo.xml
+        run: |
+          set -euo pipefail
+          metainfo=app/linux/dev.milanko.dartpdf.metainfo.xml
+          appstreamcli validate --no-net "$metainfo"
+          version="$(sed -n 's/^version:[[:space:]]*\([^+[:space:]]*\).*/\1/p' app/pubspec.yaml)"
+          grep -Fq "<release version=\"$version\"" "$metainfo" || {
+            echo "::error::$metainfo does not describe app version $version"
+            exit 1
+          }
+          cmp "$metainfo" \
+            app/packaging/flatpak/desktop-assets/dev.milanko.dartpdf.metainfo.xml || {
+            echo "::error::Flatpak desktop assets are stale; run app/packaging/flatpak/sync-desktop-assets.sh"
+            exit 1
+          }
       - name: Confirm desktop files landed in the bundle
         working-directory: app
         run: |

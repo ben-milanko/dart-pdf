@@ -8548,10 +8548,13 @@ class _GpuTransientArena {
         if (completed) return;
         completed = true;
         try {
-          completionCallback(success);
-        } finally {
           _pendingSubmissions--;
           _releaseIfReady();
+        } finally {
+          // Publish completion only after pooled resources are reusable. In
+          // particular, an observer that sees inFlightSubmissions reach zero
+          // must not race the arena's return to its pools.
+          completionCallback(success);
         }
       });
     } catch (_) {

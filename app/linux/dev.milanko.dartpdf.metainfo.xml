@@ -95,6 +95,17 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="4.1.0" date="2026-09-02">
+      <description>
+        <ul>
+          <li>Save named handwritten signatures and reuse saved annotations across documents.</li>
+          <li>Place edits precisely with cursor guides, a visible grid, and optional snapping.</li>
+          <li>Move selected PDF content within a page or drag it to another page.</li>
+          <li>Improve digital-signature reliability and colour picking.</li>
+          <li>Render large drawings, complex blends, transparency, images, and remote PDFs faster and more accurately.</li>
+        </ul>
+      </description>
+    </release>
     <release version="4.0.0" date="2026-08-25">
       <description>
         <ul>
