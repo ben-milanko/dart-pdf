@@ -6408,10 +6408,7 @@ class _PdfViewerState extends State<PdfViewer>
       } else if (_hoverTextCursorAt(event.localPosition, at: at)) {
         cursor = SystemMouseCursors.text;
       } else {
-        // Keep the existing gesture behaviour (blank areas may begin a page
-        // pan), but use a neutral cursor so nearby text-markup annotations do
-        // not appear movable.
-        cursor = SystemMouseCursors.basic;
+        cursor = grabCursor;
       }
     } else {
       // Off any page. Every probe above resolves through _pagePointAt, so

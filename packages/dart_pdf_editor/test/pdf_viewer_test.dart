@@ -457,9 +457,8 @@ void main() {
     // onHover fires on moves, not on the pointer appearing
     await gesture.moveTo(view(301, 500));
     await tester.pump();
-    // Empty page area keeps a neutral cursor. Its existing pan gesture is
-    // independent of the cursor used to advertise that area.
-    expect(region().cursor, SystemMouseCursors.basic);
+    // empty page area: a drag grab-pans, so the cursor advertises it
+    expect(region().cursor, SystemMouseCursors.grab);
 
     await gesture.moveTo(view(100, 720)); // over 'Page 1'
     await tester.pump();
@@ -470,7 +469,7 @@ void main() {
 
     await gesture.moveTo(view(300, 500));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.basic);
+    expect(region().cursor, SystemMouseCursors.grab);
 
     // leaving the viewer entirely must also reset the cursor
     await gesture.moveTo(view(100, 720));
@@ -1135,8 +1134,8 @@ void main() {
     await tester.pump();
     await gesture.moveTo(annotView(171, 690));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.basic,
-        reason: 'the invisible gap inside a markup /Rect is not draggable');
+    expect(region().cursor, SystemMouseCursors.grab,
+        reason: 'the invisible gap inside a markup /Rect is not clickable');
 
     await tester.tapAt(annotView(170, 690));
     await tester.pump(const Duration(milliseconds: 400));
@@ -1300,7 +1299,7 @@ void main() {
     // onHover fires on moves, not on the pointer appearing
     await gesture.moveTo(annotView(451, 690));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.basic);
+    expect(region().cursor, SystemMouseCursors.grab);
 
     await gesture.moveTo(annotView(136, 652)); // over the URI link
     await tester.pump();
@@ -1310,10 +1309,10 @@ void main() {
     await tester.pump();
     expect(region().cursor, SystemMouseCursors.text);
 
-    await gesture.moveTo(annotView(350, 612)); // hidden link: neutral like
+    await gesture.moveTo(annotView(350, 612)); // hidden link: grab like
     // any other empty area
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.basic);
+    expect(region().cursor, SystemMouseCursors.grab);
   });
 
   testWidgets('jumpToPage scrolls to the requested page', (tester) async {
