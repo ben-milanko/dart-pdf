@@ -53,11 +53,11 @@ void main() {
     addTearDown(gesture.removePointer);
     await tester.pump();
 
-    // Hover over 'Page 1' text on a "heavy" page: cursor stays neutral because
+    // Hover over 'Page 1' text on a "heavy" page: cursor stays grab because
     // the cold text cache is NOT extracted synchronously from a hover.
     await gesture.moveTo(view(100, 720));
     await tester.pump();
-    expect(region(tester).cursor, SystemMouseCursors.basic,
+    expect(region(tester).cursor, SystemMouseCursors.grab,
         reason: 'heavy page must not extract text just to pick a hover cursor');
 
     // A real action warms the cache (selection drag over the same text)...
