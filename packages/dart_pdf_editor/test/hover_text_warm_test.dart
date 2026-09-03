@@ -14,7 +14,8 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 void main() {
   MouseRegion region(WidgetTester tester) => tester.widget<MouseRegion>(find
-      .descendant(of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+      .descendant(
+          of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
       .first);
 
   testWidgets('hover over a heavy page does not extract text synchronously',
@@ -22,8 +23,7 @@ void main() {
     final previous = PdfViewer.hoverTextExtractMaxRawContentBytes;
     // Treat every page as "heavy" so the ordinary fixture exercises the gate.
     PdfViewer.hoverTextExtractMaxRawContentBytes = 0;
-    addTearDown(
-        () => PdfViewer.hoverTextExtractMaxRawContentBytes = previous);
+    addTearDown(() => PdfViewer.hoverTextExtractMaxRawContentBytes = previous);
 
     final document = PdfDocument.open(buildClassicPdf());
     final controller = PdfViewerController();
@@ -53,11 +53,11 @@ void main() {
     addTearDown(gesture.removePointer);
     await tester.pump();
 
-    // Hover over 'Page 1' text on a "heavy" page: cursor stays grab because
+    // Hover over 'Page 1' text on a "heavy" page: cursor stays neutral because
     // the cold text cache is NOT extracted synchronously from a hover.
     await gesture.moveTo(view(100, 720));
     await tester.pump();
-    expect(region(tester).cursor, SystemMouseCursors.grab,
+    expect(region(tester).cursor, SystemMouseCursors.basic,
         reason: 'heavy page must not extract text just to pick a hover cursor');
 
     // A real action warms the cache (selection drag over the same text)...

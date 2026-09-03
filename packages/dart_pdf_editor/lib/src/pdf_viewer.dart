@@ -5762,7 +5762,17 @@ class _PdfViewerState extends State<PdfViewer>
     final annots = actionsOnly ? _interactiveAnnots(i) : _visibleAnnots(i);
     // later /Annots entries paint on top, so they win the hit test
     for (final annotation in annots.reversed) {
-      if (annotation.rect.contains(x, y)) {
+      // Text markups may contain several disjoint runs. Their bounding
+      // /Rect includes the whitespace between those runs, so using it here
+      // makes the host tap callback and click cursor claim visibly empty
+      // text. Match the editing controller's selection hit test: visible
+      // /QuadPoints are authoritative, with /Rect as the fallback for every
+      // other annotation type (and malformed markups without quads).
+      final quads = annotation.behavior.markupQuads;
+      final hit = quads != null && quads.isNotEmpty
+          ? quads.any((quad) => quad.contains(x, y))
+          : annotation.rect.contains(x, y);
+      if (hit) {
         return (
           pageIndex: i,
           annotation: annotation,
@@ -6398,7 +6408,10 @@ class _PdfViewerState extends State<PdfViewer>
       } else if (_hoverTextCursorAt(event.localPosition, at: at)) {
         cursor = SystemMouseCursors.text;
       } else {
-        cursor = grabCursor;
+        // Keep the existing gesture behaviour (blank areas may begin a page
+        // pan), but use a neutral cursor so nearby text-markup annotations do
+        // not appear movable.
+        cursor = SystemMouseCursors.basic;
       }
     } else {
       // Off any page. Every probe above resolves through _pagePointAt, so

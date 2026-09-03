@@ -76,6 +76,15 @@ Uint8List buildPlainAnnotationPdf() {
   return editor.save();
 }
 
+Uint8List buildDisjointHighlightPdf() {
+  final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+    ..addHighlight(0, const [
+      PdfRect(80, 680, 140, 700),
+      PdfRect(220, 680, 280, 700),
+    ]);
+  return editor.save();
+}
+
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
       {int pages = 5,
@@ -448,8 +457,9 @@ void main() {
     // onHover fires on moves, not on the pointer appearing
     await gesture.moveTo(view(301, 500));
     await tester.pump();
-    // empty page area: a drag grab-pans, so the cursor advertises it
-    expect(region().cursor, SystemMouseCursors.grab);
+    // Empty page area keeps a neutral cursor. Its existing pan gesture is
+    // independent of the cursor used to advertise that area.
+    expect(region().cursor, SystemMouseCursors.basic);
 
     await gesture.moveTo(view(100, 720)); // over 'Page 1'
     await tester.pump();
@@ -460,7 +470,7 @@ void main() {
 
     await gesture.moveTo(view(300, 500));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(region().cursor, SystemMouseCursors.basic);
 
     // leaving the viewer entirely must also reset the cursor
     await gesture.moveTo(view(100, 720));
@@ -1103,6 +1113,45 @@ void main() {
     expect(tap.pageViewPosition.dy, closeTo(annotView(110, 690).dy, 0.5));
   });
 
+  testWidgets('text markup callback and click cursor only hit visible quads',
+      (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(
+      tester,
+      bytes: buildDisjointHighlightPdf(),
+      onAnnotationTap: taps.add,
+    );
+
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+          of: find.byType(PdfViewer),
+          matching: find.byType(MouseRegion),
+        )
+        .first);
+    final gesture =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 13);
+    await gesture.addPointer(location: annotView(170, 690));
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.moveTo(annotView(171, 690));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.basic,
+        reason: 'the invisible gap inside a markup /Rect is not draggable');
+
+    await tester.tapAt(annotView(170, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
+
+    await gesture.moveTo(annotView(110, 690));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.click);
+
+    await tester.tapAt(annotView(110, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation.subtype, 'Highlight');
+  });
+
   testWidgets('tapping an http link opens it via the default launcher',
       (tester) async {
     final fake = _FakeUrlLauncher();
@@ -1251,7 +1300,7 @@ void main() {
     // onHover fires on moves, not on the pointer appearing
     await gesture.moveTo(annotView(451, 690));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(region().cursor, SystemMouseCursors.basic);
 
     await gesture.moveTo(annotView(136, 652)); // over the URI link
     await tester.pump();
@@ -1261,10 +1310,10 @@ void main() {
     await tester.pump();
     expect(region().cursor, SystemMouseCursors.text);
 
-    await gesture.moveTo(annotView(350, 612)); // hidden link: grab like
+    await gesture.moveTo(annotView(350, 612)); // hidden link: neutral like
     // any other empty area
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(region().cursor, SystemMouseCursors.basic);
   });
 
   testWidgets('jumpToPage scrolls to the requested page', (tester) async {
