@@ -669,6 +669,24 @@ typedef _ShapeResize = ({
   double opacity,
 });
 
+/// One transient smart-guide line in view space. Vertical guides carry an
+/// x [position] and y [from]/[to]; horizontal guides carry a y [position]
+/// and x [from]/[to].
+typedef _AlignmentGuide = ({
+  Axis axis,
+  double position,
+  double from,
+  double to,
+});
+
+/// One edge/centre another annotation (or the page) can align to.
+typedef _AlignmentTarget = ({
+  double position,
+  double from,
+  double to,
+  int role,
+});
+
 /// Which sides of the selection a resize handle moves: -1 left/top edge,
 /// +1 right/bottom edge, 0 leaves that axis alone. (View space, y down.)
 // Resize-handle geometry lives in handle_layout.dart as a pure, unit-testable
@@ -965,6 +983,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // the painter spins by _resizeAngle), not page-axis view rects.
   Offset? _moveStart;
   Offset? _moveCurrent;
+
+  /// Smart guides currently holding a move/resize on an annotation edge or
+  /// centre. They exist only for the live drag and never enter the PDF.
+  List<_AlignmentGuide> _alignmentGuides = const [];
 
   /// The global position of the annotation or content move's current point -
   /// captured so a drop over another page can be resolved to a page point
@@ -1319,6 +1341,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         preferences.gridSpacing > 0;
   }
 
+  /// Smart alignment uses the same temporary Alt bypass as the grid. Its
+  /// tolerance is converted from screen pixels to this overlay's view space,
+  /// so it feels equally magnetic at every transform zoom.
+  bool get _smartAlignmentSnapping =>
+      _controller.preferences.smartAlignmentGuides &&
+      !HardwareKeyboard.instance.isAltPressed;
+
+  static const double _alignmentTolerance = 6;
+
   /// Snaps a view-space point to the nearest page-space grid intersection.
   /// The grid begins at the crop box's lower-left corner, so it is stable
   /// across layout zoom, transform zoom, and /Rotate.
@@ -1334,15 +1365,238 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _geometry.toViewOffset(snappedX, snappedY);
   }
 
-  /// Applies grid snapping to a move without making the result depend on
-  /// where inside the annotation the user grabbed it. The primary box's
-  /// top-left corner is the anchor that lands on the grid; the pointer keeps
-  /// its original grab offset from that box.
-  Offset _snapMovePosition(Offset start, Offset current, Rect? anchorRect) {
-    if (!_gridSnapping || anchorRect == null) return current;
+  /// The visible bounds of the whole annotation selection on this page.
+  /// Multi-selection snapping treats the group as one object, like design
+  /// tools do, instead of pulling whichever annotation happened to be last.
+  Rect? get _selectedGroupViewRect {
+    final rects = _selectedViewRects;
+    if (rects.isEmpty) return null;
+    var bounds = rects.first;
+    for (final rect in rects.skip(1)) {
+      bounds = bounds.expandToInclude(rect);
+    }
+    return bounds;
+  }
+
+  /// Edges and centres on this page that a dragged annotation can meet.
+  /// Hidden annotations and the current selection are omitted. The page's
+  /// outside edges and centre are always candidates, which makes centering a
+  /// box possible even on an otherwise empty page.
+  List<_AlignmentTarget> _alignmentTargetsFor(Axis axis) {
+    final pageSize = _geometry.viewSize;
+    final targets = <_AlignmentTarget>[];
+    void addRect(Rect rect) {
+      if (rect.isEmpty || !rect.isFinite) return;
+      if (axis == Axis.vertical) {
+        for (final (x, role) in [
+          (rect.center.dx, 0),
+          (rect.left, -1),
+          (rect.right, 1),
+        ]) {
+          targets
+              .add((position: x, from: rect.top, to: rect.bottom, role: role));
+        }
+      } else {
+        for (final (y, role) in [
+          (rect.center.dy, 0),
+          (rect.top, -1),
+          (rect.bottom, 1),
+        ]) {
+          targets
+              .add((position: y, from: rect.left, to: rect.right, role: role));
+        }
+      }
+    }
+
+    // The page frame is a full-span target, so a page-centre snap draws a
+    // reassuring page-height/width line instead of a tiny unexplained mark.
+    if (axis == Axis.vertical) {
+      for (final (x, role) in [
+        (pageSize.width / 2, 0),
+        (0.0, -1),
+        (pageSize.width, 1),
+      ]) {
+        targets.add((position: x, from: 0, to: pageSize.height, role: role));
+      }
+    } else {
+      for (final (y, role) in [
+        (pageSize.height / 2, 0),
+        (0.0, -1),
+        (pageSize.height, 1),
+      ]) {
+        targets.add((position: y, from: 0, to: pageSize.width, role: role));
+      }
+    }
+
+    final selected = <int>{
+      for (final slot in _controller.selectedAnnotationSlots)
+        if (slot.$1 == widget.pageIndex) slot.$2,
+    };
+    final annotations = _controller.pageAt(widget.pageIndex).annotations;
+    for (var i = 0; i < annotations.length; i++) {
+      if (selected.contains(i)) continue;
+      final annotation = annotations[i];
+      if (annotation.isHidden ||
+          annotation.isNoView ||
+          annotation.subtype == 'Popup') {
+        continue;
+      }
+      addRect(_geometry.toViewRect(annotation.calloutBox ?? annotation.rect));
+    }
+    return targets;
+  }
+
+  /// Finds the closest x and y alignment independently. The returned delta
+  /// shifts [moving] onto those targets; the guides span both objects (or the
+  /// whole page for page targets). Only one winner per axis is used, avoiding
+  /// the noisy thicket of lines produced by showing every near match.
+  ({double? dx, double? dy, List<_AlignmentGuide> guides})
+      _alignmentSnapForRect(
+    Rect moving, {
+    bool horizontal = true,
+    bool vertical = true,
+    List<(double, int)>? xAnchors,
+    List<(double, int)>? yAnchors,
+  }) {
+    if (!_smartAlignmentSnapping || moving.isEmpty) {
+      return (dx: null, dy: null, guides: const []);
+    }
+    final tolerance = _alignmentTolerance * _chromeScale;
+
+    ({double delta, _AlignmentTarget target})? best(
+      Axis axis,
+      List<(double, int)> anchors,
+      List<_AlignmentTarget> targets,
+    ) {
+      ({double delta, _AlignmentTarget target})? winner;
+      for (final target in targets) {
+        for (final (anchor, role) in anchors) {
+          // Centres meet centres. Outside edges may meet either outside edge
+          // (aligned or touching), but never an unrelated centre line.
+          if (role == 0 ? target.role != 0 : target.role == 0) continue;
+          final delta = target.position - anchor;
+          // Once caught, release a little farther out than the acquire
+          // radius. That small hysteresis stops a slow drag flickering on and
+          // off the line when pointer samples straddle the threshold.
+          final held = _alignmentGuides.any((guide) =>
+              guide.axis == axis &&
+              (guide.position - target.position).abs() <
+                  precisionErrorTolerance);
+          if (delta.abs() > tolerance * (held ? 1.5 : 1)) continue;
+          if (winner == null ||
+              delta.abs() < winner.delta.abs() - precisionErrorTolerance) {
+            winner = (delta: delta, target: target);
+          }
+        }
+      }
+      return winner;
+    }
+
+    final x = vertical
+        ? best(
+            Axis.vertical,
+            xAnchors ??
+                [
+                  (moving.center.dx, 0),
+                  (moving.left, -1),
+                  (moving.right, 1),
+                ],
+            _alignmentTargetsFor(Axis.vertical))
+        : null;
+    final y = horizontal
+        ? best(
+            Axis.horizontal,
+            yAnchors ??
+                [
+                  (moving.center.dy, 0),
+                  (moving.top, -1),
+                  (moving.bottom, 1),
+                ],
+            _alignmentTargetsFor(Axis.horizontal))
+        : null;
+    final padding = 5 * _chromeScale;
+    return (
+      dx: x?.delta,
+      dy: y?.delta,
+      guides: [
+        if (x case final match?)
+          (
+            axis: Axis.vertical,
+            position: match.target.position,
+            from: math.min(moving.top, match.target.from) - padding,
+            to: math.max(moving.bottom, match.target.to) + padding,
+          ),
+        if (y case final match?)
+          (
+            axis: Axis.horizontal,
+            position: match.target.position,
+            from: math.min(moving.left, match.target.from) - padding,
+            to: math.max(moving.right, match.target.to) + padding,
+          ),
+      ],
+    );
+  }
+
+  /// Applies smart alignment and grid snapping to a move without making the
+  /// result depend on where inside the annotation the user grabbed it. Smart
+  /// targets win on an axis while they are within the six-pixel magnetic
+  /// range; the grid remains the fallback on the other axis.
+  Offset _snapMovePosition(Offset start, Offset current, Rect? anchorRect,
+      {bool alignAnnotations = true}) {
+    if (anchorRect == null) {
+      _alignmentGuides = const [];
+      return current;
+    }
     final delta = current - start;
-    final target = anchorRect.topLeft + delta;
-    return current + (_snapPointToGrid(target) - target);
+    final group = (_selectedGroupViewRect ?? anchorRect).shift(delta);
+    final alignment = alignAnnotations
+        ? _alignmentSnapForRect(group)
+        : (dx: null, dy: null, guides: const <_AlignmentGuide>[]);
+    _alignmentGuides = alignment.guides;
+
+    Offset gridDelta = Offset.zero;
+    if (_gridSnapping) {
+      final target = anchorRect.topLeft + delta;
+      gridDelta = _snapPointToGrid(target) - target;
+    }
+    return current +
+        Offset(
+          alignment.dx ?? gridDelta.dx,
+          alignment.dy ?? gridDelta.dy,
+        );
+  }
+
+  /// Snaps an unrotated resize handle to annotation/page alignments, with the
+  /// grid as the per-axis fallback. A rotated box keeps grid snapping only:
+  /// matching its local axes to page axes would make the handle shear away
+  /// from the pointer and is more surprising than helpful.
+  Offset _snapResizePosition(Offset position, {double? aspectRatio}) {
+    final handle = _resizeHandle;
+    final from = _resizeFrom;
+    if (handle == null || from == null || _resizeAngle != 0) {
+      _alignmentGuides = const [];
+      return _snapPointToGrid(position);
+    }
+    final raw = _resizedRect(from, handle, position - _moveStart!,
+            aspectRatio: aspectRatio)
+        .$1;
+    final alignment = _alignmentSnapForRect(
+      raw,
+      vertical: handle.dx != 0,
+      horizontal: handle.dy != 0,
+      xAnchors: handle.dx == 0
+          ? null
+          : [(handle.dx < 0 ? raw.left : raw.right, handle.dx)],
+      yAnchors: handle.dy == 0
+          ? null
+          : [(handle.dy < 0 ? raw.top : raw.bottom, handle.dy)],
+    );
+    _alignmentGuides = alignment.guides;
+    final grid = _snapPointToGrid(position);
+    return Offset(
+      alignment.dx == null ? grid.dx : position.dx + alignment.dx!,
+      alignment.dy == null ? grid.dy : position.dy + alignment.dy!,
+    );
   }
 
   /// Constrains [point] to the nearest 45° direction from [anchor] while
@@ -1577,6 +1831,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _dragCurrent = null;
       _moveStart = null;
       _moveCurrent = null;
+      _alignmentGuides = const [];
       _moveCurrentGlobal = null;
       _elementMoveStart = null;
       _elementMoveCurrent = null;
@@ -1896,9 +2151,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// (pre-rotation) rectangle - the painter spins it back into place,
   /// so the chrome hugs the rotated artwork instead of boxing its
   /// axis-aligned bounds.
+  ///
+  /// Only a rotation the *annotation* carries counts
+  /// ([PdfAnnotation.appearanceRotation], measured in page space). The
+  /// view quad also carries the page's display /Rotate: on a /Rotate 90
+  /// page every square annotation's lower edge runs down the screen, so
+  /// the view angle alone reads a plain text box as turned 90° - which
+  /// transposed its handles (the right-middle one resized vertically,
+  /// with an up-down cursor) and committed a transposed box. A page's
+  /// rotation turns the whole page, chrome included, so an annotation
+  /// square to its page is square to the chrome too.
   (Rect, double)? get _selectionChrome {
     final selected = _selectedViewRect;
     if (selected == null) return null;
+    if (_controller.selectedAnnotation?.appearanceRotation == 0) {
+      return (selected, 0);
+    }
     final quad = _selectedViewQuad;
     if (quad == null) return (selected, 0);
     final angle = _quadAngle(quad);
@@ -2881,15 +3149,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         rotateHandleDistance: _rotateHandleDistance,
       );
 
-  /// The resize cursor for a handle by its corner/edge: orthogonal edges
-  /// get the straight resize cursors, corners the matching diagonal.
-  static MouseCursor _resizeCursorFor(_Handle handle) =>
-      switch ((handle.dx, handle.dy)) {
-        (0, _) => SystemMouseCursors.resizeUpDown,
-        (_, 0) => SystemMouseCursors.resizeLeftRight,
-        (-1, -1) || (1, 1) => SystemMouseCursors.resizeUpLeftDownRight,
-        _ => SystemMouseCursors.resizeUpRightDownLeft,
-      };
+  /// The resize cursor for a handle by the direction it actually points
+  /// on screen: the handle's outward direction in the selection's local
+  /// frame, spun by its resting [rotation] and snapped to the nearest of
+  /// the four resize cursors. Unrotated, that is the plain corner/edge
+  /// mapping (edges straight, corners diagonal); rotated, the cursor
+  /// follows the handle round instead of promising an axis the drag
+  /// won't move along.
+  static MouseCursor _resizeCursorFor(_Handle handle, [double rotation = 0]) {
+    final angle =
+        math.atan2(handle.dy.toDouble(), handle.dx.toDouble()) + rotation;
+    // eight compass points, folded to the four cursors (each covers a
+    // direction and its opposite): E, SE, S, SW
+    const cursors = [
+      SystemMouseCursors.resizeLeftRight,
+      SystemMouseCursors.resizeUpLeftDownRight,
+      SystemMouseCursors.resizeUpDown,
+      SystemMouseCursors.resizeUpRightDownLeft,
+    ];
+    return cursors[(angle / (math.pi / 4)).round() % 4];
+  }
 
   _Handle? _handleAt(Rect rect, Offset position) {
     if (!_controller.canResizeSelected) return null;
@@ -3717,7 +3996,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _moveCurrent = position;
           // hold the matching resize cursor through the drag (hover stops
           // firing once the pointer is down)
-          _cursor = _resizeCursorFor(handle);
+          _cursor = _resizeCursorFor(handle, resting);
         });
         // lift the box off the page for a re-wrapping (free-text) resize:
         // render the page without it so the preview floats over the real
@@ -3901,16 +4180,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       });
     } else if (_resizeHandle != null) {
       setState(() {
-        final snapped = _snapPointToGrid(position);
-        _moveCurrent = snapped;
-        // a rotated selection's handles move along its own axes, so the
-        // pointer delta rotates into the local frame
-        final delta = snapped - _moveStart!;
         // holding Shift locks the original aspect ratio
         final aspectRatio =
             HardwareKeyboard.instance.isShiftPressed && _resizeFrom!.height > 0
                 ? _resizeFrom!.width / _resizeFrom!.height
                 : null;
+        final snapped = _snapResizePosition(position, aspectRatio: aspectRatio);
+        _moveCurrent = snapped;
+        // a rotated selection's handles move along its own axes, so the
+        // pointer delta rotates into the local frame
+        final delta = snapped - _moveStart!;
         final (resized, flipX, flipY) = _resizedRect(
             _resizeFrom!,
             _resizeHandle!,
@@ -3925,7 +4204,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (_elementMoveStart != null) {
       _moveCurrentGlobal = _autoScrollGlobal;
       setState(() => _elementMoveCurrent = _snapMovePosition(
-          _elementMoveStart!, position, _selectedElementRestRect));
+          _elementMoveStart!, position, _selectedElementRestRect,
+          alignAnnotations: false));
       _reportElementMovePreview();
     } else if (_moveStart != null) {
       _moveCurrentGlobal = _autoScrollGlobal;
@@ -4052,6 +4332,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _dragCurrent = null;
       _moveStart = null;
       _moveCurrent = null;
+      _alignmentGuides = const [];
       _moveCurrentGlobal = null;
       _elementMoveStart = null;
       _elementMoveCurrent = null;
@@ -4980,7 +5261,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       if (vertex != null) {
         cursor = grabCursor;
       } else if (handle != null) {
-        cursor = _resizeCursorFor(handle);
+        cursor = _resizeCursorFor(handle, resting);
       } else if (chrome != null &&
           _hitsRotateHandle(chrome.$1, resting, event.localPosition)) {
         // no system rotation cursor: hide it and paint a curved-arrow glyph
@@ -5732,10 +6013,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final cropping = _controller.isCroppingImage &&
         _controller.selectedPage == widget.pageIndex;
     final picking = _controller.isPickingColor;
-    // Cursor guides also mount this overlay in ordinary reader/hand mode.
-    // In that passive state the MouseRegion paints the guides, but no gesture
-    // recognizer may enter the arena and steal scrolling or text selection
-    // from the viewer underneath.
+    // Cursor guides and rulers also mount this overlay in ordinary reader/
+    // hand mode. In that passive state the MouseRegion paints them, but no
+    // gesture recognizer may enter the arena and steal scrolling or text
+    // selection from the viewer underneath.
     final acceptsEditingGestures = _tool != null ||
         _selectMode ||
         _controller.activeSavedAnnotation != null;
@@ -6093,6 +6374,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   size: Size.infinite,
                 ),
               ),
+              if (_controller.preferences.smartAlignmentGuides &&
+                  _alignmentGuides.isNotEmpty)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      key: const ValueKey('pdf-alignment-guides'),
+                      painter: _AlignmentGuidePainter(
+                        guides: _alignmentGuides,
+                        chromeScale: _chromeScale,
+                        color: const Color(0xFFE91E63),
+                      ),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
               // The in-progress pencil/mouse stroke, isolated on its own
               // RepaintBoundary and repainted via _activeStrokeRepaint. While
               // a stroke is live nothing above rebuilds, so only this layer
@@ -6105,10 +6401,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   ),
                 ),
               ),
-              // The pointer-tracking cursors, on their own RepaintBoundary
-              // above the ink: a hover moves them by ticking _cursorRepaint,
-              // which repaints this layer alone (#403). Topmost of the
-              // painted layers, so a cursor is never buried under a preview.
+              if (_controller.preferences.showPageRulers)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      key: const ValueKey('pdf-page-rulers'),
+                      painter: _PageRulerPainter(
+                        this,
+                        surfaceColor: Theme.of(context).colorScheme.surface,
+                        textColor: Theme.of(context).colorScheme.onSurface,
+                        accentColor:
+                            PdfViewerTheme.of(context).annotationChromeColor ??
+                                Theme.of(context).colorScheme.primary,
+                      ),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
+              // The pointer-tracking cursors, on their own RepaintBoundary,
+              // stay above the ink, rulers, and guides. Hover ticks only
+              // _cursorRepaint, so moving a cursor never rebuilds the page.
               Positioned.fill(
                 child: RepaintBoundary(
                   child: CustomPaint(
@@ -6641,6 +6953,180 @@ void _paintPenCursor(
         ..color = const Color(0xB3FFFFFF)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1 * chromeScale);
+}
+
+/// Paints the temporary object/page alignment lines that appear only while a
+/// move or resize is magnetically held. A dark halo keeps the one-pixel pink
+/// line legible over both paper and dense drawings.
+class _AlignmentGuidePainter extends CustomPainter {
+  const _AlignmentGuidePainter({
+    required this.guides,
+    required this.chromeScale,
+    required this.color,
+  });
+
+  @visibleForTesting
+  final List<_AlignmentGuide> guides;
+  final double chromeScale;
+  final Color color;
+
+  @visibleForTesting
+  double get strokeWidth => 1 * chromeScale;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.clipRect(Offset.zero & size);
+    final halo = Paint()
+      ..color = const Color(0xA6FFFFFF)
+      ..strokeWidth = 3 * chromeScale;
+    final line = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth;
+    for (final guide in guides) {
+      final (from, to) = guide.axis == Axis.vertical
+          ? (
+              Offset(guide.position, guide.from),
+              Offset(guide.position, guide.to),
+            )
+          : (
+              Offset(guide.from, guide.position),
+              Offset(guide.to, guide.position),
+            );
+      canvas
+        ..drawLine(from, to, halo)
+        ..drawLine(from, to, line);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_AlignmentGuidePainter oldDelegate) =>
+      oldDelegate.guides != guides ||
+      oldDelegate.chromeScale != chromeScale ||
+      oldDelegate.color != color;
+}
+
+/// Adaptive rulers inset along the page's top and left edges. Values are
+/// distances in PDF points from the visible top-left corner; the major step
+/// follows a 1/2/5 progression so labels never crowd as the page zooms.
+class _PageRulerPainter extends CustomPainter {
+  _PageRulerPainter(
+    this._state, {
+    required this.surfaceColor,
+    required this.textColor,
+    required this.accentColor,
+  }) : super(repaint: _state._cursorRepaint);
+
+  final _EditingPageOverlayState _state;
+  final Color surfaceColor;
+  final Color textColor;
+  final Color accentColor;
+
+  @visibleForTesting
+  double get bandWidth => 24 * _state._chromeScale;
+
+  @visibleForTesting
+  Offset? get cursor => _state._guideCursor;
+
+  @visibleForTesting
+  double majorStepFor(Size size) {
+    final pointsForLabel = 64 * _state._chromeScale / _state._geometry.scale;
+    if (!pointsForLabel.isFinite || pointsForLabel <= 0) return 100;
+    final power =
+        math.pow(10, (math.log(pointsForLabel) / math.ln10).floor()).toDouble();
+    for (final multiplier in const [1.0, 2.0, 5.0, 10.0]) {
+      final step = multiplier * power;
+      if (step >= pointsForLabel) return step;
+    }
+    return 10 * power;
+  }
+
+  void _paintLabel(Canvas canvas, String label, Offset at, double fontSize) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          color: textColor.withValues(alpha: 0.82),
+          fontSize: fontSize,
+          height: 1,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    painter.paint(canvas, at);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final s = _state._chromeScale;
+    final band = bandWidth;
+    final scale = _state._geometry.scale;
+    final major = majorStepFor(size);
+    final minor = major / 5;
+    final ruleFill = Paint()..color = surfaceColor.withValues(alpha: 0.90);
+    final hairline = Paint()
+      ..color = textColor.withValues(alpha: 0.34)
+      ..strokeWidth = 0.75 * s;
+    final ticks = Paint()
+      ..color = textColor.withValues(alpha: 0.62)
+      ..strokeWidth = 0.75 * s;
+
+    canvas
+      ..drawRect(Rect.fromLTWH(0, 0, size.width, band), ruleFill)
+      ..drawRect(Rect.fromLTWH(0, 0, band, size.height), ruleFill)
+      ..drawLine(Offset(0, band), Offset(size.width, band), hairline)
+      ..drawLine(Offset(band, 0), Offset(band, size.height), hairline);
+
+    final widthPoints = size.width / scale;
+    final heightPoints = size.height / scale;
+    final tickCountX = (widthPoints / minor).floor();
+    for (var i = 0; i <= tickCountX; i++) {
+      final value = i * minor;
+      final x = value * scale;
+      final isMajor = i % 5 == 0;
+      final length = (isMajor ? 8 : 4) * s;
+      canvas.drawLine(Offset(x, band), Offset(x, band - length), ticks);
+      if (isMajor && x >= band + 2 * s) {
+        _paintLabel(canvas, value.round().toString(), Offset(x + 2 * s, 3 * s),
+            8.5 * s);
+      }
+    }
+    final tickCountY = (heightPoints / minor).floor();
+    for (var i = 0; i <= tickCountY; i++) {
+      final value = i * minor;
+      final y = value * scale;
+      final isMajor = i % 5 == 0;
+      final length = (isMajor ? 8 : 4) * s;
+      canvas.drawLine(Offset(band, y), Offset(band - length, y), ticks);
+      if (isMajor && y >= band + 2 * s) {
+        _paintLabel(canvas, value.round().toString(), Offset(2 * s, y + 2 * s),
+            8.5 * s);
+      }
+    }
+
+    // Mouse position readouts: a short accent slash in each ruler gives the
+    // precision benefit of crosshairs without drawing full cursor guides.
+    final cursor = this.cursor;
+    if (cursor != null) {
+      final marker = Paint()
+        ..color = accentColor
+        ..strokeWidth = 1.5 * s;
+      canvas
+        ..drawLine(Offset(cursor.dx, 0), Offset(cursor.dx, band), marker)
+        ..drawLine(Offset(0, cursor.dy), Offset(band, cursor.dy), marker);
+    }
+
+    // The shared corner hides tick/label fragments from both axes and makes
+    // the two strips read as one instrument.
+    canvas.drawRect(Rect.fromLTWH(0, 0, band, band), ruleFill);
+    canvas
+      ..drawLine(Offset(0, band), Offset(band, band), hairline)
+      ..drawLine(Offset(band, 0), Offset(band, band), hairline);
+  }
+
+  @override
+  bool shouldRepaint(_PageRulerPainter oldDelegate) => true;
 }
 
 /// The pointer-tracking cursors and hover previews, on their own

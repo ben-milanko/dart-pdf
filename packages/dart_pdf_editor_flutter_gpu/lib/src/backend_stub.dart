@@ -51,6 +51,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   Future<void> warmUp() async {}
 
   @override
+  bool get supportsFullPageRasterWarmUp => false;
+
+  @override
   String get debugLabel => 'flutter_gpu-unavailable';
 
   @override

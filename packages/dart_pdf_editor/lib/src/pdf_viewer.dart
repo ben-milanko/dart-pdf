@@ -2641,7 +2641,12 @@ class _PdfViewerState extends State<PdfViewer>
     // the public zoom is logical px per point (1 = actual size); the
     // internal layout/transform machinery works in fit-width multiples
     final target = _fitScale <= 0 ? scale : scale / _fitScale;
-    _zoomTo(target, Offset(_viewWidth / 2, _viewHeight / 2));
+    // [_zoomTo] takes a list-space focal point (every gesture caller sits
+    // inside the zoom transform), so the viewport centre has to be mapped
+    // back through the current transform - otherwise a zoomed, panned
+    // viewer zooms around whatever happens to sit at the untransformed
+    // centre instead of what the reader is looking at.
+    _zoomTo(target, _sceneOf(Offset(_viewWidth / 2, _viewHeight / 2)));
     _settleControllerViewportCommand();
   }
 
@@ -2668,36 +2673,120 @@ class _PdfViewerState extends State<PdfViewer>
     });
   }
 
-  void _zoomTo(double target, Offset focal) {
-    final zoom = target.clamp(widget.minZoom, _effectiveMaxZoom);
-    if (zoom <= 1) {
-      if (_transform.value.getMaxScaleOnAxis() > 1) {
-        _transform.value = Matrix4.identity();
-      }
-      _setLayoutZoom(zoom, focalMain: _mainOf(focal));
-    } else {
-      if (_layoutZoom < 1) _setLayoutZoom(1, focalMain: _mainOf(focal));
-      final matrix = _transform.value.clone();
-      final factor = zoom / matrix.getMaxScaleOnAxis();
-      matrix
-        ..translateByDouble(focal.dx, focal.dy, 0, 1)
-        ..scaleByDouble(factor, factor, factor, 1)
-        ..translateByDouble(-focal.dx, -focal.dy, 0, 1);
-      _transform.value = _touchPanning
-          ? _clampedTransformMainOnly(matrix)
-          : _clampedTransform(matrix);
-    }
+  /// The scene (list) point under viewport point [view] - the inverse of the
+  /// zoom transform, which is only ever a uniform scale plus a translation.
+  Offset _sceneOf(Offset view) {
+    final matrix = _transform.value;
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 0) return view;
+    return Offset((view.dx - matrix.storage[12]) / scale,
+        (view.dy - matrix.storage[13]) / scale);
   }
 
-  /// Lays the pages out at [zoom] × fit (≤ 1), keeping the content at
-  /// [focalMain] (viewport coordinates along the scroll axis) as stationary
-  /// as the new scroll extents allow.
-  void _setLayoutZoom(double zoom, {double? focalMain}) {
+  /// Zooms to [target] (fit multiples) holding the content under [focal]
+  /// still. [focal] is a **list-space** point: every gesture that calls this
+  /// - wheel, touch pinch, trackpad pinch - is received inside the zoom
+  /// transform, so that is the space its local position arrives in.
+  ///
+  /// Two spaces meet here, which is what makes zoom-to-cursor subtle. The
+  /// pointer is fixed in *viewport* space, but the content under it lives in
+  /// list space and moves whenever the layout zoom changes: pages relay out
+  /// bigger or smaller and re-centre on the cross axis. So the focal point is
+  /// resolved into three values up front - where the pointer is on screen,
+  /// which content sits under it, and where that content ends up after any
+  /// relayout - and the new transform is then built to put the third back
+  /// under the first.
+  void _zoomTo(double target, Offset focal) {
+    final zoom = target.clamp(widget.minZoom, _effectiveMaxZoom);
+    final before = _transform.value;
+    final scale = before.getMaxScaleOnAxis();
+    // where the pointer is in the viewport (below fit the transform is
+    // identity and the two spaces coincide; above it they do not)
+    final viewFocal = Offset(focal.dx * scale + before.storage[12],
+        focal.dy * scale + before.storage[13]);
+    // the list coordinate of the content under the pointer, at the layout
+    // zoom in force right now
+    final contentMain =
+        (_scroll.hasClients ? _scroll.position.pixels : 0.0) + _mainOf(focal);
+    if (zoom <= 1) {
+      if (scale > 1) _transform.value = Matrix4.identity();
+      // the anchor is where the content must land once the transform is
+      // gone, which is the pointer's viewport position - not the list point
+      // it maps to today
+      _setLayoutZoom(zoom,
+          focalMain: _mainOf(viewFocal), contentMain: contentMain);
+      return;
+    }
+    var scene = focal;
+    if (_layoutZoom < 1) {
+      final from = _layoutZoom;
+      _setLayoutZoom(1,
+          focalMain: _mainOf(viewFocal), contentMain: contentMain);
+      // the pages just relaid out under the pointer: the scene point to hold
+      // has moved - along the main axis by as much of the scroll jump as the
+      // extents allowed, along the cross axis by the re-centring, which no
+      // scroll offset can absorb
+      final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+      scene = _axisOffset(
+        _remapMain(contentMain, from, _layoutZoom) - pixels,
+        _remapCross(_crossOf(focal), from, _layoutZoom),
+      );
+    }
+    // hold [scene] under [viewFocal] at the new zoom
+    final matrix = Matrix4.identity()
+      ..translateByDouble(viewFocal.dx, viewFocal.dy, 0, 1)
+      ..scaleByDouble(zoom, zoom, zoom, 1)
+      ..translateByDouble(-scene.dx, -scene.dy, 0, 1);
+    _transform.value = _touchPanning
+        ? _clampedTransformMainOnly(matrix)
+        : _clampedTransform(matrix);
+  }
+
+  /// Maps a main-axis list coordinate from layout zoom [from] to [to].
+  ///
+  /// Page sizes scale with the layout zoom but [PdfViewer.pageSpacing] does
+  /// not, so the plain ratio drifts by one gap per page ahead of the point -
+  /// a whole page's worth deep into a long document.
+  double _remapMain(double main, double from, double to) {
+    if (from <= 0 || to == from) return main;
+    final ratio = to / from;
+    final spacing = widget.pageSpacing;
+    if (spacing == 0 || _pages.isEmpty) return main * ratio;
+    var oldStart = 0.0;
+    var newStart = 0.0;
+    for (var i = 0; i < _pages.length; i++) {
+      final extent = _mainPointOf(i) * _fitScale;
+      final oldMain = extent * from;
+      if (main < oldStart + oldMain || i == _pages.length - 1) {
+        return newStart + (main - oldStart) * ratio;
+      }
+      oldStart += oldMain + spacing;
+      newStart += extent * to + spacing;
+    }
+    return main * ratio;
+  }
+
+  /// Maps a cross-axis list coordinate from layout zoom [from] to [to]. Every
+  /// page is centred on the cross axis and scales about that centre, so the
+  /// whole axis does.
+  double _remapCross(double cross, double from, double to) {
+    if (from <= 0 || to == from) return cross;
+    final centre = _crossView / 2;
+    return centre + (cross - centre) * (to / from);
+  }
+
+  /// Lays the pages out at [zoom] × fit (≤ 1), keeping [contentMain] (a
+  /// list coordinate along the scroll axis, at the *current* layout zoom;
+  /// defaults to whatever sits at [focalMain] now) at [focalMain] (viewport
+  /// coordinates along the scroll axis) as stationary as the new scroll
+  /// extents allow.
+  void _setLayoutZoom(double zoom, {double? focalMain, double? contentMain}) {
     final z = zoom.clamp(widget.minZoom, 1.0);
     if (z == _layoutZoom) return;
     final anchor = focalMain ?? _mainView / 2;
     final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
-    final target = (pixels + anchor) * (z / _layoutZoom) - anchor;
+    final content = contentMain ?? pixels + anchor;
+    final target = _remapMain(content, _layoutZoom, z) - anchor;
     setState(() => _layoutZoom = z);
     _controller._bumpViewport();
     if (_scroll.hasClients) {
@@ -3485,6 +3574,7 @@ class _PdfViewerState extends State<PdfViewer>
           signature: target.signature,
           pixelRatio: target.ratio,
           worker: _effectiveRenderWorker,
+          rasterBackend: widget.tileRasterBackend,
           // the least urgent thing in the worker's queue, so a visible page
           // always wins it and can preempt a warm already running
           priority: _rasterWarmWorkerPriority,
@@ -7596,18 +7686,43 @@ class _PdfViewerState extends State<PdfViewer>
   /// always hard-clamped; the cross axis is left untouched so
   /// [_springBackCross] can animate it back smoothly.
   void _settleZoomGesture() {
-    final total = _transform.value.getMaxScaleOnAxis() * _layoutZoom;
+    final before = _transform.value;
+    final scale = before.getMaxScaleOnAxis();
+    final total = scale * _layoutZoom;
+    // Whatever the gesture zoomed around survives only in the transform's
+    // translation, so both folds below have to carry it or the settle
+    // silently re-zooms the document around the viewport centre.
+    //
+    // That is what a **web** ctrl+wheel looked like: the browser reports it
+    // as a PointerScaleEvent, which this viewer leaves to InteractiveViewer
+    // (it zooms around the pointer, correctly) - and then this settle threw
+    // the focal point away and jumped the scroll to a centre-anchored zoom.
+    // A fold is a pure scale, so pinning the content under one viewport
+    // point pins every other one; pin the main axis' centre.
+    final anchor = _mainView / 2;
+    final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+    final content = scale <= 0
+        ? pixels + anchor
+        : pixels + (anchor - before.storage[_mainTranslate]) / scale;
     if (total <= 1) {
       _transform.value = Matrix4.identity();
-      _setLayoutZoom(total);
+      _setLayoutZoom(total, focalMain: anchor, contentMain: content);
     } else if (_layoutZoom < 1) {
       // fold the layout factor into the transform zoom
       final fold = _layoutZoom;
-      _setLayoutZoom(1);
-      final matrix = _transform.value.clone()
+      _setLayoutZoom(1, focalMain: anchor, contentMain: content);
+      final matrix = before.clone()
         ..translateByDouble(_viewWidth / 2, _viewHeight / 2, 0, 1)
         ..scaleByDouble(fold, fold, fold, 1)
         ..translateByDouble(-_viewWidth / 2, -_viewHeight / 2, 0, 1);
+      // Scaling about the viewport centre is already right for the cross
+      // axis: the layout centres every page there, so the relayout and this
+      // fold scale about the same point. The main axis is pinned by the
+      // scroll jump above instead, and its translation is whatever that jump
+      // could not absorb once the extents clamped it.
+      final settled = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+      matrix.storage[_mainTranslate] =
+          anchor - total * (_remapMain(content, fold, 1) - settled);
       _transform.value = _clampedTransformMainOnly(matrix);
     } else {
       _transform.value = _clampedTransformMainOnly(_transform.value.clone());
@@ -9409,8 +9524,9 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   // default-mode (mouse click) annotation selection, or
                   // a pending attention flash (the sidebar's zoom-to -
                   // links and form fields flash without a selection). Cursor
-                  // guides mount the same low-latency hover layer even in
-                  // ordinary reader/hand mode.
+                  // cursor guides and rulers mount the same passive,
+                  // low-latency hover layer even in ordinary reader/hand
+                  // mode.
                   builder: (context, _) {
                     final rasterCurrent = _rastered &&
                         _annotationLayerCurrent &&
@@ -9428,6 +9544,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             editing.pendingFlash == null &&
                             !editing.preferences.showVerticalCursorGuide &&
                             !editing.preferences.showHorizontalCursorGuide &&
+                            !editing.preferences.showPageRulers &&
                             !editing.preferences.showSnapGrid &&
                             (rasterCurrent ||
                                 editing.committedInkOn(widget.index) == null)

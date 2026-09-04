@@ -15,6 +15,7 @@ import 'raster_warm.dart';
 import 'render_worker.dart';
 import 'retained_scene.dart';
 import 'renderer.dart';
+import 'tile_raster_backend.dart';
 
 /// Memory policy for full-resolution rasters of pages the user has visited.
 ///
@@ -1591,14 +1592,17 @@ class PdfPagePreviewCache extends ChangeNotifier {
   ///
   /// [worker] moves the interpreter walk off the platform thread when the
   /// backend offloads; [priority] should stay above any foreground request so
-  /// a visible page always wins the worker's queue. Returns whether a raster
-  /// was stored.
+  /// a visible page always wins the worker's queue. When [rasterBackend]
+  /// supports full-page warming, its retained-scene session produces the
+  /// exact image directly; a rejection or failure falls back to Canvas for
+  /// this page. Returns whether a raster was stored.
   Future<bool> warmFullRaster(
     int index,
     PdfPage page, {
     required PdfPageRasterSignature signature,
     required double pixelRatio,
     PdfRenderWorker? worker,
+    PdfTileRasterBackend? rasterBackend,
     int priority = 4,
     bool Function()? shouldStop,
   }) async {
@@ -1633,41 +1637,138 @@ class PdfPagePreviewCache extends ChangeNotifier {
       }
       if (_disposed || hasFullRaster(signature, page)) return false;
       ui.Picture? picture;
-      final ui.Image image;
-      if (commands != null) {
-        picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-            pageColor: signature.pageColor,
-            rotation: signature.rotation,
-            maxImagePixelRatio: pixelRatio);
-      } else {
-        // No worker (or it declined): the walk runs here, exactly as it would
-        // when the page arrives on screen. That is the cost being moved into
-        // idle time, so it is worth paying - but only while nothing else
-        // wants the thread.
-        picture = await PdfPageRenderer.renderPictureRecordedWithPlan(
-          page,
-          PdfPageRenderPlan(
-            pageColor: signature.pageColor,
-            annotations: signature.annotations,
-            rotation: signature.rotation,
-          ),
-          maxImagePixelRatio: pixelRatio,
-        );
+      ui.Image? image;
+      var route = 'canvas';
+      final plan = PdfPageRenderPlan(
+        pageColor: signature.pageColor,
+        annotations: signature.annotations,
+        rotation: signature.rotation,
+      );
+      final backend = rasterBackend;
+      if (backend != null && backend.supportsFullPageRasterWarmUp) {
+        PdfRetainedScene? scene;
+        PdfTileRasterSession? session;
+        try {
+          scene = commands == null
+              ? await PdfRetainedScene.record(
+                  page,
+                  plan: plan,
+                  maxImagePixelRatio: pixelRatio,
+                  imageDecodeHeadroom: 1,
+                  retainDecodedPixelsForCommands:
+                      backend.shouldRetainLocallyDecodedImagePixels,
+                )
+              : await PdfRetainedScene.fromCommands(
+                  page,
+                  commands,
+                  plan: plan,
+                  maxImagePixelRatio: pixelRatio,
+                  retainDecodedPixels: backend.prefersDirectDecodedImageUploads,
+                  retainLocallyDecodedPixels:
+                      backend.shouldRetainLocallyDecodedImagePixels(commands),
+                  allowOverprintRerecord: true,
+                );
+          if ((shouldStop?.call() ?? false) || _disposed) {
+            if (!_disposed) _warmPreemptions++;
+            return false;
+          }
+          session = backend.createSession(scene);
+          if (session == null && backend is PdfTileRasterRetryBackend) {
+            final retry =
+                (backend as PdfTileRasterRetryBackend).retrySession(scene);
+            if (retry != null) session = await retry;
+          }
+          if ((shouldStop?.call() ?? false) || _disposed) {
+            if (!_disposed) _warmPreemptions++;
+            return false;
+          }
+          if (session != null) {
+            image = await session.rasterizeRegion(
+              Offset.zero & size,
+              pixelRatio: pixelRatio,
+              tracePage: index,
+            );
+            if (image.width != signature.width ||
+                image.height != signature.height) {
+              throw StateError(
+                '${backend.debugLabel} full-page warm returned '
+                '${image.width}x${image.height}; expected '
+                '${signature.width}x${signature.height}',
+              );
+            }
+            route = backend.debugLabel;
+            // The exact raster is the important result. Keep a page-space
+            // picture only to seed the tiny navigation preview without a
+            // second interpretation; failure here must not discard paid-for
+            // accelerated pixels.
+            try {
+              picture = scene.replay(pixelRatio: 1);
+            } catch (_) {
+              picture = null;
+            }
+          }
+        } catch (error) {
+          image?.dispose();
+          image = null;
+          picture?.dispose();
+          picture = null;
+          // The accelerated route can reject a perfectly valid retained
+          // scene. Replaying that already-recorded scene gives Canvas its
+          // exact fallback without interpreting and decoding the page again.
+          try {
+            picture = scene?.replay(pixelRatio: 1);
+          } catch (_) {
+            picture = null;
+          }
+          PdfPerfLog.log(
+            'raster-warm gpu fallback page=$index '
+            'backend=${backend.debugLabel} error=$error',
+          );
+        } finally {
+          session?.dispose();
+          scene?.dispose();
+        }
       }
-      if ((shouldStop?.call() ?? false) || _disposed) {
-        picture.dispose();
-        if (!_disposed) _warmPreemptions++;
-        return false;
-      }
-      try {
-        image = await PdfPageRenderer.rasterize(picture, size, pixelRatio);
-      } catch (_) {
-        picture.dispose();
-        rethrow;
+      if (image == null) {
+        if (shouldStop?.call() ?? false) {
+          _warmPreemptions++;
+          return false;
+        }
+        if (picture == null) {
+          if (commands != null) {
+            picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
+              page,
+              commands,
+              plan,
+              maxImagePixelRatio: pixelRatio,
+            );
+          } else {
+            // No worker (or it declined): the walk runs here, exactly as it
+            // would when the page arrives on screen. That is the cost being
+            // moved into idle time, so it is worth paying - but only while
+            // nothing else wants the thread.
+            picture = await PdfPageRenderer.renderPictureRecordedWithPlan(
+              page,
+              plan,
+              maxImagePixelRatio: pixelRatio,
+            );
+          }
+        }
+        if ((shouldStop?.call() ?? false) || _disposed) {
+          picture.dispose();
+          if (!_disposed) _warmPreemptions++;
+          return false;
+        }
+        try {
+          image = await PdfPageRenderer.rasterize(picture, size, pixelRatio);
+        } catch (_) {
+          picture.dispose();
+          rethrow;
+        }
       }
       if (_disposed) {
         image.dispose();
-        picture.dispose();
+        picture?.dispose();
         return false;
       }
       try {
@@ -1690,17 +1791,18 @@ class PdfPagePreviewCache extends ChangeNotifier {
         // The interpretation is already in hand, so the low-resolution
         // navigation preview comes free - no second walk when the background
         // prerender reaches this page.
-        if (!isFresh(index, page, requireImages: true)) {
+        if (picture != null && !isFresh(index, page, requireImages: true)) {
           await putFromPicture(index, page, picture,
               rotation: signature.rotation);
         }
       } finally {
         image.dispose();
-        picture.dispose();
+        picture?.dispose();
       }
       PdfPerfLog.log(
         'raster-warm page=$index ${signature.width}x${signature.height} '
         '${commands != null ? 'worker ' : 'local '}'
+        'backend=$route '
         'stored=$stored '
         'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms '
         '${_fullRasterState()}',

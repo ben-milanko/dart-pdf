@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -26,6 +27,18 @@ dynamic gridPainter(WidgetTester tester) => tester
     .singleWhere(
       (painter) => painter.runtimeType.toString() == '_SnapGridPainter',
     );
+
+dynamic alignmentPainter(WidgetTester tester) => tester
+    .widget<CustomPaint>(find.byKey(
+      const ValueKey('pdf-alignment-guides'),
+    ))
+    .painter;
+
+dynamic rulerPainter(WidgetTester tester) => tester
+    .widget<CustomPaint>(find.byKey(
+      const ValueKey('pdf-page-rulers'),
+    ))
+    .painter;
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -186,6 +199,109 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
   });
 
+  testWidgets('smart guides snap annotation edges and centres while moving',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing
+      ..addRectangle(0, const PdfRect(100, 650, 200, 750))
+      ..addRectangle(0, const PdfRect(300, 500, 400, 600))
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+
+    final gesture = await tester.startGesture(view(150, 700),
+        kind: PointerDeviceKind.mouse);
+    // Raw placement is two points shy on x; y is already aligned. The smart
+    // guide should magnetize both axes to the second annotation.
+    await gesture.moveTo(view(348, 550));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('pdf-alignment-guides')), findsOneWidget);
+    final painter = alignmentPainter(tester);
+    final guides = List<dynamic>.from(painter.guides as Iterable);
+    expect(guides.length, 2);
+    expect(
+        guides.any((g) =>
+            g.axis == Axis.vertical &&
+            (g.position - view(350, 0).dx).abs() < 0.1),
+        isTrue,
+        reason: guides.toString());
+    expect(
+        guides.any((g) =>
+            g.axis == Axis.horizontal &&
+            (g.position - view(0, 550).dy).abs() < 0.1),
+        isTrue);
+
+    await gesture.up();
+    await tester.pump();
+    final moved = editing.document.page(0).annotations[0].rect;
+    expect(moved.left, closeTo(300, 0.01));
+    expect(moved.bottom, closeTo(500, 0.01));
+    expect(moved.right, closeTo(400, 0.01));
+    expect(moved.top, closeTo(600, 0.01));
+    expect(find.byKey(const ValueKey('pdf-alignment-guides')), findsNothing);
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('smart guides snap resize axes and Alt bypasses them',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing
+      ..addRectangle(0, const PdfRect(100, 600, 200, 700))
+      ..addRectangle(0, const PdfRect(300, 500, 400, 600))
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+
+    // Bottom-right is (200, 600) in page space. Land both dragged edges two
+    // points from the reference box; they should snap exactly onto it.
+    await dragMouse(tester, view(200, 600), view(298, 502));
+    var resized = editing.document.page(0).annotations[0].rect;
+    expect(resized.right, closeTo(300, 0.01));
+    expect(resized.bottom, closeTo(500, 0.01),
+        reason: 'target=${editing.document.page(0).annotations[1].rect}');
+
+    // Undo, then make the same drag with Alt down: the raw off-guide values
+    // survive and no alignment line is mounted.
+    editing.undo();
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    final gesture = await tester.startGesture(view(200, 600),
+        kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(view(298, 502));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('pdf-alignment-guides')), findsNothing);
+    await gesture.up();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pump();
+    resized = editing.document.page(0).annotations[0].rect;
+    expect(resized.right, closeTo(298, 0.5));
+    expect(resized.bottom, closeTo(502, 0.5));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('optional page rulers use adaptive point ticks and hover marks',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.preferences.showPageRulers = true;
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('pdf-page-rulers')), findsOneWidget);
+    var painter = rulerPainter(tester);
+    expect(painter.bandWidth, 24);
+    expect(painter.majorStepFor(const Size(800, 1035)), 50);
+    expect(painter.cursor, isNull);
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(5, 5));
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(view(220, 700));
+    await tester.pump();
+    painter = rulerPainter(tester);
+    expect(painter.cursor.dx, closeTo(view(220, 700).dx, 0.1));
+    expect(painter.cursor.dy, closeTo(view(220, 700).dy, 0.1));
+  });
+
   testWidgets('editor settings exposes persistent guide and grid controls',
       (tester) async {
     final preferences = PdfEditingPreferences();
@@ -207,11 +323,15 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('pdf-shell-editing-guides')),
         kind: PointerDeviceKind.mouse);
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-smart-alignment-guides')));
+    await tester.tap(find.byKey(const ValueKey('pdf-page-rulers')));
     await tester.tap(find.byKey(const ValueKey('pdf-cursor-guide-vertical')));
     await tester.tap(find.byKey(const ValueKey('pdf-grid-snap')));
     await tester.tap(find.byKey(const ValueKey('pdf-grid-visible')));
     await tester.pump();
 
+    expect(preferences.smartAlignmentGuides, isFalse);
+    expect(preferences.showPageRulers, isTrue);
     expect(preferences.showVerticalCursorGuide, isTrue);
     expect(preferences.snapToGrid, isTrue);
     expect(preferences.showSnapGrid, isTrue);
@@ -224,6 +344,8 @@ void main() {
     final first = PdfEditingPreferences();
     await first.ready;
     first
+      ..smartAlignmentGuides = false
+      ..showPageRulers = true
       ..showVerticalCursorGuide = true
       ..showHorizontalCursorGuide = true
       ..showSnapGrid = true
@@ -233,6 +355,8 @@ void main() {
 
     final second = PdfEditingPreferences();
     await second.ready;
+    expect(second.smartAlignmentGuides, isFalse);
+    expect(second.showPageRulers, isTrue);
     expect(second.showVerticalCursorGuide, isTrue);
     expect(second.showHorizontalCursorGuide, isTrue);
     expect(second.showSnapGrid, isTrue);

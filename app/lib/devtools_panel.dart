@@ -899,7 +899,10 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           title: 'Idle raster warm',
           help: 'Spends genuine viewer idle time rasterizing pages ahead of '
               'navigation, so arriving on them paints instantly instead of '
-              'interpreting and reading back first. Warming stands down the '
+              'rendering first. With the Flutter GPU backend selected, '
+              'accepted pages are produced as GPU-resident exact images; '
+              'unsupported pages retain the exact Canvas fallback. Warming '
+              'stands down the '
               'moment anything scrolls, zooms, edits, or renders, and never '
               'stores more than the visited-page raster budget above allows - '
               'so a whole-document warm on a large file settles into a moving '

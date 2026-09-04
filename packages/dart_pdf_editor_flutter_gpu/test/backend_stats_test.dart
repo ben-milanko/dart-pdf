@@ -71,11 +71,13 @@ void main() {
       final mobile = FlutterGpuTileRasterBackend();
       expect(mobile.supportsWarmUp, isFalse);
       expect(mobile.supportsSessionWarmUp, isFalse);
+      expect(mobile.supportsFullPageRasterWarmUp, isFalse);
 
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       final desktop = FlutterGpuTileRasterBackend();
       expect(desktop.supportsWarmUp, isTrue);
       expect(desktop.supportsSessionWarmUp, isTrue);
+      expect(desktop.supportsFullPageRasterWarmUp, isTrue);
       expect(desktop.overprintRetryMaxDimension, 512);
       expect(desktop.overprintRetryMaxCommands, 768);
       expect(desktop.maxTransientAttachmentBytes, 64 << 20);
@@ -98,10 +100,12 @@ void main() {
       final optedIn = FlutterGpuTileRasterBackend(enableProactiveWarmUp: true);
       expect(optedIn.supportsWarmUp, isTrue);
       expect(optedIn.supportsSessionWarmUp, isTrue);
+      expect(optedIn.supportsFullPageRasterWarmUp, isTrue);
       final optedOut =
           FlutterGpuTileRasterBackend(enableProactiveWarmUp: false);
       expect(optedOut.supportsWarmUp, isFalse);
       expect(optedOut.supportsSessionWarmUp, isFalse);
+      expect(optedOut.supportsFullPageRasterWarmUp, isFalse);
     } finally {
       debugDefaultTargetPlatformOverride = previous;
     }

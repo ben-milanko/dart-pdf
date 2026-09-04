@@ -47,12 +47,13 @@ AppImage and portable tarball builds remain available from
 - Progressive rendering reveals complex pages top-down, while faithful
   overprint and spot-color handling keeps print-oriented PDFs visually
   accurate.
-- Developer tools (F12) can switch deep-zoom tiles live between Canvas and the
-  optional flutter_gpu backend, tune the GPU texture/geometry ceilings, inspect
-  actual GPU/fallback routes and resource pressure, and export those metrics as
-  JSON. Web keeps Canvas through the companion's compile-time stub; pull-request
-  web previews provide macOS, Windows, and Linux download buttons in this
-  section for testing the native backend.
+- Native builds prefer the bundled flutter_gpu backend by default; unsupported
+  pages and runtime failures replay exactly through Canvas. Developer tools
+  (F12) can switch the preference live, tune the GPU texture/geometry ceilings,
+  inspect actual GPU/fallback routes and resource pressure, and export those
+  metrics as JSON. Web keeps Canvas through the companion's compile-time stub;
+  pull-request web previews provide macOS, Windows, and Linux download buttons
+  in this section for testing the native backend.
 - Desktop builds include the native `dartpdf` CLI and stdio MCP server for
   bounded inspection, text extraction, form listing, and annotation listing.
   See [`dart_pdf_cli`](../packages/dart_pdf_cli) for installed paths and agent
