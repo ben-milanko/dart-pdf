@@ -184,7 +184,7 @@ void main() {
     await settle(tester);
   });
 
-  testWidgets('a worker-backed big image waits for input, not full settle',
+  testWidgets('a worker-backed big image sharpens during a slow scroll',
       (tester) async {
     // A megapixel-class underlay is the decode/upload the hold exists to
     // prevent. Whichever gate catches it - the page's own /XObject
@@ -203,14 +203,16 @@ void main() {
     expect(painted(tester), isFalse,
         reason: 'an image decode/upload must not land during live input');
 
-    // Input stops, but the conservative 500ms scroll-settle hold remains.
-    // The focused worker-backed page should sharpen in this short quiet lane
-    // instead of making the reader stare at its preview for the whole hold.
-    scheduler.activeGesture = false;
+    // The input remains live, but its measured velocity falls into the slow
+    // lane. The focused worker-backed page should sharpen now instead of
+    // making the reader stop completely; the conservative hold stays raised
+    // for local and background work.
+    scheduler.slowMotion = true;
     for (var i = 0; i < 20 && !painted(tester); i++) {
       await settle(tester);
     }
     expect(painted(tester), isTrue);
+    expect(scheduler.activeGesture, isTrue, reason: 'input is still arriving');
     expect(scheduler.holding, isTrue,
         reason: 'background/local heavy work remains protected');
   });
@@ -230,7 +232,7 @@ void main() {
       workerDeclines: true,
     );
 
-    scheduler.activeGesture = false;
+    scheduler.slowMotion = true;
     for (var i = 0; i < 10; i++) {
       await settle(tester);
     }
@@ -329,7 +331,8 @@ void main() {
     final document = PdfDocument.open(bytes);
     final scheduler = PdfPageRenderScheduler()
       ..holding = true
-      ..activeGesture = true;
+      ..activeGesture = true
+      ..slowMotion = true;
     addTearDown(scheduler.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Center(

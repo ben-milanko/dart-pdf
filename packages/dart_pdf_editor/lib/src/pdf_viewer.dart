@@ -589,6 +589,12 @@ class PdfViewerController extends ChangeNotifier {
   bool get debugLiveRenderInput =>
       _state?._renderScheduler.activeGesture ?? false;
 
+  /// Test hook: whether the attached viewer currently admits bounded
+  /// worker-backed sharpening during a sustained slow scroll.
+  @visibleForTesting
+  bool get debugSlowRenderMotion =>
+      _state?._renderScheduler.slowMotion ?? false;
+
   /// Whether the attached viewer still has foreground page work in flight: a
   /// scroll holding renders back, or pages queued for their first interpret.
   /// False when no viewer is attached.
@@ -1802,16 +1808,15 @@ class _PdfViewerState extends State<PdfViewer>
   /// occupy its slot instead of painting it during a fast scroll.
   int _pageEpoch = 0;
 
-  /// Paces every page's first (UI-thread) interpret so no frame runs
-  /// more than one - [PdfPageRenderScheduler]. Its [holding] flag stands
-  /// in for the old render hold: while the list scrolls faster than
-  /// pages can usefully render, not-yet-interpreted pages keep their
-  /// preview/placeholder instead of stalling the UI thread mid-fling
-  /// (the stall is what made the scrollbar leap on heavy documents).
-  /// When scrolling settles, held pages drain one per frame, nearest the
-  /// viewport first, rather than all firing in one event-loop turn (the
-  /// burst that froze fast scrolling on iPad). Released when the velocity
-  /// estimate drops or the scroll-settle timer fires.
+  /// Paces every page's first (UI-thread) interpret so no frame runs more than
+  /// one - [PdfPageRenderScheduler]. Its strict [holding] flag stays raised
+  /// through the scroll-settle window, keeping heavyweight local work behind
+  /// a preview/placeholder instead of stalling the UI thread mid-fling (the
+  /// stall that made the scrollbar leap on heavy documents). A separate
+  /// velocity lane lets bounded worker-backed sharpening through during a
+  /// sustained slow scroll. When scrolling settles, held pages drain one per
+  /// frame, nearest the viewport first, rather than all firing in one
+  /// event-loop turn (the burst that froze fast scrolling on iPad).
   final _renderScheduler = PdfPageRenderScheduler();
 
   /// (frame timestamp, scroll pixels) samples from the last ~200ms,
@@ -1877,6 +1882,17 @@ class _PdfViewerState extends State<PdfViewer>
   /// never read as "stopped", short enough that a reader who has actually
   /// stopped is not made to wait.
   static const _gestureQuietDelay = Duration(milliseconds: 120);
+
+  /// A slow-scroll sharpening lane uses viewport-relative velocity with
+  /// hysteresis. It opens below 0.8 viewport lengths per second and remains
+  /// open until motion exceeds 1.2 viewport lengths per second. The floors
+  /// keep unusually short viewports from labelling ordinary wheel motion as
+  /// slow. The opening grace in [_trackScrollVelocity] still wins, so the lane
+  /// cannot open on the low first samples of a flick that is accelerating.
+  static const double _slowScrollEnterViewportRate = 0.8;
+  static const double _slowScrollExitViewportRate = 1.2;
+  static const double _slowScrollEnterFloor = 480;
+  static const double _slowScrollExitFloor = 640;
 
   /// Fires once the viewer has been quiet for
   /// [PdfPageRasterWarmPolicy.idleDelay]. Any scroll, zoom, edit, or queued
@@ -2098,6 +2114,7 @@ class _PdfViewerState extends State<PdfViewer>
     // A live gesture is what a UI-thread walk must not run inside; the quiet
     // window that follows one is not (see [PdfPageRenderScheduler.activeGesture]).
     _renderScheduler.activeGesture = _directMotionRenderHoldActive;
+    if (!_motionRenderHoldActive) _renderScheduler.slowMotion = false;
     _renderScheduler.parked = !widget.active;
   }
 
@@ -2123,6 +2140,7 @@ class _PdfViewerState extends State<PdfViewer>
     _cancelPreviewPrerenderSchedule();
     _motionHoldReleaseTimer?.cancel();
     _motionHoldReleaseTimer = null;
+    _renderScheduler.slowMotion = false;
     _renderScheduler.holding = true;
   }
 
@@ -3677,17 +3695,17 @@ class _PdfViewerState extends State<PdfViewer>
     );
   }
 
-  /// Estimates the scroll velocity over a ~200ms window of per-frame
-  /// samples and holds the render scheduler past ~2 viewport-heights/sec.
-  /// Frame timestamps (not wall clock) collapse the burst of listener
-  /// calls a single wheel tick produces into one sample - an instant
-  /// 100px jump must not read as infinite velocity.
+  /// Estimates the scroll velocity over a ~200ms window of per-frame samples
+  /// and opens the worker-backed sharpening lane during sustained slow motion.
+  /// Frame timestamps (not wall clock) collapse the burst of listener calls a
+  /// single wheel tick produces into one sample - an instant 100px jump must
+  /// not read as infinite velocity.
   void _trackScrollVelocity() {
     if (!_scroll.hasClients) return;
     // Mark the gesture before the first-sample early return below. Expensive
-    // worker-backed pages use the short input-quiet lane: they may sharpen
-    // while the conservative scroll hold is still up, but never in the frame
-    // that began a wheel/drag burst. Previously the first event raised only
+    // worker-backed pages use the slow-motion lane: they may sharpen while the
+    // conservative scroll hold is still up, but never in the unclassified
+    // first frame of a wheel/drag burst. Previously the first event raised only
     // [holding], so a quiet-class render could slip through before the second
     // event supplied a velocity sample.
     _markScrollGestureActive();
@@ -3719,26 +3737,43 @@ class _PdfViewerState extends State<PdfViewer>
     final velocity =
         (pixels - _scrollSamples.first.$2).abs() * 1e6 / span; // px/s
     final viewport = _scroll.position.viewportDimension;
-    // A flick ramps up: its first inter-frame deltas underread the
-    // gesture's true speed, so a velocity verdict taken in the burst's
-    // opening frames reads "slow" and releases the hold right as the
-    // scroll accelerates - a heavy page entering then interprets
-    // synchronously and drops the frame (the hitch felt a fraction of a
-    // page into a fast scroll). Hold unconditionally through the opening
-    // window, then govern by the windowed velocity (>~2 viewport-
-    // heights/sec). Held pages paint their low-res preview, not blank, so
-    // a genuinely slow scroll only shows a brief preview before the grace
-    // lapses and the page sharpens; the settle timer clears the burst.
+    // A flick ramps up: its first inter-frame deltas underread the gesture's
+    // true speed, so a velocity verdict taken in the burst's opening frames
+    // reads "slow" right as the scroll accelerates. Keep the slow lane closed
+    // through that grace, then use hysteresis around roughly one viewport per
+    // second: the lower threshold prevents a fast scroll entering the lane,
+    // while the higher exit avoids flickering it off on tiny speed changes.
+    // The strict hold remains raised through the full settle window, so local
+    // heavyweight work still cannot run here; only work explicitly classified
+    // [PdfRenderMotionClass.slow] can sharpen during slow input.
     final opening = now - _scrollBurstStart < const Duration(milliseconds: 150);
-    final activeMotion = _motionRenderHoldActive;
-    final hold =
-        activeMotion || opening || velocity > math.max(800, 2 * viewport);
-    _vectorFirstPrefetch = hold && (_effectiveRenderWorker?.isActive ?? false);
+    // A wheel event also owns the short transform-release timer, but the live
+    // scroll-settle timer identifies it as list motion whose velocity we can
+    // classify. [_previewUiMustDefer] is the existing distinction between
+    // that case and a direct pan/zoom gesture that must never enter this lane.
+    final directMotion = _previewUiMustDefer;
+    final slowEnter = math.max(
+      _slowScrollEnterFloor,
+      _slowScrollEnterViewportRate * viewport,
+    );
+    final slowExit = math.max(
+      _slowScrollExitFloor,
+      _slowScrollExitViewportRate * viewport,
+    );
+    final slowThreshold = _renderScheduler.slowMotion ? slowExit : slowEnter;
+    final slow = !opening && !directMotion && velocity <= slowThreshold;
+    _renderScheduler.slowMotion = slow;
+    final fastThreshold = math.max(800, 2 * viewport);
+    final hold = _motionRenderHoldActive || opening || velocity > fastThreshold;
+    _vectorFirstPrefetch =
+        !slow && hold && (_effectiveRenderWorker?.isActive ?? false);
     PdfPerfLog.log('scroll page=${_controller.currentPage} '
         'v=${velocity.toStringAsFixed(0)}px/s '
-        'threshold=${math.max(800, 2 * viewport).toStringAsFixed(0)} '
+        'slow=${slow ? 'ON' : 'off'} '
+        'slowThreshold=${slowThreshold.toStringAsFixed(0)} '
+        'fastThreshold=${fastThreshold.toStringAsFixed(0)} '
         'prefetch=${_vectorFirstPrefetch ? 'vector' : 'full'} '
-        'opening=$opening active=$activeMotion '
+        'opening=$opening direct=$directMotion '
         'hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;

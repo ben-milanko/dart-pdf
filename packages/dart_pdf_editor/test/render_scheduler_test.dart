@@ -106,6 +106,43 @@ void main() {
     expect(ran, ['safe', 'held']);
   });
 
+  testWidgets('slow motion admits worker sharpening but not quiet local work',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()
+      ..holding = true
+      ..activeGesture = true
+      ..focus = 0;
+    addTearDown(scheduler.dispose);
+    final ran = <String>[];
+    scheduler.request('slow', 0, () => ran.add('slow'),
+        motion: PdfRenderMotionClass.slow);
+    scheduler.request('quiet', 0, () => ran.add('quiet'),
+        motion: PdfRenderMotionClass.quiet);
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, isEmpty, reason: 'fast live input keeps both lanes closed');
+
+    scheduler.slowMotion = true;
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, ['slow'],
+        reason: 'only off-thread worker sharpening enters a slow scroll');
+
+    scheduler
+      ..slowMotion = false
+      ..activeGesture = false;
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, ['slow', 'quiet'],
+        reason: 'small local work waits until live input stops');
+    expect(scheduler.holding, isTrue,
+        reason: 'strict held work still waits for the full settle');
+  });
+
   testWidgets('a hold still paces motion-safe grants one per frame',
       (tester) async {
     final scheduler = PdfPageRenderScheduler()
@@ -311,9 +348,7 @@ void main() {
     final scheduler = PdfPageRenderScheduler()..focus = 100;
     addTearDown(scheduler.dispose);
     final order = <int>[];
-    scheduler
-        .paceUiWork('stale-index', 100, focusDistance: 2)
-        .then((ready) {
+    scheduler.paceUiWork('stale-index', 100, focusDistance: 2).then((ready) {
       if (ready) order.add(100);
     });
     scheduler.paceUiWork('visible', 5, focusDistance: 0).then((ready) {

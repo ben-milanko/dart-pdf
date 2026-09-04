@@ -53,9 +53,11 @@ import 'perf_log.dart';
 /// a hold - one per frame, and only near the scroll's destination
 /// ([motionSafeHoldRadius], so a fling does not record every page it passes) -
 /// and several may start in one frame once the scroll settles. Expensive
-/// worker-backed results use the intermediate input-quiet lane: replay waits
-/// until the live input stream stops, but not for the longer settle insurance.
-/// Heavy local work keeps the old held, then one-per-frame behaviour.
+/// worker-backed results use the intermediate slow-motion lane: replay may
+/// land during a sustained slow scroll, or as soon as the live input stream
+/// stops, without waiting for the longer settle insurance. Small local walks
+/// use the input-quiet lane and still stay out of every live gesture. Heavy
+/// local work keeps the old held, then one-per-frame behaviour.
 ///
 /// On a long text document that is the difference between arriving on a page
 /// and waiting out the scroll before the render even starts (~600 ms to
@@ -72,12 +74,19 @@ enum PdfRenderMotionClass {
   /// anything whose cost is unknown or large gets.
   held,
 
-  /// Runs during the scroll-quiet window but not inside a live gesture: either
-  /// a small page whose walk is on the UI thread, or an expensive worker result
-  /// whose replay/upload must stay out of live input. In both cases waiting
-  /// out the full settle window is visible latency, while landing in a gesture
-  /// frame would be a stutter.
+  /// Runs during the scroll-quiet window but not inside a live gesture. This is
+  /// for a small page whose walk is on the UI thread, and other work that must
+  /// not compete with any pointer/wheel input. Waiting out the full settle
+  /// window is visible latency, while landing in a gesture frame would be a
+  /// stutter.
   quiet,
+
+  /// Runs during a sustained slow scroll, or once live input goes quiet, but
+  /// not during fast motion. This is for worker-backed sharpening whose walk
+  /// is off-thread but whose replay/upload is too large for a fast frame.
+  ///
+  /// Unlike [quiet], this class must never be used for a local UI-thread walk.
+  slow,
 
   /// Runs whenever, motion or not: the walk is in a worker and the replay is
   /// small, so a scrolling frame pays nothing for it.
@@ -146,6 +155,7 @@ class PdfPageRenderScheduler {
 
   bool _holding = false;
   bool _activeGesture = false;
+  bool _slowMotion = false;
 
   /// Whether work of [motion] may run right now. The whole point of the class
   /// being evaluated here, and not when the request was made.
@@ -153,6 +163,7 @@ class PdfPageRenderScheduler {
 
   bool _motionPermits(PdfRenderMotionClass motion) => switch (motion) {
         PdfRenderMotionClass.free => true,
+        PdfRenderMotionClass.slow => _slowMotion || !_activeGesture,
         PdfRenderMotionClass.quiet => !_activeGesture,
         PdfRenderMotionClass.held => !_holding,
       };
@@ -218,9 +229,25 @@ class PdfPageRenderScheduler {
     }
   }
 
-  /// True while a fast scroll is in flight: the viewer raises it from its
-  /// velocity estimate. No request is granted while held; lowering it
-  /// drains the queue.
+  /// Whether the current live input is a sustained slow scroll.
+  ///
+  /// While true, [PdfRenderMotionClass.slow] work may sharpen the focused page
+  /// through the conservative hold. The setter wakes both queues when the
+  /// velocity crosses into that lane; changing back to fast motion closes the
+  /// gate before the next scheduled grant.
+  bool get slowMotion => _slowMotion;
+  set slowMotion(bool value) {
+    if (_slowMotion == value || _disposed) return;
+    _slowMotion = value;
+    if (_slowMotion) {
+      _scheduleDrain();
+      _scheduleUiDrain();
+    }
+  }
+
+  /// True through the conservative scroll-settle window. Held-class work does
+  /// not run until it lowers; the motion-safe classes above can pass according
+  /// to the current live-input and velocity state.
   bool get holding => _holding;
   set holding(bool value) {
     if (_holding == value || _disposed) return;
@@ -462,6 +489,7 @@ class PdfPageRenderScheduler {
         'focus=$_focus cost=${next.motion.name} '
         'hold=${_holding ? 'ON' : 'off'}'
         '${_activeGesture ? ' gesture=ON' : ''} '
+        '${_slowMotion ? 'slow=ON ' : ''}'
         'remaining=${_pending.length}');
     _inFlight[next.token] = null;
     _activePriorities[next.token] = next.priority;

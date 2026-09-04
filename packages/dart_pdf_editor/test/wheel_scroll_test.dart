@@ -55,6 +55,9 @@ void main() {
     expect(controller.debugRenderHold, isTrue);
     expect(controller.debugLiveRenderInput, isTrue,
         reason: 'the very first wheel event must close the quiet render lane');
+    expect(controller.debugSlowRenderMotion, isFalse,
+        reason: 'the opening sample must not misclassify an accelerating '
+            'flick as slow');
 
     await tester.pump(const Duration(milliseconds: 119));
     expect(controller.debugLiveRenderInput, isTrue);
@@ -70,6 +73,37 @@ void main() {
             'raster into the middle of the gesture');
 
     await tester.pump(const Duration(milliseconds: 250));
+    expect(controller.debugRenderHold, isFalse);
+  });
+
+  testWidgets('sustained slow scrolling opens the sharpening lane',
+      (tester) async {
+    final controller = await pumpViewer(tester);
+    await tester.pumpAndSettle();
+    final pointer = TestPointer(108, PointerDeviceKind.mouse);
+    pointer.hover(const Offset(400, 300));
+
+    // Five small steps over 200ms are well under one viewport per second.
+    // The 150ms opening grace must elapse before the lane can open.
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 8)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(controller.debugLiveRenderInput, isTrue,
+        reason: 'the wheel stream is still active');
+    expect(controller.debugSlowRenderMotion, isTrue,
+        reason: 'bounded worker-backed pages may sharpen during slow motion');
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'strict local and background work remains held');
+
+    // One fast step pushes the 200ms window above the hysteresis exit. The
+    // lane closes immediately, without waiting for the settle timer.
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 300)));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(controller.debugSlowRenderMotion, isFalse);
+    expect(controller.debugRenderHold, isTrue);
+
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
   });
 
