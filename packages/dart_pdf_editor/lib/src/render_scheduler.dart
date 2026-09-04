@@ -195,6 +195,16 @@ class PdfPageRenderScheduler {
   bool get busy =>
       !_parked && (_holding || _pending.isNotEmpty || _inFlight.isNotEmpty);
 
+  /// Whether page work the reader is waiting for is queued or running.
+  ///
+  /// Unlike [busy], this deliberately excludes [holding]. A slow scroll keeps
+  /// that conservative hold raised even after every visible page is sharp;
+  /// accelerated look-ahead may use a spare worker/GPU lane in that state,
+  /// but must still stand down the instant real foreground work appears.
+  bool get hasForegroundWork =>
+      !_parked &&
+      (_pending.isNotEmpty || _inFlight.isNotEmpty || _uiPending.isNotEmpty);
+
   bool _parked = false;
 
   /// True while the viewer is overlaid by another view and renders nothing

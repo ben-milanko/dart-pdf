@@ -1595,7 +1595,13 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// a visible page always wins the worker's queue. When [rasterBackend]
   /// supports full-page warming, its retained-scene session produces the
   /// exact image directly; a rejection or failure falls back to Canvas for
-  /// this page. Returns whether a raster was stored.
+  /// this page.
+  ///
+  /// [acceleratedOnly] requires both an active worker and an accelerated
+  /// full-page backend. It declines the page when the worker cannot provide a
+  /// command buffer or the backend cannot produce the image: live-motion
+  /// look-ahead must never record or raster through Canvas on the platform
+  /// thread. Returns whether a raster was stored.
   Future<bool> warmFullRaster(
     int index,
     PdfPage page, {
@@ -1605,6 +1611,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     PdfTileRasterBackend? rasterBackend,
     int priority = 4,
     bool Function()? shouldStop,
+    bool acceleratedOnly = false,
   }) async {
     if (_disposed) return false;
     if (hasFullRaster(signature, page)) {
@@ -1620,12 +1627,23 @@ class PdfPagePreviewCache extends ChangeNotifier {
       return false;
     }
     if (shouldStop?.call() ?? false) return false;
+    final backend = rasterBackend;
+    final accelerated = backend != null && backend.supportsFullPageRasterWarmUp;
+    final activeWorker = worker != null && worker.isActive;
+    if (acceleratedOnly && (!accelerated || !activeWorker)) {
+      _warmRejections++;
+      PdfPerfLog.log(
+        'raster-warm accelerated-only decline page=$index '
+        'reason=${!activeWorker ? 'no-worker' : 'no-backend'}',
+      );
+      return false;
+    }
     _warmAttempts++;
     final sw = Stopwatch()..start();
     var stored = false;
     try {
       final size = PdfPageRenderer.pageSize(page, rotation: signature.rotation);
-      final commands = worker != null && worker.isActive
+      final commands = activeWorker
           ? await worker.record(index,
               annotations: signature.annotations,
               priority: priority,
@@ -1636,6 +1654,13 @@ class PdfPagePreviewCache extends ChangeNotifier {
         return false;
       }
       if (_disposed || hasFullRaster(signature, page)) return false;
+      if (acceleratedOnly && commands == null) {
+        PdfPerfLog.log(
+          'raster-warm accelerated-only decline page=$index '
+          'reason=worker-declined',
+        );
+        return false;
+      }
       ui.Picture? picture;
       ui.Image? image;
       var route = 'canvas';
@@ -1644,8 +1669,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         annotations: signature.annotations,
         rotation: signature.rotation,
       );
-      final backend = rasterBackend;
-      if (backend != null && backend.supportsFullPageRasterWarmUp) {
+      if (backend != null && accelerated) {
         PdfRetainedScene? scene;
         PdfTileRasterSession? session;
         try {
@@ -1699,12 +1723,15 @@ class PdfPagePreviewCache extends ChangeNotifier {
             route = backend.debugLabel;
             // The exact raster is the important result. Keep a page-space
             // picture only to seed the tiny navigation preview without a
-            // second interpretation; failure here must not discard paid-for
-            // accelerated pixels.
-            try {
-              picture = scene.replay(pixelRatio: 1);
-            } catch (_) {
-              picture = null;
+            // second interpretation during idle warming; accelerated-only
+            // live motion must not replay the retained scene through Canvas.
+            // Failure here must not discard paid-for accelerated pixels.
+            if (!acceleratedOnly) {
+              try {
+                picture = scene.replay(pixelRatio: 1);
+              } catch (_) {
+                picture = null;
+              }
             }
           }
         } catch (error) {
@@ -1714,11 +1741,14 @@ class PdfPagePreviewCache extends ChangeNotifier {
           picture = null;
           // The accelerated route can reject a perfectly valid retained
           // scene. Replaying that already-recorded scene gives Canvas its
-          // exact fallback without interpreting and decoding the page again.
-          try {
-            picture = scene?.replay(pixelRatio: 1);
-          } catch (_) {
-            picture = null;
+          // exact idle fallback without interpreting and decoding the page
+          // again. Live-motion warming deliberately skips the replay.
+          if (!acceleratedOnly) {
+            try {
+              picture = scene?.replay(pixelRatio: 1);
+            } catch (_) {
+              picture = null;
+            }
           }
           PdfPerfLog.log(
             'raster-warm gpu fallback page=$index '
@@ -1728,6 +1758,14 @@ class PdfPagePreviewCache extends ChangeNotifier {
           session?.dispose();
           scene?.dispose();
         }
+      }
+      if (image == null && acceleratedOnly) {
+        picture?.dispose();
+        PdfPerfLog.log(
+          'raster-warm accelerated-only decline page=$index '
+          'backend=${backend?.debugLabel ?? 'none'}',
+        );
+        return false;
       }
       if (image == null) {
         if (shouldStop?.call() ?? false) {

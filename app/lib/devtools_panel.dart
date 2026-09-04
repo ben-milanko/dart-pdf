@@ -698,8 +698,9 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   ];
   static const _fixedEntrySeedBytes = 256 << 20;
 
-  // Idle full-raster warm (#614) as a single selector. -1 is off, 0 is the
-  // whole document, a positive value is that many pages either side.
+  // Full-raster warm (#614) as a single selector. -1 is off, 0 is the whole
+  // document, a positive value is that many pages either side. Enabled modes
+  // also use their bounded directional window during slow scrolling.
   static const _rasterWarmChoices = <(int, String)>[
     (-1, 'Off'),
     (2, 'Nearby +/-2'),
@@ -707,12 +708,16 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     (0, 'Whole document'),
   ];
 
-  static String _rasterWarmLabel(PdfPageRasterWarmPolicy policy) =>
-      switch (policy.mode) {
-        PdfPageRasterWarmMode.disabled => 'Off',
-        PdfPageRasterWarmMode.nearby => 'Nearby +/-${policy.window}',
-        PdfPageRasterWarmMode.document => 'Whole document',
-      };
+  static String _rasterWarmLabel(PdfPageRasterWarmPolicy policy) {
+    if (!policy.enabled) return 'Off';
+    final slowWindow = policy.mode == PdfPageRasterWarmMode.nearby
+        ? math.min(policy.window, policy.slowScrollWindow)
+        : policy.slowScrollWindow;
+    final idle = policy.mode == PdfPageRasterWarmMode.nearby
+        ? 'Idle ±${policy.window}'
+        : 'All idle';
+    return '$idle · slow →$slowWindow';
+  }
 
   void _setPageRasterWarm(int choice) {
     _tools.setPageRasterWarmPolicy(switch (choice) {
@@ -896,17 +901,18 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         _byteBudgetControl(
           theme,
           key: const ValueKey('devtools-page-raster-warm'),
-          title: 'Idle raster warm',
+          title: 'Page raster warm',
           help: 'Spends genuine viewer idle time rasterizing pages ahead of '
               'navigation, so arriving on them paints instantly instead of '
-              'rendering first. With the Flutter GPU backend selected, '
-              'accepted pages are produced as GPU-resident exact images; '
-              'unsupported pages retain the exact Canvas fallback. Warming '
-              'stands down the '
-              'moment anything scrolls, zooms, edits, or renders, and never '
-              'stores more than the visited-page raster budget above allows - '
-              'so a whole-document warm on a large file settles into a moving '
-              'window rather than growing without limit.',
+              'rendering first. During sustained slow scrolling, an '
+              'accelerated backend also keeps up to three pages sharp in the '
+              'travel direction, one GPU submission at a time; fast motion, '
+              'foreground work, and direction changes stop further work. '
+              'Unsupported pages use the exact Canvas fallback only after '
+              'scrolling is idle. Both paths stay inside the visited-page '
+              'raster budget, '
+              'so a large file settles into a moving window rather than '
+              'growing without limit.',
           value: _tools.pageRasterWarmPolicy.value.mode ==
                   PdfPageRasterWarmMode.disabled
               ? -1

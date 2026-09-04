@@ -2,6 +2,8 @@
 
 ## 4.1.0
 
+- Keep nearby pages sharp during slow scrolling by using spare GPU capacity,
+  while fast scrolling continues to prioritize responsiveness.
 - Save and manage named handwritten signatures, and reuse saved annotations
   across documents from a searchable library.
 - Add cursor guides, a visible page grid, and optional grid snapping for

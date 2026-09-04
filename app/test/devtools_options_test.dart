@@ -135,28 +135,38 @@ void main() {
     );
   });
 
-  test('the idle raster warm policy round-trips', () async {
+  test('the page raster warm policy round-trips', () async {
     SharedPreferences.setMockInitialValues({});
     final tools = AppDevTools.instance;
     expect(tools.pageRasterWarmPolicy.value,
         const PdfPageRasterWarmPolicy.nearby(),
         reason: 'the app proactively warms only its nearby working set');
 
-    tools.setPageRasterWarmPolicy(
-        const PdfPageRasterWarmPolicy.nearby(window: 5));
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.nearby(
+      window: 5,
+      slowScrollWindow: 4,
+    ));
     await tools.persistOptions();
 
     tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     await tools.restoreOptions();
-    expect(tools.pageRasterWarmPolicy.value,
-        const PdfPageRasterWarmPolicy.nearby(window: 5));
+    expect(
+      tools.pageRasterWarmPolicy.value,
+      const PdfPageRasterWarmPolicy.nearby(
+        window: 5,
+        slowScrollWindow: 4,
+      ),
+    );
 
-    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.document());
+    tools.setPageRasterWarmPolicy(
+        const PdfPageRasterWarmPolicy.document(slowScrollWindow: 2));
     await tools.persistOptions();
     tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     await tools.restoreOptions();
     expect(
-        tools.pageRasterWarmPolicy.value.mode, PdfPageRasterWarmMode.document);
+      tools.pageRasterWarmPolicy.value,
+      const PdfPageRasterWarmPolicy.document(slowScrollWindow: 2),
+    );
   });
 
   test('restore with nothing persisted leaves the defaults alone', () async {

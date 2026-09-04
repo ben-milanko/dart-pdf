@@ -128,14 +128,14 @@ class AppDevTools extends ChangeNotifier {
   final ValueNotifier<PdfPageRasterCachePolicy> pageRasterCachePolicy =
       ValueNotifier(const PdfPageRasterCachePolicy());
 
-  /// Whether idle viewer time is spent baking exact page rasters ahead of
+  /// Whether spare viewer time is spent baking exact page rasters ahead of
   /// navigation (#614). The product warms only the nearby working set by
-  /// default: it removes the blurry first-arrival pause without committing to
-  /// a whole-document raster pass. The work remains preemptible and bounded by
-  /// [pageRasterCachePolicy]; Developer tools can disable or expand it. Kept
-  /// as its own notifier for the same reason as [pageRasterCachePolicy] - a
-  /// policy change must reach the mounted document without waiting for the
-  /// log-traffic rebuild.
+  /// default: idle time covers both directions, while sustained slow scrolling
+  /// uses a bounded accelerated window in the travel direction. The work stays
+  /// preemptible and bounded by [pageRasterCachePolicy]; Developer tools can
+  /// disable or expand it. Kept as its own notifier for the same reason as
+  /// [pageRasterCachePolicy] - a policy change must reach the mounted document
+  /// without waiting for the log-traffic rebuild.
   final ValueNotifier<PdfPageRasterWarmPolicy> pageRasterWarmPolicy =
       ValueNotifier(const PdfPageRasterWarmPolicy.nearby());
 
@@ -564,14 +564,16 @@ class AppDevTools extends ChangeNotifier {
         '${policy.maxEntryBytes >> 20}MB/page');
   }
 
-  /// Applies an idle full-raster warm policy to every mounted viewer.
+  /// Applies a full-raster warm policy to every mounted viewer.
   void setPageRasterWarmPolicy(PdfPageRasterWarmPolicy policy) {
     if (pageRasterWarmPolicy.value == policy) return;
     pageRasterWarmPolicy.value = policy;
     PdfPerfLog.log('raster-warm policy mode=${policy.mode.name} '
-        'window=${policy.window} idleMs=${policy.idleDelay.inMilliseconds}');
-    addLog('devtools: idle raster warm \u2192 ${policy.mode.name}'
-        '${policy.mode == PdfPageRasterWarmMode.nearby ? ' (\u00b1${policy.window})' : ''}');
+        'window=${policy.window} slowWindow=${policy.slowScrollWindow} '
+        'idleMs=${policy.idleDelay.inMilliseconds}');
+    addLog('devtools: page raster warm \u2192 ${policy.mode.name}'
+        '${policy.mode == PdfPageRasterWarmMode.nearby ? ' (\u00b1${policy.window})' : ''}, '
+        'slow-scroll \u2192${policy.slowScrollWindow}');
   }
 
   /// Returns the visited-page raster cache to adaptive machine-headroom mode.
@@ -707,9 +709,18 @@ class AppDevTools extends ChangeNotifier {
           final int v when v > 0 => v,
           _ => 3,
         };
+        final slowWindow = switch (map['pageRasterWarmSlowScrollWindow']) {
+          final int v when v >= 0 => v,
+          _ => 3,
+        };
         setPageRasterWarmPolicy(switch (mode) {
-          'nearby' => PdfPageRasterWarmPolicy.nearby(window: window),
-          'document' => const PdfPageRasterWarmPolicy.document(),
+          'nearby' => PdfPageRasterWarmPolicy.nearby(
+              window: window,
+              slowScrollWindow: slowWindow,
+            ),
+          'document' => PdfPageRasterWarmPolicy.document(
+              slowScrollWindow: slowWindow,
+            ),
           _ => const PdfPageRasterWarmPolicy.disabled(),
         });
       }
@@ -754,6 +765,8 @@ class AppDevTools extends ChangeNotifier {
               _fixedPageRasterCachePolicy.maxEntryBytes,
           'pageRasterWarmMode': pageRasterWarmPolicy.value.mode.name,
           'pageRasterWarmWindow': pageRasterWarmPolicy.value.window,
+          'pageRasterWarmSlowScrollWindow':
+              pageRasterWarmPolicy.value.slowScrollWindow,
         }),
       );
     } catch (e) {

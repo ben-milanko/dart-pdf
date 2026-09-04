@@ -15,20 +15,27 @@ enum PdfPageRasterWarmMode {
   document,
 }
 
-/// Whether - and how far ahead - the viewer spends idle time baking exact,
-/// display-sized page rasters for pages the user has not visited.
+/// Whether - and how far ahead - the viewer bakes exact, display-sized page
+/// rasters for pages the user has not visited.
 ///
 /// [PdfPageRasterCachePolicy] governs how much of that result is *retained*.
 /// This governs whether it is ever *produced*: without it the exact-raster
 /// cache fills only as pages render on screen, so the first arrival on a page
 /// always pays for its own interpretation and readback.
 ///
-/// The warm is idle work in the strict sense. It starts only after the viewer
-/// has been quiet for [idleDelay], stands down the instant a scroll, zoom,
+/// The ordinary warm is idle work in the strict sense. It starts only after
+/// the viewer has been quiet for [idleDelay], stands down the instant a zoom,
 /// edit, or foreground page render needs the platform thread, and paces itself
-/// to one page at a time with a frame yielded between pages. It targets the
-/// settled fit-size raster only - deep zoom stays region/tile driven - and
-/// never renders a page whose raster the cache policy could not admit.
+/// to one page at a time with a frame yielded between pages. During a sustained
+/// slow scroll, [slowScrollWindow] additionally admits a directional look-ahead
+/// through an accelerated full-page backend. That lane remains serial,
+/// requires a spare render-worker lane, and never falls back to Canvas while
+/// input is live. Fast motion immediately prevents another submission and
+/// preempts work that has not yet reached the GPU.
+///
+/// Both paths target the settled fit-size raster only - deep zoom stays
+/// region/tile driven - and never render a page whose raster the cache policy
+/// could not admit.
 ///
 /// When the selected [PdfTileRasterBackend] advertises full-page warm support,
 /// the viewer records a retained scene and produces the resident image through
@@ -56,6 +63,7 @@ class PdfPageRasterWarmPolicy {
   const PdfPageRasterWarmPolicy.disabled()
       : mode = PdfPageRasterWarmMode.disabled,
         window = 0,
+        slowScrollWindow = 0,
         idleDelay = const Duration(milliseconds: 750);
 
   /// Warms up to [window] pages either side of the viewport - a conservative
@@ -63,18 +71,22 @@ class PdfPageRasterWarmPolicy {
   /// committing the memory a whole document would.
   const PdfPageRasterWarmPolicy.nearby({
     this.window = 3,
+    this.slowScrollWindow = 3,
     this.idleDelay = const Duration(milliseconds: 750),
   })  : mode = PdfPageRasterWarmMode.nearby,
-        assert(window > 0);
+        assert(window > 0),
+        assert(slowScrollWindow >= 0);
 
   /// Warms every page, nearest the viewport first. Bounded in practice by
   /// [PdfPageRasterCachePolicy.maxBytes]: pages past the budget evict the
   /// least-recently-used rasters, so a document larger than the budget settles
   /// into a moving window rather than growing without limit.
   const PdfPageRasterWarmPolicy.document({
+    this.slowScrollWindow = 3,
     this.idleDelay = const Duration(milliseconds: 750),
   })  : mode = PdfPageRasterWarmMode.document,
-        window = 0;
+        window = 0,
+        assert(slowScrollWindow >= 0);
 
   /// How far the warm reaches.
   final PdfPageRasterWarmMode mode;
@@ -82,6 +94,14 @@ class PdfPageRasterWarmPolicy {
   /// Pages either side of the viewport warmed under
   /// [PdfPageRasterWarmMode.nearby]. Unused by the other modes.
   final int window;
+
+  /// Maximum number of not-yet-visible pages to keep sharp ahead of a
+  /// sustained slow scroll.
+  ///
+  /// The effective count is also bounded by the exact-raster byte budget. In
+  /// [PdfPageRasterWarmMode.nearby] it cannot exceed [window]. Set to zero to
+  /// retain idle warming while disabling live directional look-ahead.
+  final int slowScrollWindow;
 
   /// How long the viewer must be quiet - no scroll, zoom, edit, or queued
   /// page render - before warming starts or resumes.
@@ -99,17 +119,20 @@ class PdfPageRasterWarmPolicy {
       other is PdfPageRasterWarmPolicy &&
       mode == other.mode &&
       window == other.window &&
+      slowScrollWindow == other.slowScrollWindow &&
       idleDelay == other.idleDelay;
 
   @override
-  int get hashCode => Object.hash(mode, window, idleDelay);
+  int get hashCode => Object.hash(mode, window, slowScrollWindow, idleDelay);
 
   @override
   String toString() => switch (mode) {
         PdfPageRasterWarmMode.disabled => 'PdfPageRasterWarmPolicy.disabled()',
         PdfPageRasterWarmMode.nearby =>
-          'PdfPageRasterWarmPolicy.nearby(window: $window)',
-        PdfPageRasterWarmMode.document => 'PdfPageRasterWarmPolicy.document()',
+          'PdfPageRasterWarmPolicy.nearby(window: $window, '
+              'slowScrollWindow: $slowScrollWindow)',
+        PdfPageRasterWarmMode.document => 'PdfPageRasterWarmPolicy.document('
+            'slowScrollWindow: $slowScrollWindow)',
       };
 }
 

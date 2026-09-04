@@ -625,11 +625,12 @@ class PdfViewerController extends ChangeNotifier {
   final _PdfForwardingListenable _pageRenderActivity =
       _PdfForwardingListenable();
 
-  /// What the idle full-raster warm ([PdfViewer.pageRasterWarmPolicy]) and the
-  /// exact-raster cache ([PdfViewer.pageRasterCachePolicy]) have actually done:
-  /// attempts, completions, hits, bytes, and evictions. Null when no viewer is
-  /// attached. Useful for a diagnostics panel or a benchmark assertion; the
-  /// same numbers appear in the [PdfPerfLog] trace as `raster-warm` and
+  /// What full-raster warming ([PdfViewer.pageRasterWarmPolicy]) and the exact-
+  /// raster cache ([PdfViewer.pageRasterCachePolicy]) have actually done:
+  /// attempts, completions, hits, bytes, and evictions. This includes both
+  /// idle warming and accelerated slow-scroll look-ahead. Null when no viewer
+  /// is attached. Useful for a diagnostics panel or a benchmark assertion;
+  /// the same numbers appear in the [PdfPerfLog] trace as `raster-warm` and
   /// `page-raster` lines.
   PdfPageRasterWarmStats? get pageRasterWarmStats =>
       _state?._previews.warmStats;
@@ -638,6 +639,12 @@ class PdfViewerController extends ChangeNotifier {
   /// raster.
   @visibleForTesting
   bool get debugRasterWarming => _state?._warmingRasters ?? false;
+
+  /// Whether the attached viewer is currently producing an accelerated exact
+  /// raster ahead of a sustained slow scroll.
+  @visibleForTesting
+  bool get debugSlowScrollRasterWarming =>
+      _state?._warmingSlowScrollRasters ?? false;
 
   /// Runs the idle full-raster warm now, without waiting out
   /// [PdfPageRasterWarmPolicy.idleDelay] - the seam tests use to exercise the
@@ -1367,15 +1374,18 @@ class PdfViewer extends StatefulWidget {
   /// shared in-memory cache.
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
 
-  /// Whether genuine viewer idle time is spent baking exact, display-sized
-  /// rasters for pages the user has not visited, so they paint immediately on
-  /// arrival instead of interpreting and reading back first.
+  /// Whether spare viewer time is spent baking exact, display-sized rasters
+  /// for pages the user has not visited, so they paint immediately on arrival
+  /// instead of interpreting and reading back first.
   ///
-  /// Disabled by default: warming trades CPU, GPU, and memory for navigation
-  /// latency. [pageRasterCachePolicy] bounds what the result is allowed to
-  /// occupy - a warm policy without a matching cache budget warms a handful of
-  /// pages and then declines the rest. Requires [pagePreviews], which owns the
-  /// shared cache. See [PdfPageRasterWarmPolicy].
+  /// The ordinary pass runs at idle. An enabled policy may also use an
+  /// accelerated backend for bounded directional look-ahead during sustained
+  /// slow scrolling; see [PdfPageRasterWarmPolicy.slowScrollWindow]. Disabled
+  /// by default: warming trades CPU, GPU, and memory for navigation latency.
+  /// [pageRasterCachePolicy] bounds what the result is allowed to occupy - a
+  /// warm policy without a matching cache budget warms a handful of pages and
+  /// then declines the rest. Requires [pagePreviews], which owns the shared
+  /// cache. See [PdfPageRasterWarmPolicy].
   final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   /// Persistent on-disk text cache (see [PdfPageTextCache]). When set with
@@ -1879,6 +1889,20 @@ class _PdfViewerState extends State<PdfViewer>
   final _rasterWarmAttempts = Set<PdfPage>.identity();
   bool _warmingRasters = false;
 
+  /// Pages offered to the accelerated slow-scroll look-ahead. Kept separate
+  /// from [_rasterWarmAttempts]: a page the GPU declines during live motion is
+  /// still eligible for the exact Canvas fallback when the viewer later idles.
+  final _slowScrollRasterWarmAttempts = Set<PdfPage>.identity();
+  bool _warmingSlowScrollRasters = false;
+  int _slowScrollRasterWarmDirection = 0;
+  int _slowScrollRasterWarmGeneration = 0;
+
+  /// At most this fraction of the exact-raster LRU is allowed to describe the
+  /// directional look-ahead window. The nearest admissible page always gets
+  /// one chance even when its raster is larger than the fraction; the cache's
+  /// hard per-entry and total limits still win.
+  static const double _slowScrollRasterBudgetFraction = 1 / 3;
+
   /// Lowers [PdfPageRenderScheduler.activeGesture] once the reader has stopped
   /// moving for [_gestureQuietDelay] - far shorter than the 500 ms scroll-quiet
   /// window, because it answers a different question. The quiet window asks
@@ -2124,7 +2148,10 @@ class _PdfViewerState extends State<PdfViewer>
     // A live gesture is what a UI-thread walk must not run inside; the quiet
     // window that follows one is not (see [PdfPageRenderScheduler.activeGesture]).
     _renderScheduler.activeGesture = _directMotionRenderHoldActive;
-    if (!_motionRenderHoldActive) _renderScheduler.slowMotion = false;
+    if (!_motionRenderHoldActive) {
+      _renderScheduler.slowMotion = false;
+      _setSlowScrollRasterWarmDirection(0);
+    }
     _renderScheduler.parked = !widget.active;
   }
 
@@ -2151,6 +2178,7 @@ class _PdfViewerState extends State<PdfViewer>
     _motionHoldReleaseTimer?.cancel();
     _motionHoldReleaseTimer = null;
     _renderScheduler.slowMotion = false;
+    _setSlowScrollRasterWarmDirection(0);
     _renderScheduler.holding = true;
   }
 
@@ -2488,6 +2516,8 @@ class _PdfViewerState extends State<PdfViewer>
     _previewAttempts.clear();
     _previewVectorAttempts.clear();
     _intermediatePreviewAttempts.clear();
+    _slowScrollRasterWarmAttempts.clear();
+    _setSlowScrollRasterWarmDirection(0);
   }
 
   void _onPerformanceChanged() {
@@ -2511,6 +2541,7 @@ class _PdfViewerState extends State<PdfViewer>
       _tileBackendWarmUpTimer?.cancel();
       _tileBackendWarmUpTimer = null;
     } else {
+      _startSlowScrollRasterWarm();
       _schedulePreviewPrerender();
       if (_pendingTileBackendWarmUp != null) _armTileBackendWarmUp();
     }
@@ -2892,6 +2923,7 @@ class _PdfViewerState extends State<PdfViewer>
           : const Duration(milliseconds: 500),
       _settleScrollChange,
     );
+    _startSlowScrollRasterWarm();
     if (_vectorFirstPrefetch) {
       // A high-velocity scroll can hold on-screen renders long enough that
       // newly-visible pages would otherwise stay blank. Let the worker warm a
@@ -2905,6 +2937,8 @@ class _PdfViewerState extends State<PdfViewer>
     _scrollSettleTimer = null;
     _scrollSamples.clear();
     _vectorFirstPrefetch = false;
+    _renderScheduler.slowMotion = false;
+    _setSlowScrollRasterWarmDirection(0);
     // A programmatic jump may have reached its scroll offset before the
     // destination page has produced a full raster. Keep that explicit target
     // as the render/warm focus until its pixels arrive; otherwise the
@@ -3581,7 +3615,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// finishing it on top of the frame the user is waiting for. Whatever it
   /// abandons is retried after the next settle.
   Future<void> _warmFullRasters() async {
-    if (_warmingRasters || !_rasterWarmIdle) return;
+    if (_warmingRasters || _warmingSlowScrollRasters || !_rasterWarmIdle) {
+      return;
+    }
     _warmingRasters = true;
     try {
       while (_rasterWarmIdle) {
@@ -3618,7 +3654,154 @@ class _PdfViewerState extends State<PdfViewer>
       }
     } finally {
       _warmingRasters = false;
+      _startSlowScrollRasterWarm();
     }
+  }
+
+  /// Whether a directional exact-raster warm may use spare accelerated
+  /// capacity while slow scroll input is still arriving.
+  ///
+  /// This is intentionally stricter than the visible page's slow-motion lane:
+  /// look-ahead is optional, so it requires a real accelerated full-page
+  /// backend and a spare worker lane. A serial worker, Canvas fallback, zoom,
+  /// edit, direct pan, or foreground render leaves all capacity to the page the
+  /// reader can already see.
+  bool _slowScrollRasterWarmAllowed(int generation, int direction) {
+    final policy = widget.pageRasterWarmPolicy;
+    final worker = _effectiveRenderWorker;
+    return mounted &&
+        generation == _slowScrollRasterWarmGeneration &&
+        direction != 0 &&
+        direction == _slowScrollRasterWarmDirection &&
+        widget.active &&
+        widget.pagePreviews &&
+        policy.enabled &&
+        policy.slowScrollWindow > 0 &&
+        widget.tileRasterBackend.supportsFullPageRasterWarmUp &&
+        worker != null &&
+        worker.isActive &&
+        worker.concurrentRecordCapacity >= 2 &&
+        _renderScheduler.slowMotion &&
+        !_renderScheduler.hasForegroundWork &&
+        !_previewUiMustDefer &&
+        !_zoomed &&
+        _renderScale <= 1.01 &&
+        widget.editing?.tool == null;
+  }
+
+  /// Starts the serial GPU look-ahead after the current callback/frame has
+  /// released foreground scheduling state. Repeated scroll events are cheap:
+  /// the in-flight flag coalesces them and the loop re-aims from currentPage
+  /// before choosing every page.
+  void _startSlowScrollRasterWarm() {
+    if (_warmingRasters || _warmingSlowScrollRasters) return;
+    final generation = _slowScrollRasterWarmGeneration;
+    final direction = _slowScrollRasterWarmDirection;
+    if (!_slowScrollRasterWarmAllowed(generation, direction)) return;
+    unawaited(_warmSlowScrollRasters(generation, direction));
+  }
+
+  /// Produces exact rasters ahead of a sustained slow scroll, nearest first.
+  ///
+  /// Only one page is submitted at a time. The worker moves interpretation and
+  /// image decoding off-thread; the accelerated backend owns the raster. A
+  /// fast step or direction reversal invalidates [generation] and is observed
+  /// around every await by [PdfPagePreviewCache.warmFullRaster].
+  Future<void> _warmSlowScrollRasters(int generation, int direction) async {
+    if (_warmingRasters ||
+        _warmingSlowScrollRasters ||
+        !_slowScrollRasterWarmAllowed(generation, direction)) {
+      return;
+    }
+    _warmingSlowScrollRasters = true;
+    try {
+      while (_slowScrollRasterWarmAllowed(generation, direction)) {
+        final pages = _pages;
+        final index = _nextSlowScrollRasterWarmIndex(pages, direction);
+        if (index == null) return;
+        final page = pages[index];
+        final target = _rasterWarmTarget(index, page);
+        if (target == null) return;
+        _slowScrollRasterWarmAttempts.add(page);
+        final stored = await _previews.warmFullRaster(
+          index,
+          page,
+          signature: target.signature,
+          pixelRatio: target.ratio,
+          worker: _effectiveRenderWorker,
+          rasterBackend: widget.tileRasterBackend,
+          // Foreground pages are 0; fast-scroll previews are 1. Exact
+          // look-ahead outranks idle command/raster warming (3/4) but never
+          // something the reader is already waiting to see.
+          priority: 2,
+          shouldStop: () =>
+              !_slowScrollRasterWarmAllowed(generation, direction),
+          acceleratedOnly: true,
+        );
+        if (!mounted) return;
+        if (!stored && !_slowScrollRasterWarmAllowed(generation, direction)) {
+          // Preemption is temporary. A later slow stretch should be allowed to
+          // offer the same page again; a genuine GPU rejection stays attempted
+          // for this document and the idle Canvas path remains independent.
+          _slowScrollRasterWarmAttempts.remove(page);
+          return;
+        }
+        await SchedulerBinding.instance.endOfFrame;
+      }
+    } finally {
+      _warmingSlowScrollRasters = false;
+    }
+  }
+
+  /// Chooses the nearest not-yet-visible page in the scroll direction.
+  ///
+  /// Page count is the user-facing cap. Bytes are the real greed governor: at
+  /// most one third of the exact-raster cache describes this look-ahead, with
+  /// a one-page floor so the conservative default cache can still help. Both
+  /// the cache's total and per-entry hard limits are checked again by
+  /// [PdfPagePreviewCache.warmFullRaster] before any interpretation begins.
+  int? _nextSlowScrollRasterWarmIndex(List<PdfPage> pages, int direction) {
+    if (pages.isEmpty || direction == 0) return null;
+    final policy = widget.pageRasterWarmPolicy;
+    var window = policy.slowScrollWindow;
+    if (policy.mode == PdfPageRasterWarmMode.nearby) {
+      window = math.min(window, policy.window);
+    }
+    if (window <= 0) return null;
+
+    final totalBudget = _previews.maxFullRasterBytes;
+    if (totalBudget <= 0) return null;
+    final byteWindow = math.min(
+      totalBudget,
+      math.max(
+        _previews.maxFullRasterEntryBytes,
+        (totalBudget * _slowScrollRasterBudgetFraction).floor(),
+      ),
+    );
+    final current = _controller.currentPage.clamp(0, pages.length - 1);
+    var plannedBytes = 0;
+    for (var distance = 1; distance <= window; distance++) {
+      final index = current + direction * distance;
+      if (index < 0 || index >= pages.length) break;
+      if (_onScreenSpan.contains(index)) continue;
+      final page = pages[index];
+      final target = _rasterWarmTarget(index, page);
+      if (target == null) continue;
+      final nextBytes = plannedBytes + target.signature.bytes;
+      if (plannedBytes > 0 && nextBytes > byteWindow) break;
+      plannedBytes = nextBytes;
+      if (_slowScrollRasterWarmAttempts.contains(page)) continue;
+      if (_previews.hasFullRaster(target.signature, page)) continue;
+      return index;
+    }
+    return null;
+  }
+
+  void _setSlowScrollRasterWarmDirection(int direction) {
+    final normalized = direction.sign;
+    if (_slowScrollRasterWarmDirection == normalized) return;
+    _slowScrollRasterWarmDirection = normalized;
+    _slowScrollRasterWarmGeneration++;
   }
 
   /// Worker priority for warm records. The worker ranks *low* numbers first,
@@ -3744,8 +3927,8 @@ class _PdfViewerState extends State<PdfViewer>
     }
     final span = (now - _scrollSamples.first.$1).inMicroseconds;
     if (span <= 0) return; // all samples this frame: keep the verdict
-    final velocity =
-        (pixels - _scrollSamples.first.$2).abs() * 1e6 / span; // px/s
+    final displacement = pixels - _scrollSamples.first.$2;
+    final velocity = displacement.abs() * 1e6 / span; // px/s
     final viewport = _scroll.position.viewportDimension;
     // A flick ramps up: its first inter-frame deltas underread the gesture's
     // true speed, so a velocity verdict taken in the burst's opening frames
@@ -3773,6 +3956,9 @@ class _PdfViewerState extends State<PdfViewer>
     final slowThreshold = _renderScheduler.slowMotion ? slowExit : slowEnter;
     final slow = !opening && !directMotion && velocity <= slowThreshold;
     _renderScheduler.slowMotion = slow;
+    _setSlowScrollRasterWarmDirection(
+      slow && displacement != 0 ? displacement.sign.toInt() : 0,
+    );
     final fastThreshold = math.max(800, 2 * viewport);
     final hold = _motionRenderHoldActive || opening || velocity > fastThreshold;
     _vectorFirstPrefetch =
@@ -3849,11 +4035,14 @@ class _PdfViewerState extends State<PdfViewer>
           widget.pageRasterCachePolicy.maxEntryBytes >
               oldWidget.pageRasterCachePolicy.maxEntryBytes) {
         _rasterWarmAttempts.clear();
+        _slowScrollRasterWarmAttempts.clear();
       }
       _scheduleRasterWarm();
     }
     if (oldWidget.pageRasterWarmPolicy != widget.pageRasterWarmPolicy) {
       _rasterWarmAttempts.clear();
+      _slowScrollRasterWarmAttempts.clear();
+      _slowScrollRasterWarmGeneration++;
       _scheduleRasterWarm();
     }
     if (oldWidget.pagePreviews != widget.pagePreviews ||
@@ -3892,6 +4081,8 @@ class _PdfViewerState extends State<PdfViewer>
       // paper color and annotation visibility are part of the raster
       // signature, so every warmed raster just became unreachable
       _rasterWarmAttempts.clear();
+      _slowScrollRasterWarmAttempts.clear();
+      _slowScrollRasterWarmGeneration++;
       _commandWarmAttempts.clear();
       _commandWarmAnchor = null;
       _commandHeavyWarmStarted = false;
@@ -3929,6 +4120,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (oldWidget.active != widget.active) {
       _renderScheduler.parked = !widget.active;
       if (!widget.active) {
+        _setSlowScrollRasterWarmDirection(0);
         _pendingTileBackendWarmUp = null;
         _tileBackendWarmUpTimer?.cancel();
         _tileBackendWarmUpTimer = null;
@@ -3947,6 +4139,8 @@ class _PdfViewerState extends State<PdfViewer>
     }
     if (!identical(oldWidget.tileRasterBackend, widget.tileRasterBackend) &&
         oldWidget.active == widget.active) {
+      _slowScrollRasterWarmAttempts.clear();
+      _slowScrollRasterWarmGeneration++;
       _scheduleTileBackendWarmUp();
     }
   }
@@ -4097,6 +4291,8 @@ class _PdfViewerState extends State<PdfViewer>
     // page objects changed, so every warmed raster is either rebound (content
     // unchanged) or gone; re-arm the pass over the new revision's pages
     _rasterWarmAttempts.clear();
+    _slowScrollRasterWarmAttempts.clear();
+    _slowScrollRasterWarmGeneration++;
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
     if (!sameGeometry && remappedViewport == null) {
@@ -4256,6 +4452,7 @@ class _PdfViewerState extends State<PdfViewer>
         attempted.remove(oldPage);
       }
       _rasterWarmAttempts.remove(oldPage);
+      _slowScrollRasterWarmAttempts.remove(oldPage);
       _commandWarmAttempts.remove(oldPage);
       _pages[entry.key] = entry.value;
       final nextGeometry = geometry[entry.key]!;
@@ -4713,6 +4910,8 @@ class _PdfViewerState extends State<PdfViewer>
     // rotation is part of the raster signature (and changes the page's
     // physical size): nothing warmed under the old one can be reused
     _rasterWarmAttempts.clear();
+    _slowScrollRasterWarmAttempts.clear();
+    _slowScrollRasterWarmGeneration++;
     _commandWarmAttempts.clear();
     _commandWarmAnchor = null;
     _commandHeavyWarmStarted = false;
@@ -4770,6 +4969,7 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void dispose() {
     _commandWarmGeneration++;
+    _slowScrollRasterWarmGeneration++;
     // A namespace is private to this State and cannot be reused after dispose.
     // Retire it explicitly so the process-wide store neither lands an old
     // asynchronous raster nor retains an unreachable viewer token.
