@@ -7675,18 +7675,43 @@ class _PdfViewerState extends State<PdfViewer>
   /// always hard-clamped; the cross axis is left untouched so
   /// [_springBackCross] can animate it back smoothly.
   void _settleZoomGesture() {
-    final total = _transform.value.getMaxScaleOnAxis() * _layoutZoom;
+    final before = _transform.value;
+    final scale = before.getMaxScaleOnAxis();
+    final total = scale * _layoutZoom;
+    // Whatever the gesture zoomed around survives only in the transform's
+    // translation, so both folds below have to carry it or the settle
+    // silently re-zooms the document around the viewport centre.
+    //
+    // That is what a **web** ctrl+wheel looked like: the browser reports it
+    // as a PointerScaleEvent, which this viewer leaves to InteractiveViewer
+    // (it zooms around the pointer, correctly) - and then this settle threw
+    // the focal point away and jumped the scroll to a centre-anchored zoom.
+    // A fold is a pure scale, so pinning the content under one viewport
+    // point pins every other one; pin the main axis' centre.
+    final anchor = _mainView / 2;
+    final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+    final content = scale <= 0
+        ? pixels + anchor
+        : pixels + (anchor - before.storage[_mainTranslate]) / scale;
     if (total <= 1) {
       _transform.value = Matrix4.identity();
-      _setLayoutZoom(total);
+      _setLayoutZoom(total, focalMain: anchor, contentMain: content);
     } else if (_layoutZoom < 1) {
       // fold the layout factor into the transform zoom
       final fold = _layoutZoom;
-      _setLayoutZoom(1);
-      final matrix = _transform.value.clone()
+      _setLayoutZoom(1, focalMain: anchor, contentMain: content);
+      final matrix = before.clone()
         ..translateByDouble(_viewWidth / 2, _viewHeight / 2, 0, 1)
         ..scaleByDouble(fold, fold, fold, 1)
         ..translateByDouble(-_viewWidth / 2, -_viewHeight / 2, 0, 1);
+      // Scaling about the viewport centre is already right for the cross
+      // axis: the layout centres every page there, so the relayout and this
+      // fold scale about the same point. The main axis is pinned by the
+      // scroll jump above instead, and its translation is whatever that jump
+      // could not absorb once the extents clamped it.
+      final settled = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+      matrix.storage[_mainTranslate] =
+          anchor - total * (_remapMain(content, fold, 1) - settled);
       _transform.value = _clampedTransformMainOnly(matrix);
     } else {
       _transform.value = _clampedTransformMainOnly(_transform.value.clone());

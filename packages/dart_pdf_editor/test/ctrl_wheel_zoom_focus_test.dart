@@ -66,6 +66,60 @@ void main() {
         after.top + (at.dy - before.top) / before.height * after.height,
       );
 
+  // The web reports ctrl+wheel as a PointerScaleEvent, not a scroll: the
+  // viewer leaves those to InteractiveViewer (which zooms around the pointer)
+  // and folds the result into the page layout when the gesture settles. The
+  // fold used to be anchored on the viewport centre, so on web the document
+  // slid out from under the pointer however well the wheel path behaved.
+  Future<void> scaleSignal(WidgetTester tester, Offset at, double scale) async {
+    await tester.sendEventToBinding(PointerScaleEvent(
+      position: at,
+      kind: PointerDeviceKind.mouse,
+      scale: scale,
+    ));
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
+
+  group('web ctrl+wheel (a scale signal) holds the point under the cursor', () {
+    testWidgets('crossing up into the transform', (tester) async {
+      await pumpViewer(tester, fit: PdfViewerFit.page);
+      const at = Offset(300, 200);
+      final (page, before) = pageUnder(tester, at);
+      await scaleSignal(tester, at, 1.6);
+      expect(moved(before, rectOf(tester, page), at).dy, closeTo(at.dy, 1));
+    });
+
+    testWidgets('staying below fit-width', (tester) async {
+      await pumpViewer(tester, fit: PdfViewerFit.page);
+      const at = Offset(300, 200);
+      final (page, before) = pageUnder(tester, at);
+      await scaleSignal(tester, at, 1.15);
+      expect(moved(before, rectOf(tester, page), at).dy, closeTo(at.dy, 1));
+    });
+
+    testWidgets('deep in the document', (tester) async {
+      final controller = await pumpViewer(tester, fit: PdfViewerFit.page);
+      unawaited(controller.jumpToPage(4));
+      await tester.pumpAndSettle();
+      const at = Offset(400, 450);
+      final (page, before) = pageUnder(tester, at);
+      await scaleSignal(tester, at, 1.4);
+      expect(moved(before, rectOf(tester, page), at).dy, closeTo(at.dy, 1));
+    });
+
+    testWidgets('already above fit-width, both axes', (tester) async {
+      final controller = await pumpViewer(tester);
+      await scaleSignal(tester, const Offset(400, 300), 2.0);
+      expect(controller.zoom, greaterThan(1.01));
+      const at = Offset(300, 200);
+      final (page, before) = pageUnder(tester, at);
+      await scaleSignal(tester, at, 1.5);
+      expect(moved(before, rectOf(tester, page), at),
+          within(distance: 1, from: at));
+    });
+  });
+
   group('ctrl+wheel zoom holds the point under the cursor', () {
     testWidgets('zooming in at fit-width', (tester) async {
       final controller = await pumpViewer(tester);

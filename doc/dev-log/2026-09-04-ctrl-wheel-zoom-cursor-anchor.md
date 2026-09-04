@@ -74,3 +74,44 @@ enough to animate, and nothing pumps frames while the test awaits it. Use
 `unawaited(...)` and `pumpAndSettle()`. `jumpToPage(4)` in the same fixture
 snaps instead (past the `max(_mainView * 2, 2400)` distance) and so looks
 fine - which is what makes it confusing.
+
+## The half that only shows up in a browser
+
+The fixes above are all on the wheel path - `PointerScrollEvent` - which is
+what a desktop ctrl+wheel is, and what the widget tests drive. On the **web**
+that path never runs: the browser reports ctrl+wheel as a *pinch*, so Flutter
+delivers a `PointerScaleEvent`, `_onPointerSignal` ignores it (`event is!
+PointerScrollEvent`), and InteractiveViewer handles it - correctly, around the
+pointer, in the transform.
+
+Then `_settleZoomGesture` (IV's `onInteractionEnd`, which fires for a pointer
+signal too) folded that transform into the page layout with
+`_setLayoutZoom(total)` - **no focal point** - and the fold re-anchored the
+whole document on the viewport centre. Measured in Chromium against the
+example app at its default fit-page open, one ctrl+wheel notch at (620, 400):
+the content under the cursor landed 84 px above it. The arithmetic agrees
+exactly: the fold's scroll jump differs from the pointer-anchored one by
+`(s - 1) x (focal - viewport centre)` = `0.822 x (290 - 395)` = -86 px.
+
+A fold is a pure scale, so holding any one viewport point holds every other:
+the settle now measures which content sits under the main axis' centre
+*through the transform it is about to drop*, and pins that. Scaling about the
+viewport centre is already right for the cross axis - the layout centres every
+page there - so only the main axis needed the leftover translation computed
+against the (possibly clamped) scroll jump.
+
+Same measurement after: drift `(-83, 0)` instead of `(-83, -84)`; the -83 is
+the cross-axis limit described above (that notch makes the page exactly fill
+the viewport width, so there is no offset left to give). A second notch, above
+the seam, holds within 1 px on both axes - and did before this change too,
+which is why the bug reads as "only the first notch is wrong" on a document
+opened at fit-page.
+
+How it was measured, in case it is useful again: build the example for web,
+serve `build/web`, drive Chromium through Playwright (`page.keyboard.down
+('Control')` + `page.mouse.wheel`), and cross-correlate the patch under the
+cursor from the before frame - scaled by the known `e^(120/200)` notch - with
+the after frame. Two gotchas: point the loader at the local `canvaskit/`
+(no network in the sandbox), and pass a locale, or the engine throws
+`Incorrect locale information provided` before the app boots - which is why
+CI's Patrol invocation carries `--web-locale en-US`.
