@@ -134,6 +134,72 @@ void main() {
     expect(pictures, hasLength(1));
   });
 
+  test('overlapping Highlight quads keep one compositing pass', () async {
+    final editing = PdfEditingController(buildTextLinesPdf(const ['Overlap']));
+    addTearDown(editing.dispose);
+    editing.apply(
+      (editor) => editor.addHighlight(
+        0,
+        const [
+          PdfRect(36, 716, 140, 732),
+          PdfRect(100, 716, 205, 732),
+        ],
+        opacity: 0.5,
+      ),
+    );
+
+    final page = editing.document.page(0);
+    final annotation = page.annotations.single;
+    final pictures = await PdfPageRenderer.renderAnnotationPictures(
+      page,
+      annotation,
+    );
+    addTearDown(() => _disposeAll(pictures));
+    expect(pictures, hasLength(1),
+        reason: 'replaying the complete appearance per overlapping clip '
+            'would darken their intersection repeatedly');
+
+    final legacy = await PdfPageRenderer.renderAnnotationPicture(
+      page,
+      annotation,
+    );
+    addTearDown(legacy!.dispose);
+    const union = ui.Rect.fromLTRB(34, 58, 207, 80);
+    expect(
+      await _rgbaRegion(pictures.single, union),
+      await _rgbaRegion(legacy, union),
+      reason: 'overlap must preserve the legacy single-pass pixels',
+    );
+  });
+
+  test('long Highlights keep bounded single-picture rendering', () async {
+    final editing = PdfEditingController(
+      buildTextLinesPdf(List.generate(9, (i) => 'Highlighted line $i')),
+    );
+    addTearDown(editing.dispose);
+    editing.apply(
+      (editor) => editor.addHighlight(
+        0,
+        [
+          for (var i = 0; i < 9; i++)
+            PdfRect(36, 716.0 - i * 20, 180, 732.0 - i * 20),
+        ],
+        opacity: 1,
+      ),
+    );
+
+    final page = editing.document.page(0);
+    final pictures = await PdfPageRenderer.renderAnnotationPictures(
+      page,
+      page.annotations.single,
+    );
+    addTearDown(() => _disposeAll(pictures));
+
+    expect(pictures, hasLength(1),
+        reason: 'nine full appearance replays would already do 81 quad '
+            'draws; long lists must use one bounded replay');
+  });
+
   test('multi-quad non-Highlight markup keeps the one-picture path', () async {
     final editing = PdfEditingController(buildTextLinesPdf(const ['A', 'B']));
     addTearDown(editing.dispose);

@@ -562,12 +562,14 @@ class PdfPageRenderer {
 
   /// Renders an annotation for the viewer's resting appearance layer.
   ///
-  /// A Highlight whose axis-aligned `/QuadPoints` span several lines is
-  /// recorded as one tightly clipped picture per quad. Keeping the advanced
-  /// Multiply blend out of the annotation's much larger union `/Rect` avoids
-  /// an intermediate Windows compositor surface covering both text lines.
-  /// Other annotations retain the single-picture behavior of
-  /// [renderAnnotationPicture].
+  /// A Highlight with a small set of pairwise-disjoint, axis-aligned
+  /// `/QuadPoints` is recorded as one tightly clipped picture per quad.
+  /// Keeping the advanced Multiply blend out of the annotation's much larger
+  /// union `/Rect` avoids an intermediate Windows compositor surface covering
+  /// several text lines. Overlapping or long quad lists retain the
+  /// single-picture behavior of [renderAnnotationPicture]: overlap must not
+  /// composite the full appearance repeatedly, and split replay must stay
+  /// bounded rather than becoming quadratic in the quad count.
   static Future<List<ui.Picture>> renderAnnotationPictures(
           PdfPage page, PdfAnnotation annotation,
           {int? rotation}) =>
@@ -601,13 +603,15 @@ class PdfPageRenderer {
             annotation.subtype == 'Highlight' &&
             quads != null &&
             quads.length > 1 &&
+            quads.length <= _maxSplitHighlightQuads &&
             quads.every((quad) =>
                 quad.left.isFinite &&
                 quad.bottom.isFinite &&
                 quad.right.isFinite &&
                 quad.top.isFinite &&
                 quad.width > 0 &&
-                quad.height > 0)
+                quad.height > 0) &&
+            _arePairwiseDisjoint(quads)
         ? quads
         : null;
     final clips = splitQuads ?? const <PdfRect?>[null];
@@ -650,6 +654,26 @@ class PdfPageRenderer {
         disposePdfDecodedImage(image);
       }
     }
+  }
+
+  /// Bounds interpreter replay for the split path. Each clipped picture still
+  /// replays the complete appearance, so an unbounded list would do O(q²)
+  /// command work. Longer highlights take the legacy one-picture path.
+  static const int _maxSplitHighlightQuads = 8;
+
+  static bool _arePairwiseDisjoint(List<PdfRect> quads) {
+    for (var i = 0; i < quads.length; i++) {
+      final a = quads[i];
+      for (var j = i + 1; j < quads.length; j++) {
+        final b = quads[j];
+        final overlaps = a.left < b.right &&
+            a.right > b.left &&
+            a.bottom < b.top &&
+            a.top > b.bottom;
+        if (overlaps) return false;
+      }
+    }
+    return true;
   }
 
   /// Renders [page] to a bitmap. [pixelRatio] of 2 doubles the resolution.
