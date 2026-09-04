@@ -3475,6 +3475,7 @@ class _PdfViewerState extends State<PdfViewer>
           signature: target.signature,
           pixelRatio: target.ratio,
           worker: _effectiveRenderWorker,
+          rasterBackend: widget.tileRasterBackend,
           // the least urgent thing in the worker's queue, so a visible page
           // always wins it and can preempt a warm already running
           priority: _rasterWarmWorkerPriority,

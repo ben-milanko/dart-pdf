@@ -207,6 +207,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend
   @override
   bool get supportsSessionWarmUp => _proactiveWarmUpEnabled;
 
+  @override
+  bool get supportsFullPageRasterWarmUp => _proactiveWarmUpEnabled;
+
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
   void clearImageCache() => _imageCache.clear(stats);

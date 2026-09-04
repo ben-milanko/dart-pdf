@@ -30,6 +30,12 @@ enum PdfPageRasterWarmMode {
 /// settled fit-size raster only - deep zoom stays region/tile driven - and
 /// never renders a page whose raster the cache policy could not admit.
 ///
+/// When the selected [PdfTileRasterBackend] advertises full-page warm support,
+/// the viewer records a retained scene and produces the resident image through
+/// that backend. The temporary scene session is then released; the exact image
+/// remains in the same byte-budgeted LRU used for visited pages. A backend that
+/// rejects or fails one page falls back to the exact Canvas path for that page.
+///
 /// The default is [PdfPageRasterWarmMode.disabled]: warming trades CPU, GPU,
 /// and memory for navigation latency, and only the host knows whether that
 /// trade is wanted. A desktop reader with room to spare might use:
