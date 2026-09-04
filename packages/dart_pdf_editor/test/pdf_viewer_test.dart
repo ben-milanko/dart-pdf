@@ -344,6 +344,34 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('mouse drag between text lines grab-pans the page',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+
+    // The 12pt runs occupy y=717..729 and y=693..705. A press at y=711 is
+    // visibly between them but was within the old 14pt nearest-text radius.
+    final before = controller.visiblePageRegion(0)!;
+    final gesture = await tester.startGesture(view(100, 711),
+        kind: PointerDeviceKind.mouse);
+    await gesture.moveBy(const Offset(0, -20)); // cross drag slop over line 1
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -80));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    final after = controller.visiblePageRegion(0)!;
+    expect(after.bottom, greaterThan(before.bottom),
+        reason: 'inter-line whitespace should start grab-pan, not selection');
+    expect(controller.hasSelection, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
   testWidgets('explicit Hand mode pans over text instead of selecting it',
       (tester) async {
     final bytes = buildMultiPagePdf(5);

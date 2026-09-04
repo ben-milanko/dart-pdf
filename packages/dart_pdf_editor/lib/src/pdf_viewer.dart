@@ -5780,6 +5780,42 @@ class _PdfViewerState extends State<PdfViewer>
     return offset < 0 ? null : (i, offset);
   }
 
+  /// Maps a selection press to text while keeping inter-line whitespace out
+  /// of the text gesture. The ordinary nearest-position tolerance is useful
+  /// just before or after a run, but applying it perpendicular to the
+  /// baseline makes narrow gaps between lines impossible to grab-pan.
+  (int, int)? _textSelectionStartAt(Offset local,
+      {required double alongTolerance}) {
+    final point = _pagePointAt(local);
+    if (point == null) return null;
+    final (i, x, y) = point;
+    final text = _pageText(i);
+    var isOnTextLine = false;
+    for (final run in text.runs) {
+      if (run.text.isEmpty) continue;
+      final inverse = run.transform.inverted();
+      if (inverse == null) continue;
+      final ex = inverse.transformX(x, y);
+      final ey = inverse.transformY(x, y);
+      final baselineScale = math.sqrt(run.transform.a * run.transform.a +
+          run.transform.b * run.transform.b);
+      if (baselineScale <= 1e-12) continue;
+      final padding = alongTolerance / baselineScale;
+      // Text extraction uses this conventional em-space ascent/descent for
+      // run bounds and selection quads (text_extraction.dart::_quadOf).
+      if (ex >= -padding &&
+          ex <= run.width + padding &&
+          ey >= -0.25 &&
+          ey <= 0.75) {
+        isOnTextLine = true;
+        break;
+      }
+    }
+    if (!isOnTextLine) return null;
+    final offset = text.positionNear(x, y, tolerance: alongTolerance);
+    return offset < 0 ? null : (i, offset);
+  }
+
   /// Whether the hover cursor over [local] should be the text I-beam.
   ///
   /// For an ordinary page this extracts synchronously (fast) so the I-beam
@@ -6885,7 +6921,11 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     _wordAnchor = null;
-    final position = _textPositionAt(details.localPosition, tolerance: 14);
+    // Decide from the actual press, not the position after the recognizer has
+    // crossed drag slop. A press in the gap between two lines must grab-pan
+    // even if that initial movement happens to finish over a line.
+    final start = _lastMouseDownLocal ?? details.localPosition;
+    final position = _textSelectionStartAt(start, alongTolerance: 14);
     if (position == null) {
       // nothing to select under the press: the drag grabs the document
       // instead (mouse drags don't reach the list's scrollable)
