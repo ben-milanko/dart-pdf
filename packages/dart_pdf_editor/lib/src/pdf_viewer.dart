@@ -1160,6 +1160,16 @@ class PdfViewer extends StatefulWidget {
     int rotation,
   )? debugAnnotationAppearanceRendererOverride;
 
+  /// List-returning counterpart used to exercise one annotation owning several
+  /// tightly bounded appearance pictures. Takes precedence over
+  /// [debugAnnotationAppearanceRendererOverride].
+  @visibleForTesting
+  static Future<List<ui.Picture>> Function(
+    PdfPage page,
+    PdfAnnotation annotation,
+    int rotation,
+  )? debugAnnotationAppearancePicturesRendererOverride;
+
   /// Test observer called immediately before an annotation appearance picture
   /// is disposed. Production ownership and disposal remain unchanged.
   @visibleForTesting
@@ -8639,7 +8649,7 @@ class _AnnotationAppearanceLayerState
   /// The stream half is typed `Object` because `CosStream` is not exported
   /// into this library; it uses identity equality, so the key mixes stream
   /// identity with the [PdfRect]'s value equality - exactly the intent.
-  final Map<(Object, PdfRect), ui.Picture> _cache = {};
+  final Map<(Object, PdfRect), List<ui.Picture>> _cache = {};
   int? _cacheRotation;
   Size? _cacheSize;
 
@@ -8714,7 +8724,7 @@ class _AnnotationAppearanceLayerState
     // normally disjoint, but overlapping render generations must still never
     // dispose the same native handle twice.
     final owned = Set<ui.Picture>.identity()
-      ..addAll(_cache.values)
+      ..addAll(_cache.values.expand((pictures) => pictures))
       ..addAll(_retired);
     _cache.clear();
     _cacheRotation = null;
@@ -8762,7 +8772,7 @@ class _AnnotationAppearanceLayerState
     // still references these until the next publish, and a frame can paint
     // in between.
     if (_cacheRotation != widget.rotation || _cacheSize != pageSize) {
-      _retire(_cache.values);
+      _retire(_cache.values.expand((pictures) => pictures));
       _cache.clear();
       _cacheRotation = widget.rotation;
       _cacheSize = pageSize;
@@ -8786,7 +8796,7 @@ class _AnnotationAppearanceLayerState
       for (final annotation in annotations) _appearanceKey(annotation),
     };
     for (final source in _cache.keys.toList()) {
-      if (!live.contains(source)) _retire([_cache.remove(source)!]);
+      if (!live.contains(source)) _retire(_cache.remove(source)!);
     }
 
     final missing = [
@@ -8846,19 +8856,19 @@ class _AnnotationAppearanceLayerState
       final annotation = missing[i];
       final source = _appearanceKey(annotation);
       if (!_cache.containsKey(source)) {
-        final picture = await _renderAnnotation(page, annotation, rotation);
+        final pictures = await _renderAnnotation(page, annotation, rotation);
         if (!mounted || generation != _generation || !widget.active) {
-          if (picture != null) _disposePicture(picture);
+          _disposePictureList(pictures);
           return;
         }
-        if (picture != null) {
+        if (pictures.isNotEmpty) {
           // A newer overlapping generation may have filled this slot while
-          // the decoder was awaiting. Keep one owner of the native picture.
+          // the decoder was awaiting. Keep one owner of the native pictures.
           final existing = _cache[source];
           if (existing != null) {
-            _disposePicture(picture);
+            _disposePictureList(pictures);
           } else {
-            _cache[source] = picture;
+            _cache[source] = pictures;
           }
         }
       }
@@ -8879,7 +8889,7 @@ class _AnnotationAppearanceLayerState
     if (!mounted || generation != _generation) return;
     final next = [
       for (final annotation in annotations)
-        if (_cache[_appearanceKey(annotation)] case final picture?) picture,
+        ...?_cache[_appearanceKey(annotation)],
     ];
     setState(() {
       _pictures = next;
@@ -8910,15 +8920,32 @@ class _AnnotationAppearanceLayerState
     _retired.clear();
   }
 
-  Future<ui.Picture?> _renderAnnotation(
+  Future<List<ui.Picture>> _renderAnnotation(
       PdfPage page, PdfAnnotation annotation, int rotation) async {
     try {
+      final picturesOverride =
+          PdfViewer.debugAnnotationAppearancePicturesRendererOverride;
+      if (picturesOverride != null) {
+        return await picturesOverride(page, annotation, rotation);
+      }
       final override = PdfViewer.debugAnnotationAppearanceRendererOverride;
-      if (override != null) return await override(page, annotation, rotation);
-      return await PdfPageRenderer.renderAnnotationPicture(page, annotation,
-          rotation: rotation);
+      if (override != null) {
+        final picture = await override(page, annotation, rotation);
+        return picture == null ? const [] : [picture];
+      }
+      return await PdfPageRenderer.renderAnnotationPictures(
+        page,
+        annotation,
+        rotation: rotation,
+      );
     } catch (_) {
-      return null;
+      return const [];
+    }
+  }
+
+  void _disposePictureList(Iterable<ui.Picture> pictures) {
+    for (final picture in pictures) {
+      _disposePicture(picture);
     }
   }
 

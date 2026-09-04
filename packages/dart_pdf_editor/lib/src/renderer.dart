@@ -9,6 +9,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'page_geometry.dart';
 import 'render_worker.dart';
 import 'strips/strip_device.dart';
 
@@ -550,7 +551,40 @@ class PdfPageRenderer {
   static Future<ui.Picture?> renderAnnotationPicture(
       PdfPage page, PdfAnnotation annotation,
       {int? rotation}) async {
-    if (annotation.normalAppearance == null) return null;
+    final pictures = await _renderAnnotationPictures(
+      page,
+      annotation,
+      rotation: rotation,
+      splitWrappedHighlight: false,
+    );
+    return pictures.isEmpty ? null : pictures.single;
+  }
+
+  /// Renders an annotation for the viewer's resting appearance layer.
+  ///
+  /// A Highlight whose axis-aligned `/QuadPoints` span several lines is
+  /// recorded as one tightly clipped picture per quad. Keeping the advanced
+  /// Multiply blend out of the annotation's much larger union `/Rect` avoids
+  /// an intermediate Windows compositor surface covering both text lines.
+  /// Other annotations retain the single-picture behavior of
+  /// [renderAnnotationPicture].
+  static Future<List<ui.Picture>> renderAnnotationPictures(
+          PdfPage page, PdfAnnotation annotation,
+          {int? rotation}) =>
+      _renderAnnotationPictures(
+        page,
+        annotation,
+        rotation: rotation,
+        splitWrappedHighlight: true,
+      );
+
+  static Future<List<ui.Picture>> _renderAnnotationPictures(
+    PdfPage page,
+    PdfAnnotation annotation, {
+    required bool splitWrappedHighlight,
+    int? rotation,
+  }) async {
+    if (annotation.normalAppearance == null) return const [];
     final cos = page.document.cos;
 
     final collector = ImageCollector();
@@ -560,32 +594,62 @@ class PdfPageRenderer {
         cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page, rotation: rotation);
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+    final effectiveRotation = rotation ?? page.rotation;
+    final size = pageSize(page, rotation: effectiveRotation);
+    final quads = annotation.behavior.markupQuads;
+    final splitQuads = splitWrappedHighlight &&
+            annotation.subtype == 'Highlight' &&
+            quads != null &&
+            quads.length > 1 &&
+            quads.every((quad) =>
+                quad.left.isFinite &&
+                quad.bottom.isFinite &&
+                quad.right.isFinite &&
+                quad.top.isFinite &&
+                quad.width > 0 &&
+                quad.height > 0)
+        ? quads
+        : null;
+    final clips = splitQuads ?? const <PdfRect?>[null];
+    final geometry = PdfPageGeometry(
+      cropBox: box,
+      rotation: effectiveRotation,
+      viewSize: size,
+    );
+    final pictures = <ui.Picture>[];
+    try {
+      for (final clip in clips) {
+        final recorder = ui.PictureRecorder();
+        final rasterClip = clip == null ? null : geometry.toViewRect(clip);
+        final canvas = Canvas(recorder, rasterClip);
+        _applyPageTransform(canvas, page, size, box,
+            rotation: effectiveRotation);
+        if (clip != null) {
+          canvas.clipRect(
+            Rect.fromLTRB(clip.left, clip.bottom, clip.right, clip.top),
+          );
+        }
 
-    // pixelRatio 0 turns the one-device-pixel stroke floor off (#660). This
-    // picture is scale-independent - the appearance layer replays it at
-    // whatever page-to-view scale the viewer is at - so flooring here would
-    // bake a scale-dependent choice in: every positive width under 1 pt
-    // would become a Skia hairline that stays one pixel at 333% zoom. A
-    // pressure-sensitive ink stroke is exactly that case (a 1.5 pt pen at
-    // zero pressure draws 0.6 pt), and it visibly snapped from its live
-    // width to a hairline the moment this picture replaced the overlay.
-    // A genuine `0 w` stroke arrives here as 0 and still paints as Skia's
-    // hairline, which is what §8.4.3.2 asks for. The raster paths that do
-    // know their output scale keep their positive ratio, so #426's
-    // CAD-linework floor is untouched.
-    PdfInterpreter(
-            cos: cos,
-            device: CanvasPdfDevice(canvas, images: images, pixelRatio: 0))
-        .drawAnnotation(page, annotation);
-    final picture = recorder.endRecording();
-    for (final image in images.values) {
-      disposePdfDecodedImage(image);
+        // pixelRatio 0 turns the one-device-pixel stroke floor off (#660).
+        // The pictures are scale-independent; flooring here would bake a
+        // scale-dependent choice into every later replay.
+        PdfInterpreter(
+          cos: cos,
+          device: CanvasPdfDevice(canvas, images: images, pixelRatio: 0),
+        ).drawAnnotation(page, annotation);
+        pictures.add(recorder.endRecording());
+      }
+      return List.unmodifiable(pictures);
+    } catch (_) {
+      for (final picture in pictures) {
+        picture.dispose();
+      }
+      rethrow;
+    } finally {
+      for (final image in images.values) {
+        disposePdfDecodedImage(image);
+      }
     }
-    return picture;
   }
 
   /// Renders [page] to a bitmap. [pixelRatio] of 2 doubles the resolution.

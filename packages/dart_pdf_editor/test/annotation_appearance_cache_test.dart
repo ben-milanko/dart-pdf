@@ -112,6 +112,51 @@ void main() {
     expect(renders, 6);
   });
 
+  testWidgets('one annotation can own and dispose several appearance pictures',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+
+    final rendered = <ui.Picture>[];
+    final disposals = Map<ui.Picture, int>.identity();
+    PdfViewer.debugAnnotationAppearancePicturesRendererOverride =
+        (_, __, ___) async {
+      for (var i = 0; i < 2; i++) {
+        final recorder = ui.PictureRecorder();
+        Canvas(recorder).drawRect(
+          Rect.fromLTWH(i.toDouble(), 0, 1, 1),
+          Paint()..color = const Color(0xFF000000),
+        );
+        rendered.add(recorder.endRecording());
+      }
+      return List.unmodifiable(rendered);
+    };
+    PdfViewer.debugAnnotationAppearanceDisposeObserver = (picture) {
+      disposals.update(picture, (count) => count + 1, ifAbsent: () => 1);
+    };
+    addTearDown(() {
+      PdfViewer.debugAnnotationAppearancePicturesRendererOverride = null;
+      PdfViewer.debugAnnotationAppearanceDisposeObserver = null;
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(rendered, hasLength(2));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(disposals.keys, unorderedEquals(rendered));
+    expect(disposals.values, everyElement(1));
+  });
+
   testWidgets('restyling one annotation keeps the other on screen',
       (tester) async {
     final editing = await pumpViewer(tester);
