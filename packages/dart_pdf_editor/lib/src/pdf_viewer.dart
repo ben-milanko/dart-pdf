@@ -583,6 +583,12 @@ class PdfViewerController extends ChangeNotifier {
   @visibleForTesting
   bool get debugRenderHold => _state?._renderScheduler.holding ?? false;
 
+  /// Test hook: whether scroll input is still arriving frequently enough that
+  /// input-quiet page work must remain deferred.
+  @visibleForTesting
+  bool get debugLiveRenderInput =>
+      _state?._renderScheduler.activeGesture ?? false;
+
   /// Whether the attached viewer still has foreground page work in flight: a
   /// scroll holding renders back, or pages queued for their first interpret.
   /// False when no viewer is attached.
@@ -3678,6 +3684,13 @@ class _PdfViewerState extends State<PdfViewer>
   /// 100px jump must not read as infinite velocity.
   void _trackScrollVelocity() {
     if (!_scroll.hasClients) return;
+    // Mark the gesture before the first-sample early return below. Expensive
+    // worker-backed pages use the short input-quiet lane: they may sharpen
+    // while the conservative scroll hold is still up, but never in the frame
+    // that began a wheel/drag burst. Previously the first event raised only
+    // [holding], so a quiet-class render could slip through before the second
+    // event supplied a velocity sample.
+    _markScrollGestureActive();
     final now = WidgetsBinding.instance.currentSystemFrameTimeStamp;
     final pixels = _scroll.position.pixels;
     if (_scrollSamples.isEmpty) {
@@ -3729,11 +3742,15 @@ class _PdfViewerState extends State<PdfViewer>
         'hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;
-    // A gesture is in flight while events keep arriving (or a finger/fling
-    // genuinely owns the viewport). Deliberately NOT `activeMotion`, which
-    // includes the 500 ms quiet window: that window is the thing a cheap
-    // local walk should be allowed through.
-    // An event just arrived, so a gesture is happening by definition.
+  }
+
+  /// Restarts the short live-input boundary used by quiet-class renders.
+  ///
+  /// Deliberately independent of the longer scroll-settle hold: that hold is
+  /// insurance against an expensive background render landing if input
+  /// resumes, whereas the focused page the reader stopped on should begin
+  /// sharpening as soon as the input stream itself has gone quiet.
+  void _markScrollGestureActive() {
     _renderScheduler.activeGesture = true;
     _gestureQuietTimer?.cancel();
     _gestureQuietTimer = Timer(_gestureQuietDelay, () {

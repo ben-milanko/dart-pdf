@@ -129,12 +129,15 @@ class AppDevTools extends ChangeNotifier {
       ValueNotifier(const PdfPageRasterCachePolicy());
 
   /// Whether idle viewer time is spent baking exact page rasters ahead of
-  /// navigation (#614). Off by default; the panel's presets turn it on. Kept
+  /// navigation (#614). The product warms only the nearby working set by
+  /// default: it removes the blurry first-arrival pause without committing to
+  /// a whole-document raster pass. The work remains preemptible and bounded by
+  /// [pageRasterCachePolicy]; Developer tools can disable or expand it. Kept
   /// as its own notifier for the same reason as [pageRasterCachePolicy] - a
   /// policy change must reach the mounted document without waiting for the
   /// log-traffic rebuild.
   final ValueNotifier<PdfPageRasterWarmPolicy> pageRasterWarmPolicy =
-      ValueNotifier(const PdfPageRasterWarmPolicy.disabled());
+      ValueNotifier(const PdfPageRasterWarmPolicy.nearby());
 
   /// Runtime tile-backend selection exposed by Developer tools.
   ///

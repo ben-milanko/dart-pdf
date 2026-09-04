@@ -35,11 +35,9 @@ void main() {
     await pumpViewer(tester);
     final pointer = TestPointer(101, PointerDeviceKind.trackpad);
     pointer.hover(const Offset(400, 300));
-    await tester.sendEventToBinding(
-        pointer.scroll(const Offset(0, 120)));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 120)));
     await tester.pumpAndSettle();
-    final state = tester
-        .state<ScrollableState>(find.byType(Scrollable).first);
+    final state = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(state.position.pixels, greaterThan(0),
         reason: 'vertical trackpad scroll should scroll the list');
   });
@@ -55,8 +53,18 @@ void main() {
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, 120)));
     await tester.pump();
     expect(controller.debugRenderHold, isTrue);
+    expect(controller.debugLiveRenderInput, isTrue,
+        reason: 'the very first wheel event must close the quiet render lane');
 
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 119));
+    expect(controller.debugLiveRenderInput, isTrue);
+    await tester.pump(const Duration(milliseconds: 2));
+    expect(controller.debugLiveRenderInput, isFalse,
+        reason: 'the focused worker page may sharpen after input goes quiet');
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'heavy local and background work keeps the 500ms protection');
+
+    await tester.pump(const Duration(milliseconds: 179));
     expect(controller.debugRenderHold, isTrue,
         reason: 'a delayed wheel acknowledgement must not release a CAD '
             'raster into the middle of the gesture');
@@ -75,14 +83,12 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(controller.zoom, greaterThan(1.01));
 
-    final state = tester
-        .state<ScrollableState>(find.byType(Scrollable).first);
+    final state = tester.state<ScrollableState>(find.byType(Scrollable).first);
     final before = state.position.pixels;
     final pointer = TestPointer(102, PointerDeviceKind.trackpad);
     pointer.hover(const Offset(400, 300));
     for (var i = 0; i < 5; i++) {
-      await tester.sendEventToBinding(
-          pointer.scroll(const Offset(0, 60)));
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 60)));
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pumpAndSettle();
@@ -104,8 +110,7 @@ void main() {
     // capture tx via the controller's pan state: use visiblePageRegion
     final beforeRegion = controller.visiblePageRegion(0);
     for (var i = 0; i < 5; i++) {
-      await tester.sendEventToBinding(
-          pointer.scroll(const Offset(60, 0)));
+      await tester.sendEventToBinding(pointer.scroll(const Offset(60, 0)));
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pumpAndSettle();

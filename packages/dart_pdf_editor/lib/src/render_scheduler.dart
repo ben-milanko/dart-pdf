@@ -52,9 +52,10 @@ import 'perf_log.dart';
 /// (`PdfPageView.motionSafeMaxCommands`). Motion-safe work is granted **during**
 /// a hold - one per frame, and only near the scroll's destination
 /// ([motionSafeHoldRadius], so a fling does not record every page it passes) -
-/// and several may start in one frame once the scroll settles. Everything else
-/// keeps exactly the old behaviour - held, then one per frame - because those
-/// are the pages the pacing exists for.
+/// and several may start in one frame once the scroll settles. Expensive
+/// worker-backed results use the intermediate input-quiet lane: replay waits
+/// until the live input stream stops, but not for the longer settle insurance.
+/// Heavy local work keeps the old held, then one-per-frame behaviour.
 ///
 /// On a long text document that is the difference between arriving on a page
 /// and waiting out the scroll before the render even starts (~600 ms to
@@ -71,10 +72,11 @@ enum PdfRenderMotionClass {
   /// anything whose cost is unknown or large gets.
   held,
 
-  /// Runs during the scroll-quiet window but not inside a live gesture: a
-  /// small page whose walk is on the UI thread, where waiting out the full
-  /// quiet window is the delay a reader complains about, but stuttering a
-  /// gesture in progress would be worse.
+  /// Runs during the scroll-quiet window but not inside a live gesture: either
+  /// a small page whose walk is on the UI thread, or an expensive worker result
+  /// whose replay/upload must stay out of live input. In both cases waiting
+  /// out the full settle window is visible latency, while landing in a gesture
+  /// frame would be a stutter.
   quiet,
 
   /// Runs whenever, motion or not: the walk is in a worker and the replay is

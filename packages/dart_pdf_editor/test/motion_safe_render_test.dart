@@ -15,9 +15,10 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 /// An in-process [PdfRenderWorker] that records on the test isolate, so the
 /// worker render path runs deterministically under pump().
 class _SyncWorker extends PdfRenderWorker {
-  _SyncWorker(this._bytes);
+  _SyncWorker(this._bytes, {this.decline = false});
 
   final Uint8List _bytes;
+  final bool decline;
   late final PdfDocument _doc = PdfDocument.open(_bytes);
   bool _disposed = false;
 
@@ -34,6 +35,7 @@ class _SyncWorker extends PdfRenderWorker {
       PdfRect? imageDecodeRegion,
       PdfPartialRecordSink? onPartial}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
+    if (decline) return null;
     final page = _doc.page(pageIndex);
     final ops = ContentStreamParser.parse(page.contentBytes(),
         operationLimit: decodeImages ? null : commandLimit);
@@ -79,11 +81,15 @@ void main() {
     WidgetTester tester,
     Uint8List bytes, {
     required bool holding,
+    bool activeGesture = false,
+    bool workerDeclines = false,
   }) async {
     final document = PdfDocument.open(bytes);
-    final worker = _SyncWorker(bytes);
+    final worker = _SyncWorker(bytes, decline: workerDeclines);
     addTearDown(worker.dispose);
-    final scheduler = PdfPageRenderScheduler()..holding = holding;
+    final scheduler = PdfPageRenderScheduler()
+      ..holding = holding
+      ..activeGesture = activeGesture;
     addTearDown(scheduler.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Center(
@@ -178,7 +184,7 @@ void main() {
     await settle(tester);
   });
 
-  testWidgets('a page carrying a big image waits for the scroll to settle',
+  testWidgets('a worker-backed big image waits for input, not full settle',
       (tester) async {
     // A megapixel-class underlay is the decode/upload the hold exists to
     // prevent. Whichever gate catches it - the page's own /XObject
@@ -189,13 +195,48 @@ void main() {
       layers: 1,
       ops: 20,
     );
-    final scheduler = await pumpPage(tester, bytes, holding: true);
+    final scheduler =
+        await pumpPage(tester, bytes, holding: true, activeGesture: true);
     for (var i = 0; i < 6; i++) {
       await settle(tester);
     }
     expect(painted(tester), isFalse,
-        reason: 'an image decode/upload mid-fling is the hitch the hold '
-            'exists to prevent');
+        reason: 'an image decode/upload must not land during live input');
+
+    // Input stops, but the conservative 500ms scroll-settle hold remains.
+    // The focused worker-backed page should sharpen in this short quiet lane
+    // instead of making the reader stare at its preview for the whole hold.
+    scheduler.activeGesture = false;
+    for (var i = 0; i < 20 && !painted(tester); i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isTrue);
+    expect(scheduler.holding, isTrue,
+        reason: 'background/local heavy work remains protected');
+  });
+
+  testWidgets('a declined big image keeps the strict local-render hold',
+      (tester) async {
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 1200, height: 1200)],
+      layers: 1,
+      ops: 20,
+    );
+    final scheduler = await pumpPage(
+      tester,
+      bytes,
+      holding: true,
+      activeGesture: true,
+      workerDeclines: true,
+    );
+
+    scheduler.activeGesture = false;
+    for (var i = 0; i < 10; i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isFalse,
+        reason: 'a worker declaration is not enough: once it declines, the '
+            'large walk would run locally and must retain the strict hold');
 
     scheduler.holding = false;
     for (var i = 0; i < 20 && !painted(tester); i++) {
@@ -226,7 +267,7 @@ void main() {
     expect(scheduler.holding, isTrue, reason: 'still scrolling');
   });
 
-  testWidgets('the image budget is what decides, not the presence of an image',
+  testWidgets('the image budget chooses free versus input-quiet rendering',
       (tester) async {
     // The same page as above, with the budget moved under it: what governs is
     // how many pixels the page declares, not whether it declares any.
@@ -238,38 +279,43 @@ void main() {
       layers: 1,
       ops: 20,
     );
-    final scheduler = await pumpPage(tester, bytes, holding: true);
+    final scheduler =
+        await pumpPage(tester, bytes, holding: true, activeGesture: true);
     for (var i = 0; i < 8; i++) {
       await settle(tester);
     }
     expect(painted(tester), isFalse,
-        reason: 'the same page, one pixel over budget, keeps the strict hold');
+        reason: 'the same page, one pixel over budget, stays out of a live '
+            'input frame');
 
-    scheduler.holding = false;
+    scheduler.activeGesture = false;
     for (var i = 0; i < 20 && !painted(tester); i++) {
       await settle(tester);
     }
     expect(painted(tester), isTrue);
+    expect(scheduler.holding, isTrue);
   });
 
-  testWidgets('a record over the command ceiling waits for the settle',
+  testWidgets('a large worker record waits for input, not full settle',
       (tester) async {
     final previous = PdfPageView.motionSafeMaxCommands;
     PdfPageView.motionSafeMaxCommands = 0;
     addTearDown(() => PdfPageView.motionSafeMaxCommands = previous);
-    final scheduler = await pumpPage(tester, buildClassicPdf(), holding: true);
+    final scheduler = await pumpPage(tester, buildClassicPdf(),
+        holding: true, activeGesture: true);
     for (var i = 0; i < 6; i++) {
       await settle(tester);
     }
     expect(painted(tester), isFalse,
-        reason: 'replaying a large buffer inside a scrolling frame is the '
+        reason: 'replaying a large buffer inside a live input frame is the '
             'cost the ceiling bounds');
 
-    scheduler.holding = false;
+    scheduler.activeGesture = false;
     for (var i = 0; i < 10 && !painted(tester); i++) {
       await settle(tester);
     }
     expect(painted(tester), isTrue);
+    expect(scheduler.holding, isTrue);
   });
 
   testWidgets('with no worker a small page renders in the scroll-quiet window',
