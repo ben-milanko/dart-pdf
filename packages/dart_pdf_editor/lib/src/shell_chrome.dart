@@ -2024,7 +2024,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             value: _ViewOption.editingGuides,
             child: ListTile(
               leading: Icon(Icons.grid_4x4),
-              title: Text('Cursor guides and grid'),
+              title: Text('Guides, snapping and rulers'),
               trailing: Icon(Icons.chevron_right),
               contentPadding: EdgeInsets.zero,
             ),

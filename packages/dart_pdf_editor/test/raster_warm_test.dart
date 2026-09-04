@@ -13,6 +13,65 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
+class _FullPageWarmBackend extends PdfTileRasterBackend {
+  _FullPageWarmBackend({this.reject = false, this.failRaster = false});
+
+  final bool reject;
+  final bool failRaster;
+  int sessions = 0;
+  int rasters = 0;
+  int disposals = 0;
+
+  @override
+  bool get supportsFullPageRasterWarmUp => true;
+
+  @override
+  String get debugLabel => 'test-accelerated';
+
+  @override
+  PdfTileRasterSession? createSession(PdfRetainedScene scene) {
+    sessions++;
+    if (reject) return null;
+    return _FullPageWarmSession(
+      this,
+      const PdfCanvasTileRasterBackend().createSession(scene),
+    );
+  }
+}
+
+class _FullPageWarmSession implements PdfTileRasterSession {
+  _FullPageWarmSession(this.backend, this.delegate);
+
+  final _FullPageWarmBackend backend;
+  final PdfTileRasterSession delegate;
+
+  @override
+  PdfRetainedScene get scene => delegate.scene;
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) {
+    backend.rasters++;
+    if (backend.failRaster) {
+      throw StateError('test accelerated raster failure');
+    }
+    return delegate.rasterizeRegion(
+      region,
+      pixelRatio: pixelRatio,
+      tracePage: tracePage,
+    );
+  }
+
+  @override
+  void dispose() {
+    backend.disposals++;
+    delegate.dispose();
+  }
+}
+
 void main() {
   /// Lets the real async renderer make progress, then pumps a frame with the
   /// clock advanced - the warm's idle countdown is a [Timer], so a zero-length
@@ -42,6 +101,7 @@ void main() {
     PdfDocument document,
     PdfViewerController controller, {
     required PdfPageRasterWarmPolicy warm,
+    PdfTileRasterBackend tileRasterBackend = const PdfCanvasTileRasterBackend(),
     PdfPageRasterCachePolicy cache = const PdfPageRasterCachePolicy(
       maxBytes: 512 * 1024 * 1024,
       maxEntryBytes: 64 * 1024 * 1024,
@@ -55,6 +115,7 @@ void main() {
             initialFit: PdfViewerFit.width,
             pageRasterCachePolicy: cache,
             pageRasterWarmPolicy: warm,
+            tileRasterBackend: tileRasterBackend,
           ),
         ),
       );
@@ -71,11 +132,13 @@ void main() {
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(6));
     final controller = PdfViewerController();
+    final backend = _FullPageWarmBackend();
     addTearDown(controller.dispose);
     await tester.pumpWidget(viewer(
       document,
       controller,
       warm: const PdfPageRasterWarmPolicy.document(idleDelay: eager),
+      tileRasterBackend: backend,
     ));
     await tester.pump();
 
@@ -89,6 +152,11 @@ void main() {
         reason: 'the warm reaches off-screen pages while the viewer idles');
     expect(warmed.warmedBytes, greaterThan(0));
     expect(warmed.retainedBytes, greaterThan(0));
+    expect(backend.rasters, greaterThan(0),
+        reason: 'the viewer routes off-screen warm rasters through the '
+            'accelerated backend');
+    expect(backend.disposals, greaterThanOrEqualTo(warmed.completions),
+        reason: 'the exact image, not a live page session, owns residency');
 
     // Arrive on a warmed page. A cache hit is served synchronously by
     // _restoreFullRaster, ahead of the render scheduler; a fresh render is a
@@ -421,6 +489,69 @@ void main() {
           reason: 'the local walk is the cost being moved into idle time, so '
               'a declined record must not abandon the warm',
         );
+      });
+    });
+
+    testWidgets('an accelerated backend produces the resident exact raster',
+        (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend();
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+          ),
+          isTrue,
+        );
+        expect(backend.sessions, 1);
+        expect(backend.rasters, 1);
+        expect(backend.disposals, 1);
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
+      });
+    });
+
+    testWidgets('backend rejection falls back to the exact Canvas raster',
+        (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend(reject: true);
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+          ),
+          isTrue,
+        );
+        expect(backend.sessions, 1);
+        expect(backend.rasters, 0);
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
+      });
+    });
+
+    testWidgets('backend raster failure falls back to Canvas', (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend(failRaster: true);
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+          ),
+          isTrue,
+        );
+        expect(backend.rasters, 1);
+        expect(backend.disposals, 1);
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
       });
     });
 

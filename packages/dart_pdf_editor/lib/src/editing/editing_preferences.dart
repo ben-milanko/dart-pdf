@@ -57,6 +57,8 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _eraserRadius = 8;
   bool _showVerticalCursorGuide = false;
   bool _showHorizontalCursorGuide = false;
+  bool _smartAlignmentGuides = true;
+  bool _showPageRulers = false;
   bool _showSnapGrid = false;
   bool _snapToGrid = false;
   double _gridSpacing = 10;
@@ -184,6 +186,10 @@ class PdfEditingPreferences extends ChangeNotifier {
       _showHorizontalCursorGuide =
           store.getBool('${_prefix}showHorizontalCursorGuide') ??
               _showHorizontalCursorGuide;
+      _smartAlignmentGuides = store.getBool('${_prefix}smartAlignmentGuides') ??
+          _smartAlignmentGuides;
+      _showPageRulers =
+          store.getBool('${_prefix}showPageRulers') ?? _showPageRulers;
       _showSnapGrid = store.getBool('${_prefix}showSnapGrid') ?? _showSnapGrid;
       _snapToGrid = store.getBool('${_prefix}snapToGrid') ?? _snapToGrid;
       final gridSpacing = store.getDouble('${_prefix}gridSpacing');
@@ -739,6 +745,29 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showHorizontalCursorGuide) return;
     _showHorizontalCursorGuide = value;
     _write((s) => s.setBool('${_prefix}showHorizontalCursorGuide', value));
+    notifyListeners();
+  }
+
+  /// Whether moving and resizing annotations snaps their outside edges and
+  /// centres to the page and to other visible annotations. A transient guide
+  /// marks every active snap. Hold Alt during a gesture to bypass it.
+  bool get smartAlignmentGuides => _smartAlignmentGuides;
+
+  set smartAlignmentGuides(bool value) {
+    if (value == _smartAlignmentGuides) return;
+    _smartAlignmentGuides = value;
+    _write((s) => s.setBool('${_prefix}smartAlignmentGuides', value));
+    notifyListeners();
+  }
+
+  /// Whether adaptive point rulers are drawn along the top and left edges of
+  /// every page. Rulers are display-only and are not written into the PDF.
+  bool get showPageRulers => _showPageRulers;
+
+  set showPageRulers(bool value) {
+    if (value == _showPageRulers) return;
+    _showPageRulers = value;
+    _write((s) => s.setBool('${_prefix}showPageRulers', value));
     notifyListeners();
   }
 

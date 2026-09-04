@@ -134,6 +134,7 @@ void main() {
     testWidgets('a move drag shows the annotation at the dragged position',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
+      editing.preferences.smartAlignmentGuides = false;
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -205,6 +206,7 @@ void main() {
     testWidgets('a moved stamp keeps its afterimage while host rebuilds',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.smartAlignmentGuides = false
         ..color = const Color(0xFFFF0000)
         ..addStamp(0, const PdfRect(100, 650, 250, 750), 'PAID')
         ..tool = PdfEditTool.select
@@ -252,6 +254,7 @@ void main() {
       // paint above every page.
       PdfMoveDragPreview? reported;
       final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.smartAlignmentGuides = false
         ..color = const Color(0xFFFF0000)
         ..addRectangle(0, const PdfRect(100, 550, 300, 650))
         ..tool = PdfEditTool.select
@@ -326,6 +329,7 @@ void main() {
           Offset(x * scale, (pageHeight - y) * scale);
 
       final editing = PdfEditingController(buildShortTwoPagePdf(pageHeight));
+      editing.preferences.smartAlignmentGuides = false;
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);

@@ -873,6 +873,29 @@ class PdfAnnotation {
     ];
   }
 
+  /// The rotation the normal appearance carries in **page space**: the
+  /// angle of [appearanceQuad]'s lower-left → lower-right edge, radians
+  /// counterclockwise. 0 for an unrotated appearance (and without one);
+  /// non-zero only when the artwork is turned inside its /Rect, as
+  /// [PdfEditor.rotateAnnotation] leaves it.
+  ///
+  /// This is the annotation's *own* rotation, so it is the right gate for
+  /// "does this need the rotated (local-frame) treatment?". A viewer's
+  /// on-screen quad also carries the page's display /Rotate, which is not
+  /// a property of the annotation - an unrotated box on a /Rotate 90 page
+  /// has a quad running down the screen and must still be treated as
+  /// square.
+  double get appearanceRotation {
+    final quad = appearanceQuad;
+    if (quad == null) return 0;
+    final dx = quad[1].$1 - quad[0].$1;
+    final dy = quad[1].$2 - quad[0].$2;
+    if (dx == 0 && dy == 0) return 0;
+    final angle = math.atan2(dy, dx);
+    // numeric noise within ~0.3° reads as unrotated
+    return angle.abs() < 0.005 ? 0 : angle;
+  }
+
   static PdfGoToAction? _destAsGoTo(PdfDocument document, CosObject? raw) {
     final destination = PdfDestination.parse(document, raw);
     return destination == null ? null : PdfGoToAction(destination);
