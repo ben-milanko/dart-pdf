@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -76,12 +77,23 @@ Uint8List buildPlainAnnotationPdf() {
   return editor.save();
 }
 
-Uint8List buildDisjointHighlightPdf() {
-  final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+Uint8List buildDisjointHighlightPdf({bool rotated = false}) {
+  final document = PdfDocument.open(buildClassicPdf());
+  final editor = PdfEditor(document)
     ..addHighlight(0, const [
       PdfRect(80, 680, 140, 700),
       PdfRect(220, 680, 280, 700),
+      PdfRect(330, 680, 390, 700),
     ]);
+  if (rotated) {
+    final annotation = document.page(0).annotations.single;
+    editor.rotateAnnotation(0, annotation, 20);
+    // One malformed group must not discard the two usable rotated groups and
+    // reinstate the broad /Rect hit target.
+    final points = document.cos.resolve(annotation.dict['QuadPoints']);
+    (points as CosArray).items[16] = const CosName('broken');
+    editor.setAnnotationContents(0, annotation, 'rotated fixture');
+  }
   return editor.save();
 }
 
@@ -1146,6 +1158,30 @@ void main() {
     expect(region().cursor, SystemMouseCursors.click);
 
     await tester.tapAt(annotView(110, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation.subtype, 'Highlight');
+  });
+
+  testWidgets(
+      'rotated markup uses valid quadrilaterals despite a malformed group',
+      (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(
+      tester,
+      bytes: buildDisjointHighlightPdf(rotated: true),
+      onAnnotationTap: taps.add,
+    );
+
+    // All source points turn 20 degrees around the annotation centre
+    // (235,690). This point is the turned centre of the whitespace between
+    // the first two colored runs: inside /Rect, outside both usable quads.
+    await tester.tapAt(annotView(183.32, 671.19));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
+
+    // Turned centre of the first run.
+    await tester.tapAt(annotView(117.54, 647.25));
     await tester.pump(const Duration(milliseconds: 400));
     expect(taps, hasLength(1));
     expect(taps.single.annotation.subtype, 'Highlight');

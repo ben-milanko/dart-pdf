@@ -5768,10 +5768,8 @@ class _PdfViewerState extends State<PdfViewer>
       // text. Match the editing controller's selection hit test: visible
       // /QuadPoints are authoritative, with /Rect as the fallback for every
       // other annotation type (and malformed markups without quads).
-      final quads = annotation.behavior.markupQuads;
-      final hit = quads != null && quads.isNotEmpty
-          ? quads.any((quad) => quad.contains(x, y))
-          : annotation.rect.contains(x, y);
+      final quadHit = _textMarkupQuadHit(annotation, x, y);
+      final hit = quadHit ?? annotation.rect.contains(x, y);
       if (hit) {
         return (
           pageIndex: i,
@@ -5782,6 +5780,86 @@ class _PdfViewerState extends State<PdfViewer>
       }
     }
     return null;
+  }
+
+  /// Whether ([x], [y]) lands on a usable text-markup `/QuadPoints` group.
+  ///
+  /// Unlike [PdfAnnotationBehavior.markupQuads], hit testing must accept the
+  /// general rotated/skewed quadrilaterals found in external PDFs. Malformed
+  /// groups are skipped independently so one broken group does not make the
+  /// annotation's bounding `/Rect` swallow every gap between valid runs.
+  /// Returns null only when no usable quad exists, which is the sole case in
+  /// which the caller should fall back to `/Rect`.
+  bool? _textMarkupQuadHit(PdfAnnotation annotation, double x, double y) {
+    if (annotation.subtype != 'Highlight' &&
+        annotation.subtype != 'Underline' &&
+        annotation.subtype != 'StrikeOut' &&
+        annotation.subtype != 'Squiggly') {
+      return null;
+    }
+    final cos = annotation.document.cos;
+    final raw = cos.resolve(annotation.dict['QuadPoints']);
+    if (raw is! CosArray) return null;
+    var hasUsableQuad = false;
+    for (var i = 0; i + 7 < raw.length; i += 8) {
+      final points = <Offset>[];
+      var malformed = false;
+      for (var p = 0; p < 8; p += 2) {
+        final px = _cosNumber(cos.resolve(raw[i + p]));
+        final py = _cosNumber(cos.resolve(raw[i + p + 1]));
+        if (px == null || py == null || !px.isFinite || !py.isFinite) {
+          malformed = true;
+          break;
+        }
+        points.add(Offset(px, py));
+      }
+      if (malformed) continue;
+      final contains = _pointInPdfQuad(points, Offset(x, y));
+      if (contains == null) continue;
+      hasUsableQuad = true;
+      if (contains) return true;
+    }
+    return hasUsableQuad ? false : null;
+  }
+
+  static double? _cosNumber(CosObject? value) => switch (value) {
+        CosInteger(:final value) => value.toDouble(),
+        CosReal(:final value) => value,
+        _ => null,
+      };
+
+  /// Point-in-convex-quadrilateral for the non-cyclic corner order commonly
+  /// used by PDF writers (upper-left, upper-right, lower-left, lower-right).
+  /// Null marks a degenerate group as unusable.
+  static bool? _pointInPdfQuad(List<Offset> points, Offset point) {
+    if (points.length != 4) return null;
+    final center = Offset(
+      points.fold<double>(0, (sum, p) => sum + p.dx) / points.length,
+      points.fold<double>(0, (sum, p) => sum + p.dy) / points.length,
+    );
+    final ordered = [...points]..sort((a, b) => math
+        .atan2(a.dy - center.dy, a.dx - center.dx)
+        .compareTo(math.atan2(b.dy - center.dy, b.dx - center.dx)));
+    var twiceArea = 0.0;
+    for (var i = 0; i < ordered.length; i++) {
+      final a = ordered[i];
+      final b = ordered[(i + 1) % ordered.length];
+      twiceArea += a.dx * b.dy - b.dx * a.dy;
+    }
+    if (twiceArea.abs() <= 1e-7) return null;
+
+    int? side;
+    for (var i = 0; i < ordered.length; i++) {
+      final a = ordered[i];
+      final b = ordered[(i + 1) % ordered.length];
+      final cross =
+          (b.dx - a.dx) * (point.dy - a.dy) - (b.dy - a.dy) * (point.dx - a.dx);
+      if (cross.abs() <= 1e-7) continue;
+      final current = cross > 0 ? 1 : -1;
+      if (side != null && current != side) return false;
+      side = current;
+    }
+    return true;
   }
 
   PdfAnnotation? _annotationAt(Offset local, {(int, double, double)? at}) =>
