@@ -82,11 +82,31 @@ void main() {
   }
 
   group('web ctrl+wheel (a scale signal) holds the point under the cursor', () {
-    testWidgets('crossing up into the transform', (tester) async {
-      await pumpViewer(tester, fit: PdfViewerFit.page);
+    // Still below the fit-width seam afterwards, so the settle drops the
+    // transform and the whole zoom goes back into the page layout. (The seam
+    // is a fit multiple, not a px/pt zoom: on this fixture fit-width is about
+    // 1.3 px/pt, so a 1.6x signal from fit-page lands short of it.)
+    testWidgets('below fit-width, where the transform is folded away',
+        (tester) async {
+      final controller = await pumpViewer(tester, fit: PdfViewerFit.page);
       const at = Offset(300, 200);
       final (page, before) = pageUnder(tester, at);
       await scaleSignal(tester, at, 1.6);
+      expect(controller.zoom, lessThan(1.3));
+      expect(moved(before, rectOf(tester, page), at).dy, closeTo(at.dy, 1));
+    });
+
+    // Past the seam the settle folds the other way - the layout zoom is
+    // folded *into* the transform - and the focal point has to survive that
+    // fold too. A big enough scale clears the seam in one signal.
+    testWidgets('crossing up into the transform', (tester) async {
+      final controller = await pumpViewer(tester, fit: PdfViewerFit.page);
+      const at = Offset(300, 200);
+      final (page, before) = pageUnder(tester, at);
+      await scaleSignal(tester, at, 2.2);
+      expect(controller.zoom, greaterThan(1.4),
+          reason: 'past fit-width, so the settle folds the layout zoom into '
+              'the transform rather than the other way round');
       expect(moved(before, rectOf(tester, page), at).dy, closeTo(at.dy, 1));
     });
 
