@@ -5790,7 +5790,29 @@ class _PdfViewerState extends State<PdfViewer>
     if (point == null) return null;
     final (i, x, y) = point;
     final text = _pageText(i);
-    var isOnTextLine = false;
+    final offset = _textPositionOnLine(
+      text,
+      x,
+      y,
+      alongTolerance: alongTolerance,
+    );
+    return offset == null ? null : (i, offset);
+  }
+
+  /// The text offset at ([x], [y]) when the point lies within a run's line
+  /// box, allowing [alongTolerance] only before or after its baseline span.
+  ///
+  /// Taking an already-extracted [text] lets hover use this same hit rule
+  /// without forcing extraction for a heavy page whose cache is still cold.
+  int? _textPositionOnLine(
+    PdfPageText text,
+    double x,
+    double y, {
+    required double alongTolerance,
+  }) {
+    PdfExtractedRun? best;
+    var bestEx = 0.0;
+    var bestDistance = double.infinity;
     for (final run in text.runs) {
       if (run.text.isEmpty) continue;
       final inverse = run.transform.inverted();
@@ -5807,13 +5829,44 @@ class _PdfViewerState extends State<PdfViewer>
           ex <= run.width + padding &&
           ey >= -0.25 &&
           ey <= 0.75) {
-        isOnTextLine = true;
-        break;
+        final outside = ex < 0
+            ? -ex
+            : ex > run.width
+                ? ex - run.width
+                : 0.0;
+        final distance = outside * baselineScale;
+        if (distance < bestDistance) {
+          best = run;
+          bestEx = ex;
+          bestDistance = distance;
+        }
       }
     }
-    if (!isOnTextLine) return null;
-    final offset = text.positionNear(x, y, tolerance: alongTolerance);
-    return offset < 0 ? null : (i, offset);
+    return best == null ? null : _textOffsetInRun(best, bestEx);
+  }
+
+  /// Maps an em-space baseline position to the nearest character boundary in
+  /// [run]. Kept local to the matched run so hover remains a single pass over
+  /// dense pages and overlapping rotated run bounds cannot steal the hit.
+  int _textOffsetInRun(PdfExtractedRun run, double ex) {
+    final offsets = run.isRightToLeft ? null : run.charOffsets;
+    if (offsets != null) {
+      var lo = 0;
+      var hi = offsets.length - 1;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (offsets[mid] < ex) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      if (lo > 0 && ex - offsets[lo - 1] <= offsets[lo] - ex) lo--;
+      return run.startIndex + lo;
+    }
+    final fraction = run.width > 0 ? (ex / run.width).clamp(0.0, 1.0) : 0.0;
+    final logicalFraction = run.isRightToLeft ? 1 - fraction : fraction;
+    return run.startIndex + (logicalFraction * run.text.length).round();
   }
 
   /// Whether the hover cursor over [local] should be the text I-beam.
@@ -5839,7 +5892,7 @@ class _PdfViewerState extends State<PdfViewer>
     } else {
       text = _pageText(i);
     }
-    return text.positionNear(x, y, tolerance: 8) >= 0;
+    return _textPositionOnLine(text, x, y, alongTolerance: 8) != null;
   }
 
   /// Visible annotations with an action on a page, cached.
@@ -6083,7 +6136,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// text menu (and its host-takeover counterpart) depend on so that Copy
   /// has something to act on.
   void _prepareTextSelectionAt(Offset local) {
-    final position = _textPositionAt(local, tolerance: 14);
+    final position = _textSelectionStartAt(local, alongTolerance: 14);
     if (!(position != null && _selectionContains(position))) {
       _selectWordAt(local);
     }
@@ -7510,7 +7563,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// The whitespace-delimited word range at a point (list coordinates).
   ((int, int), (int, int))? _wordRangeAt(Offset local,
       {double tolerance = 14}) {
-    final position = _textPositionAt(local, tolerance: tolerance);
+    final position = _textSelectionStartAt(local, alongTolerance: tolerance);
     if (position == null) return null;
     final text = _pageText(position.$1).text;
     var start = position.$2.clamp(0, text.length);
