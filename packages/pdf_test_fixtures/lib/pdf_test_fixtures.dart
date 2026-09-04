@@ -142,8 +142,12 @@ Uint8List buildXrefStreamPdf() {
 /// [width]/[height] size the /MediaBox in points - US Letter by default.
 /// Oversize a page when the test is about what a page's dimensions cost
 /// (raster budgets, sampling rasters), not about its content.
+///
+/// [rotation] writes /Rotate on every page (0 - the default - omits it),
+/// for tests about a display-rotated page: what the viewer shows is the
+/// page turned clockwise by that many degrees.
 Uint8List buildMultiPagePdf(int pageCount,
-    {double width = 612, double height = 792}) {
+    {double width = 612, double height = 792, int rotation = 0}) {
   // whole points write as integers - PDF accepts either, tests read better
   String num(double v) => v == v.roundToDouble() ? '${v.round()}' : '$v';
   final objects = <String>[];
@@ -157,6 +161,7 @@ Uint8List buildMultiPagePdf(int pageCount,
     final content = 'BT /F1 24 Tf 72 720 Td (Page ${i + 1}) Tj ET';
     objects.add('<< /Type /Page /Parent 2 0 R '
         '/MediaBox [0 0 ${num(width)} ${num(height)}] '
+        '${rotation == 0 ? '' : '/Rotate $rotation '}'
         '/Contents ${4 + i * 2} 0 R '
         '/Resources << /Font << /F1 $fontNumber 0 R >> >> >>');
     objects.add('<< /Length ${content.length} >>\nstream\n$content\nendstream');

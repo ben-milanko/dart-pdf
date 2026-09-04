@@ -7172,7 +7172,7 @@ class PdfEditingController extends ChangeNotifier {
     final annotation = selectedAnnotation!;
     final text = pdfNormalizeLineEndings(annotation.contents ?? '');
     if (text.isEmpty) return false;
-    final box = _appearanceRotationOf(annotation) == 0
+    final box = annotation.appearanceRotation == 0
         ? annotation.rect
         : _localFrameOf(annotation);
     const pad = 3.0;
@@ -7320,10 +7320,10 @@ class PdfEditingController extends ChangeNotifier {
           page: target.page,
           slot: target.slot,
           annotation: target.annotation,
-          rect: _appearanceRotationOf(target.annotation) == 0
+          rect: target.annotation.appearanceRotation == 0
               ? target.annotation.rect
               : _localFrameOf(target.annotation),
-          rotation: _appearanceRotationOf(target.annotation),
+          rotation: target.annotation.appearanceRotation,
           pageRotation: _page(target.page).rotation,
           textFont: _freeTextFontOf(target.annotation),
           parsed: target.annotation.freeTextStyle,
@@ -7642,7 +7642,7 @@ class PdfEditingController extends ChangeNotifier {
     // re-add (addFreeText/addStamp/addNote bake a horizontal matrix), so
     // re-create it in its un-rotated local frame and re-apply the resting
     // rotation afterwards - the same shape resizeAnnotationLocal uses.
-    final rotation = _appearanceRotationOf(annotation);
+    final rotation = annotation.appearanceRotation;
     final rect = rotation == 0 ? annotation.rect : _localFrameOf(annotation);
     final color = annotation.color;
     final by = annotation.author; // a text edit doesn't change ownership
@@ -7738,7 +7738,7 @@ class PdfEditingController extends ChangeNotifier {
   }) {
     if (_selected.isEmpty || annotation.subtype != 'FreeText') return false;
     final page = _selected.last.$1;
-    final rotation = _appearanceRotationOf(annotation);
+    final rotation = annotation.appearanceRotation;
     final rect = rotation == 0 ? annotation.rect : _localFrameOf(annotation);
     final by = annotation.author;
     final nm = annotation.name;
@@ -7783,19 +7783,6 @@ class PdfEditingController extends ChangeNotifier {
       notifyListeners();
     }
     return changed;
-  }
-
-  /// The page-space rotation baked into [annotation]'s appearance (radians
-  /// CCW, derived from its appearance quad), or 0 when it carries no
-  /// rotation or has no appearance stream.
-  static double _appearanceRotationOf(PdfAnnotation annotation) {
-    final quad = annotation.appearanceQuad;
-    if (quad == null) return 0;
-    final dx = quad[1].$1 - quad[0].$1;
-    final dy = quad[1].$2 - quad[0].$2;
-    if (dx == 0 && dy == 0) return 0;
-    final angle = math.atan2(dy, dx);
-    return angle.abs() < 0.005 ? 0 : angle;
   }
 
   /// The un-rotated local box of a rotated [annotation]: its appearance

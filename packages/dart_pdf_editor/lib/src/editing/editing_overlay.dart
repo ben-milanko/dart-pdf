@@ -1896,9 +1896,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// (pre-rotation) rectangle - the painter spins it back into place,
   /// so the chrome hugs the rotated artwork instead of boxing its
   /// axis-aligned bounds.
+  ///
+  /// Only a rotation the *annotation* carries counts
+  /// ([PdfAnnotation.appearanceRotation], measured in page space). The
+  /// view quad also carries the page's display /Rotate: on a /Rotate 90
+  /// page every square annotation's lower edge runs down the screen, so
+  /// the view angle alone reads a plain text box as turned 90° - which
+  /// transposed its handles (the right-middle one resized vertically,
+  /// with an up-down cursor) and committed a transposed box. A page's
+  /// rotation turns the whole page, chrome included, so an annotation
+  /// square to its page is square to the chrome too.
   (Rect, double)? get _selectionChrome {
     final selected = _selectedViewRect;
     if (selected == null) return null;
+    if (_controller.selectedAnnotation?.appearanceRotation == 0) {
+      return (selected, 0);
+    }
     final quad = _selectedViewQuad;
     if (quad == null) return (selected, 0);
     final angle = _quadAngle(quad);
@@ -2881,15 +2894,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         rotateHandleDistance: _rotateHandleDistance,
       );
 
-  /// The resize cursor for a handle by its corner/edge: orthogonal edges
-  /// get the straight resize cursors, corners the matching diagonal.
-  static MouseCursor _resizeCursorFor(_Handle handle) =>
-      switch ((handle.dx, handle.dy)) {
-        (0, _) => SystemMouseCursors.resizeUpDown,
-        (_, 0) => SystemMouseCursors.resizeLeftRight,
-        (-1, -1) || (1, 1) => SystemMouseCursors.resizeUpLeftDownRight,
-        _ => SystemMouseCursors.resizeUpRightDownLeft,
-      };
+  /// The resize cursor for a handle by the direction it actually points
+  /// on screen: the handle's outward direction in the selection's local
+  /// frame, spun by its resting [rotation] and snapped to the nearest of
+  /// the four resize cursors. Unrotated, that is the plain corner/edge
+  /// mapping (edges straight, corners diagonal); rotated, the cursor
+  /// follows the handle round instead of promising an axis the drag
+  /// won't move along.
+  static MouseCursor _resizeCursorFor(_Handle handle, [double rotation = 0]) {
+    final angle =
+        math.atan2(handle.dy.toDouble(), handle.dx.toDouble()) + rotation;
+    // eight compass points, folded to the four cursors (each covers a
+    // direction and its opposite): E, SE, S, SW
+    const cursors = [
+      SystemMouseCursors.resizeLeftRight,
+      SystemMouseCursors.resizeUpLeftDownRight,
+      SystemMouseCursors.resizeUpDown,
+      SystemMouseCursors.resizeUpRightDownLeft,
+    ];
+    return cursors[(angle / (math.pi / 4)).round() % 4];
+  }
 
   _Handle? _handleAt(Rect rect, Offset position) {
     if (!_controller.canResizeSelected) return null;
@@ -3717,7 +3741,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _moveCurrent = position;
           // hold the matching resize cursor through the drag (hover stops
           // firing once the pointer is down)
-          _cursor = _resizeCursorFor(handle);
+          _cursor = _resizeCursorFor(handle, resting);
         });
         // lift the box off the page for a re-wrapping (free-text) resize:
         // render the page without it so the preview floats over the real
@@ -4980,7 +5004,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       if (vertex != null) {
         cursor = grabCursor;
       } else if (handle != null) {
-        cursor = _resizeCursorFor(handle);
+        cursor = _resizeCursorFor(handle, resting);
       } else if (chrome != null &&
           _hitsRotateHandle(chrome.$1, resting, event.localPosition)) {
         // no system rotation cursor: hide it and paint a curved-arrow glyph
