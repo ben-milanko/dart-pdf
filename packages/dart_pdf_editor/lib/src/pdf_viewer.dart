@@ -9382,8 +9382,9 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   // default-mode (mouse click) annotation selection, or
                   // a pending attention flash (the sidebar's zoom-to -
                   // links and form fields flash without a selection). Cursor
-                  // guides mount the same low-latency hover layer even in
-                  // ordinary reader/hand mode.
+                  // cursor guides and rulers mount the same passive,
+                  // low-latency hover layer even in ordinary reader/hand
+                  // mode.
                   builder: (context, _) {
                     final rasterCurrent = _rastered &&
                         _annotationLayerCurrent &&
@@ -9401,6 +9402,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             editing.pendingFlash == null &&
                             !editing.preferences.showVerticalCursorGuide &&
                             !editing.preferences.showHorizontalCursorGuide &&
+                            !editing.preferences.showPageRulers &&
                             !editing.preferences.showSnapGrid &&
                             (rasterCurrent ||
                                 editing.committedInkOn(widget.index) == null)
