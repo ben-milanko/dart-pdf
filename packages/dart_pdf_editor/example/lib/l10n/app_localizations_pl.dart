@@ -445,4 +445,9 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => 'Czcionki';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - część $part.pdf';
+  }
 }

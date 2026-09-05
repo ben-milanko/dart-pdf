@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "自定义图章…",
   "signatureLibraryManage": "管理签名",
   "signatureLibraryRenameTitle": "重命名签名",
-  "signatureLibraryEmpty": "没有已保存的签名。"
+  "signatureLibraryEmpty": "没有已保存的签名。",
+  "splitTitle": "拆分 PDF…",
+  "splitHelp": "输入以逗号分隔的页面范围。每个范围生成一个独立的 PDF。",
+  "splitRanges": "页面范围",
+  "splitInvalidRanges": "请输入 1 至 {count} 之间的页码，以逗号分隔。范围必须按升序填写。",
+  "splitConfirm": "拆分",
+  "splitFailed": "无法拆分此 PDF。"
 }

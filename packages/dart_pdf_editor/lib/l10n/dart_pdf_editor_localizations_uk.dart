@@ -2158,4 +2158,25 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Немає збережених підписів.';
+
+  @override
+  String get splitTitle => 'Розділити PDF…';
+
+  @override
+  String get splitHelp =>
+      'Введіть діапазони сторінок через кому. Для кожного діапазону буде створено окремий PDF.';
+
+  @override
+  String get splitRanges => 'Діапазони сторінок';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Укажіть сторінки від 1 до $count через кому. Діапазони мають бути за зростанням.';
+  }
+
+  @override
+  String get splitConfirm => 'Розділити';
+
+  @override
+  String get splitFailed => 'Не вдалося розділити цей PDF.';
 }

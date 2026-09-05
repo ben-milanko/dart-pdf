@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Benutzerdefinierte Stempel…",
   "signatureLibraryManage": "Unterschriften verwalten",
   "signatureLibraryRenameTitle": "Unterschrift umbenennen",
-  "signatureLibraryEmpty": "Keine gespeicherten Unterschriften."
+  "signatureLibraryEmpty": "Keine gespeicherten Unterschriften.",
+  "splitTitle": "PDF aufteilen…",
+  "splitHelp": "Seitenbereiche durch Kommas trennen. Jeder Bereich wird zu einer eigenen PDF-Datei.",
+  "splitRanges": "Seitenbereiche",
+  "splitInvalidRanges": "Seiten von 1 bis {count} durch Kommas trennen. Bereiche müssen aufsteigend sein.",
+  "splitConfirm": "Aufteilen",
+  "splitFailed": "Diese PDF-Datei konnte nicht aufgeteilt werden."
 }

@@ -198,6 +198,28 @@ simplest web/server path: point it at a CORS-enabled OCR service. Both write the
 same invisible text layer, so scanned pages become selectable, searchable, and
 copyable without changing how the PDF looks.
 
+## Splitting PDFs
+
+`pdf_document` can generate multiple standalone PDFs directly from bytes:
+
+```dart
+final parts = PdfSplitter.splitExpression(bytes, '1-3, 7, 10-12');
+// Three outputs: pages 1–3, page 7, and pages 10–12.
+final firstThree = PdfSplitter.splitRange(bytes, 0, 2); // zero-based, inclusive
+```
+
+`PdfEditorView(onSplitPages: ...)` adds a validated **Split PDF…** dialog to the
+thumbnail page-actions menu. The example opens each result in a new editable tab.
+Existing single-range and thumbnail-selection exports remain available.
+
+Page annotations/resources and document information are retained; bookmarks,
+the document-level AcroForm field list, and named destinations are omitted.
+Links between pages retained in one output are remapped. Copied widgets are not
+registered in an AcroForm. Resources remain shared within an output where
+possible; each output owns its copies. Encrypted sources yield **unencrypted
+outputs**. See the [splitting guide](packages/pdf_document/README.md#splitting-and-extracting-pages)
+for indexing, password handling, validation, and extraction semantics.
+
 ## Roadmap
 
 1. ✅ COS reader: lexer, parser, FlateDecode + predictors, xref tables,

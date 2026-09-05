@@ -57,6 +57,57 @@ editor.addFreeText(0, const PdfRect(72, 600, 280, 660), 'Reviewed.');
 final saved = editor.save(); // incremental update
 ```
 
+## Splitting and extracting pages
+
+Create multiple PDFs in one call, with one output per range:
+
+```dart
+import 'package:pdf_document/pdf_document.dart';
+
+final parts = PdfSplitter.split(bytes, const [
+  PdfPageRange(0, 2), // pages 1–3
+  PdfPageRange(6, 6), // page 7
+  PdfPageRange(9, 11), // pages 10–12
+]); // List<Uint8List>, three independent PDFs in this order
+
+final firstThree = PdfSplitter.splitRange(bytes, 0, 2);
+final fromInput = PdfSplitter.splitExpression(bytes, '1-3, 7, 10-12');
+```
+
+API indices are **zero-based and inclusive**. Text expressions use **one-based
+page numbers**: each comma starts a separate output. Whitespace, overlapping
+ranges, repeated ranges, and caller-chosen range order are supported. Empty
+items, reversed ranges, and out-of-bounds pages are rejected. `parseRanges`
+validates text without generating PDFs:
+
+```dart
+final document = PdfDocument.open(bytes, password: 'secret');
+final ranges = PdfSplitter.parseRanges('1-3, 7', pageCount: document.pageCount);
+final parts = document.extractPageRanges(ranges); // reuse an open document
+final selection = document.extractPages([4, 0, 2]); // one PDF in this order
+final span = document.extractPageRange(0, 2); // one contiguous selection
+```
+
+The raw-bytes methods also accept `password:`. Each batch opens the source once
+and validates all ranges before generating outputs. Programmatic invalid ranges
+throw `ArgumentError`/`RangeError`; invalid expressions throw `FormatException`.
+All paths work on mobile, desktop, web, and the Dart VM with no `dart:io`.
+
+Extraction semantics:
+
+- Page annotations and objects reachable from each selected page are deep-copied.
+  Inherited page attributes are materialized, and the source is unchanged.
+- Destinations between retained pages are remapped within each output. A target
+  page excluded from that output is not copied along with the link.
+- The document information dictionary is retained. Document-level state outside
+  the page graph—outlines/bookmarks, the AcroForm field list, and named
+  destinations—is omitted. Copied widget annotations are not registered through
+  an AcroForm in the output.
+- Resources shared by selected pages remain shared within one output where
+  possible. Separate output PDFs have their own copies and can be edited
+  independently.
+- Extracting an encrypted source produces **unencrypted PDFs**.
+
 ## The suite
 
 | Package | Layer |

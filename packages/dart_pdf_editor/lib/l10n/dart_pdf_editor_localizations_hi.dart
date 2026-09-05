@@ -2114,4 +2114,25 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'कोई सहेजा गया हस्ताक्षर नहीं है।';
+
+  @override
+  String get splitTitle => 'PDF विभाजित करें…';
+
+  @override
+  String get splitHelp =>
+      'पृष्ठ श्रेणियाँ अल्पविराम से अलग करके दर्ज करें। हर श्रेणी से एक अलग PDF बनेगा।';
+
+  @override
+  String get splitRanges => 'पृष्ठ श्रेणियाँ';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return '1 से $count तक के पृष्ठ अल्पविराम से अलग करें। श्रेणियाँ बढ़ते क्रम में होनी चाहिए।';
+  }
+
+  @override
+  String get splitConfirm => 'विभाजित करें';
+
+  @override
+  String get splitFailed => 'यह PDF विभाजित नहीं किया जा सका।';
 }

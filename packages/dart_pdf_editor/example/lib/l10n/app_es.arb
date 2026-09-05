@@ -119,5 +119,6 @@
   "undo": "Deshacer",
   "exFileTypePdf": "Documentos PDF",
   "exFileTypeImages": "Imágenes",
-  "exFileTypeFonts": "Fuentes"
+  "exFileTypeFonts": "Fuentes",
+  "exExtractedTitle": "{title} - parte {part}.pdf"
 }
