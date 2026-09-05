@@ -264,5 +264,11 @@
   "updateFailed": "Update fehlgeschlagen: {error}",
   "imageSourceTakePhoto": "Foto aufnehmen",
   "imageSourceChooseFile": "Datei auswählen",
-  "imageSourceCameraFailed": "Foto konnte nicht aufgenommen werden"
+  "imageSourceCameraFailed": "Foto konnte nicht aufgenommen werden",
+  "settingsCachedDocuments": "Zwischengespeicherte Dokumente",
+  "settingsCacheUsage": "{used} MiB von {limit} MiB belegt",
+  "settingsCacheExplanation": "Dateien über {limit} MiB werden nicht zwischengespeichert. Beim Leeren bleiben die Liste zuletzt geöffneter Dateien, offene Dokumente und ungespeicherte Änderungen erhalten; zwischengespeicherte Dateien müssen zum Öffnen erneut ausgewählt werden.",
+  "settingsClearCachedDocuments": "Zwischengespeicherte Dokumente löschen",
+  "settingsCacheUnavailable": "Cache-Größe nicht verfügbar",
+  "settingsCacheClearFailed": "Zwischengespeicherte Dokumente konnten nicht gelöscht werden. Erneut versuchen."
 }

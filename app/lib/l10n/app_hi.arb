@@ -264,5 +264,11 @@
   "updateFailed": "अपडेट विफल: {error}",
   "imageSourceTakePhoto": "फ़ोटो लें",
   "imageSourceChooseFile": "फ़ाइल चुनें",
-  "imageSourceCameraFailed": "फ़ोटो नहीं ली जा सकी"
+  "imageSourceCameraFailed": "फ़ोटो नहीं ली जा सकी",
+  "settingsCachedDocuments": "कैश किए गए दस्तावेज़",
+  "settingsCacheUsage": "{limit} MiB में से {used} MiB उपयोग में",
+  "settingsCacheExplanation": "{limit} MiB से बड़ी फ़ाइलें कैश नहीं की जातीं। साफ़ करने पर हाल की फ़ाइलों की सूची, खुले दस्तावेज़ और बिना सहेजे बदलाव बने रहते हैं; कैश की गई फ़ाइलों को फिर से खोलने के लिए दोबारा चुनना होगा।",
+  "settingsClearCachedDocuments": "कैश किए गए दस्तावेज़ साफ़ करें",
+  "settingsCacheUnavailable": "कैश का आकार उपलब्ध नहीं है",
+  "settingsCacheClearFailed": "कैश किए गए दस्तावेज़ साफ़ नहीं किए जा सके। फिर से कोशिश करें।"
 }

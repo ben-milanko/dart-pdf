@@ -264,5 +264,11 @@
   "updateFailed": "Не вдалося оновити: {error}",
   "imageSourceTakePhoto": "Зробити знімок",
   "imageSourceChooseFile": "Вибрати файл",
-  "imageSourceCameraFailed": "Не вдалося зробити знімок"
+  "imageSourceCameraFailed": "Не вдалося зробити знімок",
+  "settingsCachedDocuments": "Кешовані документи",
+  "settingsCacheUsage": "Використано {used} МіБ із {limit} МіБ",
+  "settingsCacheExplanation": "Файли понад {limit} МіБ не кешуються. Очищення зберігає список нещодавніх файлів, відкриті документи та незбережені зміни; для відкриття кешованих файлів їх потрібно вибрати знову.",
+  "settingsClearCachedDocuments": "Очистити кеш документів",
+  "settingsCacheUnavailable": "Розмір кешу недоступний",
+  "settingsCacheClearFailed": "Не вдалося очистити кеш документів. Спробуйте ще раз."
 }

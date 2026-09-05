@@ -1072,4 +1072,28 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Foto konnte nicht aufgenommen werden';
+
+  @override
+  String get settingsCachedDocuments => 'Zwischengespeicherte Dokumente';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB von $limit MiB belegt';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Dateien über $limit MiB werden nicht zwischengespeichert. Beim Leeren bleiben die Liste zuletzt geöffneter Dateien, offene Dokumente und ungespeicherte Änderungen erhalten; zwischengespeicherte Dateien müssen zum Öffnen erneut ausgewählt werden.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments =>
+      'Zwischengespeicherte Dokumente löschen';
+
+  @override
+  String get settingsCacheUnavailable => 'Cache-Größe nicht verfügbar';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Zwischengespeicherte Dokumente konnten nicht gelöscht werden. Erneut versuchen.';
 }

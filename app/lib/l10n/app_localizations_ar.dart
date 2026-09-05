@@ -1078,4 +1078,27 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'تعذّر التقاط صورة';
+
+  @override
+  String get settingsCachedDocuments => 'المستندات المخزنة مؤقتًا';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'تم استخدام $used MiB من $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'لا تُخزّن الملفات التي تتجاوز $limit MiB مؤقتًا. يحتفظ المسح بقائمة الملفات الأخيرة والمستندات المفتوحة والتغييرات غير المحفوظة؛ يجب اختيار الملفات المخزنة مؤقتًا مجددًا لإعادة فتحها.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'مسح المستندات المخزنة مؤقتًا';
+
+  @override
+  String get settingsCacheUnavailable => 'حجم التخزين المؤقت غير متاح';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'تعذر مسح المستندات المخزنة مؤقتًا. حاول مجددًا.';
 }

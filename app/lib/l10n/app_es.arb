@@ -264,5 +264,11 @@
   "updateFailed": "Error en la actualización: {error}",
   "imageSourceTakePhoto": "Hacer foto",
   "imageSourceChooseFile": "Elegir archivo",
-  "imageSourceCameraFailed": "No se pudo hacer la foto"
+  "imageSourceCameraFailed": "No se pudo hacer la foto",
+  "settingsCachedDocuments": "Documentos en caché",
+  "settingsCacheUsage": "{used} MiB de {limit} MiB usados",
+  "settingsCacheExplanation": "Los archivos de más de {limit} MiB no se guardan en caché. Al borrar se conservan la lista de recientes, los documentos abiertos y los cambios sin guardar; tendrás que seleccionar de nuevo los archivos para abrirlos.",
+  "settingsClearCachedDocuments": "Borrar documentos en caché",
+  "settingsCacheUnavailable": "Tamaño de caché no disponible",
+  "settingsCacheClearFailed": "No se pudieron borrar los documentos en caché. Inténtalo de nuevo."
 }

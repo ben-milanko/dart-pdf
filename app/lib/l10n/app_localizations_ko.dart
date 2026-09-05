@@ -1032,4 +1032,26 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => '사진을 촬영하지 못했습니다';
+
+  @override
+  String get settingsCachedDocuments => '캐시된 문서';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB 중 $used MiB 사용';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB를 초과하는 파일은 캐시되지 않습니다. 삭제해도 최근 파일 목록, 열린 문서 및 저장하지 않은 변경 사항은 유지됩니다. 캐시된 파일을 다시 열려면 파일을 다시 선택해야 합니다.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => '캐시된 문서 삭제';
+
+  @override
+  String get settingsCacheUnavailable => '캐시 크기를 확인할 수 없음';
+
+  @override
+  String get settingsCacheClearFailed => '캐시된 문서를 삭제하지 못했습니다. 다시 시도하세요.';
 }
