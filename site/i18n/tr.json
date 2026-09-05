@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "İndir",
   "dl_h2": "DartPDF'i kendi platformunuzda edinin.",
-  "dl_intro": "App Store ve Google Play'den edinin, masaüstü uygulamasını yükleyin veya doğrudan tarayıcınızda kullanın.",
+  "dl_intro": "Bu cihaz için en uygun indirmeleri gösteriyoruz. Diğer tüm platformlara tek tıkla ulaşabilirsiniz.",
+  "dl_otherPlatforms": "Diğer platformlar",
   "dl_get": "İndir",
   "dl_open": "Aç",
   "dlMac_meta": "Doğrudan .dmg · imzalı ve noterli",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Geliştiriciler",
   "dev_h2": "Sizin de kullanabileceğiniz saf Dart bir PDF motoru.",
-  "dev_p": "Motor, PDFium veya yerel bağlamalar yerine Dart kullanır, bu yüzden Dart ve Flutter'ın çalıştığı her yerde çalışır. Paketler\n          Apache-2.0 lisanslıdır ve pub.dev'de yayınlanmıştır. Karşılaştırmalar ve ticari SDK'larla bir kıyaslama için <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK genel bakışını</a> okuyun.",
+  "dev_p": "Motor, PDFium veya yerel bağlamalar yerine Dart kullanır, bu yüzden Dart ve Flutter'ın çalıştığı her yerde çalışır. Paketler\n          Apache-2.0 lisanslıdır ve pub.dev'de yayınlanmıştır. Karşılaştırmalar ve ticari SDK'larla bir kıyaslama için <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK genel bakışını</a> okuyun.",
   "dev_ctaGithub": "GitHub'da görüntüle",
   "dev_ctaPub": "pub.dev'deki paketler",
   "dev_bTitle": "Açık kaynak paketler",
@@ -130,7 +131,7 @@
   "sp_faq2": "<strong>Bir PDF'i nasıl açarım?</strong> DartPDF'i açıp bir dosya seçin, Dosyalar uygulamasından bir PDF açın, başka bir uygulamanın paylaşım sayfasından DartPDF'e bir dosya gönderin veya bir dosyayı pencereye sürükleyip bırakın.",
   "sp_faq3": "<strong>Parola korumalı PDF'leri açabilir miyim?</strong> Evet. DartPDF parolayı ister ve şifreli dosyaları görüntüleme ve düzenleme için açar.",
   "sp_faq4": "<strong>OCR nasıl çalışır?</strong> Optik karakter tanıma tamamen cihazınızda çalışır. İlk kullanımda uygulama tanıma modelini indirir, ardından tüm işlemler yerel olarak gerçekleşir - sayfalarınız asla bir sunucuya gönderilmez.",
-  "sp_faq5": "<strong>Verilerim gizli mi?</strong> Evet. DartPDF'in analizi, reklamı, hesapları ve sunucuları yoktur. Ayrıntılar için <a href=\"privacy.html\">gizlilik politikasına</a> bakın.",
+  "sp_faq5": "<strong>Verilerim gizli mi?</strong> Evet. DartPDF'in analizi, reklamı, hesapları ve sunucuları yoktur. Ayrıntılar için <a href=\"/privacy\">gizlilik politikasına</a> bakın.",
   "sp_stuckH2": "Hâlâ takıldınız mı?",
   "sp_stuck_p": "<a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> adresine e-posta gönderin ve ne yapmaya çalıştığınızı açıklayın. Her mesajı okuyoruz.",
 
@@ -139,6 +140,7 @@
   "sdk_nav_features": "Özellikler",
   "sdk_nav_performance": "Performans",
   "sdk_nav_compare": "Karşılaştır",
+  "sdk_nav_guide": "Rehber",
   "sdk_nav_packages": "Paketler",
   "sdk_nav_getpub": "pub.dev'den edinin",
   "sdk_hero_h1": "Flutter için bir PDF görüntüleyici ve düzenleyici, <span class=\"hl\">tamamen\n          Dart ile yazılmış.</span>",

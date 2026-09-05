@@ -1,0 +1,6 @@
+Nieuw in 3.5.0
+
+- Grote, gedetailleerde pdf's blijven soepel tijdens scrollen, pannen en zoomen; het zichtbare gebied wordt eerst verscherpt.
+- Paginavoorbeelden worden tijdens snelle navigatie stapsgewijs duidelijker.
+- Pagina's blijven scherp en zichtbaar bij de randen van de weergave.
+- Externe documenten laden sneller met voorspelbaarder geheugengebruik.

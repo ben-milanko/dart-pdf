@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/shell_chrome.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -106,6 +107,47 @@ void main() {
     expect(persisted, closeTo(300, 1));
     expect(tester.getSize(find.byType(PdfSidebarPanelFrame)).width,
         closeTo(300, 1));
+  });
+
+  testWidgets('tab bodies stay clear of the outer resize grip',
+      (tester) async {
+    Widget tabHost(PdfPanelDock dock) => MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: PdfPanelTabGroup(
+                dock: dock,
+                width: 240,
+                minWidth: 180,
+                maxWidth: 320,
+                gripKey: const ValueKey('tab-grip'),
+                entries: const [
+                  PdfPanelTabEntry(
+                    panel: PdfDockablePanel.thumbnails,
+                    body: ColoredBox(
+                      key: ValueKey('tab-body'),
+                      color: Colors.white,
+                    ),
+                  ),
+                  PdfPanelTabEntry(
+                    panel: PdfDockablePanel.search,
+                    body: SizedBox.expand(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(tabHost(PdfPanelDock.left));
+    var body = tester.getRect(find.byKey(const ValueKey('tab-body')));
+    var grip = tester.getRect(find.byKey(const ValueKey('tab-grip')));
+    expect(body.right, lessThanOrEqualTo(grip.left));
+
+    await tester.pumpWidget(tabHost(PdfPanelDock.right));
+    body = tester.getRect(find.byKey(const ValueKey('tab-body')));
+    grip = tester.getRect(find.byKey(const ValueKey('tab-grip')));
+    expect(body.left, greaterThanOrEqualTo(grip.right));
   });
 
   testWidgets('close is docked-only and bottom sheet bypasses fixed width',

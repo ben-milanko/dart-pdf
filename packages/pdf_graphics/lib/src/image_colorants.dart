@@ -33,6 +33,7 @@ import 'dart:typed_data';
 import 'package:pdf_cos/pdf_cos.dart';
 
 import 'color.dart';
+import 'color_context.dart';
 import 'color_space.dart';
 import 'colorants.dart';
 import 'image_pixels.dart';
@@ -115,13 +116,20 @@ CosStream? pdfImageOverprintStream(
   CosDocument cos,
   CosStream stream, {
   CosDictionary? resources,
-  required PdfColorants backdrop,
-  required PdfColor backdropColor,
+  PdfColorants? backdrop,
+  PdfColor? backdropColor,
+  PdfColorantBackdropMap? spatialBackdrop,
   required int mode,
   required Map<String, List<double>> spotEquivalents,
+  PdfColorContext? colorContext,
 }) {
-  if (backdrop == PdfColorants.none) return null;
-  final key = _SubstituteKey(backdrop, mode);
+  assert((spatialBackdrop == null) == (backdrop != null));
+  if (spatialBackdrop == null && backdrop == PdfColorants.none) return null;
+  if (spatialBackdrop == null && (backdrop == null || backdropColor == null)) {
+    return null;
+  }
+  final backdropKey = spatialBackdrop ?? backdrop!;
+  final key = _SubstituteKey(backdropKey, backdropColor, mode, colorContext);
   final memo = _substitutes[stream] ??= <_SubstituteKey, CosStream?>{};
   if (memo.containsKey(key)) return memo[key];
   // Cap the memo rather than let a page that overprints one image onto many
@@ -129,8 +137,8 @@ CosStream? pdfImageOverprintStream(
   // Past the cap nothing is stored, so the buffer keeps declining rather than
   // silently serving a substitute built for a different backdrop.
   if (memo.length >= _maxSubstitutesPerImage) return null;
-  final built = _buildSubstitute(
-      cos, stream, resources, backdrop, backdropColor, mode, spotEquivalents);
+  final built = _buildSubstitute(cos, stream, resources, backdrop,
+      backdropColor, spatialBackdrop, mode, spotEquivalents, colorContext);
   memo[key] = built;
   return built;
 }
@@ -154,19 +162,25 @@ final Expando<Map<_SubstituteKey, CosStream?>> _substitutes =
     Expando('pdfImageOverprintStream');
 
 class _SubstituteKey {
-  const _SubstituteKey(this.backdrop, this.mode);
+  const _SubstituteKey(
+      this.backdrop, this.backdropColor, this.mode, this.colorContext);
 
-  final PdfColorants backdrop;
+  final Object backdrop;
+  final PdfColor? backdropColor;
   final int mode;
+  final PdfColorContext? colorContext;
 
   @override
   bool operator ==(Object other) =>
       other is _SubstituteKey &&
       other.mode == mode &&
-      other.backdrop == backdrop;
+      other.backdrop == backdrop &&
+      other.backdropColor == backdropColor &&
+      identical(other.colorContext, colorContext);
 
   @override
-  int get hashCode => Object.hash(backdrop, mode);
+  int get hashCode => Object.hash(
+      backdrop, backdropColor, mode, identityHashCode(colorContext));
 }
 
 PdfImageColorants? _readColorants(
@@ -195,10 +209,12 @@ CosStream? _buildSubstitute(
   CosDocument cos,
   CosStream stream,
   CosDictionary? resources,
-  PdfColorants backdrop,
-  PdfColor backdropColor,
+  PdfColorants? uniformBackdrop,
+  PdfColor? uniformBackdropColor,
+  PdfColorantBackdropMap? spatialBackdrop,
   int mode,
   Map<String, List<double>> spotEquivalents,
+  PdfColorContext? colorContext,
 ) {
   final dict = stream.dictionary;
   // A colour-key /Mask selects transparent pixels by their *source* sample
@@ -215,10 +231,18 @@ CosStream? _buildSubstitute(
   // space contributes - a composite naming a spot only the image carries still
   // has to convert back to sRGB.
   final spots = <String, List<double>>{...spotEquivalents};
-  final memo = samples.canPackTuple ? <int, int>{} : null;
+  final memo =
+      spatialBackdrop == null && samples.canPackTuple ? <int, int>{} : null;
   var out = 0;
   for (var y = 0; y < height; y++) {
     for (var x = 0; x < width; x++) {
+      final backdropValue = spatialBackdrop?.at(x, y) ??
+          (uniformBackdrop == null || uniformBackdropColor == null
+              ? null
+              : (colorants: uniformBackdrop, color: uniformBackdropColor));
+      if (backdropValue == null) return null;
+      final backdrop = backdropValue.colorants;
+      final backdropColor = backdropValue.color;
       final packed = memo == null ? 0 : samples.packedTuple(x, y);
       var value = memo == null ? null : memo[packed];
       if (value == null) {
@@ -243,7 +267,11 @@ CosStream? _buildSubstitute(
         } else if (composite == ink.colorants) {
           color = samples.space.toSrgb(samples.valuesAt(x, y));
         } else {
-          color = colorantsToSrgb(composite, spots);
+          color = colorantsToSrgb(
+            composite,
+            spots,
+            cmykToSrgb: colorContext?.deviceCmyk,
+          );
         }
         value = ((color.red * 255).round().clamp(0, 255) << 16) |
             ((color.green * 255).round().clamp(0, 255) << 8) |

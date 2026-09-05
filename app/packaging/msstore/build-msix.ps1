@@ -104,6 +104,8 @@ try {
   & flutter build windows --release `
     --build-name=$Version --build-number=$BuildNumber
   if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
+  & build/windows/x64/runner/Release/dartpdf.exe --version
+  if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
 
   # The Release folder is what the portable zip ships; the MSIX runtime is
   # supplied by the OS, so no msvcp140/vcruntime140 copy is needed here (unlike

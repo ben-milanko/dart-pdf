@@ -2,6 +2,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'calibrated_color.dart';
 import 'color.dart';
+import 'color_context.dart';
 import 'colorants.dart';
 import 'function.dart';
 import 'icc.dart';
@@ -43,12 +44,22 @@ abstract class PdfColorSpace {
   /// families read what they can and treat the rest as zero.
   PdfColor toSrgb(List<double> values);
 
+  /// [toSrgb] with an explicit ICC rendering intent. Non-ICC spaces ignore
+  /// it; ICCBased selects its A2B0/1/2 transform.
+  PdfColor toSrgbIntent(List<double> values, PdfRenderingIntent intent) =>
+      toSrgb(values);
+
   /// Converts raw 8-bit samples (0–255), as stored in image data or an
   /// Indexed palette entry, to sRGB through the space's default component
   /// decode (§8.6.5). The default decode is [0, 1] per component; Lab
   /// overrides it with its L*/a*/b* ranges.
   PdfColor toSrgbFromSamples(List<int> samples) =>
       toSrgb([for (final s in samples) s / 255]);
+
+  /// [toSrgbFromSamples] with an explicit ICC rendering intent.
+  PdfColor toSrgbFromSamplesIntent(
+          List<int> samples, PdfRenderingIntent intent) =>
+      toSrgbIntent([for (final s in samples) s / 255], intent);
 
   /// The device colorants painting [values] in this space writes, with the
   /// overprint semantics of the space (§8.6.7) - or null when the space has no
@@ -63,6 +74,15 @@ abstract class PdfColorSpace {
   /// leaves alone.
   PdfInkColorants? inkColorants(List<double> values) => null;
 
+  /// Process-colour reading used inside a transparency blending space.
+  ///
+  /// This is deliberately separate from [inkColorants]: an ICCBased source
+  /// must not acquire overprint semantics (GWG132/133), but it does need a
+  /// destination-process representation when blended in a DeviceCMYK group.
+  PdfInkColorants? blendColorants(List<double> values,
+          {PdfRenderingIntent intent = PdfRenderingIntent.perceptual}) =>
+      inkColorants(values);
+
   /// Resolves a colour-space object. [object] may be a device or
   /// abbreviation name, a `Pattern` name, an array space (`[/ICCBased …]`,
   /// `[/Indexed …]`, `[/Separation …]`, `[/DeviceN …]`, `[/CalRGB …]`, …),
@@ -75,21 +95,26 @@ abstract class PdfColorSpace {
   /// stream, so a colour space selected repeatedly (a `cs`/`CS` in a tight
   /// `q`/`Q` loop) parses its profile only once.
   static PdfColorSpace parse(CosDocument cos, CosObject? object,
-      {CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache}) {
+      {CosDictionary? resources,
+      Map<CosStream, IccProfile?>? iccCache,
+      PdfColorContext? colorContext}) {
+    colorContext ??= PdfColorContext.forDocument(cos);
     final resolved = cos.resolve(object);
     if (resolved is CosName) {
-      final device = _deviceForName(resolved.value);
+      final device = _deviceForName(resolved.value, colorContext);
       if (device != null) return device;
       if (resolved.value == 'Pattern') return const _PatternColorSpace();
       if (resources != null) {
         final spaces = cos.resolve(resources['ColorSpace']);
         if (spaces is CosDictionary && spaces.containsKey(resolved.value)) {
           return parse(cos, spaces[resolved.value],
-              resources: resources, iccCache: iccCache);
+              resources: resources,
+              iccCache: iccCache,
+              colorContext: colorContext);
         }
       }
       // Unknown named space: assume RGB, the historical default.
-      return const _DeviceColorSpace('DeviceRGB', 3);
+      return _DeviceColorSpace('DeviceRGB', 3, colorContext);
     }
     if (resolved is CosArray && resolved.length > 0) {
       // Doc-level parse cache (#534, PDFium's CPDF_DocPageData shape): a
@@ -103,54 +128,64 @@ abstract class PdfColorSpace {
       // document's objects.
       final hit = _parsed[resolved];
       if (hit != null) return hit;
-      final space = _parseArray(cos, resolved, resources, iccCache);
+      final space =
+          _parseArray(cos, resolved, resources, iccCache, colorContext);
       _parsed[resolved] = space;
       return space;
     }
     // Unresolved / malformed: a single-component gray keeps something visible.
-    return const _DeviceColorSpace('DeviceGray', 1);
+    return _DeviceColorSpace('DeviceGray', 1, colorContext);
   }
 
   static final Expando<PdfColorSpace> _parsed = Expando();
 
-  static PdfColorSpace _parseArray(CosDocument cos, CosArray resolved,
-      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+  static PdfColorSpace _parseArray(
+      CosDocument cos,
+      CosArray resolved,
+      CosDictionary? resources,
+      Map<CosStream, IccProfile?>? iccCache,
+      PdfColorContext colorContext) {
     {
       final family = cos.resolve(resolved[0]);
       if (family is CosName) {
         switch (family.value) {
           case 'ICCBased':
-            return _parseIcc(cos, resolved, iccCache);
+            return _parseIcc(cos, resolved, iccCache, colorContext);
           case 'Indexed' || 'I':
-            return _IndexedColorSpace.parse(cos, resolved, resources, iccCache) ??
-                const _DeviceColorSpace('DeviceRGB', 3);
+            return _IndexedColorSpace.parse(
+                    cos, resolved, resources, iccCache) ??
+                _DeviceColorSpace('DeviceRGB', 3, colorContext);
           case 'Separation':
-            return _TintColorSpace.parse(cos, resolved, resources, iccCache) ??
-                const _DeviceColorSpace('DeviceGray', 1);
+            return _TintColorSpace.parse(
+                    cos, resolved, resources, iccCache, colorContext) ??
+                _DeviceColorSpace('DeviceGray', 1, colorContext);
           case 'DeviceN':
             return _TintColorSpace.parseDeviceN(
-                    cos, resolved, resources, iccCache) ??
-                const _DeviceColorSpace('DeviceRGB', 3);
+                    cos, resolved, resources, iccCache, colorContext) ??
+                _DeviceColorSpace('DeviceRGB', 3, colorContext);
           case 'CalGray' || 'CalRGB' || 'Lab':
             final cal = PdfCalibratedColorSpace.parse(cos, resolved);
-            if (cal != null) return _CalibratedColorSpace(family.value, cal);
+            if (cal != null) {
+              return _CalibratedColorSpace(family.value, cal, colorContext);
+            }
             return _DeviceColorSpace(
                 family.value == 'CalGray' ? 'DeviceGray' : 'DeviceRGB',
-                family.value == 'CalGray' ? 1 : 3);
+                family.value == 'CalGray' ? 1 : 3,
+                colorContext);
           case 'Pattern':
             return const _PatternColorSpace();
           default:
-            final device = _deviceForName(family.value);
+            final device = _deviceForName(family.value, colorContext);
             if (device != null) return device;
         }
       }
     }
     // Unresolved / malformed: a single-component gray keeps something visible.
-    return const _DeviceColorSpace('DeviceGray', 1);
+    return _DeviceColorSpace('DeviceGray', 1, colorContext);
   }
 
   static PdfColorSpace _parseIcc(CosDocument cos, CosArray space,
-      Map<CosStream, IccProfile?>? iccCache) {
+      Map<CosStream, IccProfile?>? iccCache, PdfColorContext colorContext) {
     // ICCBased carries its own component count in the profile stream's /N;
     // the device family it degrades to is chosen from that count.
     var channels = 3;
@@ -165,7 +200,7 @@ abstract class PdfColorSpace {
             : _parseProfile(cos, stream);
       }
     }
-    return _IccColorSpace(profile, channels);
+    return _IccColorSpace(profile, channels, colorContext);
   }
 
   static IccProfile? _parseProfile(CosDocument cos, CosStream stream) {
@@ -178,10 +213,14 @@ abstract class PdfColorSpace {
 
   /// The device space for a colour-space name or its inline-image
   /// abbreviation, or null when the name is not a device family.
-  static _DeviceColorSpace? _deviceForName(String name) => switch (name) {
-        'DeviceGray' || 'G' => const _DeviceColorSpace('DeviceGray', 1),
-        'DeviceRGB' || 'RGB' => const _DeviceColorSpace('DeviceRGB', 3),
-        'DeviceCMYK' || 'CMYK' => const _DeviceColorSpace('DeviceCMYK', 4),
+  static _DeviceColorSpace? _deviceForName(
+          String name, PdfColorContext colorContext) =>
+      switch (name) {
+        'DeviceGray' || 'G' => _DeviceColorSpace('DeviceGray', 1, colorContext),
+        'DeviceRGB' || 'RGB' => _DeviceColorSpace('DeviceRGB', 3, colorContext),
+        'DeviceCMYK' ||
+        'CMYK' =>
+          _DeviceColorSpace('DeviceCMYK', 4, colorContext),
         _ => null,
       };
 }
@@ -189,7 +228,7 @@ abstract class PdfColorSpace {
 /// DeviceGray/RGB/CMYK - components map straight through [colorFromComponents].
 /// Also the fallback for anything unrecognised.
 class _DeviceColorSpace extends PdfColorSpace {
-  const _DeviceColorSpace(this.family, this.channels);
+  const _DeviceColorSpace(this.family, this.channels, [this._colorContext]);
 
   @override
   final String family;
@@ -197,8 +236,28 @@ class _DeviceColorSpace extends PdfColorSpace {
   @override
   final int channels;
 
+  final PdfColorContext? _colorContext;
+
   @override
-  PdfColor toSrgb(List<double> values) => colorFromComponents(values, channels);
+  PdfColor toSrgb(List<double> values) {
+    return toSrgbIntent(values, PdfRenderingIntent.relativeColorimetric);
+  }
+
+  @override
+  PdfColor toSrgbIntent(List<double> values, PdfRenderingIntent intent) {
+    double at(int i) =>
+        i < values.length ? values[i].clamp(0.0, 1.0).toDouble() : 0.0;
+    final context = _colorContext;
+    if (context != null) {
+      if (family == 'DeviceGray') {
+        return context.deviceGray(at(0), intent: intent);
+      }
+      if (family == 'DeviceCMYK') {
+        return context.deviceCmyk(at(0), at(1), at(2), at(3), intent: intent);
+      }
+    }
+    return colorFromComponents(values, channels);
+  }
 
   @override
   PdfInkColorants? inkColorants(List<double> values) {
@@ -229,31 +288,65 @@ class _PatternColorSpace extends PdfColorSpace {
 /// CalGray/CalRGB/Lab, delegating to the CIE machinery in
 /// [PdfCalibratedColorSpace].
 class _CalibratedColorSpace extends PdfColorSpace {
-  const _CalibratedColorSpace(this.family, this._calibrated);
+  const _CalibratedColorSpace(
+      this.family, this._calibrated, this._colorContext);
 
   @override
   final String family;
 
   final PdfCalibratedColorSpace _calibrated;
+  final PdfColorContext _colorContext;
 
   @override
   int get channels => _calibrated.components;
 
   @override
-  PdfColor toSrgb(List<double> values) => _calibrated.toSrgb(values);
+  PdfColor toSrgb(List<double> values) =>
+      toSrgbIntent(values, PdfRenderingIntent.relativeColorimetric);
 
   @override
-  PdfColor toSrgbFromSamples(List<int> samples) =>
-      _calibrated.toSrgbFromSamples(samples);
+  PdfColor toSrgbIntent(List<double> values, PdfRenderingIntent intent) {
+    final fallback = _calibrated.toSrgb(values);
+    return _colorContext.pcsToSrgb(_calibrated.toPcs(values), fallback,
+        intent: intent);
+  }
+
+  @override
+  PdfColor toSrgbFromSamples(List<int> samples) {
+    final fallback = _calibrated.toSrgbFromSamples(samples);
+    return _colorContext.pcsToSrgb(
+        _calibrated.toPcsFromSamples(samples), fallback);
+  }
+
+  @override
+  PdfColor toSrgbFromSamplesIntent(
+      List<int> samples, PdfRenderingIntent intent) {
+    final fallback = _calibrated.toSrgbFromSamples(samples);
+    return _colorContext.pcsToSrgb(
+        _calibrated.toPcsFromSamples(samples), fallback,
+        intent: intent);
+  }
+
+  @override
+  PdfInkColorants? blendColorants(List<double> values,
+      {PdfRenderingIntent intent = PdfRenderingIntent.perceptual}) {
+    final fallback = _calibrated.toSrgb(values);
+    final cmyk = _colorContext
+        .pcsToOutputCmyk(_calibrated.toPcs(values), fallback, intent: intent);
+    return cmyk == null
+        ? null
+        : PdfInkColorants.deviceCmyk(cmyk[0], cmyk[1], cmyk[2], cmyk[3]);
+  }
 }
 
 /// An ICCBased space. Converts through the parsed [profile] when its channel
 /// count matches; otherwise (or when the profile could not be parsed) falls
 /// back to the device family the profile's /N implies.
 class _IccColorSpace extends PdfColorSpace {
-  const _IccColorSpace(this._profile, this.channels);
+  const _IccColorSpace(this._profile, this.channels, this._colorContext);
 
   final IccProfile? _profile;
+  final PdfColorContext _colorContext;
 
   @override
   final int channels;
@@ -269,10 +362,36 @@ class _IccColorSpace extends PdfColorSpace {
     final profile = _profile;
     if (profile != null && values.length == profile.channels) {
       // sRGB-equivalent: components pass through unmanaged (#531).
-      if (profile.isSrgb) return colorFromComponents(values, channels);
-      return profile.toSrgb(values);
+      if (profile.isSrgb && _colorContext.outputProfile == null) {
+        return colorFromComponents(values, channels);
+      }
+      return _colorContext.iccToSrgb(profile, values);
     }
     return colorFromComponents(values, channels);
+  }
+
+  @override
+  PdfColor toSrgbIntent(List<double> values, PdfRenderingIntent intent) {
+    final profile = _profile;
+    if (profile != null && values.length == profile.channels) {
+      if (profile.isSrgb && _colorContext.outputProfile == null) {
+        return colorFromComponents(values, channels);
+      }
+      return _colorContext.iccToSrgb(profile, values, intent: intent);
+    }
+    return colorFromComponents(values, channels);
+  }
+
+  @override
+  PdfInkColorants? blendColorants(List<double> values,
+      {PdfRenderingIntent intent = PdfRenderingIntent.perceptual}) {
+    final profile = _profile;
+    final cmyk = profile != null && values.length == profile.channels
+        ? _colorContext.iccToOutputCmyk(profile, values, intent: intent)
+        : _colorContext.outputCmyk(toSrgb(values), intent: intent);
+    return cmyk == null
+        ? null
+        : PdfInkColorants.deviceCmyk(cmyk[0], cmyk[1], cmyk[2], cmyk[3]);
   }
 }
 
@@ -299,8 +418,8 @@ class _IndexedColorSpace extends PdfColorSpace {
     final n = _base.channels;
     final offset = index * n;
     if (n <= 0 || offset + n > _table.length) return PdfColor.black;
-    return _base.toSrgbFromSamples(
-        [for (var i = 0; i < n; i++) _table[offset + i]]);
+    return _base
+        .toSrgbFromSamples([for (var i = 0; i < n; i++) _table[offset + i]]);
   }
 
   /// An Indexed space writes whatever colorants its *base* space writes for
@@ -319,8 +438,22 @@ class _IndexedColorSpace extends PdfColorSpace {
     if (n <= 0 || offset + n > _table.length) return null;
     // Palette entries are raw 8-bit samples over the base's default decode,
     // which is [0, 1] for every family that has a colorant reading.
-    return _base
+    final ink = _base
         .inkColorants([for (var i = 0; i < n; i++) _table[offset + i] / 255]);
+    if (ink == null) return null;
+    // OPM 1's zero-component exception is explicitly a DeviceCMYK painting
+    // rule (§8.6.7.3). An Indexed colour space whose lookup happens to be
+    // DeviceCMYK is still Indexed: its selected palette colour writes all of
+    // the process components. Propagating the base space's exception leaves
+    // GWG010's CMYK X visible through the OPM-1 image/mask patches.
+    if (!ink.overprintModeApplies) return ink;
+    return PdfInkColorants(
+      colorants: ink.colorants,
+      processMask: ink.processMask,
+      overprintModeApplies: false,
+      writesAll: ink.writesAll,
+      spotEquivalents: ink.spotEquivalents,
+    );
   }
 
   static _IndexedColorSpace? parse(CosDocument cos, CosArray space,
@@ -355,8 +488,8 @@ class _IndexedColorSpace extends PdfColorSpace {
 /// A Separation or DeviceN space: colorant values run through a tint
 /// transform ([function]) into the [alternate] space (§8.6.6.4).
 class _TintColorSpace extends PdfColorSpace {
-  _TintColorSpace(
-      this.family, this.colorantNames, this._function, this._alternate);
+  _TintColorSpace(this.family, this.colorantNames, this._function,
+      this._alternate, this._colorContext);
 
   @override
   final String family;
@@ -369,10 +502,39 @@ class _TintColorSpace extends PdfColorSpace {
 
   final PdfFunction _function;
   final PdfColorSpace _alternate;
+  final PdfColorContext _colorContext;
 
   @override
-  PdfColor toSrgb(List<double> values) =>
-      _alternate.toSrgb(_function.evaluateAt(values));
+  PdfColor toSrgb(List<double> values) {
+    // A DeviceN's named colorants are the source data, not merely hints for
+    // its alternate tint transform. Rendering the alternate result up front
+    // destroys separations that differ there but plate identically - exactly
+    // what the GWG08x DeviceN pages self-grade with hidden checks. Composite
+    // the real process/spot channels for display; Separation keeps its exact
+    // (possibly nonlinear) tint transform.
+    final carriesProcess = colorantNames.any((name) =>
+        name == 'Cyan' ||
+        name == 'Magenta' ||
+        name == 'Yellow' ||
+        name == 'Black');
+    if (family == 'DeviceN' && carriesProcess) {
+      final ink = inkColorants(values);
+      if (ink != null && !ink.writesAll) {
+        final spots = <String, List<double>>{};
+        for (var i = 0;
+            i < ink.colorants.spots.length && i < ink.spotEquivalents.length;
+            i++) {
+          spots[ink.colorants.spots[i]] = ink.spotEquivalents[i];
+        }
+        return colorantsToSrgb(
+          ink.colorants,
+          spots,
+          cmykToSrgb: _colorContext.deviceCmyk,
+        );
+      }
+    }
+    return _alternate.toSrgb(_function.evaluateAt(values));
+  }
 
   @override
   PdfInkColorants? inkColorants(List<double> values) {
@@ -448,7 +610,8 @@ class _TintColorSpace extends PdfColorSpace {
       final alternate = _function.evaluateAt(probe);
       cmyk = _alternate.family == 'DeviceCMYK' && alternate.length >= 4
           ? [
-              for (var i = 0; i < 4; i++) alternate[i].clamp(0.0, 1.0).toDouble()
+              for (var i = 0; i < 4; i++)
+                alternate[i].clamp(0.0, 1.0).toDouble()
             ]
           : _cmykFromSrgb(_alternate.toSrgb(alternate));
     } on Exception {
@@ -463,7 +626,8 @@ class _TintColorSpace extends PdfColorSpace {
   /// feeds the fallback conversion of a colorant combination no paint
   /// produced, never a colour the renderer shows directly.
   static List<double> _cmykFromSrgb(PdfColor color) {
-    final k = 1 - [color.red, color.green, color.blue].reduce((a, b) => a > b ? a : b);
+    final k = 1 -
+        [color.red, color.green, color.blue].reduce((a, b) => a > b ? a : b);
     if (k >= 1) return const [0, 0, 0, 1];
     return [
       (1 - color.red - k) / (1 - k),
@@ -474,22 +638,30 @@ class _TintColorSpace extends PdfColorSpace {
   }
 
   /// `[/Separation name alternate tint]`.
-  static _TintColorSpace? parse(CosDocument cos, CosArray space,
-      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+  static _TintColorSpace? parse(
+      CosDocument cos,
+      CosArray space,
+      CosDictionary? resources,
+      Map<CosStream, IccProfile?>? iccCache,
+      PdfColorContext colorContext) {
     if (space.length < 4) return null;
     final function = PdfFunction.parse(cos, space[3]);
     if (function == null) return null;
     final alternate = PdfColorSpace.parse(cos, space[2],
         resources: resources, iccCache: iccCache);
     final name = cos.resolve(space[1]);
-    return _TintColorSpace('Separation',
-        [name is CosName ? name.value : ''], function, alternate);
+    return _TintColorSpace('Separation', [name is CosName ? name.value : ''],
+        function, alternate, colorContext);
   }
 
   /// `[/DeviceN names alternate tint attributes]`; the colorant count is the
   /// length of the `names` array.
-  static _TintColorSpace? parseDeviceN(CosDocument cos, CosArray space,
-      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+  static _TintColorSpace? parseDeviceN(
+      CosDocument cos,
+      CosArray space,
+      CosDictionary? resources,
+      Map<CosStream, IccProfile?>? iccCache,
+      PdfColorContext colorContext) {
     if (space.length < 4) return null;
     final names = cos.resolve(space[1]);
     if (names is! CosArray || names.length == 0) return null;
@@ -507,6 +679,7 @@ class _TintColorSpace extends PdfColorSpace {
             },
         ],
         function,
-        alternate);
+        alternate,
+        colorContext);
   }
 }

@@ -891,6 +891,31 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get searchRegex => 'Düzenli ifade';
 
   @override
+  String get searchReplace => 'Değiştir';
+
+  @override
+  String get searchReplaceAll => 'Tümünü değiştir';
+
+  @override
+  String get searchReplaceHint => 'Şununla değiştir';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Bu eşleşme tek başına değiştirilemez — “Tümünü değiştir” seçeneğini kullanın veya içerik aracıyla düzenleyin';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count eşleşme değiştirildi',
+      one: '1 eşleşme değiştirildi',
+      zero: 'Hiçbir şey değiştirilmedi',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Arama sonuçları';
 
   @override
@@ -1336,6 +1361,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Metin kutusunu otomatik boyutlandır (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Yazı tipini metin kutusuna sığdır';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Ölçeği kalibre etmek için bilinen uzunlukta bir çizgi çizin.';
 
@@ -1574,6 +1602,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Kalem çizgilerini sil';
+
+  @override
+  String get tbNameHand => 'El';
 
   @override
   String get tbNameHighlight => 'Vurgu';
@@ -2023,4 +2054,65 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Tümünü seç';
+
+  @override
+  String get annotationLibraryTitle => 'Ek açıklama kitaplığı';
+
+  @override
+  String get annotationLibraryEmpty => 'Kayıtlı ek açıklama yok.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Desteklenen bir ek açıklamayı seçin ve menüsünden “Ek açıklama kitaplığına kaydet” seçeneğini belirleyin. Bağlantılar ve form alanları kaydedilemez.';
+
+  @override
+  String get annotationLibrarySave => 'Ek açıklama kitaplığına kaydet';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Ek açıklamayı kaydet';
+
+  @override
+  String get annotationLibraryRenameTitle =>
+      'Kitaplık öğesini yeniden adlandır';
+
+  @override
+  String get annotationLibrarySearchHint => 'Kitaplıkta ara';
+
+  @override
+  String get annotationLibraryNoMatches => 'Eşleşen ek açıklama yok.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Gruplanmamış';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Gruba taşı';
+
+  @override
+  String get annotationLibraryNewGroup => 'Yeni grup…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Yeni ek açıklama grubu';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Ek açıklama grubunu yeniden adlandır';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Grubu kaldır';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Yerleştirmek için sayfaya tıklayın. İptal etmek için Escape tuşuna basın.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Özel damgalar…';
+
+  @override
+  String get signatureLibraryManage => 'İmzaları yönet';
+
+  @override
+  String get signatureLibraryRenameTitle => 'İmzayı yeniden adlandır';
+
+  @override
+  String get signatureLibraryEmpty => 'Kayıtlı imza yok.';
 }

@@ -387,6 +387,92 @@ void main() {
     expect((doc.cos.resolve(helv['Widths']) as CosArray).length, 95);
   });
 
+  test('Bluebeam free text recovers CSS alignment and CR line breaks', () {
+    final doc = PdfDocument.open(buildBluebeamFreeTextPdf());
+    final box = doc.page(0).annotations.single;
+    final style = box.freeTextStyle!;
+
+    expect(style.alignment, PdfTextAlign.center);
+    expect(style.lineSpacing, closeTo(1.15, 1e-9));
+    expect(box.contents, 'PJ\r202/7');
+    expect(pdfNormalizeLineEndings(box.contents!), 'PJ\n202/7');
+
+    // /RC is a second Bluebeam style source when /DS is missing.
+    box.dict.entries.remove('DS');
+    final fromRichContent = PdfAnnotation.fromDict(doc, box.dict);
+    expect(fromRichContent.freeTextStyle!.alignment, PdfTextAlign.center);
+    expect(fromRichContent.freeTextStyle!.lineSpacing, closeTo(1.15, 1e-9));
+
+    // Regeneration must measure the CR as a paragraph break, not as a glyph.
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, fromRichContent, opacity: 0.4);
+    final regenerated = PdfDocument.open(editor.save());
+    final after = regenerated.page(0).annotations.single;
+    final content = appearanceText(regenerated, after);
+    expect(' Tj'.allMatches(content), hasLength(2));
+    expect(content, isNot(contains('\\r')));
+    expect(after.appearanceOpacity, closeTo(0.4, 1e-9));
+  });
+
+  test('standard free text layout entries override Bluebeam CSS fallbacks', () {
+    final doc = PdfDocument.open(buildBluebeamFreeTextPdf());
+    final dict = doc.page(0).annotations.single.dict;
+    final ds = doc.cos.resolve(dict['DS']) as CosString;
+    dict
+      ..['DS'] = CosString.fromText('${ds.text}; text-decoration:underline')
+      ..['Q'] = const CosInteger(2)
+      ..[kPdfFreeTextLineSpacingKey] = const CosReal(1.4)
+      ..[kPdfFreeTextCharSpacingKey] = const CosReal(2)
+      ..[kPdfFreeTextHScaleKey] = const CosReal(80)
+      ..[kPdfFreeTextUnderlineKey] = const CosBoolean(false);
+
+    final style = PdfAnnotation.fromDict(doc, dict).freeTextStyle!;
+    expect(style.alignment, PdfTextAlign.right);
+    expect(style.lineSpacing, 1.4);
+    expect(style.charSpacing, 2);
+    expect(style.horizontalScale, 80);
+    expect(style.underline, isFalse);
+  });
+
+  test('Bluebeam CSS units and underline map to free text layout', () {
+    final doc = PdfDocument.open(buildBluebeamFreeTextPdf());
+    final dict = doc.page(0).annotations.single.dict;
+    dict
+      ..entries.remove('RC')
+      ..['DS'] = CosString.fromText('text-align:center; line-height:150%; '
+          'letter-spacing:2pt; font-stretch:80%; '
+          'text-decoration:underline');
+
+    final percent = PdfAnnotation.fromDict(doc, dict).freeTextStyle!;
+    expect(percent.alignment, PdfTextAlign.center);
+    expect(percent.lineSpacing, 1.5);
+    expect(percent.charSpacing, 2);
+    expect(percent.horizontalScale, 80);
+    expect(percent.underline, isTrue);
+
+    dict['DS'] = CosString.fromText('line-height:1.25em');
+    final em = PdfAnnotation.fromDict(doc, dict).freeTextStyle!;
+    expect(em.lineSpacing, 1.25);
+  });
+
+  test('free text opacity is baked into and preserved by its appearance', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 240, 680),
+          'Translucent text',
+          fillColor: 0xFFFFE0,
+          opacity: 0.4,
+        ));
+    final box = doc.page(0).annotations.single;
+    expect(box.appearanceOpacity, closeTo(0.4, 1e-9));
+    expect(appearanceText(doc, box), startsWith('/GS0 gs'));
+
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(72, 600, 360, 700));
+    final resized = PdfDocument.open(editor.save()).page(0).annotations.single;
+    expect(resized.appearanceOpacity, closeTo(0.4, 1e-9));
+  });
+
   test('free text can lay out RTL visual order and right alignment', () {
     expect(pdfTextLooksRtl('שלום 123'), isTrue);
     expect(pdfVisualText('שלום 123', PdfTextDirection.rtl), '123 םולש');

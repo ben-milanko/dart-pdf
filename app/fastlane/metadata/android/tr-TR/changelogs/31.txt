@@ -1,0 +1,6 @@
+3.7.0 sürümündeki yenilikler
+
+- Sayfalar siz kaydırırken işlenir, durmanızı beklemez; daha önce okuduğunuz sayfalar anında geri gelir.
+- Arama panelinde bul ve değiştir: tek bir eşleşmeyi ya da tümünü tek adımda değiştirin.
+- Alt küme yazı tiplerinde içerik aracındaki bozuk metin ve hatalı düzenlemeler giderildi.
+- Dosya açarken veya kaydederken oluşan çökme giderildi.

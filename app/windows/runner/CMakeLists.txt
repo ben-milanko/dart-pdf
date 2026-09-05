@@ -7,11 +7,14 @@ project(runner LANGUAGES CXX)
 #
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
+  "file_dialogs.cpp"
   "flutter_window.cpp"
   "image_clipboard.cpp"
   "main.cpp"
   "native_print.cpp"
+  "platform_channels.cpp"
   "utils.cpp"
+  "windows_drop.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
@@ -41,6 +44,9 @@ target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib" "ole32.lib")
 # native_print.cpp: the print dialog (comdlg32), persisted settings (advapi32),
 # and GDI blitting (gdi32).
 target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "advapi32.lib" "gdi32.lib")
+# file_dialogs.cpp: the common-item open/save dialogs (IFileDialog lives in
+# shell32; ole32 is already linked above for COM itself).
+target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

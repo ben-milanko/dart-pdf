@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Tải xuống",
   "dl_h2": "Nhận DartPDF trên nền tảng của bạn.",
-  "dl_intro": "Nhận trên App Store và Google Play, cài đặt ứng dụng máy tính để bàn, hoặc dùng ngay trong trình duyệt.",
+  "dl_intro": "Chúng tôi sẽ hiển thị các bản tải xuống phù hợp nhất cho thiết bị này. Mọi nền tảng khác vẫn chỉ cách một lần nhấp.",
+  "dl_otherPlatforms": "Nền tảng khác",
   "dl_get": "Tải xuống",
   "dl_open": "Mở",
   "dlMac_meta": "Tệp .dmg trực tiếp · đã ký & công chứng",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Nhà phát triển",
   "dev_h2": "Một công cụ PDF thuần Dart mà bạn cũng có thể dùng.",
-  "dev_p": "Công cụ này sử dụng Dart thay vì PDFium hay các liên kết native, nên nó chạy ở bất cứ đâu Dart và Flutter chạy được. Các\n          gói được cấp phép Apache-2.0 và xuất bản trên pub.dev. Đọc <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">tổng quan Flutter PDF SDK</a> để xem điểm chuẩn và so sánh với\n          các SDK thương mại.",
+  "dev_p": "Công cụ này sử dụng Dart thay vì PDFium hay các liên kết native, nên nó chạy ở bất cứ đâu Dart và Flutter chạy được. Các\n          gói được cấp phép Apache-2.0 và xuất bản trên pub.dev. Đọc <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">tổng quan Flutter PDF SDK</a> để xem điểm chuẩn và so sánh với\n          các SDK thương mại.",
   "dev_ctaGithub": "Xem trên GitHub",
   "dev_ctaPub": "Gói trên pub.dev",
   "dev_bTitle": "Các gói mã nguồn mở",
@@ -130,7 +131,7 @@
   "sp_faq2": "<strong>Làm cách nào để mở một tệp PDF?</strong> Mở DartPDF và chọn một tệp, mở một tệp PDF từ ứng dụng Tệp, gửi một tệp đến DartPDF từ trình chia sẻ của ứng dụng khác, hoặc kéo và thả một tệp vào cửa sổ.",
   "sp_faq3": "<strong>Tôi có thể mở tệp PDF được bảo vệ bằng mật khẩu không?</strong> Có. DartPDF nhắc nhập mật khẩu và mở các tệp được mã hóa để xem và chỉnh sửa.",
   "sp_faq4": "<strong>OCR hoạt động như thế nào?</strong> Nhận dạng ký tự quang học chạy hoàn toàn trên thiết bị của bạn. Trong lần dùng đầu tiên, ứng dụng tải xuống mô hình nhận dạng, sau đó mọi xử lý diễn ra cục bộ - các trang của bạn không bao giờ được gửi đến máy chủ.",
-  "sp_faq5": "<strong>Dữ liệu của tôi có riêng tư không?</strong> Có. DartPDF không có phân tích, không quảng cáo, không tài khoản và không máy chủ. Xem <a href=\"privacy.html\">chính sách quyền riêng tư</a> để biết chi tiết.",
+  "sp_faq5": "<strong>Dữ liệu của tôi có riêng tư không?</strong> Có. DartPDF không có phân tích, không quảng cáo, không tài khoản và không máy chủ. Xem <a href=\"/privacy\">chính sách quyền riêng tư</a> để biết chi tiết.",
   "sp_stuckH2": "Vẫn gặp khó khăn?",
   "sp_stuck_p": "Gửi email đến <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> và mô tả điều bạn đang cố làm. Chúng tôi đọc mọi tin nhắn.",
 
@@ -139,6 +140,7 @@
   "sdk_nav_features": "Tính năng",
   "sdk_nav_performance": "Hiệu năng",
   "sdk_nav_compare": "So sánh",
+  "sdk_nav_guide": "Hướng dẫn",
   "sdk_nav_packages": "Gói",
   "sdk_nav_getpub": "Nhận trên pub.dev",
   "sdk_hero_h1": "Trình xem và chỉnh sửa PDF cho Flutter, <span class=\"hl\">được viết hoàn toàn bằng\n          Dart.</span>",

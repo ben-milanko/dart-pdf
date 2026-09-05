@@ -763,6 +763,24 @@ abstract class AppLocalizations {
   /// **'New document…'**
   String get editorMenuNewDocument;
 
+  /// Experimental desktop app menu item to open another native editor window.
+  ///
+  /// In en, this message translates to:
+  /// **'New window'**
+  String get editorMenuNewWindow;
+
+  /// Desktop tab context-menu item that moves the document into another native window.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to new window'**
+  String get editorMoveToNewWindow;
+
+  /// Toast shown when the experimental native window could not be created.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t open a new window'**
+  String get editorUnableToOpenNewWindow;
+
   /// App menu item to run on-device OCR over the document.
   ///
   /// In en, this message translates to:
@@ -882,6 +900,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open Recent'**
   String get editorOpenRecent;
+
+  /// Open Recent submenu action that opens the full recent-files browser.
+  ///
+  /// In en, this message translates to:
+  /// **'View all recent files…'**
+  String get editorViewAllRecentFiles;
 
   /// Tooltip on the mobile app-bar button that shows the open tabs sheet.
   ///
@@ -1243,6 +1267,84 @@ abstract class AppLocalizations {
   /// **'Printing'**
   String get printDlgTitle;
 
+  /// Range option in the print preview: print every page.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get printPreviewAll;
+
+  /// Range option in the print preview: print only the page the viewer is on.
+  ///
+  /// In en, this message translates to:
+  /// **'Current'**
+  String get printPreviewCurrent;
+
+  /// Label of the first page of the print range.
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get printPreviewFrom;
+
+  /// Tooltip on the print preview's next-page button.
+  ///
+  /// In en, this message translates to:
+  /// **'Next page'**
+  String get printPreviewNextPage;
+
+  /// Which page of the document the print preview is showing.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} of {total}'**
+  String printPreviewPageOf(int page, int total);
+
+  /// Tooltip on the print preview's previous-page button.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous page'**
+  String get printPreviewPreviousPage;
+
+  /// Button in the print preview that starts the print job.
+  ///
+  /// In en, this message translates to:
+  /// **'Print'**
+  String get printPreviewPrint;
+
+  /// Range option in the print preview: print the typed page span.
+  ///
+  /// In en, this message translates to:
+  /// **'Range'**
+  String get printPreviewRange;
+
+  /// Error shown when the typed print range is not a range of pages.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a page range between 1 and {total}.'**
+  String printPreviewRangeError(int total);
+
+  /// How many pages the chosen print range covers.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages to print: {count}'**
+  String printPreviewSelection(int count);
+
+  /// Title of the dialog previewing what a print job will look like.
+  ///
+  /// In en, this message translates to:
+  /// **'Print preview'**
+  String get printPreviewTitle;
+
+  /// Label of the last page of the print range.
+  ///
+  /// In en, this message translates to:
+  /// **'To'**
+  String get printPreviewTo;
+
+  /// Shown in place of the preview when a page could not be rendered.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview unavailable'**
+  String get printPreviewUnavailable;
+
   /// Generic button/tooltip to redo the last undone change.
   ///
   /// In en, this message translates to:
@@ -1464,6 +1566,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Recent'**
   String get welcomeRecent;
+
+  /// Hint for the recent-files filename search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search recent files'**
+  String get welcomeSearchRecentFiles;
+
+  /// Empty state when recent-file search has no matches.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent files match your search'**
+  String get welcomeNoMatchingRecentFiles;
 
   /// Tooltip on the button that removes an entry from the recent-files list.
   ///

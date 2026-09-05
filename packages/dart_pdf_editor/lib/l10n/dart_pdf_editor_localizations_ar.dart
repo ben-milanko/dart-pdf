@@ -907,6 +907,34 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get searchRegex => 'تعبير نمطي';
 
   @override
+  String get searchReplace => 'استبدال';
+
+  @override
+  String get searchReplaceAll => 'استبدال الكل';
+
+  @override
+  String get searchReplaceHint => 'استبدال بـ';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'يتعذّر استبدال هذا التطابق وحده — استخدم «استبدال الكل» أو حرّره بأداة المحتوى';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم استبدال $count تطابق',
+      many: 'تم استبدال $count تطابقًا',
+      few: 'تم استبدال $count تطابقات',
+      two: 'تم استبدال تطابقين',
+      one: 'تم استبدال تطابق واحد',
+      zero: 'لم يتم استبدال أي شيء',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'نتائج البحث';
 
   @override
@@ -1360,6 +1388,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'تحجيم مربع النص تلقائيًا (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'ملاءمة الخط لمربع النص';
+
+  @override
   String get tbCalibrateScaleHint => 'ارسم خطًا بطول معلوم لمعايرة المقياس.';
 
   @override
@@ -1601,6 +1632,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'محو خطوط الحبر';
+
+  @override
+  String get tbNameHand => 'أداة اليد';
 
   @override
   String get tbNameHighlight => 'تمييز';
@@ -2064,4 +2098,64 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'تحديد الكل';
+
+  @override
+  String get annotationLibraryTitle => 'مكتبة التعليقات التوضيحية';
+
+  @override
+  String get annotationLibraryEmpty => 'لا توجد تعليقات توضيحية محفوظة.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'حدِّد تعليقًا توضيحيًا مدعومًا واختر «حفظ في مكتبة التعليقات التوضيحية» من قائمته. لا يمكن حفظ الروابط وحقول النماذج.';
+
+  @override
+  String get annotationLibrarySave => 'حفظ في مكتبة التعليقات التوضيحية';
+
+  @override
+  String get annotationLibrarySaveTitle => 'حفظ التعليق التوضيحي';
+
+  @override
+  String get annotationLibraryRenameTitle => 'إعادة تسمية عنصر المكتبة';
+
+  @override
+  String get annotationLibrarySearchHint => 'البحث في المكتبة';
+
+  @override
+  String get annotationLibraryNoMatches => 'لا توجد تعليقات توضيحية مطابقة.';
+
+  @override
+  String get annotationLibraryUngrouped => 'غير مجمّعة';
+
+  @override
+  String get annotationLibraryChooseGroup => 'نقل إلى مجموعة';
+
+  @override
+  String get annotationLibraryNewGroup => 'مجموعة جديدة…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'مجموعة تعليقات توضيحية جديدة';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'إعادة تسمية مجموعة التعليقات التوضيحية';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'إزالة المجموعة';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'انقر على الصفحة للوضع. اضغط Escape للإلغاء.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'أختام مخصصة…';
+
+  @override
+  String get signatureLibraryManage => 'إدارة التوقيعات';
+
+  @override
+  String get signatureLibraryRenameTitle => 'إعادة تسمية التوقيع';
+
+  @override
+  String get signatureLibraryEmpty => 'لا توجد توقيعات محفوظة.';
 }

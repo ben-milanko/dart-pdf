@@ -1,6 +1,6 @@
 name: pdf_viewer_example
 description: Example PDF viewer built on dart_pdf_editor.
-version: 3.3.1
+version: 4.2.0
 publish_to: none
 resolution: workspace
 
@@ -15,12 +15,13 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
-  pdf_document: ^3.3.1
-  pdf_graphics: ^3.3.1
-  dart_pdf_editor: ^3.3.1
+  pdf_document: ^4.2.0
+  pdf_graphics: ^4.2.0
+  dart_pdf_editor: ^4.2.0
+  dart_pdf_editor_flutter_gpu: ^0.3.1
   # Optional bundled editor fonts + web render worker (registered in main()).
-  dart_pdf_editor_assets: ^3.3.1
-  pdf_ocr_vlm: ^3.3.1
+  dart_pdf_editor_assets: ^4.2.0
+  pdf_ocr_vlm: ^4.2.0
   share_plus: ^13.3.0
   url_launcher: ^6.3.0
   web: ^1.1.0
@@ -29,7 +30,19 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+  image: ^4.9.2
+  patrol: 4.9.0
+  pdf_test_fixtures: ^4.2.0
   shared_preferences: ^2.3.0
+
+patrol:
+  app_name: pdf_viewer_example
+  android:
+    package_name: dev.milanko.pdf_viewer_example
+  ios:
+    bundle_id: dev.milanko.pdfViewerExample
+  macos:
+    bundle_id: dev.milanko.pdfViewerExample
 
 flutter:
   uses-material-design: true

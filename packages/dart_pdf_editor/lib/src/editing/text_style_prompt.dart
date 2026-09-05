@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextFont,
         PdfTextStyle;
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_font_controls.dart';
 
@@ -67,7 +68,7 @@ Future<PdfStyledTextEdit?> showPdfStyledTextPrompt(
   List<Color> palette = defaultStyledTextPalette,
   PdfStyledFontPicker? pickFont,
 }) {
-  return showDialog<PdfStyledTextEdit>(
+  return showPdfDialog<PdfStyledTextEdit>(
     context: context,
     builder: (context) =>
         _StyledTextDialog(initial: initial, palette: palette, pickFont: pickFont),

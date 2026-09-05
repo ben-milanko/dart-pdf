@@ -420,6 +420,15 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuNewDocument => 'เอกสารใหม่…';
 
   @override
+  String get editorMenuNewWindow => 'หน้าต่างใหม่';
+
+  @override
+  String get editorMoveToNewWindow => 'ย้ายไปยังหน้าต่างใหม่';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'ไม่สามารถเปิดหน้าต่างใหม่ได้';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -492,6 +501,9 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get editorOpenRecent => 'เปิดล่าสุด';
+
+  @override
+  String get editorViewAllRecentFiles => 'ดูไฟล์ล่าสุดทั้งหมด…';
 
   @override
   String get editorOpenTabs => 'แท็บที่เปิด';
@@ -737,6 +749,51 @@ class AppLocalizationsTh extends AppLocalizations {
   String get printDlgTitle => 'กำลังพิมพ์';
 
   @override
+  String get printPreviewAll => 'ทั้งหมด';
+
+  @override
+  String get printPreviewCurrent => 'ปัจจุบัน';
+
+  @override
+  String get printPreviewFrom => 'จาก';
+
+  @override
+  String get printPreviewNextPage => 'หน้าถัดไป';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'หน้า $page จาก $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'หน้าก่อนหน้า';
+
+  @override
+  String get printPreviewPrint => 'พิมพ์';
+
+  @override
+  String get printPreviewRange => 'ช่วง';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'ป้อนช่วงหน้าระหว่าง 1 ถึง $total';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'จำนวนหน้าที่จะพิมพ์: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'ตัวอย่างก่อนพิมพ์';
+
+  @override
+  String get printPreviewTo => 'ถึง';
+
+  @override
+  String get printPreviewUnavailable => 'ไม่มีตัวอย่าง';
+
+  @override
   String get redo => 'ทำซ้ำ';
 
   @override
@@ -867,6 +924,12 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'ล่าสุด';
+
+  @override
+  String get welcomeSearchRecentFiles => 'ค้นหาไฟล์ล่าสุด';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => 'ไม่มีไฟล์ล่าสุดที่ตรงกับการค้นหา';
 
   @override
   String get welcomeRemoveFromRecent => 'นำออกจากรายการล่าสุด';

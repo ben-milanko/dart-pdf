@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "下载",
   "dl_h2": "在您的平台上获取 DartPDF。",
-  "dl_intro": "在 App Store 和 Google Play 上获取，安装桌面应用，或直接在浏览器中使用。",
+  "dl_intro": "我们会显示最适合此设备的下载选项。其他平台仍可一键查看。",
+  "dl_otherPlatforms": "其他平台",
   "dl_get": "下载",
   "dl_open": "打开",
   "dlMac_meta": "直接 .dmg · 已签名并公证",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "开发者",
   "dev_h2": "一个您也可以使用的纯 Dart PDF 引擎。",
-  "dev_p": "该引擎使用 Dart 而非 PDFium 或原生绑定，因此可在任何支持 Dart 和 Flutter 的地方运行。这些\n          软件包采用 Apache-2.0 许可，并发布在 pub.dev 上。阅读 <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK 概览</a> 以了解基准测试及与\n          商业 SDK 的对比。",
+  "dev_p": "该引擎使用 Dart 而非 PDFium 或原生绑定，因此可在任何支持 Dart 和 Flutter 的地方运行。这些\n          软件包采用 Apache-2.0 许可，并发布在 pub.dev 上。阅读 <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK 概览</a> 以了解基准测试及与\n          商业 SDK 的对比。",
   "dev_ctaGithub": "在 GitHub 上查看",
   "dev_ctaPub": "pub.dev 上的软件包",
   "dev_bTitle": "开源软件包",
@@ -130,7 +131,7 @@
   "sp_faq2": "<strong>如何打开 PDF？</strong>打开 DartPDF 并选择文件、从文件应用打开 PDF、从另一个应用的分享面板将 PDF 发送到 DartPDF，或将文件拖放到窗口上。",
   "sp_faq3": "<strong>我能打开受密码保护的 PDF 吗？</strong>可以。DartPDF 会提示输入密码，并打开加密文件以供查看和编辑。",
   "sp_faq4": "<strong>OCR 如何工作？</strong>光学字符识别完全在您的设备上运行。首次使用时应用会下载识别模型，之后所有处理都在本地进行——您的页面绝不会被发送到服务器。",
-  "sp_faq5": "<strong>我的数据是私密的吗？</strong>是的。DartPDF 没有分析、没有广告、没有账号，也没有服务器。详情请参阅<a href=\"privacy.html\">隐私政策</a>。",
+  "sp_faq5": "<strong>我的数据是私密的吗？</strong>是的。DartPDF 没有分析、没有广告、没有账号，也没有服务器。详情请参阅<a href=\"/privacy\">隐私政策</a>。",
   "sp_stuckH2": "仍有问题？",
   "sp_stuck_p": "发送邮件至 <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a>，并描述您想要执行的操作。我们会阅读每一条消息。",
 
@@ -139,6 +140,7 @@
   "sdk_nav_features": "功能",
   "sdk_nav_performance": "性能",
   "sdk_nav_compare": "对比",
+  "sdk_nav_guide": "指南",
   "sdk_nav_packages": "软件包",
   "sdk_nav_getpub": "在 pub.dev 上获取",
   "sdk_hero_h1": "一款 Flutter PDF 查看器和编辑器，<span class=\"hl\">完全用\n          Dart 编写。</span>",

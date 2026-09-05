@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Télécharger",
   "dl_h2": "Obtenez DartPDF sur votre plateforme.",
-  "dl_intro": "Téléchargez-le sur l'App Store et Google Play, installez l'app de bureau ou utilisez-le directement dans votre navigateur.",
+  "dl_intro": "Nous affichons les meilleurs téléchargements pour cet appareil. Toutes les autres plateformes restent accessibles en un clic.",
+  "dl_otherPlatforms": "Autres plateformes",
   "dl_get": "Télécharger",
   "dl_open": "Ouvrir",
   "dlMac_meta": "Fichier .dmg direct · signé et notarisé",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Développeurs",
   "dev_h2": "Un moteur PDF en pur Dart que vous pouvez aussi utiliser.",
-  "dev_p": "Le moteur utilise Dart plutôt que PDFium ou des liaisons natives, il fonctionne donc partout où Dart et Flutter tournent. Les\n          packages sont sous licence Apache-2.0 et publiés sur pub.dev. Consultez la <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">présentation du SDK PDF Flutter</a> pour les benchmarks et une comparaison avec\n          les SDK commerciaux.",
+  "dev_p": "Le moteur utilise Dart plutôt que PDFium ou des liaisons natives, il fonctionne donc partout où Dart et Flutter tournent. Les\n          packages sont sous licence Apache-2.0 et publiés sur pub.dev. Consultez la <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">présentation du SDK PDF Flutter</a> pour les benchmarks et une comparaison avec\n          les SDK commerciaux.",
   "dev_ctaGithub": "Voir sur GitHub",
   "dev_ctaPub": "Packages sur pub.dev",
   "dev_bTitle": "Packages open source",
@@ -130,7 +131,7 @@
   "sp_faq2": "<strong>Comment ouvrir un PDF ?</strong> Ouvrez DartPDF et choisissez un fichier, ouvrez un PDF depuis l'app Fichiers, envoyez-en un à DartPDF depuis la feuille de partage d'une autre app, ou glissez-déposez un fichier sur la fenêtre.",
   "sp_faq3": "<strong>Puis-je ouvrir des PDF protégés par mot de passe ?</strong> Oui. DartPDF demande le mot de passe et ouvre les fichiers chiffrés pour l'affichage et la modification.",
   "sp_faq4": "<strong>Comment fonctionne l'OCR ?</strong> La reconnaissance optique de caractères s'exécute entièrement sur votre appareil. À la première utilisation, l'app télécharge le modèle de reconnaissance, puis tout le traitement se fait localement - vos pages ne sont jamais envoyées à un serveur.",
-  "sp_faq5": "<strong>Mes données sont-elles privées ?</strong> Oui. DartPDF n'a ni analyses, ni publicités, ni comptes, ni serveurs. Consultez la <a href=\"privacy.html\">politique de confidentialité</a> pour les détails.",
+  "sp_faq5": "<strong>Mes données sont-elles privées ?</strong> Oui. DartPDF n'a ni analyses, ni publicités, ni comptes, ni serveurs. Consultez la <a href=\"/privacy\">politique de confidentialité</a> pour les détails.",
   "sp_stuckH2": "Toujours bloqué ?",
   "sp_stuck_p": "Écrivez à <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> en décrivant ce que vous tentiez de faire. Nous lisons chaque message.",
 
@@ -139,6 +140,7 @@
   "sdk_nav_features": "Fonctionnalités",
   "sdk_nav_performance": "Performances",
   "sdk_nav_compare": "Comparer",
+  "sdk_nav_guide": "Guide",
   "sdk_nav_packages": "Packages",
   "sdk_nav_getpub": "Obtenez-le sur pub.dev",
   "sdk_hero_h1": "Une visionneuse et un éditeur PDF pour Flutter, <span class=\"hl\">entièrement écrits en\n          Dart.</span>",

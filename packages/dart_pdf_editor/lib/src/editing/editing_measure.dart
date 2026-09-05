@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 
 /// A measurement calibration the editing UI carries: how many real-world
@@ -203,7 +204,7 @@ Future<PdfMeasurementScale?> showPdfScaleDialog(
   PdfMeasurementScale? initial,
   VoidCallback? onCalibrate,
 }) =>
-    showDialog<PdfMeasurementScale>(
+    showPdfDialog<PdfMeasurementScale>(
       context: context,
       builder: (context) =>
           PdfScaleDialog(initial: initial, onCalibrate: onCalibrate),
@@ -353,7 +354,7 @@ Future<(double, String)?> showPdfCalibrationLengthDialog(
   BuildContext context, {
   String? initialUnit,
 }) =>
-    showDialog<(double, String)>(
+    showPdfDialog<(double, String)>(
       context: context,
       builder: (context) => _PdfCalibrationLengthDialog(initialUnit: initialUnit),
     );
@@ -366,7 +367,7 @@ Future<double?> showPdfDepthDialog(
   BuildContext context, {
   String? unitLabel,
 }) =>
-    showDialog<double>(
+    showPdfDialog<double>(
       context: context,
       builder: (context) => _PdfDepthDialog(unitLabel: unitLabel),
     );

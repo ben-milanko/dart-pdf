@@ -1,0 +1,5 @@
+New in 3.6.1
+
+- Fix the Linux app exiting at launch: the experimental multi-window bootstrap is now disabled on Linux only (upstream: flutter/flutter#191166), restoring the classic single-window startup.
+- Fix the Snap package failing to start under strict confinement by allowing the app to own its D-Bus name.
+- Add launch smoke tests for every desktop platform to the release pipeline.

@@ -890,6 +890,31 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get searchRegex => 'रेगुलर एक्सप्रेशन';
 
   @override
+  String get searchReplace => 'बदलें';
+
+  @override
+  String get searchReplaceAll => 'सभी बदलें';
+
+  @override
+  String get searchReplaceHint => 'इससे बदलें';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'यह मिलान अकेले नहीं बदला जा सकता — “सभी बदलें” का उपयोग करें या इसे कॉन्टेंट टूल से संपादित करें';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count मिलान बदले गए',
+      one: '1 मिलान बदला गया',
+      zero: 'कुछ नहीं बदला गया',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'खोज परिणाम';
 
   @override
@@ -1334,6 +1359,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'टेक्स्ट बॉक्स स्वतः-आकार दें (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'फ़ॉन्ट को टेक्स्ट बॉक्स में फ़िट करें';
+
+  @override
   String get tbCalibrateScaleHint =>
       'स्केल कैलिब्रेट करने के लिए ज्ञात लंबाई की एक रेखा खींचें।';
 
@@ -1574,6 +1602,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'इंक स्ट्रोक मिटाएँ';
+
+  @override
+  String get tbNameHand => 'हाथ';
 
   @override
   String get tbNameHighlight => 'हाइलाइट';
@@ -2024,4 +2055,63 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'सभी चुनें';
+
+  @override
+  String get annotationLibraryTitle => 'एनोटेशन लाइब्रेरी';
+
+  @override
+  String get annotationLibraryEmpty => 'कोई सहेजा गया एनोटेशन नहीं है।';
+
+  @override
+  String get annotationLibraryHelp =>
+      'किसी समर्थित एनोटेशन को चुनें और उसके मेनू से “एनोटेशन लाइब्रेरी में सहेजें” चुनें। लिंक और फ़ॉर्म फ़ील्ड सहेजे नहीं जा सकते।';
+
+  @override
+  String get annotationLibrarySave => 'एनोटेशन लाइब्रेरी में सहेजें';
+
+  @override
+  String get annotationLibrarySaveTitle => 'एनोटेशन सहेजें';
+
+  @override
+  String get annotationLibraryRenameTitle => 'लाइब्रेरी आइटम का नाम बदलें';
+
+  @override
+  String get annotationLibrarySearchHint => 'लाइब्रेरी में खोजें';
+
+  @override
+  String get annotationLibraryNoMatches => 'कोई मिलता-जुलता एनोटेशन नहीं है।';
+
+  @override
+  String get annotationLibraryUngrouped => 'असमूहीकृत';
+
+  @override
+  String get annotationLibraryChooseGroup => 'समूह में ले जाएँ';
+
+  @override
+  String get annotationLibraryNewGroup => 'नया समूह…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'नया एनोटेशन समूह';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'एनोटेशन समूह का नाम बदलें';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'समूह हटाएँ';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'रखने के लिए पेज पर क्लिक करें। रद्द करने के लिए Escape दबाएँ।';
+
+  @override
+  String get annotationLibraryCustomStamps => 'कस्टम स्टैम्प…';
+
+  @override
+  String get signatureLibraryManage => 'हस्ताक्षर प्रबंधित करें';
+
+  @override
+  String get signatureLibraryRenameTitle => 'हस्ताक्षर का नाम बदलें';
+
+  @override
+  String get signatureLibraryEmpty => 'कोई सहेजा गया हस्ताक्षर नहीं है।';
 }

@@ -138,7 +138,7 @@ class OnDeviceOcr {
     final sizeText = size == null
         ? ''
         : ' ${appL10n(context).ocrModelApproxSize((size / 1024 / 1024).round())}';
-    return showDialog<bool>(
+    return showPdfDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('ocr-download-confirm'),

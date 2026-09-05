@@ -1,0 +1,6 @@
+Neu in 3.7.0
+
+- Seiten werden beim Scrollen gerendert, statt erst nach dem Anhalten zu erscheinen; bereits gelesene Seiten sind sofort wieder da.
+- Suchen und Ersetzen im Suchbereich: einen Treffer oder alle in einem Schritt ersetzen.
+- Verstümmelter Text und falsche Änderungen im Inhaltswerkzeug bei Dokumenten mit Teilschriften behoben.
+- Absturz beim Öffnen oder Speichern einer Datei behoben.

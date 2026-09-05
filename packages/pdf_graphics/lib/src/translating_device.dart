@@ -99,6 +99,8 @@ class TranslatingPdfDevice implements PdfDevice {
         fill: run.fill,
         strokeColor: run.strokeColor,
         strokeWidth: run.strokeWidth,
+        fillAlpha: run.fillAlpha,
+        strokeAlpha: run.strokeAlpha,
         mcid: run.mcid,
         // Em-space, so a page-space translation leaves them alone - but they
         // still have to be carried, or a tiled cell's substituted text loses
@@ -111,15 +113,8 @@ class TranslatingPdfDevice implements PdfDevice {
       ));
 
   @override
-  void drawImage(PdfImageRequest request) => target.drawImage(PdfImageRequest(
-        stream: request.stream,
-        transform: _matrix(request.transform),
-        alpha: request.alpha,
-        isStencil: request.isStencil,
-        stencilColor: request.stencilColor,
-        isInline: request.isInline,
-        decoded: request.decoded,
-      ));
+  void drawImage(PdfImageRequest request) =>
+      target.drawImage(request.withTransform(_matrix(request.transform)));
 
   @override
   void setBlendMode(PdfBlendMode mode) => target.setBlendMode(mode);

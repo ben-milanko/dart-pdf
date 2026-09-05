@@ -20,6 +20,9 @@ void main() {
       a.fingerDrawsInk = false;
       a.showThumbnailSidebar = false; // non-default, so the write is real
       a.showAnnotationSidebar = true;
+      a.showAnnotationLibraryPanel = true;
+      a.annotationLibraryPanelWidth = 336;
+      a.annotationLibraryPanelDock = PdfPanelDock.left;
       a.author = 'Ben';
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
@@ -34,6 +37,7 @@ void main() {
       a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
       a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
       a.locale = const Locale('es');
+      a.toolbarDock = PdfPanelDock.right;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -46,6 +50,9 @@ void main() {
       expect(b.fingerDrawsInk, isFalse);
       expect(b.showThumbnailSidebar, isFalse);
       expect(b.showAnnotationSidebar, isTrue);
+      expect(b.showAnnotationLibraryPanel, isTrue);
+      expect(b.annotationLibraryPanelWidth, 336);
+      expect(b.annotationLibraryPanelDock, PdfPanelDock.left);
       expect(b.author, 'Ben');
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
@@ -60,6 +67,7 @@ void main() {
       expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
       expect(b.locale, const Locale('es'));
+      expect(b.toolbarDock, PdfPanelDock.right);
     });
 
     test('locale persists as a BCP-47 tag and restores script/region subtags',
@@ -136,6 +144,9 @@ void main() {
       // the thumbnail strip is on by default since 9bbfc87
       expect(prefs.showThumbnailSidebar, isTrue);
       expect(prefs.showAnnotationSidebar, isFalse);
+      expect(prefs.showAnnotationLibraryPanel, isFalse);
+      expect(prefs.annotationLibraryPanelWidth, isNull);
+      expect(prefs.annotationLibraryPanelDock, PdfPanelDock.right);
       expect(prefs.author, isNull);
       expect(prefs.colorPickerFormat, PdfColorFormat.hex);
       expect(prefs.lineStartEnding, PdfLineEnding.none);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'signing_identity_store.dart';
 
@@ -16,7 +17,7 @@ Future<PdfSigningIdentity?> showCreateSigningIdentityDialog(
   PdfIdentityStore? store,
   String? storeId,
 }) =>
-    showDialog<PdfSigningIdentity>(
+    showPdfDialog<PdfSigningIdentity>(
       context: context,
       builder: (context) => Dialog(
         child: ConstrainedBox(

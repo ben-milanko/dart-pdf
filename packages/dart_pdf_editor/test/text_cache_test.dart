@@ -24,6 +24,55 @@ Future<Uint8List> _raster(PdfPage page) async {
   }
 }
 
+Future<Uint8List> _rasterOutlineBatch({
+  required bool batched,
+  bool overlapping = false,
+}) async {
+  final previous = CanvasPdfDevice.batchEmbeddedTextOutlines;
+  CanvasPdfDevice.batchEmbeddedTextOutlines = batched;
+  try {
+    const outline = PdfPath([
+      PdfMoveTo(0, 0),
+      PdfLineTo(0.8, 0),
+      PdfLineTo(0.6, 1),
+      PdfLineTo(0.2, 1),
+      PdfClosePath(),
+    ]);
+    PdfDrawTextCommand run(double x, PdfColor color) => PdfDrawTextCommand(
+          PdfTextRun(
+            text: 'A',
+            transform: PdfMatrix(36, 0, 0, 36, x, 45),
+            color: color,
+            width: 0.8,
+            glyphs: const [
+              PdfGlyphPlacement(offset: 0, outline: outline),
+            ],
+          ),
+        );
+    final commands = <PdfRenderCommand>[
+      run(8, PdfColor.black),
+      run(overlapping ? 8 : 48, PdfColor.black),
+      run(88, const PdfColor(0.8, 0.1, 0.1)),
+      run(128, PdfColor.black),
+    ];
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+    replayCommands(commands, CanvasPdfDevice(canvas));
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(172, 64);
+    picture.dispose();
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      return Uint8List.fromList(data!.buffer.asUint8List());
+    } finally {
+      image.dispose();
+    }
+  } finally {
+    CanvasPdfDevice.batchEmbeddedTextOutlines = previous;
+  }
+}
+
 const _copiedArabicLine =
     '\u2067اﻟﺣﻣد لله رب اﻟﻌﺎﻟﻣﯾن) 2 (اﻟرﺣﻣن اﻟرﺣﯾم) 3 (ﻣﺎﻟك ﯾوم\u2069';
 
@@ -35,9 +84,8 @@ Future<void> _loadBundledDejavu() async {
   // DejaVu now ships in dart_pdf_editor_assets, which this package's test asset
   // bundle can't reach; read the moved file and register it under the family
   // name the default fallback list expects.
-  final bytes =
-      File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf')
-          .readAsBytesSync();
+  final bytes = File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf')
+      .readAsBytesSync();
   final loader = FontLoader('packages/dart_pdf_editor_assets/DejaVu Sans')
     ..addFont(Future.value(ByteData.sublistView(bytes)));
   await loader.load();
@@ -170,6 +218,40 @@ void main() {
       final cold = await _raster(page);
       final warm = await _raster(page);
       expect(warm, equals(cold));
+    });
+  });
+
+  testWidgets('batched embedded outlines are raster-equivalent',
+      (tester) async {
+    await tester.runAsync(() async {
+      final individual = await _rasterOutlineBatch(batched: false);
+      final batched = await _rasterOutlineBatch(batched: true);
+      var maxDifference = 0;
+      var outOfToleranceChannels = 0;
+      for (var i = 0; i < individual.length; i++) {
+        final difference = (individual[i] - batched[i]).abs();
+        if (difference > maxDifference) maxDifference = difference;
+        if (difference > 8) outOfToleranceChannels++;
+      }
+      // Skia may quantize an edge a few channel values differently when the
+      // same contours arrive in one path instead of several draw calls. This
+      // stays within the renderer corpus' channel tolerance (8) and is limited
+      // to a minute fraction of antialiased edge pixels.
+      expect(maxDifference, lessThanOrEqualTo(8));
+      expect(outOfToleranceChannels, 0);
+    });
+  });
+
+  testWidgets('overlapping embedded outlines keep separate paint coverage',
+      (tester) async {
+    await tester.runAsync(() async {
+      final individual =
+          await _rasterOutlineBatch(batched: false, overlapping: true);
+      final batched =
+          await _rasterOutlineBatch(batched: true, overlapping: true);
+      expect(batched, individual,
+          reason: 'overlapping runs must flush instead of changing winding or '
+              'alpha coverage inside one combined path');
     });
   });
 

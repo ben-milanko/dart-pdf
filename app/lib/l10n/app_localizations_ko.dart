@@ -413,6 +413,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorMenuNewDocument => '새 문서…';
 
   @override
+  String get editorMenuNewWindow => '새 창';
+
+  @override
+  String get editorMoveToNewWindow => '새 창으로 이동';
+
+  @override
+  String get editorUnableToOpenNewWindow => '새 창을 열 수 없습니다';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -485,6 +494,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get editorOpenRecent => '최근 항목 열기';
+
+  @override
+  String get editorViewAllRecentFiles => '모든 최근 파일 보기…';
 
   @override
   String get editorOpenTabs => '열린 탭';
@@ -727,6 +739,51 @@ class AppLocalizationsKo extends AppLocalizations {
   String get printDlgTitle => '인쇄 중';
 
   @override
+  String get printPreviewAll => '전체';
+
+  @override
+  String get printPreviewCurrent => '현재';
+
+  @override
+  String get printPreviewFrom => '시작';
+
+  @override
+  String get printPreviewNextPage => '다음 페이지';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return '$total페이지 중 $page페이지';
+  }
+
+  @override
+  String get printPreviewPreviousPage => '이전 페이지';
+
+  @override
+  String get printPreviewPrint => '인쇄';
+
+  @override
+  String get printPreviewRange => '범위';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return '1에서 $total 사이의 페이지 범위를 입력하세요.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return '인쇄할 페이지: $count';
+  }
+
+  @override
+  String get printPreviewTitle => '인쇄 미리 보기';
+
+  @override
+  String get printPreviewTo => '끝';
+
+  @override
+  String get printPreviewUnavailable => '미리 보기를 사용할 수 없음';
+
+  @override
   String get redo => '다시 실행';
 
   @override
@@ -854,6 +911,12 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get welcomeRecent => '최근';
+
+  @override
+  String get welcomeSearchRecentFiles => '최근 파일 검색';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '검색과 일치하는 최근 파일이 없습니다';
 
   @override
   String get welcomeRemoveFromRecent => '최근 항목에서 제거';

@@ -1,0 +1,6 @@
+Novidades na versão 3.5.0
+
+- PDFs grandes e detalhados continuam responsivos ao rolar, mover e ampliar, deixando a área visível nítida primeiro.
+- As prévias ganham detalhes progressivamente durante a navegação rápida.
+- As páginas permanecem nítidas e visíveis perto das bordas da tela.
+- Carregamento mais rápido de documentos remotos e uso de memória mais previsível.

@@ -162,6 +162,23 @@ class PdfAnnotationSnapshot {
     );
   }
 
+  /// Builds a detached [PdfAnnotation] wrapper for rendering a placement
+  /// preview on [pageIndex] without inserting anything into [document].
+  ///
+  /// The returned annotation owns a fresh copy of this snapshot's COS tree,
+  /// so renderers may resolve its appearance streams through [document]
+  /// without sharing mutable state with a later paste. Its appearance is
+  /// re-oriented for the destination page just as a real paste would be, so
+  /// the preview remains exact across pages with different `/Rotate` values.
+  /// It is deliberately not linked into any page's `/Annots` array; use
+  /// [PdfAnnotationClipboard.pasteAnnotation] for a real insertion.
+  PdfAnnotation annotationForPreview(PdfDocument document, int pageIndex) {
+    final dict = _materialize();
+    PdfEditor(document)
+        ._reorientPastedAppearance(dict, pageIndex, sourceRotation);
+    return PdfAnnotation.fromDict(document, dict);
+  }
+
   CosDictionary _materialize() => _copyDetached(_dict) as CosDictionary;
 }
 

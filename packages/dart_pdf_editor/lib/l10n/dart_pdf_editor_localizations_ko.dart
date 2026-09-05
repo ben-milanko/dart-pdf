@@ -888,6 +888,31 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get searchRegex => '정규 표현식';
 
   @override
+  String get searchReplace => '바꾸기';
+
+  @override
+  String get searchReplaceAll => '모두 바꾸기';
+
+  @override
+  String get searchReplaceHint => '바꿀 내용';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      '이 일치 항목은 단독으로 바꿀 수 없습니다. ‘모두 바꾸기’를 사용하거나 콘텐츠 도구로 편집하세요';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '일치 $count개 바꿈',
+      one: '일치 1개 바꿈',
+      zero: '바꾼 항목 없음',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '검색 결과';
 
   @override
@@ -1331,6 +1356,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => '텍스트 상자 자동 크기 조정 (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => '글꼴을 텍스트 상자에 맞추기';
+
+  @override
   String get tbCalibrateScaleHint => '축척을 보정하려면 알려진 길이의 선을 그리세요.';
 
   @override
@@ -1564,6 +1592,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => '잉크 획 지우기';
+
+  @override
+  String get tbNameHand => '손 도구';
 
   @override
   String get tbNameHighlight => '형광펜';
@@ -2004,4 +2035,63 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => '모두 선택';
+
+  @override
+  String get annotationLibraryTitle => '주석 라이브러리';
+
+  @override
+  String get annotationLibraryEmpty => '저장된 주석이 없습니다.';
+
+  @override
+  String get annotationLibraryHelp =>
+      '지원되는 주석을 선택한 다음 메뉴에서 “주석 라이브러리에 저장”을 선택하세요. 링크와 양식 필드는 저장할 수 없습니다.';
+
+  @override
+  String get annotationLibrarySave => '주석 라이브러리에 저장';
+
+  @override
+  String get annotationLibrarySaveTitle => '주석 저장';
+
+  @override
+  String get annotationLibraryRenameTitle => '라이브러리 항목 이름 바꾸기';
+
+  @override
+  String get annotationLibrarySearchHint => '라이브러리 검색';
+
+  @override
+  String get annotationLibraryNoMatches => '일치하는 주석이 없습니다.';
+
+  @override
+  String get annotationLibraryUngrouped => '그룹 없음';
+
+  @override
+  String get annotationLibraryChooseGroup => '그룹으로 이동';
+
+  @override
+  String get annotationLibraryNewGroup => '새 그룹…';
+
+  @override
+  String get annotationLibraryGroupTitle => '새 주석 그룹';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '주석 그룹 이름 바꾸기';
+
+  @override
+  String get annotationLibraryRemoveGroup => '그룹 제거';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      '배치할 페이지를 클릭하세요. 취소하려면 Escape를 누르세요.';
+
+  @override
+  String get annotationLibraryCustomStamps => '사용자 지정 스탬프…';
+
+  @override
+  String get signatureLibraryManage => '서명 관리';
+
+  @override
+  String get signatureLibraryRenameTitle => '서명 이름 바꾸기';
+
+  @override
+  String get signatureLibraryEmpty => '저장된 서명이 없습니다.';
 }

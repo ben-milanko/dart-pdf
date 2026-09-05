@@ -1,0 +1,7 @@
+Nowości w wersji 3.4.0
+
+• Kopiuj i wklejaj adnotacje między otwartymi dokumentami.
+• Upuszczaj pliki PDF między miniaturami, aby wstawiać strony dokładnie w wybranym miejscu.
+• Zapisuj umieszczone stemple w kolekcji i sprawdzaj kolor wybranej adnotacji na pasku narzędzi.
+• Zaznaczanie tekstu i czcionki zastępcze są dokładniej wyrównane.
+• Szybsze siatki kart, płynniejsze powiększanie, bezpieczniejszy dostęp progresywny i pewniejsze podglądy wydruku.

@@ -19,6 +19,7 @@
 //   PERF_TIMEOUT   overall budget, seconds           (default 300)
 //   PERF_VERBOSE   "true" to echo every console line  (default false)
 //   PERF_RESULTS   ndjson output path                (default ./results.ndjson)
+//   PERF_TRACE     optional Chrome trace output path (includes V8 CPU samples)
 import { createServer } from 'node:http';
 import { readFile, stat, appendFile } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
@@ -62,6 +63,7 @@ const HEADLESS = (process.env.PERF_HEADLESS ?? 'true') !== 'false';
 const TIMEOUT_S = Number(process.env.PERF_TIMEOUT ?? 300);
 const VERBOSE = (process.env.PERF_VERBOSE ?? 'false') === 'true';
 const RESULTS = process.env.PERF_RESULTS ?? join(HERE, 'results.ndjson');
+const TRACE = process.env.PERF_TRACE ?? null;
 const CHROME = process.env.PERF_CHROME ??
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const ISOLATED = (process.env.PERF_CROSS_ORIGIN_ISOLATED ?? 'true') !== 'false';
@@ -191,7 +193,13 @@ function parse(lines, frames) {
     }
     const warm = line.match(/worker warm=([\d.]+)ms/);
     if (warm) r.workerWarmMax = Math.max(r.workerWarmMax, Number(warm[1]));
-    const pre = line.match(/prerender page=\d+ (?:worker )?(vector|full) /);
+    // `prerender page=N lod=<rung> [retained ][worker ][shared ]<vector|full>
+    // warm=…`.
+    // The lod token arrived with the preview ladder and `shared` with #699's
+    // one-record-per-ladder build; both are optional so an older bundle's
+    // lines still count.
+    const pre = line.match(
+      /prerender page=\d+ (?:lod=\S+ )?(?:retained )?(?:worker )?(?:shared )?(vector|full) /);
     if (pre) r.prerender[pre[1]]++;
     // The #527 bounded early prefix is real ink on the target page too, so it
     // counts as first content for the baseline (progressive off) - otherwise the
@@ -336,6 +344,7 @@ async function main() {
   if (process.env.PERF_REPEAT) qp.set('repeat', process.env.PERF_REPEAT);
   if (process.env.PERF_OPS) qp.set('ops', process.env.PERF_OPS);
   if (process.env.PERF_PER_GLYPH) qp.set('perGlyph', process.env.PERF_PER_GLYPH);
+  if (process.env.PERF_WORKERS) qp.set('worker', process.env.PERF_WORKERS);
   const qs = qp.toString();
   const url = `http://127.0.0.1:${PORT}/${qs ? '?' + qs : ''}`;
   if (SCENARIO) console.log(`▶ scenario ${SCENARIO.name} (${SCENARIO.kind}) pdf=${SCENARIO.pdf}`);
@@ -365,6 +374,17 @@ async function main() {
     const pageErrors = [];
     const consoleLines = [];
     const page = await browser.newPage();
+    if (TRACE) {
+      await page.tracing.start({
+        path: TRACE,
+        categories: [
+          'devtools.timeline',
+          'disabled-by-default-devtools.timeline',
+          'disabled-by-default-v8.cpu_profiler',
+          'disabled-by-default-v8.cpu_profiler.hires',
+        ],
+      });
+    }
     page.on('console', (msg) => {
       const text = msg.text();
       consoleLines.push(text);
@@ -390,6 +410,7 @@ async function main() {
     }
     if (!done && !fatal) fatal = `timeout after ${TIMEOUT_S}s waiting for __perfDone`;
     if (pageErrors.length) (result ??= {}).pageErrors = pageErrors;
+    if (TRACE) await page.tracing.stop();
 
     // Sample memory before scraping the trace, while the run's peak is still
     // resident (the wasm heap never shrinks, so this is a high-water mark).

@@ -1,5 +1,143 @@
 # Changelog
 
+## 4.2.0
+
+- Keep nearby pages sharp during slow scrolling and warm pages ahead of the
+  scroll direction using spare GPU capacity, while fast scrolling continues to
+  prioritize responsiveness.
+- Prefer the Flutter GPU renderer by default, with the existing Canvas
+  fallback for scenes it cannot draw exactly.
+- Add annotation alignment guides and page rulers for precise placement.
+- Zoom around the pointer with `Ctrl`/`Cmd`+wheel, on desktop and on the web.
+- Fix annotation selection, resizing, and text editing on rotated pages, where
+  a square annotation could be handled as though it were turned a quarter turn.
+- Fix selecting multi-line highlights, and keep text under them sharp.
+- Allow panning between lines of text instead of starting a selection.
+
+## 4.1.0
+
+- Save and manage named handwritten signatures, and reuse saved annotations
+  across documents from a searchable library.
+- Add cursor guides, a visible page grid, and optional grid snapping for
+  precise annotation placement and resizing.
+- Reposition selected page content and drag it between pages.
+- Fix importing private keys and certificate chains for digital signatures in
+  the cross-origin-isolated web app.
+- Allow a visible digital signature to be selected and removed, with
+  confirmation and undo.
+- Keep the colour eyedropper responsive across every page and expose it from
+  the colour dialog.
+- Improve rendering speed and fidelity for complex blends, transparency,
+  overprint, images, and large engineering drawings.
+- Fix sparse remote-PDF loading and a colorant clip error that could display a
+  blank page.
+
+## 4.0.0
+
+- Add slimmer, dockable editor controls and improve page, panel, and
+  recent-document navigation.
+- Auto-fit free text to its box, flatten selected annotations, and reliably
+  flatten empty form fields.
+- Render demanding print files more faithfully with complete Ghent V5 colour
+  and transparency coverage, including output intents, overprint, soft masks,
+  high-bit-depth images, and substituted fonts.
+- Accelerate more blends, transparency groups, images, hairlines, and exact
+  text through the optional GPU renderer, with idle preparation to keep first
+  use smooth.
+- Improve drag-and-drop, document scanning, file-opening errors, and thumbnail
+  persistence across document sessions.
+
+## 3.8.0
+
+- Browse recent PDFs with searchable page previews.
+- Place and edit annotations beyond the page edge, style compatible mixed
+  selections together, and choose any signature colour and pen thickness.
+- Preview print jobs before sending them.
+- Scroll and deep-zoom large, image-heavy drawings more smoothly with faster
+  rendering and steadier page caches.
+- Fix text-caret alignment, popup placement, browser JPEG decoding, and several
+  annotation and rendering crashes.
+
+## 3.7.0
+
+- Pages now render as you scroll past them instead of arriving half a second
+  after you stop. Scrolling back to a page you have already read shows it
+  immediately.
+- Add find and replace to the search panel: replace the current match or every
+  match at once, in a single undo step.
+- Fix the content tool showing scrambled characters - and editing the wrong
+  text - on documents whose fonts renumber their character codes, which is
+  common in forms and any file with subsetted fonts.
+- Fix "Replace text" in the element strip changing every matching line on the
+  page rather than the one selected.
+- Fix the app closing when you chose Open or Save on Windows.
+- Fix the Mac App Store build being rejected over the bundled command-line
+  helper; the helper still ships with every other download.
+
+## 3.6.1
+
+- Fix the Linux app exiting at launch: the experimental multi-window bootstrap
+  is disabled on Linux only (upstream: flutter/flutter#191166), restoring the
+  classic single-window startup. Windows and macOS keep multi-window support.
+- Fix the Snap package failing to start under strict confinement by allowing
+  the app to own its `dev.milanko.dartpdf` D-Bus name.
+- Add blocking launch smoke tests for every desktop platform to CI and the
+  release pipeline.
+
+## 3.6.0
+
+- Open documents in multiple native desktop windows and drag tabs between
+  windows, with crash-safe session ownership and correct input routing.
+- Bundle the new `dartpdf` command-line and MCP sidecar in desktop releases for
+  inspecting PDFs, extracting bounded text, and listing forms or annotations.
+- Sandbox the bundled command-line helper correctly in Mac App Store archives.
+- Make annotation panels easier to navigate, keep selections visible across
+  edits, and preserve FreeText opacity while editing and rendering.
+- Preserve Bluebeam FreeText alignment, spacing, and caret placement.
+- Fix stale page rendering after edits on macOS, reveal cloud-backed files in
+  Finder reliably, and improve substituted text spacing on the web.
+
+## 3.5.1
+
+- Fix Open in Finder for PDFs stored in sandboxed OneDrive folders.
+- Fix scanned MRC and JBIG2 pages whose text, background, or mask layers could
+  be missing or opaque.
+- Fix soft-masked images that could render as black blocks with Impeller or the
+  optional GPU renderer.
+- Fix Android document scans that returned a `content://` URI, and show the
+  actual read-back error instead of treating every failure as cancellation.
+
+## 3.5.0
+
+- Large and visually dense PDFs stay responsive while scrolling, panning, and
+  zooming, with the visible region sharpening before bounded background work.
+- Fast navigation now moves through progressively clearer page previews rather
+  than waiting on one final full-detail raster.
+- Keep pages sharp and visible as they cross viewport edges, reduce redundant
+  off-screen detail work, and make remote and web document loading faster and
+  more memory-predictable.
+- Add a live Canvas/flutter_gpu tile-backend switch to Developer tools, along
+  with persistent texture/geometry ceilings and diagnostics for actual route,
+  fallback reasons, compile/replay time, cache pressure, uploads/readbacks,
+  and live resource leases. Export all GPU metrics in the JSON snapshot. PR
+  web previews link to downloadable macOS, Windows, and Linux native builds so
+  the real Impeller backend can be tested even though flutter_gpu has no web
+  runtime. The ad-hoc macOS preview/release packages now omit the provisioned
+  Keychain entitlement so macOS can launch them normally.
+
+## 3.4.0
+
+- Copy and paste annotations between open documents, save placed stamps back
+  to the stamp collection, and show the selected annotation colour in the
+  toolbar.
+- Drop a PDF between page thumbnails to insert its pages at that exact
+  position, and optionally show document chapters on the scrollbar.
+- Improve proportional-font selection and substituted-font placement, keep
+  touch selection menus aligned while zoomed, and hide page-colour editing in
+  view mode.
+- Improve tab-grid scrolling, trackpad pinch-out scrolling, progressive file
+  access, and print-preview reliability.
+
 ## 3.3.1
 
 - Changing annotation properties no longer creates a duplicate in PDFs that

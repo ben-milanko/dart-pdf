@@ -7,6 +7,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -27,16 +28,20 @@ import 'incoming_file.dart';
 import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
 import 'l10n/app_l10n.dart';
+import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_status_label.dart';
+import 'open_error.dart';
 import 'pdf_cache.dart';
+import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
+import 'tab_drag.dart';
 import 'unsaved_changes.dart';
 import 'unsaved_changes_store.dart';
 import 'update.dart';
@@ -45,6 +50,8 @@ import 'update_installer.dart';
 import 'update_platform.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
+import 'window_support.dart';
+import 'windows_drop_target.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
@@ -73,6 +80,14 @@ const Duration _tabHoverPreviewDelay = Duration(milliseconds: 400);
 const double _tabHoverPreviewWidth = 240;
 const double _tabHoverPreviewHeight = 300;
 
+String _openTraceLabel(String? value) => (value == null || value.isEmpty)
+    ? '-'
+    : value.replaceAll(RegExp(r'[\r\n"]+'), ' ').trim();
+
+String _openTracePercent(int fetched, int? total) => total == null || total <= 0
+    ? 'unknown'
+    : (fetched * 100 / total).toStringAsFixed(1);
+
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
 /// (search, page number, panels, toolbar). The screen supplies the edit
@@ -97,6 +112,10 @@ class EditorScreen extends StatefulWidget {
     this.textClipboardReader,
     this.unsavedChangesStore,
     this.documentScanner,
+    this.onNewWindow,
+    this.tabDragCoordinator,
+    this.initialHandoff,
+    this.ownsApplicationSession = true,
   });
 
   final PdfEditingPreferences prefs;
@@ -192,12 +211,38 @@ class EditorScreen extends StatefulWidget {
   /// ([scanDocumentToPdf]); where scanning isn't supported the entries hide.
   final DocumentScanner? documentScanner;
 
+  /// Opens another native editor window. A [document] moves a live tab into
+  /// it; null creates an empty window. The boolean reports whether the native
+  /// window was registered successfully.
+  ///
+  /// Null keeps all multi-window UI and shortcuts hidden. DartPDF's desktop
+  /// shell supplies the native opener; embedded hosts may leave it absent.
+  final bool Function(
+    BuildContext context, {
+    DocumentHandoff? document,
+  })? onNewWindow;
+
+  /// Process-wide native drag router. The desktop app supplies one shared
+  /// instance to every native window; null keeps the single-view reorder path
+  /// used by embedded hosts and widget tests.
+  final TabDragCoordinator? tabDragCoordinator;
+
+  /// A document moved from another window and opened during initialization.
+  final DocumentHandoff? initialHandoff;
+
+  /// Whether this window owns process-wide session restoration, incoming OS
+  /// file events, update checks, and the application-exit confirmation.
+  /// Secondary windows set this false so they cannot race or replace the
+  /// primary window's state.
+  final bool ownsApplicationSession;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
 class _EditorScreenState extends State<EditorScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver
+    implements TabDragWindow {
   PdfEditingPreferences get _prefs => widget.prefs;
 
   /// The device document scanner, or null where scanning isn't available. An
@@ -221,6 +266,9 @@ class _EditorScreenState extends State<EditorScreen>
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+  final Object _windowCloseOwner = Object();
+  DartPdfWindowCloseCoordinator? _windowCloseCoordinator;
+  bool _nativeWindowCloseApproved = false;
 
   /// Gates session persistence until the previous session has been read back,
   /// so an early tab open (e.g. an OS file-open) doesn't clobber the stored set
@@ -231,6 +279,17 @@ class _EditorScreenState extends State<EditorScreen>
   /// restored path-only tab that is briefly active mid-restore does not start
   /// opening. Only the tab active when restore finishes materializes.
   bool _restoringSession = false;
+
+  /// How many tabs at the head of [_tabs] were put there by startup restore
+  /// (recovered unsaved work, then the last session's documents).
+  ///
+  /// Restore races the OS file-open that launched the app: on macOS the file
+  /// arrives on the warm `openFile` stream whenever the runner finishes
+  /// building its payload, which can land before, during, or after the store
+  /// read. Restored tabs therefore slot in at this index rather than at the
+  /// end, so the document the user actually double-clicked stays last in the
+  /// strip - and keeps focus (see [_addTab]).
+  int _restoredTabs = 0;
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates = widget.updateService ??
@@ -263,6 +322,14 @@ class _EditorScreenState extends State<EditorScreen>
 
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
+  final _tabStripGeometryKey = GlobalKey();
+  final _tabScrollController = ScrollController();
+  TabDragCoordinator? _registeredTabDragCoordinator;
+  int? _nativeWindowHandle;
+  OverlayEntry? _destinationTabDragOverlay;
+  TabDragPreview? _destinationTabDragPreview;
+  final Map<DocumentTab, String> _nativeTabDragTokens = Map.identity();
+  int _nextNativeTabDragToken = 0;
 
   /// Whether the pointer is currently hovering the desktop tab strip. While it
   /// is, closing a tab pins the remaining tabs' width (see [_heldTabWidth]) so
@@ -272,6 +339,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// The most recent natural (unheld) per-tab width computed during the tab
   /// strip layout, captured so a close can pin to it.
   double _lastNaturalTabWidth = 0;
+  double _lastRenderedTabWidth = 0;
+  double _lastRenderedTabsWidth = 0;
 
   /// When non-null, the tabs render at this fixed width instead of growing to
   /// fill the freed space. Set on close while the strip is hovered and released
@@ -298,24 +367,130 @@ class _EditorScreenState extends State<EditorScreen>
     _recents.load().then((_) {
       if (mounted) _pruneRecentCache();
     });
-    // Files the OS opens in the app: the launch file, then any later opens.
-    _incoming.start();
-    _incomingSub = _incoming.files.listen(_openIncoming);
-    _incoming.initialFile().then((file) {
-      if (file != null && mounted) _openIncoming(file);
-    });
-    _openLaunchArgs();
-    // PWA file-handler opens (installed web app); no-op off the web.
-    startWebLaunchQueue(_openIncoming);
+    if (widget.ownsApplicationSession) {
+      // One process-wide owner receives OS file-open events. Method channels
+      // have one Dart handler, so letting every window register would make the
+      // newest secondary window steal delivery from the primary.
+      _incoming.start();
+      _incomingSub = _incoming.files.listen(_openIncoming);
+      _incoming.initialFile().then((file) {
+        if (file != null && mounted) _openIncoming(file);
+      });
+      _openLaunchArgs();
+      // PWA file-handler opens (installed web app); no-op off the web.
+      startWebLaunchQueue(_openIncoming);
+    }
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    final handoff = widget.initialHandoff;
+    if (handoff != null) _openHandoff(handoff);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
-    unawaited(_restoreSession());
+    if (widget.ownsApplicationSession) unawaited(_restoreSession());
     if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncTabDragRegistration(DartPdfNativeWindowScope.maybeHandleOf(context));
+    final coordinator = DartPdfWindowCloseScope.maybeOf(context);
+    if (identical(coordinator, _windowCloseCoordinator)) return;
+    _windowCloseCoordinator?.unregister(_windowCloseOwner);
+    _windowCloseCoordinator = coordinator;
+    coordinator?.register(_windowCloseOwner, _requestNativeWindowClose);
+  }
+
+  @override
+  void didUpdateWidget(EditorScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.tabDragCoordinator, widget.tabDragCoordinator)) {
+      _syncTabDragRegistration(_nativeWindowHandle);
+    }
+  }
+
+  void _syncTabDragRegistration(int? handle) {
+    final coordinator = widget.tabDragCoordinator;
+    if (identical(_registeredTabDragCoordinator, coordinator) &&
+        _nativeWindowHandle == handle) {
+      return;
+    }
+    _registeredTabDragCoordinator
+      ?..removeListener(_syncDestinationTabDragOverlay)
+      ..unregister(this);
+    _removeDestinationTabDragOverlay();
+    _registeredTabDragCoordinator = null;
+    _nativeWindowHandle = handle;
+    if (coordinator != null && handle != null) {
+      _registeredTabDragCoordinator = coordinator;
+      coordinator.register(this);
+      coordinator.addListener(_syncDestinationTabDragOverlay);
+    }
+  }
+
+  void _syncDestinationTabDragOverlay() {
+    if (!mounted) return;
+    final preview = _registeredTabDragCoordinator?.preview;
+    final show = preview?.isOverTabStrip == true &&
+        preview?.targetWindowHandle == _nativeWindowHandle &&
+        preview?.localPoint != null &&
+        !_tabs.contains(preview?.tab);
+    if (!show) {
+      _removeDestinationTabDragOverlay();
+      return;
+    }
+
+    _destinationTabDragPreview = preview;
+    final existingEntry = _destinationTabDragOverlay;
+    if (existingEntry != null) {
+      existingEntry.markNeedsBuild();
+      return;
+    }
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    final entry = OverlayEntry(
+      builder: (overlayContext) {
+        final current = _destinationTabDragPreview;
+        final point = current?.localPoint;
+        if (current == null || point == null) return const SizedBox.shrink();
+        final size = MediaQuery.sizeOf(overlayContext);
+        const cardWidth = 280.0;
+        const estimatedHeight = 64.0;
+        final left = (point.dx + 12)
+            .clamp(8.0, math.max(8.0, size.width - cardWidth - 8))
+            .toDouble();
+        final top = (point.dy + 12)
+            .clamp(8.0, math.max(8.0, size.height - estimatedHeight - 8))
+            .toDouble();
+        return Positioned(
+          left: left,
+          top: top,
+          child: IgnorePointer(
+            child: _buildTabDragFeedback(
+              overlayContext,
+              current.tab,
+              overStrip: true,
+              movingToAnotherWindow: true,
+              key: const ValueKey('tab-drag-destination-feedback'),
+            ),
+          ),
+        );
+      },
+    );
+    _destinationTabDragOverlay = entry;
+    overlay.insert(entry);
+  }
+
+  void _removeDestinationTabDragOverlay() {
+    _destinationTabDragPreview = null;
+    final entry = _destinationTabDragOverlay;
+    if (entry == null) return;
+    _destinationTabDragOverlay = null;
+    entry.remove();
+    entry.dispose();
   }
 
   /// Runs the one-shot startup update check. When we built the service
@@ -389,6 +564,12 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    _registeredTabDragCoordinator
+      ?..removeListener(_syncDestinationTabDragOverlay)
+      ..unregister(this);
+    _removeDestinationTabDragOverlay();
+    _tabScrollController.dispose();
+    _windowCloseCoordinator?.unregister(_windowCloseOwner);
     WidgetsBinding.instance.removeObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
@@ -414,6 +595,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// discard. On platforms that don't ask (mobile/web) this is a no-op.
   @override
   Future<ui.AppExitResponse> didRequestAppExit() async {
+    if (_nativeWindowCloseApproved) return ui.AppExitResponse.exit;
+    if (!widget.ownsApplicationSession) return ui.AppExitResponse.exit;
     final dirty = _tabs.where((t) => t.isDirty).length;
     if (dirty == 0) return ui.AppExitResponse.exit;
     final proceed = await _confirmDiscard(
@@ -425,6 +608,19 @@ class _EditorScreenState extends State<EditorScreen>
     // already declined.
     await _autosave.discardAll();
     return ui.AppExitResponse.exit;
+  }
+
+  Future<bool> _requestNativeWindowClose() async {
+    final dirty = _tabs.where((tab) => tab.isDirty).length;
+    if (dirty > 0) {
+      final proceed = await _confirmDiscard(
+        appL10n(context).editorUnsavedChangesCount(dirty),
+      );
+      if (!proceed || !mounted) return false;
+      await _autosave.discardAll();
+    }
+    _nativeWindowCloseApproved = true;
+    return true;
   }
 
   /// Mirrors pending edits when the app leaves the foreground. On mobile and
@@ -447,6 +643,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// case the explicit target wins and we don't also restore the last session.
   bool get _hasExplicitLaunchTarget =>
       widget.initialDocument != null ||
+      widget.initialHandoff != null ||
       (!kIsWeb &&
           widget.launchArgs.any((a) => a.toLowerCase().endsWith('.pdf')));
 
@@ -526,7 +723,7 @@ class _EditorScreenState extends State<EditorScreen>
       // open path, so continued editing appends to it instead of mirroring the
       // whole document again under a fresh id.
       _autosave.track(tab, recovered: record);
-      _addTab(tab);
+      _addTab(tab, restored: true);
     }
     // Anything nothing adopted (bytes gone, a record we couldn't read) would
     // otherwise be offered back on every launch forever.
@@ -554,12 +751,15 @@ class _EditorScreenState extends State<EditorScreen>
     // the user can switch to another restored document while a remote one is
     // hydrating. A missing file is dropped when its lazy open fails.
     if (progressiveOpenSupported(originPath)) {
-      _addTab(DocumentTab.deferredPath(
-        title: doc.title,
-        originPath: originPath!,
-        originBookmark: doc.bookmark,
-        cachePath: doc.cachePath,
-      ));
+      _addTab(
+        DocumentTab.deferredPath(
+          title: doc.title,
+          originPath: originPath!,
+          originBookmark: doc.bookmark,
+          cachePath: doc.cachePath,
+        ),
+        restored: true,
+      );
       _recents.add(
           title: doc.title,
           path: originPath,
@@ -575,6 +775,7 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: originPath,
       originBookmark: doc.bookmark,
       cachePath: doc.cachePath,
+      restored: true,
     );
     try {
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
@@ -618,7 +819,7 @@ class _EditorScreenState extends State<EditorScreen>
     // ahead of the session-load gate below: a document opened before the last
     // session has been read back still deserves its unsaved edits protected.
     _autosave.syncTracking(_tabs);
-    if (!_sessionLoaded) return;
+    if (!widget.ownsApplicationSession || !_sessionLoaded) return;
     final documents = <SessionDocument>[];
     final seen = <String>{};
     for (final tab in _tabs) {
@@ -639,15 +840,16 @@ class _EditorScreenState extends State<EditorScreen>
     await _session.save(documents);
   }
 
-  /// Deletes cached mobile snapshots that no Recent entry still references, so
-  /// the private store can't grow without bound as entries roll off the list.
-  /// A no-op on desktop/web (nothing is cached there).
+  /// Deletes private PDF snapshots and first-page thumbnails that no Recent
+  /// entry still references, so local caches cannot grow without bound as
+  /// entries roll off the list.
   void _pruneRecentCache() {
     final keep = {
       for (final entry in _recents.items)
         if (entry.cachePath != null) entry.cachePath!,
     };
     unawaited(pruneCachedPdfs(keep));
+    unawaited(_recentThumbnails.retain(_recents.items));
   }
 
   // --- opening -------------------------------------------------------------
@@ -671,12 +873,205 @@ class _EditorScreenState extends State<EditorScreen>
     _addTab(DocumentTab.error(title: title, error: error));
   }
 
-  void _addTab(DocumentTab tab) {
+  String _openFailureDetail(String title, Object error) {
+    AppDevTools.instance.addLog(
+      'open failure: $title - $error',
+      level: DevLogLevel.error,
+    );
+    return appL10n(context).editorCouldNotOpenDetail(
+      pdfDisplayName(title),
+      openErrorSummary(error),
+    );
+  }
+
+  void _openHandoff(DocumentHandoff handoff) {
+    insertTab(handoff, _tabs.length);
+  }
+
+  DocumentTab _tabFromHandoff(DocumentHandoff handoff) => DocumentTab.document(
+        title: handoff.title,
+        bytes: handoff.bytes,
+        preferences: _prefs,
+        originPath: handoff.originPath,
+        originBookmark: handoff.originBookmark,
+        originToken: handoff.originToken,
+        cachePath: handoff.cachePath,
+        savedLength: handoff.savedLength,
+      );
+
+  @override
+  bool insertTab(DocumentHandoff handoff, int insertionIndex) {
+    if (!mounted) return false;
+    try {
+      final tab = _tabFromHandoff(handoff);
+      final index = insertionIndex.clamp(0, _tabs.length).toInt();
+      setState(() {
+        _heldTabWidth = null;
+        _tabs.insert(index, tab);
+        _activeIndex = index;
+      });
+      _recents.add(
+        title: handoff.title,
+        path: handoff.originPath,
+        cachePath: handoff.cachePath,
+        bookmark: handoff.originBookmark,
+      );
+      unawaited(_persistSession());
+      return true;
+    } catch (error) {
+      AppDevTools.instance.addLog(
+        'tab handoff failed: $error',
+        level: DevLogLevel.error,
+      );
+      return false;
+    }
+  }
+
+  @override
+  int get windowHandle => _nativeWindowHandle!;
+
+  bool get _nativeTabDragging => _registeredTabDragCoordinator != null;
+
+  @override
+  bool containsTab(DocumentTab tab) => mounted && _tabs.contains(tab);
+
+  @override
+  bool removeTab(DocumentTab tab) {
+    if (!containsTab(tab)) return false;
+    _removeTabs([tab]);
+    return true;
+  }
+
+  @override
+  void closeWindowIfEmpty() {
+    if (!mounted || _tabs.isNotEmpty) return;
+    // Let _removeTabs finish painting out the transferred tab and dispose its
+    // session before the native view disappears. Its post-frame callback was
+    // registered first, so disposal also runs before this close request.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _tabs.isNotEmpty) return;
+      unawaited(_windowCloseCoordinator?.closeWindow());
+    });
+  }
+
+  @override
+  bool openTabInNewWindow(DocumentHandoff handoff) {
+    final open = widget.onNewWindow;
+    return mounted && open != null && open(context, document: handoff);
+  }
+
+  @override
+  bool reorderTab(DocumentTab tab, int insertionIndex) {
+    final oldIndex = _tabs.indexOf(tab);
+    if (oldIndex < 0) return false;
+    var newIndex = insertionIndex.clamp(0, _tabs.length).toInt();
+    if (oldIndex < newIndex) newIndex--;
+    newIndex = newIndex.clamp(0, _tabs.length - 1).toInt();
+    if (oldIndex != newIndex) _reorderTabs(oldIndex, newIndex);
+    return true;
+  }
+
+  @override
+  int? tabInsertionIndex(Offset localPoint) {
+    final strip = _tabStripGeometryKey.currentContext?.findRenderObject();
+    if (strip is! RenderBox || !strip.attached) return null;
+    final stripRect = strip.localToGlobal(Offset.zero) & strip.size;
+    if (!stripRect.contains(localPoint)) return null;
+    if (_tabs.isEmpty) return 0;
+
+    if (_lastRenderedTabWidth <= 0 || _lastRenderedTabsWidth <= 0) {
+      return _tabs.length;
+    }
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    // The tab list is always the Row's first child, so it begins at the
+    // strip's logical leading edge. Derive its coordinates from the stable
+    // outer strip instead of a GlobalKey on the MouseRegion: rebuilding that
+    // region for live hover feedback briefly left its RenderObject unavailable
+    // and every same-strip drop fell back to the append slot.
+    final visibleOffset =
+        rtl ? stripRect.right - localPoint.dx : localPoint.dx - stripRect.left;
+    if (visibleOffset < 0) return 0;
+    if (visibleOffset > _lastRenderedTabsWidth) return _tabs.length;
+    final scrollOffset =
+        _tabScrollController.hasClients ? _tabScrollController.offset : 0.0;
+    const listPadding = 4.0;
+    var contentOffset = visibleOffset + scrollOffset - listPadding;
+    final externalGap = _externalTabDragGap;
+    if (externalGap != null) {
+      final gapStart = externalGap * _lastRenderedTabWidth;
+      final gapEnd = gapStart + _lastRenderedTabWidth;
+      if (contentOffset >= gapStart && contentOffset <= gapEnd) {
+        return externalGap;
+      }
+      if (contentOffset > gapEnd) contentOffset -= _lastRenderedTabWidth;
+    }
+    return ((contentOffset / _lastRenderedTabWidth) + 0.5)
+        .floor()
+        .clamp(0, _tabs.length)
+        .toInt();
+  }
+
+  int? get _externalTabDragGap {
+    final preview = _registeredTabDragCoordinator?.preview;
+    if (preview?.targetWindowHandle != _nativeWindowHandle ||
+        preview?.insertionIndex == null ||
+        _tabs.contains(preview?.tab)) {
+      return null;
+    }
+    return preview!.insertionIndex!.clamp(0, _tabs.length).toInt();
+  }
+
+  double _tabDragShift(int index) {
+    final preview = _registeredTabDragCoordinator?.preview;
+    final insertion = preview?.targetWindowHandle == _nativeWindowHandle
+        ? preview?.insertionIndex
+        : null;
+    if (insertion == null) return 0;
+
+    final sourceIndex = _tabs.indexOf(preview!.tab);
+    if (sourceIndex < 0) return index >= insertion ? 1 : 0;
+    if (index == sourceIndex) return 0;
+
+    var destination = insertion.clamp(0, _tabs.length).toInt();
+    if (sourceIndex < destination) destination--;
+    destination = destination.clamp(0, _tabs.length - 1).toInt();
+    if (destination < sourceIndex &&
+        index >= destination &&
+        index < sourceIndex) {
+      return 1;
+    }
+    if (destination > sourceIndex &&
+        index > sourceIndex &&
+        index <= destination) {
+      return -1;
+    }
+    return 0;
+  }
+
+  /// Adds [tab] to the strip and makes it active.
+  ///
+  /// A tab added by startup restore ([restored]) is the exception on both
+  /// counts: it joins the restored block at the head of the strip instead of
+  /// the end, and it takes focus only while nothing else is open. A document
+  /// the user asked for - the file the OS launched us with - keeps its place
+  /// at the end and stays the one on screen, whichever order the two
+  /// asynchronous sources happen to resolve in.
+  void _addTab(DocumentTab tab, {bool restored = false}) {
     setState(() {
       // A new tab shrinks the others to fit; drop any close-streak width hold.
       _heldTabWidth = null;
-      _tabs.add(tab);
-      _activeIndex = _tabs.length - 1;
+      if (!restored) {
+        _tabs.add(tab);
+        _activeIndex = _tabs.length - 1;
+        return;
+      }
+      final at = _restoredTabs.clamp(0, _tabs.length);
+      // Anything at or past the restored block was opened explicitly this
+      // launch; if one of those is active it stays active, just shifted along.
+      final userTabActive = _tabs.isNotEmpty && _activeIndex >= at;
+      _tabs.insert(at, tab);
+      _restoredTabs = at + 1;
+      _activeIndex = userTabActive ? _activeIndex + 1 : at;
     });
     unawaited(_persistSession());
   }
@@ -692,14 +1087,15 @@ class _EditorScreenState extends State<EditorScreen>
       {String? originPath,
       String? originBookmark,
       String? originToken,
-      String? cachePath}) {
+      String? cachePath,
+      bool restored = false}) {
     final tab = DocumentTab.loading(
         title: title,
         originPath: originPath,
         originBookmark: originBookmark,
         originToken: originToken,
         cachePath: cachePath);
-    _addTab(tab);
+    _addTab(tab, restored: restored);
     return tab;
   }
 
@@ -709,10 +1105,11 @@ class _EditorScreenState extends State<EditorScreen>
       replacement.dispose();
       return false;
     }
-    setState(() {
-      _tabs[index] = replacement;
-      _activeIndex = index;
-    });
+    // Swap in place, leaving the selection alone: the placeholder is normally
+    // the active tab already, and when it isn't - a session restore finishing
+    // behind the file the OS launched us with - stealing focus here would undo
+    // the ordering _addTab just got right.
+    setState(() => _tabs[index] = replacement);
     loading.dispose();
     unawaited(_persistSession());
     return true;
@@ -783,8 +1180,7 @@ class _EditorScreenState extends State<EditorScreen>
         loading,
         DocumentTab.error(
           title: errorTitle ?? title,
-          error: appL10n(context)
-              .editorCouldNotOpenDetail(errorTitle ?? title, '$e'),
+          error: _openFailureDetail(errorTitle ?? title, e),
         ),
       );
     }
@@ -859,16 +1255,11 @@ class _EditorScreenState extends State<EditorScreen>
         bookmark: tab.originBookmark,
         cachePath: tab.cachePath,
         into: tab,
-        onOpenFailed: (_) {
-          // Session restoration is best-effort. A source that disappeared
-          // since the previous run should vanish quietly rather than leave a
-          // permanent error tab. `_closeTabs` removes synchronously until its
-          // first await for these clean placeholders, so the fallback's later
-          // replacement sees that the tab is already gone.
-          if (mounted && _tabs.contains(tab)) {
-            unawaited(_closeTabs([tab]));
-          }
-        },
+        // Session restoration is best-effort. A source that disappeared since
+        // the previous run should vanish quietly rather than leave a permanent
+        // error tab. The fallback closes this clean placeholder when the
+        // callback reports that it handled the failure.
+        onOpenFailed: (_) => true,
       );
     });
   }
@@ -934,7 +1325,9 @@ class _EditorScreenState extends State<EditorScreen>
     String? bookmark,
     String? token,
     String? cachePath,
-    void Function(Object error)? onOpenFailed,
+    int? declaredBytes,
+    String? provider,
+    bool Function(Object error)? onOpenFailed,
     DocumentTab? into,
   }) async {
     assert((path != null) != (token != null),
@@ -949,8 +1342,19 @@ class _EditorScreenState extends State<EditorScreen>
         );
     final cancel = PdfCancelToken();
     final progress = ValueNotifier<double>(0);
+    final openClock = Stopwatch()..start();
+    var fetchedBytes = 0;
+    var totalBytes = declaredBytes;
     final source = _progressiveSource(
-        path: path, bookmark: bookmark, token: token, cancel: cancel);
+      path: path,
+      bookmark: bookmark,
+      token: token,
+      cancel: cancel,
+      onProgress: (received, total) {
+        fetchedBytes = received;
+        if (total != null && total >= 0) totalBytes = total;
+      },
+    );
 
     PdfDocument doc;
     try {
@@ -969,6 +1373,17 @@ class _EditorScreenState extends State<EditorScreen>
       // The progressive first paint could not be assembled (IO error, or a
       // shape the ranged loader gives up on). Fall back to the plain read the
       // rest of the app uses, reusing the same loading placeholder.
+      AppDevTools.instance.addLog(
+        'open-trace: progressive-fallback '
+        'platform=${defaultTargetPlatform.name} '
+        'origin=${token == null ? "desktop" : "mobile"} '
+        'provider="${_openTraceLabel(provider)}" '
+        'name="${_openTraceLabel(title)}" '
+        'fetchedBytes=$fetchedBytes '
+        'totalBytes=${totalBytes ?? "unknown"} '
+        'elapsedMs=${openClock.elapsedMilliseconds} '
+        'errorType=${error.runtimeType}',
+      );
       progress.dispose();
       await source.close();
       if (!mounted) return;
@@ -1019,6 +1434,19 @@ class _EditorScreenState extends State<EditorScreen>
     AppDevTools.instance.addLog(
         'progressive open: "$title" first paint — ${doc.pageCount} pages; '
         'reading full file…');
+    AppDevTools.instance.addLog(
+      'open-trace: first-paint '
+      'platform=${defaultTargetPlatform.name} '
+      'origin=${token == null ? "desktop" : "mobile"} '
+      'provider="${_openTraceLabel(provider)}" '
+      'name="${_openTraceLabel(title)}" '
+      'mode=progressive seekable=true '
+      'fetchedBytes=$fetchedBytes '
+      'totalBytes=${totalBytes ?? "unknown"} '
+      'fetchedPercent=${_openTracePercent(fetchedBytes, totalBytes)} '
+      'elapsedMs=${openClock.elapsedMilliseconds} '
+      'pages=${doc.pageCount}',
+    );
 
     // Stream the rest in behind the first paint, then swap to a full session.
     unawaited(_finishProgressive(preview, source));
@@ -1072,8 +1500,7 @@ class _EditorScreenState extends State<EditorScreen>
         if (index == -1) return;
         setState(() => _tabs[index] = DocumentTab.error(
               title: preview.title,
-              error: appL10n(context)
-                  .editorCouldNotOpenDetail(preview.title, '$error2'),
+              error: _openFailureDetail(preview.title, error2),
             ));
         preview.dispose();
       }
@@ -1124,7 +1551,7 @@ class _EditorScreenState extends State<EditorScreen>
     String? bookmark,
     String? token,
     String? cachePath,
-    void Function(Object error)? onOpenFailed,
+    bool Function(Object error)? onOpenFailed,
   }) async {
     try {
       final bytes =
@@ -1155,13 +1582,17 @@ class _EditorScreenState extends State<EditorScreen>
         }
       }
     } catch (error) {
-      onOpenFailed?.call(error);
       if (!mounted) return;
+      final handled = onOpenFailed?.call(error) ?? false;
+      if (handled) {
+        await _closeTabs([loading]);
+        return;
+      }
       _replaceLoadingTab(
         loading,
         DocumentTab.error(
           title: title,
-          error: appL10n(context).editorCouldNotOpenDetail(title, '$error'),
+          error: _openFailureDetail(title, error),
         ),
       );
     }
@@ -1184,8 +1615,8 @@ class _EditorScreenState extends State<EditorScreen>
         // Older runner without the mobile_file channel - fall through to the
         // copy-based picker below.
       } catch (e) {
-        _openError(
-            l10n.editorOpenFailedTitle, l10n.editorCouldNotOpenSelected('$e'));
+        _openError(l10n.editorOpenFailedTitle,
+            l10n.editorCouldNotOpenSelected(openErrorSummary(e)));
         return;
       }
     }
@@ -1225,8 +1656,8 @@ class _EditorScreenState extends State<EditorScreen>
         }
       }
     } catch (e) {
-      _openError(
-          l10n.editorOpenFailedTitle, l10n.editorCouldNotOpenSelected('$e'));
+      _openError(l10n.editorOpenFailedTitle,
+          l10n.editorCouldNotOpenSelected(openErrorSummary(e)));
     }
   }
 
@@ -1245,18 +1676,67 @@ class _EditorScreenState extends State<EditorScreen>
     final defer = picks.length > 1;
     for (final pick in picks) {
       if (!mounted) return;
-      if (!defer && pick.seekable) {
-        await _openProgressive(title: pick.name, token: pick.token);
+      final progressive = !defer && pick.seekable;
+      final reason = progressive
+          ? 'single-seekable'
+          : defer
+              ? 'batch'
+              : 'non-seekable';
+      AppDevTools.instance.addLog(
+        'open-trace: mobile-pick '
+        'platform=${defaultTargetPlatform.name} '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'declaredBytes=${pick.length ?? "unknown"} '
+        'seekable=${pick.seekable} '
+        'mode=${progressive ? "progressive" : "whole"} '
+        'reason=$reason',
+      );
+      if (progressive) {
+        await _openProgressive(
+          title: pick.name,
+          token: pick.token,
+          declaredBytes: pick.length,
+          provider: pick.provider,
+        );
       } else {
         // Non-seekable, or a batch we won't fan out into concurrent streams:
         // drain the reference whole (still one read of the original, no OS
         // copy) and open it like any other loaded document.
         await _openLoadedBytes(
-          _readOriginFully(token: pick.token),
+          _readMobileOriginFullyWithTrace(pick, reason: reason),
           title: pick.name,
           defer: defer,
         );
       }
+    }
+  }
+
+  Future<Uint8List> _readMobileOriginFullyWithTrace(
+    MobilePickedPdf pick, {
+    required String reason,
+  }) async {
+    final clock = Stopwatch()..start();
+    try {
+      final bytes = await _readOriginFully(token: pick.token);
+      AppDevTools.instance.addLog(
+        'open-trace: whole-read '
+        'platform=${defaultTargetPlatform.name} origin=mobile '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'mode=whole reason=$reason '
+        'bytes=${bytes.length} elapsedMs=${clock.elapsedMilliseconds}',
+      );
+      return bytes;
+    } catch (_) {
+      AppDevTools.instance.addLog(
+        'open-trace: whole-read-failed '
+        'platform=${defaultTargetPlatform.name} origin=mobile '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'mode=whole reason=$reason elapsedMs=${clock.elapsedMilliseconds}',
+      );
+      rethrow;
     }
   }
 
@@ -1285,20 +1765,47 @@ class _EditorScreenState extends State<EditorScreen>
     _addTab(tab);
   }
 
+  void _newWindow() {
+    final open = widget.onNewWindow;
+    if (open == null) return;
+    if (!open(context)) {
+      _toast(appL10n(context).editorUnableToOpenNewWindow);
+    }
+  }
+
+  /// True while a device scan is up. The platform scanner runs one session at a
+  /// time - a second request while the camera is open comes straight back as an
+  /// error ("Another scan is already running") - so a second tap no-ops instead
+  /// of turning into a failure toast.
+  bool _scanInFlight = false;
+
+  /// Runs the device scanner. Null means "no pages": cancelled, unavailable, or
+  /// failed - a failure has already been logged and toasted by the time this
+  /// returns, so callers just stop. Full platform diagnostics stay in DevTools;
+  /// the transient user message never exposes exception types or native error
+  /// plumbing.
+  Future<Uint8List?> _runScan() async {
+    final scan = _documentScanner;
+    if (scan == null || _scanInFlight) return null;
+    _scanInFlight = true;
+    try {
+      return await scan();
+    } catch (e) {
+      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
+      if (mounted) {
+        _toast(appL10n(context).editorScanFailed);
+      }
+      return null;
+    } finally {
+      _scanInFlight = false;
+    }
+  }
+
   /// Scans a document with the device camera (mobile/tablet only) and opens
   /// the captured pages as a new tab. The scanner returns the pages as a PDF;
   /// a cancelled scan is a silent no-op, a failed one toasts.
   Future<void> _newDocumentFromScan() async {
-    final scan = _documentScanner;
-    if (scan == null) return;
-    final Uint8List? bytes;
-    try {
-      bytes = await scan();
-    } catch (e) {
-      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
-      if (mounted) _toast(appL10n(context).editorScanFailed);
-      return;
-    }
+    final bytes = await _runScan();
     if (!mounted || bytes == null) return;
     final tab = DocumentTab.document(
       title: _nextUntitledTitle(),
@@ -1313,17 +1820,9 @@ class _EditorScreenState extends State<EditorScreen>
   /// Scans a document (mobile/tablet only) and inserts its pages into [tab]'s
   /// edit session, after the page currently in view. One undoable step.
   Future<void> _insertScan(DocumentTab tab) async {
-    final scan = _documentScanner;
     final session = tab.session;
-    if (scan == null || session == null) return;
-    final Uint8List? bytes;
-    try {
-      bytes = await scan();
-    } catch (e) {
-      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
-      if (mounted) _toast(appL10n(context).editorScanFailed);
-      return;
-    }
+    if (session == null) return;
+    final bytes = await _runScan();
     if (!mounted || bytes == null) return;
     final insertedAt = (tab.viewer?.currentPage ?? 0) + 1;
     try {
@@ -1351,17 +1850,37 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens a file the OS handed us (association, share, launch arg).
   ///
+  /// The document lands at the end of the strip and becomes the active tab -
+  /// it is the one the user just asked for. Startup restore keeps out of its
+  /// way (see [_addTab]), so this holds however the two race.
+  ///
   /// If a tab already holds this exact path, focus it instead of opening a
   /// duplicate. The same launch file can arrive twice - once via the
   /// command-line launch args and once via the native `getInitialFile`
   /// channel (Windows delivers both) - and re-opening an already-open
   /// document from the OS should surface the existing tab, not stack copies.
+  /// When that existing tab is one startup restore put back, it moves to the
+  /// end: the user opened this file, so it belongs exactly where it would
+  /// have landed had the OS beaten restore to it.
   Future<void> _openIncoming(IncomingFile file) async {
     final path = file.path;
     if (path != null && path.isNotEmpty) {
       final existing = _tabs.indexWhere((t) => t.originPath == path);
       if (existing != -1) {
-        setState(() => _activeIndex = existing);
+        final tab = _tabs[existing];
+        // Only a restored tab the user has never opened moves: it is still a
+        // placeholder, so re-slotting it is invisible. A document already on
+        // its feet keeps its place - the user put it there.
+        final move = existing < _restoredTabs &&
+            (tab.isDeferredPath || tab.isDeferred || tab.isLoading);
+        setState(() {
+          if (move) {
+            _restoredTabs--;
+            _tabs.add(_tabs.removeAt(existing));
+          }
+          _activeIndex = move ? _tabs.length - 1 : existing;
+        });
+        if (move) unawaited(_persistSession());
         return;
       }
     }
@@ -1519,7 +2038,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// new tabs or have their pages inserted into the current document. Returns
   /// null when cancelled.
   Future<_DropAction?> _promptDropAction(int count, String title) {
-    return showDialog<_DropAction>(
+    return showPdfDialog<_DropAction>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('drop-action-dialog'),
@@ -1566,7 +2085,9 @@ class _EditorScreenState extends State<EditorScreen>
         onOpenFailed: (_) {
           unawaited(_recents.remove(entry.id));
           _pruneRecentCache();
-          _toast(appL10n(context).editorCouldNotReopen(entry.title));
+          _toast(appL10n(context)
+              .editorCouldNotReopen(pdfDisplayName(entry.title)));
+          return true;
         },
       );
       return;
@@ -1603,31 +2124,50 @@ class _EditorScreenState extends State<EditorScreen>
       await _recents.remove(entry.id);
       _pruneRecentCache();
       if (!mounted) return;
-      _replaceLoadingTab(
-        loading,
-        DocumentTab.error(
-          title: entry.title,
-          error: appL10n(context).editorCouldNotOpenDetail(entry.title, '$e'),
-        ),
+      AppDevTools.instance.addLog(
+        'recent open failed: ${entry.title} - $e',
+        level: DevLogLevel.error,
       );
-      _toast(appL10n(context).editorCouldNotReopen(entry.title));
+      await _closeTabs([loading]);
+      if (!mounted) return;
+      _toast(
+          appL10n(context).editorCouldNotReopen(pdfDisplayName(entry.title)));
     }
   }
 
   List<RecentFile> _recentMenuEntries() {
-    final openIds = {
-      for (final tab in _tabs)
-        if (tab.originPath != null && tab.originPath!.isNotEmpty)
-          tab.originPath!
-        else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
-          tab.cachePath!
-        else
-          tab.title,
-    };
+    return _availableRecentEntries().take(_maxRecentMenuItems).toList();
+  }
+
+  Set<String> _openRecentIds() => {
+        for (final tab in _tabs)
+          if (tab.originPath != null && tab.originPath!.isNotEmpty)
+            tab.originPath!
+          else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
+            tab.cachePath!
+          else
+            tab.title,
+      };
+
+  List<RecentFile> _availableRecentEntries() {
+    final openIds = _openRecentIds();
     return [
       for (final entry in _recents.items)
         if (!openIds.contains(entry.id)) entry,
-    ].take(_maxRecentMenuItems).toList();
+    ];
+  }
+
+  void _showRecentFiles() {
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecentFilesScreen(
+          recents: _recents,
+          thumbnails: _recentThumbnails,
+          excludedIds: _openRecentIds(),
+          onOpenRecent: (entry) => unawaited(_openRecent(entry)),
+        ),
+      ),
+    ));
   }
 
   void _openMostRecent() {
@@ -1658,8 +2198,8 @@ class _EditorScreenState extends State<EditorScreen>
         _activeIndex = _tabs.length - 1;
       });
     } catch (e) {
-      _openError(
-          l10n.editorCompareFailedTitle, l10n.editorCouldNotOpenSecond('$e'));
+      _openError(l10n.editorCompareFailedTitle,
+          l10n.editorCouldNotOpenSecond(openErrorSummary(e)));
     }
   }
 
@@ -1708,6 +2248,12 @@ class _EditorScreenState extends State<EditorScreen>
       );
       if (!ok || !mounted) return;
     }
+    _removeTabs(targets);
+  }
+
+  /// Removes tabs after their contents have either been discarded or handed
+  /// safely to another window.
+  void _removeTabs(List<DocumentTab> targets) {
     final active = _active;
     // Chrome-style width hold: while the cursor is over the strip, keep the
     // surviving tabs at their current width so the next close button lands
@@ -1718,7 +2264,12 @@ class _EditorScreenState extends State<EditorScreen>
     }
     setState(() {
       for (final tab in targets) {
-        _tabs.remove(tab);
+        final index = _tabs.indexOf(tab);
+        if (index == -1) continue;
+        // Keep the restored-block count honest: a session document whose file
+        // has vanished drops its placeholder mid-restore.
+        if (index < _restoredTabs) _restoredTabs--;
+        _tabs.removeAt(index);
       }
       // Keep the previously active document active when it survived.
       final keep = active == null ? -1 : _tabs.indexOf(active);
@@ -1735,6 +2286,19 @@ class _EditorScreenState extends State<EditorScreen>
       }
     });
     unawaited(_persistSession());
+  }
+
+  void _moveTabToNewWindow(DocumentTab tab) {
+    final open = widget.onNewWindow;
+    final session = tab.session;
+    if (open == null || session == null) return;
+
+    final handoff = DocumentHandoff.fromTab(tab);
+    if (!open(context, document: handoff)) {
+      _toast(appL10n(context).editorUnableToOpenNewWindow);
+      return;
+    }
+    _removeTabs([tab]);
   }
 
   /// Opens the right-click context menu for the tab at [index] at [position]
@@ -1766,6 +2330,15 @@ class _EditorScreenState extends State<EditorScreen>
             height: _appMenuItemHeight(),
             value: _TabMenuAction.openFolder,
             child: Text(openContainingFolderLabel),
+          ),
+          const PopupMenuDivider(),
+        ],
+        if (widget.onNewWindow != null && tab.session != null) ...[
+          PopupMenuItem(
+            key: const ValueKey('tab-menu-move-window'),
+            height: _appMenuItemHeight(),
+            value: _TabMenuAction.moveToNewWindow,
+            child: Text(appL10n(context).editorMoveToNewWindow),
           ),
           const PopupMenuDivider(),
         ],
@@ -1805,10 +2378,15 @@ class _EditorScreenState extends State<EditorScreen>
     if (i < 0) return;
     switch (selected) {
       case _TabMenuAction.openFolder:
-        final opened = await openContainingFolder(tab.originPath);
+        final opened = await openContainingFolder(
+          tab.originPath,
+          bookmark: tab.originBookmark,
+        );
         if (!opened && mounted) {
           _toast(appL10n(context).editorCouldNotOpenFolder);
         }
+      case _TabMenuAction.moveToNewWindow:
+        _moveTabToNewWindow(tab);
       case _TabMenuAction.close:
         await _closeTabs([tab]);
       case _TabMenuAction.closeOthers:
@@ -1822,7 +2400,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<bool> _confirmDiscard(String message) async {
-    final result = await showDialog<bool>(
+    final result = await showPdfDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(appL10n(context).editorDiscardChangesTitle),
@@ -2036,14 +2614,40 @@ class _EditorScreenState extends State<EditorScreen>
     if (mounted) _toast(appL10n(context).editorSignatureRemoved);
   }
 
-  /// Hands the active document to the OS print dialog (the `printing` plugin -
-  /// native dialog on desktop/mobile, browser print on the web). The current
-  /// revision is printed, so unsaved edits are included. A failed or
-  /// unavailable backend surfaces as a toast rather than throwing.
+  /// Hands the active document to the OS print system (the app's own
+  /// `native_print` channel - the OS dialog on desktop/mobile, browser print on
+  /// the web). The current revision is printed, so unsaved edits are included.
+  /// A failed or unavailable backend surfaces as a toast rather than throwing.
+  ///
+  /// Where the platform's print flow has no preview of its own (Windows and
+  /// Linux - see [platformProvidesPrintPreview]), DartPDF previews the job
+  /// first and prints the page range chosen there. A narrowed range prints an
+  /// extract of the document rather than the whole file, which is also how the
+  /// range reaches the platforms whose print path takes a whole PDF.
   Future<void> _print(DocumentTab tab) async {
-    final bytes = tab.session?.bytes;
-    if (bytes == null) return;
+    final session = tab.session;
+    if (session == null) return;
+    var bytes = session.bytes;
     try {
+      if (!platformProvidesPrintPreview()) {
+        final pages = await showPrintPreviewDialog(
+          context,
+          document: session.document,
+          title: tab.title,
+          currentPage: tab.viewer?.currentPage ?? 0,
+        );
+        if (pages == null || !mounted || !_tabs.contains(tab)) return;
+        // The preview is modal, but the session stays the source of truth for
+        // what prints - re-read it rather than trusting the pre-dialog bytes.
+        final document = session.document;
+        final selection = pages
+            .where((page) => page >= 0 && page < document.pageCount)
+            .toList();
+        if (selection.isEmpty) return;
+        bytes = selection.length == document.pageCount
+            ? session.bytes
+            : document.extractPages(selection);
+      }
       final injected = widget.printDocument;
       if (injected != null) {
         await injected(bytes: bytes, title: tab.title);
@@ -2085,7 +2689,7 @@ class _EditorScreenState extends State<EditorScreen>
               !dialogShown &&
               mounted) {
             dialogShown = true;
-            unawaited(showDialog<void>(
+            unawaited(showPdfDialog<void>(
               context: context,
               barrierDismissible: false,
               useRootNavigator: true,
@@ -2222,7 +2826,10 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
-  void _toast(String message) {
+  /// Shows a transient message. [duration] overrides the default for the rare
+  /// toast that carries something to read rather than to acknowledge (an error
+  /// with the platform's reason in it).
+  void _toast(String message, {Duration? duration}) {
     // Toasts are transient; mirroring them into the devtools log keeps a
     // history (and puts them in the exported snapshot).
     AppDevTools.instance.addLog('toast: $message');
@@ -2232,7 +2839,7 @@ class _EditorScreenState extends State<EditorScreen>
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         margin: pdfFloatingToastMargin(context),
-        duration: const Duration(seconds: 2),
+        duration: duration ?? const Duration(seconds: 2),
       ));
   }
 
@@ -2245,6 +2852,13 @@ class _EditorScreenState extends State<EditorScreen>
         TargetPlatform.windows ||
         TargetPlatform.linux =>
           true,
+        _ => false,
+      };
+
+  bool get _usesMobileShare =>
+      !kIsWeb &&
+      switch (defaultTargetPlatform) {
+        TargetPlatform.android || TargetPlatform.iOS => true,
         _ => false,
       };
 
@@ -2276,10 +2890,17 @@ class _EditorScreenState extends State<EditorScreen>
     Widget? trailing,
     Widget? subtitle,
     TextOverflow? overflow,
+    bool middleEllipsis = false,
+    bool hidePdfExtension = false,
   }) =>
       ListTile(
         leading: Icon(icon),
-        title: Text(title, overflow: overflow),
+        title: middleEllipsis
+            ? MiddleEllipsisText(
+                title,
+                hidePdfExtension: hidePdfExtension,
+              )
+            : Text(title, overflow: overflow),
         subtitle: subtitle,
         trailing: trailing ??
             (shortcut == null
@@ -2330,6 +2951,24 @@ class _EditorScreenState extends State<EditorScreen>
             }
           },
           itemBuilder: (_) => [
+            PopupMenuItem<VoidCallback>(
+              key: const ValueKey('view-all-recent-files'),
+              height: _appMenuItemHeight(),
+              enabled: _availableRecentEntries().isNotEmpty,
+              value: () {
+                // The submenu's onSelected callback closes the parent popup.
+                // Push the browser on the next frame so that pop cannot close
+                // the newly opened route as well.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _showRecentFiles();
+                });
+              },
+              child: _appMenuTile(
+                icon: Icons.grid_view_outlined,
+                title: appL10n(context).editorViewAllRecentFiles,
+              ),
+            ),
+            if (recents.isNotEmpty) const PopupMenuDivider(),
             if (recents.isEmpty)
               PopupMenuItem<VoidCallback>(
                 height: _appMenuItemHeight(),
@@ -2349,14 +2988,11 @@ class _EditorScreenState extends State<EditorScreen>
                     title: entry.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : entry.title,
-                    overflow: TextOverflow.ellipsis,
+                    middleEllipsis: true,
+                    hidePdfExtension: true,
                     subtitle: entry.path == null
                         ? null
-                        : Text(
-                            entry.path!,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
+                        : MiddleEllipsisText(entry.path!),
                   ),
                 ),
               const PopupMenuDivider(),
@@ -2400,6 +3036,17 @@ class _EditorScreenState extends State<EditorScreen>
             shortcut: _menuShortcut('N'),
           ),
         ),
+        if (widget.onNewWindow != null)
+          PopupMenuItem(
+            key: const ValueKey('menu-new-window'),
+            height: _appMenuItemHeight(),
+            value: _newWindow,
+            child: _appMenuTile(
+              icon: Icons.open_in_new,
+              title: appL10n(context).editorMenuNewWindow,
+              shortcut: _menuShortcut('N', shift: true),
+            ),
+          ),
         if (_canScan)
           PopupMenuItem(
             key: const ValueKey('menu-scan-document'),
@@ -2428,9 +3075,14 @@ class _EditorScreenState extends State<EditorScreen>
             height: _appMenuItemHeight(),
             value: () => _save(tab!, saveAs: true),
             child: _appMenuTile(
-              icon: Icons.save_as_outlined,
-              title: appL10n(context).editorMenuSaveAs,
-              shortcut: _menuShortcut('S', shift: true),
+              icon: _usesMobileShare
+                  ? Icons.share_outlined
+                  : Icons.save_as_outlined,
+              title: _usesMobileShare
+                  ? WidgetsLocalizations.of(context).shareButtonLabel
+                  : appL10n(context).editorMenuSaveAs,
+              shortcut:
+                  _usesMobileShare ? null : _menuShortcut('S', shift: true),
             ),
           ),
           if (_canScan && !_readOnly)
@@ -2544,6 +3196,37 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- build ---------------------------------------------------------------
 
+  Widget _buildFileDropTarget(Widget child) {
+    void dragDone(DropDoneDetails detail) {
+      setState(() {
+        _dragging = false;
+        _draggingOverThumbnails = false;
+      });
+      unawaited(_onFilesDropped(detail));
+    }
+
+    final handle = _nativeWindowHandle;
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        handle != null) {
+      return WindowsDropTarget(
+        windowHandle: handle,
+        onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
+        onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
+        onDragExited: (_) => _onDragEnded(),
+        onDragDone: dragDone,
+        child: child,
+      );
+    }
+    return DropTarget(
+      onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
+      onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
+      onDragExited: (_) => _onDragEnded(),
+      onDragDone: dragDone,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tab = _active;
@@ -2552,7 +3235,7 @@ class _EditorScreenState extends State<EditorScreen>
         leading: _buildAppMenu(tab),
         leadingWidth: _appMenuLeadingWidth,
         centerTitle: false,
-        title: _tabs.isEmpty ? const Text('DartPDF') : _buildTabsTitle(),
+        title: _tabs.isEmpty ? _buildEmptyTabsTitle() : _buildTabsTitle(),
         titleSpacing: _tabs.isEmpty ? null : 8,
         actions: _buildActions(tab),
       ),
@@ -2573,73 +3256,71 @@ class _EditorScreenState extends State<EditorScreen>
               _newDocument,
           const SingleActivator(LogicalKeyboardKey.keyN, control: true):
               _newDocument,
+          if (widget.onNewWindow != null)
+            const SingleActivator(LogicalKeyboardKey.keyN,
+                meta: true, shift: true): _newWindow,
+          if (widget.onNewWindow != null)
+            const SingleActivator(LogicalKeyboardKey.keyN,
+                control: true, shift: true): _newWindow,
           const SingleActivator(LogicalKeyboardKey.keyO,
               meta: true, shift: true): _openMostRecent,
           const SingleActivator(LogicalKeyboardKey.keyO,
               control: true, shift: true): _openMostRecent,
         },
-        child: DropTarget(
-          onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
-          onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
-          onDragExited: (_) => _onDragEnded(),
-          onDragDone: (detail) {
-            setState(() {
-              _dragging = false;
-              _draggingOverThumbnails = false;
-            });
-            _onFilesDropped(detail);
-          },
-          child: Builder(builder: (context) {
-            final compactDevTools = _isCompactWidth(context);
-            return Stack(
-              children: [
-                // On wide screens the devtools panel docks beside the body
-                // (like the editor's own sidebars), so the viewer relays out
-                // narrower instead of being overlaid - zoom and scroll
-                // gestures keep their space. On phones there is no room for a
-                // side dock, so it rides up as a bottom sheet instead (below).
-                Positioned.fill(
-                  child: Row(
-                    children: [
-                      Expanded(child: _buildBodyWithDevTools(tab)),
-                      if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
-                        DevToolsPanel(
-                          onClose: _toggleDevTools,
-                          session: tab?.session,
-                        ),
-                    ],
-                  ),
-                ),
-                // The full-window hint yields to the thumbnails' own
-                // insertion marker once the drag is over a page panel - the
-                // marker already says exactly where the pages will land.
-                if (_dragging && !_draggingOverThumbnails)
-                  Positioned.fill(
-                    child: _DropOverlay(
-                      canInsert: tab?.session != null && !_readOnly,
-                    ),
-                  ),
-                // Phone devtools: a bottom sheet over the viewer. Scrim-less,
-                // so the page underneath still takes gestures (matching the
-                // docked panel, which never blocked the viewer either).
-                if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: SafeArea(
-                      top: false,
-                      child: DevToolsPanel(
+        child: _buildFileDropTarget(Builder(builder: (context) {
+          final compactDevTools = _isCompactWidth(context);
+          return Stack(
+            children: [
+              // On wide screens the devtools panel docks beside the body
+              // (like the editor's own sidebars), so the viewer relays out
+              // narrower instead of being overlaid - zoom and scroll
+              // gestures keep their space. On phones there is no room for a
+              // side dock, so it rides up as a bottom sheet instead (below).
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    Expanded(child: _buildBodyWithDevTools(tab)),
+                    if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
+                      DevToolsPanel(
                         onClose: _toggleDevTools,
                         session: tab?.session,
-                        bottomSheet: true,
+                        viewerController: tab?.viewer,
+                        documentTitle: tab?.title,
                       ),
+                  ],
+                ),
+              ),
+              // The full-window hint yields to the thumbnails' own
+              // insertion marker once the drag is over a page panel - the
+              // marker already says exactly where the pages will land.
+              if (_dragging && !_draggingOverThumbnails)
+                Positioned.fill(
+                  child: _DropOverlay(
+                    canInsert: tab?.session != null && !_readOnly,
+                  ),
+                ),
+              // Phone devtools: a bottom sheet over the viewer. Scrim-less,
+              // so the page underneath still takes gestures (matching the
+              // docked panel, which never blocked the viewer either).
+              if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: SafeArea(
+                    top: false,
+                    child: DevToolsPanel(
+                      onClose: _toggleDevTools,
+                      session: tab?.session,
+                      viewerController: tab?.viewer,
+                      documentTitle: tab?.title,
+                      bottomSheet: true,
                     ),
                   ),
-              ],
-            );
-          }),
-        ),
+                ),
+            ],
+          );
+        })),
       ),
     );
   }
@@ -2654,7 +3335,14 @@ class _EditorScreenState extends State<EditorScreen>
       builder: (context, _, __) =>
           ValueListenableBuilder<PdfPageRasterWarmPolicy>(
         valueListenable: AppDevTools.instance.pageRasterWarmPolicy,
-        builder: (context, _, __) => _devToolsPointerLog(_buildBody(tab)),
+        builder: (context, _, __) =>
+            ValueListenableBuilder<TileRasterBackendMode>(
+          valueListenable: AppDevTools.instance.tileRasterBackendMode,
+          builder: (context, _, __) => ValueListenableBuilder<int>(
+            valueListenable: AppDevTools.instance.tileRasterBackendRevision,
+            builder: (context, _, __) => _devToolsPointerLog(_buildBody(tab)),
+          ),
+        ),
       ),
     );
   }
@@ -2665,6 +3353,7 @@ class _EditorScreenState extends State<EditorScreen>
         AppDevTools.instance.pageRasterCachePolicy.value;
     final pageRasterWarmPolicy =
         AppDevTools.instance.pageRasterWarmPolicy.value;
+    final tileRasterBackend = AppDevTools.instance.tileRasterBackend;
     if (tab == null) {
       return WelcomeScreen(
         recents: _recents,
@@ -2695,7 +3384,10 @@ class _EditorScreenState extends State<EditorScreen>
       return _OpeningDocument(title: tab.title);
     }
     if (tab.error != null) {
-      return Center(child: Text(tab.error!, textAlign: TextAlign.center));
+      return _OpenErrorDocument(
+        message: tab.error!,
+        onOpen: _pickAndOpen,
+      );
     }
     if (tab.isComparison) {
       return PdfComparisonView(
@@ -2704,6 +3396,7 @@ class _EditorScreenState extends State<EditorScreen>
         after: tab.compareAfter!,
         pageRasterCachePolicy: pageRasterCachePolicy,
         pageRasterWarmPolicy: pageRasterWarmPolicy,
+        tileRasterBackend: tileRasterBackend,
       );
     }
     if (tab.isPreview) {
@@ -2716,6 +3409,7 @@ class _EditorScreenState extends State<EditorScreen>
         onAction: _onAction,
         pageRasterCachePolicy: pageRasterCachePolicy,
         pageRasterWarmPolicy: pageRasterWarmPolicy,
+        tileRasterBackend: tileRasterBackend,
       );
     }
     if (_readOnly) {
@@ -2732,6 +3426,7 @@ class _EditorScreenState extends State<EditorScreen>
         features: const PdfReaderFeatures(pageColorEditable: false),
         pageRasterCachePolicy: pageRasterCachePolicy,
         pageRasterWarmPolicy: pageRasterWarmPolicy,
+        tileRasterBackend: tileRasterBackend,
       );
     }
     return PdfEditorView(
@@ -2741,9 +3436,14 @@ class _EditorScreenState extends State<EditorScreen>
       viewerController: tab.viewer,
       pageRasterCachePolicy: pageRasterCachePolicy,
       pageRasterWarmPolicy: pageRasterWarmPolicy,
+      tileRasterBackend: tileRasterBackend,
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
+      saveButtonIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+      saveButtonLabel: _usesMobileShare
+          ? WidgetsLocalizations.of(context).shareButtonLabel
+          : null,
       // The shell enables Save off its *own* session history, which misses two
       // cases the app knows about. A brand-new untitled document has no on-disk
       // origin yet, so Save (button + Ctrl/⌘+S) stays live even before the
@@ -2826,8 +3526,13 @@ class _EditorScreenState extends State<EditorScreen>
               visualDensity: VisualDensity.compact,
               padding: const EdgeInsets.symmetric(horizontal: 12),
             ),
-            icon: const Icon(Icons.save_alt, size: 18),
-            label: Text(appL10n(context).save),
+            icon: Icon(
+              _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+              size: 18,
+            ),
+            label: Text(_usesMobileShare
+                ? WidgetsLocalizations.of(context).shareButtonLabel
+                : appL10n(context).save),
             onPressed: () => unawaited(_save(tab!)),
           ),
         ),
@@ -2851,9 +3556,68 @@ class _EditorScreenState extends State<EditorScreen>
   Widget _buildTabsTitle() {
     if (!_isCompactWidth(context)) return _buildTabStrip();
     final tab = _active;
-    return Text(
+    Widget title = MiddleEllipsisText(
       tab?.title.isEmpty ?? true ? appL10n(context).editorUntitled : tab!.title,
-      overflow: TextOverflow.ellipsis,
+      hidePdfExtension: tab?.title.isNotEmpty ?? false,
+    );
+    if (_nativeTabDragging && tab?.session != null) {
+      title = _buildNativeTabDragSource(tab!, title);
+    }
+    return _buildCompactTabDropTarget(title);
+  }
+
+  Widget _buildEmptyTabsTitle() {
+    if (_isCompactWidth(context)) {
+      return _buildCompactTabDropTarget(const Text('DartPDF'));
+    }
+    // Keep a real drop target in an otherwise empty desktop window. This is
+    // the natural destination after New window, and lets the first dragged tab
+    // populate it without requiring a placeholder document.
+    return _buildTabDropSurface(
+      const Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Text('DartPDF'),
+      ),
+    );
+  }
+
+  Widget _buildCompactTabDropTarget(Widget child) {
+    if (!_nativeTabDragging) return child;
+    // Narrow desktop windows use the compact single-title chrome. It cannot
+    // expose a precise insertion slot, but remains a valid append target.
+    return _buildTabDropSurface(
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildTabDropSurface(Widget child) {
+    final coordinator = _registeredTabDragCoordinator;
+    Widget buildSurface() {
+      final targeted = coordinator?.insertionIndexFor(windowHandle) != null;
+      final scheme = Theme.of(context).colorScheme;
+      return AnimatedContainer(
+        key: _tabStripGeometryKey,
+        duration: const Duration(milliseconds: 90),
+        height: _tabStripHeight,
+        width: double.infinity,
+        foregroundDecoration: targeted
+            ? BoxDecoration(
+                color: scheme.primary.withAlpha(0x18),
+                border: Border.all(color: scheme.primary, width: 2),
+                borderRadius: BorderRadius.circular(8),
+              )
+            : null,
+        child: child,
+      );
+    }
+
+    if (coordinator == null) return buildSurface();
+    return ListenableBuilder(
+      listenable: coordinator,
+      builder: (context, _) => buildSurface(),
     );
   }
 
@@ -2919,7 +3683,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _showTabsDialog() async {
-    await showDialog<void>(
+    await showPdfDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
@@ -2980,6 +3744,10 @@ class _EditorScreenState extends State<EditorScreen>
         Expanded(
           child: GridView.builder(
             key: ValueKey('$keyPrefix-tabs-grid'),
+            // A tile paints a real PDF thumbnail. Do not build the next row
+            // speculatively: with large documents that work competes with a
+            // fling even though the thumbnails are still off-screen.
+            scrollCacheExtent: const ScrollCacheExtent.pixels(0),
             padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 220,
@@ -3054,95 +3822,178 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Widget _buildTabStrip() {
-    return SizedBox(
-      height: _tabStripHeight,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          const buttonWidth = 40.0;
-          const controlsWidth = buttonWidth * 2;
-          const listPadding = 8.0; // 4px each side (see the list's padding).
-          final maxTabsWidth = (constraints.maxWidth - controlsWidth)
-              .clamp(0.0, double.infinity)
-              .toDouble();
+    final coordinator = _registeredTabDragCoordinator;
+    Widget buildStrip() => SizedBox(
+          height: _tabStripHeight,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const buttonWidth = 40.0;
+              const controlsWidth = buttonWidth * 2;
+              const listPadding =
+                  8.0; // 4px each side (see the list's padding).
+              final maxTabsWidth = (constraints.maxWidth - controlsWidth)
+                  .clamp(0.0, double.infinity)
+                  .toDouble();
 
-          // Chrome-style sizing: every tab gets an equal share of the strip,
-          // clamped between the min and max tab width. As tabs are added the
-          // share shrinks until it hits the floor, after which the list scrolls.
-          final natural = _chromeTabWidth(maxTabsWidth - listPadding);
-          _lastNaturalTabWidth = natural;
-          // While a close streak is held, keep the surviving tabs at the pinned
-          // width; otherwise use the natural share (never wider than natural, so
-          // a stale hold can't overflow after a resize).
-          final tabWidth = _heldTabWidth == null
-              ? natural
-              : math.min(_heldTabWidth!, natural);
-          final tabsWidth = _tabs.isEmpty
-              ? 0.0
-              : math.min(tabWidth * _tabs.length + listPadding, maxTabsWidth);
+              // Chrome-style sizing: every tab gets an equal share of the strip,
+              // clamped between the min and max tab width. As tabs are added the
+              // share shrinks until it hits the floor, after which the list scrolls.
+              final natural = _chromeTabWidth(maxTabsWidth - listPadding);
+              _lastNaturalTabWidth = natural;
+              // While a close streak is held, keep the surviving tabs at the pinned
+              // width; otherwise use the natural share (never wider than natural, so
+              // a stale hold can't overflow after a resize).
+              final tabWidth = _heldTabWidth == null
+                  ? natural
+                  : math.min(_heldTabWidth!, natural);
+              _lastRenderedTabWidth = tabWidth;
+              final externalGap = _externalTabDragGap;
+              final visualTabCount =
+                  _tabs.length + (externalGap == null ? 0 : 1);
+              final tabsWidth = _tabs.isEmpty
+                  ? 0.0
+                  : math.min(
+                      tabWidth * visualTabCount + listPadding, maxTabsWidth);
+              _lastRenderedTabsWidth = tabsWidth;
+              final insertion = coordinator?.insertionIndexFor(windowHandle);
+              final scheme = Theme.of(context).colorScheme;
+              final rtl = Directionality.of(context) == TextDirection.rtl;
+              final gapPadding = externalGap == null ? 0.0 : tabWidth;
 
-          return Row(
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              if (tabsWidth > 0)
-                MouseRegion(
-                  onEnter: (_) => _tabStripHovered = true,
-                  onExit: (_) {
-                    _tabStripHovered = false;
-                    _releaseTabWidthHold();
-                  },
-                  // Grow back smoothly once the hold releases; both the strip
-                  // and each tab animate to the same width with a linear curve,
-                  // so they stay pixel-consistent throughout.
-                  child: AnimatedContainer(
-                    duration: _tabResizeDuration,
-                    curve: Curves.linear,
-                    width: tabsWidth,
-                    child: ReorderableListView.builder(
-                      key: const ValueKey('tab-strip'),
-                      scrollDirection: Axis.horizontal,
-                      // The whole tab is the drag handle (see _buildTab); the
-                      // stock trailing handles don't fit a horizontal tab strip.
-                      buildDefaultDragHandles: false,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      itemCount: _tabs.length,
-                      onReorderItem: _reorderTabs,
-                      itemBuilder: (context, i) => _buildTab(i, tabWidth),
+              return SizedBox(
+                key: _tabStripGeometryKey,
+                child: Stack(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        if (tabsWidth > 0)
+                          // A window or AppBar-action resize can make the new
+                          // title constraint narrower than the container's
+                          // previous animated width. Clamp outside the animation
+                          // so even its first frame fits the current Row.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: maxTabsWidth),
+                            child: MouseRegion(
+                              onEnter: (_) => _tabStripHovered = true,
+                              onExit: (_) {
+                                _tabStripHovered = false;
+                                _releaseTabWidthHold();
+                              },
+                              // Grow back smoothly once the hold releases; both the strip
+                              // and each tab animate to the same width with a linear curve,
+                              // so they stay pixel-consistent throughout.
+                              child: AnimatedContainer(
+                                duration: _tabResizeDuration,
+                                curve: Curves.linear,
+                                width: tabsWidth,
+                                child: ReorderableListView.builder(
+                                  key: const ValueKey('tab-strip'),
+                                  scrollController: _tabScrollController,
+                                  scrollDirection: Axis.horizontal,
+                                  // The whole tab is the drag handle (see _buildTab); the
+                                  // stock trailing handles don't fit a horizontal tab strip.
+                                  buildDefaultDragHandles: false,
+                                  padding: EdgeInsets.only(
+                                    left: rtl ? 4 + gapPadding : 4,
+                                    right: rtl ? 4 : 4 + gapPadding,
+                                  ),
+                                  itemCount: _tabs.length,
+                                  onReorderItem: _reorderTabs,
+                                  itemBuilder: (context, i) =>
+                                      _buildTab(i, tabWidth),
+                                ),
+                              ),
+                            ),
+                          ),
+                        SizedBox(
+                          width: buttonWidth,
+                          height: _tabStripHeight,
+                          child: IconButton(
+                            key: const ValueKey('desktop-tab-add-button'),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                                width: buttonWidth),
+                            icon: const Icon(Icons.add),
+                            tooltip: appL10n(context).editorOpenPdfNewTab,
+                            onPressed: _pickAndOpen,
+                          ),
+                        ),
+                        const Spacer(key: ValueKey('desktop-tabs-spacer')),
+                        SizedBox(
+                          width: buttonWidth,
+                          height: _tabStripHeight,
+                          child: IconButton(
+                            key: const ValueKey('desktop-tabs-button'),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                                width: buttonWidth),
+                            icon: const Icon(Icons.grid_view),
+                            tooltip: appL10n(context).editorViewAllTabs,
+                            onPressed: _showTabsDialog,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                    if (insertion != null)
+                      PositionedDirectional(
+                        start: 0,
+                        width: tabsWidth > 0 ? tabsWidth : maxTabsWidth,
+                        top: 0,
+                        bottom: 0,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            key: const ValueKey('tab-drag-drop-highlight'),
+                            decoration: BoxDecoration(
+                              color: scheme.primary.withAlpha(0x12),
+                              border: Border.all(
+                                color: scheme.primary.withAlpha(0xB0),
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (insertion != null && tabsWidth > 0)
+                      PositionedDirectional(
+                        start: (4 +
+                                insertion * tabWidth -
+                                (_tabScrollController.hasClients
+                                    ? _tabScrollController.offset
+                                    : 0.0))
+                            .clamp(2.0, math.max(2.0, tabsWidth - 2))
+                            .toDouble(),
+                        top: 4,
+                        bottom: 4,
+                        child: IgnorePointer(
+                          child: Container(
+                            key: const ValueKey('tab-drag-insertion-indicator'),
+                            width: 3,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              borderRadius: BorderRadius.circular(2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: scheme.shadow.withAlpha(0x50),
+                                  blurRadius: 3,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              SizedBox(
-                width: buttonWidth,
-                height: _tabStripHeight,
-                child: IconButton(
-                  key: const ValueKey('desktop-tab-add-button'),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints.tightFor(width: buttonWidth),
-                  icon: const Icon(Icons.add),
-                  tooltip: appL10n(context).editorOpenPdfNewTab,
-                  onPressed: _pickAndOpen,
-                ),
-              ),
-              const Spacer(key: ValueKey('desktop-tabs-spacer')),
-              SizedBox(
-                width: buttonWidth,
-                height: _tabStripHeight,
-                child: IconButton(
-                  key: const ValueKey('desktop-tabs-button'),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints.tightFor(width: buttonWidth),
-                  icon: const Icon(Icons.grid_view),
-                  tooltip: appL10n(context).editorViewAllTabs,
-                  onPressed: _showTabsDialog,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+    if (coordinator == null) return buildStrip();
+    return ListenableBuilder(
+      listenable: coordinator,
+      builder: (context, _) => buildStrip(),
     );
   }
 
@@ -3164,9 +4015,9 @@ class _EditorScreenState extends State<EditorScreen>
     // so the label keeps room; the active tab always keeps it.
     final showClose = selected || width >= _tabCloseHideWidth;
     Widget label() {
-      final text = Text(
+      final text = MiddleEllipsisText(
         tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
-        overflow: TextOverflow.ellipsis,
+        hidePdfExtension: tab.title.isNotEmpty,
         style: TextStyle(
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
           color:
@@ -3191,54 +4042,251 @@ class _EditorScreenState extends State<EditorScreen>
       );
     }
 
-    // Dragging anywhere on the tab reorders it; the tap/close gestures still
-    // win when the pointer doesn't travel (gesture arena resolves drag vs tap).
-    return _TabHoverPreview(
-      key: ValueKey(tab),
+    final chrome = AnimatedContainer(
+      duration: _tabResizeDuration,
+      curve: Curves.linear,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+      child: Material(
+        color: selected
+            ? scheme.secondaryContainer
+            : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => setState(() => _activeIndex = index),
+          onSecondaryTapUp: (details) =>
+              _showTabMenu(index, details.globalPosition),
+          child: Padding(
+            padding:
+                EdgeInsetsDirectional.only(start: 12, end: showClose ? 2 : 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Expanded(child: label()),
+                if (showClose)
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 30,
+                      minHeight: 30,
+                    ),
+                    tooltip: appL10n(context).editorCloseTab,
+                    onPressed: () => _closeTab(index),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // The process-wide drag owns editable tabs when this window participates
+    // in the router. Placeholders keep the local reorder recognizer until their
+    // bytes have materialized and can be handed to another window.
+    final dragSource = _nativeTabDragging && tab.session != null
+        ? _buildNativeTabDragSource(tab, chrome)
+        : _TabDragStartListener(index: index, child: chrome);
+    final hoverPreview = _TabHoverPreview(
       tab: tab,
       enabled: !selected,
-      child: _TabDragStartListener(
-        index: index,
-        // Match the strip's linear resize so the tab and its container stay in
-        // step while the width-hold releases (see _buildTabStrip).
-        child: AnimatedContainer(
-          duration: _tabResizeDuration,
-          curve: Curves.linear,
-          width: width,
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-          child: Material(
-            color: selected
-                ? scheme.secondaryContainer
-                : scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => setState(() => _activeIndex = index),
-              onSecondaryTapUp: (details) =>
-                  _showTabMenu(index, details.globalPosition),
-              child: Padding(
-                padding: EdgeInsetsDirectional.only(
-                    start: 12, end: showClose ? 2 : 12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.max,
+      child: dragSource,
+    );
+    final coordinator = _registeredTabDragCoordinator;
+    if (coordinator == null) {
+      return KeyedSubtree(key: ValueKey(tab), child: hoverPreview);
+    }
+    return ListenableBuilder(
+      key: ValueKey(tab),
+      listenable: coordinator,
+      builder: (context, child) {
+        final logicalShift = _tabDragShift(index);
+        final direction =
+            Directionality.of(context) == TextDirection.rtl ? -1 : 1;
+        return AnimatedSlide(
+          offset: Offset(logicalShift * direction, 0),
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          child: child,
+        );
+      },
+      child: hoverPreview,
+    );
+  }
+
+  Widget _buildNativeTabDragSource(DocumentTab tab, Widget child) {
+    final coordinator = _registeredTabDragCoordinator!;
+    return Draggable<String>(
+      maxSimultaneousDrags: 1,
+      data: 'dartpdf-tab',
+      dragAnchorStrategy: childDragAnchorStrategy,
+      feedback: ListenableBuilder(
+        listenable: coordinator,
+        builder: (feedbackContext, _) {
+          final preview = coordinator.previewFor(tab);
+          // Before the first native cursor poll returns the drag has only just
+          // started on this strip, so paint the in-strip state by default.
+          final overStrip = preview?.isOverTabStrip ?? true;
+          final movingToAnotherWindow = overStrip &&
+              preview?.targetWindowHandle != null &&
+              preview!.targetWindowHandle != windowHandle;
+          return _buildTabDragFeedback(
+            feedbackContext,
+            tab,
+            overStrip: overStrip,
+            movingToAnotherWindow: movingToAnotherWindow,
+            key: ValueKey(overStrip
+                ? 'tab-drag-feedback-over-strip'
+                : 'tab-drag-feedback-detached'),
+          );
+        },
+      ),
+      childWhenDragging: Opacity(opacity: 0, child: child),
+      onDragStarted: () {
+        if (!containsTab(tab) || tab.session == null) return;
+        final token =
+            '$windowHandle:${_nextNativeTabDragToken++}:${identityHashCode(tab)}';
+        final previous = _nativeTabDragTokens[tab];
+        if (previous != null) coordinator.cancel(previous);
+        _nativeTabDragTokens[tab] = token;
+        coordinator.begin(
+          this,
+          tab,
+          () => DocumentHandoff.fromTab(tab),
+          token: token,
+        );
+        coordinator.update(token);
+      },
+      onDragUpdate: (_) {
+        final token = _nativeTabDragTokens[tab];
+        if (token != null) coordinator.update(token);
+      },
+      onDragEnd: (_) {
+        final token = _nativeTabDragTokens.remove(tab);
+        if (token == null) return;
+        unawaited(
+            coordinator.finish(token, userCancelled: false).then((result) {
+          if (mounted && result == TabDragResult.failed) {
+            _toast(appL10n(context).editorUnableToOpenNewWindow);
+          }
+        }));
+      },
+      child: child,
+    );
+  }
+
+  Widget _buildTabDragFeedback(
+    BuildContext feedbackContext,
+    DocumentTab tab, {
+    required bool overStrip,
+    required bool movingToAnotherWindow,
+    required Key key,
+  }) {
+    final scheme = Theme.of(feedbackContext).colorScheme;
+    return Material(
+      key: key,
+      color: overStrip ? scheme.primaryContainer : scheme.tertiaryContainer,
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(
+          color: overStrip ? scheme.primary : scheme.tertiary,
+          width: 2,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 280),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                overStrip
+                    ? (movingToAnotherWindow
+                        ? Icons.move_to_inbox_outlined
+                        : Icons.reorder)
+                    : Icons.open_in_new,
+                size: 18,
+                color: overStrip
+                    ? scheme.onPrimaryContainer
+                    : scheme.onTertiaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: label()),
-                    if (showClose)
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 16),
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 30,
-                          minHeight: 30,
-                        ),
-                        tooltip: appL10n(context).editorCloseTab,
-                        onPressed: () => _closeTab(index),
+                    MiddleEllipsisText(
+                      tab.title,
+                      hidePdfExtension: true,
+                      style: TextStyle(
+                        color: overStrip
+                            ? scheme.onPrimaryContainer
+                            : scheme.onTertiaryContainer,
+                        fontWeight: FontWeight.w600,
                       ),
+                    ),
+                    Text(
+                      overStrip
+                          ? appL10n(feedbackContext).editorTabs
+                          : appL10n(feedbackContext).editorMoveToNewWindow,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(feedbackContext)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(
+                            color: overStrip
+                                ? scheme.onPrimaryContainer
+                                : scheme.onTertiaryContainer,
+                          ),
+                    ),
                   ],
                 ),
               ),
-            ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OpenErrorDocument extends StatelessWidget {
+  const _OpenErrorDocument({required this.message, required this.onOpen});
+
+  final String message;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.file_open_outlined, size: 48, color: scheme.error),
+              const SizedBox(height: 16),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: onOpen,
+                icon: const Icon(Icons.folder_open),
+                label: Text(appL10n(context).editorOpenPdfNewTab),
+              ),
+            ],
           ),
         ),
       ),
@@ -3265,7 +4313,7 @@ class _OpeningDocument extends StatelessWidget {
             Text(
               title.isEmpty
                   ? appL10n(context).editorOpeningPdf
-                  : appL10n(context).editorOpeningTitle(title),
+                  : appL10n(context).editorOpeningTitle(pdfDisplayName(title)),
               textAlign: TextAlign.center,
             ),
           ],
@@ -3288,6 +4336,7 @@ class _ProgressivePreview extends StatelessWidget {
     required this.onAction,
     required this.pageRasterCachePolicy,
     required this.pageRasterWarmPolicy,
+    required this.tileRasterBackend,
   });
 
   final DocumentTab tab;
@@ -3295,6 +4344,7 @@ class _ProgressivePreview extends StatelessWidget {
   final PdfActionHandler onAction;
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
   final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
+  final PdfTileRasterBackend tileRasterBackend;
 
   @override
   Widget build(BuildContext context) {
@@ -3309,6 +4359,7 @@ class _ProgressivePreview extends StatelessWidget {
             onAction: onAction,
             pageRasterCachePolicy: pageRasterCachePolicy,
             pageRasterWarmPolicy: pageRasterWarmPolicy,
+            tileRasterBackend: tileRasterBackend,
           ),
         ),
         Positioned(
@@ -3339,7 +4390,14 @@ class _ProgressivePreview extends StatelessWidget {
 }
 
 /// The actions offered by a tab's right-click context menu.
-enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
+enum _TabMenuAction {
+  openFolder,
+  moveToNewWindow,
+  close,
+  closeOthers,
+  closeRight,
+  closeAll,
+}
 
 /// Shows a non-interactive thumbnail card for an inactive desktop tab after a
 /// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab
@@ -3347,7 +4405,6 @@ enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 /// subtree while the list is laying out or moving its drag proxy.
 class _TabHoverPreview extends StatefulWidget {
   const _TabHoverPreview({
-    super.key,
     required this.tab,
     required this.enabled,
     required this.child,
@@ -3527,13 +4584,12 @@ class _DesktopTabPreviewCard extends StatelessWidget {
                     child: Icon(Icons.circle, size: 8, color: scheme.primary),
                   ),
                 Expanded(
-                  child: Text(
+                  child: MiddleEllipsisText(
                     tab.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : tab.title,
+                    hidePdfExtension: tab.title.isNotEmpty,
                     key: const ValueKey('tab-hover-preview-title'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                 ),
@@ -3773,12 +4829,11 @@ class _MobileTabTile extends StatelessWidget {
                       child: Icon(Icons.circle, size: 8, color: scheme.primary),
                     ),
                   Expanded(
-                    child: Text(
+                    child: MiddleEllipsisText(
                       tab.title.isEmpty
                           ? appL10n(context).editorUntitled
                           : tab.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      hidePdfExtension: tab.title.isNotEmpty,
                       style: TextStyle(
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.normal,
@@ -3944,6 +4999,7 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   ui.Image? _image;
   Object? _pendingKey;
   Object? _imageKey;
+  bool _deferredFrameScheduled = false;
 
   Object get _key => (
         widget.controller,
@@ -4017,6 +5073,15 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
     }
   }
 
+  void _retryAfterDeferredFrame() {
+    if (_deferredFrameScheduled) return;
+    _deferredFrameScheduled = true;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      _deferredFrameScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final key = _key;
@@ -4030,7 +5095,14 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       }
     }
     if (_imageKey != key && _pendingKey != key) {
-      unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+      // Flutter recommends deferring image decoding during fast scrolling.
+      // PDF thumbnail generation is substantially heavier than decoding, so
+      // obey the same signal and retry once the scroll begins to settle.
+      if (Scrollable.recommendDeferredLoadingForContext(context)) {
+        _retryAfterDeferredFrame();
+      } else {
+        unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+      }
     }
     final page = widget.controller.pageAt(widget.pageIndex);
     final pageSize = PdfPageRenderer.pageSize(

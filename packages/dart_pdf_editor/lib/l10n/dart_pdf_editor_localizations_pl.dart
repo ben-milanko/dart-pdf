@@ -905,6 +905,33 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get searchRegex => 'Wyrażenie regularne';
 
   @override
+  String get searchReplace => 'Zamień';
+
+  @override
+  String get searchReplaceAll => 'Zamień wszystko';
+
+  @override
+  String get searchReplaceHint => 'Zamień na';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Tego dopasowania nie można zamienić osobno — użyj opcji „Zamień wszystko” lub edytuj je narzędziem zawartości';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Zamieniono $count dopasowania',
+      many: 'Zamieniono $count dopasowań',
+      few: 'Zamieniono $count dopasowania',
+      one: 'Zamieniono 1 dopasowanie',
+      zero: 'Nic nie zamieniono',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Wyniki wyszukiwania';
 
   @override
@@ -1357,6 +1384,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Automatyczny rozmiar pola tekstowego (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Dopasuj czcionkę do pola tekstowego';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Narysuj linię o znanej długości, aby skalibrować skalę.';
 
@@ -1598,6 +1628,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Wymaż linie odręczne';
+
+  @override
+  String get tbNameHand => 'Rączka';
 
   @override
   String get tbNameHighlight => 'Zakreślacz';
@@ -2064,4 +2097,63 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Zaznacz wszystko';
+
+  @override
+  String get annotationLibraryTitle => 'Biblioteka adnotacji';
+
+  @override
+  String get annotationLibraryEmpty => 'Brak zapisanych adnotacji.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Wybierz obsługiwaną adnotację, a następnie wybierz z jej menu „Zapisz w bibliotece adnotacji”. Nie można zapisywać łączy ani pól formularzy.';
+
+  @override
+  String get annotationLibrarySave => 'Zapisz w bibliotece adnotacji';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Zapisz adnotację';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Zmień nazwę elementu biblioteki';
+
+  @override
+  String get annotationLibrarySearchHint => 'Przeszukaj bibliotekę';
+
+  @override
+  String get annotationLibraryNoMatches => 'Brak pasujących adnotacji.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Bez grupy';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Przenieś do grupy';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nowa grupa…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nowa grupa adnotacji';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Zmień nazwę grupy adnotacji';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Usuń grupę';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Kliknij stronę, aby umieścić adnotację. Naciśnij Escape, aby anulować.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Niestandardowe stemple…';
+
+  @override
+  String get signatureLibraryManage => 'Zarządzaj podpisami';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Zmień nazwę podpisu';
+
+  @override
+  String get signatureLibraryEmpty => 'Brak zapisanych podpisów.';
 }

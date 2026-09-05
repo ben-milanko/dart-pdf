@@ -1,0 +1,6 @@
+4.0.0 sürümündeki yenilikler
+
+- Daha ince, sabitlenebilir düzenleme denetimleri ve gelişmiş sayfa ile son dosya gezintisi.
+- Metni kutuya otomatik sığdırın ve seçili ek açıklamaları düzleştirin; boş form alanları artık doğru işlenir.
+- Zorlu PDF'lerde daha doğru renk, üst baskı, saydamlık, yumuşak maske ve yazı tipleri.
+- Daha hızlı GPU ve derin yakınlaştırma; sürükleme, tarama ve dosya açma akışları iyileştirildi.

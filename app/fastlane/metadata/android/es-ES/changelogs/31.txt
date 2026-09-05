@@ -1,0 +1,6 @@
+Novedades en 3.7.0
+
+- Las páginas se procesan mientras te desplazas en lugar de aparecer al detenerte, y las ya leídas vuelven al instante.
+- Buscar y reemplazar en el panel de búsqueda: reemplaza una coincidencia o todas en un solo paso.
+- Corregido el texto ilegible y las ediciones erróneas en la herramienta de contenido con fuentes subconjuntadas.
+- Corregido un fallo al abrir o guardar un archivo.

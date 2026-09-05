@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+import 'test_finders.dart';
+
 // These tests exercise the *branching* a drop takes - show the open/insert
 // dialog when a document is open, and route to the right action - by driving
 // the desktop_drop channel directly. They deliberately do not read real files:
@@ -31,7 +33,8 @@ void main() {
 
   // Delivers a PDF to the running app the way the OS would (a warm-start
   // "open with"), opening it in a new tab.
-  Future<void> openTab(WidgetTester tester, String name, Uint8List bytes) async {
+  Future<void> openTab(
+      WidgetTester tester, String name, Uint8List bytes) async {
     const codec = StandardMethodCodec();
     final message = codec.encodeMethodCall(
       MethodCall('openFile', {'name': name, 'bytes': bytes}),
@@ -82,7 +85,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   testWidgets('dropping onto an open document offers open or insert',
@@ -218,14 +221,27 @@ void main() {
         );
     expect(stripTile(1), findsOneWidget);
     expect(stripTile(2), findsNothing); // two pages so far
+    final session = tester
+        .widget<PdfViewer>(find.byType(PdfViewer).first)
+        .editing as PdfEditingController;
 
     final point = inStripTile(tester, 0, 0.25); // the slot before page 1
+    const codec = StandardMethodCodec();
+    // Enter the target before delivering the Linux done event. The Linux
+    // plugin accepts a done event without this, but this test also runs on
+    // macOS where DropTarget correctly requires an active drag.
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'desktop_drop',
+      codec.encodeMethodCall(
+          MethodCall('updated', <double>[point.dx, point.dy])),
+      (_) {},
+    );
+    await tester.pump();
     await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('dartpdf-drop');
       addTearDown(() => dir.deleteSync(recursive: true));
       final file = File('${dir.path}/extra.pdf');
       await file.writeAsBytes(buildMultiPagePdf(2));
-      const codec = StandardMethodCodec();
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'desktop_drop',
         codec.encodeMethodCall(MethodCall('performOperation_linux', <dynamic>[
@@ -234,15 +250,20 @@ void main() {
         ])),
         (_) {},
       );
-      // let the lazy byte read and the insert it feeds actually land
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      // Let the lazy byte read and the insert it feeds actually land. Poll
+      // the observable result instead of relying on filesystem timing under
+      // a loaded test runner.
+      for (var i = 0; i < 200 && session.document.pageCount != 4; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
     });
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    // the dropped file's two pages joined the document (4 tiles now), with
-    // no dialog and no second tab
-    expect(stripTile(3), findsOneWidget);
+    // The dropped file's two pages joined the document. Read the live session
+    // rather than requiring the fourth lazy thumbnail tile to be built: at
+    // some panel widths that tile is correctly just outside the viewport.
+    expect(session.document.pageCount, 4);
     expect(find.byKey(const ValueKey('drop-action-dialog')), findsNothing);
     expect(tabTitle('extra.pdf'), findsNothing);
     // settle the insert toast so no timer outlives the test

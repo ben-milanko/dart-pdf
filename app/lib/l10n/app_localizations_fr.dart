@@ -426,6 +426,16 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorMenuNewDocument => 'Nouveau document…';
 
   @override
+  String get editorMenuNewWindow => 'Nouvelle fenêtre';
+
+  @override
+  String get editorMoveToNewWindow => 'Déplacer vers une nouvelle fenêtre';
+
+  @override
+  String get editorUnableToOpenNewWindow =>
+      'Impossible d’ouvrir une nouvelle fenêtre';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -499,6 +509,9 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get editorOpenRecent => 'Ouvrir un fichier récent';
+
+  @override
+  String get editorViewAllRecentFiles => 'Afficher tous les fichiers récents…';
 
   @override
   String get editorOpenTabs => 'Onglets ouverts';
@@ -750,6 +763,51 @@ class AppLocalizationsFr extends AppLocalizations {
   String get printDlgTitle => 'Impression';
 
   @override
+  String get printPreviewAll => 'Toutes';
+
+  @override
+  String get printPreviewCurrent => 'Actuelle';
+
+  @override
+  String get printPreviewFrom => 'De';
+
+  @override
+  String get printPreviewNextPage => 'Page suivante';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Page $page sur $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Page précédente';
+
+  @override
+  String get printPreviewPrint => 'Imprimer';
+
+  @override
+  String get printPreviewRange => 'Plage';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Saisissez une plage de pages comprise entre 1 et $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Pages à imprimer : $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Aperçu avant impression';
+
+  @override
+  String get printPreviewTo => 'À';
+
+  @override
+  String get printPreviewUnavailable => 'Aperçu indisponible';
+
+  @override
   String get redo => 'Rétablir';
 
   @override
@@ -881,6 +939,13 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Récents';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Rechercher dans les fichiers récents';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Aucun fichier récent ne correspond à votre recherche';
 
   @override
   String get welcomeRemoveFromRecent => 'Retirer des récents';

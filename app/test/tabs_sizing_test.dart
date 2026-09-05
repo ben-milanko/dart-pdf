@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+import 'test_finders.dart';
+
 /// Chrome-style tab sizing: tabs share the strip equally and shrink as more
 /// open, and closing while the pointer is over the strip holds the surviving
 /// tabs' width until the pointer leaves.
@@ -47,7 +49,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   // The tab's coloured Material (nearest Material ancestor of its title); its
@@ -116,5 +118,24 @@ void main() {
     expect(tabWidth(tester, 't0.pdf'), greaterThan(before + 1));
 
     await mouse.removePointer();
+  });
+
+  testWidgets('tab strip stays inside the AppBar while the window narrows',
+      (tester) async {
+    setDesktopSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+
+    for (var i = 0; i < 8; i++) {
+      await openTab(tester, 't$i.pdf');
+    }
+    await tester.pumpAndSettle();
+
+    // The tab list fills all available title space at this width. Narrowing
+    // the window starts its resize animation from the old, wider constraint;
+    // that intermediate width must still be clamped to the new AppBar width.
+    tester.view.physicalSize = const Size(1390, 800);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 }

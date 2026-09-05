@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'editing/editing_controller.dart';
+import 'editing/editing_fonts.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
+import 'search_field_style.dart';
 import 'theme.dart';
+import 'toast.dart';
 
 /// A compact document-search field: a slim text box with the match
 /// count, previous/next, and clear riding alongside - small enough for
@@ -123,8 +127,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
                 isDense: true,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+                border: pdfSearchInputBorder,
                 suffixIcon: controller.isSearching
                     ? const Padding(
                         padding: EdgeInsets.all(8),
@@ -205,10 +208,15 @@ typedef _Entry = ({int? header, int? result});
 /// highlighted and taps go through [PdfViewerController.goToMatch].
 /// The inner edge is draggable ([resizable]); with [preferences] the
 /// chosen width persists ([PdfEditingPreferences.searchPanelWidth]).
+///
+/// Pass [editing] to turn the panel into find *and replace*: a replacement
+/// field appears under the options bar with "Replace" (the current match
+/// alone) and "Replace all" (every hit, one undo step).
 class PdfSearchResultsPanel extends StatefulWidget {
   const PdfSearchResultsPanel({
     super.key,
     required this.controller,
+    this.editing,
     this.preferences,
     this.width = 280,
     this.dock = PdfPanelDock.left,
@@ -221,6 +229,11 @@ class PdfSearchResultsPanel extends StatefulWidget {
   });
 
   final PdfViewerController controller;
+
+  /// The edit session that backs the replace controls. Null (the default)
+  /// leaves the panel a pure find panel - which is what a read-only viewer
+  /// wants.
+  final PdfEditingController? editing;
 
   /// Persists the user-dragged width when provided.
   final PdfEditingPreferences? preferences;
@@ -261,6 +274,27 @@ class PdfSearchResultsPanel extends StatefulWidget {
 class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   final ScrollController _scroll = ScrollController();
 
+  /// The replacement text, owned here rather than by [_ReplaceBar] so that
+  /// collapsing the section does not throw away what the user typed.
+  final TextEditingController _replaceField = TextEditingController();
+
+  /// Expansion when no [PdfEditingPreferences] were supplied; with them the
+  /// preference is the source of truth so the choice survives the session.
+  bool _replaceExpandedLocal = false;
+
+  bool get _replaceExpanded =>
+      widget.preferences?.searchReplaceExpanded ?? _replaceExpandedLocal;
+
+  void _toggleReplace() {
+    final next = !_replaceExpanded;
+    final prefs = widget.preferences;
+    if (prefs != null) {
+      prefs.searchReplaceExpanded = next; // rebuilds via _onPreferences
+    } else {
+      setState(() => _replaceExpandedLocal = next);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -279,6 +313,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   @override
   void dispose() {
     widget.preferences?.removeListener(_onPreferences);
+    _replaceField.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -449,16 +484,40 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     if (closeButton != null) closeButton,
                   ]),
                 ),
-              if (widget.showOptions) ...[
+              if (widget.showOptions || widget.editing != null) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: _SearchOptionsBar(
-                        controller: controller,
-                        preferences: widget.preferences),
+                  // The toggles carry ~8pt of their own padding inside a 30pt
+                  // box, so 8 here lands their glyphs on the panel's 16pt
+                  // content edge - and both ends clear the resize grip.
+                  padding: EdgeInsetsDirectional.only(
+                    start: 8 + geometry.contentStartInset,
+                    end: 8 + geometry.contentEndInset,
+                    top: 6,
+                    bottom: 6,
                   ),
+                  child: Row(children: [
+                    if (widget.showOptions)
+                      _SearchOptionsBar(
+                          controller: controller,
+                          preferences: widget.preferences),
+                    const Spacer(),
+                    if (widget.editing != null)
+                      PdfPanelToggleButton(
+                        key: const ValueKey('pdf-search-replace-toggle'),
+                        iconData: Icons.find_replace,
+                        tooltip: pdfL10n(context).searchReplace,
+                        selected: _replaceExpanded,
+                        onPressed: _toggleReplace,
+                      ),
+                  ]),
                 ),
+                if (widget.editing != null && _replaceExpanded)
+                  _ReplaceBar(
+                    controller: controller,
+                    editing: widget.editing!,
+                    field: _replaceField,
+                    geometry: geometry,
+                  ),
                 Divider(
                   height: 1,
                   indent: geometry.contentStartInset,
@@ -470,6 +529,202 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
           ),
         );
       },
+    );
+  }
+}
+
+/// The find-and-replace row under the search panel's options bar: a
+/// replacement field plus "Replace" (the current match alone) and "Replace
+/// all" (every hit).
+///
+/// "Replace" goes through [PdfEditingController.replaceMatchText], which
+/// pins the hit to exactly one content run or declines - so it can never
+/// silently rewrite the other place on the page that happens to read the
+/// same. "Replace all" is the page-wide form, because that is what the user
+/// asked for, and lands as a single undo step.
+class _ReplaceBar extends StatefulWidget {
+  const _ReplaceBar({
+    required this.controller,
+    required this.editing,
+    required this.field,
+    required this.geometry,
+  });
+
+  final PdfViewerController controller;
+  final PdfEditingController editing;
+
+  /// The replacement text, owned by the panel so collapsing the section does
+  /// not discard it.
+  final TextEditingController field;
+
+  /// The panel's layout, for insets that clear the resize grip.
+  final PdfSidebarPanelGeometry geometry;
+
+  @override
+  State<_ReplaceBar> createState() => _ReplaceBarState();
+}
+
+class _ReplaceBarState extends State<_ReplaceBar> {
+  bool _busy = false;
+
+  TextEditingController get _field => widget.field;
+
+  void _toast(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: pdfFloatingToastMargin(context),
+        duration: const Duration(seconds: 4),
+        action: widget.editing.canUndo
+            ? SnackBarAction(
+                label: pdfL10n(context).undo, onPressed: widget.editing.undo)
+            : null,
+      ));
+  }
+
+  /// Re-runs the live query against the rewritten document: the hits the
+  /// panel is listing were measured against the previous revision, and their
+  /// offsets no longer mean anything once a run has been re-typed.
+  ///
+  /// Ordering matters. The viewer swaps in the new revision during the next
+  /// frame and clears the search as it does, so a re-search issued straight
+  /// after the edit is discarded a moment later and the panel goes blank.
+  /// Waiting for that frame lets the fresh results survive.
+  Future<void> _refresh(String query) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    await widget.controller
+        .search(query, options: widget.controller.searchOptions);
+  }
+
+  Future<void> _replaceOne() async {
+    final controller = widget.controller;
+    final results = controller.searchResults;
+    final index = controller.currentMatch;
+    if (index < 0 || index >= results.length) return;
+    final result = results[index];
+    final query = controller.query;
+    final l10n = pdfL10n(context);
+
+    setState(() => _busy = true);
+    try {
+      final fallbacks = await loadFallbackFonts();
+      final count = widget.editing.replaceMatchText(
+        result.pageIndex,
+        result.match.rects,
+        result.matchText,
+        _field.text,
+        fallbackFonts: fallbacks,
+      );
+      if (!mounted) return;
+      _toast(count == 0
+          ? l10n.searchReplaceNotTargetable
+          : l10n.searchReplaced(count));
+      if (count > 0) await _refresh(query);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _replaceAll() async {
+    final controller = widget.controller;
+    final query = controller.query;
+    final pages = {for (final r in controller.searchResults) r.pageIndex};
+    if (pages.isEmpty) return;
+    final l10n = pdfL10n(context);
+
+    setState(() => _busy = true);
+    try {
+      final fallbacks = await loadFallbackFonts();
+      final count = widget.editing.replaceTextOnPages(
+        pages,
+        query,
+        _field.text,
+        fallbackFonts: fallbacks,
+      );
+      if (!mounted) return;
+      _toast(l10n.searchReplaced(count));
+      if (count > 0) await _refresh(query);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final l10n = pdfL10n(context);
+    final results = controller.searchResults;
+    final current =
+        controller.currentMatch >= 0 && controller.currentMatch < results.length
+            ? results[controller.currentMatch]
+            : null;
+    final ready = !_busy &&
+        !controller.isSearching &&
+        controller.query.isNotEmpty &&
+        results.isNotEmpty;
+
+    final geometry = widget.geometry;
+    return Padding(
+      // 16 to sit on the same content edge as the panel title and the result
+      // tiles; the toggle row above uses 8 because its buttons are inset.
+      padding: EdgeInsetsDirectional.only(
+        start: 16 + geometry.contentStartInset,
+        end: 16 + geometry.contentEndInset,
+        bottom: 10,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const ValueKey('pdf-search-replace-field'),
+            controller: _field,
+            enabled: !_busy,
+            decoration: InputDecoration(
+              hintText: l10n.searchReplaceHint,
+              isDense: true,
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            ),
+            style: Theme.of(context).textTheme.bodySmall,
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 6),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                key: const ValueKey('pdf-search-replace-one'),
+                style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact),
+                // an annotation hit lives in a /Contents string, not the
+                // page's content stream, so there is nothing for the content
+                // editor to rewrite in place
+                onPressed: ready && current != null && !current.isAnnotation
+                    ? _replaceOne
+                    : null,
+                child: Text(l10n.searchReplace,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.tonal(
+                key: const ValueKey('pdf-search-replace-all'),
+                style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact),
+                onPressed: ready ? _replaceAll : null,
+                child: Text(l10n.searchReplaceAll,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          ]),
+        ],
+      ),
     );
   }
 }
@@ -529,7 +784,6 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final options = widget.controller.searchOptions;
 
     Widget toggle({
@@ -540,27 +794,13 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
       required bool selected,
       required PdfSearchOptions next,
     }) =>
-        IconButton(
+        PdfPanelToggleButton(
           key: ValueKey(keyName),
+          glyph: glyph,
+          iconData: iconData,
           tooltip: tooltip,
-          isSelected: selected,
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-          style: IconButton.styleFrom(
-            backgroundColor: selected ? scheme.secondaryContainer : null,
-            foregroundColor: selected
-                ? scheme.onSecondaryContainer
-                : scheme.onSurfaceVariant,
-          ),
+          selected: selected,
           onPressed: () => _apply(next),
-          icon: iconData != null
-              ? Icon(iconData, size: 16)
-              : Text(
-                  glyph!,
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, height: 1),
-                ),
         );
 
     return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -593,5 +833,57 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
         next: options.copyWith(searchAnnotations: !options.searchAnnotations),
       ),
     ]);
+  }
+}
+
+/// One square toggle in the search panel's control row: a compact icon or
+/// short glyph ("Aa", ".*") that lights up when selected.
+///
+/// Shared so the replace disclosure sits in the same row as the match
+/// options and is indistinguishable from them - a different button shape
+/// beside them reads as a different kind of control.
+class PdfPanelToggleButton extends StatelessWidget {
+  const PdfPanelToggleButton({
+    super.key,
+    this.glyph,
+    this.iconData,
+    required this.tooltip,
+    required this.selected,
+    required this.onPressed,
+  }) : assert(glyph != null || iconData != null);
+
+  /// A short text label ("Aa"), when the control reads better as letters.
+  final String? glyph;
+
+  /// An icon, used when [glyph] is null.
+  final IconData? iconData;
+
+  final String tooltip;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: tooltip,
+      isSelected: selected,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+      style: IconButton.styleFrom(
+        backgroundColor: selected ? scheme.secondaryContainer : null,
+        foregroundColor:
+            selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
+      ),
+      onPressed: onPressed,
+      icon: iconData != null
+          ? Icon(iconData, size: 16)
+          : Text(
+              glyph!,
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600, height: 1),
+            ),
+    );
   }
 }

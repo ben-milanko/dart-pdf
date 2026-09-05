@@ -427,6 +427,15 @@ class AppLocalizationsRu extends AppLocalizations {
   String get editorMenuNewDocument => 'Новый документ…';
 
   @override
+  String get editorMenuNewWindow => 'Новое окно';
+
+  @override
+  String get editorMoveToNewWindow => 'Переместить в новое окно';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'Не удалось открыть новое окно';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -499,6 +508,9 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get editorOpenRecent => 'Открыть недавние';
+
+  @override
+  String get editorViewAllRecentFiles => 'Показать все недавние файлы…';
 
   @override
   String get editorOpenTabs => 'Открытые вкладки';
@@ -754,6 +766,51 @@ class AppLocalizationsRu extends AppLocalizations {
   String get printDlgTitle => 'Печать';
 
   @override
+  String get printPreviewAll => 'Все';
+
+  @override
+  String get printPreviewCurrent => 'Текущая';
+
+  @override
+  String get printPreviewFrom => 'С';
+
+  @override
+  String get printPreviewNextPage => 'Следующая страница';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Страница $page из $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Предыдущая страница';
+
+  @override
+  String get printPreviewPrint => 'Печать';
+
+  @override
+  String get printPreviewRange => 'Диапазон';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Укажите диапазон страниц от 1 до $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Страниц для печати: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Предварительный просмотр';
+
+  @override
+  String get printPreviewTo => 'По';
+
+  @override
+  String get printPreviewUnavailable => 'Просмотр недоступен';
+
+  @override
   String get redo => 'Повторить';
 
   @override
@@ -886,6 +943,13 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Недавние';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Поиск по недавним файлам';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Нет недавних файлов, соответствующих поиску';
 
   @override
   String get welcomeRemoveFromRecent => 'Удалить из недавних';

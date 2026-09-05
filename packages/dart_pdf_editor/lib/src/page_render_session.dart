@@ -173,27 +173,44 @@ class PdfPageRenderSession {
     return true;
   }
 
+  /// Whether a scroll is currently holding renders back.
+  ///
+  /// [motion] is the pass's [PdfRenderMotionClass]; work the current motion
+  /// permits is not paused by it.
   bool paused({
     required PdfPageRenderScheduler? scheduler,
     required ValueListenable<bool>? hold,
-  }) =>
-      scheduler?.holding ?? (hold?.value ?? false);
+    PdfRenderMotionClass motion = PdfRenderMotionClass.held,
+  }) {
+    if (scheduler != null) return !scheduler.motionPermits(motion);
+    // The bare hold cannot tell a live gesture from the quiet window that
+    // follows it, so only work that is free under any motion passes.
+    return motion != PdfRenderMotionClass.free && (hold?.value ?? false);
+  }
 
   /// Routes a render through the shared scheduler, or through the standalone
   /// widget's hold fallback when no scheduler adapter is supplied.
+  ///
+  /// [motion] forwards the caller's verdict on when this pass may run relative
+  /// to the viewer's motion - see [PdfRenderMotionClass]. The bare hold
+  /// fallback (no scheduler) honours the `free` class too, so a viewer built
+  /// on the plain [ValueListenable] hold still renders those through a hold.
   Future<void> request({
     required Object owner,
     required bool hasPicture,
     required PdfPageRenderScheduler? scheduler,
     required ValueListenable<bool>? hold,
     required Future<void> Function() render,
+    PdfRenderMotionClass motion = PdfRenderMotionClass.held,
   }) async {
     if (_disposed) return;
     if (scheduler != null) {
-      scheduler.request(owner, _intent.pageIndex, render);
+      scheduler.request(owner, _intent.pageIndex, render, motion: motion);
       return;
     }
-    if (!hasPicture && (hold?.value ?? false)) {
+    if (!hasPicture &&
+        motion != PdfRenderMotionClass.free &&
+        (hold?.value ?? false)) {
       _holdPending = true;
       return;
     }

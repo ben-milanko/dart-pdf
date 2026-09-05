@@ -207,6 +207,11 @@ class StripPdfDevice extends StripBinningDevice {
   /// [totalReplayMicros] this is the UI-thread-blocking share of a settle.
   static int totalRouteMicros = 0;
 
+  /// Per-device phase timings used by a single render's perf attribution.
+  /// The static totals above remain the aggregate benchmark surface.
+  int atlasDecodeMicros = 0;
+  int tapeReplayMicros = 0;
+
   /// Precomputed plans rejected (stale geometry) or failing verification at
   /// [finish] - each one transparently fell back to local binning.
   static int totalPlanMismatches = 0;
@@ -345,6 +350,22 @@ class StripPdfDevice extends StripBinningDevice {
       _state((d) => d.beginGroup(alpha, knockout: knockout));
 
   @override
+  void delegateBeginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) =>
+      _state((d) => d.beginTransparencyGroup(
+            alpha,
+            knockout: knockout,
+            isolated: isolated,
+            bounds: bounds,
+            backdropColor: backdropColor,
+          ));
+
+  @override
   void delegateEndGroup() => _state((d) => d.endGroup());
 
   @override
@@ -443,7 +464,7 @@ class StripPdfDevice extends StripBinningDevice {
       super.drawText(run);
       return;
     }
-    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, run.fillAlpha))) {
       _slugFallbackOutlineRuns++;
       totalSlugFallbackOutlineRuns++;
       super.drawText(run);
@@ -541,7 +562,8 @@ class StripPdfDevice extends StripBinningDevice {
       for (final b in _batches) b.decodeAtlas(),
       for (final b in _slugBatches) b.decodeAtlas(),
     ]);
-    totalAtlasDecodeMicros += sw.elapsedMicroseconds;
+    atlasDecodeMicros = sw.elapsedMicroseconds;
+    totalAtlasDecodeMicros += atlasDecodeMicros;
 
     sw.reset();
     final fallback = CanvasPdfDevice(canvas, images: images);
@@ -554,7 +576,8 @@ class StripPdfDevice extends StripBinningDevice {
         (entry as void Function(CanvasPdfDevice))(fallback);
       }
     }
-    totalReplayMicros += sw.elapsedMicroseconds;
+    tapeReplayMicros = sw.elapsedMicroseconds;
+    totalReplayMicros += tapeReplayMicros;
   }
 
   /// Debug: slug shader diagnostic output mode (see pdf_slug.frag uDebug).

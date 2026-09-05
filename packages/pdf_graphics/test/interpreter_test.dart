@@ -370,6 +370,34 @@ void main() {
     expect(device.fills.single.$4, 0.25);
   });
 
+  test('ExtGState alpha is carried by text runs', () {
+    final doc = CosDocument.open(buildClassicPdf());
+    final device = RecordingDevice();
+    final resources = CosDictionary({
+      'Font': CosDictionary({
+        'F1': CosDictionary({
+          'Type': const CosName('Font'),
+          'Subtype': const CosName('Type1'),
+          'BaseFont': const CosName('Helvetica'),
+        }),
+      }),
+      'ExtGState': CosDictionary({
+        'GS1': CosDictionary({
+          'ca': const CosReal(0.25),
+          'CA': const CosReal(0.6),
+        }),
+      }),
+    });
+    PdfInterpreter(cos: doc, device: device).run(
+      ContentStreamParser.parse(Uint8List.fromList(
+          '/GS1 gs BT /F1 24 Tf 2 Tr 72 720 Td (Faded) Tj ET'.codeUnits)),
+      resources,
+    );
+
+    expect(device.texts.single.fillAlpha, 0.25);
+    expect(device.texts.single.strokeAlpha, 0.6);
+  });
+
   group('text', () {
     test('renders the fixture page text with correct placement', () {
       final doc = PdfDocument.open(buildClassicPdf());
@@ -1399,6 +1427,13 @@ void main() {
       expect(device.texts.single.fontSize, 12);
       expect(device.texts.single.transform.e, 22);
       expect(device.texts.single.transform.f, closeTo(106.692, 1e-3));
+      expect(device.texts.single.charOffsets,
+          hasLength('tx annotation'.length + 1));
+      expect(device.texts.single.charOffsets!.first, 0);
+      expect(device.texts.single.charOffsets![1],
+          closeTo(measureHelvetica('t', 1), 1e-9));
+      expect(device.texts.single.charOffsets!.last,
+          closeTo(device.texts.single.width, 1e-9));
       expect(device.clips, hasLength(1));
     });
 

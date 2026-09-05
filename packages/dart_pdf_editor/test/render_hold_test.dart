@@ -71,15 +71,22 @@ void main() {
     // an idle viewer renders normally
     await waitFor(tester, fullRaster);
 
-    // Long programmatic jumps no longer animate through the intermediate
-    // pages. They land directly on the target so the destination can render
-    // immediately instead of staying blank while the old fast-scroll hold
-    // waits for settle.
+    // Long programmatic jumps neither animate through intermediate pages nor
+    // inherit the gesture-only 500 ms quiet window. They land and release the
+    // render hold synchronously so the destination starts rendering on the
+    // next frame.
     unawaited(controller.jumpToPage(6));
     await tester.pump();
     expect(controller.currentPage, 6);
-    await tester.pump(const Duration(milliseconds: 550));
-    await waitFor(tester, fullRaster);
+    expect(controller.debugRenderHold, isFalse);
+
+    final target = find.byWidgetPredicate(
+      (widget) => widget is PdfPageView && widget.previewIndex == 6,
+    );
+    await waitFor(
+      tester,
+      find.descendant(of: target, matching: fullRaster),
+    );
   });
 
   testWidgets('the first scroll event of a burst holds speculatively',
@@ -117,6 +124,38 @@ void main() {
     // and the settle timer still releases it
     await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
+  });
+
+  testWidgets('worker DOM surfaces use the short off-thread scroll settle',
+      (tester) async {
+    PdfPageView.webDomRasterPresentation = true;
+    addTearDown(() => PdfPageView.webDomRasterPresentation = false);
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+        ),
+      ),
+    ));
+    await tester.pump();
+    await waitFor(tester, fullRaster);
+    await tester.pump(const Duration(milliseconds: 550));
+
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -400));
+    await tester.pump();
+    expect(controller.debugRenderHold, isTrue);
+    await tester.pump(const Duration(milliseconds: 24));
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'the worker path still coalesces adjacent wheel frames');
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(controller.debugRenderHold, isFalse,
+        reason: 'off-thread surface painting does not need the ordinary '
+            '500ms UI-isolate protection window');
   });
 
   testWidgets('the opening grace holds through a slow scroll ramp',
@@ -209,12 +248,20 @@ void main() {
     }
     expect(rasters, 1, reason: 'a same-zoom settle must not re-read the page');
 
-    // a real zoom change re-rasters at the new resolution
+    // A real zoom change past the whole-page budget keeps that base and adds a
+    // sharp visible-region detail raster instead of re-reading the entire page.
     await tester.pumpWidget(build(2, 2));
-    for (var i = 0; i < 20 && rasters < 2; i++) {
+    final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
+    final tiles = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0;
+        i < 20 && detail.evaluate().isEmpty && tiles.evaluate().isEmpty;
+        i++) {
       await settle(tester);
     }
-    expect(rasters, 2, reason: 'a zoom change must re-raster the page');
+    expect(detail.evaluate().isNotEmpty || tiles.evaluate().isNotEmpty, isTrue,
+        reason: 'deep zoom must sharpen through a patch or tile layer');
+    expect(rasters, 1,
+        reason: 'deep zoom must retain the bounded whole-page backing');
   });
 
   testWidgets('a re-request deferred behind a render does not re-raster',
@@ -342,12 +389,19 @@ void main() {
     );
     expect(rasters, 1);
 
-    // ...and a settle that DOES change the scale still supersedes, because then
-    // the in-flight raster really is at the wrong resolution.
+    // A scale change beyond the whole-page budget sharpens through detail and
+    // still must not supersede/re-read the current bounded base.
     await tester.pumpWidget(build(2, 5));
-    for (var i = 0; i < 20 && rasters < 2; i++) {
+    final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
+    final tiles = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0;
+        i < 20 && detail.evaluate().isEmpty && tiles.evaluate().isEmpty;
+        i++) {
       await settle(tester);
     }
-    expect(rasters, 2, reason: 'a zoom change must still re-raster');
+    expect(detail.evaluate().isNotEmpty || tiles.evaluate().isNotEmpty, isTrue,
+        reason: 'deep zoom must sharpen through a patch or tile layer');
+    expect(rasters, 1,
+        reason: 'a deep-zoom detail must not replace the whole-page base');
   });
 }

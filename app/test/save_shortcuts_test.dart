@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 
+import 'test_finders.dart';
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -144,8 +146,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(saveAsCalls, 1);
-      expect(find.text('Renamed.pdf'), findsWidgets);
-      expect(find.text('Original.pdf'), findsNothing);
+      expect(findMiddleEllipsisText('Renamed.pdf'), findsWidgets);
+      expect(findMiddleEllipsisText('Original.pdf'), findsNothing);
       final continued =
           tester.widget<PdfEditorView>(find.byType(PdfEditorView));
       expect(continued.documentId, 'Renamed.pdf');

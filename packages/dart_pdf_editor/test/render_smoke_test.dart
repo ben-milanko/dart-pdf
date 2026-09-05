@@ -67,12 +67,43 @@ void main() {
       final pdfPath = Platform.environment['PDF_PATH'];
       final pageIndex =
           int.tryParse(Platform.environment['PDF_PAGE'] ?? '') ?? 0;
+      final pixelRatio =
+          double.tryParse(Platform.environment['PDF_PIXEL_RATIO'] ?? '') ?? 2;
       final bytes =
           pdfPath == null ? buildClassicPdf() : File(pdfPath).readAsBytesSync();
 
       final doc = PdfDocument.open(bytes);
       final page = doc.page(pageIndex.clamp(0, doc.pageCount - 1));
-      final image = await PdfPageRenderer.renderImage(page, pixelRatio: 2);
+      final useWorker = Platform.environment['RENDER_WORKER'] == '1';
+      final ui.Image image;
+      if (useWorker) {
+        final worker = PdfRenderWorker.start(bytes);
+        try {
+          final commands = await worker.record(
+            pageIndex,
+            imagePixelRatio: pixelRatio,
+          );
+          expect(commands, isNotNull,
+              reason: 'the requested page must support worker replay');
+          final scene = await PdfRetainedScene.fromCommands(
+            page,
+            commands!,
+            maxImagePixelRatio: pixelRatio,
+          );
+          try {
+            image = await scene.rasterize(pixelRatio: pixelRatio);
+          } finally {
+            scene.dispose();
+          }
+        } finally {
+          worker.dispose();
+        }
+      } else {
+        image = await PdfPageRenderer.renderImage(
+          page,
+          pixelRatio: pixelRatio,
+        );
+      }
 
       expect(image.width, greaterThan(0));
       expect(image.height, greaterThan(0));
@@ -81,7 +112,8 @@ void main() {
       final out = Platform.environment['PNG_OUT'] ?? '/tmp/dart_pdf_render.png';
       File(out).writeAsBytesSync(png!.buffer.asUint8List());
       // ignore: avoid_print
-      print('rendered ${image.width}x${image.height} -> $out');
+      print('rendered ${image.width}x${image.height} '
+          '(${useWorker ? 'worker' : 'direct'}) -> $out');
     });
   });
 }

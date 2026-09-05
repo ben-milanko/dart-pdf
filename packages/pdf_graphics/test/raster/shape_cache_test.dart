@@ -94,10 +94,10 @@ void main() {
     // same shape content at integer translations: one key
     gen.fillPath(arrow(10, 20), PdfMatrix.identity, PdfFillRule.nonzero,
         black); // first sight
-    gen.fillPath(arrow(30, 24), PdfMatrix.identity, PdfFillRule.nonzero,
-        black); // build
-    gen.fillPath(arrow(51, 12), PdfMatrix.identity, PdfFillRule.nonzero,
-        black); // hit
+    gen.fillPath(
+        arrow(30, 24), PdfMatrix.identity, PdfFillRule.nonzero, black); // build
+    gen.fillPath(
+        arrow(51, 12), PdfMatrix.identity, PdfFillRule.nonzero, black); // hit
     expect(cache.firstSights, 1);
     expect(cache.misses, 1);
     expect(cache.hits, 1);
@@ -116,7 +116,8 @@ void main() {
     expect(meanAbsDiff(a, b), lessThanOrEqualTo(1.0));
   });
 
-  test('grid-aligned draws replay identically across generators sharing a '
+  test(
+      'grid-aligned draws replay identically across generators sharing a '
       'cache', () {
     final cache = ShapeStripCache();
     final g0 = (StripGenerator()..shapeCache = cache)..begin(64, 64);
@@ -127,8 +128,8 @@ void main() {
         black); // 1st sight
     g1.fillPath(knob(20.25, 30), PdfMatrix.identity, PdfFillRule.nonzero,
         black); // build
-    g2.fillPath(knob(20.25, 30), PdfMatrix.identity, PdfFillRule.nonzero,
-        black); // hit
+    g2.fillPath(
+        knob(20.25, 30), PdfMatrix.identity, PdfFillRule.nonzero, black); // hit
     expect(decodeStripCoverage(g2.strips, 64, 64),
         decodeStripCoverage(g1.strips, 64, 64));
     expect(decodeStripCoverage(g0.strips, 64, 64),
@@ -184,6 +185,22 @@ void main() {
         decodeStripCoverage(direct.strips, 40, 40));
   });
 
+  test('wholly offscreen small shapes stop at the cache bounds probe', () {
+    final cache = ShapeStripCache();
+    final gen = (StripGenerator()..shapeCache = cache)..begin(40, 40);
+
+    gen.fillPath(
+        arrow(-30, 20), PdfMatrix.identity, PdfFillRule.nonzero, black);
+    gen.strokePath(tick(60, 20), PdfMatrix.identity, thinStroke, black);
+
+    expect(gen.strips.length, 0);
+    expect(cache.viewportCulls, 2);
+    expect(cache.bypasses, 0,
+        reason: 'a full offscreen reject must not fall through and flatten');
+    expect(cache.firstSights, 0,
+        reason: 'offscreen shapes must not pollute the content cache');
+  });
+
   test('oversized paths skip the cache entirely', () {
     final cache = ShapeStripCache();
     final gen = (StripGenerator()..shapeCache = cache)..begin(64, 64);
@@ -192,8 +209,7 @@ void main() {
     for (var i = 0; i < ShapeStripCache.maxSegments + 8; i++) {
       segs.add(PdfLineTo(2.0 + (i % 50), 3.0 + i * 0.7));
     }
-    gen.fillPath(PdfPath(segs), PdfMatrix.identity, PdfFillRule.nonzero,
-        black);
+    gen.fillPath(PdfPath(segs), PdfMatrix.identity, PdfFillRule.nonzero, black);
     expect(cache.bypasses, 0);
     expect(cache.firstSights, 0);
     expect(cache.entryCount, 0);
@@ -227,18 +243,15 @@ void main() {
   test('cache accounting tracks alpha bytes', () {
     final cache = ShapeStripCache();
     final gen = (StripGenerator()..shapeCache = cache)..begin(64, 64);
-    gen.fillPath(knob(20, 30), PdfMatrix.identity, PdfFillRule.nonzero,
-        black);
-    gen.fillPath(knob(20, 30), PdfMatrix.identity, PdfFillRule.nonzero,
-        black);
+    gen.fillPath(knob(20, 30), PdfMatrix.identity, PdfFillRule.nonzero, black);
+    gen.fillPath(knob(20, 30), PdfMatrix.identity, PdfFillRule.nonzero, black);
     expect(cache.dataBytes, greaterThan(0));
     cache.clear();
     expect(cache.dataBytes, 0);
     expect(cache.entryCount, 0);
   });
 
-  test('dashed cached stroke matches the direct dashed raster on the grid',
-      () {
+  test('dashed cached stroke matches the direct dashed raster on the grid', () {
     const stroke = PdfStroke(width: 2, dashArray: [5, 3], cap: 1);
     final cache = ShapeStripCache();
     final cached = (StripGenerator()..shapeCache = cache)..begin(64, 32);

@@ -67,6 +67,17 @@ flatpak-builder --user --install --force-clean \
 flatpak run dev.milanko.dartpdf
 ```
 
+Sidecar-enabled releases also carry the CLI/MCP executable. The checked-in
+manifest remains pinned to the preceding stable archive, so its conditional
+install keeps that older local build reproducible. Strict confinement has no
+broad filesystem grant; with a sidecar-enabled archive, explicitly expose the
+working tree used as an MCP root:
+
+```sh
+flatpak run --filesystem="$PWD" --command=dartpdf-cli \
+  dev.milanko.dartpdf inspect "$PWD/document.pdf" --json
+```
+
 After changing desktop metadata or icons, run:
 
 ```sh

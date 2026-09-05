@@ -13,6 +13,19 @@ void main() {
     expect(identical(doc.page(0), doc.page(1)), isFalse);
   });
 
+  test('pages bulk-loads once and seeds indexed lookup', () {
+    final doc = PdfDocument.open(buildNestedPageTreePdf());
+    final previouslyLoaded = doc.page(1);
+    final pages = doc.pages;
+
+    expect(pages, hasLength(3));
+    expect(doc.pages, same(pages));
+    expect(doc.page(1), same(pages[1]));
+    expect(pages[1], same(previouslyLoaded));
+    expect(pages[0].rotation, 90);
+    expect(pages[0].mediaBox, const PdfRect(0, 0, 400, 400));
+  });
+
   test('annotations parse once and are reused', () {
     final doc = PdfDocument.open(buildMultiPagePdf(1));
     final editor = PdfEditor(doc);
@@ -85,5 +98,37 @@ void main() {
     page.dict.entries.remove('MediaBox');
     expect(page.mediaBox.width, greaterThan(0));
     expect(page.mediaBox.height, greaterThan(0));
+  });
+
+  test('incremental re-wrap preserves inherited page-tree values', () {
+    final doc = PdfDocument.open(buildNestedPageTreePdf());
+    final page = doc.page(0);
+    final inheritedBox = page.mediaBox;
+    final inheritedRotation = page.rotation;
+    final inheritedResources = page.resources;
+    final ref = doc.cos.referenceTo(page.dict)!;
+    final editor = PdfEditor(doc)..addSquare(0, const PdfRect(20, 20, 80, 80));
+    final newer = doc.withIncrementalUpdate(editor.save());
+    final currentDict = newer.cos.resolve(ref) as CosDictionary;
+
+    final revised = page.forIncrementalRevision(newer, currentDict);
+
+    expect(revised.mediaBox, inheritedBox);
+    expect(revised.rotation, inheritedRotation);
+    expect(revised.resources, same(inheritedResources));
+    expect(revised.annotations, hasLength(1));
+  });
+
+  test('incremental re-wrap rejects an unrelated COS graph', () {
+    final first = PdfDocument.open(buildMultiPagePdf(1));
+    final second = PdfDocument.open(buildMultiPagePdf(1));
+
+    expect(
+      () => first.page(0).forIncrementalRevision(
+            second,
+            second.page(0).dict,
+          ),
+      throwsArgumentError,
+    );
   });
 }

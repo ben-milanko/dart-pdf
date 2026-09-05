@@ -426,6 +426,15 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorMenuNewDocument => 'Nieuw document…';
 
   @override
+  String get editorMenuNewWindow => 'Nieuw venster';
+
+  @override
+  String get editorMoveToNewWindow => 'Naar nieuw venster verplaatsen';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'Kan geen nieuw venster openen';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -499,6 +508,9 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get editorOpenRecent => 'Recent openen';
+
+  @override
+  String get editorViewAllRecentFiles => 'Alle recente bestanden bekijken…';
 
   @override
   String get editorOpenTabs => 'Open tabbladen';
@@ -749,6 +761,51 @@ class AppLocalizationsNl extends AppLocalizations {
   String get printDlgTitle => 'Afdrukken';
 
   @override
+  String get printPreviewAll => 'Alle';
+
+  @override
+  String get printPreviewCurrent => 'Huidige';
+
+  @override
+  String get printPreviewFrom => 'Van';
+
+  @override
+  String get printPreviewNextPage => 'Volgende pagina';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Pagina $page van $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Vorige pagina';
+
+  @override
+  String get printPreviewPrint => 'Afdrukken';
+
+  @override
+  String get printPreviewRange => 'Bereik';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Voer een paginabereik tussen 1 en $total in.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Af te drukken pagina\'s: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Afdrukvoorbeeld';
+
+  @override
+  String get printPreviewTo => 'Tot';
+
+  @override
+  String get printPreviewUnavailable => 'Voorbeeld niet beschikbaar';
+
+  @override
   String get redo => 'Opnieuw';
 
   @override
@@ -879,6 +936,13 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Recent';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Recente bestanden doorzoeken';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Geen recente bestanden komen overeen met je zoekopdracht';
 
   @override
   String get welcomeRemoveFromRecent => 'Verwijderen uit recent';

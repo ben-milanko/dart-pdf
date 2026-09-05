@@ -148,6 +148,24 @@ void main() {
         latin1.decode(bytes), 'q\n1 0 0 1 50 50 cm\n/F1 12 Tf\n(Hi) Tj\nQ\n');
   });
 
+  test('incremental numeric operations stay primitive until COS access', () {
+    final cursor = ContentStreamParser.cursor(ascii('1 2.5 3 m /F1 12 Tf'));
+    final move = cursor.nextOperation()!;
+    expect(move.operator, 'm');
+    expect(move.numberOperands, <num>[1, 2.5, 3]);
+    expect(move.operands, const <CosObject>[
+      CosInteger(1),
+      CosReal(2.5),
+      CosInteger(3),
+    ]);
+
+    final font = cursor.nextOperation()!;
+    expect(font.operator, 'Tf');
+    expect(font.numberOperands, isNull,
+        reason: 'mixed operands retain their general COS representation');
+    expect(font.operands, const <CosObject>[CosName('F1'), CosInteger(12)]);
+  });
+
   test('serializes inline image operations', () {
     final bytes = ContentStreamSerializer.serialize([
       ContentOperation('BI', [

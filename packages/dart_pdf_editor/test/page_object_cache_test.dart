@@ -73,6 +73,20 @@ void main() {
       expect(cache[0], isNull);
     });
 
+    test('removeAll invalidates only the named pages', () {
+      final cache = PdfPageObjectCache<int>(maxEntries: 5);
+      for (var page = 0; page < 5; page++) {
+        cache.putIfAbsent(page, () => page);
+      }
+
+      cache.removeAll([1, 3, 99]);
+
+      expect(cache.pages.toList(), [0, 2, 4],
+          reason: 'clean entries keep their values and LRU order');
+      expect(cache[1], isNull);
+      expect(cache[3], isNull);
+    });
+
     test('a null maxEntries takes the runtime default', () {
       final previous = pdfViewerPageObjectCacheMaxEntries;
       addTearDown(() => pdfViewerPageObjectCacheMaxEntries = previous);

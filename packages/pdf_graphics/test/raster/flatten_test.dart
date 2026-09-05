@@ -30,6 +30,34 @@ void main() {
       b[0] = 9;
       expect(b.view.first, 9);
     });
+
+    test('FloatBuilder add9 grows once and keeps interleaved vertices', () {
+      final b = FloatBuilder(2)
+        ..add9(1, 2, 3, 4, 5, 6, 7, 8, 9)
+        ..add9(10, 11, 12, 13, 14, 15, 16, 17, 18);
+      expect(b.length, 18);
+      expect(b.view, [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+      ]);
+      expect(b.bytes.lengthInBytes, 18 * Float32List.bytesPerElement);
+    });
   });
 
   group('flattenPath', () {

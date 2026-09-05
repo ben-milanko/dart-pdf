@@ -265,11 +265,97 @@ void main() {
     await router.settleRaster(tester, 612);
 
     await tester.pumpWidget(at(3));
-    final zoomed = await router.settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = router.vectorRasterWidth(3);
+    final zoomed = await router.settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalPlanPictures, greaterThan(0),
         reason: 'the settle must consume a worker-binned plan');
     expect(StripPdfDevice.totalPlanMismatches, 0);
+  });
+
+  testWidgets('dense web tile pages bound the transient foreground patch',
+      (tester) async {
+    final oldFlatLimit = PdfPageView.retainedZoomReplayMaxCommands;
+    final oldTileDetail = PdfPageView.tileStoreDetail;
+    final oldQuickPixels = PdfPageView.denseQuickDetailMaxPixels;
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    PdfPageView.stripZoomReplay = true;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    PdfPageView.debugQuickDetailBackendOverride = true;
+    PdfPageView.denseQuickDetailMaxPixels = 1 << 21;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = oldFlatLimit;
+      PdfPageView.stripZoomReplay = true;
+      PdfPageView.tileStoreDetail = oldTileDetail;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+      PdfPageView.debugQuickDetailBackendOverride = null;
+      PdfPageView.denseQuickDetailMaxPixels = oldQuickPixels;
+    });
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildVectorPdf();
+    final doc = PdfDocument.open(bytes);
+    late PdfRenderWorker worker;
+    await tester.runAsync(() async {
+      worker = PdfRenderWorker.start(bytes);
+    });
+    addTearDown(worker.dispose);
+
+    Widget at(double scale, int generation) => Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: doc.page(0),
+              scale: scale,
+              settleGeneration: generation,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, 0));
+    await router.settleRaster(tester, 612);
+    await tester.pumpWidget(at(4, 1));
+    const detailKey = ValueKey('pdf-page-detail-image');
+    for (var i = 0; i < 100 && find.byKey(detailKey).evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+
+    final detail = tester.widget<RawImage>(find.byKey(detailKey)).image!;
+    expect(
+      detail.width * detail.height,
+      lessThanOrEqualTo((PdfPageView.denseQuickDetailMaxPixels * 1.01).ceil()),
+      reason: 'the first dense-page patch is transient; the exact tile rung '
+          'must own the larger readbacks',
+    );
+    expect(detail.width * detail.height, greaterThan(1 << 20),
+        reason: 'the quick patch should still materially sharpen the base');
+    final tileLayer = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0; i < 100 && tileLayer.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+    final tilePaint = tester.widget<CustomPaint>(
+      tileLayer,
+    );
+    expect(
+      (tilePaint.painter as dynamic).maxNewTilesPerPaint,
+      PdfPageView.stripTileMaxNewTilesPerPaint,
+      reason: 'strip-routed exact tiles must bound the first slab instead of '
+          'reading back a sparse viewport-sized box',
+    );
+    expect((tilePaint.painter as dynamic).maxInFlightTiles, 8,
+        reason: 'two bounded strip batches may overlap across repaints');
   });
 
   // Speculative binning: while the gesture quiesces (the live transformScale
@@ -326,8 +412,9 @@ void main() {
     // The viewer's settle: the same quantized scale, a bumped generation.
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(3, 1));
-    final zoomed = await router.settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = router.vectorRasterWidth(3);
+    final zoomed = await router.settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(PdfPageView.debugSpeculativePlanHits, 1,
         reason: 'the settle must consume the speculative plan');
     expect(PdfPageView.debugSpeculativePlanMisses, 0);
@@ -385,8 +472,9 @@ void main() {
     // still a plan-fed strip raster at the right size.
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(3, 1));
-    final zoomed = await router.settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = router.vectorRasterWidth(3);
+    final zoomed = await router.settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(PdfPageView.debugSpeculativePlanHits, 0);
     expect(PdfPageView.debugSpeculativePlanMisses, 1,
         reason: 'the mismatched speculation must be counted');
@@ -411,7 +499,17 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final bytes = buildVectorPdf();
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      // Keep the source just above the shared 16 MP decode ceiling. A smaller
+      // image now reaches native resolution in the focused 2x-headroom base,
+      // correctly making region speculation redundant instead of exercising
+      // the combined detail path this test is about.
+      underlays: const [PdfUnderlaySpec(width: 4352, height: 4352)],
+      layers: 1,
+      ops: 100,
+      pageW: 612,
+      pageH: 792,
+    );
     final doc = PdfDocument.open(bytes);
     final page = doc.page(0);
     late PdfRenderWorker worker;
@@ -457,14 +555,25 @@ void main() {
     await tester.pumpWidget(at(1, 0));
     await router.settleRaster(tester, 612);
     await tester.pumpWidget(at(16, 1));
-    for (var i = 0; i < 80; i++) {
+    for (var i = 0; i < 500; i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
       if (find.byType(RawImage).evaluate().length >= 2) break;
     }
     expect(find.byType(RawImage).evaluate().length, greaterThanOrEqualTo(2),
         reason: 'deep zoom must have a base raster and detail patch');
+    // The first progressive patch can paint while the image-complete base and
+    // its replacement detail are still in flight. Let that foreground pass
+    // drain before starting the pan, otherwise it can itself observe the new
+    // translation and make the speculative result redundant before settle.
+    for (var i = 0; i < 500 && scheduler.busy; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump();
+    }
+    expect(scheduler.busy, isFalse,
+        reason: 'the priming render must finish before measuring speculation');
     PdfPageView.debugResetSpeculativeStats();
 
     // Translate without changing scale. One frame applies the transform;
@@ -481,10 +590,10 @@ void main() {
     scheduler.holding = false;
     await tester.pumpWidget(at(16, 2));
     for (var i = 0;
-        i < 80 && PdfPageView.debugSpeculativeDetailHits == 0;
+        i < 500 && PdfPageView.debugSpeculativeDetailHits == 0;
         i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(PdfPageView.debugSpeculativeDetailHits, 1);
@@ -506,10 +615,10 @@ void main() {
     scheduler.holding = false;
     await tester.pumpWidget(at(16, 3));
     for (var i = 0;
-        i < 80 && PdfPageView.debugSpeculativeDetailMisses == 0;
+        i < 500 && PdfPageView.debugSpeculativeDetailMisses == 0;
         i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(PdfPageView.debugSpeculativeDetailHits, 0);

@@ -677,6 +677,32 @@ class PdfAnnotation {
     final width = borderWidth ?? 0;
     final q = document.cos.resolve(dict['Q']);
     final cos = document.cos;
+
+    // Bluebeam writes the visual paragraph style to /DS and /RC but often
+    // omits /Q entirely. Keep the standard PDF entries authoritative, then
+    // fall back to those CSS declarations so the live editor and a regenerated
+    // appearance retain the original alignment and leading.
+    final cssSources = <String>[];
+    final ds = cos.resolve(dict['DS']);
+    if (ds is CosString) cssSources.add(ds.text);
+    final rc = cos.resolve(dict['RC']);
+    if (rc is CosString) {
+      for (final match in _htmlStyleRe.allMatches(rc.text)) {
+        cssSources.add(match.group(1)!);
+      }
+    }
+    String? cssValue(String property) {
+      final re = RegExp(
+        '(?:^|;)\\s*${RegExp.escape(property)}\\s*:\\s*([^;]+)',
+        caseSensitive: false,
+      );
+      for (final source in cssSources) {
+        final value = re.firstMatch(source)?.group(1)?.trim();
+        if (value != null && value.isNotEmpty) return value;
+      }
+      return null;
+    }
+
     double? number(String key) {
       final v = cos.resolve(dict[key]);
       if (v is CosInteger) return v.value.toDouble();
@@ -685,6 +711,17 @@ class PdfAnnotation {
     }
 
     final underlineFlag = cos.resolve(dict[kPdfFreeTextUnderlineKey]);
+    final cssAlign = switch (cssValue('text-align')?.toLowerCase()) {
+      'center' => PdfTextAlign.center,
+      'right' || 'end' => PdfTextAlign.right,
+      'left' || 'start' => PdfTextAlign.left,
+      _ => null,
+    };
+    final cssLineSpacing =
+        _cssLineSpacing(cssValue('line-height'), fontSize: size);
+    final cssCharSpacing = _cssPoints(cssValue('letter-spacing'));
+    final cssHorizontalScale = _cssPercent(cssValue('font-stretch'));
+    final cssDecoration = cssValue('text-decoration')?.toLowerCase();
     return PdfFreeTextStyle(
       fontName: tf.group(1)!,
       fontSize: size,
@@ -692,13 +729,19 @@ class PdfAnnotation {
       fillColor: background != null && background != text ? background : null,
       borderColor: lastColor('RG') ?? (width > 0 ? text : null),
       borderWidth: width,
-      alignment: PdfTextAlign.fromQuadding(q is CosInteger ? q.value : null),
-      lineSpacing:
-          number(kPdfFreeTextLineSpacingKey) ?? kPdfFreeTextDefaultLineSpacing,
-      charSpacing: number(kPdfFreeTextCharSpacingKey) ?? 0,
-      horizontalScale:
-          number(kPdfFreeTextHScaleKey) ?? kPdfFreeTextDefaultHorizontalScale,
-      underline: underlineFlag is CosBoolean && underlineFlag.value,
+      alignment: q is CosInteger
+          ? PdfTextAlign.fromQuadding(q.value)
+          : cssAlign ?? PdfTextAlign.left,
+      lineSpacing: number(kPdfFreeTextLineSpacingKey) ??
+          cssLineSpacing ??
+          kPdfFreeTextDefaultLineSpacing,
+      charSpacing: number(kPdfFreeTextCharSpacingKey) ?? cssCharSpacing ?? 0,
+      horizontalScale: number(kPdfFreeTextHScaleKey) ??
+          cssHorizontalScale ??
+          kPdfFreeTextDefaultHorizontalScale,
+      underline: underlineFlag is CosBoolean
+          ? underlineFlag.value
+          : (cssDecoration?.contains('underline') ?? false),
     );
   }
 
@@ -830,6 +873,29 @@ class PdfAnnotation {
     ];
   }
 
+  /// The rotation the normal appearance carries in **page space**: the
+  /// angle of [appearanceQuad]'s lower-left → lower-right edge, radians
+  /// counterclockwise. 0 for an unrotated appearance (and without one);
+  /// non-zero only when the artwork is turned inside its /Rect, as
+  /// [PdfEditor.rotateAnnotation] leaves it.
+  ///
+  /// This is the annotation's *own* rotation, so it is the right gate for
+  /// "does this need the rotated (local-frame) treatment?". A viewer's
+  /// on-screen quad also carries the page's display /Rotate, which is not
+  /// a property of the annotation - an unrotated box on a /Rotate 90 page
+  /// has a quad running down the screen and must still be treated as
+  /// square.
+  double get appearanceRotation {
+    final quad = appearanceQuad;
+    if (quad == null) return 0;
+    final dx = quad[1].$1 - quad[0].$1;
+    final dy = quad[1].$2 - quad[0].$2;
+    if (dx == 0 && dy == 0) return 0;
+    final angle = math.atan2(dy, dx);
+    // numeric noise within ~0.3° reads as unrotated
+    return angle.abs() < 0.005 ? 0 : angle;
+  }
+
   static PdfGoToAction? _destAsGoTo(PdfDocument document, CosObject? raw) {
     final destination = PdfDestination.parse(document, raw);
     return destination == null ? null : PdfGoToAction(destination);
@@ -841,6 +907,49 @@ final RegExp _daTfRe = RegExp(r'/(\S+)\s+([\d.]+)\s+Tf');
 final RegExp _daRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg\b');
 final RegExp _daUpperRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b');
 final RegExp _daGrayRe = RegExp(r'([\d.]+)\s+g\b');
+final RegExp _htmlStyleRe = RegExp(
+  r'''style\s*=\s*["']([^"']*)["']''',
+  caseSensitive: false,
+);
+final RegExp _cssLengthRe = RegExp(
+  r'^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(pt|%|em)?\s*$',
+  caseSensitive: false,
+);
+
+double? _cssLineSpacing(String? value, {required double fontSize}) {
+  if (value == null || fontSize <= 0) return null;
+  final match = _cssLengthRe.firstMatch(value);
+  final number = double.tryParse(match?.group(1) ?? '');
+  if (match == null || number == null || !number.isFinite || number <= 0) {
+    return null;
+  }
+  final spacing = switch (match.group(2)?.toLowerCase()) {
+    'pt' => number / fontSize,
+    '%' => number / 100,
+    'em' || null => number,
+    _ => null,
+  };
+  return spacing != null && spacing.isFinite && spacing > 0 ? spacing : null;
+}
+
+double? _cssPoints(String? value) {
+  if (value == null || value.toLowerCase() == 'normal') return null;
+  final match = _cssLengthRe.firstMatch(value);
+  final number = double.tryParse(match?.group(1) ?? '');
+  final unit = match?.group(2)?.toLowerCase();
+  if (number == null || !number.isFinite || (unit != null && unit != 'pt')) {
+    return null;
+  }
+  return number;
+}
+
+double? _cssPercent(String? value) {
+  final match = value == null ? null : _cssLengthRe.firstMatch(value);
+  if (match?.group(2) != '%') return null;
+  final number = double.tryParse(match?.group(1) ?? '');
+  return number != null && number.isFinite && number > 0 ? number : null;
+}
+
 final RegExp _pdfDateRe = RegExp(
     r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?");
 

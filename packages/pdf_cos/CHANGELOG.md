@@ -1,5 +1,59 @@
 # Changelog
 
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public COS
+  object model, filter, or parsing changes since 4.1.0.
+
+## 4.1.0
+
+- Treat holes in sparse progressive byte sources as cache misses tied to the
+  source buffer, avoiding invalid scan recovery and stale reads while remote
+  PDFs are still arriving.
+- Update `archive` to 4.2.0.
+
+## 4.0.0
+
+- Decode TIFF Predictor 2 streams with 16-bit samples, preserving carries
+  between bytes and restoring high-bit-depth images correctly.
+- Lockstep major release for the dart-pdf 4.0.0 package suite. The `pdf_cos`
+  public API remains source-compatible with 3.8.0.
+
+## 3.8.0
+
+- Add the public monotonic `CosDocument.revision`, incremented after every
+  successful incremental update so higher layers can invalidate derived
+  caches without comparing object identity.
+
+## 3.7.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.7.0. No
+  public `pdf_cos` API changes since 3.6.0.
+
+## 3.6.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.6.0. No
+  public `pdf_cos` API changes since 3.5.1.
+
+## 3.5.1
+
+- Decode JBIG2 refined text symbols, including refinement deltas, offsets, and
+  shared arithmetic contexts, so scanned MRC text layers render correctly.
+
+## 3.5.0
+
+- Add `PdfSourceLoadOptions.completeFirstPaintPageTree`. Progressive preview
+  callers can stop the initial page-tree walk after `firstPaintPages`, avoiding
+  one range request per leaf before page one can paint; the default remains the
+  correctness-first complete walk for existing callers.
+- Reduce allocation and cache pressure in byte sources, the lexer, and content
+  parsing while retaining the parser's lenient handling of malformed PDFs.
+
+## 3.4.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.4.0. No
+  public `pdf_cos` API changes since 3.3.1.
+
 ## 3.3.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.3.1. No

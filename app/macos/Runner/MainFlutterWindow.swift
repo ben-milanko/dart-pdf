@@ -3,6 +3,12 @@ import Darwin
 import FlutterMacOS
 import PDFKit
 
+enum DartPdfWindowingBootstrap {
+  // Dart enables Flutter's matching framework feature before binding
+  // initialization. The runner must therefore never attach an implicit view.
+  static let isEnabled = true
+}
+
 /// Runs security-scoped filesystem work away from AppKit's main thread.
 ///
 /// Flutter invokes macOS method-channel handlers on the main thread. A read
@@ -56,17 +62,46 @@ final class FileAccessExecutor {
 
 class MainFlutterWindow: NSWindow {
   private let fileAccess = FileAccessExecutor()
+  private var channelsConfigured = false
 
   override func awakeFromNib() {
+    // In experimental multi-window mode AppDelegate owns a headless engine and
+    // Dart creates every native window. Adding this template view controller
+    // first would make Flutter abort when it enables multiview.
+    if DartPdfWindowingBootstrap.isEnabled {
+      super.awakeFromNib()
+      return
+    }
+
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
+    configureChannels(
+      binaryMessenger: flutterViewController.engine.binaryMessenger,
+      registry: flutterViewController)
+
+    super.awakeFromNib()
+  }
+
+  /// Rehosts the normal runner's plugins and platform channels on the
+  /// headless engine used by Flutter's experimental multi-window bootstrap.
+  func configureWindowingEngine(_ engine: FlutterEngine) {
+    configureChannels(binaryMessenger: engine.binaryMessenger, registry: engine)
+  }
+
+  private func configureChannels(
+    binaryMessenger: FlutterBinaryMessenger,
+    registry: FlutterPluginRegistry
+  ) {
+    guard !channelsConfigured else { return }
+    channelsConfigured = true
+
     // Wire the incoming-file channel to the Dart IncomingFileService.
     let channel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/incoming",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     if let appDelegate = NSApp.delegate as? AppDelegate {
       appDelegate.incomingChannel = channel
       channel.setMethodCallHandler { (call, result) in
@@ -83,7 +118,7 @@ class MainFlutterWindow: NSWindow {
 
     let memoryChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/memory",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     memoryChannel.setMethodCallHandler { (call, result) in
       guard call.method == "snapshot" else {
         result(FlutterMethodNotImplemented)
@@ -99,9 +134,53 @@ class MainFlutterWindow: NSWindow {
       result(snapshot)
     }
 
+    // Flutter's multi-window controllers expose their NSWindow pointers to
+    // Dart. Resolve the window under the current cursor and convert the point
+    // into that Flutter view's top-left logical coordinate system.
+    let windowGeometryChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/window_geometry",
+      binaryMessenger: binaryMessenger)
+    windowGeometryChannel.setMethodCallHandler { (call, result) in
+      guard call.method == "locateDrop" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let args = call.arguments as? [String: Any],
+            let handles = args["handles"] as? [NSNumber] else {
+        result(FlutterError(
+          code: "bad_args",
+          message: "locateDrop expects a handles list",
+          details: nil))
+        return
+      }
+
+      let registered = Set(handles.map { Int(truncating: $0) })
+      let screenPoint = NSEvent.mouseLocation
+      guard let window = NSApp.orderedWindows.first(where: { candidate in
+        let address = Int(bitPattern: Unmanaged.passUnretained(candidate).toOpaque())
+        return registered.contains(address) &&
+          candidate.isVisible && candidate.frame.contains(screenPoint)
+      }), let contentView = window.contentViewController?.view ?? window.contentView
+      else {
+        result(nil)
+        return
+      }
+
+      let windowPoint = window.convertPoint(fromScreen: screenPoint)
+      let contentPoint = contentView.convert(windowPoint, from: nil)
+      let localY = contentView.isFlipped
+        ? contentPoint.y
+        : contentView.bounds.height - contentPoint.y
+      result([
+        "handle": Int(bitPattern: Unmanaged.passUnretained(window).toOpaque()),
+        "x": contentPoint.x,
+        "y": localY,
+      ])
+    }
+
     let fileAccessChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/file_access",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     fileAccessChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "bookmarkForPath":
@@ -158,6 +237,17 @@ class MainFlutterWindow: NSWindow {
         }
         self.readFileRange(
           bookmark: bookmark, offset: offset, length: length, result: result)
+      case "revealFile":
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "revealFile expects a path",
+            details: nil))
+          return
+        }
+        self.revealFile(
+          path: path, bookmark: args["bookmark"] as? String, result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -165,7 +255,7 @@ class MainFlutterWindow: NSWindow {
 
     let imageClipboardChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/image_clipboard",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     imageClipboardChannel.setMethodCallHandler { (call, result) in
       if call.method == "readImage" {
         result(self.readImageFromClipboard())
@@ -192,7 +282,7 @@ class MainFlutterWindow: NSWindow {
     // keeping text selectable.
     let nativePrintChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/native_print",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     nativePrintChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "printPdf":
@@ -211,9 +301,7 @@ class MainFlutterWindow: NSWindow {
       }
     }
 
-    RegisterGeneratedPlugins(registry: flutterViewController)
-
-    super.awakeFromNib()
+    RegisterGeneratedPlugins(registry: registry)
   }
 
   /// `os_proc_available_memory` is not exposed by Swift's Darwin module map.
@@ -343,6 +431,33 @@ class MainFlutterWindow: NSWindow {
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       try bytes.write(to: url, options: .atomic)
+      return true
+    }
+  }
+
+  /// Reveals a selected document without asking the sandbox for access to its
+  /// parent directory. That distinction matters for File Provider locations:
+  /// an NSOpenPanel grant covers the OneDrive file but not the folder that
+  /// contains it. Keep the file's security scope active while Finder accepts
+  /// the reveal request.
+  private func revealFile(
+    path: String, bookmark: String?, result: @escaping FlutterResult
+  ) {
+    fileAccess.perform(errorCode: "reveal_failed", result: result) {
+      let url: URL
+      if let bookmark, !bookmark.isEmpty {
+        // A stale/corrupt bookmark should not block a path that is still
+        // reachable through the current session or a broader entitlement.
+        url = (try? self.resolveBookmarkedURL(bookmark))
+          ?? URL(fileURLWithPath: path)
+      } else {
+        url = URL(fileURLWithPath: path)
+      }
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      DispatchQueue.main.sync {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+      }
       return true
     }
   }

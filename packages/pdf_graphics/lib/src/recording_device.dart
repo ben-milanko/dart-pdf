@@ -23,7 +23,8 @@ import 'shading.dart';
 /// decodes them as it does today. [imageRequests] exposes them in encounter
 /// order for callers that want to drive decoding off the recording rather
 /// than a separate scan pass.
-class RecordingPdfDevice implements PdfDevice, PdfTiledCellSink {
+class RecordingPdfDevice
+    implements PdfDevice, PdfTiledCellSink, PdfTransparencyGroupDevice {
   /// The recorded top-level command sequence.
   final List<PdfRenderCommand> commands = [];
 
@@ -107,6 +108,22 @@ class RecordingPdfDevice implements PdfDevice, PdfTiledCellSink {
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>
       _target.add(PdfBeginGroupCommand(alpha, knockout: knockout));
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) =>
+      _target.add(PdfBeginGroupCommand(
+        alpha,
+        knockout: knockout,
+        isolated: isolated,
+        bounds: bounds,
+        backdropColor: backdropColor,
+      ));
 
   @override
   void endGroup() => _target.add(const PdfEndGroupCommand());

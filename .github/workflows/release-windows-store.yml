@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 env:
-  FLUTTER_VERSION: '3.44.8'
+  FLUTTER_VERSION: '3.47.0'
   DOTNET_VERSION: '9.0.x'
 
 jobs:
@@ -48,12 +48,14 @@ jobs:
       MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
       MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
       MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
-      # Real secrets. Only MSSTORE_CLIENT_SECRET is a credential; the tenant,
-      # client and seller IDs are identifiers, kept masked as defence in depth so
-      # a leaked client secret is not accompanied by everything needed to use it.
+      # Real secrets. The certificate PFX and its password are credentials; the
+      # tenant, client and seller IDs are identifiers, kept masked as defence in
+      # depth so leaked certificate material is not accompanied by everything
+      # needed to use it.
       MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
       MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
-      MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+      MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}
+      MSSTORE_CERTIFICATE_PASSWORD: ${{ secrets.MSSTORE_CERTIFICATE_PASSWORD }}
       MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
     steps:
       # Skip rather than fail when the account isn't wired up yet: an unset
@@ -70,7 +72,8 @@ jobs:
           done
           missing_secrets=
           for name in MSSTORE_TENANT_ID MSSTORE_CLIENT_ID \
-                      MSSTORE_CLIENT_SECRET MSSTORE_SELLER_ID; do
+                      MSSTORE_CERTIFICATE_BASE64 \
+                      MSSTORE_CERTIFICATE_PASSWORD MSSTORE_SELLER_ID; do
             if [ -z "${!name}" ]; then missing_secrets="$missing_secrets $name"; fi
           done
           if [ -n "$missing_vars$missing_secrets" ]; then

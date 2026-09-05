@@ -1,16 +1,19 @@
 import 'dart:async';
-
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dialog.dart';
 import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
+import 'editing/editing_toolbar.dart' show showPdfEditingGuidesDialog;
 import 'editing/tool_shortcuts.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
+import 'scrollbar.dart';
+import 'search_field_style.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
 /// PdfEditorView). Package-private: not exported from the library.
@@ -60,8 +63,10 @@ class PdfShellPanelLayout extends StatefulWidget {
     this.bottomSheets = const [],
     this.overlays = const [],
     this.floatingToolbar,
+    this.floatingToolbarDock = PdfPanelDock.bottom,
     this.dockedToolbar,
     this.onPanelDock,
+    this.onToolbarDock,
   });
 
   /// The page viewer, reflow view, or other primary document surface.
@@ -89,6 +94,10 @@ class PdfShellPanelLayout extends StatefulWidget {
   /// A toolbar that floats over the content area.
   final Widget? floatingToolbar;
 
+  /// The edge the floating toolbar is attached to, within the viewer region.
+  /// The toolbar therefore stays inward of any docked panels.
+  final PdfPanelDock floatingToolbarDock;
+
   /// A toolbar that consumes layout space below the content area.
   final Widget? dockedToolbar;
 
@@ -96,25 +105,74 @@ class PdfShellPanelLayout extends StatefulWidget {
   /// drag-to-redock affordance (panels then show no move handle).
   final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
 
+  /// Redocks the floating editing toolbar to the dropped-on edge. Null keeps
+  /// the toolbar fixed and hides its edge drop zones.
+  final ValueChanged<PdfPanelDock>? onToolbarDock;
+
   @override
   State<PdfShellPanelLayout> createState() => _PdfShellPanelLayoutState();
 }
 
 class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
-  bool _dragging = false;
+  bool _draggingPanel = false;
+  bool _draggingToolbar = false;
 
-  void _setDragging(bool value) {
-    if (_dragging == value) return;
-    setState(() => _dragging = value);
+  void _setPanelDragging(bool value) {
+    if (_draggingPanel == value) return;
+    setState(() => _draggingPanel = value);
+  }
+
+  void _setToolbarDragging(bool value) {
+    if (_draggingToolbar == value) return;
+    setState(() => _draggingToolbar = value);
+  }
+
+  Widget _floatingToolbarOverlay() {
+    final toolbar = widget.floatingToolbar!;
+    return switch (widget.floatingToolbarDock) {
+      PdfPanelDock.top => Positioned(left: 0, right: 0, top: 0, child: toolbar),
+      PdfPanelDock.bottom =>
+        Positioned(left: 0, right: 0, bottom: 0, child: toolbar),
+      PdfPanelDock.left => Positioned.fill(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: toolbar,
+          ),
+        ),
+      // The viewer's vertical scrollbar owns this right-edge hit gutter.
+      // Keep the toolbar visually docked beside it without intercepting
+      // scrollbar hover, taps, or drags.
+      PdfPanelDock.right => Positioned(
+          left: 0,
+          right: PdfScrollbar.hitExtent,
+          top: 0,
+          bottom: 0,
+          child: Align(alignment: Alignment.centerRight, child: toolbar),
+        ),
+    };
   }
 
   @override
   Widget build(BuildContext context) {
+    final viewer = Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.viewer,
+        if (widget.floatingToolbar != null) _floatingToolbarOverlay(),
+        // The toolbar itself docks to the viewer, inward of any panels. Its
+        // drag targets use that exact same rectangle so the preview and the
+        // eventual dock location cannot disagree.
+        if (widget.onToolbarDock != null && _draggingToolbar)
+          Positioned.fill(
+            child: _PanelDropZones(onToolbarDock: widget.onToolbarDock),
+          ),
+      ],
+    );
     final row = Row(children: [
       ...widget.leadingPanels,
       Expanded(
         key: const ValueKey('pdf-shell-viewer'),
-        child: widget.viewer,
+        child: viewer,
       ),
       ...widget.trailingPanels,
     ]);
@@ -126,21 +184,16 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
     final content = Stack(children: [
       Positioned.fill(child: stacked),
       ...widget.overlays,
-      if (widget.floatingToolbar != null)
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: widget.floatingToolbar!,
-        ),
       if (widget.bottomSheets.isNotEmpty)
         pdfShellBottomSheets(widget.bottomSheets),
-      // the redock drop zones sit above everything while a panel is being
-      // dragged, so a panel can be dropped onto any edge - even over the
-      // toolbar or another panel
-      if (widget.onPanelDock != null && _dragging)
+      // Panel targets stay shell-relative: panels really do dock outside the
+      // viewer and may be dropped over another panel. Toolbar targets are
+      // instead mounted in the viewer Stack above.
+      if (widget.onPanelDock != null && _draggingPanel)
         Positioned.fill(
-          child: _PanelDropZones(onPanelDock: widget.onPanelDock!),
+          child: _PanelDropZones(
+            onPanelDock: widget.onPanelDock,
+          ),
         ),
     ]);
 
@@ -152,8 +205,15 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       // the panels below read this to drive the drag: their move handles
       // toggle the drop zones on and off.
       result = PdfPanelDragScope(
-        onDragStarted: () => _setDragging(true),
-        onDragEnded: () => _setDragging(false),
+        onDragStarted: () => _setPanelDragging(true),
+        onDragEnded: () => _setPanelDragging(false),
+        child: result,
+      );
+    }
+    if (widget.onToolbarDock != null) {
+      result = PdfToolbarDragScope(
+        onDragStarted: () => _setToolbarDragging(true),
+        onDragEnded: () => _setToolbarDragging(false),
         child: result,
       );
     }
@@ -164,9 +224,10 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
 /// The four edge drop targets shown while a panel is being dragged. Dropping
 /// the panel onto one redocks it to that edge.
 class _PanelDropZones extends StatelessWidget {
-  const _PanelDropZones({required this.onPanelDock});
+  const _PanelDropZones({this.onPanelDock, this.onToolbarDock});
 
-  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+  final ValueChanged<PdfPanelDock>? onToolbarDock;
 
   @override
   Widget build(BuildContext context) {
@@ -183,15 +244,22 @@ class _PanelDropZones extends StatelessWidget {
           top: 0,
           bottom: 0,
           width: bandW,
-          child: _DropTarget(dock: PdfPanelDock.left, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.left,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
         Positioned(
           right: 0,
           top: 0,
           bottom: 0,
           width: bandW,
-          child:
-              _DropTarget(dock: PdfPanelDock.right, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.right,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
         // top/bottom bands inset horizontally so they never overlap the
         // left/right bands at the corners
@@ -200,15 +268,22 @@ class _PanelDropZones extends StatelessWidget {
           right: bandW,
           top: 0,
           height: bandH,
-          child: _DropTarget(dock: PdfPanelDock.top, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.top,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
         Positioned(
           left: bandW,
           right: bandW,
           bottom: 0,
           height: bandH,
-          child:
-              _DropTarget(dock: PdfPanelDock.bottom, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.bottom,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
       ]);
     });
@@ -216,10 +291,15 @@ class _PanelDropZones extends StatelessWidget {
 }
 
 class _DropTarget extends StatelessWidget {
-  const _DropTarget({required this.dock, required this.onPanelDock});
+  const _DropTarget({
+    required this.dock,
+    this.onPanelDock,
+    this.onToolbarDock,
+  });
 
   final PdfPanelDock dock;
-  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+  final ValueChanged<PdfPanelDock>? onToolbarDock;
 
   IconData get _icon => switch (dock) {
         PdfPanelDock.left => Icons.west,
@@ -231,9 +311,20 @@ class _DropTarget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return DragTarget<PdfDockablePanel>(
-      onWillAcceptWithDetails: (_) => true,
-      onAcceptWithDetails: (details) => onPanelDock(details.data, dock),
+    return DragTarget<Object>(
+      onWillAcceptWithDetails: (details) => switch (details.data) {
+        PdfDockablePanel() => onPanelDock != null,
+        PdfToolbarDragData() => onToolbarDock != null,
+        _ => false,
+      },
+      onAcceptWithDetails: (details) {
+        switch (details.data) {
+          case final PdfDockablePanel panel:
+            onPanelDock?.call(panel, dock);
+          case PdfToolbarDragData():
+            onToolbarDock?.call(dock);
+        }
+      },
       builder: (context, candidate, rejected) {
         final active = candidate.isNotEmpty;
         return AnimatedContainer(
@@ -260,6 +351,86 @@ class _DropTarget extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Drag payload for the floating editing toolbar's move handle.
+class PdfToolbarDragData {
+  const PdfToolbarDragData();
+}
+
+/// Ambient wiring used by [PdfToolbarMoveHandle] to reveal the shell's edge
+/// drop zones while the floating toolbar is being moved.
+class PdfToolbarDragScope extends InheritedWidget {
+  const PdfToolbarDragScope({
+    super.key,
+    required this.onDragStarted,
+    required this.onDragEnded,
+    required super.child,
+  });
+
+  final VoidCallback onDragStarted;
+  final VoidCallback onDragEnded;
+
+  static PdfToolbarDragScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PdfToolbarDragScope>();
+
+  @override
+  bool updateShouldNotify(PdfToolbarDragScope oldWidget) => false;
+}
+
+/// Compact grab handle injected into the stock floating editing toolbar.
+class PdfToolbarMoveHandle extends StatelessWidget {
+  const PdfToolbarMoveHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = PdfToolbarDragScope.maybeOf(context);
+    if (scope == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final handle = MouseRegion(
+      cursor: SystemMouseCursors.move,
+      child: Tooltip(
+        message: pdfL10n(context).panelDragToMovePanel,
+        child: SizedBox.square(
+          dimension: 40,
+          child: Icon(
+            Icons.drag_indicator,
+            size: 18,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+    return Draggable<Object>(
+      key: const ValueKey('pdf-toolbar-move'),
+      data: const PdfToolbarDragData(),
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      onDragStarted: scope.onDragStarted,
+      onDragEnd: (_) => scope.onDragEnded(),
+      onDraggableCanceled: (_, __) => scope.onDragEnded(),
+      feedback: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(Icons.build_outlined,
+              size: 18, color: scheme.onPrimaryContainer),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.3, child: handle),
+      child: handle,
     );
   }
 }
@@ -337,10 +508,21 @@ class _PdfPanelTabGroupState extends State<PdfPanelTabGroup> {
           _tabStrip(context, geometry, entries, selected),
           const Divider(height: 1),
           Expanded(
-            child: IndexedStack(
-              index: selected,
-              sizing: StackFit.expand,
-              children: [for (final e in entries) e.body],
+            // The tab body is built in chromeless/bottom-sheet mode, so it
+            // does not know about this outer frame's resize grip. Keep the
+            // whole body (especially its edge-mounted scrollbar) out of the
+            // grip's hit strip; otherwise the divider paints through the
+            // scrollbar thumb in a left-docked tab group.
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: geometry.contentStartInset,
+                right: geometry.contentEndInset,
+              ),
+              child: IndexedStack(
+                index: selected,
+                sizing: StackFit.expand,
+                children: [for (final e in entries) e.body],
+              ),
             ),
           ),
         ]),
@@ -1190,6 +1372,7 @@ enum _ViewOption {
   reflow,
   pageGrid,
   pageColor,
+  editingGuides,
   author,
   shortcuts
 }
@@ -1232,6 +1415,11 @@ Future<void> _selectViewOption(
         preferences.noteRecentColor(color);
         preferences.pageColor = color;
       }
+    case _ViewOption.editingGuides:
+      await showPdfEditingGuidesDialog(
+        context,
+        preferences: preferences,
+      );
     case _ViewOption.author:
       onAuthorPressed?.call();
     case _ViewOption.shortcuts:
@@ -1259,30 +1447,25 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
   var searchQuery = '';
 
   Future<PdfToolShortcut?> captureKey(BuildContext context) {
-    return showDialog<PdfToolShortcut>(
+    return showPdfDialog<PdfToolShortcut>(
       context: context,
       builder: (context) {
-        final focusNode = FocusNode(debugLabel: 'PdfShortcutCapture');
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (focusNode.canRequestFocus) focusNode.requestFocus();
-        });
         return AlertDialog(
           title: Text(pdfL10n(context).shellPressAKey),
-          content: KeyboardListener(
-            focusNode: focusNode,
+          content: Focus(
             autofocus: true,
-            onKeyEvent: (event) {
-              if (event is! KeyDownEvent) return;
+            onKeyEvent: (_, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.handled;
               final key = event.logicalKey;
               if (key == LogicalKeyboardKey.escape) {
-                Navigator.of(context).maybePop();
-                return;
+                Navigator.of(context).pop();
+                return KeyEventResult.handled;
               }
               if (key == LogicalKeyboardKey.delete ||
                   key == LogicalKeyboardKey.backspace) {
                 Navigator.of(context)
                     .pop(const PdfToolShortcut(LogicalKeyboardKey(0)));
-                return;
+                return KeyEventResult.handled;
               }
               // Hold Shift to record a Shift-extended shortcut; bare Shift
               // (and other modifier keys) carry a multi-character keyLabel,
@@ -1291,12 +1474,13 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
                 Navigator.of(context).pop(PdfToolShortcut(key,
                     shift: HardwareKeyboard.instance.isShiftPressed));
               }
+              return KeyEventResult.handled;
             },
             child: Text(pdfL10n(context).shellPressLetterKeyHint),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).maybePop(),
+              onPressed: () => Navigator.of(context).pop(),
               child: Text(pdfL10n(context).cancel),
             ),
           ],
@@ -1351,7 +1535,7 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
                     isDense: true,
                     prefixIcon: const Icon(Icons.search),
                     hintText: pdfL10n(context).shellShortcutsSearchHint,
-                    border: const OutlineInputBorder(),
+                    border: pdfSearchInputBorder,
                   ),
                   onChanged: (value) =>
                       setSheetState(() => searchQuery = value),
@@ -1499,6 +1683,7 @@ Future<void> showPdfShellViewOptionsSheet(
   bool reflow = false,
   bool pageGrid = false,
   bool pageColor = true,
+  bool editingGuides = false,
   bool author = false,
   String? authorName,
   VoidCallback? onAuthorPressed,
@@ -1650,6 +1835,23 @@ Future<void> showPdfShellViewOptionsSheet(
                     setSheetState(() {});
                   },
                 ),
+              if (editingGuides)
+                ListTile(
+                  key: const ValueKey('pdf-shell-editing-guides'),
+                  leading: const Icon(Icons.grid_4x4),
+                  title: const Text('Cursor guides and grid'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await _selectViewOption(
+                      context,
+                      _ViewOption.editingGuides,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                    );
+                    setSheetState(() {});
+                  },
+                ),
               if (author)
                 ListTile(
                   key: const ValueKey('pdf-shell-author'),
@@ -1687,8 +1889,9 @@ Future<void> showPdfShellViewOptionsSheet(
 }
 
 /// The "view options" popup both shells offer: display-only settings
-/// (annotation visibility, form-field highlight, paper color) that live
-/// in [PdfEditingPreferences] and never touch the document.
+/// (annotation visibility, form-field highlight, paper color, and optional
+/// editing guides) that live in [PdfEditingPreferences] and never touch the
+/// document.
 class PdfShellViewOptionsButton extends StatelessWidget {
   const PdfShellViewOptionsButton({
     super.key,
@@ -1696,6 +1899,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
     this.reflow = false,
     this.pageGrid = false,
     this.pageColor = true,
+    this.editingGuides = false,
     this.author = false,
     this.authorName,
     this.onAuthorPressed,
@@ -1716,6 +1920,9 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   /// the document programmatically and lock it.
   final bool pageColor;
 
+  /// Whether the menu offers the cursor-guide and snap-grid settings.
+  final bool editingGuides;
+
   /// Whether the display menu includes the default annotation author.
   /// The shell owns the prompt because the author affects new annotations,
   /// not the rendered PDF page itself.
@@ -1728,8 +1935,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   final VoidCallback? onAuthorPressed;
 
   final Map<PdfEditTool, PdfToolShortcut>? toolShortcuts;
-  final ValueChanged<Map<PdfEditTool, PdfToolShortcut>>?
-      onToolShortcutsChanged;
+  final ValueChanged<Map<PdfEditTool, PdfToolShortcut>>? onToolShortcutsChanged;
   final Set<PdfEditTool>? tools;
 
   String _hex(Color color) {
@@ -1809,6 +2015,17 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               ),
               title: Text(pdfL10n(context).shellPageColor),
               trailing: Text(_hex(preferences.pageColor)),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        if (editingGuides)
+          const PopupMenuItem(
+            key: ValueKey('pdf-shell-editing-guides'),
+            value: _ViewOption.editingGuides,
+            child: ListTile(
+              leading: Icon(Icons.grid_4x4),
+              title: Text('Guides, snapping and rulers'),
+              trailing: Icon(Icons.chevron_right),
               contentPadding: EdgeInsets.zero,
             ),
           ),

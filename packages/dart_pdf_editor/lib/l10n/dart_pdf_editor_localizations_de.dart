@@ -893,6 +893,31 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get searchRegex => 'Regulärer Ausdruck';
 
   @override
+  String get searchReplace => 'Ersetzen';
+
+  @override
+  String get searchReplaceAll => 'Alle ersetzen';
+
+  @override
+  String get searchReplaceHint => 'Ersetzen durch';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Dieser Treffer kann nicht einzeln ersetzt werden – verwenden Sie „Alle ersetzen“ oder bearbeiten Sie ihn mit dem Inhaltswerkzeug';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Treffer ersetzt',
+      one: '1 Treffer ersetzt',
+      zero: 'Nichts ersetzt',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Suchergebnisse';
 
   @override
@@ -1340,6 +1365,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Textfeld automatisch anpassen (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Schrift an Textfeld anpassen';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Zeichnen Sie eine Linie bekannter Länge, um den Maßstab zu kalibrieren.';
 
@@ -1579,6 +1607,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Freihandstriche löschen';
+
+  @override
+  String get tbNameHand => 'Hand-Werkzeug';
 
   @override
   String get tbNameHighlight => 'Hervorheben';
@@ -2033,4 +2064,63 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Alles auswählen';
+
+  @override
+  String get annotationLibraryTitle => 'Anmerkungsbibliothek';
+
+  @override
+  String get annotationLibraryEmpty => 'Keine gespeicherten Anmerkungen.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Wählen Sie eine unterstützte Anmerkung aus und wählen Sie in ihrem Menü „In Anmerkungsbibliothek speichern“. Links und Formularfelder können nicht gespeichert werden.';
+
+  @override
+  String get annotationLibrarySave => 'In Anmerkungsbibliothek speichern';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Anmerkung speichern';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Bibliothekseintrag umbenennen';
+
+  @override
+  String get annotationLibrarySearchHint => 'Bibliothek durchsuchen';
+
+  @override
+  String get annotationLibraryNoMatches => 'Keine passenden Anmerkungen.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Nicht gruppiert';
+
+  @override
+  String get annotationLibraryChooseGroup => 'In Gruppe verschieben';
+
+  @override
+  String get annotationLibraryNewGroup => 'Neue Gruppe…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Neue Anmerkungsgruppe';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Anmerkungsgruppe umbenennen';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Gruppe entfernen';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Zum Platzieren auf die Seite klicken. Zum Abbrechen Escape drücken.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Benutzerdefinierte Stempel…';
+
+  @override
+  String get signatureLibraryManage => 'Unterschriften verwalten';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Unterschrift umbenennen';
+
+  @override
+  String get signatureLibraryEmpty => 'Keine gespeicherten Unterschriften.';
 }

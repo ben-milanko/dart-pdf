@@ -895,6 +895,31 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get searchRegex => 'Expression régulière';
 
   @override
+  String get searchReplace => 'Remplacer';
+
+  @override
+  String get searchReplaceAll => 'Tout remplacer';
+
+  @override
+  String get searchReplaceHint => 'Remplacer par';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Cette correspondance ne peut pas être remplacée seule : utilisez « Tout remplacer » ou modifiez-la avec l’outil de contenu';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count correspondances remplacées',
+      one: '1 correspondance remplacée',
+      zero: 'Rien n’a été remplacé',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Résultats de recherche';
 
   @override
@@ -1343,6 +1368,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Ajuster automatiquement la zone de texte (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Adapter la police à la zone de texte';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Tracez une ligne de longueur connue pour calibrer l\'échelle.';
 
@@ -1583,6 +1611,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Effacer les traits d\'encre';
+
+  @override
+  String get tbNameHand => 'Main';
 
   @override
   String get tbNameHighlight => 'Surlignage';
@@ -2038,4 +2069,66 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Tout sélectionner';
+
+  @override
+  String get annotationLibraryTitle => 'Bibliothèque d’annotations';
+
+  @override
+  String get annotationLibraryEmpty => 'Aucune annotation enregistrée.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Sélectionnez une annotation prise en charge, puis choisissez « Enregistrer dans la bibliothèque d’annotations » dans son menu. Les liens et les champs de formulaire ne peuvent pas être enregistrés.';
+
+  @override
+  String get annotationLibrarySave =>
+      'Enregistrer dans la bibliothèque d’annotations';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Enregistrer l’annotation';
+
+  @override
+  String get annotationLibraryRenameTitle =>
+      'Renommer l’élément de la bibliothèque';
+
+  @override
+  String get annotationLibrarySearchHint => 'Rechercher dans la bibliothèque';
+
+  @override
+  String get annotationLibraryNoMatches => 'Aucune annotation correspondante.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Non groupées';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Déplacer vers le groupe';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nouveau groupe…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nouveau groupe d’annotations';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Renommer le groupe d’annotations';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Supprimer le groupe';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Cliquez sur la page pour placer l’annotation. Appuyez sur Échap pour annuler.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Tampons personnalisés…';
+
+  @override
+  String get signatureLibraryManage => 'Gérer les signatures';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Renommer la signature';
+
+  @override
+  String get signatureLibraryEmpty => 'Aucune signature enregistrée.';
 }

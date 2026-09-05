@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Downloaden",
   "dl_h2": "Haal DartPDF op je platform.",
-  "dl_intro": "Haal het in de App Store en Google Play, installeer de desktop-app of gebruik het direct in je browser.",
+  "dl_intro": "We tonen de beste downloads voor dit apparaat. Alle andere platforms blijven met één klik bereikbaar.",
+  "dl_otherPlatforms": "Andere platforms",
   "dl_get": "Downloaden",
   "dl_open": "Openen",
   "dlMac_meta": "Directe .dmg · ondertekend en genotariseerd",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Ontwikkelaars",
   "dev_h2": "Een pure-Dart PDF-engine die jij ook kunt gebruiken.",
-  "dev_p": "De engine gebruikt Dart in plaats van PDFium of native bindings, dus het draait overal waar Dart en Flutter draaien. De\n          pakketten zijn Apache-2.0 gelicentieerd en gepubliceerd op pub.dev. Lees het <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK-overzicht</a> voor benchmarks en een vergelijking met\n          commerciële SDK's.",
+  "dev_p": "De engine gebruikt Dart in plaats van PDFium of native bindings, dus het draait overal waar Dart en Flutter draaien. De\n          pakketten zijn Apache-2.0 gelicentieerd en gepubliceerd op pub.dev. Lees het <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK-overzicht</a> voor benchmarks en een vergelijking met\n          commerciële SDK's.",
   "dev_ctaGithub": "Bekijk op GitHub",
   "dev_ctaPub": "Pakketten op pub.dev",
   "dev_bTitle": "Open-source pakketten",
@@ -130,7 +131,7 @@
   "sp_faq2": "<strong>Hoe open ik een PDF?</strong> Open DartPDF en kies een bestand, open een PDF vanuit de Bestanden-app, stuur er een naar DartPDF vanuit het deelvenster van een andere app, of sleep een bestand op het venster.",
   "sp_faq3": "<strong>Kan ik met een wachtwoord beveiligde PDF's openen?</strong> Ja. DartPDF vraagt om het wachtwoord en opent versleutelde bestanden voor weergave en bewerking.",
   "sp_faq4": "<strong>Hoe werkt OCR?</strong> Optische tekenherkenning draait volledig op je apparaat. Bij het eerste gebruik downloadt de app het herkenningsmodel, waarna alle verwerking lokaal plaatsvindt - je pagina's worden nooit naar een server verzonden.",
-  "sp_faq5": "<strong>Zijn mijn gegevens privé?</strong> Ja. DartPDF heeft geen analytics, geen advertenties, geen accounts en geen servers. Zie het <a href=\"privacy.html\">privacybeleid</a> voor de details.",
+  "sp_faq5": "<strong>Zijn mijn gegevens privé?</strong> Ja. DartPDF heeft geen analytics, geen advertenties, geen accounts en geen servers. Zie het <a href=\"/privacy\">privacybeleid</a> voor de details.",
   "sp_stuckH2": "Nog steeds vast?",
   "sp_stuck_p": "Stuur een e-mail naar <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> en beschrijf wat je probeerde te doen. We lezen elk bericht.",
 
@@ -139,6 +140,7 @@
   "sdk_nav_features": "Functies",
   "sdk_nav_performance": "Prestaties",
   "sdk_nav_compare": "Vergelijken",
+  "sdk_nav_guide": "Handleiding",
   "sdk_nav_packages": "Pakketten",
   "sdk_nav_getpub": "Haal het op pub.dev",
   "sdk_hero_h1": "Een PDF-viewer en -editor voor Flutter, <span class=\"hl\">volledig geschreven in\n          Dart.</span>",

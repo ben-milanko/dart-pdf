@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// Places a text field's selection toolbar - the long-press copy/paste
@@ -43,6 +45,68 @@ Widget pdfPlacedTextSelectionMenu(
   if (_isIdentity(correction)) return menu;
   return Transform(transform: correction, child: menu);
 }
+
+/// Wraps an in-page [TextField] so Flutter's Apple-platform caret nudge
+/// stays constant in *screen* space.
+///
+/// Material and Cupertino text fields shift the caret two device pixels
+/// left on iOS and macOS (`-2 / devicePixelRatio`), and [RenderEditable]
+/// snaps the caret to the device pixel grid with the same ratio. Both are
+/// measured against the untransformed screen, so an editor living inside
+/// the viewer's zoom transform has them multiplied by the zoom: the caret
+/// drifts off the glyphs, by more the deeper you go. Feeding the subtree a
+/// device pixel ratio scaled by the same zoom ([chromeScale] is its
+/// inverse) cancels both, leaving the two physical pixels Flutter intends.
+///
+/// The identity off Apple platforms, and whenever the zoom is unusable.
+Widget pdfZoomAwareCaret(BuildContext context,
+    {required double chromeScale, required Widget child}) {
+  final platform = Theme.of(context).platform;
+  if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
+    return child;
+  }
+  if (!chromeScale.isFinite || chromeScale <= 0) return child;
+  final media = MediaQuery.of(context);
+  return MediaQuery(
+    data: media.copyWith(devicePixelRatio: media.devicePixelRatio / chromeScale),
+    child: child,
+  );
+}
+
+/// The [TextField.cursorHeight] that keeps Flutter's Apple-platform caret
+/// overhang constant in screen space inside the viewer's zoom transform.
+///
+/// [RenderEditable] adds two local pixels to every iOS/macOS caret. Left
+/// alone, the outer page transform magnifies that extra height along with the
+/// text, so at deep zoom the caret visibly towers over its line. Subtract the
+/// zoomed portion here; Flutter adds the two local pixels back, leaving the
+/// requested [lineHeight] plus two *screen* pixels after composition.
+double pdfZoomAwareCursorHeight(
+  BuildContext context, {
+  required double lineHeight,
+  required double chromeScale,
+}) {
+  final platform = Theme.of(context).platform;
+  if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
+    return lineHeight;
+  }
+  if (!chromeScale.isFinite || chromeScale <= 0) return lineHeight;
+  return math.max(0, lineHeight - 2 * (1 - chromeScale));
+}
+
+/// The gutter [RenderEditable] reserves at the end of every editable line
+/// for the caret: its one-pixel `_kCaretGap` plus the cursor width.
+///
+/// It comes out of the width the text is laid out and aligned in, so
+/// centred text sits half a gutter - and right-aligned text a whole one -
+/// to the left of the field. That is a constant in *layout* pixels, which
+/// the viewer transform magnifies into a visible gap: at 24x it drags a
+/// centred line about 13 screen pixels off the glyphs the page shows,
+/// which is what leaves an inline caret looking detached from both ends of
+/// centred free text at deep zoom (#692). In-page editors hand it back out
+/// of their trailing content padding, so the band the text aligns inside
+/// is the appearance's own text area at any zoom.
+double pdfCaretGutter(double chromeScale) => 1.0 + 2 * chromeScale;
 
 /// [Matrix4.isIdentity] is exact; the correction is a product of two
 /// float matrices, so an unscaled field lands a hair off it.

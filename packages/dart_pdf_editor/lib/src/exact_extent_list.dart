@@ -23,6 +23,7 @@ class ExactExtentListView extends ListView {
     required ItemExtentBuilder super.itemExtentBuilder,
     required super.itemBuilder,
     required int super.itemCount,
+    super.findChildIndexCallback,
   }) : super.builder();
 
   @override

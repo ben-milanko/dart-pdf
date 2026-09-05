@@ -37,7 +37,9 @@ void main() {
 
   /// An unfiltered image XObject over [space] carrying [samples].
   CosStream image(CosObject space, List<int> samples,
-          {int width = 2, int height = 2, Map<String, CosObject> extra = const {}}) =>
+          {int width = 2,
+          int height = 2,
+          Map<String, CosObject> extra = const {}}) =>
       CosStream(
           CosDictionary({
             'Type': const CosName('XObject'),
@@ -65,11 +67,14 @@ void main() {
           cos,
           indexed(const CosName('DeviceCMYK'),
               [0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 255]));
-      expect(space.inkColorants(const [0])!.colorants, PdfColorants(0, 0, 0, 0));
-      expect(space.inkColorants(const [2])!.colorants, PdfColorants(0, 0, 0, 1));
+      expect(
+          space.inkColorants(const [0])!.colorants, PdfColorants(0, 0, 0, 0));
+      expect(
+          space.inkColorants(const [2])!.colorants, PdfColorants(0, 0, 0, 1));
       // Entry 1 is 128/255; the reading is the palette's own value, not a
       // rounded tint.
-      expect(space.inkColorants(const [1])!.colorants.k, closeTo(128 / 255, 1e-9));
+      expect(
+          space.inkColorants(const [1])!.colorants.k, closeTo(128 / 255, 1e-9));
     });
 
     test('/Indexed over an RGB palette has no colorant reading', () {
@@ -78,18 +83,20 @@ void main() {
       expect(space.inkColorants(const [0]), isNull);
     });
 
-    test('/Indexed keeps DeviceCMYK\'s overprint-mode-1 zero rule', () {
+    test('/Indexed does not inherit DeviceCMYK\'s OPM-1 zero rule', () {
       final space = PdfColorSpace.parse(
           cos, indexed(const CosName('DeviceCMYK'), [0, 0, 0, 0]));
-      // White in a CMYK palette writes nothing under mode 1, which is exactly
-      // what lets GWG031's raster keep the spot green under its background.
-      final backdrop = PdfColorants(0, 0, 0, 0, spots: const ['GWG Green'],
-          tints: const [1.0]);
-      expect(space.inkColorants(const [0])!.over(backdrop, 1), backdrop);
-      // Under mode 0 the same white writes all four process colorants, so a
-      // process backdrop is knocked out (the spot, which DeviceCMYK does not
-      // name, survives either way).
+      // OPM 1's zero-component exception is scoped to DeviceCMYK itself. An
+      // Indexed selection writes the complete palette colour even when its
+      // base is DeviceCMYK (GWG010's OPM-1 image and mask patches).
+      final backdrop = PdfColorants(0, 0, 0, 0,
+          spots: const ['GWG Green'], tints: const [1.0]);
+      expect(space.inkColorants(const [0])!.over(backdrop, 1), backdrop,
+          reason: 'process zeros write, but do not name or erase the spot');
+      // Against a process backdrop, those zeros knock out under both modes.
       expect(space.inkColorants(const [0])!.over(PdfColorants(0.5, 0, 1, 0), 0),
+          PdfColorants(0, 0, 0, 0));
+      expect(space.inkColorants(const [0])!.over(PdfColorants(0.5, 0, 1, 0), 1),
           PdfColorants(0, 0, 0, 0));
     });
   });
@@ -97,10 +104,14 @@ void main() {
   group('reading a raster (pdfImageColorants)', () {
     test('a raster of one sample tuple reads as that ink', () {
       final reading = pdfImageColorants(
-          cos, image(const CosName('DeviceCMYK'), List.filled(16, 0)..[3] = 255
-            ..[7] = 255
-            ..[11] = 255
-            ..[15] = 255))!;
+          cos,
+          image(
+              const CosName('DeviceCMYK'),
+              List.filled(16, 0)
+                ..[3] = 255
+                ..[7] = 255
+                ..[11] = 255
+                ..[15] = 255))!;
       expect(reading.uniformInk!.colorants, PdfColorants(0, 0, 0, 1));
       expect(reading.coversQuad, isTrue);
       expect(reading.backdropInk, isNotNull);
@@ -108,8 +119,7 @@ void main() {
 
     test('a raster whose samples differ reads as varying, not as one ink', () {
       final reading = pdfImageColorants(
-          cos,
-          image(const CosName('DeviceGray'), [0, 64, 128, 255]))!;
+          cos, image(const CosName('DeviceGray'), [0, 64, 128, 255]))!;
       // It still *has* a reading - it can be composited onto a backdrop - but
       // it is not one vector, so the buffer cannot record it as a backdrop.
       expect(reading.uniformInk, isNull);
@@ -119,7 +129,12 @@ void main() {
     test('an /SMask keeps the reading but not the backdrop', () {
       final reading = pdfImageColorants(
           cos,
-          image(const CosName('DeviceGray'), [128, 128, 128, 128], extra: {
+          image(const CosName('DeviceGray'), [
+            128,
+            128,
+            128,
+            128
+          ], extra: {
             'SMask': image(const CosName('DeviceGray'), [0, 0, 0, 0]),
           }))!;
       expect(reading.uniformInk, isNotNull);
@@ -208,8 +223,10 @@ void main() {
       expect(
           pdfImageColorants(
                   cos,
-                  packed(16, [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, //
-                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]))!
+                  packed(16, [
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, //
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+                  ]))!
               .uniformInk!
               .colorants,
           PdfColorants(0, 0, 0, 0));
@@ -279,7 +296,8 @@ void main() {
       expect(pixels.rgba[2], (backdropColor.blue * 255).round());
     });
 
-    test('a sample that knocks the backdrop out keeps the raster\'s pixels', () {
+    test('a sample that knocks the backdrop out keeps the raster\'s pixels',
+        () {
       final source = image(const CosName('DeviceCMYK'),
           List.generate(16, (i) => i % 4 == 3 ? 255 : 0));
       final original = decodePdfImagePixels(cos, source)!;
@@ -303,9 +321,14 @@ void main() {
               [0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 255]),
           [0, 1, 2, 2]);
       final pixels = decodePdfImagePixels(cos, substitute(source)!)!;
-      expect(pixels.rgba.sublist(0, 3),
-          [for (final c in [backdropColor.red, backdropColor.green,
-            backdropColor.blue]) (c * 255).round()]);
+      expect(pixels.rgba.sublist(0, 3), [
+        for (final c in [
+          backdropColor.red,
+          backdropColor.green,
+          backdropColor.blue
+        ])
+          (c * 255).round()
+      ]);
       // The last sample is full K over the green: darker than the green, and
       // not the green itself.
       expect(pixels.rgba[12], lessThan(pixels.rgba[0]));
@@ -335,7 +358,9 @@ void main() {
       final expected = colorantsToSrgb(
           PdfColorants(0, 0, 0, 0.5,
               spots: const ['PANTONE 349'], tints: const [1.0]),
-          const {'PANTONE 349': [1.0, 0.0, 0.8, 0.2]});
+          const {
+            'PANTONE 349': [1.0, 0.0, 0.8, 0.2]
+          });
       expect(composited.rgba[0], (expected.red * 255).round());
       expect(composited.rgba[1], (expected.green * 255).round());
       expect(composited.rgba[2], (expected.blue * 255).round());
@@ -343,23 +368,24 @@ void main() {
 
     test('bare paper needs no substitute at all', () {
       expect(
-          pdfImageOverprintStream(cos,
-              image(const CosName('DeviceCMYK'), List.filled(16, 128)),
+          pdfImageOverprintStream(
+              cos, image(const CosName('DeviceCMYK'), List.filled(16, 128)),
               backdrop: PdfColorants.none,
               backdropColor: const PdfColor(1, 1, 1),
               mode: 1,
               spotEquivalents: const {}),
           isNull,
-          reason: 'overprinting onto no colorant leaves every sample as it was');
+          reason:
+              'overprinting onto no colorant leaves every sample as it was');
     });
 
     test('a colour-key /Mask declines - its ranges are in source samples', () {
-      final source = image(const CosName('DeviceCMYK'), List.filled(16, 0),
-          extra: {
-            'Mask': CosArray([
-              for (var i = 0; i < 8; i++) const CosInteger(0),
-            ]),
-          });
+      final source =
+          image(const CosName('DeviceCMYK'), List.filled(16, 0), extra: {
+        'Mask': CosArray([
+          for (var i = 0; i < 8; i++) const CosInteger(0),
+        ]),
+      });
       expect(substitute(source), isNull);
     });
 
@@ -434,52 +460,74 @@ void main() {
             bool overprint = true,
             bool opaque = true}) =>
         c.image<PdfColorants>(path,
+            transform: PdfMatrix.identity,
+            width: 1,
+            height: 1,
             ink: ink,
             color: const PdfColor(0, 0, 0),
             hasColorants: hasColorants,
             overprint: overprint,
             mode: 1,
             opaque: opaque,
-            resolve: (backdrop, _) => backdrop);
+            resolve: (backdrop, _) => backdrop,
+            resolveSpatial: (backdrop) => backdrop.at(0, 0)?.colorants);
 
     test('offers the backdrop under an overprinting raster', () {
       final c = buffer();
-      c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+      c.fill(
+          rect(0, 0, 100, 100),
+          PdfFillRule.nonzero,
           const PdfColor(0.31, 0.45, 0.13),
           PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5),
-          overprint: false, mode: 0, opaque: true);
-      expect(resolveOver(c, rect(20, 20, 80, 80)), PdfColorants(0.5, 0, 1, 0.5));
+          overprint: false,
+          mode: 0,
+          opaque: true);
+      expect(
+          resolveOver(c, rect(20, 20, 80, 80)), PdfColorants(0.5, 0, 1, 0.5));
     });
 
     test('declines a raster with no colorant reading, and marks it unknown',
         () {
       final c = buffer();
-      c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+      c.fill(
+          rect(0, 0, 100, 100),
+          PdfFillRule.nonzero,
           const PdfColor(0.31, 0.45, 0.13),
           PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5),
-          overprint: false, mode: 0, opaque: true);
+          overprint: false,
+          mode: 0,
+          opaque: true);
       expect(resolveOver(c, rect(20, 20, 80, 80), hasColorants: false), isNull);
       // ...and a vector overprint landing on it now declines too: an RGB
       // raster's colorants are not knowable, so nothing may composite over it.
       expect(
-          c.fill(rect(30, 30, 70, 70), PdfFillRule.nonzero,
+          c.fill(
+              rect(30, 30, 70, 70),
+              PdfFillRule.nonzero,
               const PdfColor(0.6, 0.6, 0.63),
               PdfInkColorants.deviceCmyk(0, 0, 0, 0.5),
-              overprint: true, mode: 0, opaque: true),
+              overprint: true,
+              mode: 0,
+              opaque: true),
           isNull);
     });
 
-    test('declines a raster straddling two backdrops', () {
+    test('offers a spatial map for a raster straddling two backdrops', () {
       final c = buffer();
-      c.fill(rect(0, 0, 50, 100), PdfFillRule.nonzero,
+      c.fill(
+          rect(0, 0, 50, 100),
+          PdfFillRule.nonzero,
           const PdfColor(0.31, 0.45, 0.13),
           PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5),
-          overprint: false, mode: 0, opaque: true);
+          overprint: false,
+          mode: 0,
+          opaque: true);
       c.fill(rect(50, 0, 100, 100), PdfFillRule.nonzero,
           const PdfColor(0, 0, 0), PdfInkColorants.deviceCmyk(0, 0, 0, 1),
           overprint: false, mode: 0, opaque: true);
-      expect(resolveOver(c, rect(20, 20, 80, 80)), isNull,
-          reason: 'one substitute composites against one backdrop');
+      expect(resolveOver(c, rect(20, 20, 80, 80)), PdfColorants(0.5, 0, 1, 0.5),
+          reason: 'the spatial resolver samples the left backdrop at source '
+              'pixel 0; later pixels carry the right backdrop');
     });
 
     test('a uniform opaque raster records as a backdrop of its own', () {
@@ -489,9 +537,14 @@ void main() {
       // its own colorants - which the next overprint composites against.
       resolveOver(c, rect(0, 0, 100, 100), ink: ink, overprint: false);
       expect(
-          c.fill(rect(20, 20, 80, 80), PdfFillRule.nonzero,
-              const PdfColor(0, 0.7, 0.9), PdfInkColorants.deviceCmyk(1, 0, 0, 0),
-              overprint: true, mode: 1, opaque: true),
+          c.fill(
+              rect(20, 20, 80, 80),
+              PdfFillRule.nonzero,
+              const PdfColor(0, 0.7, 0.9),
+              PdfInkColorants.deviceCmyk(1, 0, 0, 0),
+              overprint: true,
+              mode: 1,
+              opaque: true),
           isNotNull,
           reason: 'cyan over the raster\'s black keeps the black');
     });
@@ -500,9 +553,14 @@ void main() {
       final c = buffer();
       resolveOver(c, rect(0, 0, 100, 100), overprint: false);
       expect(
-          c.fill(rect(20, 20, 80, 80), PdfFillRule.nonzero,
-              const PdfColor(0, 0.7, 0.9), PdfInkColorants.deviceCmyk(1, 0, 0, 0),
-              overprint: true, mode: 1, opaque: true),
+          c.fill(
+              rect(20, 20, 80, 80),
+              PdfFillRule.nonzero,
+              const PdfColor(0, 0.7, 0.9),
+              PdfInkColorants.deviceCmyk(1, 0, 0, 0),
+              overprint: true,
+              mode: 1,
+              opaque: true),
           isNull,
           reason: 'the buffer holds one vector per cell, so a raster whose '
               'colorants vary cannot be a backdrop');
@@ -510,10 +568,14 @@ void main() {
 
     test('declines while a transparency group is open', () {
       final c = buffer();
-      c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+      c.fill(
+          rect(0, 0, 100, 100),
+          PdfFillRule.nonzero,
           const PdfColor(0.31, 0.45, 0.13),
           PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5),
-          overprint: false, mode: 0, opaque: true);
+          overprint: false,
+          mode: 0,
+          opaque: true);
       c.beginIsolated();
       expect(resolveOver(c, rect(20, 20, 80, 80)), isNull);
       c.endIsolated();
@@ -583,18 +645,26 @@ void main() {
 
       test('never becomes a backdrop of its own', () {
         final c = buffer();
-        c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+        c.fill(
+            rect(0, 0, 100, 100),
+            PdfFillRule.nonzero,
             const PdfColor(0.31, 0.45, 0.13),
             PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5),
-            overprint: false, mode: 0, opaque: true);
+            overprint: false,
+            mode: 0,
+            opaque: true);
         c.stencil(rect(0, 0, 100, 100), const PdfColor(0, 0, 0),
             PdfInkColorants.deviceCmyk(0, 0, 0, 1),
             overprint: false, mode: 0, opaque: true);
         expect(
-            c.fill(rect(20, 20, 80, 80), PdfFillRule.nonzero,
+            c.fill(
+                rect(20, 20, 80, 80),
+                PdfFillRule.nonzero,
                 const PdfColor(0, 0.7, 0.9),
                 PdfInkColorants.deviceCmyk(1, 0, 0, 0),
-                overprint: true, mode: 1, opaque: true),
+                overprint: true,
+                mode: 1,
+                opaque: true),
             isNull,
             reason: 'the backdrop survives wherever the mask is clear, so the '
                 'quad reads as unknown');

@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
@@ -229,7 +230,7 @@ Future<void> showPdfStampPicker(BuildContext context,
         PdfImagePicker? imagePicker,
         PdfStampExportCallback? onExportStamps,
         PdfStampImportCallback? onImportStamps}) =>
-    showDialog<void>(
+    showPdfDialog<void>(
       context: context,
       builder: (context) => PdfStampPickerDialog(
         controller: controller,
@@ -464,7 +465,7 @@ Future<PdfCustomStamp?> showPdfStampEditor(BuildContext context,
             PdfEditingController.stampTemplateBuiltinFields,
         PdfImagePicker? imagePicker,
         PdfCustomStamp? initial}) =>
-    showDialog<PdfCustomStamp>(
+    showPdfDialog<PdfCustomStamp>(
       context: context,
       builder: (context) => PdfStampEditorDialog(
         fields: fields,
@@ -820,7 +821,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
       strokes: signature.strokes,
       pressures: signature.pressures,
       color: signature.color,
-      strokeWidth: math.max(0.8, width / 75),
+      // the pen the pad drew with, scaled to the size it lands in the stamp
+      strokeWidth: math.max(0.8, signature.strokeWidthFor(width)),
     );
     setState(() {
       _color = signature.color;

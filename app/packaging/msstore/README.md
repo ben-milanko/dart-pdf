@@ -1,7 +1,8 @@
 # Microsoft Store packaging for DartPDF
 
 Builds the Store MSIX and pushes it into a Partner Center submission. Both
-halves are plain CLI, so the per-release path is fully headless:
+halves are plain CLI, so the per-release path is fully headless after the first
+submission has a package registered in Partner Center:
 
 | Step | Tool | Script |
 |---|---|---|
@@ -38,18 +39,23 @@ needs a package already uploaded by step 6. Partner Center is at
       and it mints the identity values the MSIX must carry.
 - [ ] **3. Register an Azure AD application, associate it with the Partner Center
       account** (*Account settings → User management → Azure AD applications*),
-      and create a client secret on it. The **association** is the part that is
-      easy to miss: without it the credentials authenticate fine but see no
-      products, which reads like a permissions bug.
+      and register a certificate credential on it. The **association** is the
+      part that is easy to miss: without it the credentials authenticate fine
+      but see no products, which reads like a permissions bug.
 - [ ] **4. Set the 4 repository variables** (*Settings → Secrets and variables →
       Actions → Variables*). Values and dashboard paths: table below.
-- [ ] **5. Set the 4 repository secrets** (same page, *Secrets* tab).
+- [ ] **5. Set the 5 repository secrets** (same page, *Secrets* tab).
 - [ ] **6. Dry-run the pipeline.** Actions → *Release Windows Store* → Run
       workflow, **`commit` unchecked**. This builds the MSIX and uploads it as a
-      draft — the first end-to-end proof, since `makeappx`/`makepri` and the
-      upload cannot be tested off Windows. Check the `windows-store-msix`
-      artifact exists and the run didn't skip (a skip means a value from 4-5 is
-      missing; the log's `::notice::` names which).
+      draft — the first end-to-end proof, since `makeappx`/`makepri` and Store
+      authentication cannot be tested off Windows. Check the
+      `windows-store-msix` artifact exists and the run didn't skip (a skip means
+      a value from 4-5 is missing; the log's `::notice::` names which). On a
+      brand-new product, Microsoft Store Developer CLI v0.3.9 can report a
+      successful `--noCommit` upload without attaching that first package in
+      the Partner Center UI. If *Packages* is still incomplete, download the
+      artifact and upload the MSIX there once. After that bootstrap, the CLI
+      updates the registered submission on later releases.
 - [ ] **7. Complete the first submission in the UI.** Listing description,
       screenshots, category, privacy policy URL (host `app/PRIVACY.md`, as Play
       does) and the age-rating questionnaire. Screenshots and age rating are not
@@ -61,9 +67,9 @@ needs a package already uploaded by step 6. Partner Center is at
 
 After that, `release-windows-store.yml` handles each release.
 
-## Configuration: 4 variables + 4 secrets
+## Configuration: 4 variables + 5 secrets
 
-All eight are set in *Settings → Secrets and variables → Actions*, but on
+All nine are set in *Settings → Secrets and variables → Actions*, but on
 **different tabs**. The workflow **skips (does not fail)** while any is missing,
 so an unconfigured account cannot turn an `app-v*` tag red; its `::notice::` says
 which are missing and which tab each belongs on.
@@ -80,13 +86,14 @@ app's public Store URL.
 | `MSSTORE_PUBLISHER_DISPLAY_NAME` | Product → Product identity → `Package/Properties/PublisherDisplayName` |
 | `MSSTORE_PRODUCT_ID` | Product → Product identity → **Store ID** |
 
-**Repository *secrets*** — only `MSSTORE_CLIENT_SECRET` is truly a credential.
-The three IDs are identifiers, kept masked as defence in depth so a leaked client
-secret isn't accompanied by everything needed to use it.
+**Repository *secrets*** — the base64 PFX and its password are credentials. The
+three IDs are identifiers, kept masked as defence in depth so leaked certificate
+material isn't accompanied by everything needed to use it.
 
 | Secret | Where to find it |
 |---|---|
-| `MSSTORE_CLIENT_SECRET` | A client secret on the associated Azure AD app registration |
+| `MSSTORE_CERTIFICATE_BASE64` | Base64 of a password-protected PFX whose public certificate is registered on the associated Azure AD app |
+| `MSSTORE_CERTIFICATE_PASSWORD` | The PFX password |
 | `MSSTORE_TENANT_ID` | Account settings → User management → Azure AD applications |
 | `MSSTORE_CLIENT_ID` | The associated Azure AD app registration |
 | `MSSTORE_SELLER_ID` | Account settings → Account details → **Seller ID** |
@@ -119,7 +126,9 @@ $env:MSSTORE_PUBLISHER_DISPLAY_NAME = '…'
 ./build-msix.ps1 -Version 3.0.0
 
 $env:MSSTORE_TENANT_ID = '…'; $env:MSSTORE_SELLER_ID = '…'
-$env:MSSTORE_CLIENT_ID = '…'; $env:MSSTORE_CLIENT_SECRET = '…'
+$env:MSSTORE_CLIENT_ID = '…'
+$env:MSSTORE_CERTIFICATE_BASE64 = '…'
+$env:MSSTORE_CERTIFICATE_PASSWORD = '…'
 $env:MSSTORE_PRODUCT_ID = '…'
 ./publish-msix.ps1 -MsixPath ../../build/windows/msstore/dartpdf-windows-store.msix -Commit
 ```

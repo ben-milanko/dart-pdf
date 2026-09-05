@@ -1,0 +1,7 @@
+Neu in 3.4.0
+
+• Anmerkungen zwischen offenen Dokumenten kopieren und einfügen.
+• PDFs zwischen Seitenminiaturen ablegen, um Seiten an der gewünschten Stelle einzufügen.
+• Platzierte Stempel in der Sammlung speichern und die Farbe der ausgewählten Anmerkung in der Symbolleiste sehen.
+• Textauswahl und Ersatzschrift-Darstellung sind präziser ausgerichtet.
+• Schnellere Tab-Raster, flüssigeres Trackpad-Zoomen, sichererer schrittweiser Dateizugriff und zuverlässigere Druckvorschauen.

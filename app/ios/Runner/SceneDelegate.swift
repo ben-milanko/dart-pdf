@@ -213,11 +213,20 @@ class SceneDelegate: FlutterSceneDelegate {
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
     guard let bookmark = try? url.bookmarkData() else { return nil }
     let token = bookmark.base64EncodedString()
-    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+    let values = try? url.resourceValues(forKeys: [
+      .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemContainerDisplayNameKey,
+    ])
+    let size = values?.fileSize ?? -1
+    // Apple doesn't expose a third-party File Provider's display name from a
+    // picked URL. iCloud does expose its container label; keep the fallback
+    // deliberately generic rather than leaking any part of the URL/bookmark.
+    let provider = values?.ubiquitousItemContainerDisplayName
+      ?? ((values?.isUbiquitousItem ?? false) ? "iCloud" : "ios-file-provider")
     return [
       "token": token,
       "name": url.lastPathComponent,
       "length": size,
+      "provider": provider,
       // iOS File Provider serves coordinated ranged reads on demand, so a
       // resolvable URL is seekable; confirm by opening a handle.
       "seekable": probeSeekableURL(url),

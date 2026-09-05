@@ -1,5 +1,92 @@
 # Changelog
 
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public
+  rendering or colour API changes since 4.1.0.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
+## 4.1.0
+
+- Allow retained renderers to request a larger overprint colourant grid when
+  retrying a scene that the default exact-GPU route conservatively rejected.
+- Replay spatially varying stroked overprint through exact clipped regions,
+  retain narrow-stroke and embedded-glyph colourant samples, and keep compound
+  sub-cell paths conservative.
+- Accelerate supported MRC JPEG 2000 image decoding on Apple platforms while
+  preserving the portable fallback.
+- Fix an inverted colorant-buffer clip range that could blank an otherwise
+  renderable page.
+- Align dependency constraints with the dart-pdf 4.1.0 package suite.
+
+## 4.0.0
+
+- **Breaking:** `PdfOverprintCompositor.image` now requires the image
+  transform, source dimensions, and a spatial resolver. Custom compositor
+  callers must pass those values so one image can be resolved against several
+  colourant backdrops.
+- Complete the Ghent PDF Output Suite V5 colour and transparency pass with
+  output-intent colour management, rendering intents, black-point
+  compensation, spatial image overprint, 16-bit image handling, and exact
+  isolated/knockout transparency-group composition.
+- Add public `PdfColorContext`, `PdfRenderingIntent`, spatial overprint and
+  transparency-group device interfaces, plus intent-aware colour-space and ICC
+  conversion APIs.
+- Export an OpenType CFF face reader that retains Unicode cmap mappings and
+  selects collection entries, allowing native substitution adapters to obtain
+  exact glyph outlines and advances from CFF-flavoured system fonts.
+- Give synthesized FreeText and form-widget fallback text exact Base-14
+  character offsets, keeping Canvas placement, selection geometry, and
+  retained outline backends on the same per-character advances.
+- Export the TrueType outline reader and add indexed TrueType Collection
+  parsing so retained backends can derive exact glyph paths from a host's
+  registered TTF/TTC bytes.
+
+## 3.8.0
+
+- Cull retained CAD shapes outside the active raster strip before painting,
+  with `ShapeStripCache.viewportCulls` diagnostics for measuring the saved
+  work.
+- Reduce retained-scene and image-strip overhead while scrolling and deep
+  zooming image-heavy engineering drawings.
+
+## 3.7.0
+
+- Move the Adobe glyph-name tables to `pdf_document`, where the content editor
+  needs the same code -> glyph name -> Unicode chain. `src/fonts/encodings.dart`
+  is now a re-export, so the font engine's imports and the public API are
+  unchanged.
+
+## 3.6.0
+
+- Carry nonstroking and stroking alpha on `PdfTextRun` through interpretation,
+  translation, and render-command serialization so text annotation opacity is
+  preserved by every renderer.
+
+## 3.5.1
+
+- Decode JBIG2 and JPEG 2000 data through image mask and soft-mask paths so
+  scanned MRC pages retain their text, background, and transparency layers.
+
+## 3.5.0
+
+- Add compact path traversal and replay primitives used by retained and tiled
+  renderers, including exact clip-stack preservation and bounded region replay.
+- Add batched text-device delivery and richer render-command serialization so
+  worker and retained-scene renderers can reduce per-command overhead without
+  changing page geometry.
+- Improve display-resolution image decoding, downsampling, masks, and decoded
+  image reuse for large scan and CAD workloads.
+
+## 3.4.0
+
+- Add exact per-character pen offsets to `PdfTextRun` and
+  `PdfExtractedRun`. Selection, search highlights, and hit testing now follow
+  proportional glyph widths instead of interpolating evenly across a run
+  (#647, #648).
+- Carry those offsets through render-command and text-cache serialization so
+  worker rendering and cached extraction preserve identical text geometry.
+
 ## 3.3.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.3.1. No

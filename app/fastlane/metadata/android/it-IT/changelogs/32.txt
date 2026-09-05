@@ -1,0 +1,6 @@
+Novità della versione 3.8.0
+
+- Sfoglia i PDF recenti con anteprime delle pagine ricercabili.
+- Modifica annotazioni oltre il bordo, cambia lo stile delle selezioni miste e scegli colore e spessore della firma.
+- Visualizza l'anteprima dei lavori di stampa prima dell'invio.
+- Scorrimento e zoom più fluidi sui grandi disegni, con correzioni per cursore, popup e arresti anomali.

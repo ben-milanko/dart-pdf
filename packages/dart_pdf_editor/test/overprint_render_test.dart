@@ -169,7 +169,8 @@ void main() {
   // --- image overprint (issue #604) ---
 
   for (final page in _deviceNPages) {
-    testWidgets('${page.name} flattens its image patches as well as its vector '
+    testWidgets(
+        '${page.name} flattens its image patches as well as its vector '
         'ones', (tester) async {
       final file = File('../../test_corpora/ghent/1-CMYK/${page.file}');
       if (!file.existsSync()) {
@@ -266,7 +267,7 @@ void main() {
     });
   });
 
-  testWidgets('GWG020 grades its image and stencil patches as passing',
+  testWidgets('GWG020 grades all ten spot/process overprint patches as passing',
       (tester) async {
     final file =
         File('../../test_corpora/ghent/2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf');
@@ -280,16 +281,20 @@ void main() {
 
       // Ten patches in two rows of five (font / vector / image / mask /
       // shading), each a spot-green square with a white X that must vanish
-      // when overprint is honoured. The two image patches and the two "mask"
-      // (/ImageMask stencil) patches are what issue #604 moved; the font
-      // patches keep their marker, because the buffer marks a text run by its
-      // em box rather than its glyph outlines (issue #502's deliberate
-      // trade - see doc/dev-log/2026-07-25-overprint-colorant-buffer.md).
+      // when overprint is honoured. This intentionally covers every painting
+      // primitive in the sample: exact glyph outlines, vector paths, decoded
+      // image colorants, /ImageMask stencils, and sampled shadings.
       const patches = <String, (int, int, int, int)>{
+        'a: font, cmyk over spot': (79, 81, 115, 117),
+        'b: vector, cmyk over spot': (164, 81, 200, 117),
         'c: image, cmyk over spot': (249, 81, 284, 117),
         'd: mask, cmyk over spot': (335, 81, 370, 117),
+        'e: shading, cmyk over spot': (419, 81, 454, 117),
+        'f: font, spot over cmyk': (79, 162, 115, 198),
+        'g: vector, spot over cmyk': (164, 162, 200, 198),
         'h: image, spot over cmyk': (249, 162, 284, 198),
         'i: mask, spot over cmyk': (335, 162, 370, 198),
+        'j: shading, spot over cmyk': (419, 162, 454, 198),
       };
       final colorants = await _measure(doc.page(0), _Mode.colorants, patches);
       final none = await _measure(doc.page(0), _Mode.none, patches);
@@ -311,7 +316,8 @@ void main() {
 /// A Ghent DeviceN overprint page: four self-grading patches, two painted with
 /// vector art and two with an image XObject in the same colour space.
 class _DeviceNPage {
-  const _DeviceNPage(this.name, this.file, this.bottom, this.vector, this.image);
+  const _DeviceNPage(
+      this.name, this.file, this.bottom, this.vector, this.image);
 
   final String name;
   final String file;
@@ -350,13 +356,14 @@ class _DeviceNPage {
 
 const _deviceNPages = <_DeviceNPage>[
   // "a + b must be rendered to solid Black (100C100K) rectangles"; "c + d must
-  // be rendered to solid Cyan rectangles".
+  // be rendered to solid Cyan rectangles". The RGB values below are those
+  // inks after the files' CMYK OutputIntent, not the old unmanaged alternates.
   _DeviceNPage('GWG190', 'GWG190_DeviceN_Overprint_Black_X1a.pdf', 80.34,
-      (0, 7, 39), (0, 185, 242)),
+      (4, 34, 44), (0, 160, 227)),
   _DeviceNPage('GWG191', 'GWG191_DeviceN_Overprint_Yellow_X1a.pdf', 94.14,
-      (0, 171, 79), (0, 185, 242)),
+      (0, 152, 71), (0, 160, 227)),
   _DeviceNPage('GWG192', 'GWG192_DeviceN_Overprint_White_X1a.pdf', 80.34,
-      (255, 46, 23), (255, 255, 255)),
+      (227, 31, 37), (255, 255, 255)),
 ];
 
 /// A 22.678pt patch at ([left], [bottom]) in user space, as a raster box inset

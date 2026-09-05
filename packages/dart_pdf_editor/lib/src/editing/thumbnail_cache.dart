@@ -44,10 +44,22 @@ import '../raster_cache.dart';
 /// document never adds latency to the visible page. See the panels'
 /// `_warmRender`.
 class PdfThumbnailCache {
-  PdfThumbnailCache({this.capacity = 256});
+  PdfThumbnailCache({
+    this.capacity = 256,
+    this.warmIdleDelay = const Duration(milliseconds: 750),
+  });
 
   /// Maximum number of cached rasters (LRU eviction past it).
   final int capacity;
+
+  /// Continuous quiet time required before whole-document warming starts.
+  ///
+  /// This matches the page-raster warm policy's default: it is longer than the
+  /// viewer's 150-250 ms navigation/zoom settle windows, so a thumbnail replay
+  /// cannot claim the platform thread in the gap between navigation dispatch
+  /// and the destination page's heavy render. Foreground/visible thumbnail
+  /// requests do not wait for this delay.
+  final Duration warmIdleDelay;
 
   /// Optional persistent backing for thumbnails, bound to the open document
   /// (see [PdfRasterCache]). The thumbnail surfaces set this each build; when
@@ -98,7 +110,11 @@ class PdfThumbnailCache {
     if (_disposed) return;
     _gateBusy = isBusy;
     if (identical(_gateActivity, activity)) {
-      _onGateActivity();
+      // Panels bind from build. Refreshing the same callback must not look like
+      // fresh viewer activity and perpetually restart the quiet window as
+      // thumbnails themselves repaint.
+      _scheduleDrain();
+      _scheduleWarmAfterIdle();
       return;
     }
     _gateActivity?.removeListener(_onGateActivity);
@@ -113,7 +129,7 @@ class PdfThumbnailCache {
   /// stealing a scrolling frame.
   void _onGateActivity() {
     _scheduleDrain();
-    _kickWarm();
+    _scheduleWarmAfterIdle(restart: true);
   }
 
   /// The page index nearest the viewport. Foreground tasks (and the warm
@@ -123,7 +139,8 @@ class PdfThumbnailCache {
     if (_focus == index || _disposed) return;
     _focus = index;
     _scheduleDrain();
-    _kickWarm(); // a moved viewport may re-aim the warm pass too
+    _scheduleWarmAfterIdle(
+        restart: true); // navigation re-aims and restarts quiet time
   }
 
   int get focus => _focus;
@@ -136,6 +153,15 @@ class PdfThumbnailCache {
   /// [bindForegroundGate]). Unbound - a panel with no viewer - reads false, so
   /// the warm behaves exactly as it did before the gate existed.
   bool get _viewerBusy => _gateBusy?.call() ?? false;
+
+  /// Whether a thumbnail result should avoid starting platform-thread work.
+  ///
+  /// A foreground tile can be granted while the viewer is idle, spend several
+  /// hundred milliseconds recording in a worker, then receive that result
+  /// after a fast scroll has begun. Callers poll this immediately before
+  /// replay/rasterization and leave their soft preview in place when true.
+  /// The viewer activity listener wakes the queued retry once motion settles.
+  bool get shouldDeferUiWork => !_disposed && _viewerBusy;
 
   /// Registers (or refreshes) [token]'s request to render on-screen tile
   /// [pageIndex]. [run] is invoked when the task's turn comes - the queue
@@ -173,11 +199,35 @@ class PdfThumbnailCache {
 
   Future<void> _drain() async {
     try {
+      var granted = 0;
       while (!_disposed && _pending.isNotEmpty) {
         // The tile stays on its viewer-provided soft preview while the main
         // page is scrolling/replaying/rasterizing. The activity listener
         // restarts this queue as soon as the viewer is genuinely idle.
         if (_viewerBusy) return;
+        // Yield a whole frame between tiles, not just a microtask.
+        //
+        // A tile's interpret+raster is 25-110 ms of platform thread with no
+        // worker, and this loop used to run them back to back on the strength
+        // of one `_viewerBusy` reading taken before the first one. The moment
+        // that reading is taken is exactly when a scroll settles - and the
+        // viewer queues the page the reader landed on from a *rebuild*, which
+        // needs a frame it cannot get while this loop is running. Measured on
+        // a 50-page document: 400-530 ms of thumbnails ahead of a page whose
+        // own interpret was 12 ms.
+        //
+        // Letting a frame run between tiles lets the viewer ask for what the
+        // reader is actually looking at, and the re-check below then sees it.
+        if (granted > 0) {
+          await SchedulerBinding.instance.endOfFrame;
+          // Anything can happen across that suspension: the viewer can go
+          // busy, the cache can be disposed, and every queued task can be
+          // cancelled (a strip scrolled away, a page deleted). Re-read all
+          // three - the `while` condition above was tested a frame ago.
+          if (_disposed || _viewerBusy) return;
+          if (_pending.isEmpty) break;
+        }
+        granted++;
         var pick = 0;
         var best = _rank(_pending.first);
         for (var i = 1; i < _pending.length; i++) {
@@ -209,7 +259,7 @@ class PdfThumbnailCache {
       if (_pending.isNotEmpty && !_viewerBusy) _scheduleDrain();
       // a tile that just finished may have been the last thing holding the
       // warm pass back
-      _kickWarm();
+      _scheduleWarmAfterIdle();
     }
   }
 
@@ -224,6 +274,8 @@ class PdfThumbnailCache {
   Future<void> Function(int page)? _warmRenderer;
   final Set<int> _warmAttempted = {};
   bool _warming = false;
+  Timer? _warmIdleTimer;
+  bool _warmRestartPending = false;
 
   /// Arms (or refreshes) the background warm of every page into the cache for
   /// [owner], rendering through [renderPage]. Cheap to call from every build:
@@ -239,14 +291,14 @@ class PdfThumbnailCache {
     _warmOwner = owner;
     _warmRenderer = renderPage;
     if (signature == _warmSignature && pageCount == _warmCount) {
-      _kickWarm(); // same pass; just make sure the loop is running
+      _scheduleWarmAfterIdle();
       return;
     }
     _warmSignature = signature;
     _warmCount = pageCount;
     _warmAttempted.clear();
     PdfPerfLog.log('thumbnail warm armed pages=$pageCount key=$signature');
-    _kickWarm();
+    _scheduleWarmAfterIdle(restart: true);
   }
 
   /// Stops [owner]'s background warm (its panel was disposed, or the session
@@ -256,6 +308,9 @@ class PdfThumbnailCache {
     bindForegroundGate(null, null);
     _warmOwner = null;
     _warmRenderer = null;
+    _warmIdleTimer?.cancel();
+    _warmIdleTimer = null;
+    _warmRestartPending = false;
     _warmSignature = null;
     _warmCount = 0;
     _warmAttempted.clear();
@@ -264,6 +319,36 @@ class PdfThumbnailCache {
   /// Whether the warm is currently standing aside, so the yield is logged on
   /// the transition into that state rather than once per activity ping.
   bool _warmYielding = false;
+
+  void _scheduleWarmAfterIdle({bool restart = false}) {
+    if (_warming) {
+      if (restart) _warmRestartPending = true;
+      return;
+    }
+    if (!restart && _warmIdleTimer != null) return;
+    _warmIdleTimer?.cancel();
+    _warmIdleTimer = null;
+    if (_disposed || _warmRenderer == null) return;
+    if (_foregroundBusy) {
+      _logWarmYield('foreground busy '
+          '(pending=${_pending.length} draining=$_draining)');
+      return;
+    }
+    if (_viewerBusy) {
+      _logWarmYield('viewer rendering');
+      return;
+    }
+    void start() {
+      _warmIdleTimer = null;
+      _kickWarm();
+    }
+
+    if (warmIdleDelay == Duration.zero) {
+      scheduleMicrotask(start);
+    } else {
+      _warmIdleTimer = Timer(warmIdleDelay, start);
+    }
+  }
 
   void _kickWarm() {
     if (_warming || _disposed || _warmRenderer == null) return;
@@ -336,9 +421,13 @@ class PdfThumbnailCache {
         // breathe between heavy pages so input and animations run, and a tile
         // that arrived meanwhile is picked up before the next warm page
         await SchedulerBinding.instance.endOfFrame;
+        if (_warmRestartPending) return;
       }
     } finally {
+      final restart = _warmRestartPending;
+      _warmRestartPending = false;
       _warming = false;
+      if (restart) _scheduleWarmAfterIdle(restart: true);
     }
   }
 
@@ -385,6 +474,9 @@ class PdfThumbnailCache {
     _disposed = true;
     _pending.clear();
     _warmRenderer = null;
+    _warmIdleTimer?.cancel();
+    _warmIdleTimer = null;
+    _warmRestartPending = false;
     _gateActivity?.removeListener(_onGateActivity);
     _gateActivity = null;
     _gateBusy = null;

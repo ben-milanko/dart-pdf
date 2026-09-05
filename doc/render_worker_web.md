@@ -17,6 +17,7 @@ falls back to local rendering on the main thread.
 main app  ──postMessage(init: ArrayBuffer)──▶  Web Worker (pdf_render_worker.dart.js)
           ──postMessage(record: page,id)───▶     opens the PdfDocument once,
           ──postMessage(bin: geometry,id)──▶     records/caches strip commands,
+          ──postMessage(surface: canvas)───▶     optionally owns a page canvas,
           ◀─postMessage(ready)──────────────     serializeCommands(page) off-thread,
           ◀─postMessage(result: ArrayBuffer)─     transfers commands/plans back
 
@@ -42,6 +43,42 @@ page and preserve the glyph/shape strip caches. `cancelBinStrips` drops queued
 plans and cooperatively stops an in-flight stale geometry. The main-side pool
 keeps the native static-page affinity, so one zoom session repeatedly reaches
 the same worker cache.
+
+### Experimental worker-owned page surfaces
+
+The PDFium parity work also has a default-off web experiment that transfers a
+page's `OffscreenCanvas` to one worker for its lifetime. A `surface` request
+then interprets and paints directly with Canvas2D; only a one-byte
+success/decline reply returns to the main thread. This removes the normal
+SkWasm `ui.Image` raster, readback, pixel transfer, and main-surface upload from
+the interaction's critical path. Pooled workers bind a page's full canvas and
+deep-zoom region canvas to the same capable lane, because a transferred canvas
+cannot migrate later and the region should reuse the base surface's transcript
+and decoded-image samples.
+
+The current Canvas2D device is intentionally a correctness-gated profile, not
+a second general renderer. It accepts ordinary paths, strokes, substituted
+fill text, and supported decoded images, and checks the complete transcript
+before touching the canvas. Simple 8-bit DeviceGray Flate scans can stay in
+browser-native luma frames; other admitted images use the shared decoder.
+Embedded glyph outlines, gradients, groups, masks, and every other unsupported
+command decline to the established Flutter renderer. At deep zoom a retained
+full-page backing is capped at 2× and a viewport-sized worker canvas supplies
+the visible 3× slice, avoiding a multi-megapixel full-page DOM commit. Focused
+full-page surfaces otherwise paint directly at the requested size in both zoom
+directions; scaling down a larger Canvas2D backing made thin vector strokes
+visibly lighter. Each live surface retains an exact-size `ImageBitmap` LRU
+bounded to 8 MP / 32 MiB total. This keeps repeated smaller zoom levels without
+replaying dense command streams or re-decoding scans, while oversized entries
+repaint and consume no cache space. The worker-surface scroll settle is 120 ms;
+the established Flutter renderer keeps its 500 ms debounce.
+
+The app and performance harness enable this only with `?domSurface=1`;
+`PdfPageView` leaves `webDomRasterPresentation` false by default, so package
+users are unaffected.
+`tool/perf.sh surface-check` compares the profile with the established renderer
+across real plan, scan, text, and diagram samples before performance results are
+accepted.
 
 ## Do I have to do anything?
 
@@ -164,8 +201,11 @@ priority queue and protocol, and the app is wired up:
   `dart run dart_pdf_editor:build_web_worker` still builds a self-hosted worker
   for apps that want to override `pdfRenderWorkerScriptUrl`. The live web
   deploys (the demo at `dart-pdf-demo.web.app` and the app at
-  `dartpdf-app.web.app`) ship the `--wasm` renderer with COOP/COEP headers. See
-  `deploy-demo-web.yml` and the firebase configs.
+  `dartpdf-app.web.app`) build the default JS/CanvasKit renderer - **not**
+  `--wasm`, which benchmarks slower for page rasterization - and serve it with
+  COOP/COEP headers, so a worker pool can still share the document bytes
+  through `SharedArrayBuffer`. See `deploy-demo-web.yml`, `deploy-app-web.yml`
+  and the firebase configs.
 - `dart compile js` of the worker entry **succeeds** (~857 KB bundle), so the
   `dart:js_interop` / `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
@@ -248,3 +288,26 @@ in-worker bootstrap (its `.mjs` loader instantiating the module) and buys little
 because the worker is already off the main thread. A skwasm host that sets
 COOP/COEP for its own raster threads now also lets the render worker share the
 opened document bytes across the worker pool.
+
+### One thing a Wasm host does need: worker cache-busting
+
+The *runtime* needs no special handling; the *deploy* does.
+`tool/web_cache_bust.sh` gives the worker URL a `?v=<content hash>` by
+rewriting the string literal inside the compiled output, which is why hosting
+can serve `assets/**.js` with a year of `max-age`. dart2wasm does not store
+string literals as plain UTF-8 or UTF-16 in the module - a `dart compile wasm`
+of a program holding this very URL contains no byte sequence matching it in
+either encoding - so under `--wasm` that reference can be neither rewritten
+nor even detected.
+
+Left alone, a Wasm deploy therefore ships the bare, stable worker URL under a
+year-long immutable cache: every returning browser keeps whatever it fetched
+first, which may be an old worker or the committed placeholder that throws on
+load - and a session with no worker runs every page interpret, image decode and
+thumbnail on the main thread (issue #699). Nothing surfaces it but the
+`webworker …` lines in a `?perf=1` trace.
+
+So `tool/web_cache_bust.sh` **refuses** a build directory containing
+`main.dart.wasm`. Either build without `--wasm`, or serve
+`pdf_render_worker.dart.js` with revalidation (`Cache-Control: no-cache`) in
+the hosting config and re-run with `WORKER_URL_REVALIDATED=1`.

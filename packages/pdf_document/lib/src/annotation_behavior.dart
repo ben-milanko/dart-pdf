@@ -143,6 +143,7 @@ class PdfAnnotationBehavior {
         'Underline' ||
         'StrikeOut' ||
         'Squiggly' ||
+        'FreeText' ||
         'Stamp' =>
           true,
         _ => false,

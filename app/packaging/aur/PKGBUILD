@@ -1,6 +1,6 @@
 # Maintainer: Ben Milanko <ben.milanko@protonmail.com>
 pkgname=dartpdf-bin
-pkgver=3.3.1
+pkgver=4.0.0
 pkgrel=1
 pkgdesc="Edit, annotate, sign, and fill in PDFs - a private, local PDF editor (prebuilt binary)"
 arch=('x86_64')
@@ -25,7 +25,7 @@ options=('!strip')  # bundled .so files are already stripped; don't touch the AO
 source=("dartpdf-${pkgver}.tar.gz::https://github.com/ben-milanko/dart-pdf/releases/download/app-v${pkgver}/dartpdf-linux-x64.tar.gz"
         "LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v${pkgver}/LICENSE")
 
-sha256sums=('9a3205a638af561d10adcff802aa6431e8ce5f35e187d2aeb243fcb6c46648c4'
+sha256sums=('a76ef546a97a03c4aee3b063652394d13b69cc33aa10dd9711fe08d0e7711cb8'
             'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30')
 
 package() {
@@ -40,6 +40,14 @@ package() {
 
   install -d "${pkgdir}/usr/bin"
   ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
+  # The checked-in PKGBUILD remains pinned to the stable release while the
+  # next release is prepared. Install the sidecar as soon as that release
+  # archive contains it without breaking reproducible builds of the old pin.
+  if [[ -f "${srcdir}/dartpdf-cli" ]]; then
+    install -Dm755 "${srcdir}/dartpdf-cli" \
+      "${pkgdir}/opt/dartpdf/dartpdf-cli"
+    ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
+  fi
 
   install -d "${pkgdir}/usr/share"
   cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"

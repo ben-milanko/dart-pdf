@@ -46,15 +46,19 @@ modules:
   - name: dartpdf
     buildsystem: simple
     build-commands:
-      # Unpack the Flutter bundle under /app/dartpdf and expose the runner as
-      # `dartpdf`. The binary's RPATH is $ORIGIN/lib and it locates its data/
-      # dir relative to the resolved executable path, so a symlink in /app/bin
-      # works without moving the bundle apart. Copy only the bundle entries so
-      # the staged desktop-asset sources below are not swept in.
+      # Unpack the Flutter bundle under /app/dartpdf and expose the GUI runner
+      # and the pure-Dart CLI/MCP sidecar as separate commands. Both binaries
+      # locate adjacent runtime data through their resolved executable paths.
+      # Copy only bundle entries so staged desktop assets are not swept in.
       - install -d /app/dartpdf
       - cp -r dart_pdf_editor_app data lib /app/dartpdf/
+      # The checked-in source pins the stable archive. Release publishing
+      # substitutes its digest-verified download; keeping the sidecar copy
+      # conditional also leaves older pinned archives reproducible.
+      - test ! -f dartpdf-cli || cp dartpdf-cli /app/dartpdf/
       - install -d /app/bin
       - ln -s /app/dartpdf/dart_pdf_editor_app /app/bin/dartpdf
+      - test ! -f dartpdf-cli || ln -s /app/dartpdf/dartpdf-cli /app/bin/dartpdf-cli
       # Desktop integration, from the staged copies (see README "Desktop assets").
       - install -Dm644 dev.milanko.dartpdf.desktop
         /app/share/applications/dev.milanko.dartpdf.desktop
@@ -67,8 +71,8 @@ modules:
     sources:
       # 1) The prebuilt Linux bundle (binary + data/ + lib/).
       - type: archive
-        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.3.1/dartpdf-linux-x64.tar.gz
-        sha256: 9a3205a638af561d10adcff802aa6431e8ce5f35e187d2aeb243fcb6c46648c4
+        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.7.0/dartpdf-linux-x64.tar.gz
+        sha256: 6ad9c224da7580d95ed761a5dd12aedc2c96ddea62d5cf5f774cc1f00af90cfa
         # Kept for standard Flatpak external-data tooling and downstream
         # packagers; the official repository publisher verifies GitHub's asset
         # digest independently before building.

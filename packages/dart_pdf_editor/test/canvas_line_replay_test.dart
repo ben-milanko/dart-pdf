@@ -24,6 +24,7 @@ void main() {
       expect(optimized, orderedEquals(reference));
     });
   });
+
 }
 
 Future<Uint8List> _renderFills({required bool optimized}) async {

@@ -2,6 +2,8 @@
 // bare embed gets off-thread interpretation (#396 part 1). These pin the wiring
 // via the host's debug spawn seam - no real isolate - so they assert *whether*
 // a default worker is created, disposed, and sized, not the isolate itself.
+// ignore_for_file: invalid_use_of_visible_for_testing_member
+
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -14,9 +16,13 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 class _FakeWorker extends PdfRenderWorker {
   bool disposed = false;
+  PdfRenderTrace? trace;
 
   @override
   bool get isActive => !disposed;
+
+  @override
+  PdfRenderTrace? get lastRenderTrace => trace;
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
@@ -25,7 +31,8 @@ class _FakeWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override
@@ -75,7 +82,8 @@ void main() {
   testWidgets('a bare viewer starts its own single default worker',
       (tester) async {
     await pump(tester, viewer(buildMultiPagePdf(3)));
-    expect(spawned, hasLength(1), reason: 'the viewer must own a default worker');
+    expect(spawned, hasLength(1),
+        reason: 'the viewer must own a default worker');
     expect(spawnedCounts.single, 1, reason: 'the default is a single worker');
   });
 
@@ -85,11 +93,36 @@ void main() {
     expect(spawned, isEmpty);
   });
 
-  testWidgets('an explicit renderWorker suppresses the default', (tester) async {
+  testWidgets('an explicit renderWorker suppresses the default',
+      (tester) async {
     final host = _FakeWorker();
     await pump(tester, viewer(buildMultiPagePdf(3), renderWorker: host));
-    expect(spawned, isEmpty, reason: 'the host worker is used, none is spawned');
-    expect(host.disposed, isFalse, reason: 'the viewer does not own the host worker');
+    expect(spawned, isEmpty,
+        reason: 'the host worker is used, none is spawned');
+    expect(host.disposed, isFalse,
+        reason: 'the viewer does not own the host worker');
+  });
+
+  testWidgets('controller diagnostics expose the effective worker and trace',
+      (tester) async {
+    final controller = PdfViewerController();
+    final host = _FakeWorker()..trace = PdfRenderTrace(pageIndex: 2);
+
+    expect(controller.debugRenderWorkerActive, isFalse);
+    expect(controller.debugLastRenderTrace, isNull);
+
+    await pump(
+      tester,
+      PdfViewer(
+        document: PdfDocument.open(buildMultiPagePdf(3)),
+        controller: controller,
+        initialFit: PdfViewerFit.width,
+        renderWorker: host,
+      ),
+    );
+
+    expect(controller.debugRenderWorkerActive, isTrue);
+    expect(controller.debugLastRenderTrace, same(host.trace));
   });
 
   testWidgets('the default worker is disposed with the viewer', (tester) async {

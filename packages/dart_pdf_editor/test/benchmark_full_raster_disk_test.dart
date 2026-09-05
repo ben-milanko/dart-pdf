@@ -110,7 +110,7 @@ Future<ui.Image> _syntheticPage(String kind, int width, int height) async {
 
   final picture = recorder.endRecording();
   try {
-    return picture.toImage(width, height);
+    return await picture.toImage(width, height);
   } finally {
     picture.dispose();
   }

@@ -893,6 +893,31 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get searchRegex => 'Biểu thức chính quy';
 
   @override
+  String get searchReplace => 'Thay thế';
+
+  @override
+  String get searchReplaceAll => 'Thay thế tất cả';
+
+  @override
+  String get searchReplaceHint => 'Thay bằng';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Không thể thay thế riêng kết quả khớp này — hãy dùng Thay thế tất cả, hoặc chỉnh sửa bằng công cụ nội dung';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã thay thế $count kết quả khớp',
+      one: 'Đã thay thế 1 kết quả khớp',
+      zero: 'Không thay thế gì',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Kết quả tìm kiếm';
 
   @override
@@ -1338,6 +1363,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Tự động cỡ hộp văn bản (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Vừa phông chữ với hộp văn bản';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Vẽ một đường có độ dài đã biết để hiệu chỉnh tỷ lệ.';
 
@@ -1575,6 +1603,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Tẩy nét mực';
+
+  @override
+  String get tbNameHand => 'Bàn tay';
 
   @override
   String get tbNameHighlight => 'Tô sáng';
@@ -2020,4 +2051,63 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Chọn tất cả';
+
+  @override
+  String get annotationLibraryTitle => 'Thư viện chú thích';
+
+  @override
+  String get annotationLibraryEmpty => 'Không có chú thích đã lưu.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Chọn một chú thích được hỗ trợ rồi chọn “Lưu vào thư viện chú thích” trong menu của chú thích đó. Không thể lưu liên kết và trường biểu mẫu.';
+
+  @override
+  String get annotationLibrarySave => 'Lưu vào thư viện chú thích';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Lưu chú thích';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Đổi tên mục thư viện';
+
+  @override
+  String get annotationLibrarySearchHint => 'Tìm trong thư viện';
+
+  @override
+  String get annotationLibraryNoMatches => 'Không có chú thích phù hợp.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Chưa nhóm';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Chuyển vào nhóm';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nhóm mới…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nhóm chú thích mới';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Đổi tên nhóm chú thích';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Xóa nhóm';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Nhấp vào trang để đặt. Nhấn Escape để hủy.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Con dấu tùy chỉnh…';
+
+  @override
+  String get signatureLibraryManage => 'Quản lý chữ ký';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Đổi tên chữ ký';
+
+  @override
+  String get signatureLibraryEmpty => 'Không có chữ ký đã lưu.';
 }

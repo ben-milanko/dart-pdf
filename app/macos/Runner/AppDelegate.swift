@@ -4,6 +4,10 @@ import FlutterMacOS
 @main
 class AppDelegate: FlutterAppDelegate {
   private let fileAccess = FileAccessExecutor()
+  private var windowingEngine: FlutterEngine?
+  private var windowingServicesWindow: MainFlutterWindow?
+  private var windowActivationObserver: NSObjectProtocol?
+  private let repairedWindowActivations = NSHashTable<NSWindow>.weakObjects()
 
   /// Channel to the Dart `IncomingFileService`; set by MainFlutterWindow once
   /// the engine exists.
@@ -18,12 +22,86 @@ class AppDelegate: FlutterAppDelegate {
   /// during cold start; sending then drops the file on the floor.
   var dartIncomingReady = false
 
+  override func applicationDidFinishLaunching(_ notification: Notification) {
+    guard DartPdfWindowingBootstrap.isEnabled else {
+      super.applicationDidFinishLaunching(notification)
+      return
+    }
+
+    // Keep the NIB-created object only as the owner of DartPDF's native
+    // services. It deliberately has no FlutterViewController in this mode;
+    // Dart's RegularWindowController creates the visible primary window.
+    guard let servicesWindow = mainFlutterWindow as? MainFlutterWindow else {
+      assertionFailure("DartPDF multi-window bootstrap has no services window")
+      return
+    }
+    servicesWindow.orderOut(nil)
+    windowingServicesWindow = servicesWindow
+    installWindowActivationRepair()
+
+    let engine = FlutterEngine(name: "dartpdf-windowing", project: nil)
+    windowingEngine = engine
+    _ = engine.run(withEntrypoint: nil)
+    servicesWindow.configureWindowingEngine(engine)
+  }
+
+  override func applicationWillTerminate(_ notification: Notification) {
+    if let observer = windowActivationObserver {
+      NotificationCenter.default.removeObserver(observer)
+      windowActivationObserver = nil
+    }
+    windowingEngine?.shutDownEngine()
+    windowingEngine = nil
+    super.applicationWillTerminate(notification)
+  }
+
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return true
+    // Hiding the NIB-created services window briefly leaves AppKit with no
+    // visible window while Dart constructs its primary RegularWindow. Letting
+    // AppKit terminate at that point races the experimental bootstrap and can
+    // tear down every Dart-owned view just after launch. The Dart window
+    // lifetime coordinator calls SystemNavigator.pop after its final window;
+    // the normal single-window runner keeps the historical AppKit behavior.
+    return !DartPdfWindowingBootstrap.isEnabled
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
+  }
+
+  /// Repairs Flutter 3.47's initial key-window notification ordering.
+  ///
+  /// The experimental embedder makes a new regular/dialog window key before
+  /// assigning its FlutterWindowOwner delegate. That loses the first
+  /// `windowDidBecomeKey`, so the engine does not select the new view for
+  /// keyboard and pointer routing. Replaying that delegate notification once
+  /// on the next main-loop turn occurs after the delegate is installed and
+  /// selects the correct engine view without visibly cycling the window.
+  private func installWindowActivationRepair() {
+    windowActivationObserver = NotificationCenter.default.addObserver(
+      forName: NSWindow.didBecomeKeyNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      guard let self,
+            let window = notification.object as? NSWindow,
+            window !== self.windowingServicesWindow,
+            let controller = window.contentViewController as? FlutterViewController
+      else { return }
+
+      guard !self.repairedWindowActivations.contains(window) else { return }
+      self.repairedWindowActivations.add(window)
+
+      DispatchQueue.main.async { [weak window, weak controller] in
+        guard let window, let controller, window.isVisible else { return }
+        // FlutterViewController.view is a wrapper; its first child is the
+        // FlutterView that accepts first-responder/key events.
+        let flutterView = controller.view.subviews.first ?? controller.view
+        window.makeFirstResponder(flutterView)
+        window.delegate?.windowDidBecomeKey?(
+          Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+      }
+    }
   }
 
   /// "Open With" / double-click / drag-onto-icon, delivered as URLs. This is

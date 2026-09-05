@@ -1,4 +1,6 @@
-![dart-pdf, pure-Dart PDF renderer & editor for Flutter](doc/banner.png)
+![dart-pdf, an open-source Flutter PDF editor and pure-Dart renderer](doc/banner.png)
+
+# dart-pdf: Flutter PDF editor and renderer
 
 [![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
 [![dart_pdf_editor on pub.dev](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor)
@@ -14,13 +16,17 @@
 
 [![DartPDF, the official PDF editor app, built on this SDK. Get the app at dart-pdf.com](doc/app-banner.svg)](https://dart-pdf.com)
 
-A PDF renderer and editor written entirely in Dart, for use in Flutter
-apps. No PDFium, no platform channels.
+An open-source Flutter PDF editor, viewer, and renderer written entirely in
+Dart. No PDFium, no platform channels.
 
 The goal is a PSPDFKit-class SDK built natively for Flutter: a fast
 viewer, a full annotation suite with appearance-stream generation,
 AcroForm filling, page manipulation, and editing that preserves digital
 signatures.
+
+Feature parity is only the foundation. The [UX vision](doc/ux-vision.md)
+defines the product north star, the journeys that matter, how their quality is
+measured, and the definition of done for user-facing work.
 
 > Status: the roadmap below is complete. COS parsing with xref recovery,
 > signature-preserving incremental updates with encrypt-on-write, a
@@ -39,6 +45,11 @@ Live demo: <https://dart-pdf-demo.web.app> (the example app built for
 the web; it opens onto a six-page feature showcase, and the open button
 loads your own PDF).
 
+Developer overview: [Flutter PDF editor](https://dart-pdf.com/flutter-pdf-editor)
+
+Step-by-step integration: [How to add PDF editing to a Flutter app](https://dart-pdf.com/guides/add-pdf-editing-to-flutter)
+with installation, architecture, supported editing features, and benchmarks.
+
 Visual render results, browsable directly in GitHub: the checked-in
 [PDF.js corpus comparison gallery](test_corpora/pdfjs/_renders/README.md)
 shows PDF.js baselines, Dart renders, and diffs side by side, and the
@@ -48,43 +59,71 @@ are the baselines - so no diff column).
 
 ## Performance
 
-On a real-world corpus (49 files / 255 pages of CAD drawings, scans, reports,
-and forms), the pure-Dart page interpreter processes **104.5 pages/s** at
-scale 2: **9.6 ms/page**, compared with PDFium rasterizing at **23.1
-ms/page**. The apples-to-apples full Flutter render runs at **45.2 ms/page**,
-including image decoding, rasterization, and readback.
+**The default viewer has not reached PDFium interaction parity yet.** The most
+recent real-document checkpoint (23 August 2026, commit `1b887e9f`) used five
+interleaved DartPDF/PDFium runs in Chrome 151 on an M1 Pro, a 1400×1000
+viewport, and the default JS/CanvasKit web build. The input was a locally
+supplied 62-page, 24.1 MB illustrated PDF; the journey opened it, jumped to
+pages 3 and 47, zoomed to 1.72×, and drove matched wheel gestures. Lower
+ratios are better.
 
-| engine | ms/page | vs PDFium |
-|---|---|---|
-| dart-pdf interpret (pure Dart, no raster) | **9.6** | **2.42× faster** |
-| PDFium rasterize (document open excluded) | 23.1 | 1.00× |
-| dart-pdf render (full Flutter raster + readback) | 45.2 | 1.95× slower |
+| user-visible metric | DartPDF p50 / p95 | PDFium p50 / p95 | ratio p50 / p95 |
+|---|---:|---:|---:|
+| open to stable visual | 918 / 974 ms | 1493 / 1520 ms | **0.61× / 0.64×** |
+| page first visual change | 18 / 24 ms | 11 / 16 ms | 1.72× / 1.54× |
+| page stable visual | 297 / 381 ms | 130 / 134 ms | **2.29× / 2.84×** |
+| zoom stable visual | 22 / 31 ms | 11 / 13 ms | **1.97× / 2.35×** |
+| wheel journey | 315 / 433 ms | 912 / 1123 ms | 0.34× / 0.39× |
+| wheel rAF interval p95 | 42 ms | 10 ms | **4.09×** |
+| peak browser RSS p50 | 1827 MiB | 1850 MiB | 0.99× |
 
-The benchmark suite ships reproducible harnesses that diff dart-pdf against
-PDFium via `pypdfium2`, file by file. These figures measure static page
-throughput, not scrolling FPS or dropped frames; the real-Chrome interaction
-harness reports those separately. In five interleaved `scroll-plan` runs,
-3.1.1 reduced median over-budget frame events from 7 to 1 versus 3.1.0
-(-85.7%). See [`benchmark/`](benchmark).
+The wheel journey completes sooner, but its worse rAF tail means it is not yet
+as smooth; total duration alone would be a misleading win. Open and memory are
+inside the current provisional budgets, while stable navigation, zoom, and
+scroll cadence are not. These numbers describe desktop web only and are not a
+native-desktop or mobile parity claim. See the full methodology and historical
+experimental results in [the PDFium parity notes](doc/benchmarks/pdfium-parity.md).
+
+The offline corpus benchmark remains useful as a subsystem diagnostic, not as
+evidence of viewer latency: over the 52-file / 268-page common subset at scale
+2, pure-Dart interpretation takes 12.1 ms/page, PDFium rasterization takes
+31.9 ms/page, and the complete Flutter raster plus readback takes 61.6 ms/page.
+Reproducible offline harnesses and file-by-file diffs live in
+[`benchmark/`](benchmark).
 
 ## Architecture
 
 Strictly layered packages; `dart:ui` is only allowed in `dart_pdf_editor`, so
-the core runs on servers and in plain Dart tests. Each package is
-published on pub.dev under its directory name.
+the core runs on servers and in plain Dart tests. Published packages use their
+directory name on pub.dev.
 
 | Package | pub.dev | Role |
 |---|---|---|
 | [`pdf_cos`](packages/pdf_cos) | [![pub package](https://img.shields.io/pub/v/pdf_cos.svg)](https://pub.dev/packages/pdf_cos) | The PDF file format itself: tokenizer, parser, filters (incl. CCITT/JBIG2/JPX), encryption, cross-reference machinery, serializer, crypto primitives. |
 | [`pdf_document`](packages/pdf_document) | [![pub package](https://img.shields.io/pub/v/pdf_document.svg)](https://pub.dev/packages/pdf_document) | Document semantics: page tree, annotations, AcroForm, digital signatures, and the incremental-save `PdfEditor`. |
 | [`pdf_graphics`](packages/pdf_graphics) | [![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics) | Content-stream interpreter, device interface, font engine, ICC color, text extraction. |
+| [`dart_pdf_cli`](packages/dart_pdf_cli) | — | Pure-Dart `dartpdf` command line and stdio MCP server for bounded document inspection, text extraction, form listing, and annotation listing. |
 | [`dart_pdf_editor`](packages/dart_pdf_editor) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer and editing UI: canvas device, `PdfViewer`, tools, panels, forms. |
+| [`dart_pdf_editor_flutter_gpu`](packages/dart_pdf_editor_flutter_gpu) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_flutter_gpu.svg)](https://pub.dev/packages/dart_pdf_editor_flutter_gpu) | Experimental opt-in Impeller/`flutter_gpu` tile renderer for supported native targets, with exact Canvas fallback for unsupported pages. |
 | [`dart_pdf_editor_assets`](packages/dart_pdf_editor_assets) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_assets.svg)](https://pub.dev/packages/dart_pdf_editor_assets) | Optional bundled editor fonts + web render worker (~1.8 MB package download); depend on it and call `registerBundledEditorAssets()` for the full editor, omit for a size-minimal viewer. |
 | [`pdf_ocr_ondevice`](packages/pdf_ocr_ondevice) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_ondevice.svg)](https://pub.dev/packages/pdf_ocr_ondevice) | Optional on-device OCR engine for native Flutter apps; downloads a small PP-OCR model once and adds searchable text layers offline. |
 | [`pdf_ocr_vlm`](packages/pdf_ocr_vlm) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_vlm.svg)](https://pub.dev/packages/pdf_ocr_vlm) | Optional HTTP OCR engine for web, mobile, and desktop; talks to dots.ocr/vLLM or any service returning text boxes. |
 | [`pdf_test_fixtures`](packages/pdf_test_fixtures) | [![pub package](https://img.shields.io/pub/v/pdf_test_fixtures.svg)](https://pub.dev/packages/pdf_test_fixtures) | Programmatic, structurally-correct PDF builders for tests. |
 
 ## Quick start
+
+For shell, CI, and local agent workflows, run the pure-Dart CLI directly from
+the workspace:
+
+```sh
+dart run packages/dart_pdf_cli/bin/dartpdf.dart inspect document.pdf --json
+dart run packages/dart_pdf_cli/bin/dartpdf.dart text document.pdf --pages 1-5 --json
+```
+
+The same handlers are exposed as bounded, read-only MCP tools through
+`dartpdf mcp`. See the [`dart_pdf_cli` guide](packages/dart_pdf_cli) for
+installation (including the copy bundled in desktop app builds), filesystem
+roots, password handling, and host registration.
 
 For a Flutter app, add the editor package:
 
@@ -350,7 +389,7 @@ subsampling/PCRL-CPRL progressions.
 
 ## Development
 
-This repo uses [fvm](https://fvm.app) (Flutter 3.44.8) and pub workspaces.
+This repo uses [fvm](https://fvm.app) (Flutter 3.47.0) and pub workspaces.
 
 ```sh
 fvm flutter pub get          # resolve the whole workspace

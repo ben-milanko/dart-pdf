@@ -1,0 +1,6 @@
+3.5.0 sürümündeki yenilikler
+
+- Büyük ve ayrıntılı PDF'ler kaydırma, taşıma ve yakınlaştırma sırasında akıcı kalır; önce görünür alan netleşir.
+- Hızlı gezinme sırasında sayfa önizlemeleri aşamalı olarak daha net hâle gelir.
+- Sayfalar görünüm kenarlarında net ve görünür kalır.
+- Uzak belgeler daha hızlı yüklenir ve bellek kullanımı daha öngörülebilirdir.

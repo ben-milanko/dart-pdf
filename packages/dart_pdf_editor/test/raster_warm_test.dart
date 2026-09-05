@@ -3,14 +3,78 @@
 // arrives, so navigation paints immediately instead of interpreting and
 // reading back first.
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+class _FullPageWarmBackend extends PdfTileRasterBackend {
+  _FullPageWarmBackend({this.reject = false, this.failRaster = false});
+
+  final bool reject;
+  final bool failRaster;
+  int sessions = 0;
+  int rasters = 0;
+  int disposals = 0;
+  final List<int> pages = [];
+
+  @override
+  bool get supportsFullPageRasterWarmUp => true;
+
+  @override
+  String get debugLabel => 'test-accelerated';
+
+  @override
+  PdfTileRasterSession? createSession(PdfRetainedScene scene) {
+    sessions++;
+    if (reject) return null;
+    return _FullPageWarmSession(
+      this,
+      const PdfCanvasTileRasterBackend().createSession(scene),
+    );
+  }
+}
+
+class _FullPageWarmSession implements PdfTileRasterSession {
+  _FullPageWarmSession(this.backend, this.delegate);
+
+  final _FullPageWarmBackend backend;
+  final PdfTileRasterSession delegate;
+
+  @override
+  PdfRetainedScene get scene => delegate.scene;
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) {
+    backend.rasters++;
+    if (tracePage != null) backend.pages.add(tracePage);
+    if (backend.failRaster) {
+      throw StateError('test accelerated raster failure');
+    }
+    return delegate.rasterizeRegion(
+      region,
+      pixelRatio: pixelRatio,
+      tracePage: tracePage,
+    );
+  }
+
+  @override
+  void dispose() {
+    backend.disposals++;
+    delegate.dispose();
+  }
+}
 
 void main() {
   /// Lets the real async renderer make progress, then pumps a frame with the
@@ -41,6 +105,8 @@ void main() {
     PdfDocument document,
     PdfViewerController controller, {
     required PdfPageRasterWarmPolicy warm,
+    PdfTileRasterBackend tileRasterBackend = const PdfCanvasTileRasterBackend(),
+    PdfRenderWorker? renderWorker,
     PdfPageRasterCachePolicy cache = const PdfPageRasterCachePolicy(
       maxBytes: 512 * 1024 * 1024,
       maxEntryBytes: 64 * 1024 * 1024,
@@ -54,6 +120,8 @@ void main() {
             initialFit: PdfViewerFit.width,
             pageRasterCachePolicy: cache,
             pageRasterWarmPolicy: warm,
+            tileRasterBackend: tileRasterBackend,
+            renderWorker: renderWorker,
           ),
         ),
       );
@@ -70,11 +138,13 @@ void main() {
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(6));
     final controller = PdfViewerController();
+    final backend = _FullPageWarmBackend();
     addTearDown(controller.dispose);
     await tester.pumpWidget(viewer(
       document,
       controller,
       warm: const PdfPageRasterWarmPolicy.document(idleDelay: eager),
+      tileRasterBackend: backend,
     ));
     await tester.pump();
 
@@ -88,6 +158,11 @@ void main() {
         reason: 'the warm reaches off-screen pages while the viewer idles');
     expect(warmed.warmedBytes, greaterThan(0));
     expect(warmed.retainedBytes, greaterThan(0));
+    expect(backend.rasters, greaterThan(0),
+        reason: 'the viewer routes off-screen warm rasters through the '
+            'accelerated backend');
+    expect(backend.disposals, greaterThanOrEqualTo(warmed.completions),
+        reason: 'the exact image, not a live page session, owns residency');
 
     // Arrive on a warmed page. A cache hit is served synchronously by
     // _restoreFullRaster, ahead of the render scheduler; a fresh render is a
@@ -212,6 +287,214 @@ void main() {
         tester, () => controller.pageRasterWarmStats!.completions > during);
     expect(controller.pageRasterWarmStats!.completions, greaterThan(during),
         reason: 'the settle restarts the pass');
+  });
+
+  testWidgets('slow scrolling warms exact rasters in the travel direction',
+      (tester) async {
+    final bytes = buildMultiPagePdf(12);
+    final document = PdfDocument.open(bytes);
+    final controller = PdfViewerController();
+    final backend = _FullPageWarmBackend();
+    final worker = _MultiPageRecordingWorker(bytes, capacity: 2);
+    addTearDown(controller.dispose);
+    addTearDown(worker.dispose);
+    await tester.pumpWidget(viewer(
+      document,
+      controller,
+      warm: const PdfPageRasterWarmPolicy.nearby(
+        window: 3,
+        idleDelay: Duration(seconds: 5),
+      ),
+      tileRasterBackend: backend,
+      renderWorker: worker,
+    ));
+    await tester.pump();
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(0) && !controller.isPageRenderBusy);
+
+    // Put both directions in range without giving the ordinary idle warm its
+    // five-second quiet window.
+    unawaited(controller.jumpToPage(6));
+    for (var i = 0; i < 18; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(6) && !controller.isPageRenderBusy,
+        rounds: 30);
+    expect(controller.currentPage, 6);
+    backend.pages.clear();
+    final completionsBefore = controller.pageRasterWarmStats!.completions;
+
+    final pointer = TestPointer(301, PointerDeviceKind.mouse)
+      ..hover(const Offset(400, 300));
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 8)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(controller.debugSlowRenderMotion, isTrue);
+    await pumpUntil(
+      tester,
+      () => controller.pageRasterWarmStats!.completions > completionsBefore,
+      rounds: 8,
+    );
+    expect(backend.pages, isNotEmpty);
+    expect(backend.pages.every((page) => page > 6 && page <= 9), isTrue,
+        reason: 'only the next three pages may consume the GPU look-ahead');
+
+    // Let the first gesture settle, then reverse. The generation fence must
+    // re-aim the next pass behind the same current page rather than continuing
+    // to fill the stale forward queue.
+    await tester.pump(const Duration(milliseconds: 550));
+    backend.pages.clear();
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, -8)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await pumpUntil(tester, () => backend.pages.isNotEmpty, rounds: 8);
+    expect(backend.pages, isNotEmpty);
+    expect(backend.pages.every((page) => page < 6 && page >= 3), isTrue,
+        reason: 'reversing scroll direction re-aims the exact-raster warm');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('fast scrolling never starts exact GPU look-ahead',
+      (tester) async {
+    final bytes = buildMultiPagePdf(12);
+    final document = PdfDocument.open(bytes);
+    final controller = PdfViewerController();
+    final backend = _FullPageWarmBackend();
+    final worker = _MultiPageRecordingWorker(bytes, capacity: 2);
+    addTearDown(controller.dispose);
+    addTearDown(worker.dispose);
+    await tester.pumpWidget(viewer(
+      document,
+      controller,
+      warm: const PdfPageRasterWarmPolicy.nearby(
+        idleDelay: Duration(seconds: 5),
+      ),
+      tileRasterBackend: backend,
+      renderWorker: worker,
+    ));
+    await tester.pump();
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(0) && !controller.isPageRenderBusy);
+    backend.pages.clear();
+    final completionsBefore = controller.pageRasterWarmStats!.completions;
+
+    final pointer = TestPointer(302, PointerDeviceKind.mouse)
+      ..hover(const Offset(400, 300));
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 300)));
+      await tester.pump(const Duration(milliseconds: 40));
+    }
+    expect(controller.debugSlowRenderMotion, isFalse);
+    expect(controller.debugSlowScrollRasterWarming, isFalse);
+    expect(controller.pageRasterWarmStats!.completions, completionsBefore,
+        reason: 'fast motion keeps exact off-screen GPU work fully preempted');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('a serial worker keeps its only lane for visible pages',
+      (tester) async {
+    final bytes = buildMultiPagePdf(12);
+    final document = PdfDocument.open(bytes);
+    final controller = PdfViewerController();
+    final backend = _FullPageWarmBackend();
+    final worker = _MultiPageRecordingWorker(bytes, capacity: 1);
+    addTearDown(controller.dispose);
+    addTearDown(worker.dispose);
+    await tester.pumpWidget(viewer(
+      document,
+      controller,
+      warm: const PdfPageRasterWarmPolicy.nearby(
+        idleDelay: Duration(seconds: 5),
+      ),
+      tileRasterBackend: backend,
+      renderWorker: worker,
+    ));
+    await tester.pump();
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(0) && !controller.isPageRenderBusy);
+    backend.pages.clear();
+    final completionsBefore = controller.pageRasterWarmStats!.completions;
+
+    final pointer = TestPointer(303, PointerDeviceKind.mouse)
+      ..hover(const Offset(400, 300));
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 8)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(controller.debugSlowRenderMotion, isTrue,
+        reason: 'the motion itself is eligible; worker capacity is the gate');
+    await pumpUntil(tester, () => backend.pages.isNotEmpty, rounds: 12);
+    final offscreenPages = backend.pages.where((page) => page != 0).toList();
+    final completionsAfter = controller.pageRasterWarmStats!.completions;
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    expect(offscreenPages, isEmpty);
+    expect(completionsAfter, completionsBefore,
+        reason: 'speculation must not strand a visible page behind the only '
+            'record lane');
+  });
+
+  testWidgets('slow look-ahead cannot consume more than its byte share',
+      (tester) async {
+    final bytes = buildMultiPagePdf(12);
+    final document = PdfDocument.open(bytes);
+    final controller = PdfViewerController();
+    final backend = _FullPageWarmBackend();
+    final worker = _MultiPageRecordingWorker(bytes, capacity: 2);
+    addTearDown(controller.dispose);
+    addTearDown(worker.dispose);
+    await tester.pumpWidget(viewer(
+      document,
+      controller,
+      warm: const PdfPageRasterWarmPolicy.nearby(
+        window: 5,
+        slowScrollWindow: 5,
+        idleDelay: Duration(seconds: 5),
+      ),
+      cache: const PdfPageRasterCachePolicy(
+        maxBytes: 64 * 1024 * 1024,
+        maxEntryBytes: 20 * 1024 * 1024,
+      ),
+      tileRasterBackend: backend,
+      renderWorker: worker,
+    ));
+    await tester.pump();
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(0) && !controller.isPageRenderBusy);
+    backend.pages.clear();
+    final completionsBefore = controller.pageRasterWarmStats!.completions;
+
+    final pointer = TestPointer(304, PointerDeviceKind.mouse)
+      ..hover(const Offset(400, 300));
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 8)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await pumpUntil(
+      tester,
+      () => controller.pageRasterWarmStats!.completions > completionsBefore,
+      rounds: 20,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    final warmedPages = backend.pages.where((page) => page != 0).toSet();
+    final completionsAfter = controller.pageRasterWarmStats!.completions;
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    expect(warmedPages, hasLength(1),
+        reason: 'the one-third look-ahead share fits one 17 MB exact raster, '
+            'not the five-page policy window');
+    expect(completionsAfter, completionsBefore + 1);
   });
 
   testWidgets('changing either policy on a mounted viewer re-arms the pass',
@@ -423,6 +706,120 @@ void main() {
       });
     });
 
+    testWidgets('an accelerated backend produces the resident exact raster',
+        (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend();
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+          ),
+          isTrue,
+        );
+        expect(backend.sessions, 1);
+        expect(backend.rasters, 1);
+        expect(backend.disposals, 1);
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
+      });
+    });
+
+    testWidgets('backend rejection falls back to the exact Canvas raster',
+        (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend(reject: true);
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+          ),
+          isTrue,
+        );
+        expect(backend.sessions, 1);
+        expect(backend.rasters, 0);
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
+      });
+    });
+
+    testWidgets('backend raster failure falls back to Canvas', (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend(failRaster: true);
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+          ),
+          isTrue,
+        );
+        expect(backend.rasters, 1);
+        expect(backend.disposals, 1);
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
+      });
+    });
+
+    testWidgets('accelerated-only rejection does not replay through Canvas',
+        (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend(reject: true);
+      final worker = _RecordingWorker(page);
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+            worker: worker,
+            acceleratedOnly: true,
+          ),
+          isFalse,
+        );
+        expect(backend.sessions, 1);
+        expect(backend.rasters, 0);
+        expect(cache.hasFullRaster(t.signature, page), isFalse,
+            reason: 'live motion must leave an unsupported page soft instead '
+                'of paying for a synchronous Canvas fallback');
+      });
+    });
+
+    testWidgets('accelerated-only worker rejection never records locally',
+        (tester) async {
+      final t = target();
+      final backend = _FullPageWarmBackend();
+      final worker = _DecliningWorker();
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            rasterBackend: backend,
+            worker: worker,
+            acceleratedOnly: true,
+          ),
+          isFalse,
+        );
+        expect(backend.sessions, 0,
+            reason: 'a declined worker record must not be rebuilt on the UI '
+                'thread just to reach the backend');
+        expect(cache.hasFullRaster(t.signature, page), isFalse);
+      });
+    });
+
     testWidgets('a preempt after the picture is built still stores nothing',
         (tester) async {
       final t = target();
@@ -620,8 +1017,14 @@ void main() {
       layoutWidth: 918, // 1.5x
       devicePixelRatio: 2,
     );
-    expect(ratio, closeTo(3.0, 1e-9));
-    expect(PdfPageRasterGeometry.dimensions(pageSize, ratio), (1836, 2376));
+    expect(
+      ratio,
+      closeTo(
+        math.sqrt(PdfPageRasterGeometry.maxPixels / (612 * 792)),
+        1e-9,
+      ),
+    );
+    expect(PdfPageRasterGeometry.dimensions(pageSize, ratio), (1801, 2330));
 
     // A page far larger than the per-side cap is bounded, not grown without
     // limit - deep zoom is the detail patch's job, not the base raster's.
@@ -641,6 +1044,8 @@ void main() {
         const PdfPageRasterWarmPolicy.nearby(window: 3));
     expect(const PdfPageRasterWarmPolicy.nearby(window: 3),
         isNot(const PdfPageRasterWarmPolicy.nearby(window: 4)));
+    expect(const PdfPageRasterWarmPolicy.nearby(slowScrollWindow: 2),
+        isNot(const PdfPageRasterWarmPolicy.nearby(slowScrollWindow: 3)));
     expect(const PdfPageRasterWarmPolicy.nearby(window: 3).hashCode,
         const PdfPageRasterWarmPolicy.nearby(window: 3).hashCode);
     expect('${const PdfPageRasterWarmPolicy.document()}', contains('document'));
@@ -652,8 +1057,8 @@ void main() {
     expect(PdfPageRasterWarmPolicy.nearby(window: 1 + 1),
         const PdfPageRasterWarmPolicy.nearby(window: 2));
     expect(
-      PdfPageRasterWarmPolicy.document(
-          idleDelay: Duration(seconds: 1 + 1)).idleDelay,
+      PdfPageRasterWarmPolicy.document(idleDelay: Duration(seconds: 1 + 1))
+          .idleDelay,
       const Duration(seconds: 2),
     );
   });
@@ -720,6 +1125,50 @@ class _RecordingWorker extends PdfRenderWorker {
 
   @override
   void dispose() {}
+}
+
+/// Multi-page worker with a spare lane, matching the desktop app's pool shape.
+/// Work still executes deterministically on the test isolate; the capacity is
+/// the scheduling contract the slow-scroll warm requires before speculating.
+class _MultiPageRecordingWorker extends PdfRenderWorker {
+  _MultiPageRecordingWorker(Uint8List bytes, {required this.capacity})
+      : _document = PdfDocument.open(bytes);
+
+  final PdfDocument _document;
+  final int capacity;
+  bool _disposed = false;
+
+  @override
+  int get concurrentRecordCapacity => capacity;
+
+  @override
+  bool get isActive => !_disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
+      return null;
+    }
+    final page = _document.page(pageIndex);
+    final device = RecordingPdfDevice();
+    PdfInterpreter(cos: _document.cos, device: device).drawPage(page);
+    return device.commands;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _disposed = true;
 }
 
 /// Active, but declines every record - the real worker's behaviour when a page

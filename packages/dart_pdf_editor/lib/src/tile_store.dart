@@ -32,6 +32,7 @@ import 'package:flutter/painting.dart';
 
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'renderer.dart';
 
 /// Rasterizes one tile: [region] is the tile's bounds in page points (the
@@ -39,6 +40,31 @@ import 'renderer.dart';
 /// the bucket ratio. The returned image is owned by the store.
 typedef PdfTileRasterizer = Future<ui.Image> Function(
     Rect region, double pixelRatio);
+
+/// Optional persistent backing for the LoD pyramid.
+///
+/// Loads race the ordinary raster path: a slow or missing store never delays
+/// rendering, while a fast hit may populate the memory cache first. Stores are
+/// started only after a newly-rendered tile has landed, so image readback and
+/// compression are never on the path between raster completion and display.
+abstract interface class PdfTilePersistence {
+  Future<ui.Image?> loadTile(
+    PdfTileKey key, {
+    required Rect region,
+    required double pixelRatio,
+    required int width,
+    required int height,
+  });
+
+  /// Best-effort write-through. Implementations must retain or clone [image]
+  /// synchronously before their first await because the memory LRU owns it.
+  Future<void> storeTile(
+    PdfTileKey key,
+    ui.Image image, {
+    required Rect region,
+    required double pixelRatio,
+  });
+}
 
 /// The discrete ×√2 (or ×2) pixel-ratio ladder tiles are rastered on.
 ///
@@ -70,6 +96,20 @@ class PdfTileZoomLadder {
     return raw.round().clamp(minRung, maxRung);
   }
 
+  /// The first rung whose pixel ratio is at or above [ratio], clamped.
+  ///
+  /// Exact settled tiles use this rung so they are never permanently
+  /// upscaled. A cached lower rung may still be presented as a temporary
+  /// fallback while this sharper rung is rasterizing.
+  int rungAtOrAbove(double ratio) {
+    final safe = ratio <= 0 ? 0.05 : ratio;
+    final raw = (math.log(safe) / math.ln2) * stepsPerOctave;
+    // Subtract a tiny tolerance so ratioFor(rung) round-trips to that rung
+    // despite floating-point log/pow noise instead of spuriously jumping one
+    // level higher.
+    return (raw - 1e-10).ceil().clamp(minRung, maxRung);
+  }
+
   /// The exact pixel ratio a [rung]'s tiles are rastered at.
   double ratioFor(int rung) => math.pow(2, rung / stepsPerOctave).toDouble();
 }
@@ -82,12 +122,24 @@ class PdfTileZoomLadder {
 @immutable
 class PdfTilePageIdentity {
   const PdfTilePageIdentity({
+    this.cacheNamespace,
     required this.pageIndex,
     required this.pageEpoch,
     required this.contentStamp,
     required this.destructiveStamp,
     required this.plan,
   });
+
+  /// Stable identity of the viewer/document lineage that owns this tile.
+  ///
+  /// [PdfTileStore.instance] is process-wide, including across tabs and native
+  /// windows. Page index and revision stamps are only unique inside one
+  /// document, so omitting this boundary lets page 58 in one tab consume page
+  /// 58's pixels from another. Keep the same value across incremental
+  /// revisions to preserve unchanged-page reuse, and replace it when a viewer
+  /// opens an unrelated document. Null remains useful for isolated stores and
+  /// backwards-compatible tests.
+  final Object? cacheNamespace;
 
   final int pageIndex;
   final int pageEpoch;
@@ -98,6 +150,7 @@ class PdfTilePageIdentity {
   @override
   bool operator ==(Object other) =>
       other is PdfTilePageIdentity &&
+      identical(cacheNamespace, other.cacheNamespace) &&
       pageIndex == other.pageIndex &&
       pageEpoch == other.pageEpoch &&
       contentStamp == other.contentStamp &&
@@ -105,8 +158,24 @@ class PdfTilePageIdentity {
       plan == other.plan;
 
   @override
-  int get hashCode => Object.hash(
-      pageIndex, pageEpoch, contentStamp, destructiveStamp, plan);
+  int get hashCode => Object.hash(identityHashCode(cacheNamespace), pageIndex,
+      pageEpoch, contentStamp, destructiveStamp, plan);
+}
+
+class _PdfTilePageSlot {
+  const _PdfTilePageSlot(this.cacheNamespace, this.pageIndex);
+
+  final Object? cacheNamespace;
+  final int pageIndex;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _PdfTilePageSlot &&
+      identical(cacheNamespace, other.cacheNamespace) &&
+      pageIndex == other.pageIndex;
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(cacheNamespace), pageIndex);
 }
 
 /// The full cache key of a single tile.
@@ -198,6 +267,24 @@ class PdfTileView {
   bool get isEmpty => placements.isEmpty;
 }
 
+/// Byte-budget admission decision for one exact-bucket visible tile set.
+@immutable
+class PdfTileBudgetStatus {
+  const PdfTileBudgetStatus({
+    required this.rung,
+    required this.visibleTiles,
+    required this.capacity,
+    required this.limit,
+  });
+
+  final int rung;
+  final int visibleTiles;
+  final int capacity;
+  final int limit;
+
+  bool get fits => visibleTiles <= limit;
+}
+
 /// The tile pyramid. Instantiable (tests, an isolated page) with a shared
 /// process-wide default ([instance]) so one budget spans every page, replacing
 /// the unbudgeted per-page detail patch and image retention.
@@ -205,25 +292,26 @@ class PdfTileStore extends ChangeNotifier {
   PdfTileStore({
     this.tilePixels = 512,
     this.ladder = const PdfTileZoomLadder(),
-    int maxBytes = _defaultMaxBytes,
+    int? maxBytes,
     this.prefetchRing = 1,
+    this.maxPrefetchInFlightTiles = 4,
     this.maxFallbackDepth = 4,
     this.batchRasters = true,
     this.maxBatchTilesPerAxis = 8,
     bool registerForMemoryPressure = true,
-  })  : assert(tilePixels * maxBatchTilesPerAxis <= 1 << 14,
+  })  : assert(maxPrefetchInFlightTiles > 0),
+        assert(tilePixels * maxBatchTilesPerAxis <= 1 << 14,
             'a batch slab must fit the engine texture limit'),
         _cache = PdfBudgetedCache<PdfTileKey, PdfTile>(
           weigher: (tile) => tile.bytes,
-          maxWeight: math.max(maxBytes, _minBytes),
+          maxWeight: math.max(
+            maxBytes ?? pdfDefaultTileBudgetBytes(),
+            _minBytes,
+          ),
           disposer: (tile) => tile.image.dispose(),
           clearsUnderMemoryPressure: registerForMemoryPressure,
           debugLabel: 'tiles',
         );
-
-  /// ~96 MB: enough for a deep-zoom viewport plus a prefetch ring across a
-  /// couple of buckets, well under the decoded-image budget it sits beside.
-  static const _defaultMaxBytes = 96 << 20;
 
   /// A floor so a viewport's worth of tiles is never evicted out from under the
   /// view that just asked for them (see [viewFor]'s MRU-protection contract).
@@ -247,6 +335,12 @@ class PdfTileStore extends ChangeNotifier {
   /// How many tiles beyond the visible range to pre-raster on each side, so a
   /// pan reveals ready tiles instead of blanks.
   final int prefetchRing;
+
+  /// Maximum exact-rung prefetch tiles submitted concurrently for one page
+  /// view. Ring work is background work: bounding it prevents unrelated
+  /// repaints from filling the Canvas/GPU queue with every off-screen batch.
+  /// A newly visible tile then waits behind at most this small window.
+  final int maxPrefetchInFlightTiles;
 
   /// How many buckets coarser [viewFor] will search for an upscaled fallback
   /// before leaving the base raster to show through.
@@ -277,6 +371,7 @@ class PdfTileStore extends ChangeNotifier {
 
   final PdfBudgetedCache<PdfTileKey, PdfTile> _cache;
   final Set<PdfTileKey> _inFlight = {};
+  final Set<PdfTileKey> _persistentInFlight = {};
 
   /// Invalidation epochs: a tile whose page was invalidated after its raster
   /// was dispatched is discarded on completion (mirrors the render worker's
@@ -295,7 +390,8 @@ class PdfTileStore extends ChangeNotifier {
   /// measured at a 55% discard rate in issue #427).
   int _epochCounter = 0;
   int _allPagesEpoch = -1;
-  final Map<int, int> _pageEpoch = {};
+  final Map<Object?, int> _namespaceEpoch = Map<Object?, int>.identity();
+  final Map<_PdfTilePageSlot, int> _pageEpoch = {};
 
   bool _tickScheduled = false;
   bool _disposed = false;
@@ -306,6 +402,9 @@ class PdfTileStore extends ChangeNotifier {
   int debugTilesDiscarded = 0;
   int debugTicks = 0;
   int debugBatchesDispatched = 0;
+  int debugPersistentLoads = 0;
+  int debugPersistentHits = 0;
+  int debugPersistentStores = 0;
 
   /// Total bytes of retained tiles.
   int get retainedBytes => _cache.weight;
@@ -315,6 +414,23 @@ class PdfTileStore extends ChangeNotifier {
 
   /// Tiles whose raster is currently in flight.
   int get inFlightCount => _inFlight.length;
+
+  /// Distinct viewer/document namespaces currently represented by retained
+  /// or in-flight tiles. Exported support snapshots use this to make
+  /// cross-tab cache isolation directly auditable.
+  int get debugNamespaceCount {
+    final namespaces = Set<Object?>.identity();
+    for (final key in _cache.keys) {
+      namespaces.add(key.id.cacheNamespace);
+    }
+    for (final key in _inFlight) {
+      namespaces.add(key.id.cacheNamespace);
+    }
+    for (final key in _persistentInFlight) {
+      namespaces.add(key.id.cacheNamespace);
+    }
+    return namespaces.length;
+  }
 
   /// The weight budget, live-adjustable (a device-memory tier could lower it).
   int get maxBytes => _cache.maxWeight;
@@ -372,7 +488,11 @@ class PdfTileStore extends ChangeNotifier {
         visiblePageRect.isEmpty) {
       return null;
     }
-    final rung = ladder.rungFor(desiredRatio);
+    // A settled exact tile must carry at least one source pixel per physical
+    // display pixel. Nearest-rung snapping can choose the lower level (for
+    // example 0.50x at a 0.57x display ratio), leaving a permanently upscaled
+    // page that is technically "complete" but still visibly soft.
+    final rung = ladder.rungAtOrAbove(desiredRatio);
     final ratio = ladder.ratioFor(rung);
     final span = tilePixels / ratio; // page points per tile side
     if (!span.isFinite || span <= 0) return null;
@@ -397,6 +517,39 @@ class PdfTileStore extends ChangeNotifier {
     );
   }
 
+  /// The page-point region containing every tile [viewFor] can schedule for
+  /// this view, including its configured prefetch ring.
+  ///
+  /// Region-scoped image decoders use this before admitting tile work. A
+  /// merely visible-pixel-aligned decode is insufficient: [viewFor] rasters
+  /// whole grid cells, so a tile that extends outside that decode would have
+  /// to replay from a lower-resolution base scene and then remain cached under
+  /// the same zoom key.
+  Rect? rasterCoverageForView({
+    required Size pageSize,
+    required double desiredRatio,
+    required Rect visiblePageRect,
+    int? prefetchRingOverride,
+  }) {
+    assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
+    final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
+    if (grid == null) return null;
+    final ring = prefetchRingOverride ?? prefetchRing;
+    final tx0 = math.max(0, grid.tx0 - ring);
+    final ty0 = math.max(0, grid.ty0 - ring);
+    final tx1 = math.min(grid.nx - 1, grid.tx1 + ring);
+    final ty1 = math.min(grid.ny - 1, grid.ty1 + ring);
+    return _clampToPage(
+      Rect.fromLTRB(
+        tx0 * grid.span,
+        ty0 * grid.span,
+        (tx1 + 1) * grid.span,
+        (ty1 + 1) * grid.span,
+      ),
+      pageSize,
+    );
+  }
+
   /// Whether tiling this view fits the weight budget with margin - so a
   /// [viewFor] pass will not thrash the shared LRU. Counts the visible
   /// exact-bucket tiles only (the prefetch ring is dropped under pressure
@@ -408,11 +561,30 @@ class PdfTileStore extends ChangeNotifier {
     required Size pageSize,
     required double desiredRatio,
     required Rect visiblePageRect,
+  }) =>
+      viewBudgetStatus(
+        pageSize: pageSize,
+        desiredRatio: desiredRatio,
+        visiblePageRect: visiblePageRect,
+      )?.fits ??
+      false;
+
+  /// Explains [viewFitsBudget] for field diagnostics and tuning.
+  PdfTileBudgetStatus? viewBudgetStatus({
+    required Size pageSize,
+    required double desiredRatio,
+    required Rect visiblePageRect,
   }) {
     final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
-    if (grid == null) return false;
+    if (grid == null) return null;
     final visible = (grid.tx1 - grid.tx0 + 1) * (grid.ty1 - grid.ty0 + 1);
-    return visible <= (budgetTileCapacity * _budgetFitFraction).floor();
+    final capacity = budgetTileCapacity;
+    return PdfTileBudgetStatus(
+      rung: grid.rung,
+      visibleTiles: visible,
+      capacity: capacity,
+      limit: (capacity * _budgetFitFraction).floor(),
+    );
   }
 
   /// The best-available composite for [id] over [visiblePageRect] (page points)
@@ -431,6 +603,30 @@ class PdfTileStore extends ChangeNotifier {
   /// Tiles already cached or in flight are unaffected. A landed tile ticks the
   /// store, so a painting caller can use a small cap to spread synchronous
   /// retained-scene replay across frames while the view fills center-out.
+  /// [maxInFlightTiles] additionally caps the number of admitted visible tiles
+  /// that may remain unresolved across repeated paints. Unlike [maxNewTiles],
+  /// this closes the loophole where unrelated frames each admitted one more
+  /// raster before the first completion freed the queue.
+  /// [batchRasters] overrides this store's batching policy for this view. This
+  /// lets a GPU session request final tile textures directly while Canvas
+  /// sessions using the same shared store continue to amortize slab replay.
+  ///
+  /// [prefetchRingOverride] replaces [prefetchRing] for this request. Passing
+  /// zero is useful for a scale-changing frame: raster the pixels visible now
+  /// before spending work on pan headroom, then restore the configured ring on
+  /// subsequent pan settles.
+  ///
+  /// [scheduleMissing] can make a view presentation-only: retained exact or
+  /// fallback tiles still paint, but neither visible misses nor the prefetch
+  /// ring start new work. The viewer uses this for a narrow page sliver at a
+  /// page boundary. Letting that non-foreground page refill its old pyramid
+  /// makes it compete with the focused page in the shared LRU; both pages then
+  /// evict and immediately re-raster one another's tiles.
+  ///
+  /// [allowCoarserFallback] controls presentation only: exact misses are still
+  /// scheduled, but a false value leaves their area transparent instead of
+  /// upscaling a lower-rung tile. This is useful above a retained vector base,
+  /// which is already sharper than a coarse raster fallback.
   ///
   /// Synchronous and side-effecting: every tile it *places* is touched to
   /// most-recently-used, so a concurrent completion's eviction can only drop
@@ -444,10 +640,18 @@ class PdfTileStore extends ChangeNotifier {
     required double desiredRatio,
     required Rect visiblePageRect,
     required PdfTileRasterizer rasterize,
+    PdfTilePersistence? persistence,
     bool Function(Rect region)? canRasterize,
+    bool? batchRasters,
     int? maxNewTiles,
+    int? maxInFlightTiles,
+    int? prefetchRingOverride,
+    bool scheduleMissing = true,
+    bool allowCoarserFallback = true,
   }) {
     assert(maxNewTiles == null || maxNewTiles > 0);
+    assert(maxInFlightTiles == null || maxInFlightTiles > 0);
+    assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
     if (_disposed) return PdfTileView.empty;
     final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
     if (grid == null) return PdfTileView.empty;
@@ -460,6 +664,16 @@ class PdfTileStore extends ChangeNotifier {
     final ty0 = grid.ty0;
     final tx1 = grid.tx1;
     final ty1 = grid.ty1;
+
+    Rect tileRegion(int tx, int ty) => _clampToPage(
+          Rect.fromLTWH(tx * span, ty * span, span, span),
+          pageSize,
+        );
+
+    int tileBytes(int tx, int ty) {
+      final size = _rasterSize(tileRegion(tx, ty), ratio);
+      return size.width * size.height * 4;
+    }
 
     // Center-out ordering: the tile under the viewport center sharpens first.
     // (_tileGrid guaranteed a non-empty intersection, so recomputing the
@@ -482,13 +696,38 @@ class PdfTileStore extends ChangeNotifier {
     });
 
     final placements = <PdfTilePlacement>[];
-    final pending = batchRasters ? <PdfTileKey>[] : null;
+    final pending = (batchRasters ?? this.batchRasters) ? <PdfTileKey>[] : null;
     var newTiles = 0;
-    bool schedule(PdfTileKey key) {
+    var inFlightForView =
+        _inFlight.where((key) => key.id == id && key.rung == rung).length;
+    bool schedule(
+      PdfTileKey key, {
+      required bool notifyOnLand,
+      int? inFlightLimit,
+    }) {
       if (maxNewTiles != null && newTiles >= maxNewTiles) return false;
+      // Already-admitted work consumes no new slot. Its original visible/ring
+      // completion will tick the layer, so the current view will see it land.
+      if (_inFlight.contains(key)) return false;
+      if (inFlightLimit != null && inFlightForView >= inFlightLimit) {
+        return false;
+      }
       final scheduled = _schedule(
-          key, id, pageSize, span, ratio, rasterize, pending, canRasterize);
-      if (scheduled) newTiles++;
+        key,
+        id,
+        pageSize,
+        span,
+        ratio,
+        rasterize,
+        persistence,
+        pending,
+        canRasterize,
+        notifyOnLand: notifyOnLand,
+      );
+      if (scheduled) {
+        newTiles++;
+        inFlightForView++;
+      }
       return scheduled;
     }
 
@@ -505,34 +744,61 @@ class PdfTileStore extends ChangeNotifier {
         ));
       } else {
         complete = false;
-        schedule(key);
-        final fallback = _coarserFallback(id, rung, tx, ty, span, pageSize);
+        if (scheduleMissing) {
+          schedule(
+            key,
+            notifyOnLand: true,
+            inFlightLimit: maxInFlightTiles,
+          );
+        }
+        final fallback = allowCoarserFallback
+            ? _coarserFallback(id, rung, tx, ty, span, pageSize)
+            : null;
         if (fallback != null) placements.add(fallback);
       }
     }
 
     // Prefetch ring: pre-raster the border just outside the visible range so a
-    // pan reveals ready tiles. Scheduled after the visible tiles (which matter
-    // now); dedup keeps a hovering viewport from re-queueing. Capped to the
-    // budget headroom left after the visible set, so a large view never
+    // pan reveals ready tiles. Admit it only after every visible tile is exact:
+    // with batched rasters, merely appending the ring after the visible keys
+    // coalesced both into one large slab and made first sharp paint wait for
+    // off-screen work. A visible completion notifies the layer; its next paint
+    // schedules this ring as a separate background batch. Capped to the
+    // byte-budget headroom left after the visible set, so a large view never
     // schedules more tiles than the LRU can hold - which would evict this
     // view's own tiles and re-raster them on every repaint (issues #314/#360).
+    // Use the actual rounded raster dimensions rather than nominal tile count:
+    // a sqrt(2)-ladder cell can become 513px after `ceil(region * ratio)`, so
+    // 96 nominal 512px tiles do not quite fit in the 96 MiB default cache.
+    // Reserve cached and in-flight ring members too. Otherwise every repaint
+    // would see their reservation as free and extend the working set again.
     // A view whose visible set already fills the budget gets no ring; the page
     // view falls back to the single patch before a view gets that dense.
-    if (prefetchRing > 0) {
-      final visibleCount = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
-      var ringHeadroom = budgetTileCapacity - visibleCount;
-      if (ringHeadroom > 0) {
-        final rx0 = math.max(0, tx0 - prefetchRing);
-        final ry0 = math.max(0, ty0 - prefetchRing);
-        final rx1 = math.min(nx - 1, tx1 + prefetchRing);
-        final ry1 = math.min(ny - 1, ty1 + prefetchRing);
-        ring:
+    final requestPrefetchRing = prefetchRingOverride ?? prefetchRing;
+    if (scheduleMissing && requestPrefetchRing > 0 && complete) {
+      var ringHeadroomBytes = maxBytes;
+      for (final (tx, ty) in coords) {
+        ringHeadroomBytes -= tileBytes(tx, ty);
+      }
+      if (ringHeadroomBytes > 0) {
+        final rx0 = math.max(0, tx0 - requestPrefetchRing);
+        final ry0 = math.max(0, ty0 - requestPrefetchRing);
+        final rx1 = math.min(nx - 1, tx1 + requestPrefetchRing);
+        final ry1 = math.min(ny - 1, ty1 + requestPrefetchRing);
         for (var ty = ry0; ty <= ry1; ty++) {
           for (var tx = rx0; tx <= rx1; tx++) {
             if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
-            if (ringHeadroom-- <= 0) break ring;
-            schedule(PdfTileKey(id, rung, tx, ty));
+            final bytes = tileBytes(tx, ty);
+            if (bytes > ringHeadroomBytes) continue;
+            ringHeadroomBytes -= bytes;
+            schedule(
+              PdfTileKey(id, rung, tx, ty),
+              // The bounded ring is advanced by completion ticks. This also
+              // promotes a ring tile cleanly when a pan makes it visible while
+              // its raster is already in flight.
+              notifyOnLand: true,
+              inFlightLimit: maxPrefetchInFlightTiles,
+            );
           }
         }
       }
@@ -540,7 +806,19 @@ class PdfTileStore extends ChangeNotifier {
 
     if (pending != null && pending.isNotEmpty) {
       for (final group in _groupBatches(pending)) {
-        _dispatchBatch(group, id, pageSize, span, ratio, rasterize);
+        _dispatchBatch(
+          group,
+          id,
+          pageSize,
+          span,
+          ratio,
+          rasterize,
+          persistence,
+          // Ring batches are bounded and advance on their own completion tick;
+          // visible batches already need that tick to present their pixels.
+          notifyOnLand: true,
+          prefetch: complete,
+        );
       }
     }
 
@@ -558,8 +836,8 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     Size pageSize,
   ) {
-    final fine = _clampToPage(Rect.fromLTWH(tx * span, ty * span, span, span),
-        pageSize);
+    final fine =
+        _clampToPage(Rect.fromLTWH(tx * span, ty * span, span, span), pageSize);
     if (fine.isEmpty) return null;
     final center = fine.center;
     for (var d = 1; d <= maxFallbackDepth; d++) {
@@ -605,9 +883,11 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     double ratio,
     PdfTileRasterizer rasterize,
+    PdfTilePersistence? persistence,
     List<PdfTileKey>? pending,
-    bool Function(Rect region)? canRasterize,
-  ) {
+    bool Function(Rect region)? canRasterize, {
+    required bool notifyOnLand,
+  }) {
     if (_disposed || _cache.containsKey(key) || _inFlight.contains(key)) {
       return false;
     }
@@ -620,6 +900,8 @@ class PdfTileStore extends ChangeNotifier {
 
     _inFlight.add(key);
     debugTilesScheduled++;
+    _loadPersistentTile(key, id, pageSize, region, ratio, persistence,
+        _epochCounter, notifyOnLand);
     if (pending != null) {
       pending.add(key);
       return true;
@@ -627,18 +909,34 @@ class PdfTileStore extends ChangeNotifier {
     final dispatchEpoch = _epochCounter;
     rasterize(region, ratio).then((image) {
       _inFlight.remove(key);
-      if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
+      if (_disposed || _isStale(id, dispatchEpoch)) {
         image.dispose();
         debugTilesDiscarded++;
+        // Invalidation can race a visible raster. Its completion releases the
+        // in-flight key, so repaint now and let the current scene reschedule
+        // the tile; otherwise the stale result disappears with no event to
+        // replace it.
+        if (notifyOnLand) _scheduleTick();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
+        return;
+      }
+      if (_cache.containsKey(key)) {
+        // A persistent hit won the race. Keep its already-visible pixels and
+        // release the duplicate raster without replacing/promoting the entry.
+        image.dispose();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
         return;
       }
       _cache.put(
           key, PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
       debugTilesLanded++;
-      _scheduleTick();
+      _storePersistentTile(key, image, region, ratio, persistence);
+      if (notifyOnLand) _scheduleTick();
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     }, onError: (Object _, StackTrace __) {
       _inFlight.remove(key);
       debugTilesDiscarded++;
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     });
     return true;
   }
@@ -693,7 +991,10 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     double ratio,
     PdfTileRasterizer rasterize,
-  ) {
+    PdfTilePersistence? persistence, {
+    required bool notifyOnLand,
+    required bool prefetch,
+  }) {
     Rect tileRegion(PdfTileKey key) => _clampToPage(
         Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
 
@@ -716,40 +1017,44 @@ class PdfTileStore extends ChangeNotifier {
       for (final key in batch) {
         _inFlight.remove(key);
       }
-      if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
+      if (_disposed || _isStale(id, dispatchEpoch)) {
         slab.dispose();
         debugTilesDiscarded += batch.length;
+        if (notifyOnLand) _scheduleTick();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
         return;
       }
-      final sliceClock =
-          PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+      final sliceClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       try {
         for (final key in batch) {
           final region = tileRegion(key);
-          _cache.put(
-              key,
-              PdfTile(_sliceTile(slab, batchRegion, region, ratio), region,
-                  key.rung, _fractionOf(region, pageSize)));
+          if (_cache.containsKey(key)) continue;
+          final image = _sliceTile(slab, batchRegion, region, ratio);
+          _cache.put(key,
+              PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
           debugTilesLanded++;
+          _storePersistentTile(key, image, region, ratio, persistence);
         }
       } finally {
         slab.dispose();
       }
-      final sliceElapsedMs =
-          (sliceClock?.elapsedMicroseconds ?? 0) / 1000;
+      final sliceElapsedMs = (sliceClock?.elapsedMicroseconds ?? 0) / 1000;
       PdfPerfLog.log(
         'tile slice page=${id.pageIndex} rung=${batch.first.rung} '
+        'class=${prefetch ? 'prefetch' : 'visible'} '
         'tiles=${batch.length} '
         'elapsed=${sliceElapsedMs.toStringAsFixed(1)}ms '
         'retained=${_cache.weight} entries=${_cache.length}'
         '${PdfPerfLog.rssSuffix()}',
       );
-      _scheduleTick();
+      if (notifyOnLand) _scheduleTick();
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     }, onError: (Object _, StackTrace __) {
       for (final key in batch) {
         _inFlight.remove(key);
       }
       debugTilesDiscarded += batch.length;
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     });
   }
 
@@ -758,8 +1063,9 @@ class PdfTileStore extends ChangeNotifier {
   /// without a scene replay or a pixel readback.
   ui.Image _sliceTile(
       ui.Image slab, Rect batchRegion, Rect tileRegion, double ratio) {
-    final w = (tileRegion.width * ratio).ceil().clamp(1, 1 << 14);
-    final h = (tileRegion.height * ratio).ceil().clamp(1, 1 << 14);
+    final size = _rasterSize(tileRegion, ratio);
+    final w = size.width;
+    final h = size.height;
     final src = Rect.fromLTWH(
       (tileRegion.left - batchRegion.left) * ratio,
       (tileRegion.top - batchRegion.top) * ratio,
@@ -785,15 +1091,103 @@ class PdfTileStore extends ChangeNotifier {
     }
   }
 
-  bool _isStale(int pageIndex, int dispatchEpoch) =>
+  void _loadPersistentTile(
+    PdfTileKey key,
+    PdfTilePageIdentity id,
+    Size pageSize,
+    Rect region,
+    double ratio,
+    PdfTilePersistence? persistence,
+    int dispatchEpoch,
+    bool notifyOnLand,
+  ) {
+    if (persistence == null || !_persistentInFlight.add(key)) return;
+    final size = _rasterSize(region, ratio);
+    final width = size.width;
+    final height = size.height;
+    debugPersistentLoads++;
+    persistence
+        .loadTile(key,
+            region: region, pixelRatio: ratio, width: width, height: height)
+        .then((image) {
+      _persistentInFlight.remove(key);
+      if (image == null) {
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
+        return;
+      }
+      if (_disposed || _isStale(id, dispatchEpoch) || _cache.containsKey(key)) {
+        image.dispose();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
+        return;
+      }
+      _cache.put(
+          key, PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
+      debugPersistentHits++;
+      debugTilesLanded++;
+      if (notifyOnLand) _scheduleTick();
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
+    }, onError: (Object _, StackTrace __) {
+      _persistentInFlight.remove(key);
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
+    });
+  }
+
+  void _storePersistentTile(PdfTileKey key, ui.Image image, Rect region,
+      double pixelRatio, PdfTilePersistence? persistence) {
+    if (persistence == null) return;
+    debugPersistentStores++;
+    // The implementation clones synchronously before its first await. This is
+    // deliberately unawaited: the tile is displayable before any readback.
+    unawaited(persistence.storeTile(key, image,
+        region: region, pixelRatio: pixelRatio));
+  }
+
+  bool _isStale(PdfTilePageIdentity id, int dispatchEpoch) =>
       _allPagesEpoch > dispatchEpoch ||
-      (_pageEpoch[pageIndex] ?? -1) > dispatchEpoch;
+      (_namespaceEpoch[id.cacheNamespace] ?? -1) > dispatchEpoch ||
+      (_pageEpoch[_PdfTilePageSlot(id.cacheNamespace, id.pageIndex)] ?? -1) >
+          dispatchEpoch;
+
+  /// Drops every retained and in-flight tile belonging to one viewer/document
+  /// lineage, without disturbing the other tabs sharing this process store.
+  ///
+  /// Structural page edits call this before replacing their namespace. The
+  /// epoch check makes any raster or persistent load already in flight for the
+  /// old page slots dispose its result instead of repopulating dead cache
+  /// entries after the edit.
+  void invalidateNamespace(Object? cacheNamespace) {
+    if (_disposed) return;
+    _namespaceEpoch[cacheNamespace] = ++_epochCounter;
+    _cache.evictWhere(
+      (key) => identical(key.id.cacheNamespace, cacheNamespace),
+    );
+    _pageEpoch.removeWhere(
+      (slot, _) => identical(slot.cacheNamespace, cacheNamespace),
+    );
+    _dropNamespaceFenceIfIdle(cacheNamespace);
+  }
+
+  /// An invalidated namespace needs a strong epoch fence only while one of its
+  /// old asynchronous requests can still complete. Drop it afterward so a
+  /// long editing session with many page operations does not retain every
+  /// superseded namespace object forever.
+  void _dropNamespaceFenceIfIdle(Object? cacheNamespace) {
+    if (!_namespaceEpoch.containsKey(cacheNamespace)) return;
+    final active = _inFlight.any(
+          (key) => identical(key.id.cacheNamespace, cacheNamespace),
+        ) ||
+        _persistentInFlight.any(
+          (key) => identical(key.id.cacheNamespace, cacheNamespace),
+        );
+    if (!active) _namespaceEpoch.remove(cacheNamespace);
+  }
 
   /// Drops retained (and in-flight) tiles. With [pages] null every tile is
-  /// dropped; otherwise only tiles for those page slots - the model
+  /// dropped; otherwise only tiles for those page slots inside
+  /// [cacheNamespace] - the model
   /// [PdfCachingRenderWorker.updateRevision]'s `changedPages` feeds. In-flight
   /// rasters for the affected pages are discarded on completion.
-  void invalidate({Set<int>? pages}) {
+  void invalidate({Set<int>? pages, Object? cacheNamespace}) {
     if (_disposed) return;
     final epoch = ++_epochCounter;
     if (pages == null) {
@@ -801,10 +1195,32 @@ class PdfTileStore extends ChangeNotifier {
       _cache.clear();
     } else {
       for (final page in pages) {
-        _pageEpoch[page] = epoch;
+        _pageEpoch[_PdfTilePageSlot(cacheNamespace, page)] = epoch;
       }
-      _cache.evictWhere((key) => pages.contains(key.id.pageIndex));
+      _cache.evictWhere((key) =>
+          identical(key.id.cacheNamespace, cacheNamespace) &&
+          pages.contains(key.id.pageIndex));
     }
+  }
+
+  /// Drops retained tiles on [pageIndex] that satisfy [test], while marking
+  /// every in-flight tile for that page stale.
+  ///
+  /// The selective retained eviction lets a newly expanded image-detail scene
+  /// replace tiles that could only have come from the capped base decode while
+  /// preserving already-sharp tiles in the scene's previous coverage.
+  void invalidatePageTilesWhere(int pageIndex, bool Function(PdfTile tile) test,
+      {Object? cacheNamespace}) {
+    if (_disposed) return;
+    _pageEpoch[_PdfTilePageSlot(cacheNamespace, pageIndex)] = ++_epochCounter;
+    _cache.evictWhere((key) {
+      if (!identical(key.id.cacheNamespace, cacheNamespace) ||
+          key.id.pageIndex != pageIndex) {
+        return false;
+      }
+      final tile = _cache.peek(key);
+      return tile != null && test(tile);
+    });
   }
 
   void _scheduleTick() {
@@ -817,6 +1233,11 @@ class PdfTileStore extends ChangeNotifier {
       notifyListeners();
     });
   }
+
+  ({int width, int height}) _rasterSize(Rect region, double ratio) => (
+        width: (region.width * ratio).ceil().clamp(1, 1 << 14),
+        height: (region.height * ratio).ceil().clamp(1, 1 << 14),
+      );
 
   Rect _clampToPage(Rect r, Size pageSize) =>
       r.intersect(Offset.zero & pageSize);
@@ -833,6 +1254,7 @@ class PdfTileStore extends ChangeNotifier {
     _disposed = true;
     _cache.dispose();
     _inFlight.clear();
+    _persistentInFlight.clear();
     super.dispose();
   }
 }

@@ -890,6 +890,31 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get searchRegex => 'Regular expression';
 
   @override
+  String get searchReplace => 'Replace';
+
+  @override
+  String get searchReplaceAll => 'Replace all';
+
+  @override
+  String get searchReplaceHint => 'Replace with';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches replaced',
+      one: '1 match replaced',
+      zero: 'Nothing replaced',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Search results';
 
   @override
@@ -1319,7 +1344,8 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbAlignVerticalCenters => 'Align vertical centers';
 
   @override
-  String get tbAnnotationsFlattened => 'Annotations flattened into the pages';
+  String get tbAnnotationsFlattened =>
+      'Annotations and form fields flattened into the pages';
 
   @override
   String get tbApplyRedactionsMessage =>
@@ -1333,6 +1359,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
+
+  @override
+  String get tbAutosizeTextFont => 'Fit font to text box';
 
   @override
   String get tbCalibrateScaleHint =>
@@ -1459,7 +1488,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbFlattenAnnotationsTooltip =>
-      'Flatten annotations into the pages';
+      'Flatten annotations and form fields into the pages';
 
   @override
   String get tbFlattenForm => 'Flatten form';
@@ -1526,25 +1555,25 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbMarkupHighlight => 'Highlight';
 
   @override
-  String get tbMarkupHighlightTip => 'Highlight selection';
+  String get tbMarkupHighlightTip => 'Highlight text';
 
   @override
   String get tbMarkupSquiggly => 'Squiggly-underline';
 
   @override
-  String get tbMarkupSquigglyTip => 'Squiggly-underline selection';
+  String get tbMarkupSquigglyTip => 'Squiggly-underline text';
 
   @override
   String get tbMarkupStrikeOut => 'Strike out';
 
   @override
-  String get tbMarkupStrikeOutTip => 'Strike out selection';
+  String get tbMarkupStrikeOutTip => 'Strike out text';
 
   @override
   String get tbMarkupUnderline => 'Underline';
 
   @override
-  String get tbMarkupUnderlineTip => 'Underline selection';
+  String get tbMarkupUnderlineTip => 'Underline text';
 
   @override
   String get tbMoreColors => 'More colors…';
@@ -1572,6 +1601,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Erase ink strokes';
+
+  @override
+  String get tbNameHand => 'Hand';
 
   @override
   String get tbNameHighlight => 'Highlight';
@@ -1631,7 +1663,8 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbNewFieldType => 'New field type - drag on a page to add one';
 
   @override
-  String get tbNoAnnotationsToFlatten => 'No annotations to flatten';
+  String get tbNoAnnotationsToFlatten =>
+      'No annotations or form fields to flatten';
 
   @override
   String get tbNoCustomStamps => 'No custom stamps';
@@ -1695,7 +1728,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbScale => 'Scale';
 
   @override
-  String get tbSelectTextForMarkup => 'Select text to use markup';
+  String get tbSelectTextForMarkup => 'Choose a markup, then select text';
 
   @override
   String tbSelectionCount(int count) {
@@ -2018,4 +2051,63 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Select all';
+
+  @override
+  String get annotationLibraryTitle => 'Annotation library';
+
+  @override
+  String get annotationLibraryEmpty => 'No saved annotations.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+
+  @override
+  String get annotationLibrarySave => 'Save to annotation library';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Save annotation';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Rename library item';
+
+  @override
+  String get annotationLibrarySearchHint => 'Search library';
+
+  @override
+  String get annotationLibraryNoMatches => 'No matching annotations.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Ungrouped';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Move to group';
+
+  @override
+  String get annotationLibraryNewGroup => 'New group…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'New annotation group';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Rename annotation group';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Remove group';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Click the page to place. Press Escape to cancel.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Custom stamps…';
+
+  @override
+  String get signatureLibraryManage => 'Manage signatures';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Rename signature';
+
+  @override
+  String get signatureLibraryEmpty => 'No saved signatures.';
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -6,6 +7,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/thumbnail_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -24,7 +26,9 @@ void main() {
       expect(pdfShouldWarmThumbnails(138, web: false), isTrue);
     });
 
-    test('serves the pending task nearest the focus first', () async {
+    testWidgets(
+        'serves the pending task nearest the focus first, one per '
+        'frame', (tester) async {
       final cache = PdfThumbnailCache();
       addTearDown(cache.dispose);
       final order = <int>[];
@@ -32,7 +36,20 @@ void main() {
       for (final page in [0, 5, 2]) {
         cache.request(Object(), page, () async => order.add(page));
       }
-      await settle();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      // A tile's interpret+raster is tens of milliseconds of platform thread,
+      // so the queue yields a frame between them - that frame is what lets the
+      // viewer queue the page a reader just scrolled onto, and the gate then
+      // sees it and stands the whole queue down.
+      expect(order.length, lessThan(3),
+          reason: 'the queue no longer drains in one turn');
+      expect(order.first, 5, reason: 'nearest the focus goes first');
+
+      for (var i = 0; i < 6 && order.length < 3; i++) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await tester.pump();
+      }
       // distance from focus 5: page 5 (0) < page 2 (3) < page 0 (5)
       expect(order, [5, 2, 0]);
     });
@@ -68,9 +85,10 @@ void main() {
   // thread - the one the visible page's build needs, and the one a worker
   // priority cannot reach. The gate is what makes it stand down for the viewer.
   group('PdfThumbnailCache foreground gate', () {
-    testWidgets('the warm stands down while the viewer renders, and resumes '
+    testWidgets(
+        'the warm stands down while the viewer renders, and resumes '
         'when it goes idle', (tester) async {
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final activity = _TestActivity();
       var viewerBusy = true;
@@ -117,6 +135,69 @@ void main() {
       expect(rendered, [4]);
     });
 
+    testWidgets(
+        'a granted visible tile defers its worker result and retries after '
+        'scroll settle', (tester) async {
+      // Regression for the 2026-08-11 trace: page 85 was granted while idle,
+      // spent 414 ms recording in the worker, then replayed/rasterized on the
+      // platform thread after the viewer's fast-scroll hold had begun.
+      SharedPreferences.setMockInitialValues({});
+      PdfThumbnailSidebar.debugRasterizations = 0;
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      final worker = _HeldFirstWorker();
+      final activity = _TestActivity();
+      var viewerBusy = false;
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(worker.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 240,
+            child: Row(children: [
+              PdfThumbnailSidebar(
+                controller: editing,
+                viewerController: viewer,
+                renderWorker: worker,
+              ),
+              const Expanded(child: SizedBox()),
+            ]),
+          ),
+        ),
+      ));
+      for (var i = 0; i < 10 && !worker.firstStarted.isCompleted; i++) {
+        await tester.pump();
+      }
+      expect(worker.firstStarted.isCompleted, isTrue,
+          reason: 'the tile should already be recording off-thread');
+
+      // Replace the unmounted viewer controller's idle gate with the exact
+      // busy transition from the trace, then release the worker reply.
+      viewerBusy = true;
+      editing.thumbnailCache.bindForegroundGate(activity, () => viewerBusy);
+      worker.releaseFirst();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(worker.calls, 1);
+      expect(PdfThumbnailSidebar.debugRasterizations, 0,
+          reason: 'no replay/raster should land during fast scrolling');
+
+      viewerBusy = false;
+      activity.ping();
+      for (var i = 0;
+          i < 100 && PdfThumbnailSidebar.debugRasterizations == 0;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 5)));
+        await tester.pump();
+      }
+      expect(worker.calls, 2, reason: 'the deferred tile should retry once');
+      expect(PdfThumbnailSidebar.debugRasterizations, 1);
+    });
+
     testWidgets('a blocked warm logs once, not once per activity ping',
         (tester) async {
       // The render scheduler pings its activity Listenable on every grant,
@@ -134,7 +215,7 @@ void main() {
         PdfPerfLog.sink = null;
       });
 
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final activity = _TestActivity();
       var viewerBusy = true;
@@ -175,7 +256,7 @@ void main() {
     });
 
     testWidgets('an unbound cache warms exactly as before', (tester) async {
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final warmed = <int>[];
       cache.setWarm(Object(), 2, 'k', (page) async => warmed.add(page));
@@ -186,7 +267,7 @@ void main() {
     });
 
     testWidgets('withdrawing the warm releases the gate', (tester) async {
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final activity = _TestActivity();
       final owner = Object();
@@ -196,6 +277,27 @@ void main() {
       cache.clearWarm(owner);
       expect(activity.listeners, 0,
           reason: 'a disposed panel must not keep the viewer subscribed');
+    });
+
+    testWidgets('navigation focus restarts the thumbnail warm quiet period',
+        (tester) async {
+      final cache =
+          PdfThumbnailCache(warmIdleDelay: const Duration(milliseconds: 750));
+      addTearDown(cache.dispose);
+      final warmed = <int>[];
+      cache.setWarm(Object(), 3, 'k', (page) async => warmed.add(page));
+
+      await tester.pump(const Duration(milliseconds: 500));
+      cache.focus = 2;
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(warmed, isEmpty,
+          reason: 'the destination page still owns the platform thread');
+
+      await tester.pump(const Duration(milliseconds: 251));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [2, 1, 0]);
     });
   });
 
@@ -273,14 +375,15 @@ void main() {
         isTrue,
         reason: 'page 12 should be off-screen / unbuilt',
       );
-
       // drive the serialized async render queue (rasterization needs runAsync)
+      // and advance fake time so the idle window starts after the foreground
+      // tiles have drained, just as it does between frames in the real app.
       for (var i = 0;
           i < 300 && PdfThumbnailSidebar.debugRasterizations < 12;
           i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
-        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 10));
       }
       // every page rendered exactly once, even the off-screen ones
       expect(PdfThumbnailSidebar.debugRasterizations, 12);
@@ -360,15 +463,410 @@ void main() {
         ),
       ));
       expect(viewer.isPageRenderBusy, isFalse);
-
       for (var i = 0;
           i < 300 && PdfThumbnailSidebar.debugRasterizations < 4;
           i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
-        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 10));
       }
       expect(PdfThumbnailSidebar.debugRasterizations, 4);
+    });
+  });
+
+  group('retained scene reuse', () {
+    testWidgets('web-size tile accepts the complete 200px viewer preview',
+        (tester) async {
+      // 2026-08-22 field trace: replaying the viewer's 39k-command retained
+      // scene for a 256px tile blocked CanvasKit for 223ms. The complete 200px
+      // preview was already on screen and is close enough for the sidebar.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      controller.rotatePages([0], 90); // the field page was landscape
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      await tester.runAsync(() => previews.renderPreview(0, page));
+
+      ui.Image? rendered;
+      late final int tileOps;
+      await tester.runAsync(() async {
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 256,
+          worker: null,
+          previews: previews,
+          allowSoftPreview: true,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(math.max(rendered!.width, rendered!.height), 200);
+      expect(tileOps, 0,
+          reason: 'the tile claims complete cached pixels without replaying');
+      rendered!.dispose();
+    });
+
+    testWidgets('a tile replays the viewer scene instead of re-interpreting',
+        (tester) async {
+      // #699: with no worker a 128px tile fell through to a full page
+      // interpret - for a page the viewer had walked seconds earlier and
+      // still holds a retained scene for.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      ui.Image? rendered;
+      late final int tileOps;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose(); // the cache keeps its own reference
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(rendered!.width, 128);
+      expect(tileOps, 0,
+          reason: 'the tile replays retained commands - no content walk');
+      rendered!.dispose();
+    });
+
+    testWidgets('an editing session\'s annotation-free scene serves a tile',
+        (tester) async {
+      // The viewer bakes annotations into the page picture only when it is
+      // not drawing them in an overlay layer - and an editing session, which
+      // is when the strip exists, always uses the overlay. On a page that
+      // carries no annotations those are the same pixels.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      expect(page.annotations, isEmpty);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: false,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, 0);
+      rendered!.dispose();
+    });
+
+    testWidgets('an annotated page will not take an annotation-free scene',
+        (tester) async {
+      final controller = PdfEditingController(buildAnnotatedPdf());
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      expect(page.annotations, isNotEmpty);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: false,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, greaterThan(0),
+          reason: 'the tile must draw the annotations the scene omits');
+      rendered!.dispose();
+    });
+
+    testWidgets('a scene recorded for another display is not reused',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      // A grey-paper scene cannot stand in for a white-paper tile.
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFF808080),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, greaterThan(0),
+          reason: 'the mismatched scene is declined and the tile renders '
+              'the page itself');
+      rendered!.dispose();
+    });
+
+    testWidgets('a plan spelling rotation as null still serves a tile',
+        (tester) async {
+      // Null means "the page's own /Rotate", so it is the same render as a
+      // plan carrying that angle. The viewer always resolves an explicit
+      // angle; a bare PdfPageView may not.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      const plan = PdfPageRenderPlan(
+        pageColor: Color(0xFFFFFFFF),
+        annotations: true,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, 0);
+      rendered!.dispose();
+    });
+
+    testWidgets('a scene decoded below the tile ratio is declined',
+        (tester) async {
+      // Replaying it would draw the page's images softer than a fresh render
+      // would. A tile ratio is a fraction of any display ratio, so this is a
+      // guard rather than a case the viewer produces.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                imagePixelRatio: 0.001,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, greaterThan(0),
+          reason: 'the tile renders the page rather than replaying a scene '
+              'whose images are softer than it needs');
+      rendered!.dispose();
+    });
+
+    testWidgets('the warm pass reuses a retained scene without a worker',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          skipIfWorkerDeclines: true,
+          reason: 'warm',
+          previews: previews,
+        );
+      });
+
+      expect(rendered, isNotNull,
+          reason: 'skipping the local interpret does not mean skipping a '
+              'scene that is already recorded');
+      rendered!.dispose();
+    });
+
+    testWidgets('a retained scene is not replayed during motion',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          deferUiWork: () => true,
+          previews: previews,
+        );
+      });
+
+      expect(rendered, isNull,
+          reason: 'a replay is cheap but still platform-thread work; the '
+              'tile waits for the scroll to settle');
     });
   });
 
@@ -420,6 +918,31 @@ void main() {
       expect(rendered, isNull,
           reason: 'a worker reply must not start CanvasKit replay/raster '
               'after the viewer begins scrolling');
+    });
+
+    testWidgets('a declined worker defers the local fallback during motion',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      final worker = _DecliningWorker();
+      addTearDown(controller.dispose);
+      addTearDown(worker.dispose);
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: worker,
+          deferUiWork: () => true,
+        );
+      });
+
+      expect(rendered, isNull,
+          reason: 'a declined worker must not trigger a UI-thread interpret '
+              'while the viewer is moving');
     });
 
     testWidgets('a rendered thumbnail writes through to disk and reloads',
@@ -524,6 +1047,74 @@ class _ImmediateWorker extends PdfRenderWorker {
     PdfPartialRecordSink? onPartial,
   }) async =>
       [PdfSaveCommand(), PdfRestoreCommand()];
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _active = false;
+}
+
+class _HeldFirstWorker extends PdfRenderWorker {
+  bool _active = true;
+  final firstStarted = Completer<void>();
+  final _firstRelease = Completer<void>();
+  int calls = 0;
+
+  @override
+  bool get isActive => _active;
+
+  void releaseFirst() {
+    if (!_firstRelease.isCompleted) _firstRelease.complete();
+  }
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    calls++;
+    if (calls == 1) {
+      firstStarted.complete();
+      await _firstRelease.future;
+    }
+    return [PdfSaveCommand(), PdfRestoreCommand()];
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {
+    _active = false;
+    releaseFirst();
+  }
+}
+
+class _DecliningWorker extends PdfRenderWorker {
+  bool _active = true;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async =>
+      null;
 
   @override
   void cancel(int pageIndex, {int priority = 0}) {}

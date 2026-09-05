@@ -47,6 +47,17 @@ AppImage and portable tarball builds remain available from
 - Progressive rendering reveals complex pages top-down, while faithful
   overprint and spot-color handling keeps print-oriented PDFs visually
   accurate.
+- Native builds prefer the bundled flutter_gpu backend by default; unsupported
+  pages and runtime failures replay exactly through Canvas. Developer tools
+  (F12) can switch the preference live, tune the GPU texture/geometry ceilings,
+  inspect actual GPU/fallback routes and resource pressure, and export those
+  metrics as JSON. Web keeps Canvas through the companion's compile-time stub;
+  pull-request web previews provide macOS, Windows, and Linux download buttons
+  in this section for testing the native backend.
+- Desktop builds include the native `dartpdf` CLI and stdio MCP server for
+  bounded inspection, text extraction, form listing, and annotation listing.
+  See [`dart_pdf_cli`](../packages/dart_pdf_cli) for installed paths and agent
+  registration.
 - Dirty-state tracking with a save indicator and crash recovery: unsaved
   revisions are mirrored in the background and offered for restoration after
   a restart.
@@ -73,6 +84,18 @@ fvm flutter run -d macos      # or -d chrome, -d windows, -d linux, or a device
 Open a specific file on startup: `fvm flutter run -d macos path/to/file.pdf`
 (desktop), or use the in-app Open button anywhere.
 
+Desktop multi-window support is enabled by default:
+
+```sh
+fvm flutter run -d macos  # or windows / linux
+```
+
+Each desktop runner always starts the required headless multi-view engine, and
+Dart enables Flutter's matching framework feature before binding
+initialization. This applies to debug, release, and Store builds, so dialogs
+and regular windows cannot end up on incompatible engine modes. See
+[the implementation notes](../doc/dev-log/2026-08-14-flutter-347-multi-window.md).
+
 On web, `dart_pdf_editor` uses its bundled page-render worker asset
 automatically. If the browser cannot load it, rendering falls back to the main
 thread.
@@ -84,10 +107,36 @@ fvm dart analyze app
 cd app && fvm flutter test
 ```
 
+### Mobile cloud-provider performance capture
+
+The Android and iOS reference pickers emit structured `open-trace:` entries to
+the app's Developer tools log without recording the picked URI, path, or access
+token. To validate a real provider, run a debug/profile build on a physical
+device, open one large PDF from that provider, then open **Settings → Developer
+tools** and export the snapshot. Attach the JSON to the performance issue or
+PR together with the provider/device name.
+
+The useful entries are:
+
+- `mobile-pick`: provider identifier, declared bytes, seekability, and the
+  selected `progressive` or `whole` path.
+- `first-paint`: bytes fetched before the progressive preview, file-size
+  percentage, elapsed milliseconds, and page count.
+- `whole-read`: bytes and elapsed milliseconds when a non-seekable provider or
+  batch must be streamed completely.
+
+A progressive provider pass has `seekable=true`, `mode=progressive`, a
+`first-paint` entry, and `fetchedPercent` materially below 100. A provider may
+legitimately report `seekable=false`; in that case the expected result is a
+successful `whole-read`, not a failed ranged open. `progressive-fallback` is a
+failed progressive attempt and should be investigated.
+
 ## Build
 
-`flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. Releases
-are automated on `app-v*` tags. See [RELEASING.md](RELEASING.md).
+`flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. The three
+desktop native projects compile and bundle the `dartpdf` CLI/MCP sidecar as part
+of the ordinary build. Releases are automated on `app-v*` tags. See
+[RELEASING.md](RELEASING.md).
 
 ## Manual device-test matrix
 

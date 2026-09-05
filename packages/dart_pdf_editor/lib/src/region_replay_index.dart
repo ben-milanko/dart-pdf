@@ -8,6 +8,17 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 /// shipped together, so a mismatch is a programming error (asserted on read).
 const int _regionIndexFormatVersion = 1;
 
+/// Region-index policy for worker detail transcripts.
+///
+/// A detail response is transient, but the worker's page transcript is reused
+/// across every deep-zoom pan. Keeping one index beside that transcript lets a
+/// viewport select its paint units before image decoding, command
+/// serialization, and strip binning. The limits mirror [PdfRetainedScene]'s
+/// ordinary linear/grid escalation without importing the Flutter-facing scene
+/// into worker code.
+const int pdfDetailRegionLinearMaxCommands = 250000;
+const int pdfDetailRegionGridMaxCommands = 4000000;
+
 /// Bounded, painter-order-preserving index for retained region replay.
 ///
 /// Each entry is one independent paint operation plus a persistent snapshot
@@ -77,6 +88,16 @@ class PdfRegionReplayIndex {
           clipNodes++;
         case PdfSetBlendModeCommand(:final mode):
           blendMode = mode;
+        case PdfSetOverprintCommand():
+          // Unlike blend mode, the region index does not yet snapshot the
+          // three overprint fields on each unit. Selective replay would lose
+          // that persistent device state, so keep these pages on the exact
+          // full-transcript fallback.
+          return PdfRegionReplayIndex._(
+            supported: false,
+            units: const [],
+            clipNodeCount: clipNodes,
+          );
         case PdfBeginGroupCommand() ||
               PdfEndGroupCommand() ||
               PdfBeginSoftMaskedCommand() ||
@@ -208,6 +229,64 @@ class PdfRegionReplayIndex {
     }
     return replayed;
   }
+
+  /// Selects the paint units intersecting [region] in painter order.
+  ///
+  /// This is the retained-scene backend boundary: a renderer that does not
+  /// implement [PdfDevice] can consume the same conservative culling verdict
+  /// as [replay], including the clip and blend state captured on every unit.
+  /// Unsupported indices return an empty list; callers must check
+  /// [supported] and fall back to full-scene rendering rather than treating
+  /// that as an empty region.
+  List<PdfRegionReplayUnit> select(PdfRect region) {
+    if (!supported) return const [];
+    final grid = this.grid;
+    if (grid != null) {
+      return [
+        for (final index in grid.select(region, units)) units[index],
+      ];
+    }
+    return [
+      for (final unit in units)
+        if (_intersects(unit.bounds, region)) unit,
+    ];
+  }
+
+  /// Materializes a self-contained transcript for the paint units intersecting
+  /// [region].
+  ///
+  /// Each selected paint is wrapped in its captured save/blend/clip state, the
+  /// same sequence [replay] issues directly to a device. This lets a render
+  /// worker serialize and strip-bin only the visible slice while the consumer
+  /// replays the returned command list normally. [commands] may be a
+  /// document-backed twin of the list this index was built from (the worker's
+  /// source/wire transcript pair), but its top-level command ordering must
+  /// match.
+  ///
+  /// Unsupported indices, mismatched command lists, and selections whose
+  /// state wrappers would be no smaller than the original return [commands]
+  /// unchanged. The last guard keeps broad/full-page details from turning one
+  /// command per paint into four or more commands for no benefit.
+  List<PdfRenderCommand> commandsForRegion(
+    PdfRect region,
+    List<PdfRenderCommand> commands,
+  ) {
+    if (!supported) return commands;
+    final selected = select(region);
+    if (selected.isNotEmpty && selected.last.commandIndex >= commands.length) {
+      return commands;
+    }
+    final out = <PdfRenderCommand>[];
+    for (final unit in selected) {
+      out.add(const PdfSaveCommand());
+      out.add(PdfSetBlendModeCommand(unit.blendMode));
+      unit.clips?.appendCommands(out);
+      out.add(commands[unit.commandIndex]);
+      out.add(const PdfRestoreCommand());
+      if (out.length >= commands.length) return commands;
+    }
+    return List<PdfRenderCommand>.unmodifiable(out);
+  }
 }
 
 /// Uniform-grid spatial index over painter-ordered replay units.
@@ -264,10 +343,8 @@ class PdfRegionReplayGrid {
     rows = rows.clamp(1, math.max(1, maxCells ~/ cols));
     final cellW = w / cols, cellH = h / rows;
 
-    int colOf(double x) =>
-        ((x - left) / cellW).floor().clamp(0, cols - 1);
-    int rowOf(double y) =>
-        ((y - bottom) / cellH).floor().clamp(0, rows - 1);
+    int colOf(double x) => ((x - left) / cellW).floor().clamp(0, cols - 1);
+    int rowOf(double y) => ((y - bottom) / cellH).floor().clamp(0, rows - 1);
 
     // A unit is "broad" if it covers more than broadCellFraction of the grid
     // in either axis — smearing those across thousands of cells is the memory
@@ -349,12 +426,38 @@ class PdfRegionReplayGrid {
     List<PdfRenderCommand> commands,
     PdfDevice device,
   ) {
+    final candidates = select(region, units);
+    var replayed = 0;
+    for (final idx in candidates) {
+      final unit = units[idx];
+      device.save();
+      device.setBlendMode(unit.blendMode);
+      unit.clips?.replay(device);
+      replayCommands(
+        commands,
+        device,
+        start: unit.commandIndex,
+        end: unit.commandIndex + 1,
+      );
+      device.restore();
+      replayed++;
+    }
+    return replayed;
+  }
+
+  /// Unit-list indices intersecting [region], de-duplicated and sorted into
+  /// painter order.
+  List<int> select(
+    PdfRect region,
+    List<PdfRegionReplayUnit> units,
+  ) {
     final gen = ++_generation;
     // Gather candidate unit indices (deduped) from the touched cells + broad.
     final candidates = <int>[];
     final c0 = ((region.left - _originX) / _cellW).floor().clamp(0, _cols - 1);
     final c1 = ((region.right - _originX) / _cellW).floor().clamp(0, _cols - 1);
-    final r0 = ((region.bottom - _originY) / _cellH).floor().clamp(0, _rows - 1);
+    final r0 =
+        ((region.bottom - _originY) / _cellH).floor().clamp(0, _rows - 1);
     final r1 = ((region.top - _originY) / _cellH).floor().clamp(0, _rows - 1);
     for (var r = r0; r <= r1; r++) {
       final base = r * _cols;
@@ -376,22 +479,7 @@ class PdfRegionReplayGrid {
     }
     // Painter order = ascending unit index.
     candidates.sort();
-    var replayed = 0;
-    for (final idx in candidates) {
-      final unit = units[idx];
-      device.save();
-      device.setBlendMode(unit.blendMode);
-      unit.clips?.replay(device);
-      replayCommands(
-        commands,
-        device,
-        start: unit.commandIndex,
-        end: unit.commandIndex + 1,
-      );
-      device.restore();
-      replayed++;
-    }
-    return replayed;
+    return candidates;
   }
 }
 
@@ -425,6 +513,11 @@ class PdfRegionClipState {
   void replay(PdfDevice device) {
     parent?.replay(device);
     device.clipPath(command.path, command.rule);
+  }
+
+  void appendCommands(List<PdfRenderCommand> commands) {
+    parent?.appendCommands(commands);
+    commands.add(command);
   }
 }
 
@@ -545,23 +638,17 @@ PdfRect? pdfRenderPathBounds(PdfPath path) {
     top = top == null ? y : math.max(top!, y);
   }
 
-  for (final segment in path.segments) {
-    switch (segment) {
-      case PdfMoveTo(:final x, :final y) || PdfLineTo(:final x, :final y):
-        include(x, y);
-      case PdfCubicTo(
-          :final x1,
-          :final y1,
-          :final x2,
-          :final y2,
-          :final x3,
-          :final y3
-        ):
+  final cursor = path.cursor();
+  while (cursor.moveNext()) {
+    switch (cursor.verb) {
+      case PdfPathVerb.moveTo || PdfPathVerb.lineTo:
+        include(cursor.x1, cursor.y1);
+      case PdfPathVerb.cubicTo:
         // A cubic lies inside the convex hull of its endpoints/control points.
-        include(x1, y1);
-        include(x2, y2);
-        include(x3, y3);
-      case PdfClosePath():
+        include(cursor.x1, cursor.y1);
+        include(cursor.x2, cursor.y2);
+        include(cursor.x3, cursor.y3);
+      case PdfPathVerb.close:
         break;
     }
   }
@@ -809,7 +896,8 @@ void _idxWriteRect(_IdxWriter w, PdfRect rect) {
   w.f64(rect.top);
 }
 
-PdfRect _idxReadRect(_IdxReader r) => PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
+PdfRect _idxReadRect(_IdxReader r) =>
+    PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
 
 void _idxWriteOptRect(_IdxWriter w, PdfRect? rect) {
   w.boolean(rect != null);

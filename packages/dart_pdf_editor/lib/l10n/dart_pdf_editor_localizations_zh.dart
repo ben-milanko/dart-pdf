@@ -887,6 +887,30 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get searchRegex => '正则表达式';
 
   @override
+  String get searchReplace => '替换';
+
+  @override
+  String get searchReplaceAll => '全部替换';
+
+  @override
+  String get searchReplaceHint => '替换为';
+
+  @override
+  String get searchReplaceNotTargetable => '无法单独替换该匹配项 — 请使用“全部替换”，或用内容工具编辑';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已替换 $count 个匹配项',
+      one: '已替换 1 个匹配项',
+      zero: '未替换任何内容',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '搜索结果';
 
   @override
@@ -1328,6 +1352,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => '自动调整文本框大小 (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => '使字体适应文本框';
+
+  @override
   String get tbCalibrateScaleHint => '绘制一条已知长度的线段以校准比例。';
 
   @override
@@ -1561,6 +1588,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => '擦除手绘笔迹';
+
+  @override
+  String get tbNameHand => '抓手工具';
 
   @override
   String get tbNameHighlight => '高亮';
@@ -1998,6 +2028,63 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => '全选';
+
+  @override
+  String get annotationLibraryTitle => '注释库';
+
+  @override
+  String get annotationLibraryEmpty => '没有已保存的注释。';
+
+  @override
+  String get annotationLibraryHelp => '选择支持的注释，然后从其菜单中选择“保存到注释库”。链接和表单字段无法保存。';
+
+  @override
+  String get annotationLibrarySave => '保存到注释库';
+
+  @override
+  String get annotationLibrarySaveTitle => '保存注释';
+
+  @override
+  String get annotationLibraryRenameTitle => '重命名库项目';
+
+  @override
+  String get annotationLibrarySearchHint => '搜索注释库';
+
+  @override
+  String get annotationLibraryNoMatches => '没有匹配的注释。';
+
+  @override
+  String get annotationLibraryUngrouped => '未分组';
+
+  @override
+  String get annotationLibraryChooseGroup => '移动到分组';
+
+  @override
+  String get annotationLibraryNewGroup => '新建分组…';
+
+  @override
+  String get annotationLibraryGroupTitle => '新建注释分组';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '重命名注释分组';
+
+  @override
+  String get annotationLibraryRemoveGroup => '移除分组';
+
+  @override
+  String get annotationLibraryPlacementHint => '单击页面以放置。按 Escape 取消。';
+
+  @override
+  String get annotationLibraryCustomStamps => '自定义图章…';
+
+  @override
+  String get signatureLibraryManage => '管理签名';
+
+  @override
+  String get signatureLibraryRenameTitle => '重命名签名';
+
+  @override
+  String get signatureLibraryEmpty => '没有已保存的签名。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2883,6 +2970,30 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get searchRegex => '正規表示式';
 
   @override
+  String get searchReplace => '取代';
+
+  @override
+  String get searchReplaceAll => '全部取代';
+
+  @override
+  String get searchReplaceHint => '取代為';
+
+  @override
+  String get searchReplaceNotTargetable => '無法單獨取代此相符項目 — 請使用「全部取代」，或以內容工具編輯';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已取代 $count 個相符項目',
+      one: '已取代 1 個相符項目',
+      zero: '未取代任何項目',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '搜尋結果';
 
   @override
@@ -3324,6 +3435,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbAutosizeTextBox => '自動調整文字方塊大小 (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => '讓字型符合文字方塊';
+
+  @override
   String get tbCalibrateScaleHint => '繪製一條已知長度的線條以校準比例。';
 
   @override
@@ -3557,6 +3671,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbNameEraser => '擦除手繪筆畫';
+
+  @override
+  String get tbNameHand => '手形工具';
 
   @override
   String get tbNameHighlight => '醒目提示';
@@ -3994,4 +4111,61 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get viewerSelectAll => '全選';
+
+  @override
+  String get annotationLibraryTitle => '註解資料庫';
+
+  @override
+  String get annotationLibraryEmpty => '沒有已儲存的註解。';
+
+  @override
+  String get annotationLibraryHelp => '選取支援的註解，然後從其選單選擇「儲存至註解資料庫」。連結和表單欄位無法儲存。';
+
+  @override
+  String get annotationLibrarySave => '儲存至註解資料庫';
+
+  @override
+  String get annotationLibrarySaveTitle => '儲存註解';
+
+  @override
+  String get annotationLibraryRenameTitle => '重新命名資料庫項目';
+
+  @override
+  String get annotationLibrarySearchHint => '搜尋註解資料庫';
+
+  @override
+  String get annotationLibraryNoMatches => '沒有符合的註解。';
+
+  @override
+  String get annotationLibraryUngrouped => '未分組';
+
+  @override
+  String get annotationLibraryChooseGroup => '移到分組';
+
+  @override
+  String get annotationLibraryNewGroup => '新增分組…';
+
+  @override
+  String get annotationLibraryGroupTitle => '新增註解分組';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => '重新命名註解分組';
+
+  @override
+  String get annotationLibraryRemoveGroup => '移除分組';
+
+  @override
+  String get annotationLibraryPlacementHint => '點擊頁面以放置。按 Escape 取消。';
+
+  @override
+  String get annotationLibraryCustomStamps => '自訂戳記…';
+
+  @override
+  String get signatureLibraryManage => '管理簽名';
+
+  @override
+  String get signatureLibraryRenameTitle => '重新命名簽名';
+
+  @override
+  String get signatureLibraryEmpty => '沒有已儲存的簽名。';
 }

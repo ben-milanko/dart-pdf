@@ -23,9 +23,8 @@ void main() {
     expect(order, isEmpty);
 
     await tester.pump();
-    // a frame in: some progress, but not the whole queue at once
-    expect(order, isNotEmpty);
-    expect(order.length, lessThan(4));
+    // exactly one engine frame, exactly one grant
+    expect(order, hasLength(1));
 
     // the nearest-the-viewport page drains first
     expect(order.first, 5);
@@ -35,6 +34,24 @@ void main() {
     }
     // every page interpreted, closest-to-focus order
     expect(order, [5, 6, 9, 0]);
+  });
+
+  testWidgets('render grants use distinct engine frames', (tester) async {
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    final frames = <int>[];
+    var frame = 0;
+    for (var page = 0; page < 3; page++) {
+      scheduler.request('p$page', page, () => frames.add(frame));
+    }
+
+    for (var i = 0; i < 5 && frames.length < 3; i++) {
+      frame++;
+      await tester.pump();
+    }
+    expect(frames, hasLength(3));
+    expect(frames.toSet(), hasLength(3),
+        reason: 'at most one page render may be started per frame');
   });
 
   testWidgets('holding blocks grants until released', (tester) async {
@@ -57,6 +74,236 @@ void main() {
     expect(scheduler.hasPending, isFalse);
   });
 
+  // ---- the motion-safe lane -------------------------------------------
+  //
+  // A hold is priced for a page whose interpret walk is 100-400ms of UI
+  // thread. Work the caller has judged motion-safe (an off-thread record, or
+  // a small already-recorded buffer) renders through the hold instead of
+  // waiting the scroll out - the ~600ms "the page takes a moment to appear"
+  // on a long text document.
+
+  testWidgets('motion-safe requests are granted through a hold',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    final ran = <String>[];
+    scheduler.request('held', 0, () => ran.add('held'));
+    scheduler.request('safe', 1, () => ran.add('safe'),
+        motion: PdfRenderMotionClass.free);
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, ['safe'],
+        reason: 'the motion-safe page renders during the scroll; the other '
+            'keeps its preview until the scroll settles');
+    expect(scheduler.hasPending, isTrue);
+
+    scheduler.holding = false;
+    for (var i = 0; i < 2; i++) {
+      await tester.pump();
+    }
+    expect(ran, ['safe', 'held']);
+  });
+
+  testWidgets('slow motion admits worker sharpening but not quiet local work',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()
+      ..holding = true
+      ..activeGesture = true
+      ..focus = 0;
+    addTearDown(scheduler.dispose);
+    final ran = <String>[];
+    scheduler.request('slow', 0, () => ran.add('slow'),
+        motion: PdfRenderMotionClass.slow);
+    scheduler.request('quiet', 0, () => ran.add('quiet'),
+        motion: PdfRenderMotionClass.quiet);
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, isEmpty, reason: 'fast live input keeps both lanes closed');
+
+    scheduler.slowMotion = true;
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, ['slow'],
+        reason: 'only off-thread worker sharpening enters a slow scroll');
+
+    scheduler
+      ..slowMotion = false
+      ..activeGesture = false;
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, ['slow', 'quiet'],
+        reason: 'small local work waits until live input stops');
+    expect(scheduler.holding, isTrue,
+        reason: 'strict held work still waits for the full settle');
+  });
+
+  testWidgets('a hold still paces motion-safe grants one per frame',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()
+      ..holding = true
+      ..focus = 1;
+    addTearDown(scheduler.dispose);
+    final frames = <int>[];
+    var frame = 0;
+    for (var page = 0; page < 3; page++) {
+      scheduler.request('p$page', page, () => frames.add(frame),
+          motion: PdfRenderMotionClass.free);
+    }
+    for (var i = 0; i < 4 && frames.length < 3; i++) {
+      frame++;
+      await tester.pump();
+    }
+    expect(frames, hasLength(3));
+    expect(frames.toSet(), hasLength(3),
+        reason: 'a fling must not queue records faster than the UI gate '
+            'releases them');
+  });
+
+  testWidgets('a hold grants only around the scroll destination',
+      (tester) async {
+    // Pages streaming past during a fling are not where the reader is going.
+    final scheduler = PdfPageRenderScheduler()
+      ..holding = true
+      ..focus = 10;
+    addTearDown(scheduler.dispose);
+    final ran = <int>[];
+    for (final page in [3, 9, 10, 11, 17]) {
+      scheduler.request('p$page', page, () => ran.add(page),
+          motion: PdfRenderMotionClass.free);
+    }
+    for (var i = 0; i < 6; i++) {
+      await tester.pump();
+    }
+    expect(ran..sort(), [9, 10, 11],
+        reason: 'the destination and its neighbours, not everything flown '
+            'past');
+
+    scheduler.holding = false;
+    for (var i = 0; i < 4; i++) {
+      await tester.pump();
+    }
+    expect(ran..sort(), [3, 9, 10, 11, 17],
+        reason: 'the rest still render once the scroll settles');
+  });
+
+  testWidgets('a settled viewer starts several motion-safe pages per frame',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    final frames = <int>[];
+    var frame = 0;
+    for (var page = 0; page < 3; page++) {
+      scheduler.request('p$page', page, () => frames.add(frame),
+          motion: PdfRenderMotionClass.free);
+    }
+    frame++;
+    await tester.pump();
+    expect(frames, hasLength(PdfPageRenderScheduler.motionSafeGrantsPerFrame),
+        reason: 'their walks run in the worker, so filling the window costs '
+            'this frame nothing');
+  });
+
+  testWidgets('a motion-safe focus render does not park its neighbours',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..focus = 0;
+    addTearDown(scheduler.dispose);
+    final ran = <int>[];
+    final focusRender = Completer<void>();
+    scheduler.request('focus', 0, () {
+      ran.add(0);
+      return focusRender.future;
+    }, motion: PdfRenderMotionClass.free);
+    scheduler.request('next', 1, () => ran.add(1),
+        motion: PdfRenderMotionClass.free);
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, [0, 1],
+        reason: 'the neighbour waits behind a heavy focus walk, not behind a '
+            'worker round trip');
+    focusRender.complete();
+  });
+
+  testWidgets('a held focus render still parks its neighbours', (tester) async {
+    final scheduler = PdfPageRenderScheduler()..focus = 0;
+    addTearDown(scheduler.dispose);
+    final ran = <int>[];
+    final focusRender = Completer<void>();
+    scheduler.request('focus', 0, () {
+      ran.add(0);
+      return focusRender.future;
+    });
+    scheduler.request('next', 1, () => ran.add(1));
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(ran, [0], reason: 'the focused page keeps the thread to itself');
+    focusRender.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(ran, [0, 1]);
+  });
+
+  testWidgets('isQueued reports work already pending or in flight',
+      (tester) async {
+    // A visible page with nothing to paint re-asks on every rebuild; this is
+    // what keeps that ask off a render already running for it.
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    expect(scheduler.isQueued('a'), isFalse);
+
+    final running = Completer<void>();
+    scheduler.request('a', 0, () => running.future,
+        motion: PdfRenderMotionClass.free);
+    expect(scheduler.isQueued('a'), isTrue, reason: 'queued');
+
+    await tester.pump();
+    expect(scheduler.isQueued('a'), isTrue, reason: 'granted, still running');
+
+    running.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(scheduler.isQueued('a'), isFalse);
+
+    scheduler.request('b', 1, () {});
+    scheduler.cancel('b');
+    expect(scheduler.isQueued('b'), isFalse);
+  });
+
+  testWidgets('paceUiWork releases a motion-safe replay through a hold',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    var safeReleased = false;
+    var heldReleased = false;
+    unawaited(scheduler
+        .paceUiWork('safe', 0, motion: PdfRenderMotionClass.free)
+        .then((granted) => safeReleased = granted));
+    unawaited(scheduler
+        .paceUiWork('held', 1)
+        .then((granted) => heldReleased = granted));
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(safeReleased, isTrue);
+    expect(heldReleased, isFalse);
+
+    scheduler.holding = false;
+    for (var i = 0; i < 2; i++) {
+      await tester.pump();
+    }
+    expect(heldReleased, isTrue);
+  });
+
   testWidgets('cancel withdraws a pending request', (tester) async {
     final scheduler = PdfPageRenderScheduler()..holding = true;
     addTearDown(scheduler.dispose);
@@ -70,6 +317,114 @@ void main() {
       await tester.pump();
     }
     expect(ran, isFalse);
+  });
+
+  testWidgets('worker UI completions drain one per frame, nearest first',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..focus = 5;
+    addTearDown(scheduler.dispose);
+    final order = <int>[];
+    for (final page in [0, 8, 5, 6]) {
+      scheduler.paceUiWork('p$page', page).then((ready) {
+        if (ready) order.add(page);
+      });
+    }
+
+    expect(order, isEmpty);
+    await tester.pump();
+    expect(order, isNotEmpty);
+    expect(order.length, lessThan(4),
+        reason: 'worker replies must not all replay in one frame');
+    expect(order.first, 5);
+
+    for (var i = 0; i < 6; i++) {
+      await tester.pump();
+    }
+    expect(order, [5, 6, 8, 0]);
+  });
+
+  testWidgets('worker UI work may supply an authoritative focus distance',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..focus = 100;
+    addTearDown(scheduler.dispose);
+    final order = <int>[];
+    scheduler.paceUiWork('stale-index', 100, focusDistance: 2).then((ready) {
+      if (ready) order.add(100);
+    });
+    scheduler.paceUiWork('visible', 5, focusDistance: 0).then((ready) {
+      if (ready) order.add(5);
+    });
+
+    await tester.pump();
+    expect(order, [5],
+        reason: 'a caller with fresher viewport state must win the next frame');
+    await tester.pump();
+    expect(order, [5, 100]);
+  });
+
+  testWidgets('worker UI grants use distinct engine frames', (tester) async {
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    final frames = <int>[];
+    var frame = 0;
+    for (var page = 0; page < 3; page++) {
+      scheduler.paceUiWork('p$page', page).then((ready) {
+        if (ready) frames.add(frame);
+      });
+    }
+
+    for (var i = 0; i < 5 && frames.length < 3; i++) {
+      frame++;
+      await tester.pump();
+    }
+    expect(frames, hasLength(3));
+    expect(frames.toSet(), hasLength(3),
+        reason: 'at most one worker replay may be released per frame');
+  });
+
+  testWidgets('replaceable worker UI work keeps only the latest per page',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    final token = Object();
+    final first = scheduler.paceUiWork(token, 4, replacePending: true);
+    final second = scheduler.paceUiWork(token, 4, replacePending: true);
+    final finalResult = scheduler.paceUiWork(token, 4, replacePending: true);
+
+    expect(await first, isFalse);
+    expect(await second, isFalse);
+    var finalReady = false;
+    finalResult.then((ready) => finalReady = ready);
+    expect(finalReady, isFalse);
+
+    scheduler.holding = false;
+    for (var i = 0; i < 3 && !finalReady; i++) {
+      await tester.pump();
+    }
+    expect(finalReady, isTrue);
+  });
+
+  testWidgets('holding and cancellation gate worker UI completions',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    final cancelled = scheduler.paceUiWork('cancelled', 0);
+    final kept = scheduler.paceUiWork('kept', 1);
+    scheduler.cancel('cancelled');
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(await cancelled, isFalse);
+    var keptReady = false;
+    kept.then((value) => keptReady = value);
+    expect(keptReady, isFalse);
+
+    scheduler.holding = false;
+    for (var i = 0; i < 3 && !keptReady; i++) {
+      await tester.pump();
+    }
+    expect(keptReady, isTrue);
   });
 
   testWidgets('re-requesting a token interprets it once', (tester) async {
@@ -123,7 +478,7 @@ void main() {
       expect(scheduler.hasPending, isFalse);
     });
 
-    testWidgets('an in-flight render does not block other pages',
+    testWidgets('the focused render lands before neighbouring work fans out',
         (tester) async {
       final scheduler = PdfPageRenderScheduler();
       addTearDown(scheduler.dispose);
@@ -141,9 +496,65 @@ void main() {
       for (var i = 0; i < 4; i++) {
         await tester.pump();
       }
-      // Pacing is unchanged: the drain never awaits a render, only the
-      // frame. Three workers must stay busy while page 0 is recording.
+      expect(order, [0],
+          reason: 'neighbour replies must not compete with focused pixels');
+      gate.complete();
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
       expect(order, [0, 1, 2]);
+    });
+
+    testWidgets('moving focus wakes a drain parked behind the old focus',
+        (tester) async {
+      final scheduler = PdfPageRenderScheduler();
+      addTearDown(scheduler.dispose);
+      final oldFocusGate = Completer<void>();
+      final order = <int>[];
+      scheduler
+        ..focus = 0
+        ..request('old-focus', 0, () async {
+          order.add(0);
+          await oldFocusGate.future;
+        })
+        ..request('new-focus', 4, () => order.add(4));
+
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
+      expect(order, [0],
+          reason: 'the neighbour waits while page 0 remains the focus');
+
+      scheduler.focus = 4;
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
+      expect(order, [0, 4],
+          reason: 'navigation must not wait for the abandoned focus to land');
+
+      oldFocusGate.complete();
+      await tester.pump();
+    });
+
+    testWidgets('a non-focused render still allows worker concurrency',
+        (tester) async {
+      final scheduler = PdfPageRenderScheduler();
+      addTearDown(scheduler.dispose);
+      final gate = Completer<void>();
+      final order = <int>[];
+      scheduler
+        ..focus = 10
+        ..request('a', 1, () => order.add(1))
+        ..request('b', 2, () => order.add(2))
+        ..request('c', 3, () async {
+          order.add(3);
+          await gate.future;
+        });
+
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
+      expect(order, [3, 2, 1]);
       gate.complete();
       await tester.pump();
     });

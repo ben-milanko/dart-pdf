@@ -893,6 +893,31 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get searchRegex => 'Ekspresi reguler';
 
   @override
+  String get searchReplace => 'Ganti';
+
+  @override
+  String get searchReplaceAll => 'Ganti semua';
+
+  @override
+  String get searchReplaceHint => 'Ganti dengan';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Kecocokan itu tidak dapat diganti sendiri — gunakan Ganti semua, atau edit dengan alat konten';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count kecocokan diganti',
+      one: '1 kecocokan diganti',
+      zero: 'Tidak ada yang diganti',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Hasil pencarian';
 
   @override
@@ -1339,6 +1364,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Ukuran otomatis kotak teks (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Sesuaikan font ke kotak teks';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Gambar garis dengan panjang yang diketahui untuk mengkalibrasi skala.';
 
@@ -1578,6 +1606,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Hapus goresan tinta';
+
+  @override
+  String get tbNameHand => 'Tangan';
 
   @override
   String get tbNameHighlight => 'Sorot';
@@ -2029,4 +2060,63 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Pilih semua';
+
+  @override
+  String get annotationLibraryTitle => 'Pustaka anotasi';
+
+  @override
+  String get annotationLibraryEmpty => 'Tidak ada anotasi tersimpan.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Pilih anotasi yang didukung, lalu pilih “Simpan ke pustaka anotasi” dari menunya. Tautan dan bidang formulir tidak dapat disimpan.';
+
+  @override
+  String get annotationLibrarySave => 'Simpan ke pustaka anotasi';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Simpan anotasi';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Ganti nama item pustaka';
+
+  @override
+  String get annotationLibrarySearchHint => 'Cari di pustaka';
+
+  @override
+  String get annotationLibraryNoMatches => 'Tidak ada anotasi yang cocok.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Tanpa grup';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Pindahkan ke grup';
+
+  @override
+  String get annotationLibraryNewGroup => 'Grup baru…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Grup anotasi baru';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Ganti nama grup anotasi';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Hapus grup';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Klik halaman untuk menempatkan. Tekan Escape untuk membatalkan.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Stempel khusus…';
+
+  @override
+  String get signatureLibraryManage => 'Kelola tanda tangan';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Ganti nama tanda tangan';
+
+  @override
+  String get signatureLibraryEmpty => 'Tidak ada tanda tangan tersimpan.';
 }

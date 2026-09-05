@@ -972,7 +972,8 @@ extension PdfAnnotationEditing on PdfEditor {
     // transparency group and apply the constant alpha to the group at its
     // `Do`, so overlapping round caps composite opaquely inside instead of
     // darkening every join into a dot.
-    final innerRef = _updater.addObject(_form(rect, w, transparencyGroup: true));
+    final innerRef =
+        _updater.addObject(_form(rect, w, transparencyGroup: true));
     return (
       rect,
       ContentWriter()
@@ -1976,7 +1977,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// The style round-trips through the dictionary so the appearance can
   /// be regenerated (resize, text edits): text color and [borderColor]
   /// live in /DA (`rg` / `RG`), [fillColor] is /C (the free-text
-  /// background per §12.5.6.6), [borderWidth] is /BS /W.
+  /// background per §12.5.6.6), [borderWidth] is /BS /W, and [opacity]
+  /// is baked into the appearance's graphics state.
   void addFreeText(
     int pageIndex,
     PdfRect rect,
@@ -1989,6 +1991,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
+    double opacity = 1,
     double lineSpacing = _defaultLineSpacing,
     double charSpacing = 0,
     double horizontalScale = _defaultHorizontalScale,
@@ -2015,6 +2018,7 @@ extension PdfAnnotationEditing on PdfEditor {
     // The font accumulates which glyphs the appearance shows (so an
     // embedded font's /W and /ToUnicode cover exactly them); start fresh.
     if (font is PdfEmbeddedFont) font.resetUsage();
+    final gs = _alphaState(opacity);
     final w = _freeTextContent(
       rect,
       text,
@@ -2026,6 +2030,7 @@ extension PdfAnnotationEditing on PdfEditor {
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      hasAlpha: gs != null,
       lineSpacing: lineSpacing,
       charSpacing: charSpacing,
       horizontalScale: horizontalScale,
@@ -2063,7 +2068,7 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: fontResource)),
+      _form(rect, w, resources: _resources(extGState: gs, font: fontResource)),
       name: name,
     );
   }
@@ -2090,6 +2095,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? fillColor,
     int strokeColor = 0xD02020,
     double strokeWidth = 1,
+    double opacity = 1,
     PdfLineEnding ending = PdfLineEnding.openArrow,
     int? pageRotation,
     String? author,
@@ -2127,6 +2133,7 @@ extension PdfAnnotationEditing on PdfEditor {
       ...endingPoints,
     ], strokeWidth);
 
+    final gs = _alphaState(opacity);
     final w = _calloutContent(
       boxRect,
       callout,
@@ -2142,6 +2149,7 @@ extension PdfAnnotationEditing on PdfEditor {
       lineColor: strokeColor,
       lineWidth: strokeWidth,
       ending: ending,
+      hasAlpha: gs != null,
       pageRotation: effectivePageRotation,
     );
 
@@ -2171,7 +2179,7 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: fontResource)),
+      _form(rect, w, resources: _resources(extGState: gs, font: fontResource)),
       name: name,
     );
   }
@@ -2309,6 +2317,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required int lineColor,
     required double lineWidth,
     required PdfLineEnding ending,
+    bool hasAlpha = false,
     double lineSpacing = _defaultLineSpacing,
     double charSpacing = 0,
     double horizontalScale = _defaultHorizontalScale,
@@ -2343,7 +2352,9 @@ extension PdfAnnotationEditing on PdfEditor {
       underline: underline,
       pageRotation: pageRotation,
     );
-    return ContentWriter()
+    final w = ContentWriter();
+    if (hasAlpha) w.extGState('GS0');
+    return w
       ..append(leader)
       ..append(box);
   }
@@ -2446,6 +2457,7 @@ extension PdfAnnotationEditing on PdfEditor {
     ], math.max(style.borderWidth, leaderWidth));
 
     final pageRotation = _appearancePageRotation(pageIndex, null);
+    final gs = _alphaState(annotation.appearanceOpacity);
     final w = _calloutContent(
       newBox,
       callout,
@@ -2461,6 +2473,7 @@ extension PdfAnnotationEditing on PdfEditor {
       lineColor: leaderColor,
       lineWidth: leaderWidth,
       ending: info.ending,
+      hasAlpha: gs != null,
       pageRotation: pageRotation,
     );
 
@@ -2478,12 +2491,13 @@ extension PdfAnnotationEditing on PdfEditor {
         form,
         rect,
         w,
-        resources: _resources(font: fontResource),
+        resources: _resources(extGState: gs, font: fontResource),
       );
     } else {
       dict['AP'] = CosDictionary({
         'N': _updater.addObject(
-          _form(rect, w, resources: _resources(font: fontResource)),
+          _form(rect, w,
+              resources: _resources(extGState: gs, font: fontResource)),
         ),
       });
     }
@@ -2507,6 +2521,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
+    double opacity = 1,
     double lineSpacing = _defaultLineSpacing,
     double charSpacing = 0,
     double horizontalScale = _defaultHorizontalScale,
@@ -2542,6 +2557,7 @@ extension PdfAnnotationEditing on PdfEditor {
     for (final font in _richFonts(effective)) {
       if (font is PdfEmbeddedFont) font.resetUsage();
     }
+    final gs = _alphaState(opacity);
     final w = _freeTextRichContent(
       rect,
       effective,
@@ -2550,6 +2566,7 @@ extension PdfAnnotationEditing on PdfEditor {
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      hasAlpha: gs != null,
       lineSpacing: lineSpacing,
       charSpacing: charSpacing,
       horizontalScale: horizontalScale,
@@ -2591,7 +2608,10 @@ extension PdfAnnotationEditing on PdfEditor {
       _form(
         rect,
         w,
-        resources: _resources(font: _richFontResources(effective)),
+        resources: _resources(
+          extGState: gs,
+          font: _richFontResources(effective),
+        ),
       ),
       name: name,
     );
@@ -2727,6 +2747,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
+    bool hasAlpha = false,
     double lineSpacing = _defaultLineSpacing,
     double charSpacing = 0,
     double horizontalScale = _defaultHorizontalScale,
@@ -2735,6 +2756,7 @@ extension PdfAnnotationEditing on PdfEditor {
   }) {
     const pad = 3.0;
     final w = ContentWriter();
+    if (hasAlpha) w.extGState('GS0');
     final vr = _orientedVisualRect(rect, pageRotation);
     if (pageRotation != 0) {
       w.save();
@@ -2812,6 +2834,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
+    bool hasAlpha = false,
     double lineSpacing = _defaultLineSpacing,
     double charSpacing = 0,
     double horizontalScale = _defaultHorizontalScale,
@@ -2819,6 +2842,7 @@ extension PdfAnnotationEditing on PdfEditor {
   }) {
     const pad = 3.0;
     final w = ContentWriter();
+    if (hasAlpha) w.extGState('GS0');
     final vr = _orientedVisualRect(rect, pageRotation);
     if (pageRotation != 0) {
       w.save();
@@ -3714,10 +3738,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// private `/DartPdfImageCrop` marker. A full-image crop drops the marker so
   /// an uncropped picture carries none. Read back by [PdfAnnotation.imageStampCrop].
   static void _writeImageCropMarker(CosDictionary dict, PdfRect crop) {
-    final full = crop.left <= 0 &&
-        crop.bottom <= 0 &&
-        crop.right >= 1 &&
-        crop.top >= 1;
+    final full =
+        crop.left <= 0 && crop.bottom <= 0 && crop.right >= 1 && crop.top >= 1;
     if (full) {
       dict.entries.remove('DartPdfImageCrop');
     } else {
@@ -3756,8 +3778,8 @@ extension PdfAnnotationEditing on PdfEditor {
       w.save();
       _orientedCounterRotation(w, rect, pageRotation);
     }
-    final cropped = crop.width < 1 || crop.height < 1 ||
-        crop.left > 0 || crop.bottom > 0;
+    final cropped =
+        crop.width < 1 || crop.height < 1 || crop.left > 0 || crop.bottom > 0;
     w.save();
     if (cropped) {
       // The scaled-up picture overflows the visual box; the box clips it so
@@ -4568,7 +4590,9 @@ extension PdfAnnotationEditing on PdfEditor {
     form.dictionary['Matrix'] =
         CosArray([for (final v in matrix.toList()) CosReal(v)]);
     final bbox = pdfRectFrom(document.cos, form.dictionary['BBox']);
-    if (bbox != null) dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
+    if (bbox != null) {
+      dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
+    }
 
     (double, double) map(double x, double y) => local.apply(x, y);
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
@@ -4649,11 +4673,12 @@ extension PdfAnnotationEditing on PdfEditor {
         final embedded =
             stdFont == null ? PdfEmbeddedFont.fromFreeText(annotation) : null;
         if (stdFont == null && embedded == null) return false;
+        final gs = _alphaState(opacity ?? _appearanceOpacity(form));
         final text = annotation.contents ?? '';
         final callout = _calloutInfo(annotation);
-        // a rich (/RC) box keeps its per-run styling across a resize; a
-        // restyle (colour/opacity) deliberately flattens to the new uniform
-        // /DA instead, so [preserveRich] is false there
+        // A rich (/RC) box keeps its per-run styling across a resize and
+        // box-only restyles such as opacity/fill. A whole-text colour change
+        // deliberately flattens to the new uniform /DA instead.
         final rc = preserveRich ? annotation.richContent : null;
         final richRuns = (rc == null || callout != null)
             ? null
@@ -4688,6 +4713,7 @@ extension PdfAnnotationEditing on PdfEditor {
             fillColor: style.fillColor,
             borderColor: style.borderColor,
             borderWidth: style.borderWidth,
+            hasAlpha: gs != null,
             lineSpacing: style.lineSpacing,
             charSpacing: style.charSpacing,
             horizontalScale: style.horizontalScale,
@@ -4738,6 +4764,7 @@ extension PdfAnnotationEditing on PdfEditor {
               lineColor: style.borderColor ?? style.color,
               lineWidth: style.borderWidth > 0 ? style.borderWidth : 1,
               ending: callout.ending,
+              hasAlpha: gs != null,
               lineSpacing: style.lineSpacing,
               charSpacing: style.charSpacing,
               horizontalScale: style.horizontalScale,
@@ -4757,6 +4784,7 @@ extension PdfAnnotationEditing on PdfEditor {
               fillColor: style.fillColor,
               borderColor: style.borderColor,
               borderWidth: style.borderWidth,
+              hasAlpha: gs != null,
               lineSpacing: style.lineSpacing,
               charSpacing: style.charSpacing,
               horizontalScale: style.horizontalScale,
@@ -4775,7 +4803,7 @@ extension PdfAnnotationEditing on PdfEditor {
           form,
           to,
           w,
-          resources: _resources(font: fontResource),
+          resources: _resources(extGState: gs, font: fontResource),
         );
         return true;
       case 'Line':
@@ -4902,8 +4930,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// * [strokeWidth] - shapes, the line family, and ink. Ignored elsewhere (markup line
   ///   weights derive from the text size; free-text borders restyle
   ///   through the text-style path).
-  /// * [opacity] - shapes, ink, markups, stamps. Free text and notes
-  ///   stay opaque, as authored.
+  /// * [opacity] - shapes, ink, markups, free text, and stamps. Notes stay
+  ///   opaque, as authored.
   /// * [cornerRadius] - the rounded-corner radius (page points) of a
   ///   /Square rectangle, rewritten into /Border and baked into the
   ///   appearance; `0` restores square corners. Ignored by every other
@@ -5098,7 +5126,9 @@ extension PdfAnnotationEditing on PdfEditor {
         return _restyleRegenerate(
           pageIndex,
           dict,
+          opacity: opacity,
           pageRotation: effectivePageRotation,
+          preserveRich: color == null,
         );
       case 'Text':
         dict['C'] = _colorComponents(color ?? currentStyle.color ?? 0xFFD100);
@@ -5122,6 +5152,7 @@ extension PdfAnnotationEditing on PdfEditor {
     CosDictionary dict, {
     double? opacity,
     int pageRotation = 0,
+    bool preserveRich = false,
   }) {
     // re-wrap: /Rect and style entries are parsed at construction or
     // lazily, and the dict just changed under the caller's instance
@@ -5134,6 +5165,7 @@ extension PdfAnnotationEditing on PdfEditor {
         annotation.rect,
         opacity: opacity,
         pageRotation: pageRotation,
+        preserveRich: preserveRich,
       )) {
         return false;
       }
@@ -5154,6 +5186,7 @@ extension PdfAnnotationEditing on PdfEditor {
       local,
       opacity: opacity,
       pageRotation: pageRotation,
+      preserveRich: preserveRich,
     )) {
       return false;
     }
@@ -5174,6 +5207,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect to, {
     double? opacity,
     int pageRotation = 0,
+    bool preserveRich = false,
   }) {
     switch (annotation.subtype) {
       case 'Square' ||
@@ -5187,7 +5221,7 @@ extension PdfAnnotationEditing on PdfEditor {
           to,
           opacity: opacity,
           pageRotation: pageRotation,
-          preserveRich: false,
+          preserveRich: preserveRich,
         );
       case 'Stamp':
         final form = annotation.normalAppearance;
@@ -5368,14 +5402,28 @@ extension PdfAnnotationEditing on PdfEditor {
     _markAnnotations([pageIndex], visual: visual);
   }
 
-  /// Bakes the page's annotation appearances into its content streams and
-  /// removes those annotations, making them permanent, non-interactive
-  /// page graphics.
+  /// Bakes annotation appearances into the page's content streams and
+  /// removes those annotations, making them permanent, non-interactive page
+  /// graphics. When [annotations] is supplied, only those annotation objects
+  /// are flattened; by default every eligible annotation on the page is.
   ///
   /// Annotations without a paintable appearance - hidden or no-view ones,
   /// popups, and any without /AP - are left in place untouched.
-  void flattenAnnotations(int pageIndex) =>
+  void flattenAnnotations(
+    int pageIndex, {
+    Iterable<PdfAnnotation>? annotations,
+  }) {
+    if (annotations == null) {
       _flattenAnnotations(pageIndex, (_) => true);
+      return;
+    }
+    final selected = <CosDictionary>{}..addAll(
+        annotations.map((annotation) => annotation.dict),
+      );
+    if (selected.isEmpty) return;
+    _flattenAnnotations(
+        pageIndex, (annotation) => selected.contains(annotation.dict));
+  }
 
   /// [flattenAnnotations] restricted to annotations matching [select]
   /// (used by [PdfFormAdmin.flattenForm] to take widgets only).
@@ -5597,8 +5645,7 @@ extension PdfAnnotationEditing on PdfEditor {
       if (cornerRadius > 0) {
         // Pull the radius in with the stroke so the rounded outer edge stays
         // inside /Rect; roundedRect clamps it to half the smaller side.
-        w.roundedRect(x, y, width, height,
-            math.max(0.0, cornerRadius - inset));
+        w.roundedRect(x, y, width, height, math.max(0.0, cornerRadius - inset));
       } else {
         w.rect(x, y, width, height);
       }

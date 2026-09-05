@@ -23,6 +23,7 @@ import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
 import 'signing_identity.dart';
+import 'simple_font.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';
@@ -67,6 +68,7 @@ class PdfEditImpact {
     required this.contentPages,
     required this.annotationPages,
     required this.pageStructureChanged,
+    required this.pageOrderOnly,
     required this.destructive,
   });
 
@@ -76,6 +78,7 @@ class PdfEditImpact {
     contentPages: <int>{},
     annotationPages: <int>{},
     pageStructureChanged: false,
+    pageOrderOnly: false,
     destructive: false,
   );
 
@@ -85,6 +88,7 @@ class PdfEditImpact {
     contentPages: null,
     annotationPages: null,
     pageStructureChanged: false,
+    pageOrderOnly: false,
     destructive: false,
   );
 
@@ -106,6 +110,7 @@ class PdfEditImpact {
       contentPages: content,
       annotationPages: annotations,
       pageStructureChanged: false,
+      pageOrderOnly: false,
       destructive: false,
     );
   }
@@ -116,6 +121,7 @@ class PdfEditImpact {
     required Iterable<int>? contentPages,
     required Iterable<int>? annotationPages,
     bool pageStructureChanged = false,
+    bool pageOrderOnly = false,
     bool destructive = false,
   }) =>
       PdfEditImpact._(
@@ -127,6 +133,7 @@ class PdfEditImpact {
             ? null
             : Set<int>.unmodifiable(annotationPages),
         pageStructureChanged: pageStructureChanged,
+        pageOrderOnly: pageOrderOnly,
         destructive: destructive,
       );
 
@@ -142,6 +149,14 @@ class PdfEditImpact {
   /// Whether page indices/geometry may have shifted across the document.
   final bool pageStructureChanged;
 
+  /// Whether the structural change only permutes the existing page leaves.
+  ///
+  /// No page was inserted, removed, or imported by the structural portion of
+  /// the edit. Hosts may reconcile presentation state by stable indirect
+  /// identity after verifying the new tree and that the page impact lanes are
+  /// empty (a transaction may still combine a reorder with another mutation).
+  final bool pageOrderOnly;
+
   /// Whether existing page content was irreversibly removed.
   final bool destructive;
 }
@@ -152,6 +167,7 @@ class _PdfEditImpactBuilder {
   Set<int>? contentPages = <int>{};
   Set<int>? annotationPages = <int>{};
   bool pageStructureChanged = false;
+  bool pageOrderOnly = false;
   bool destructive = false;
 
   Set<int>? _merge(Set<int>? current, Iterable<int>? next) {
@@ -165,13 +181,18 @@ class _PdfEditImpactBuilder {
     Iterable<int>? content = const <int>[],
     Iterable<int>? annotations = const <int>[],
     bool structure = false,
+    bool orderOnly = false,
     bool removesContent = false,
   }) {
     known = true;
     visualPages = _merge(visualPages, visual);
     contentPages = _merge(contentPages, content);
     annotationPages = _merge(annotationPages, annotations);
-    pageStructureChanged |= structure;
+    if (structure) {
+      pageOrderOnly =
+          pageStructureChanged ? pageOrderOnly && orderOnly : orderOnly;
+      pageStructureChanged = true;
+    }
     destructive |= removesContent;
   }
 
@@ -187,6 +208,7 @@ class _PdfEditImpactBuilder {
           ? null
           : Set<int>.unmodifiable(annotationPages!),
       pageStructureChanged: pageStructureChanged,
+      pageOrderOnly: pageOrderOnly,
       destructive: destructive,
     );
   }
@@ -232,18 +254,20 @@ class PdfEditor {
 
   void _markVisual(Iterable<int>? pages) => _impact.add(visual: pages);
 
-  void _markAnnotations(Iterable<int> pages, {bool visual = true}) =>
+  void _markAnnotations(Iterable<int>? pages, {bool visual = true}) =>
       _impact.add(visual: visual ? pages : const <int>[], annotations: pages);
 
   void _markContent(Iterable<int> pages) =>
       _impact.add(visual: pages, content: pages);
 
-  void _markStructure() => _impact.add(
-        visual: null,
-        content: null,
-        annotations: null,
-        structure: true,
-      );
+  void _markStructure({bool orderOnly = false}) => orderOnly
+      ? _impact.add(structure: true, orderOnly: true)
+      : _impact.add(
+          visual: null,
+          content: null,
+          annotations: null,
+          structure: true,
+        );
 
   void _markDestructive([Iterable<int>? pages]) => _impact.add(
         visual: pages,
@@ -329,12 +353,10 @@ class PdfEditor {
   /// are returned unchanged and [PdfCompressionResult.compacted] is false.
   /// Throws if the document is encrypted (decrypt it first).
   PdfCompressionResult compress({int deflateLevel = 9}) {
-    final current =
-        _updater.hasChanges ? _updater.save() : document.cos.bytes;
+    final current = _updater.hasChanges ? _updater.save() : document.cos.bytes;
     final snapshot =
         _updater.hasChanges ? PdfDocument.open(current).cos : document.cos;
-    final result =
-        CosCompactor(snapshot, deflateLevel: deflateLevel).run();
+    final result = CosCompactor(snapshot, deflateLevel: deflateLevel).run();
     final smaller = result.bytes.length < current.length;
     return PdfCompressionResult(
       bytes: smaller ? result.bytes : Uint8List.fromList(current),

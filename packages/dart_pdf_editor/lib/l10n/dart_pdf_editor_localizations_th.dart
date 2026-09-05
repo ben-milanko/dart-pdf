@@ -891,6 +891,31 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get searchRegex => 'นิพจน์ทั่วไป';
 
   @override
+  String get searchReplace => 'แทนที่';
+
+  @override
+  String get searchReplaceAll => 'แทนที่ทั้งหมด';
+
+  @override
+  String get searchReplaceHint => 'แทนที่ด้วย';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'ไม่สามารถแทนที่รายการที่ตรงกันนี้เพียงรายการเดียว — ใช้ “แทนที่ทั้งหมด” หรือแก้ไขด้วยเครื่องมือเนื้อหา';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'แทนที่แล้ว $count รายการ',
+      one: 'แทนที่แล้ว 1 รายการ',
+      zero: 'ไม่ได้แทนที่รายการใด',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'ผลการค้นหา';
 
   @override
@@ -1335,6 +1360,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'ปรับขนาดกล่องข้อความอัตโนมัติ (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'ปรับแบบอักษรให้พอดีกับกล่องข้อความ';
+
+  @override
   String get tbCalibrateScaleHint =>
       'วาดเส้นที่ทราบความยาวเพื่อปรับเทียบมาตราส่วน';
 
@@ -1570,6 +1598,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'ลบเส้นหมึก';
+
+  @override
+  String get tbNameHand => 'มือ';
 
   @override
   String get tbNameHighlight => 'ไฮไลต์';
@@ -2014,4 +2045,64 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'เลือกทั้งหมด';
+
+  @override
+  String get annotationLibraryTitle => 'คลังคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryEmpty => 'ไม่มีคำอธิบายประกอบที่บันทึกไว้';
+
+  @override
+  String get annotationLibraryHelp =>
+      'เลือกคำอธิบายประกอบที่รองรับ แล้วเลือก “บันทึกไปยังคลังคำอธิบายประกอบ” จากเมนู ไม่สามารถบันทึกลิงก์และช่องแบบฟอร์มได้';
+
+  @override
+  String get annotationLibrarySave => 'บันทึกไปยังคลังคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibrarySaveTitle => 'บันทึกคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryRenameTitle => 'เปลี่ยนชื่อรายการในคลัง';
+
+  @override
+  String get annotationLibrarySearchHint => 'ค้นหาในคลัง';
+
+  @override
+  String get annotationLibraryNoMatches => 'ไม่พบคำอธิบายประกอบที่ตรงกัน';
+
+  @override
+  String get annotationLibraryUngrouped => 'ไม่ได้จัดกลุ่ม';
+
+  @override
+  String get annotationLibraryChooseGroup => 'ย้ายไปยังกลุ่ม';
+
+  @override
+  String get annotationLibraryNewGroup => 'กลุ่มใหม่…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'กลุ่มคำอธิบายประกอบใหม่';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'เปลี่ยนชื่อกลุ่มคำอธิบายประกอบ';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'ลบกลุ่ม';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'คลิกหน้าเพื่อวาง กด Escape เพื่อยกเลิก';
+
+  @override
+  String get annotationLibraryCustomStamps => 'ตราประทับแบบกำหนดเอง…';
+
+  @override
+  String get signatureLibraryManage => 'จัดการลายเซ็น';
+
+  @override
+  String get signatureLibraryRenameTitle => 'เปลี่ยนชื่อลายเซ็น';
+
+  @override
+  String get signatureLibraryEmpty => 'ไม่มีลายเซ็นที่บันทึกไว้';
 }

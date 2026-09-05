@@ -32,7 +32,10 @@ extension PdfPageOperations on PdfEditor {
       );
     }
     final leaves = _materializedLeaves();
-    _rebuildPageTree([for (final i in order) leaves[i]]);
+    _rebuildPageTree(
+      [for (final i in order) leaves[i]],
+      orderOnly: true,
+    );
   }
 
   /// Removes the page at [index].
@@ -177,7 +180,7 @@ extension PdfPageOperations on PdfEditor {
   }
 
   /// Rewrites the root /Pages node as a flat tree over [leaves].
-  void _rebuildPageTree(List<_Leaf> leaves) {
+  void _rebuildPageTree(List<_Leaf> leaves, {bool orderOnly = false}) {
     final cos = document.cos;
     final rootRef = _pagesRootRef();
     final root = cos.resolve(rootRef) as CosDictionary;
@@ -191,7 +194,7 @@ extension PdfPageOperations on PdfEditor {
     root['Count'] = CosInteger(leaves.length);
     _updater.markChanged(root);
     document.invalidatePageCache();
-    _markStructure();
+    _markStructure(orderOnly: orderOnly);
   }
 
   CosReference _pagesRootRef() {

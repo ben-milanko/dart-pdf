@@ -61,3 +61,6 @@ tool/perf/loop.log
 
 # Local release credentials and generated store API keys.
 .secrets/
+
+# Storeflight run state (plans, ledger, receipts)
+.storeflight/

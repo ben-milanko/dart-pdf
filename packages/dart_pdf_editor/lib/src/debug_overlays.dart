@@ -5,9 +5,10 @@
 library;
 
 import 'dart:async';
-import 'dart:ui' show Rect;
-
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import 'tile_raster_backend.dart';
 
 /// Paints diagnostic borders on the deep-zoom detail surfaces: every tile
 /// placement in a [PdfTileLayer] (green for exact-bucket tiles, orange for
@@ -19,6 +20,179 @@ final ValueNotifier<bool> pdfDebugPaintDetailBounds = ValueNotifier(false);
 /// live page-view state ([PdfLivePageRegistry]) - the lazy-list "render
 /// window" whose retained scenes and rasters dominate per-page memory.
 final ValueNotifier<bool> pdfDebugShowRenderWindow = ValueNotifier(false);
+
+/// Shows each page's exact deep-zoom tile route.
+///
+/// Green means the requested accelerated backend owns the tile session;
+/// amber means it declined or failed and Canvas took over; blue is an
+/// explicitly requested Canvas backend; grey means detail tiles have not been
+/// requested yet and the fitted Canvas base raster is still carrying the
+/// page. The overlay reports detail tiles specifically because the initial
+/// fitted page raster is Canvas even when later zoom detail is accelerated.
+final ValueNotifier<bool> pdfDebugShowGpuRasterRoutes = ValueNotifier(false);
+
+/// A non-interactive page overlay for [pdfDebugShowGpuRasterRoutes].
+///
+/// [cacheNamespace] must be the same stable token supplied to the page's tile
+/// store. [transformScale] is optional for standalone pages; viewers pass
+/// their live zoom notifier so the border and badge stay screen-sized.
+class PdfGpuRasterRouteOverlay extends StatelessWidget {
+  const PdfGpuRasterRouteOverlay({
+    super.key,
+    required this.cacheNamespace,
+    required this.pageIndex,
+    this.transformScale,
+    this.diagnostics,
+  });
+
+  final Object cacheNamespace;
+  final int pageIndex;
+  final ValueListenable<double>? transformScale;
+  final PdfTileRasterDiagnostics? diagnostics;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+        valueListenable: pdfDebugShowGpuRasterRoutes,
+        builder: (context, visible, _) {
+          if (!visible) return const SizedBox.shrink();
+          final registry = diagnostics ?? PdfTileRasterDiagnostics.instance;
+          return ListenableBuilder(
+            listenable: registry,
+            builder: (context, _) {
+              final diagnostic = registry.page(cacheNamespace, pageIndex);
+              final scale = transformScale;
+              if (scale == null) {
+                return _PdfGpuRasterRouteChrome(
+                  diagnostic: diagnostic,
+                  zoom: 1,
+                );
+              }
+              return ValueListenableBuilder<double>(
+                valueListenable: scale,
+                builder: (context, zoom, _) => _PdfGpuRasterRouteChrome(
+                  diagnostic: diagnostic,
+                  zoom: zoom,
+                ),
+              );
+            },
+          );
+        },
+      );
+}
+
+class _PdfGpuRasterRouteChrome extends StatelessWidget {
+  const _PdfGpuRasterRouteChrome({
+    required this.diagnostic,
+    required this.zoom,
+  });
+
+  final PdfTileRasterDiagnostic? diagnostic;
+  final double zoom;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeZoom = zoom.isFinite && zoom > 0 ? zoom : 1.0;
+    final chromeScale = 1 / safeZoom;
+    final route = diagnostic?.route ?? PdfTileRasterRoute.unrouted;
+    final tileCount = diagnostic?.tileRasters ?? 0;
+    final tileLabel = '$tileCount ${tileCount == 1 ? 'tile' : 'tiles'}';
+    final (color, title, detail) = switch (route) {
+      PdfTileRasterRoute.accelerated => (
+          const Color(0xFF1B5E20),
+          'Detail tiles: GPU · ${diagnostic!.effectiveBackend}',
+          '$tileLabel · ${diagnostic!.commandCount} commands',
+        ),
+      PdfTileRasterRoute.canvasFallback => (
+          const Color(0xFF9A6700),
+          'Detail tiles: Canvas fallback',
+          '${diagnostic!.requestedBackend}: '
+              '${diagnostic!.fallbackReason ?? diagnostic!.lastTileError ?? 'backend declined'}',
+        ),
+      PdfTileRasterRoute.canvas => (
+          const Color(0xFF1565C0),
+          'Detail tiles: Canvas',
+          '$tileLabel · ${diagnostic!.commandCount} commands',
+        ),
+      PdfTileRasterRoute.unrouted => (
+          const Color(0xFF455A64),
+          'Detail tiles: not active',
+          'Fitted page: Canvas',
+        ),
+    };
+
+    return IgnorePointer(
+      child: Stack(
+        key: const ValueKey('pdf-gpu-route-overlay'),
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              border: Border.all(color: color, width: 2 * chromeScale),
+            ),
+          ),
+          Positioned(
+            left: 8 * chromeScale,
+            top: 8 * chromeScale,
+            child: Transform.scale(
+              alignment: Alignment.topLeft,
+              scale: chromeScale,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: DecoratedBox(
+                  key: const ValueKey('pdf-gpu-route-badge'),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.94),
+                    borderRadius: BorderRadius.circular(6),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x55000000),
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            height: 1.15,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xEFFFFFFF),
+                            fontSize: 10,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Sink for the viewer's touch/gesture diagnostics. Null (the default) means
 /// the viewer emits nothing and pays only a single null-check at each gesture

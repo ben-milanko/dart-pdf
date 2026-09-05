@@ -31,15 +31,30 @@
 // Everything here is pure Dart and sits in pdf_graphics, so the VM, the render
 // worker and the web all get the same result, and the strip and canvas devices
 // agree by construction (they receive the already-resolved colour).
+import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
+
 import 'color.dart';
+import 'color_context.dart';
 import 'colorants.dart';
+import 'device.dart';
 import 'matrix.dart';
 import 'path.dart';
 import 'raster/colorant_raster.dart';
+import 'shading.dart';
+
+class PdfOverprintRegion {
+  const PdfOverprintRegion(this.path, this.color);
+
+  final PdfPath path;
+  final PdfColor color;
+}
 
 /// Resolves overprint against a colorant buffer for one page.
 class PdfOverprintCompositor {
-  PdfOverprintCompositor._(this._raster);
+  PdfOverprintCompositor._(this._raster, this._colorContext);
 
   /// Builds a compositor covering the page box `[left, bottom, right, top]`
   /// in PDF user space, or null when the box is degenerate.
@@ -56,7 +71,7 @@ class PdfOverprintCompositor {
   /// identically from 256 up.
   static PdfOverprintCompositor? forPageBox(
       double left, double bottom, double right, double top,
-      {int maxDimension = 384}) {
+      {int maxDimension = 384, PdfColorContext? colorContext}) {
     final w = right - left, h = top - bottom;
     if (!w.isFinite || !h.isFinite || w <= 0 || h <= 0) return null;
     final scale = maxDimension / (w > h ? w : h);
@@ -65,25 +80,31 @@ class PdfOverprintCompositor {
     // y is flipped so cell rows run top-down; nothing reads the buffer
     // geometrically, but matching raster convention keeps debugging sane.
     final matrix = PdfMatrix(scale, 0, 0, -scale, -left * scale, top * scale);
-    return PdfOverprintCompositor._(PdfColorantRaster(
-        width: width,
-        height: height,
-        mapping: ColorantPageMapping(matrix, scale)));
+    return PdfOverprintCompositor._(
+        PdfColorantRaster(
+            width: width,
+            height: height,
+            mapping: ColorantPageMapping(matrix, scale)),
+        colorContext);
   }
 
   final PdfColorantRaster _raster;
+  final PdfColorContext? _colorContext;
 
   /// Palette entry 0 is bare paper, entry 1 the "colorants unknown" sentinel
   /// (images, gradients, transparency groups, translucent paint, colour spaces
   /// with no colorant reading). An overprint landing on unknown declines.
   static const int _paperIndex = 0;
   static const int _unknownIndex = 1;
+  static const int _transparentIndex = 2;
 
   final List<PdfColorants> _paletteColorants = [
     PdfColorants.none,
     PdfColorants.none,
+    PdfColorants.none,
   ];
   final List<PdfColor> _paletteColor = <PdfColor>[
+    const PdfColor(1, 1, 1),
     const PdfColor(1, 1, 1),
     const PdfColor(1, 1, 1),
   ];
@@ -97,11 +118,89 @@ class PdfOverprintCompositor {
   /// substitute raster outside the buffer - see `image_colorants.dart`).
   Map<String, List<double>> get spotEquivalents => _spotEquivalents;
 
+  /// Display colour of one uniform known backdrop under [path], or null when
+  /// the region is clipped out, varies, or contains content whose colorants
+  /// are unknown. Used to seed non-isolated transparency groups.
+  PdfColor? uniformBackdrop(PdfPath path) {
+    final spans = _raster.fillSpans(path, evenOdd: false);
+    final backdrops = _raster.backdropUnder(spans, bleedFraction: 0);
+    if (backdrops == null ||
+        backdrops.length != 1 ||
+        backdrops.first == _unknownIndex) {
+      return null;
+    }
+    return _paletteColor[backdrops.first];
+  }
+
   /// Nesting depth of transparency groups and soft-mask captures. Their
   /// contents composite through a separate buffer, so the page's colorants
   /// are unknowable while one is open - draws inside still mark their
   /// coverage unknown, which is what makes a later overprint decline.
   int _suspended = 0;
+
+  final List<_TransparencyContext> _groups = [];
+
+  /// Opens a transparency-group colorant surface.
+  ///
+  /// Returns true when an opaque non-Normal group blend will be resolved here
+  /// in its declared transparency blending space. In that case the painting
+  /// device must not apply the same blend mode a second time.
+  bool beginTransparencyGroup({
+    required PdfBlendMode blendMode,
+    required bool isolated,
+    required bool knockout,
+    required bool opaque,
+  }) {
+    final enclosing = _groups.isEmpty ? null : _groups.last;
+    Uint16List? accumulated;
+    if (enclosing != null && enclosing.knockout) {
+      accumulated = Uint16List.fromList(_raster.cells);
+      _raster.cells.setAll(0, enclosing.initialCells);
+    }
+    final external = Uint16List.fromList(_raster.cells);
+    if (isolated) {
+      _raster.cells.fillRange(0, _raster.cells.length, _transparentIndex);
+    }
+    final initial = Uint16List.fromList(_raster.cells);
+    _groups.add(_TransparencyContext(
+      blendMode: blendMode,
+      isolated: isolated,
+      knockout: knockout,
+      opaque: opaque,
+      externalCells: external,
+      initialCells: initial,
+      accumulatedCells: accumulated,
+      touched: Uint8List(_raster.cells.length),
+    ));
+    return opaque && blendMode != PdfBlendMode.normal;
+  }
+
+  void endTransparencyGroup() {
+    if (_groups.isEmpty) return;
+    final group = _groups.removeLast();
+    var result = Uint16List.fromList(_raster.cells);
+    if (group.isolated) {
+      final composed = group.externalCells;
+      for (var i = 0; i < composed.length; i++) {
+        if (group.touched[i] != 0) composed[i] = result[i];
+      }
+      result = composed;
+    }
+    final accumulated = group.accumulatedCells;
+    if (accumulated != null) {
+      for (var i = 0; i < accumulated.length; i++) {
+        if (group.touched[i] != 0) accumulated[i] = result[i];
+      }
+      result = accumulated;
+    }
+    _raster.cells.setAll(0, result);
+    if (_groups.isNotEmpty) {
+      final parent = _groups.last;
+      for (var i = 0; i < parent.touched.length; i++) {
+        if (group.touched[i] != 0) parent.touched[i] = 1;
+      }
+    }
+  }
 
   /// Nesting depth of soft-mask *form* execution. A mask group's content never
   /// puts colorants on the page - it only becomes an alpha channel for what
@@ -145,7 +244,8 @@ class PdfOverprintCompositor {
   void clipPath(PdfPath path, PdfFillRule rule) {
     if (_exhausted || _muted != 0) return;
     _draws++;
-    _raster.clipTo(_raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd));
+    _raster
+        .clipTo(_raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd));
   }
 
   /// Records the spot colorants an ink introduces so a composite vector that
@@ -174,36 +274,252 @@ class PdfOverprintCompositor {
   /// Resolves a fill. Returns the colour to paint when the overprint composite
   /// is a single colour across the draw, or null to leave the device's own
   /// handling (its RGB approximation, or plain painting when not overprinting)
-  /// in charge.
-  PdfColor? fill(PdfPath path, PdfFillRule rule, PdfColor color,
-          PdfInkColorants? ink,
-          {required bool overprint, required int mode, required bool opaque}) =>
-      _resolve(
-          () => _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd),
-          color,
-          ink,
-          overprint: overprint,
-          mode: mode,
-          opaque: opaque);
+  /// in charge. [subCellBounds] may conservatively retain one or more
+  /// intersected grid cells when a real vector shape covered no cell centre;
+  /// the caller must clip visible replay through the original path.
+  PdfColor? fill(
+      PdfPath path, PdfFillRule rule, PdfColor color, PdfInkColorants? ink,
+      {PdfInkColorants? blendInk,
+      PdfRect? subCellBounds,
+      required bool overprint,
+      required int mode,
+      required bool opaque}) {
+    _skipPaint = false;
+    _spatialPaint = null;
+    return _resolve(() {
+      final spans =
+          _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd);
+      if (!spans.isEmpty || subCellBounds == null) return spans;
+      return _raster.coveringBoxSpans(
+        subCellBounds.left,
+        subCellBounds.bottom,
+        subCellBounds.right,
+        subCellBounds.top,
+      );
+    }, color, ink,
+        blendInk: blendInk, overprint: overprint, mode: mode, opaque: opaque);
+  }
+
+  bool _skipPaint = false;
+  List<PdfOverprintRegion>? _spatialPaint;
+  List<PdfOverprintRegion>? _gradientSpatialPaint;
+  PdfGradient? _gradientSubstitute;
+
+  /// Whether the last [fill] was an exact overprint identity and therefore
+  /// must not be sent to an RGB painting device at all.
+  ///
+  /// Repainting an identity with the source's alternate RGB is observably
+  /// wrong: GWG080 places a full-tint spot X over a gradient that already has
+  /// that same plate. On press nothing changes; an RGB darken approximation
+  /// reveals the X. This one-shot signal lets the interpreter omit it.
+  bool takeSkipPaint() {
+    final value = _skipPaint;
+    _skipPaint = false;
+    return value;
+  }
+
+  /// Exact precomposited regions produced by the last [fill], when its result
+  /// varied with the backdrop and therefore could not be one solid colour.
+  List<PdfOverprintRegion>? takeSpatialPaint() {
+    final value = _spatialPaint;
+    _spatialPaint = null;
+    return value;
+  }
+
+  /// Composite-only overlays for the last [gradient]. The caller first paints
+  /// the smooth source gradient as a knockout, then paints these regions where
+  /// overprint preserved colorants from the backdrop.
+  List<PdfOverprintRegion>? takeGradientSpatialPaint() {
+    final value = _gradientSpatialPaint;
+    _gradientSpatialPaint = null;
+    return value;
+  }
+
+  /// Smooth precomposited gradient produced when the backdrop under the last
+  /// shading was one known colorant vector.
+  ///
+  /// Painting this directly is both more faithful and cleaner than replaying
+  /// cell-sized correction regions: the original vector clip supplies the
+  /// exact antialiased edge while every sampled stop carries the subtractive
+  /// ink result. Spatial correction remains necessary only when the backdrop
+  /// itself varies (the GWG080/081 check patterns).
+  PdfGradient? takeGradientSubstitute() {
+    final value = _gradientSubstitute;
+    _gradientSubstitute = null;
+    return value;
+  }
 
   /// Stroking counterpart of [fill]. [stroke] carries page-space geometry
   /// (the interpreter has already mapped the line width through the CTM).
-  PdfColor? strokeShape(PdfPath path, PdfStroke stroke, PdfColor color,
-          PdfInkColorants? ink,
-          {required bool overprint, required int mode, required bool opaque}) =>
-      _resolve(
-          () => _raster.strokeSpans(path,
-              width: stroke.width,
-              cap: stroke.cap,
-              join: stroke.join,
-              miterLimit: stroke.miterLimit,
-              dashArray: stroke.dashArray,
-              dashPhase: stroke.dashPhase),
-          color,
-          ink,
-          overprint: overprint,
-          mode: mode,
-          opaque: opaque);
+  PdfColor? strokeShape(
+      PdfPath path, PdfStroke stroke, PdfColor color, PdfInkColorants? ink,
+      {PdfInkColorants? blendInk,
+      required bool overprint,
+      required int mode,
+      required bool opaque}) {
+    _skipPaint = false;
+    _spatialPaint = null;
+    return _resolve(
+        () => _raster.strokeSpans(path,
+            width: stroke.width,
+            cap: stroke.cap,
+            join: stroke.join,
+            miterLimit: stroke.miterLimit,
+            dashArray: stroke.dashArray,
+            dashPhase: stroke.dashPhase),
+        color,
+        ink,
+        blendInk: blendInk,
+        overprint: overprint,
+        mode: mode,
+        opaque: opaque);
+  }
+
+  /// Records an axial or radial shading in device-colorant space.
+  ///
+  /// Unlike a path fill, a shading can change ink at every point. Sampling it
+  /// at the colorant raster's cell centres preserves those separations for
+  /// later overprint without turning this internal plate buffer into a display
+  /// raster. Returns false when the gradient has no device-colorant reading.
+  bool gradient(
+    PdfPath path,
+    PdfGradient gradient, {
+    required bool overprint,
+    required int mode,
+    required bool opaque,
+  }) {
+    _gradientSpatialPaint = null;
+    _gradientSubstitute = null;
+    if (_exhausted || _muted != 0) return false;
+    final inkAt = gradient.inkAt;
+    final inverse = gradient.transform.inverted();
+    if (inkAt == null || inverse == null) {
+      markUnknownPath(path, PdfFillRule.nonzero);
+      return false;
+    }
+    _draws++;
+    final spans = _raster.fillSpans(path, evenOdd: false);
+    if (spans.isEmpty) return true;
+    final effective = overprint && opaque && _suspended == 0;
+    final uniformBackdrop = effective
+        ? _raster.backdropUnder(spans, limit: 1, bleedFraction: 0)
+        : null;
+    final uniformBackdropIndex = uniformBackdrop != null &&
+            uniformBackdrop.length == 1 &&
+            uniformBackdrop.first != _unknownIndex
+        ? uniformBackdrop.first
+        : null;
+    if (uniformBackdropIndex != null) {
+      final colors = <PdfColor>[];
+      var complete = true;
+      for (var i = 0; i < gradient.stops.length; i++) {
+        final parameter = gradient.stops[i];
+        final source = inkAt(parameter);
+        if (source == null) {
+          complete = false;
+          break;
+        }
+        _learnSpots(source);
+        final composite =
+            source.over(_paletteColorants[uniformBackdropIndex], mode);
+        colors.add(_srgbFor(composite, uniformBackdropIndex, source,
+            gradient.colorAt(parameter)));
+      }
+      if (complete && colors.length == gradient.colors.length) {
+        _gradientSubstitute = PdfGradient(
+          isRadial: gradient.isRadial,
+          coords: gradient.coords,
+          colors: colors,
+          stops: gradient.stops,
+          transform: gradient.transform,
+          extendStart: gradient.extendStart,
+          extendEnd: gradient.extendEnd,
+          inkAt: gradient.inkAt,
+        );
+      }
+    }
+    _raster.paintSampled(spans, (pageX, pageY, backdrop) {
+      final gx = inverse.transformX(pageX, pageY);
+      final gy = inverse.transformY(pageX, pageY);
+      final parameter = _gradientParameter(gradient, gx, gy);
+      if (parameter == null) return backdrop;
+      final ink = inkAt(parameter);
+      if (ink == null) return _unknownIndex;
+      _learnSpots(ink);
+      if (!opaque || _suspended != 0) return _unknownIndex;
+      final composite = effective
+          ? (backdrop == _unknownIndex
+              ? null
+              : ink.over(_paletteColorants[backdrop], mode))
+          : ink.colorants;
+      if (composite == null) return _unknownIndex;
+      final color = effective
+          ? _srgbFor(composite, backdrop, ink, gradient.colorAt(parameter))
+          : gradient.colorAt(parameter);
+      return _intern(composite, color);
+    });
+    if (effective && _gradientSubstitute == null) {
+      final regions =
+          _raster.sampledResultRegions(spans, (pageX, pageY, current) {
+        if (current == _unknownIndex) return null;
+        final gx = inverse.transformX(pageX, pageY);
+        final gy = inverse.transformY(pageX, pageY);
+        final parameter = _gradientParameter(gradient, gx, gy);
+        if (parameter == null) return null;
+        final source = inkAt(parameter);
+        if (source == null || _paletteColorants[current] == source.colorants) {
+          return null;
+        }
+        return current;
+      });
+      _gradientSpatialPaint = [
+        for (final entry in regions.entries)
+          PdfOverprintRegion(entry.value, _paletteColor[entry.key]),
+      ];
+    }
+    return true;
+  }
+
+  static double? _gradientParameter(PdfGradient gradient, double x, double y) {
+    final c = gradient.coords;
+    double? finish(double value) {
+      if (value < 0) return gradient.extendStart ? 0 : null;
+      if (value > 1) return gradient.extendEnd ? 1 : null;
+      return value;
+    }
+
+    if (!gradient.isRadial && c.length >= 4) {
+      final dx = c[2] - c[0], dy = c[3] - c[1];
+      final d2 = dx * dx + dy * dy;
+      if (d2 == 0) return finish(0);
+      return finish(((x - c[0]) * dx + (y - c[1]) * dy) / d2);
+    }
+    if (gradient.isRadial && c.length >= 6) {
+      final px = x - c[0], py = y - c[1];
+      final dx = c[3] - c[0], dy = c[4] - c[1];
+      final dr = c[5] - c[2];
+      final a = dx * dx + dy * dy - dr * dr;
+      final b = -2 * (px * dx + py * dy + c[2] * dr);
+      final d = px * px + py * py - c[2] * c[2];
+      const epsilon = 1e-12;
+      final roots = <double>[];
+      if (a.abs() < epsilon) {
+        if (b.abs() >= epsilon) roots.add(-d / b);
+      } else {
+        final discriminant = b * b - 4 * a * d;
+        if (discriminant >= 0) {
+          final root = math.sqrt(discriminant);
+          roots
+            ..add((-b - root) / (2 * a))
+            ..add((-b + root) / (2 * a));
+        }
+      }
+      if (roots.isEmpty) return null;
+      roots.sort();
+      return finish(roots.last);
+    }
+    return null;
+  }
 
   /// Resolves an image draw covering [path] (the image's unit square mapped
   /// through its transform), and records what it leaves behind (issue #604).
@@ -214,18 +530,17 @@ class PdfOverprintCompositor {
   /// an encoding whose samples cannot be read, or a stencil - see
   /// `pdfImageColorants`).
   ///
-  /// When the image overprints onto a single known backdrop, [resolve] is
-  /// called with that backdrop and returns the substitute the interpreter will
-  /// draw - a raster whose colours are already the composite - or null when it
-  /// cannot build one. The image is recorded as leaving the composite behind
-  /// only if [resolve] succeeded, so a declined substitute leaves the buffer
-  /// describing what is actually on screen.
-  ///
-  /// Unlike [fill], this needs the backdrop to be *one* vector: the substitute
-  /// composites the whole raster against a single backdrop, and a draw straddling
-  /// two of them would need one substitute per region.
+  /// When the image overprints onto a single known backdrop, [resolve] builds
+  /// the ordinary uniform substitute. When several colorant vectors sit under
+  /// the same image, [resolveSpatial] receives their per-source-pixel map. The
+  /// latter is what the GWG DeviceN support patches grade: a check and an X
+  /// are painted under one indexed image and only exact spatial overprint
+  /// leaves the check visible.
   T? image<T>(
     PdfPath path, {
+    required PdfMatrix transform,
+    required int width,
+    required int height,
     required PdfInkColorants? ink,
     required PdfColor color,
     required bool hasColorants,
@@ -233,6 +548,7 @@ class PdfOverprintCompositor {
     required int mode,
     required bool opaque,
     required T? Function(PdfColorants backdrop, PdfColor backdropColor) resolve,
+    required T? Function(PdfColorantBackdropMap backdrop) resolveSpatial,
   }) {
     if (_exhausted || _muted != 0) return null;
     _draws++;
@@ -243,15 +559,28 @@ class PdfOverprintCompositor {
       _recordImage(spans, paintable ? ink : null, color);
       return null;
     }
-    final backdrops = _raster.backdropUnder(spans);
-    if (backdrops == null ||
-        backdrops.length != 1 ||
-        backdrops.first == _unknownIndex) {
+    // A small colorant region under a large image is not boundary bleed: the
+    // GWG DeviceN checks occupy only a few percent of the image by design.
+    // Keep every underlying vector here and let the spatial resolver sample
+    // it per source pixel. Vector-on-vector resolution retains the normal 4%
+    // edge tolerance below.
+    final backdrops = _raster.backdropUnder(spans, limit: 32, bleedFraction: 0);
+    if (backdrops == null) {
       _raster.paintFlat(spans, _unknownIndex);
       return null;
     }
+    if (backdrops.length != 1 || backdrops.contains(_unknownIndex)) {
+      final spatial = _spatialBackdrop(transform, width, height);
+      final resolved = spatial == null ? null : resolveSpatial(spatial);
+      // A varying raster generally leaves a varying composite. Until a later
+      // draw needs another spatial read, the honest compact representation is
+      // unknown; the displayed substitute itself is exact.
+      _raster.paintFlat(spans, _unknownIndex);
+      return resolved;
+    }
     final backdrop = backdrops.first;
-    final resolved = resolve(_paletteColorants[backdrop], _paletteColor[backdrop]);
+    final resolved =
+        resolve(_paletteColorants[backdrop], _paletteColor[backdrop]);
     if (resolved == null) {
       // Either the backdrop is bare paper (overprinting onto no colorant is
       // the identity, so the source raster already *is* the composite) or no
@@ -270,9 +599,55 @@ class PdfOverprintCompositor {
     }
     _learnSpots(ink);
     final composite = ink.over(_paletteColorants[backdrop], mode);
-    _raster.paintFlat(spans,
-        _intern(composite, _srgbFor(composite, backdrop, ink, color)));
+    _raster.paintFlat(
+        spans, _intern(composite, _srgbFor(composite, backdrop, ink, color)));
     return resolved;
+  }
+
+  /// Samples the current colorant raster at each source-image pixel centre.
+  /// Image row 0 is the top row, while PDF image space is y-up, hence `1-v`.
+  PdfColorantBackdropMap? _spatialBackdrop(
+      PdfMatrix transform, int width, int height) {
+    if (width <= 0 || height <= 0 || width * height > (4 << 20)) return null;
+    final indices = Uint16List(width * height);
+    final colorants = <PdfColorants?>[null];
+    final colors = <PdfColor>[const PdfColor(1, 1, 1)];
+    final local = <_PaletteKey, int>{};
+    var offset = 0;
+    for (var y = 0; y < height; y++) {
+      final v = 1 - (y + 0.5) / height;
+      for (var x = 0; x < width; x++) {
+        final u = (x + 0.5) / width;
+        final pageX = transform.transformX(u, v);
+        final pageY = transform.transformY(u, v);
+        // Outside the active clip this substitute pixel will never reach the
+        // canvas; use paper as a harmless stable value. An actual unknown cell
+        // inside the clip remains entry 0 and makes the builder decline.
+        final pageIndex = _raster.paletteAtPage(pageX, pageY) ?? _paperIndex;
+        if (pageIndex == _unknownIndex) {
+          indices[offset++] = 0;
+          continue;
+        }
+        final key =
+            _PaletteKey(_paletteColorants[pageIndex], _paletteColor[pageIndex]);
+        var index = local[key];
+        if (index == null) {
+          if (colorants.length >= 0xffff) return null;
+          index = colorants.length;
+          local[key] = index;
+          colorants.add(key.colorants);
+          colors.add(key.color);
+        }
+        indices[offset++] = index;
+      }
+    }
+    return PdfColorantBackdropMap(
+      width: width,
+      height: height,
+      indices: indices,
+      colorants: colorants,
+      colors: colors,
+    );
   }
 
   /// Resolves a stencil (/ImageMask) draw covering [path], the quad of its
@@ -344,26 +719,43 @@ class PdfOverprintCompositor {
   void markUnknownBox(double left, double bottom, double right, double top) {
     if (_exhausted || _muted != 0) return;
     _draws++;
-    _raster.paintFlat(_raster.boxSpans(left, bottom, right, top), _unknownIndex);
+    _raster.paintFlat(
+        _raster.boxSpans(left, bottom, right, top), _unknownIndex);
   }
 
-  PdfColor? _resolve(ColorantSpans Function() rasterize, PdfColor color,
-      PdfInkColorants? ink,
-      {required bool overprint, required int mode, required bool opaque}) {
+  PdfColor? _resolve(
+      ColorantSpans Function() rasterize, PdfColor color, PdfInkColorants? ink,
+      {PdfInkColorants? blendInk,
+      required bool overprint,
+      required int mode,
+      required bool opaque}) {
     if (_exhausted || _muted != 0) return null;
     _draws++;
     final spans = rasterize();
     if (spans.isEmpty) return null;
+    if (_groups.isNotEmpty) {
+      _raster.markCovered(spans, _groups.last.touched);
+      final group = _groups.last;
+      final groupInk = blendInk ?? ink;
+      if (group.opaque &&
+          opaque &&
+          groupInk != null &&
+          group.blendMode != PdfBlendMode.normal) {
+        return _resolveGroupBlend(spans, color, groupInk, group.blendMode);
+      }
+      if (groupInk != null) ink = groupInk;
+    }
     final effective = overprint && opaque && _suspended == 0 && ink != null;
     if (!effective) {
+      final recordedInk = ink ?? blendInk;
       // A knockout replaces the backdrop's colorants with the ink's; anything
       // the buffer cannot model (translucency, an open group, a colour space
       // with no colorant reading) becomes unknown.
-      if (!opaque || _suspended != 0 || ink == null) {
+      if (!opaque || _suspended != 0 || recordedInk == null) {
         _raster.paintFlat(spans, _unknownIndex);
       } else {
-        _learnSpots(ink);
-        _raster.paintFlat(spans, _intern(ink.colorants, color));
+        _learnSpots(recordedInk);
+        _raster.paintFlat(spans, _intern(recordedInk.colorants, color));
       }
       return null;
     }
@@ -379,17 +771,32 @@ class PdfOverprintCompositor {
     _learnSpots(ink);
     final results = <int, int>{};
     PdfColor? uniform;
+    var identity = true;
     for (final backdrop in backdrops) {
       final composite = ink.over(_paletteColorants[backdrop], mode);
+      if (composite != _paletteColorants[backdrop]) identity = false;
       final rendered = _srgbFor(composite, backdrop, ink, color);
       results[backdrop] = _intern(composite, rendered);
       if (uniform == null) {
         uniform = rendered;
       } else if (uniform != rendered) {
         // The composite differs across the draw. The device paints one colour
-        // per call, so hand it back to the approximation - and mark the area
-        // unknown so the buffer keeps describing what is actually on screen.
-        _raster.paintFlat(spans, _unknownIndex);
+        // per call, so it still needs its RGB fallback for this immediate
+        // primitive; the separations result is nevertheless exact per cell.
+        // Preserve it in the plate buffer so a later overprinting image or
+        // vector can resolve against the PDF's actual colorants instead of
+        // inheriting the display approximation. GWG080/081 deliberately rely
+        // on this chain: a spot check overlays a CMYK X, then a DeviceN image
+        // overwrites selected plates and must see both underlying vectors.
+        int resultFor(int backdrop) => results[backdrop] ?? _unknownIndex;
+        final regions = _raster.resultRegions(spans, resultFor);
+        _spatialPaint = [
+          for (final entry in regions.entries)
+            if (entry.key != _unknownIndex)
+              PdfOverprintRegion(entry.value, _paletteColor[entry.key]),
+        ];
+        _raster.paint(spans, resultFor);
+        _skipPaint = identity;
         return null;
       }
     }
@@ -413,8 +820,182 @@ class PdfOverprintCompositor {
           : _paletteColor[backdrop];
     }
     if (composite == ink.colorants) return inkColor;
-    return colorantsToSrgb(composite, _spotEquivalents);
+    return colorantsToSrgb(
+      composite,
+      _spotEquivalents,
+      cmykToSrgb: _colorContext?.deviceCmyk,
+    );
   }
+
+  PdfColor? _resolveGroupBlend(ColorantSpans spans, PdfColor sourceColor,
+      PdfInkColorants source, PdfBlendMode mode) {
+    _learnSpots(source);
+    final backdrops = _raster.backdropUnder(spans, bleedFraction: 0);
+    if (backdrops == null || backdrops.contains(_unknownIndex)) {
+      _raster.paintFlat(spans, _unknownIndex);
+      return null;
+    }
+    final results = <int, int>{};
+    PdfColor? uniform;
+    for (final backdrop in backdrops) {
+      final PdfColorants composite;
+      final PdfColor rendered;
+      if (backdrop == _transparentIndex) {
+        composite = source.colorants;
+        rendered = sourceColor;
+      } else {
+        composite = _blendColorants(
+            _paletteColorants[backdrop], source.colorants, mode);
+        rendered = composite == _paletteColorants[backdrop]
+            ? _paletteColor[backdrop]
+            : composite == source.colorants
+                ? sourceColor
+                : colorantsToSrgb(composite, _spotEquivalents,
+                    cmykToSrgb: _colorContext?.deviceCmyk);
+      }
+      final index = _intern(composite, rendered);
+      results[backdrop] = index;
+      uniform ??= rendered;
+      if (uniform != rendered) {
+        final regions = _raster.resultRegions(
+            spans, (value) => results[value] ?? _unknownIndex);
+        _spatialPaint = [
+          for (final entry in regions.entries)
+            if (entry.key != _unknownIndex)
+              PdfOverprintRegion(entry.value, _paletteColor[entry.key]),
+        ];
+        _raster.paint(spans, (value) => results[value] ?? _unknownIndex);
+        return null;
+      }
+    }
+    _raster.paint(spans, (value) => results[value] ?? _unknownIndex);
+    return uniform;
+  }
+
+  static PdfColorants _blendColorants(
+      PdfColorants backdrop, PdfColorants source, PdfBlendMode mode) {
+    double component(double backdropInk, double sourceInk) {
+      final cb = 1 - backdropInk;
+      final cs = 1 - sourceInk;
+      final blended = switch (mode) {
+        PdfBlendMode.normal => cs,
+        PdfBlendMode.multiply => cb * cs,
+        PdfBlendMode.screen => cb + cs - cb * cs,
+        PdfBlendMode.overlay =>
+          cb <= 0.5 ? 2 * cb * cs : 1 - 2 * (1 - cb) * (1 - cs),
+        PdfBlendMode.darken => math.min(cb, cs),
+        PdfBlendMode.lighten => math.max(cb, cs),
+        PdfBlendMode.colorDodge => cs >= 1 ? 1 : math.min(1, cb / (1 - cs)),
+        PdfBlendMode.colorBurn => cs <= 0 ? 0 : 1 - math.min(1, (1 - cb) / cs),
+        PdfBlendMode.hardLight =>
+          cs <= 0.5 ? 2 * cb * cs : 1 - 2 * (1 - cb) * (1 - cs),
+        PdfBlendMode.softLight => _softLight(cb, cs),
+        PdfBlendMode.difference => (cb - cs).abs(),
+        PdfBlendMode.exclusion => cb + cs - 2 * cb * cs,
+        // The nonseparable modes are resolved below as a three-component
+        // colour operation; K still follows the source for their CMYK group.
+        PdfBlendMode.hue ||
+        PdfBlendMode.saturation ||
+        PdfBlendMode.color ||
+        PdfBlendMode.luminosity =>
+          cs,
+      };
+      return (1 - blended).clamp(0.0, 1.0).toDouble();
+    }
+
+    if (mode == PdfBlendMode.hue ||
+        mode == PdfBlendMode.saturation ||
+        mode == PdfBlendMode.color ||
+        mode == PdfBlendMode.luminosity) {
+      final cb = [1 - backdrop.c, 1 - backdrop.m, 1 - backdrop.y];
+      final cs = [1 - source.c, 1 - source.m, 1 - source.y];
+      final rgb = switch (mode) {
+        PdfBlendMode.hue => _setLum(_setSat(cs, _sat(cb)), _lum(cb)),
+        PdfBlendMode.saturation => _setLum(_setSat(cb, _sat(cs)), _lum(cb)),
+        PdfBlendMode.color => _setLum(cs, _lum(cb)),
+        PdfBlendMode.luminosity => _setLum(cb, _lum(cs)),
+        _ => cs,
+      };
+      // In a subtractive blending space the nonseparable operation uses the
+      // complements of C/M/Y. The black component follows the backdrop for
+      // Hue/Saturation/Color and the source for Luminosity (PDF blend-mode
+      // addendum; this is also what keeps a neutral source over a K-only
+      // backdrop neutral instead of exposing GWG160's fail marker).
+      final black = mode == PdfBlendMode.luminosity ? source.k : backdrop.k;
+      return PdfColorants(1 - rgb[0], 1 - rgb[1], 1 - rgb[2], black);
+    }
+    return PdfColorants(
+      component(backdrop.c, source.c),
+      component(backdrop.m, source.m),
+      component(backdrop.y, source.y),
+      component(backdrop.k, source.k),
+    );
+  }
+
+  static double _softLight(double cb, double cs) {
+    if (cs <= 0.5) return cb - (1 - 2 * cs) * cb * (1 - cb);
+    final d = cb <= 0.25 ? ((16 * cb - 12) * cb + 4) * cb : math.sqrt(cb);
+    return cb + (2 * cs - 1) * (d - cb);
+  }
+
+  static double _lum(List<double> c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+
+  static double _sat(List<double> c) => c.reduce(math.max) - c.reduce(math.min);
+
+  static List<double> _clipColor(List<double> c) {
+    final l = _lum(c), n = c.reduce(math.min), x = c.reduce(math.max);
+    final result = [...c];
+    if (n < 0) {
+      for (var i = 0; i < result.length; i++) {
+        result[i] = l + (result[i] - l) * l / (l - n);
+      }
+    }
+    if (x > 1) {
+      for (var i = 0; i < result.length; i++) {
+        result[i] = l + (result[i] - l) * (1 - l) / (x - l);
+      }
+    }
+    return result;
+  }
+
+  static List<double> _setLum(List<double> c, double l) {
+    final delta = l - _lum(c);
+    return _clipColor([for (final value in c) value + delta]);
+  }
+
+  static List<double> _setSat(List<double> c, double s) {
+    final order = [0, 1, 2]..sort((a, b) => c[a].compareTo(c[b]));
+    final result = [0.0, 0.0, 0.0];
+    final lo = order[0], mid = order[1], hi = order[2];
+    if (c[hi] > c[lo]) {
+      result[mid] = (c[mid] - c[lo]) * s / (c[hi] - c[lo]);
+      result[hi] = s;
+    }
+    result[lo] = 0;
+    return result;
+  }
+}
+
+class _TransparencyContext {
+  _TransparencyContext({
+    required this.blendMode,
+    required this.isolated,
+    required this.knockout,
+    required this.opaque,
+    required this.externalCells,
+    required this.initialCells,
+    required this.accumulatedCells,
+    required this.touched,
+  });
+
+  final PdfBlendMode blendMode;
+  final bool isolated;
+  final bool knockout;
+  final bool opaque;
+  final Uint16List externalCells;
+  final Uint16List initialCells;
+  final Uint16List? accumulatedCells;
+  final Uint8List touched;
 }
 
 class _PaletteKey {

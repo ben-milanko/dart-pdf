@@ -1730,6 +1730,36 @@ abstract class DartPdfEditorLocalizations {
   /// **'Regular expression'**
   String get searchRegex;
 
+  /// Label on the search panel button that replaces the current match.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace'**
+  String get searchReplace;
+
+  /// Label on the search panel button that replaces every match in the document.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace all'**
+  String get searchReplaceAll;
+
+  /// Placeholder in the search panel's replacement text field.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace with'**
+  String get searchReplaceHint;
+
+  /// Shown when a single search match cannot be pinned to one editable text run, so Replace did nothing.
+  ///
+  /// In en, this message translates to:
+  /// **'That match can’t be replaced on its own — use Replace all, or edit it with the content tool'**
+  String get searchReplaceNotTargetable;
+
+  /// Confirmation after replacing search matches.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}'**
+  String searchReplaced(int count);
+
   /// Title of the docked search results panel.
   ///
   /// In en, this message translates to:
@@ -2492,10 +2522,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Align vertical centers'**
   String get tbAlignVerticalCenters;
 
-  /// Snackbar confirming annotations were baked into the page content.
+  /// Snackbar confirming annotations and form fields were baked into the page content.
   ///
   /// In en, this message translates to:
-  /// **'Annotations flattened into the pages'**
+  /// **'Annotations and form fields flattened into the pages'**
   String get tbAnnotationsFlattened;
 
   /// Warning body in the redaction confirmation dialog.
@@ -2521,6 +2551,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Autosize text box (Alt+Z)'**
   String get tbAutosizeTextBox;
+
+  /// Tooltip for choosing the largest font size that fits the selected free-text box.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit font to text box'**
+  String get tbAutosizeTextFont;
 
   /// Snackbar guiding the user to draw a reference line when calibrating a measurement scale.
   ///
@@ -2726,10 +2762,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Finger scrolls (pen draws) - tap so it draws'**
   String get tbFingerScrolls;
 
-  /// Tooltip for the button that bakes annotations into page content.
+  /// Tooltip for the button that bakes annotations and form fields into page content.
   ///
   /// In en, this message translates to:
-  /// **'Flatten annotations into the pages'**
+  /// **'Flatten annotations and form fields into the pages'**
   String get tbFlattenAnnotationsTooltip;
 
   /// Menu item that flattens the form fields into the pages.
@@ -2852,52 +2888,52 @@ abstract class DartPdfEditorLocalizations {
   /// **'Manage stamps…'**
   String get tbManageStamps;
 
-  /// Text-markup action name: highlight the text selection.
+  /// Text-markup tool name: highlight text.
   ///
   /// In en, this message translates to:
   /// **'Highlight'**
   String get tbMarkupHighlight;
 
-  /// Tooltip: highlight the current text selection.
+  /// Tooltip for the text highlight tool.
   ///
   /// In en, this message translates to:
-  /// **'Highlight selection'**
+  /// **'Highlight text'**
   String get tbMarkupHighlightTip;
 
-  /// Text-markup action name: squiggly-underline the text selection.
+  /// Text-markup tool name: squiggly-underline text.
   ///
   /// In en, this message translates to:
   /// **'Squiggly-underline'**
   String get tbMarkupSquiggly;
 
-  /// Tooltip: squiggly-underline the current text selection.
+  /// Tooltip for the squiggly-underline tool.
   ///
   /// In en, this message translates to:
-  /// **'Squiggly-underline selection'**
+  /// **'Squiggly-underline text'**
   String get tbMarkupSquigglyTip;
 
-  /// Text-markup action name: strike out the text selection.
+  /// Text-markup tool name: strike out text.
   ///
   /// In en, this message translates to:
   /// **'Strike out'**
   String get tbMarkupStrikeOut;
 
-  /// Tooltip: strike out the current text selection.
+  /// Tooltip for the strike-out tool.
   ///
   /// In en, this message translates to:
-  /// **'Strike out selection'**
+  /// **'Strike out text'**
   String get tbMarkupStrikeOutTip;
 
-  /// Text-markup action name: underline the text selection.
+  /// Text-markup tool name: underline text.
   ///
   /// In en, this message translates to:
   /// **'Underline'**
   String get tbMarkupUnderline;
 
-  /// Tooltip: underline the current text selection.
+  /// Tooltip for the underline tool.
   ///
   /// In en, this message translates to:
-  /// **'Underline selection'**
+  /// **'Underline text'**
   String get tbMarkupUnderlineTip;
 
   /// Tooltip for the button opening the full color picker.
@@ -2953,6 +2989,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Erase ink strokes'**
   String get tbNameEraser;
+
+  /// Name of the default page-navigation mode, which pans the document by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Hand'**
+  String get tbNameHand;
 
   /// Tool name: freehand highlighter.
   ///
@@ -3068,10 +3110,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'New field type - drag on a page to add one'**
   String get tbNewFieldType;
 
-  /// Snackbar shown when the flatten action runs but there are no annotations.
+  /// Snackbar shown when the flatten action runs but there are no annotations or form fields.
   ///
   /// In en, this message translates to:
-  /// **'No annotations to flatten'**
+  /// **'No annotations or form fields to flatten'**
   String get tbNoAnnotationsToFlatten;
 
   /// Placeholder shown in the stamp menu when no custom stamps are saved.
@@ -3194,10 +3236,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Scale'**
   String get tbScale;
 
-  /// Hint shown when the markup tools are open but no text is selected.
+  /// Hint explaining the arm-first text-markup workflow.
   ///
   /// In en, this message translates to:
-  /// **'Select text to use markup'**
+  /// **'Choose a markup, then select text'**
   String get tbSelectTextForMarkup;
 
   /// Strip label for one or more selected annotations.
@@ -3691,6 +3733,120 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Select all'**
   String get viewerSelectAll;
+
+  /// Title and toolbar tooltip for the reusable annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotation library'**
+  String get annotationLibraryTitle;
+
+  /// Empty-state text in the reusable annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved annotations.'**
+  String get annotationLibraryEmpty;
+
+  /// Explanation of how to save reusable annotations and which interactive types are deliberately unsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.'**
+  String get annotationLibraryHelp;
+
+  /// Annotation context-menu action that saves the selected annotation for reuse.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to annotation library'**
+  String get annotationLibrarySave;
+
+  /// Title of the prompt that names an annotation library item.
+  ///
+  /// In en, this message translates to:
+  /// **'Save annotation'**
+  String get annotationLibrarySaveTitle;
+
+  /// Title of the prompt that renames an annotation library item.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename library item'**
+  String get annotationLibraryRenameTitle;
+
+  /// Placeholder in the reusable annotation-library panel search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search library'**
+  String get annotationLibrarySearchHint;
+
+  /// Empty state when annotation-library search filters out every item.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching annotations.'**
+  String get annotationLibraryNoMatches;
+
+  /// Heading for reusable annotations that have no user-defined group.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungrouped'**
+  String get annotationLibraryUngrouped;
+
+  /// Action that assigns a reusable annotation to a library group.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to group'**
+  String get annotationLibraryChooseGroup;
+
+  /// Action that creates and assigns a new annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'New group…'**
+  String get annotationLibraryNewGroup;
+
+  /// Title of the prompt that names a new annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'New annotation group'**
+  String get annotationLibraryGroupTitle;
+
+  /// Title of the prompt that renames an annotation-library group.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename annotation group'**
+  String get annotationLibraryRenameGroupTitle;
+
+  /// Tooltip that removes a group while leaving its annotations ungrouped.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove group'**
+  String get annotationLibraryRemoveGroup;
+
+  /// Hint shown while a reusable annotation follows the pointer ready for placement.
+  ///
+  /// In en, this message translates to:
+  /// **'Click the page to place. Press Escape to cancel.'**
+  String get annotationLibraryPlacementHint;
+
+  /// Button that opens custom stamps from the broader annotation library.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom stamps…'**
+  String get annotationLibraryCustomStamps;
+
+  /// Toolbar tooltip that opens the saved handwritten-signature library.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage signatures'**
+  String get signatureLibraryManage;
+
+  /// Title of the prompt that renames a saved handwritten signature.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename signature'**
+  String get signatureLibraryRenameTitle;
+
+  /// Empty-state text in the saved handwritten-signature library.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved signatures.'**
+  String get signatureLibraryEmpty;
 }
 
 class _DartPdfEditorLocalizationsDelegate

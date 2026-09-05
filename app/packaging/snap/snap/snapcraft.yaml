@@ -30,10 +30,13 @@ apps:
       - removable-media
       - password-manager-service
       - cups
-
+    slots:
+      - dartpdf-dbus
 # Ask snapd to install the CUPS proxy on systems that do not already provide a
 # compatible print service. The app only needs the non-administrative `cups`
 # interface above; it never requests `cups-control`.
+# NOTE: build-release-snap.sh inserts the release-only `cli` app entry directly
+# above this comment - keep this comment immediately after the `apps:` section.
 plugs:
   dartpdf-install-cups:
     interface: content
@@ -41,11 +44,17 @@ plugs:
     default-provider: cups
     target: $SNAP_DATA/cups
 
+slots:
+  dartpdf-dbus:
+    interface: dbus
+    bus: session
+    name: dev.milanko.dartpdf
+
 parts:
   dartpdf:
     plugin: dump
-    source: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.3.1/dartpdf-linux-x64.tar.gz
+    source: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.7.0/dartpdf-linux-x64.tar.gz
     source-type: tar
-    source-checksum: sha256/9a3205a638af561d10adcff802aa6431e8ce5f35e187d2aeb243fcb6c46648c4
+    source-checksum: sha256/6ad9c224da7580d95ed761a5dd12aedc2c96ddea62d5cf5f774cc1f00af90cfa
     parse-info:
       - share/metainfo/dev.milanko.dartpdf.metainfo.xml

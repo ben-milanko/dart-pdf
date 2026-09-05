@@ -76,6 +76,7 @@ class MobilePickedPdf {
     required this.token,
     required this.name,
     this.length,
+    this.provider,
     required this.seekable,
   });
 
@@ -84,6 +85,12 @@ class MobilePickedPdf {
   final String token;
   final String name;
   final int? length;
+
+  /// A non-secret provider identifier supplied by the runner. Android reports
+  /// the content URI authority; iOS reports the iCloud container display name
+  /// when available and otherwise a generic File Provider label. Unlike
+  /// [token], this is safe to include in exported diagnostics.
+  final String? provider;
 
   /// Whether native ranged reads over [token] are random-access. False for a
   /// non-seekable pipe (many cloud providers), where the caller streams whole
@@ -116,10 +123,12 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
   for (final entry in picked) {
     final token = entry['token'] as String?;
     if (token == null || token.isEmpty) continue;
+    final rawLength = (entry['length'] as num?)?.toInt();
     out.add(MobilePickedPdf(
       token: token,
       name: (entry['name'] as String?) ?? 'document.pdf',
-      length: (entry['length'] as num?)?.toInt(),
+      length: rawLength != null && rawLength >= 0 ? rawLength : null,
+      provider: entry['provider'] as String?,
       seekable: entry['seekable'] == true,
     ));
   }
@@ -404,13 +413,35 @@ String? containingFolderPath(String path) {
   return trimmed.substring(0, index);
 }
 
-/// Opens [path]'s containing folder in Finder / File Explorer / the Linux file
-/// manager. Returns false when there is no usable origin path or the platform
-/// refuses to launch it.
-Future<bool> openContainingFolder(String? path) async {
+/// Reveals [path] in Finder, or opens its containing folder in File Explorer /
+/// the Linux file manager. Returns false when there is no usable origin path
+/// or the platform refuses to launch it.
+///
+/// Finder needs the selected file rather than its parent directory: a
+/// sandboxed macOS app can hold a security-scoped grant for a OneDrive file
+/// without having access to the file's containing folder. [bookmark]
+/// reactivates that grant while Finder handles the reveal request.
+Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
   if (!supportsOpenContainingFolder || path == null) return false;
   final folder = containingFolderPath(path);
   if (folder == null) return false;
+  if (_isMacOSDesktop) {
+    try {
+      return await _macosFileAccessChannel.invokeMethod<bool>(
+            'revealFile',
+            {
+              'path': path,
+              if (bookmark != null && bookmark.isNotEmpty)
+                'bookmark': bookmark,
+            },
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
   return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
 }
 

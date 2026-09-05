@@ -22,6 +22,11 @@ const _runs = 5;
 
 void main(List<String> args) {
   final paths = args.where((a) => !a.startsWith('--')).toList();
+  final pageMin =
+      int.tryParse(Platform.environment['PDF_BENCH_PAGE_MIN'] ?? '') ?? 0;
+  final pageMax =
+      int.tryParse(Platform.environment['PDF_BENCH_PAGE_MAX'] ?? '') ??
+          (1 << 30);
   final files = _collect(paths.isEmpty
       ? const ['../../test_corpora/ghent', '../../test_corpora/pdfjs']
       : paths);
@@ -36,7 +41,7 @@ void main(List<String> args) {
     } catch (_) {
       continue;
     }
-    for (var i = 0; i < pageCount; i++) {
+    for (var i = pageMin; i < pageCount && i <= pageMax; i++) {
       try {
         rows.addAll(_measurePage(file.path, doc, i));
       } catch (_) {
@@ -182,8 +187,11 @@ class _Row {
   }
 }
 
-int _intOf(CosObject? o, {int fallback = 0}) =>
-    o is CosInteger ? o.value : o is CosReal ? o.value.round() : fallback;
+int _intOf(CosObject? o, {int fallback = 0}) => o is CosInteger
+    ? o.value
+    : o is CosReal
+        ? o.value.round()
+        : fallback;
 
 List<File> _collect(List<String> paths) {
   final out = <File>[];

@@ -5,6 +5,7 @@ export 'src/cad_strip.dart';
 export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
 export 'src/jbig2_encoder.dart';
+export 'src/jpx_fixture.dart';
 export 'src/pkix_ltv.dart';
 export 'src/raster_underlay_sheet.dart';
 export 'src/rtl_text.dart';
@@ -137,7 +138,18 @@ Uint8List buildXrefStreamPdf() {
 }
 
 /// Builds a [pageCount]-page PDF; page N shows the text "Page N".
-Uint8List buildMultiPagePdf(int pageCount) {
+///
+/// [width]/[height] size the /MediaBox in points - US Letter by default.
+/// Oversize a page when the test is about what a page's dimensions cost
+/// (raster budgets, sampling rasters), not about its content.
+///
+/// [rotation] writes /Rotate on every page (0 - the default - omits it),
+/// for tests about a display-rotated page: what the viewer shows is the
+/// page turned clockwise by that many degrees.
+Uint8List buildMultiPagePdf(int pageCount,
+    {double width = 612, double height = 792, int rotation = 0}) {
+  // whole points write as integers - PDF accepts either, tests read better
+  String num(double v) => v == v.roundToDouble() ? '${v.round()}' : '$v';
   final objects = <String>[];
   final kids = [
     for (var i = 0; i < pageCount; i++) '${3 + i * 2} 0 R',
@@ -147,13 +159,56 @@ Uint8List buildMultiPagePdf(int pageCount) {
   objects.add('<< /Type /Pages /Kids [$kids] /Count $pageCount >>');
   for (var i = 0; i < pageCount; i++) {
     final content = 'BT /F1 24 Tf 72 720 Td (Page ${i + 1}) Tj ET';
-    objects.add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+    objects.add('<< /Type /Page /Parent 2 0 R '
+        '/MediaBox [0 0 ${num(width)} ${num(height)}] '
+        '${rotation == 0 ? '' : '/Rotate $rotation '}'
         '/Contents ${4 + i * 2} 0 R '
         '/Resources << /Font << /F1 $fontNumber 0 R >> >> >>');
     objects.add('<< /Length ${content.length} >>\nstream\n$content\nendstream');
   }
   objects.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
 
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a one-page PDF drawing each of [lines] as its own text run in
+/// base-14 /F1, top-down from y=720 at 24pt intervals.
+///
+/// Handy for content-editing tests that need several runs whose text is the
+/// same or deliberately different - "does replacing this line leave the
+/// identical one alone".
+Uint8List buildTextLinesPdf(List<String> lines, {double size = 12}) {
+  final content = StringBuffer();
+  var y = 720.0;
+  for (final line in lines) {
+    content.write('BT /F1 $size Tf 36 $y Td ($line) Tj ET\n');
+    y -= 24;
+  }
+  final body = content.toString();
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
   for (var i = 0; i < objects.length; i++) {
@@ -377,6 +432,60 @@ Uint8List buildAppearanceAnnotationsPdf() {
     form('[0 0 1 1]', ''),
     form('[0 0 10 10]', '1 0 1 rg 0 0 10 10 re f'),
     form('[0 0 10 10]', '1 1 0 rg 0 0 10 10 re f'),
+  ];
+
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a minimal Bluebeam-style FreeText annotation.
+///
+/// Bluebeam stores centre alignment and 13.8pt leading in `/DS`/`/RC`, omits
+/// `/Q`, and uses a bare carriage return between the two `/Contents` lines.
+/// Its appearance also uses page-space coordinates with a translating form
+/// matrix. This combination is a compatibility fixture for inline editing and
+/// appearance regeneration.
+Uint8List buildBluebeamFreeTextPdf() {
+  const appearance = 'q BT 1 0 0 rg /Helv 12 Tf '
+      '1 0 0 1 190 632 Tm (PJ) Tj '
+      '1 0 0 1 176 618.2 Tm (202/7) Tj ET Q';
+  const ds = 'font: Helvetica 12pt; text-align:center; margin:3pt; '
+      'line-height:13.8pt; color:#FF0000';
+  const rc = '<body style="font:Helvetica 12pt; text-align:center; '
+      'margin:3pt; line-height:13.8pt; color:#FF0000">'
+      '<p style="text-align:center; line-height:13.8pt">PJ</p>'
+      '<p style="text-align:center; line-height:13.8pt">202/7</p></body>';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Annots [5 0 R] >>',
+    '<< /Length 0 >>\nstream\n\nendstream',
+    '<< /Type /Annot /Subtype /FreeText /P 3 0 R '
+        '/Rect [100 600 300 660] /F 4 /C [] '
+        '/Contents (PJ\\r202/7) /DA (1 0 0 rg /Helv 12 Tf) '
+        '/DS ($ds) /RC ($rc) /BS << /W 0 >> /AP << /N 6 0 R >> >>',
+    '<< /Type /XObject /Subtype /Form /FormType 1 '
+        '/BBox [100 600 300 660] /Matrix [1 0 0 1 -100 -600] '
+        '/Resources << /Font << /Helv 7 0 R >> >> '
+        '/Length ${appearance.length} >>\nstream\n$appearance\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+        '/Encoding /WinAnsiEncoding >>',
   ];
 
   final buffer = StringBuffer('%PDF-1.4\n');

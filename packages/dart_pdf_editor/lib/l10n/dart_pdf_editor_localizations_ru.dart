@@ -905,6 +905,33 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get searchRegex => 'Регулярное выражение';
 
   @override
+  String get searchReplace => 'Заменить';
+
+  @override
+  String get searchReplaceAll => 'Заменить все';
+
+  @override
+  String get searchReplaceHint => 'Заменить на';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Это совпадение нельзя заменить отдельно — используйте «Заменить все» или измените его инструментом содержимого';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Заменено $count совпадения',
+      many: 'Заменено $count совпадений',
+      few: 'Заменено $count совпадения',
+      one: 'Заменено 1 совпадение',
+      zero: 'Ничего не заменено',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Результаты поиска';
 
   @override
@@ -1357,6 +1384,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Автоподбор размера текстового поля (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Подогнать шрифт под текстовое поле';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Нарисуйте линию известной длины, чтобы откалибровать масштаб.';
 
@@ -1599,6 +1629,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Стереть рукописные штрихи';
+
+  @override
+  String get tbNameHand => 'Рука';
 
   @override
   String get tbNameHighlight => 'Выделение';
@@ -2064,4 +2097,64 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Выбрать всё';
+
+  @override
+  String get annotationLibraryTitle => 'Библиотека аннотаций';
+
+  @override
+  String get annotationLibraryEmpty => 'Нет сохранённых аннотаций.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Выберите поддерживаемую аннотацию и в её меню нажмите «Сохранить в библиотеку аннотаций». Ссылки и поля форм сохранить нельзя.';
+
+  @override
+  String get annotationLibrarySave => 'Сохранить в библиотеку аннотаций';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Сохранить аннотацию';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Переименовать элемент библиотеки';
+
+  @override
+  String get annotationLibrarySearchHint => 'Поиск в библиотеке';
+
+  @override
+  String get annotationLibraryNoMatches => 'Подходящих аннотаций нет.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Без группы';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Переместить в группу';
+
+  @override
+  String get annotationLibraryNewGroup => 'Новая группа…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Новая группа аннотаций';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Переименовать группу аннотаций';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Удалить группу';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Щёлкните по странице, чтобы разместить. Нажмите Escape для отмены.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Пользовательские штампы…';
+
+  @override
+  String get signatureLibraryManage => 'Управление подписями';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Переименовать подпись';
+
+  @override
+  String get signatureLibraryEmpty => 'Нет сохранённых подписей.';
 }

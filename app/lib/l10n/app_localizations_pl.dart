@@ -436,6 +436,16 @@ class AppLocalizationsPl extends AppLocalizations {
   String get editorMenuNewDocument => 'Nowy dokument…';
 
   @override
+  String get editorMenuNewWindow => 'Nowe okno';
+
+  @override
+  String get editorMoveToNewWindow => 'Przenieś do nowego okna';
+
+  @override
+  String get editorUnableToOpenNewWindow =>
+      'Nie udało się otworzyć nowego okna';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -511,6 +521,9 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get editorOpenRecent => 'Otwórz ostatnie';
+
+  @override
+  String get editorViewAllRecentFiles => 'Wyświetl wszystkie ostatnie pliki…';
 
   @override
   String get editorOpenTabs => 'Otwarte karty';
@@ -768,6 +781,51 @@ class AppLocalizationsPl extends AppLocalizations {
   String get printDlgTitle => 'Drukowanie';
 
   @override
+  String get printPreviewAll => 'Wszystkie';
+
+  @override
+  String get printPreviewCurrent => 'Bieżąca';
+
+  @override
+  String get printPreviewFrom => 'Od';
+
+  @override
+  String get printPreviewNextPage => 'Następna strona';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Strona $page z $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Poprzednia strona';
+
+  @override
+  String get printPreviewPrint => 'Drukuj';
+
+  @override
+  String get printPreviewRange => 'Zakres';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Podaj zakres stron od 1 do $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Strony do wydruku: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Podgląd wydruku';
+
+  @override
+  String get printPreviewTo => 'Do';
+
+  @override
+  String get printPreviewUnavailable => 'Podgląd niedostępny';
+
+  @override
   String get redo => 'Ponów';
 
   @override
@@ -901,6 +959,13 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Ostatnie';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Przeszukaj ostatnie pliki';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Brak ostatnich plików pasujących do wyszukiwania';
 
   @override
   String get welcomeRemoveFromRecent => 'Usuń z ostatnich';

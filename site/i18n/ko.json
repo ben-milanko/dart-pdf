@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "다운로드",
   "dl_h2": "당신의 플랫폼에서 DartPDF를 사용하세요.",
-  "dl_intro": "App Store와 Google Play에서 받거나, 데스크톱 앱을 설치하거나, 브라우저에서 바로 사용하세요.",
+  "dl_intro": "이 기기에 가장 적합한 다운로드를 표시합니다. 다른 모든 플랫폼도 한 번만 클릭하면 볼 수 있습니다.",
+  "dl_otherPlatforms": "기타 플랫폼",
   "dl_get": "다운로드",
   "dl_open": "열기",
   "dlMac_meta": "직접 .dmg · 서명 및 공증 완료",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "개발자",
   "dev_h2": "당신도 사용할 수 있는 순수 Dart PDF 엔진.",
-  "dev_p": "이 엔진은 PDFium이나 네이티브 바인딩 대신 Dart를 사용하므로 Dart와 Flutter가 실행되는 곳이면 어디서나 동작합니다. 패키지는\n          Apache-2.0 라이선스로 pub.dev에 게시되어 있습니다. 벤치마크와 상용 SDK 비교는 <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK 개요</a>를\n          참고하세요.",
+  "dev_p": "이 엔진은 PDFium이나 네이티브 바인딩 대신 Dart를 사용하므로 Dart와 Flutter가 실행되는 곳이면 어디서나 동작합니다. 패키지는\n          Apache-2.0 라이선스로 pub.dev에 게시되어 있습니다. 벤치마크와 상용 SDK 비교는 <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK 개요</a>를\n          참고하세요.",
   "dev_ctaGithub": "GitHub에서 보기",
   "dev_ctaPub": "pub.dev의 패키지",
   "dev_bTitle": "오픈 소스 패키지",
@@ -130,7 +131,7 @@
   "sp_faq2": "<strong>PDF는 어떻게 여나요?</strong> DartPDF를 열어 파일을 고르거나, Files 앱에서 PDF를 열거나, 다른 앱의 공유 시트에서 DartPDF로 보내거나, 파일을 창에 끌어다 놓으세요.",
   "sp_faq3": "<strong>암호로 보호된 PDF를 열 수 있나요?</strong> 네. DartPDF는 암호를 입력하도록 안내하고 암호화된 파일을 보기 및 편집용으로 엽니다.",
   "sp_faq4": "<strong>OCR은 어떻게 작동하나요?</strong> 광학 문자 인식은 전적으로 기기에서 실행됩니다. 최초 사용 시 앱이 인식 모델을 다운로드한 뒤 모든 처리가 로컬에서 이루어지며, 페이지는 절대 서버로 전송되지 않습니다.",
-  "sp_faq5": "<strong>내 데이터는 안전한가요?</strong> 네. DartPDF에는 분석, 광고, 계정, 서버가 없습니다. 자세한 내용은 <a href=\"privacy.html\">개인정보 처리방침</a>을 참고하세요.",
+  "sp_faq5": "<strong>내 데이터는 안전한가요?</strong> 네. DartPDF에는 분석, 광고, 계정, 서버가 없습니다. 자세한 내용은 <a href=\"/privacy\">개인정보 처리방침</a>을 참고하세요.",
   "sp_stuckH2": "여전히 해결되지 않나요?",
   "sp_stuck_p": "<a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a>로 무엇을 하려고 했는지 설명해 이메일을 보내주세요. 모든 메시지를 읽습니다.",
 
@@ -139,6 +140,7 @@
   "sdk_nav_features": "기능",
   "sdk_nav_performance": "성능",
   "sdk_nav_compare": "비교",
+  "sdk_nav_guide": "가이드",
   "sdk_nav_packages": "패키지",
   "sdk_nav_getpub": "pub.dev에서 받기",
   "sdk_hero_h1": "Flutter를 위한 PDF 뷰어 및 편집기, <span class=\"hl\">전적으로\n          Dart로 작성.</span>",

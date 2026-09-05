@@ -1166,6 +1166,31 @@
   "@searchRegex": {
     "description": "Tooltip on the search option toggle that treats the query as a regular expression."
   },
+  "searchReplace": "Replace",
+  "@searchReplace": {
+    "description": "Label on the search panel button that replaces the current match."
+  },
+  "searchReplaceAll": "Replace all",
+  "@searchReplaceAll": {
+    "description": "Label on the search panel button that replaces every match in the document."
+  },
+  "searchReplaceHint": "Replace with",
+  "@searchReplaceHint": {
+    "description": "Placeholder in the search panel's replacement text field."
+  },
+  "searchReplaceNotTargetable": "That match can\u2019t be replaced on its own \u2014 use Replace all, or edit it with the content tool",
+  "@searchReplaceNotTargetable": {
+    "description": "Shown when a single search match cannot be pinned to one editable text run, so Replace did nothing."
+  },
+  "searchReplaced": "{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}",
+  "@searchReplaced": {
+    "description": "Confirmation after replacing search matches.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "searchResultsTitle": "Search results",
   "@searchResultsTitle": {
     "description": "Title of the docked search results panel."
@@ -1734,9 +1759,9 @@
   "@tbAlignVerticalCenters": {
     "description": "Tooltip: align selected annotations on their vertical centers."
   },
-  "tbAnnotationsFlattened": "Annotations flattened into the pages",
+  "tbAnnotationsFlattened": "Annotations and form fields flattened into the pages",
   "@tbAnnotationsFlattened": {
-    "description": "Snackbar confirming annotations were baked into the page content."
+    "description": "Snackbar confirming annotations and form fields were baked into the page content."
   },
   "tbApplyRedactionsMessage": "The marked content will be permanently removed from the document. This cannot be undone.",
   "@tbApplyRedactionsMessage": {
@@ -1753,6 +1778,10 @@
   "tbAutosizeTextBox": "Autosize text box (Alt+Z)",
   "@tbAutosizeTextBox": {
     "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
+  },
+  "tbAutosizeTextFont": "Fit font to text box",
+  "@tbAutosizeTextFont": {
+    "description": "Tooltip for choosing the largest font size that fits the selected free-text box."
   },
   "tbCalibrateScaleHint": "Draw a line of known length to calibrate the scale.",
   "@tbCalibrateScaleHint": {
@@ -1905,9 +1934,9 @@
   "@tbFingerScrolls": {
     "description": "Tooltip when finger scrolls and only the pen draws; tapping switches finger to drawing."
   },
-  "tbFlattenAnnotationsTooltip": "Flatten annotations into the pages",
+  "tbFlattenAnnotationsTooltip": "Flatten annotations and form fields into the pages",
   "@tbFlattenAnnotationsTooltip": {
-    "description": "Tooltip for the button that bakes annotations into page content."
+    "description": "Tooltip for the button that bakes annotations and form fields into page content."
   },
   "tbFlattenForm": "Flatten form",
   "@tbFlattenForm": {
@@ -1991,35 +2020,35 @@
   },
   "tbMarkupHighlight": "Highlight",
   "@tbMarkupHighlight": {
-    "description": "Text-markup action name: highlight the text selection."
+    "description": "Text-markup tool name: highlight text."
   },
-  "tbMarkupHighlightTip": "Highlight selection",
+  "tbMarkupHighlightTip": "Highlight text",
   "@tbMarkupHighlightTip": {
-    "description": "Tooltip: highlight the current text selection."
+    "description": "Tooltip for the text highlight tool."
   },
   "tbMarkupSquiggly": "Squiggly-underline",
   "@tbMarkupSquiggly": {
-    "description": "Text-markup action name: squiggly-underline the text selection."
+    "description": "Text-markup tool name: squiggly-underline text."
   },
-  "tbMarkupSquigglyTip": "Squiggly-underline selection",
+  "tbMarkupSquigglyTip": "Squiggly-underline text",
   "@tbMarkupSquigglyTip": {
-    "description": "Tooltip: squiggly-underline the current text selection."
+    "description": "Tooltip for the squiggly-underline tool."
   },
   "tbMarkupStrikeOut": "Strike out",
   "@tbMarkupStrikeOut": {
-    "description": "Text-markup action name: strike out the text selection."
+    "description": "Text-markup tool name: strike out text."
   },
-  "tbMarkupStrikeOutTip": "Strike out selection",
+  "tbMarkupStrikeOutTip": "Strike out text",
   "@tbMarkupStrikeOutTip": {
-    "description": "Tooltip: strike out the current text selection."
+    "description": "Tooltip for the strike-out tool."
   },
   "tbMarkupUnderline": "Underline",
   "@tbMarkupUnderline": {
-    "description": "Text-markup action name: underline the text selection."
+    "description": "Text-markup tool name: underline text."
   },
-  "tbMarkupUnderlineTip": "Underline selection",
+  "tbMarkupUnderlineTip": "Underline text",
   "@tbMarkupUnderlineTip": {
-    "description": "Tooltip: underline the current text selection."
+    "description": "Tooltip for the underline tool."
   },
   "tbMoreColors": "More colors…",
   "@tbMoreColors": {
@@ -2056,6 +2085,10 @@
   "tbNameEraser": "Erase ink strokes",
   "@tbNameEraser": {
     "description": "Tool name: erases ink strokes."
+  },
+  "tbNameHand": "Hand",
+  "@tbNameHand": {
+    "description": "Name of the default page-navigation mode, which pans the document by dragging."
   },
   "tbNameHighlight": "Highlight",
   "@tbNameHighlight": {
@@ -2133,9 +2166,9 @@
   "@tbNewFieldType": {
     "description": "Tooltip for the menu selecting which type of form field a drag will create."
   },
-  "tbNoAnnotationsToFlatten": "No annotations to flatten",
+  "tbNoAnnotationsToFlatten": "No annotations or form fields to flatten",
   "@tbNoAnnotationsToFlatten": {
-    "description": "Snackbar shown when the flatten action runs but there are no annotations."
+    "description": "Snackbar shown when the flatten action runs but there are no annotations or form fields."
   },
   "tbNoCustomStamps": "No custom stamps",
   "@tbNoCustomStamps": {
@@ -2217,9 +2250,9 @@
   "@tbScale": {
     "description": "Leading label of the measurement-scale chip."
   },
-  "tbSelectTextForMarkup": "Select text to use markup",
+  "tbSelectTextForMarkup": "Choose a markup, then select text",
   "@tbSelectTextForMarkup": {
-    "description": "Hint shown when the markup tools are open but no text is selected."
+    "description": "Hint explaining the arm-first text-markup workflow."
   },
   "tbSelectionCount": "{count, plural, =1{Selection} other{{count} selected}}",
   "@tbSelectionCount": {
@@ -2598,5 +2631,81 @@
   "viewerSelectAll": "Select all",
   "@viewerSelectAll": {
     "description": "Menu/chip action that selects all text on the current page."
+  },
+  "annotationLibraryTitle": "Annotation library",
+  "@annotationLibraryTitle": {
+    "description": "Title and toolbar tooltip for the reusable annotation library."
+  },
+  "annotationLibraryEmpty": "No saved annotations.",
+  "@annotationLibraryEmpty": {
+    "description": "Empty-state text in the reusable annotation library."
+  },
+  "annotationLibraryHelp": "Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.",
+  "@annotationLibraryHelp": {
+    "description": "Explanation of how to save reusable annotations and which interactive types are deliberately unsupported."
+  },
+  "annotationLibrarySave": "Save to annotation library",
+  "@annotationLibrarySave": {
+    "description": "Annotation context-menu action that saves the selected annotation for reuse."
+  },
+  "annotationLibrarySaveTitle": "Save annotation",
+  "@annotationLibrarySaveTitle": {
+    "description": "Title of the prompt that names an annotation library item."
+  },
+  "annotationLibraryRenameTitle": "Rename library item",
+  "@annotationLibraryRenameTitle": {
+    "description": "Title of the prompt that renames an annotation library item."
+  },
+  "annotationLibrarySearchHint": "Search library",
+  "@annotationLibrarySearchHint": {
+    "description": "Placeholder in the reusable annotation-library panel search field."
+  },
+  "annotationLibraryNoMatches": "No matching annotations.",
+  "@annotationLibraryNoMatches": {
+    "description": "Empty state when annotation-library search filters out every item."
+  },
+  "annotationLibraryUngrouped": "Ungrouped",
+  "@annotationLibraryUngrouped": {
+    "description": "Heading for reusable annotations that have no user-defined group."
+  },
+  "annotationLibraryChooseGroup": "Move to group",
+  "@annotationLibraryChooseGroup": {
+    "description": "Action that assigns a reusable annotation to a library group."
+  },
+  "annotationLibraryNewGroup": "New group…",
+  "@annotationLibraryNewGroup": {
+    "description": "Action that creates and assigns a new annotation-library group."
+  },
+  "annotationLibraryGroupTitle": "New annotation group",
+  "@annotationLibraryGroupTitle": {
+    "description": "Title of the prompt that names a new annotation-library group."
+  },
+  "annotationLibraryRenameGroupTitle": "Rename annotation group",
+  "@annotationLibraryRenameGroupTitle": {
+    "description": "Title of the prompt that renames an annotation-library group."
+  },
+  "annotationLibraryRemoveGroup": "Remove group",
+  "@annotationLibraryRemoveGroup": {
+    "description": "Tooltip that removes a group while leaving its annotations ungrouped."
+  },
+  "annotationLibraryPlacementHint": "Click the page to place. Press Escape to cancel.",
+  "@annotationLibraryPlacementHint": {
+    "description": "Hint shown while a reusable annotation follows the pointer ready for placement."
+  },
+  "annotationLibraryCustomStamps": "Custom stamps…",
+  "@annotationLibraryCustomStamps": {
+    "description": "Button that opens custom stamps from the broader annotation library."
+  },
+  "signatureLibraryManage": "Manage signatures",
+  "@signatureLibraryManage": {
+    "description": "Toolbar tooltip that opens the saved handwritten-signature library."
+  },
+  "signatureLibraryRenameTitle": "Rename signature",
+  "@signatureLibraryRenameTitle": {
+    "description": "Title of the prompt that renames a saved handwritten signature."
+  },
+  "signatureLibraryEmpty": "No saved signatures.",
+  "@signatureLibraryEmpty": {
+    "description": "Empty-state text in the saved handwritten-signature library."
   }
 }

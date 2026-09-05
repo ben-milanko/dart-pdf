@@ -27,7 +27,7 @@ FLUTTER_VERSION="$(
   grep -o '"flutter"[[:space:]]*:[[:space:]]*"[^"]*"' "$PROJECT_DIR/.fvmrc" 2>/dev/null \
     | grep -o '[0-9][0-9.]*' | head -n1 || true
 )"
-FLUTTER_VERSION="${FLUTTER_VERSION:-3.44.8}"
+FLUTTER_VERSION="${FLUTTER_VERSION:-3.47.0}"
 
 SDK_DIR="$HOME/fvm/versions/$FLUTTER_VERSION"
 DART_BIN="$SDK_DIR/bin/cache/dart-sdk/bin"

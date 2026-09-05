@@ -5,6 +5,8 @@ import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextExtractor;
@@ -75,6 +77,26 @@ Uint8List buildPlainAnnotationPdf() {
   return editor.save();
 }
 
+Uint8List buildDisjointHighlightPdf({bool rotated = false}) {
+  final document = PdfDocument.open(buildClassicPdf());
+  final editor = PdfEditor(document)
+    ..addHighlight(0, const [
+      PdfRect(80, 680, 140, 700),
+      PdfRect(220, 680, 280, 700),
+      PdfRect(330, 680, 390, 700),
+    ]);
+  if (rotated) {
+    final annotation = document.page(0).annotations.single;
+    editor.rotateAnnotation(0, annotation, 20);
+    // One malformed group must not discard the two usable rotated groups and
+    // reinstate the broad /Rect hit target.
+    final points = document.cos.resolve(annotation.dict['QuadPoints']);
+    (points as CosArray).items[16] = const CosName('broken');
+    editor.setAnnotationContents(0, annotation, 'rotated fixture');
+  }
+  return editor.save();
+}
+
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
       {int pages = 5,
@@ -116,6 +138,18 @@ void main() {
     expect(controller.pageCount, 5);
     expect(controller.currentPage, 0);
     expect(find.byType(PdfPageView), findsWidgets);
+  });
+
+  testWidgets('reports readiness for the mounted page raster', (tester) async {
+    final controller = await pumpViewer(tester);
+    for (var i = 0; i < 100 && !controller.isPageRasterReady(0); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(controller.isPageRasterReady(0), isTrue);
+    expect(controller.isPageRasterReady(99), isFalse);
   });
 
   testWidgets('opens fitted to the whole page by default', (tester) async {
@@ -328,6 +362,141 @@ void main() {
     await tester.pump();
     expect(controller.hasSelection, isFalse);
     // drain the double-tap recognizer's timeout timer
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('mouse drag between text lines grab-pans the page',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+
+    // The 12pt runs occupy y=717..729 and y=693..705. A press at y=711 is
+    // visibly between them but was within the old 14pt nearest-text radius.
+    final before = controller.visiblePageRegion(0)!;
+    final gesture = await tester.startGesture(view(100, 711),
+        kind: PointerDeviceKind.mouse);
+    await gesture.moveBy(const Offset(0, -20)); // cross drag slop over line 1
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -80));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    final after = controller.visiblePageRegion(0)!;
+    expect(after.bottom, greaterThan(before.bottom),
+        reason: 'inter-line whitespace should start grab-pan, not selection');
+    expect(controller.hasSelection, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('inter-line gap shows the grab cursor', (tester) async {
+    await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+            of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+        .first);
+
+    final hover =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 77);
+    await hover.addPointer(location: view(100, 711));
+    await tester.pump();
+    await hover.moveTo(view(101, 711));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab);
+    await hover.removePointer();
+    await tester.pump();
+  });
+
+  testWidgets('mouse double-click between text lines does not select',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    final gap = Offset(100 * scale, (792 - 711) * scale);
+    await tester.tapAt(gap, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(gap, kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    expect(controller.hasSelection, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('right-click between text lines does not select adjacent text',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    final gap = Offset(100 * scale, (792 - 711) * scale);
+    await tester.tapAt(
+      gap,
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(controller.hasSelection, isFalse);
+    expect(controller.selectedText, isEmpty);
+  });
+
+  testWidgets('explicit Hand mode pans over text instead of selecting it',
+      (tester) async {
+    final bytes = buildMultiPagePdf(5);
+    final editing = PdfEditingController(bytes)..activateHandMode();
+    final controller = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          controller: controller,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+            of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+        .first);
+
+    final hover =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 7);
+    await hover.addPointer(location: view(100, 720));
+    await tester.pump();
+    await hover.moveTo(view(101, 720));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab);
+    await hover.removePointer();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(view(158, 720),
+        kind: PointerDeviceKind.mouse, pointer: 8);
+    await gesture.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await gesture.moveTo(view(50, 720));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.hasSelection, isFalse);
+    expect(controller.selectedText, isEmpty);
     await tester.pump(const Duration(milliseconds: 400));
   });
 
@@ -916,6 +1085,85 @@ void main() {
     expect(controller.zoom, closeTo(24, 0.01));
   });
 
+  testWidgets('controller zoom settles page rendering immediately',
+      (tester) async {
+    final controller = await pumpViewer(tester, pages: 1);
+    controller.setZoom(2);
+    await tester.pump();
+
+    final page = tester.widget<PdfPageView>(find.byType(PdfPageView));
+    expect(page.scale, greaterThan(1),
+        reason: 'a discrete controller command must not wait for the '
+            'gesture-only 200 ms quiet debounce');
+  });
+
+  testWidgets('controller layout zoom does not leave a delayed scroll settle',
+      (tester) async {
+    final controller = await pumpViewer(tester, pages: 3);
+    unawaited(controller.jumpToPage(1));
+    await tester.pumpAndSettle();
+
+    controller.setZoom(1);
+    await tester.pump();
+    final settled = tester
+        .widgetList<PdfPageView>(find.byType(PdfPageView))
+        .map((page) => page.settleGeneration)
+        .toList();
+
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(
+      tester
+          .widgetList<PdfPageView>(find.byType(PdfPageView))
+          .map((page) => page.settleGeneration),
+      orderedEquals(settled),
+      reason: 'a discrete zoom command must not repaint again after the '
+          'gesture-only 500 ms scroll quiet window',
+    );
+  });
+
+  testWidgets('controller viewport commands coalesce before releasing renders',
+      (tester) async {
+    final controller = await pumpViewer(tester, pages: 1);
+    final before =
+        tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration;
+    controller.setZoom(4);
+    final viewport = controller.captureViewport()!;
+    controller.restoreViewport(PdfViewport(
+      page: 0,
+      left: 0.02,
+      zoom: viewport.zoom,
+    ));
+
+    expect(
+      controller.debugRenderHold,
+      isTrue,
+      reason: 'the page still has the old settle generation until the next '
+          'build, so granting work here would immediately make it stale',
+    );
+    expect(
+      tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration,
+      before,
+    );
+
+    await tester.pump();
+
+    final settled =
+        tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration;
+    expect(
+      settled,
+      greaterThan(before),
+    );
+    expect(controller.debugRenderHold, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration,
+      settled,
+      reason: 'restoring the final viewport is one discrete command, not a '
+          'second gesture settle after detail work has started',
+    );
+  });
+
   testWidgets('tapping a URI link surfaces the action', (tester) async {
     // The default launcher only opens well-known external schemes, so the
     // fixture's app:// link falls through to onAction unchanged.
@@ -959,6 +1207,69 @@ void main() {
     expect(tap.pagePoint.dy, closeTo(690, 0.5));
     expect(tap.pageViewPosition.dx, closeTo(annotView(110, 690).dx, 0.5));
     expect(tap.pageViewPosition.dy, closeTo(annotView(110, 690).dy, 0.5));
+  });
+
+  testWidgets('text markup callback and click cursor only hit visible quads',
+      (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(
+      tester,
+      bytes: buildDisjointHighlightPdf(),
+      onAnnotationTap: taps.add,
+    );
+
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+          of: find.byType(PdfViewer),
+          matching: find.byType(MouseRegion),
+        )
+        .first);
+    final gesture =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 13);
+    await gesture.addPointer(location: annotView(170, 690));
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.moveTo(annotView(171, 690));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab,
+        reason: 'the invisible gap inside a markup /Rect is not clickable');
+
+    await tester.tapAt(annotView(170, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
+
+    await gesture.moveTo(annotView(110, 690));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.click);
+
+    await tester.tapAt(annotView(110, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation.subtype, 'Highlight');
+  });
+
+  testWidgets(
+      'rotated markup uses valid quadrilaterals despite a malformed group',
+      (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(
+      tester,
+      bytes: buildDisjointHighlightPdf(rotated: true),
+      onAnnotationTap: taps.add,
+    );
+
+    // All source points turn 20 degrees around the annotation centre
+    // (235,690). This point is the turned centre of the whitespace between
+    // the first two colored runs: inside /Rect, outside both usable quads.
+    await tester.tapAt(annotView(183.32, 671.19));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
+
+    // Turned centre of the first run.
+    await tester.tapAt(annotView(117.54, 647.25));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation.subtype, 'Highlight');
   });
 
   testWidgets('tapping an http link opens it via the default launcher',
@@ -1130,6 +1441,19 @@ void main() {
     controller.jumpToPage(4);
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(controller.currentPage, 4);
+  });
+
+  testWidgets('disposing during an animated page jump is safe', (tester) async {
+    final controller = await pumpViewer(tester);
+    // Page 1 is close enough to use ScrollController.animateTo rather than
+    // the far-jump shortcut. Remove the viewer before that future completes;
+    // its ScrollController has no positions when the continuation resumes.
+    unawaited(controller.jumpToPage(1));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('page overlays sit at PDF coordinates and stay interactive',
@@ -1375,6 +1699,185 @@ void main() {
   });
 
   group('editing controller drives the document', () {
+    testWidgets('reconciles only dirty pages across annotation revisions',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(12));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final cleanPage = controller.debugPageIdentity(0);
+      final dirtyPage = controller.debugPageIdentity(7);
+      final presentationEpoch = controller.pagePresentationEpoch;
+      expect(controller.debugIncrementalPageReconciliations, 0);
+
+      final logs = <String>[];
+      addTearDown(() {
+        PdfPerfLog.enabled = false;
+        PdfPerfLog.sink = null;
+      });
+      PdfPerfLog.sink = logs.add;
+      PdfPerfLog.enabled = true;
+      PdfPerf.reset();
+      editing.addRectangle(7, const PdfRect(100, 100, 200, 200));
+      final revisionPerf = PdfPerf.snapshot();
+      PdfPerfLog.enabled = false;
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 1);
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.incremental);
+      expect(diagnostics.pageCount, 12);
+      expect(diagnostics.dirtyPages, 1);
+      expect(diagnostics.retainedPages, 11);
+      expect(diagnostics.geometryPages, 0);
+      expect(diagnostics.walkedPageTree, isFalse);
+      expect(diagnostics.fallbackReason, isNull);
+      expect(
+        logs,
+        contains(predicate<String>((line) =>
+            line.contains('page-reconcile mode=incremental') &&
+            line.contains('pages=12 dirty=1 retained=11') &&
+            line.contains('walk=0'))),
+      );
+      expect(
+        revisionPerf.phaseCalls[PdfPerfPhase.pageTreeWalk.index],
+        0,
+        reason: 'a dirty-page reconcile must not walk the whole page tree',
+      );
+      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      expect(controller.debugPageIdentity(0), same(cleanPage),
+          reason: 'a clean keyed page must bail out');
+      expect(controller.debugPageIdentity(7), isNot(same(dirtyPage)),
+          reason: 'the dirty page gets a new async-completion fence');
+      expect(controller.pagePresentationEpoch, presentationEpoch,
+          reason: 'a non-structural edit keeps the page-slot lineage');
+
+      final firstDirtyRevision = controller.debugPageIdentity(7);
+      editing.addRectangle(7, const PdfRect(220, 220, 280, 280));
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 2);
+      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      expect(controller.debugPageIdentity(0), same(cleanPage));
+      expect(controller.debugPageIdentity(7), isNot(same(firstDirtyRevision)));
+      expect(editing.document.page(7).annotations, hasLength(2),
+          reason: 'the second edit resolved the latest page dictionary');
+    });
+
+    testWidgets('reconciles a dirty page geometry change incrementally',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final epoch = controller.pagePresentationEpoch;
+      final cleanPage = controller.debugPageIdentity(0);
+      final dirtyPage = controller.debugPageIdentity(1);
+      editing.rotatePages([1], 90);
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 1);
+      expect(controller.debugLastIncrementallyReconciledPages, {1});
+      expect(controller.debugPageIdentity(0), same(cleanPage));
+      expect(controller.debugPageIdentity(1), isNot(same(dirtyPage)));
+      expect(controller.pagePresentationEpoch, epoch,
+          reason: 'rotation changes geometry, not the page-slot lineage');
+      expect(editing.document.page(1).rotation, 90);
+    });
+
+    testWidgets('moves keyed page state across a pure reorder', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final movedPage = controller.debugPageIdentity(0);
+      final movedState = tester.state(find.byWidgetPredicate(
+        (widget) => widget is PdfPageView && identical(widget.page, movedPage),
+      ));
+      final epoch = controller.pagePresentationEpoch;
+      final namespace = controller.debugTileCacheNamespace;
+
+      editing.movePage(0, 1);
+      await tester.pump();
+
+      expect(controller.debugKeyedPageReconciliations, 1);
+      final reorderedPage = controller.debugPageIdentity(1);
+      expect(reorderedPage, isNot(same(movedPage)),
+          reason: 'the page wrapper belongs to the current revision');
+      expect(controller.pagePresentationEpoch, epoch);
+      expect(controller.debugTileCacheNamespace, same(namespace));
+      expect(
+        tester.state(find.byWidgetPredicate(
+          (widget) =>
+              widget is PdfPageView && identical(widget.page, reorderedPage),
+        )),
+        same(movedState),
+        reason: 'the rendered State follows its stable page key',
+      );
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.keyedStructure);
+      expect(diagnostics.dirtyPages, 0);
+      expect(diagnostics.retainedPages, 4);
+      expect(diagnostics.walkedPageTree, isTrue);
+
+      editing.undo();
+      await tester.pump();
+      expect(controller.debugKeyedPageReconciliations, 2);
+      final restoredPage = controller.debugPageIdentity(0);
+      expect(
+        tester.state(find.byWidgetPredicate(
+          (widget) =>
+              widget is PdfPageView && identical(widget.page, restoredPage),
+        )),
+        same(movedState),
+        reason: 'undo moves the same keyed State back to its original slot',
+      );
+    });
+
     testWidgets(
         'follows revisions with no host ListenableBuilder and no document',
         (tester) async {
@@ -1403,6 +1906,44 @@ void main() {
       await tester.pump();
       expect(controller.pageCount, 2,
           reason: 'the viewer tracks the controller revision by itself');
+    });
+
+    testWidgets('page deletion starts a fresh presentation generation',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+      final oldNamespace = controller.debugTileCacheNamespace;
+      final oldEpoch = controller.pagePresentationEpoch;
+      final oldPageState = tester.state(find.byType(PdfPageView).first);
+
+      editing.removePage(0);
+      await tester.pump();
+
+      expect(controller.pageCount, 2);
+      expect(controller.pagePresentationEpoch, oldEpoch! + 1);
+      expect(controller.debugTileCacheNamespace, isNot(same(oldNamespace)),
+          reason: 'pre-delete tile completions must be unreachable');
+      expect(tester.state(find.byType(PdfPageView).first),
+          isNot(same(oldPageState)),
+          reason: 'a shifted page slot must not inherit native render state');
+      expect(
+        controller.debugPageReconciliationDiagnostics!.fallbackReason,
+        'page-structure-changed',
+      );
     });
 
     testWidgets('a stale standalone document never desyncs the viewer',
@@ -1480,23 +2021,19 @@ void main() {
   group('contextMenuEnabled', () {
     test('defaults to true', () {
       expect(
-          PdfViewer(
-                  document: PdfDocument.open(buildMultiPagePdf(1)))
+          PdfViewer(document: PdfDocument.open(buildMultiPagePdf(1)))
               .contextMenuEnabled,
           isTrue);
     });
 
-    testWidgets(
-        'right-click on plain page text opens the text menu by default',
+    testWidgets('right-click on plain page text opens the text menu by default',
         (tester) async {
       final controller = await pumpViewer(tester, pages: 2);
       // 'Page 1' baseline at (72, 720), 24pt - mid-word of "Page"
-      await tester.tapAt(annotView(100, 720),
-          buttons: kSecondaryButton);
+      await tester.tapAt(annotView(100, 720), buttons: kSecondaryButton);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
-      expect(
-          find.byKey(const ValueKey('pdf-text-menu-select-all')),
+      expect(find.byKey(const ValueKey('pdf-text-menu-select-all')),
           findsOneWidget);
       // dismiss the menu so the teardown of the viewer does not race it
       await tester.tapAt(const Offset(10, 10));
@@ -1521,13 +2058,11 @@ void main() {
       ));
       await tester.pump();
 
-      await tester.tapAt(annotView(100, 720),
-          buttons: kSecondaryButton);
+      await tester.tapAt(annotView(100, 720), buttons: kSecondaryButton);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
       expect(
-          find.byKey(const ValueKey('pdf-text-menu-select-all')),
-          findsNothing);
+          find.byKey(const ValueKey('pdf-text-menu-select-all')), findsNothing);
     });
 
     testWidgets(
@@ -1548,8 +2083,7 @@ void main() {
       ));
       await tester.pump();
 
-      await tester.tapAt(annotView(100, 720),
-          buttons: kSecondaryButton);
+      await tester.tapAt(annotView(100, 720), buttons: kSecondaryButton);
       await tester.pumpAndSettle();
       expect(hostCalls, hasLength(1),
           reason: 'host callback fires exactly once per right-click');
@@ -1587,8 +2121,7 @@ void main() {
       ));
       await tester.pump();
 
-      await tester.tapAt(annotView(100, 720),
-          buttons: kSecondaryButton);
+      await tester.tapAt(annotView(100, 720), buttons: kSecondaryButton);
       await tester.pumpAndSettle();
       expect(hostCalls, 0,
           reason: 'host callback only fires when the default menu is off');
@@ -1639,8 +2172,8 @@ void main() {
       // The stock text menu and selection chip must not appear; the host
       // owns the popup.
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-text-menu-select-all')),
-          findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')), findsNothing);
     });
 
     // 🔴 regression: the desktop takeover used to fire before the stock

@@ -67,7 +67,8 @@ int stripArgbColor(PdfColor color, double alpha) {
 /// but not the other desyncs flush ordinals. Worker plans must not be used
 /// while a debug-delegate flag is set (the worker isolate has its own
 /// statics and would bin the full routing).
-abstract class StripBinningDevice implements PdfDevice {
+abstract class StripBinningDevice
+    implements PdfDevice, PdfTransparencyGroupDevice {
   StripBinningDevice({
     required this.pageToDevice,
     required this.deviceWidth,
@@ -171,6 +172,13 @@ abstract class StripBinningDevice implements PdfDevice {
   void delegateSetOverprint(
       {required bool fill, required bool stroke, required int mode});
   void delegateBeginGroup(double alpha, {required bool knockout});
+  void delegateBeginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  });
   void delegateEndGroup();
   void delegateBeginSoftMasked();
 
@@ -284,7 +292,7 @@ abstract class StripBinningDevice implements PdfDevice {
       return;
     }
     if (!binningEnabled) return;
-    final color = stripArgbColor(run.color, 1);
+    final color = stripArgbColor(run.color, run.fillAlpha);
     for (final glyph in glyphs) {
       final outline = glyph.outline;
       if (outline == null) continue;
@@ -326,6 +334,27 @@ abstract class StripBinningDevice implements PdfDevice {
     // Observed before the interpreter resets the in-group blend to Normal.
     _groupBlended.add(_blend != PdfBlendMode.normal);
     delegateBeginGroup(alpha, knockout: knockout);
+  }
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {
+    flushPending(); // the group's layer must not capture earlier strips
+    _groupKnockout.add(knockout);
+    // Observed before the interpreter resets the in-group blend to Normal.
+    _groupBlended.add(_blend != PdfBlendMode.normal);
+    delegateBeginTransparencyGroup(
+      alpha,
+      knockout: knockout,
+      isolated: isolated,
+      bounds: bounds,
+      backdropColor: backdropColor,
+    );
   }
 
   @override

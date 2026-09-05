@@ -21,14 +21,31 @@ Uint8List applyPredictor(Uint8List data, CosDictionary? params) {
   final bytesPerRow = (colors * bitsPerComponent * columns + 7) ~/ 8;
 
   if (predictor == 2) {
-    if (bitsPerComponent != 8) {
+    if (bitsPerComponent != 8 && bitsPerComponent != 16) {
       throw CosParseException(
           'TIFF predictor with $bitsPerComponent bits per component '
           'is not supported yet');
     }
-    for (var row = 0; row + bytesPerRow <= data.length; row += bytesPerRow) {
-      for (var i = bytesPerPixel; i < bytesPerRow; i++) {
-        data[row + i] = (data[row + i] + data[row + i - bytesPerPixel]) & 0xFF;
+    if (bitsPerComponent == 8) {
+      for (var row = 0; row + bytesPerRow <= data.length; row += bytesPerRow) {
+        for (var i = bytesPerPixel; i < bytesPerRow; i++) {
+          data[row + i] =
+              (data[row + i] + data[row + i - bytesPerPixel]) & 0xFF;
+        }
+      }
+    } else {
+      // Predictor 2 differences *samples*, not bytes. A 16-bit PDF sample is
+      // big-endian, so reconstruct each component modulo 65536 from the same
+      // component in the pixel immediately to its left. Byte-wise addition
+      // loses carries and is the reason every 16-bit Ghent image used to be
+      // rejected (or would have decoded into vertical colour bands).
+      final view = ByteData.sublistView(data);
+      for (var row = 0; row + bytesPerRow <= data.length; row += bytesPerRow) {
+        for (var i = bytesPerPixel; i < bytesPerRow; i += 2) {
+          final delta = view.getUint16(row + i);
+          final left = view.getUint16(row + i - bytesPerPixel);
+          view.setUint16(row + i, (delta + left) & 0xFFFF);
+        }
       }
     }
     return data;

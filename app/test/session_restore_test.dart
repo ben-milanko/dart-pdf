@@ -17,6 +17,8 @@ import 'package:dart_pdf_editor_app/session_store.dart';
 import 'package:dart_pdf_editor_app/unsaved_changes.dart';
 import 'package:dart_pdf_editor_app/welcome_screen.dart';
 
+import 'test_finders.dart';
+
 class _FakeFileSelector extends fs.FileSelectorPlatform {
   _FakeFileSelector(this.files);
 
@@ -85,7 +87,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   // The editor never settles (it keeps rasterizing), and restore performs real
@@ -100,6 +102,31 @@ void main() {
       }
     });
     await tester.pump();
+  }
+
+  // Real frames: restore and the progressive opener both do file I/O, which
+  // only progresses under runAsync.
+  Future<void> pumpFrames(WidgetTester tester) async {
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  // Hands the app a file the way a native runner does - the macOS
+  // `application(_:open:)` payload is a path (plus a security bookmark), no
+  // bytes. Call inside runAsync.
+  Future<void> deliverOpenFile(WidgetTester tester,
+      {required String name, required String path}) async {
+    const codec = StandardMethodCodec();
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      IncomingFileService.channelName,
+      codec.encodeMethodCall(MethodCall('openFile', {
+        'name': name,
+        'path': path,
+      })),
+      (_) {},
+    );
   }
 
   testWidgets('re-opens the documents from the last session on startup',
@@ -287,5 +314,74 @@ void main() {
     expect(find.textContaining('Could not open'), findsNothing);
     expect(tabTitle('a.pdf'), findsOneWidget);
     expect(find.byType(PdfEditorView), findsOneWidget);
+  });
+
+  testWidgets('an OS file-open beats session restore to the end of the strip',
+      (tester) async {
+    final a = seedFile('a.pdf');
+    final b = seedFile('b.pdf');
+    seedSession([(title: 'a.pdf', path: a), (title: 'b.pdf', path: b)]);
+    final clicked = seedFile('clicked.pdf');
+    // Hold restore at its first await so the OS file-open lands first. That is
+    // the macOS "open with" shape: the runner builds its payload off the
+    // AppKit thread and pushes it whenever it is ready, which can be before
+    // the stored session has even been read back.
+    final recovery = _DelayedRecoveryStore();
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(prefs: prefs, unsavedChangesStore: recovery),
+      ));
+      await tester.pump();
+      await deliverOpenFile(tester, name: 'clicked.pdf', path: clicked);
+      await pumpFrames(tester);
+      recovery.gate.complete(const []);
+      await pumpFrames(tester);
+    });
+    await tester.pump();
+
+    expect(tabTitle('a.pdf'), findsOneWidget);
+    expect(tabTitle('b.pdf'), findsOneWidget);
+    // The restored session slots in ahead of the clicked document, which keeps
+    // the end of the strip...
+    expect(tester.getCenter(tabTitle('a.pdf')).dx,
+        lessThan(tester.getCenter(tabTitle('b.pdf')).dx));
+    expect(tester.getCenter(tabTitle('b.pdf')).dx,
+        lessThan(tester.getCenter(tabTitle('clicked.pdf')).dx));
+    // ...and stays the document on screen.
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('clicked.pdf'))
+            .style
+            ?.fontWeight,
+        FontWeight.w600);
+    expect(
+        tester.widget<MiddleEllipsisText>(tabTitle('b.pdf')).style?.fontWeight,
+        FontWeight.normal);
+  });
+
+  testWidgets('an OS file-open of an already-restored document moves it last',
+      (tester) async {
+    final a = seedFile('a.pdf');
+    final b = seedFile('b.pdf');
+    seedSession([(title: 'a.pdf', path: a), (title: 'b.pdf', path: b)]);
+
+    // Restore runs to completion first, then the OS hands over one of the very
+    // files it just restored. Focusing it in place would leave it buried
+    // mid-strip - the same double-click has to land the same way whichever
+    // side wins the race.
+    await pumpEditor(tester);
+    await tester.runAsync(() async {
+      await deliverOpenFile(tester, name: 'a.pdf', path: a);
+      await pumpFrames(tester);
+    });
+    await tester.pump();
+
+    expect(find.byTooltip('Close tab'), findsNWidgets(2)); // no duplicate tab
+    expect(tester.getCenter(tabTitle('b.pdf')).dx,
+        lessThan(tester.getCenter(tabTitle('a.pdf')).dx));
+    expect(
+        tester.widget<MiddleEllipsisText>(tabTitle('a.pdf')).style?.fontWeight,
+        FontWeight.w600);
   });
 }

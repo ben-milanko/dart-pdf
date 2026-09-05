@@ -412,6 +412,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuNewDocument => '新建文档…';
 
   @override
+  String get editorMenuNewWindow => '新建窗口';
+
+  @override
+  String get editorMoveToNewWindow => '移至新窗口';
+
+  @override
+  String get editorUnableToOpenNewWindow => '无法打开新窗口';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -484,6 +493,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get editorOpenRecent => '打开最近';
+
+  @override
+  String get editorViewAllRecentFiles => '查看所有最近文件…';
 
   @override
   String get editorOpenTabs => '打开的标签页';
@@ -726,6 +738,51 @@ class AppLocalizationsZh extends AppLocalizations {
   String get printDlgTitle => '正在打印';
 
   @override
+  String get printPreviewAll => '全部';
+
+  @override
+  String get printPreviewCurrent => '当前页';
+
+  @override
+  String get printPreviewFrom => '起始';
+
+  @override
+  String get printPreviewNextPage => '下一页';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return '第 $page 页，共 $total 页';
+  }
+
+  @override
+  String get printPreviewPreviousPage => '上一页';
+
+  @override
+  String get printPreviewPrint => '打印';
+
+  @override
+  String get printPreviewRange => '范围';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return '请输入 1 到 $total 之间的页码范围。';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return '将打印的页数：$count';
+  }
+
+  @override
+  String get printPreviewTitle => '打印预览';
+
+  @override
+  String get printPreviewTo => '结束';
+
+  @override
+  String get printPreviewUnavailable => '预览不可用';
+
+  @override
   String get redo => '重做';
 
   @override
@@ -853,6 +910,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get welcomeRecent => '最近';
+
+  @override
+  String get welcomeSearchRecentFiles => '搜索最近文件';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '没有与搜索匹配的最近文件';
 
   @override
   String get welcomeRemoveFromRecent => '从最近中移除';
@@ -1374,6 +1437,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get editorMenuNewDocument => '新文件…';
 
   @override
+  String get editorMenuNewWindow => '新增視窗';
+
+  @override
+  String get editorMoveToNewWindow => '移至新視窗';
+
+  @override
+  String get editorUnableToOpenNewWindow => '無法開啟新視窗';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -1446,6 +1518,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorOpenRecent => '開啟最近使用';
+
+  @override
+  String get editorViewAllRecentFiles => '查看所有最近使用的檔案…';
 
   @override
   String get editorOpenTabs => '開啟的分頁';
@@ -1688,6 +1763,51 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get printDlgTitle => '列印中';
 
   @override
+  String get printPreviewAll => '全部';
+
+  @override
+  String get printPreviewCurrent => '目前頁面';
+
+  @override
+  String get printPreviewFrom => '起始';
+
+  @override
+  String get printPreviewNextPage => '下一頁';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return '第 $page 頁，共 $total 頁';
+  }
+
+  @override
+  String get printPreviewPreviousPage => '上一頁';
+
+  @override
+  String get printPreviewPrint => '列印';
+
+  @override
+  String get printPreviewRange => '範圍';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return '請輸入 1 到 $total 之間的頁碼範圍。';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return '將列印的頁數：$count';
+  }
+
+  @override
+  String get printPreviewTitle => '列印預覽';
+
+  @override
+  String get printPreviewTo => '結束';
+
+  @override
+  String get printPreviewUnavailable => '預覽無法使用';
+
+  @override
   String get redo => '重做';
 
   @override
@@ -1815,6 +1935,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get welcomeRecent => '最近使用';
+
+  @override
+  String get welcomeSearchRecentFiles => '搜尋最近使用的檔案';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '沒有符合搜尋條件的最近使用檔案';
 
   @override
   String get welcomeRemoveFromRecent => '從最近使用中移除';

@@ -2,11 +2,13 @@
 
 Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 `packages/`). Flutter is managed with **fvm** (see `.fvmrc`); use
-`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.44.8/bin/`.
+`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.47.0/bin/`.
 
 ## Commands
 
 - `fvm flutter pub get` (at repo root - resolves every workspace package)
+- `fvm dart tool/format.dart <files...>` (format changed files; do not invoke
+  `dart format` directly because a fresh worktree has no package config yet)
 - `fvm dart analyze` (at root)
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`
@@ -93,7 +95,24 @@ so `{{date}}` stays live - as private metadata (`DartPdfStampTemplate` →
 `maxStampTemplateMetadataBytes`), which is how the editor's right-click
 "Save to stamps" (`customStampOf` / `saveSelectedAsCustomStamp`) puts a
 placed stamp back into the collection; see
-doc/dev-log/2026-08-06-save-stamp-from-page.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
+doc/dev-log/2026-08-06-save-stamp-from-page.md. Annotation geometry is
+**not confined to the crop box**: a point the user picked is authoritative,
+so placements, drags, resizes and paste-at-a-point commit off the page edge
+and the renderer's page clip trims them. The only tethered placement is the
+point-less paste cascade (`PdfEditingController._tetherShift` /
+`pageTether`, which keeps 24pt on the paper so repeats can't march copies
+out of sight); auto-sizing still caps a stamp/image/signature at 90% of the
+page, which is a size rule, not a boundary one. The off-page half is
+grabbable too: `PdfEditingReach` (`editing_reach.dart`, wrapped immediately
+outside the item's `FractionallySizedBox` - the outermost box that would
+refuse a margin position) routes those presses into the page at its nearest
+inside point, which is sound because hit testing only picks the target while
+`PointerEvent.localPosition` still comes from the true position. It claims
+only presses on the selection (`selectionGrabAt` + `_selectionGrabMargin`),
+never the whole margin - the canvas stays the touch-scroll gesture's, and
+`_touchPanEnabledAt` draws the same line. Starting a *new* annotation still
+has to happen on the page. See
+doc/dev-log/2026-08-20-annotations-past-the-page-edge.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
@@ -155,7 +174,16 @@ custom IdP). Loopback needs `dart:io`, so web gets a stub via conditional
 import.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
-enumeration with approximate bounds, stream rewriting), and
+enumeration with approximate bounds, stream rewriting),
+`PdfEditor.moveElements` (repositioning: the drawing is left byte-identical
+and only the space it draws in shifts, so scale/rotation/skew survive -
+paths/images/forms/inline images/shadings get bracketed with `q`/`cm`...`Q`,
+a text run gets a `Tm` in front and a restoring `Tm` (plus a kern-only `TJ`
+replaying its advance) behind so the rest of the line and every later
+`Td`/`T*` hold; `translationUnder` is the `ctm x T x ctm-1` conversion.
+Refused for a path that also clips and for size-0 text. Element ids survive
+a move - the splices are transform operators, and a kern-only `TJ` is no
+longer listed as an element), and
 `PdfEditor.replaceText` (matches across a line's shown
 strings and consecutive Tj/TJ runs, with width-compensated re-measurement
 from the font's /Widths so following text holds position; composite
@@ -275,6 +303,38 @@ the real gate there, not the total: `pageBytes ~/ 8` admits nothing over 8 MB
 under a 64 MB budget, and a letter page at DPR 2 is ~10 MB. See
 doc/dev-log/2026-07-29-idle-full-raster-warm-614.md and
 doc/dev-log/2026-07-31-warm-auto-memory-floor-614.md.
+Ordinary pages render **through** a scroll rather than waiting it out. Two
+halves: a page on screen with nothing of its own to paint asks for its render
+on every rebuild (guarded by `PdfPageRenderScheduler.isQueued`) - nothing in
+the render intent changes as a page scrolls in, so before this only the
+end-of-scroll settle bump queued it, which was the whole "scroll two pages,
+wait half a second"; and a request may declare itself `motionSafe` to
+`PdfPageRenderScheduler` and re-declare it at `paceUiWork` once the record's
+size is known
+(`PdfPageView.motionSafeRenders`/`motionSafeMaxCommands`/
+`motionSafeMaxImagePixels`; the verdict is a live worker + page-level
+XObjects declaring <=1 MP up front, then <=4000 commands and <=1 MP of
+actual image draws when the buffer lands, revoked the moment a pass falls
+through to a local walk). Ask an image how big it is (/Width x /Height,
+`PdfPageRenderer.imageDrawPixels`) rather than treating "has an image" as
+"expensive": the first cut of this gate refused any page with an /XObject
+and so switched itself off across every ordinary report with a letterhead
+mark (`test_corpora/dartpdf/letterhead-report-40p.pdf`, scenario
+`wheel-letterhead`, is that class). A cached retained scene is likewise
+adopted when it is sharp at the *current* zoom, not only when it carries the
+2x `focusedImageDecodeHeadroom` a fresh render aims for - the headroom
+arrives as a soft-to-sharp refinement behind the painted page.
+While a scroll is in flight grants stay near the destination (`motionSafeHoldRadius`) so a fling does not record every page
+it passes. Retention pairs with it: the retained-scene LRU is governed by an
+honest byte price (`PdfPagePreviewCache.priceRetainedScene` floors an entry
+at the raster it stands in for - the engine's picture estimate under-reports
+a text page ~18x) against `pdfDefaultRetainedSceneBytes`. Measure this area with the web
+harness's `wheel` scenarios (`tool/perf.sh web wheel-text`) - a continuous
+scroll sampled every frame, which is the journey a reader actually makes -
+and the `read` ones (`read-text`) for page-to-page navigation. The two are
+gated by different things; `read` alone hid the scrolling problem entirely.
+See doc/dev-log/2026-08-19-motion-safe-renders.md and
+doc/dev-log/2026-08-19-motion-lane-image-budget.md.
 Crash recovery for unsaved edits is in (app): while a document is dirty its
 bytes are mirrored outside the process, so a crash/OOM kill/closed browser
 tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a
@@ -318,7 +378,27 @@ per revision in the controller - orange selection chrome; delete via
 action (`pdf-reflow-element-text`) re-wraps the selected line's whole
 paragraph, toasting a fallback hint when the shape isn't reflowable;
 element ids die with every revision, so any edit clears the element
-selection).
+selection). Page content also **moves**: a drag on the selected element (or
+on any element, grabbing it in the same gesture) repositions it via
+`moveSelectedElement`, and the arrow keys nudge it - `nudgeSelected` falls
+through to the element when no annotation is selected. The drag floats the
+artwork as **two** page pictures, not one clipped picture (a bounding box is
+not the drawing - clipping one carries whatever overlaps it):
+`PdfPageElements.operationsRetaining(keep)` filters the one parse two ways -
+the page *without* the element (`_ensureElementLift`'s clean, fills the hole
+it leaves) and the element *alone* on transparent paper
+(`PdfPageRenderPlan(paper: false)` + `renderPictureWithPlan(operations:)`),
+which is what travels. Dropping a text run replaces it with the advance it
+owed, so nothing after it in the text object slides. The same pair is held
+past the commit (`_holdElementAfterimage`) and painted **unclipped** over the
+whole page until the new raster lands - a content edit *drops* the page's
+cached raster (`_previews.rebind(changed:)` + `_rasteredPages.removeAll`),
+unlike an annotation edit, so without it the page blanks while it re-renders;
+`elementLiftSettled` is which of the two modes the painter is in. A
+move is the one element edit that keeps its selection, because `moveElements`
+preserves element ids. See
+doc/dev-log/2026-08-27-reposition-page-content.md and
+doc/dev-log/2026-08-27-content-drag-preview-fidelity.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder

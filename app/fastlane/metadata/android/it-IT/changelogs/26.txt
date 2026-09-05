@@ -1,0 +1,7 @@
+Novità nella versione 3.4.0
+
+• Copia e incolla annotazioni tra documenti aperti.
+• Trascina PDF tra le miniature per inserire le pagine esattamente dove vuoi.
+• Salva i timbri inseriti nella raccolta e visualizza il colore dell’annotazione selezionata nella barra.
+• La selezione del testo e i caratteri sostitutivi sono allineati con più precisione.
+• Griglie delle schede più veloci, zoom del trackpad più fluido, accesso progressivo più sicuro e anteprime di stampa più affidabili.

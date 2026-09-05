@@ -14,6 +14,8 @@ import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/unsaved_changes.dart';
 
+import 'test_finders.dart';
+
 /// The editor half of crash recovery: what the user sees on the launch after
 /// the app went away with unsaved work.
 void main() {
@@ -28,7 +30,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   /// The dirty dot the tab strip paints beside an edited document.
@@ -157,9 +159,9 @@ void main() {
   });
 
   /// The live edit session behind the one open tab.
-  PdfEditingController sessionOf(WidgetTester tester) => tester
-      .widget<PdfViewer>(find.byType(PdfViewer).first)
-      .editing as PdfEditingController;
+  PdfEditingController sessionOf(WidgetTester tester) =>
+      tester.widget<PdfViewer>(find.byType(PdfViewer).first).editing
+          as PdfEditingController;
 
   testWidgets('backgrounding the app mirrors edits it has not written yet',
       (tester) async {

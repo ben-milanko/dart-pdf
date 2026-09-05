@@ -57,6 +57,7 @@ void main() {
               'token': 'cloud-token',
               'name': 'cloud.pdf',
               'length': pdfBytes.length,
+              'provider': 'test-cloud-provider',
               'seekable': seekable,
             }
           ];
@@ -96,6 +97,18 @@ void main() {
       final log = AppDevTools.instance.log.map((e) => e.message).join('\n');
       expect(log, contains('progressive open: "cloud.pdf" first paint'));
       expect(log, contains('full read complete'));
+      expect(
+          log,
+          contains('open-trace: mobile-pick platform=android '
+              'provider="test-cloud-provider" name="cloud.pdf" '
+              'declaredBytes=${pdfBytes.length} seekable=true '
+              'mode=progressive reason=single-seekable'));
+      expect(log, contains('open-trace: first-paint platform=android '));
+      expect(log, contains('origin=mobile provider="test-cloud-provider" '));
+      expect(log, contains('mode=progressive seekable=true fetchedBytes='));
+      expect(log, contains('fetchedPercent='));
+      expect(log, contains('elapsedMs='));
+      expect(log, isNot(contains('cloud-token')));
       expect(find.byType(PdfEditorView), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -123,6 +136,16 @@ void main() {
       // first-paint path.
       final log = AppDevTools.instance.log.map((e) => e.message).join('\n');
       expect(log, isNot(contains('progressive open')));
+      expect(
+          log,
+          contains('open-trace: mobile-pick platform=android '
+              'provider="test-cloud-provider" name="cloud.pdf" '
+              'declaredBytes=${pdfBytes.length} seekable=false '
+              'mode=whole reason=non-seekable'));
+      expect(log, contains('open-trace: whole-read platform=android '));
+      expect(log, contains('mode=whole reason=non-seekable '));
+      expect(log, isNot(contains('open-trace: first-paint')));
+      expect(log, isNot(contains('cloud-token')));
       expect(find.byType(PdfEditorView), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;

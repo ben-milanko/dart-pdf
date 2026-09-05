@@ -438,6 +438,134 @@ void main() {
     expect(find.text('Hello, world! - https://example.com'), findsOneWidget);
   });
 
+  testWidgets('page headers show counts and collapse individually or together',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(2))
+      ..addNote(0, 100, 700, 'first note')
+      ..addRectangle(0, const PdfRect(100, 100, 200, 150))
+      ..addStamp(1, const PdfRect(100, 600, 240, 650), 'DRAFT');
+    addTearDown(editing.dispose);
+    await pumpSidebarOnly(tester, editing);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pdf-annotation-page-count-0')),
+        matching: find.text('2 annotations'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pdf-annotation-page-count-1')),
+        matching: find.text('1 annotation'),
+      ),
+      findsOneWidget,
+    );
+
+    // A page folds independently while the other page stays open.
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-page-toggle-0')));
+    await tester.pump();
+    expect(find.text('Note'), findsNothing);
+    expect(find.text('Square'), findsNothing);
+    expect(find.text('Stamp'), findsOneWidget);
+    expect(find.text('Page 1'), findsOneWidget);
+
+    // With any section open the panel-level control folds every page; its
+    // next activation expands all of them again.
+    final toggleAll =
+        find.byKey(const ValueKey('pdf-annotation-pages-toggle-all'));
+    await tester.tap(toggleAll);
+    await tester.pump();
+    expect(find.text('Stamp'), findsNothing);
+    expect(find.text('Page 1'), findsOneWidget);
+    expect(find.text('Page 2'), findsOneWidget);
+
+    await tester.tap(toggleAll);
+    await tester.pump();
+    expect(find.text('Note'), findsOneWidget);
+    expect(find.text('Square'), findsOneWidget);
+    expect(find.text('Stamp'), findsOneWidget);
+  });
+
+  testWidgets('collapse all applies to the page groups visible in a filter',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(2))
+      ..addNote(0, 100, 700, 'first note')
+      ..addStamp(1, const PdfRect(100, 600, 240, 650), 'DRAFT');
+    addTearDown(editing.dispose);
+    await pumpSidebarOnly(tester, editing);
+
+    // Page 1 is folded while page 2 remains open.
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-page-toggle-0')));
+    await tester.pump();
+
+    // The filter hides the still-open page 2. The global control should now
+    // expand the only displayed group on its first click, not silently fold
+    // the hidden page first.
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-annotation-search')), 'note');
+    await tester.pump();
+    expect(find.text('Note'), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-pages-toggle-all')));
+    await tester.pump();
+    expect(find.text('Note'), findsOneWidget);
+    expect(find.text('Stamp'), findsNothing);
+  });
+
+  testWidgets('collapsed pages do not leak into a replacement controller',
+      (tester) async {
+    final first = PdfEditingController(buildMultiPagePdf(1))
+      ..addNote(0, 100, 700, 'first note');
+    final second = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(100, 100, 200, 150));
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+
+    await pumpSidebarOnly(tester, first);
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-page-toggle-0')));
+    await tester.pump();
+    expect(find.text('Note'), findsNothing);
+
+    // Both controllers are at revision 1, so revision-id comparison alone
+    // cannot distinguish them.
+    expect(first.revisionId, second.revisionId);
+    await pumpSidebarOnly(tester, second);
+    expect(find.text('Square'), findsOneWidget);
+  });
+
+  testWidgets('the current page header stays pinned while its rows scroll',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(2));
+    for (var i = 0; i < 16; i++) {
+      editing.addRectangle(
+          0, PdfRect(40.0 + i, 100, 120.0 + i, 150));
+    }
+    editing.addNote(1, 100, 700, 'second page');
+    addTearDown(editing.dispose);
+    await pumpSidebarOnly(tester, editing);
+
+    final pinnedHeaders = tester
+        .widgetList<SliverPersistentHeader>(find.byType(SliverPersistentHeader));
+    expect(pinnedHeaders, isNotEmpty);
+    expect(pinnedHeaders.every((header) => header.pinned), isTrue);
+
+    final pageHeader =
+        find.byKey(const ValueKey('pdf-annotation-page-header-0'));
+    final scrollView =
+        find.byKey(const ValueKey('pdf-annotation-scroll-view'));
+    final initialTop = tester.getTopLeft(pageHeader).dy;
+
+    await tester.drag(scrollView, const Offset(0, -140));
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(pageHeader).dy, closeTo(initialTop, 0.5));
+  });
+
   group('search', () {
     testWidgets('filters by type, contents, and author', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(2))

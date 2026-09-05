@@ -894,6 +894,31 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get searchRegex => 'Espressione regolare';
 
   @override
+  String get searchReplace => 'Sostituisci';
+
+  @override
+  String get searchReplaceAll => 'Sostituisci tutto';
+
+  @override
+  String get searchReplaceHint => 'Sostituisci con';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Questa corrispondenza non può essere sostituita da sola: usa «Sostituisci tutto» oppure modificala con lo strumento contenuto';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count corrispondenze sostituite',
+      one: '1 corrispondenza sostituita',
+      zero: 'Nessuna sostituzione',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Risultati della ricerca';
 
   @override
@@ -1340,6 +1365,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Adatta casella di testo (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Adatta il carattere alla casella di testo';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Disegna una linea di lunghezza nota per calibrare la scala.';
 
@@ -1579,6 +1607,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Cancella tratti a inchiostro';
+
+  @override
+  String get tbNameHand => 'Mano';
 
   @override
   String get tbNameHighlight => 'Evidenzia';
@@ -2030,4 +2061,65 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Seleziona tutto';
+
+  @override
+  String get annotationLibraryTitle => 'Libreria annotazioni';
+
+  @override
+  String get annotationLibraryEmpty => 'Nessuna annotazione salvata.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Seleziona un\'annotazione supportata e scegli “Salva nella libreria annotazioni” dal relativo menu. I collegamenti e i campi modulo non possono essere salvati.';
+
+  @override
+  String get annotationLibrarySave => 'Salva nella libreria annotazioni';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Salva annotazione';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Rinomina elemento della libreria';
+
+  @override
+  String get annotationLibrarySearchHint => 'Cerca nella libreria';
+
+  @override
+  String get annotationLibraryNoMatches =>
+      'Nessuna annotazione corrispondente.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Non raggruppate';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Sposta nel gruppo';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nuovo gruppo…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nuovo gruppo di annotazioni';
+
+  @override
+  String get annotationLibraryRenameGroupTitle =>
+      'Rinomina gruppo di annotazioni';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Rimuovi gruppo';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Fai clic sulla pagina per posizionare. Premi Escape per annullare.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Timbri personalizzati…';
+
+  @override
+  String get signatureLibraryManage => 'Gestisci firme';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Rinomina firma';
+
+  @override
+  String get signatureLibraryEmpty => 'Nessuna firma salvata.';
 }

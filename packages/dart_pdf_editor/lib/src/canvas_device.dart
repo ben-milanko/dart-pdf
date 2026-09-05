@@ -1,14 +1,39 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'budgeted_cache.dart';
+import 'font_substitution.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
+
+const _redToAlpha = <double>[
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+];
 
 /// Paints interpreter callbacks onto a Flutter [Canvas].
 ///
@@ -17,7 +42,12 @@ import 'perf_log.dart';
 /// fonts, horizontally scaled to the PDF's own metrics, until the font
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
-class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
+class CanvasPdfDevice
+    implements
+        PdfDevice,
+        PdfTiledCellSink,
+        PdfTextBatchSink,
+        PdfTransparencyGroupDevice {
   CanvasPdfDevice(this.canvas, {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
@@ -25,8 +55,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// Device pixels per page unit at the scale this device is painting for.
   ///
   /// Only used to floor stroke widths at one device pixel (see
-  /// [_strokeWidthFor]). 1 is the identity assumption for a picture recorded
+  /// [strokeWidthFor]). 1 is the identity assumption for a picture recorded
   /// without a known target scale.
+  ///
+  /// 0 (or any non-positive value) turns the floor off, which is what a
+  /// picture that is deliberately replayed at *several* scales wants when its
+  /// widths are meaningful page-space measurements rather than "as thin as the
+  /// device can draw" - the annotation appearance picture (#660).
   final double pixelRatio;
 
   /// Stroke width to paint, never thinner than one device pixel.
@@ -117,6 +152,19 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// already in the offsets, and the substitute's own kerning is error.
   static bool exactSubstitutedGlyphPlacement = true;
 
+  /// Coalesces adjacent embedded-outline text fills into one canvas path.
+  ///
+  /// A PDF frequently emits one text-show operator per short label. On the web
+  /// that otherwise becomes hundreds of Dart-to-CanvasKit `drawPath` calls;
+  /// same-colour opaque srcOver fills are order-independent and can share one
+  /// path without changing their page-space geometry. This remains opt-in:
+  /// Skia can rasterize a large combined path a few edge pixels differently
+  /// from separate paths even when their bounds do not overlap. The retained
+  /// replay layer must remain pixel-identical to direct interpretation by
+  /// default; benchmarks can enable this while evaluating a stricter gate.
+  @visibleForTesting
+  static bool batchEmbeddedTextOutlines = false;
+
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
   /// outline cache), so it needs no bound and frees with the font.
@@ -147,12 +195,14 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   static int debugTextShapeUs = 0;
   static int debugTextShapeMiss = 0;
   static int debugTextShapeHit = 0;
+  static int debugTextPainterBuilds = 0;
 
   /// Zeroes the shaping accumulators before a measured replay.
   static void debugResetTextShape() {
     debugTextShapeUs = 0;
     debugTextShapeMiss = 0;
     debugTextShapeHit = 0;
+    debugTextPainterBuilds = 0;
   }
 
   /// Ordered fallbacks used for normal substituted text — test hook.
@@ -198,6 +248,9 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
   /// top entry tracks the group directly enclosing the next paint call.
   final _knockout = <bool>[];
+  final _groupLayerCounts = <int>[];
+  final _groupBackdrops = <PdfColor?>[];
+  final _softMaskBlends = <BlendMode>[];
 
   /// True when the next paint call is a top-level element of a knockout
   /// group, so it must replace rather than blend over the group result.
@@ -362,17 +415,92 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
         ..blendMode = _blend,
     );
     _knockout.add(knockout);
+    _groupLayerCounts.add(1);
+    _groupBackdrops.add(null);
+  }
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {
+    final rect = bounds == null
+        ? null
+        : Rect.fromLTRB(
+            math.min(bounds.left, bounds.right),
+            math.min(bounds.bottom, bounds.top),
+            math.max(bounds.left, bounds.right),
+            math.max(bounds.bottom, bounds.top),
+          );
+    // A top-level object of a knockout group always composites against that
+    // group's initial backdrop, not against siblings already accumulated.
+    final inherited = _knockoutActive && _groupBackdrops.isNotEmpty
+        ? _groupBackdrops.last
+        : backdropColor;
+    final seed = isolated ? null : inherited;
+    if (seed != null && rect != null) {
+      // saveLayer's bounds are only an allocation hint in Skia; BlendMode.src
+      // would otherwise replace the page with transparent pixels outside the
+      // group's BBox when the layer is restored. Clip before opening it so the
+      // replacement is confined to the form's actual group bounds.
+      canvas.clipRect(rect);
+      // Outer replacement layer: it will carry an already-backdrop-composited
+      // non-isolated result, so replace rather than blend it a second time.
+      canvas.saveLayer(rect, Paint()..blendMode = BlendMode.src);
+      canvas.drawRect(
+          rect,
+          Paint()
+            ..color = Color.from(
+                alpha: 1, red: seed.red, green: seed.green, blue: seed.blue));
+      // Inner source layer: the group's current blend and alpha apply to its
+      // composite as one object against the seeded initial backdrop.
+      canvas.saveLayer(
+        rect,
+        Paint()
+          ..color =
+              Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
+          ..blendMode = _blend,
+      );
+      _groupLayerCounts.add(2);
+    } else {
+      canvas.saveLayer(
+        rect,
+        Paint()
+          ..color =
+              Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
+          ..blendMode = _blend,
+      );
+      _groupLayerCounts.add(1);
+    }
+    _knockout.add(knockout);
+    _groupBackdrops.add(seed);
   }
 
   @override
   void endGroup() {
     _knockout.removeLast();
-    canvas.restore();
+    _groupBackdrops.removeLast();
+    final layers = _groupLayerCounts.removeLast();
+    for (var i = 0; i < layers; i++) {
+      canvas.restore();
+    }
   }
 
   @override
   void beginSoftMasked() {
-    canvas.saveLayer(null, Paint());
+    // A soft mask modifies the source object's shape/opacity before that
+    // object is composited with the backdrop (§11.6.5). Applying the object's
+    // blend mode to primitives drawn into this initially-transparent layer is
+    // observably different: Multiply can disappear and Screen can become an
+    // unmasked white source. Capture the source normally, then apply its blend
+    // mode when the completed masked source is restored onto the backdrop.
+    final compositeBlend = _blend;
+    canvas.saveLayer(null, Paint()..blendMode = compositeBlend);
+    _softMaskBlends.add(compositeBlend);
+    _blend = BlendMode.srcOver;
     // The mask group's content composites as one element of any enclosing
     // knockout group, through this layer — not element by element.
     _knockout.add(false);
@@ -408,6 +536,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       double backdropLuminance = 0,
       double transferScale = 1,
       double transferOffset = 0}) {
+    // A soft-mask's transparency-group form starts with a fresh graphics
+    // state (§11.6.5.2), so its first paint is Normal even when the captured
+    // source ended in Multiply/Screen. The interpreter's mask closure carries
+    // only state changes made *inside* that fresh form; without this reset it
+    // inherited the source layer's last blend and could turn a white
+    // luminosity mask black against the /BC backdrop (GWG168 bevel/emboss).
+    _blend = BlendMode.srcOver;
     final hasTransfer = transferScale != 1 || transferOffset != 0;
     final paint = Paint()..blendMode = BlendMode.dstIn;
     if (luminosity) {
@@ -449,8 +584,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// Second half of [endSoftMasked]'s compositing: composites the mask into
   /// the captured content (dstIn) and the masked content into the page.
   void finishSoftMaskComposite() {
+    // Mask interpretation can leave the device in one of the mask form's
+    // blend modes. Neither layer restoration should inherit that state: the
+    // content layer's restore paint already carries the source object's mode.
+    _blend = BlendMode.srcOver;
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
+    _blend = _softMaskBlends.removeLast();
     _knockout.removeLast();
   }
 
@@ -520,20 +660,17 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   @override
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
-    final segments = path.segments;
     if (debugDrawSimpleLines &&
         stroke.dashArray.isEmpty &&
-        segments.length == 2) {
-      switch ((segments[0], segments[1])) {
-        case (
-            PdfMoveTo(:final x, :final y),
-            PdfLineTo(x: final x2, y: final y2)
-          ):
-          canvas.drawLine(Offset(x, y), Offset(x2, y2),
+        path.segmentCount == 2) {
+      final cursor = path.cursor();
+      if (cursor.moveNext() && cursor.verb == PdfPathVerb.moveTo) {
+        final x = cursor.x1, y = cursor.y1;
+        if (cursor.moveNext() && cursor.verb == PdfPathVerb.lineTo) {
+          canvas.drawLine(Offset(x, y), Offset(cursor.x1, cursor.y1),
               _solidStrokePaint(color, stroke, alpha));
           return;
-        default:
-          break;
+        }
       }
     }
     var uiPath = _toUiPath(path, PdfFillRule.nonzero);
@@ -682,16 +819,18 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
 
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {
-    // Rectangular clips (the `re W n` idiom) must not antialias: writers
-    // tile big images as abutting clipped strips, and soft clip edges
-    // composite to <100% coverage at every shared boundary — visible as
-    // hairline seams of the backdrop. Hard edges keep abutting strips
-    // pixel-exact; irregular clips keep antialiasing for quality.
+    // Clip geometry is a coverage constraint, not another paint operation.
+    // Antialiasing it independently multiplies edge coverage when the same
+    // path was painted below the clipped object: a coverage `a` becomes
+    // `a * (1 - a)` and leaves a visible seam. GWG173 constructs exactly that
+    // case around its JBIG2 images. Keep clips hard and let the actual painted
+    // geometry/image sampling provide edge antialiasing. This also preserves
+    // the established no-seam behavior for abutting rectangular image tiles.
     final rect = _rectOf(path);
     if (rect != null) {
       canvas.clipRect(rect, doAntiAlias: false);
     } else {
-      canvas.clipPath(_toUiPath(path, rule));
+      canvas.clipPath(_toUiPath(path, rule), doAntiAlias: false);
     }
   }
 
@@ -699,17 +838,18 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// points must be exactly the corners of their bounding box.
   static ui.Rect? _rectOf(PdfPath path) {
     final points = <ui.Offset>[];
-    for (final segment in path.segments) {
-      switch (segment) {
-        case PdfMoveTo(:final x, :final y):
+    final cursor = path.cursor();
+    while (cursor.moveNext()) {
+      switch (cursor.verb) {
+        case PdfPathVerb.moveTo:
           if (points.isNotEmpty) return null;
-          points.add(ui.Offset(x, y));
-        case PdfLineTo(:final x, :final y):
+          points.add(ui.Offset(cursor.x1, cursor.y1));
+        case PdfPathVerb.lineTo:
           if (points.isEmpty) return null;
-          points.add(ui.Offset(x, y));
-        case PdfClosePath():
+          points.add(ui.Offset(cursor.x1, cursor.y1));
+        case PdfPathVerb.close:
           break;
-        case PdfCubicTo():
+        case PdfPathVerb.cubicTo:
           return null;
       }
     }
@@ -819,6 +959,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
                     foreground: Paint()
                       ..shader = _shaderFor(gradient,
                           transform: gradient.transform.concat(pageToLocal))
+                      ..color = const Color(0xFFFFFFFF)
+                          .withValues(alpha: paintRun.fillAlpha)
                       ..blendMode = _elementBlend)),
             textDirection: TextDirection.ltr,
           )..layout();
@@ -842,7 +984,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = ts > 0 ? w * renderSize / ts : w
-              ..color = _toColor(paintRun.strokeColor!, 1)
+              ..color = _toColor(paintRun.strokeColor!, paintRun.strokeAlpha)
               ..blendMode = _elementBlend,
           ),
         ),
@@ -860,6 +1002,83 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     }
     strokePainter?.paint(canvas, Offset(0, -layout.baseline));
     canvas.restore();
+  }
+
+  @override
+  void drawTextBatch(
+      List<PdfRenderCommand> commands, int start, int endExclusive) {
+    // The pixel-identical production path deliberately paints every run
+    // separately. Avoid constructing paths and evaluating the batching gates
+    // in that overwhelmingly common case; the opt-in path below is retained
+    // for controlled experiments.
+    if (!batchEmbeddedTextOutlines) {
+      for (var i = start; i < endExclusive; i++) {
+        drawText((commands[i] as PdfDrawTextCommand).run);
+      }
+      return;
+    }
+
+    ui.Path? pending;
+    PdfColor? pendingColor;
+    Rect? pendingBounds;
+
+    void flush() {
+      final path = pending;
+      final color = pendingColor;
+      if (path == null || color == null) return;
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = _toColor(color, 1)
+          ..blendMode = BlendMode.srcOver,
+      );
+      pending = null;
+      pendingColor = null;
+      pendingBounds = null;
+    }
+
+    for (var i = start; i < endExclusive; i++) {
+      final run = (commands[i] as PdfDrawTextCommand).run;
+      final canBatch = batchEmbeddedTextOutlines &&
+          _knockout.isEmpty &&
+          !run.invisible &&
+          run.glyphs != null &&
+          run.fill &&
+          run.gradient == null &&
+          run.strokeColor == null &&
+          run.fillAlpha == 1 &&
+          _elementBlend == BlendMode.srcOver;
+      if (!canBatch) {
+        flush();
+        drawText(run);
+        continue;
+      }
+      if (pendingColor != run.color) {
+        flush();
+      }
+      final runPath = ui.Path();
+      _appendGlyphOutlines(runPath, run);
+      // Separate draw calls alpha-composite overlapping antialiased contours;
+      // one combined path resolves their winding and coverage only once. Those
+      // are not pixel-equivalent (the Ghent 6pt overprint patch exposed it), so
+      // only coalesce runs whose device-pixel-inflated bounds are disjoint.
+      // A union bound is deliberately conservative: it may flush a run sitting
+      // in a gap between earlier labels, but can never merge interacting ink.
+      final guard =
+          runPath.getBounds().inflate(pixelRatio > 0 ? 1 / pixelRatio : 1);
+      if (pendingBounds?.overlaps(guard) ?? false) {
+        flush();
+      }
+      if (pending == null) {
+        pendingColor = run.color;
+        pending = ui.Path();
+      }
+      pending!.addPath(runPath, Offset.zero);
+      pendingBounds =
+          pendingBounds == null ? guard : pendingBounds!.expandToInclude(guard);
+    }
+    flush();
   }
 
   /// A copy of [run] trimmed to its visible core for painting: edge whitespace
@@ -900,6 +1119,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       fill: run.fill,
       strokeColor: run.strokeColor,
       strokeWidth: run.strokeWidth,
+      fillAlpha: run.fillAlpha,
+      strokeAlpha: run.strokeAlpha,
       letterSpacing: run.letterSpacing,
       wordSpacing: run.wordSpacing,
       mcid: run.mcid,
@@ -933,7 +1154,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     if (compose) return _composeLayout(run);
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
         '${run.letterSpacing},${run.wordSpacing}';
     return _cachedLayout(key, () => _shapeLayout(run));
   }
@@ -960,6 +1181,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   }
 
   _TextLayout _shapeLayout(PdfTextRun run) {
+    debugTextPainterBuilds++;
     final painter = TextPainter(
       text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
       textDirection: TextDirection.ltr,
@@ -994,8 +1216,10 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// glyph would double-count it - and it would make the key a lie.
   _TextLayout _glyphLayout(int rune, PdfTextRun run) {
     final c = run.color;
-    final key = '$rune ${run.fontName ?? ''} ${c.red},${c.green},${c.blue}';
+    final key = '$rune ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha}';
     return _glyphCache.getOrAdd(key, () {
+      debugTextPainterBuilds++;
       final painter = TextPainter(
         text: TextSpan(
             text: String.fromCharCode(rune),
@@ -1034,7 +1258,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   _TextLayout _placedLayout(PdfTextRun run, List<double> offsets) {
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue} p${_offsetsHash(offsets)}';
+        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
+        'p${_offsetsHash(offsets)}';
     // A run with nothing to scale against falls back to whole-run shaping,
     // cached under this key too so the failed attempt is not repeated.
     return _cachedLayout(
@@ -1105,7 +1330,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       } else {
         for (var j = i; j < end;) {
           final step = _runeLengthAt(text, j);
-          final glyph = _shapeString(text.substring(j, j + step), style);
+          // The natural-width pass above has already populated this exact
+          // glyph/style in the shared cache. Retain that painter for the
+          // placed run instead of shaping a fresh paragraph for every
+          // character of every unique CAD label. The retained reference keeps
+          // it alive if the glyph-cache LRU later evicts its own ownership;
+          // disposing this placed layout releases the borrowed reference.
+          final glyph = _glyphLayout(_runeAt(text, j), run).retain();
           baseline ??= glyph.baseline;
           parts.add(_GlyphRun(glyph, offsets[j] * k));
           j += step;
@@ -1146,6 +1377,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
 
   /// One laid-out [TextPainter] for [text] in [style], owned by the caller.
   _TextLayout _shapeString(String text, TextStyle style) {
+    debugTextPainterBuilds++;
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: TextDirection.ltr,
@@ -1290,29 +1522,18 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// maps em space (y-up) to page space, so no unflip is needed.
   void _drawGlyphOutlines(PdfTextRun run) {
     final path = ui.Path();
-    for (final glyph in run.glyphs!) {
-      final outline = glyph.outline;
-      if (outline == null) continue;
-      // The em-space ui.Path of a glyph is identical at every occurrence —
-      // the font engine hands back the same outline instance per glyph — so
-      // build it once and only re-transform it into place (a fast native op),
-      // skipping the per-glyph rebuild from PdfPath segments. The cache is keyed
-      // by outline identity and GC-tied to the font's own outline lifetime.
-      path.addPath(
-        _glyphUiPath(outline).transform(
-          _toFloat64(PdfMatrix.translation(glyph.offset, glyph.offsetY)
-              .concat(run.transform)),
-        ),
-        Offset.zero,
-      );
-    }
+    _appendGlyphOutlines(path, run);
     if (run.fill) {
-      final paint = Paint()..blendMode = _elementBlend;
+      final paint = Paint()..blendMode = _fillElementBlend;
       final gradient = run.gradient;
       if (gradient != null) {
         paint.shader = _shaderFor(gradient);
       } else {
-        paint.color = _toColor(run.color, 1);
+        paint.color = _toColor(run.color, run.fillAlpha);
+      }
+      if (gradient != null) {
+        paint.color = const Color(0xFFFFFFFF)
+            .withValues(alpha: run.fillAlpha.clamp(0, 1));
       }
       canvas.drawPath(path, paint);
     }
@@ -1323,22 +1544,82 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = run.strokeWidth
-          ..color = _toColor(run.strokeColor!, 1)
-          ..blendMode = _elementBlend,
+          ..color = _toColor(run.strokeColor!, run.strokeAlpha)
+          ..blendMode = _strokeElementBlend,
       );
     }
+  }
+
+  /// Appends an embedded run's glyph contours directly through their
+  /// glyph-to-page transforms. Passing the matrix to [ui.Path.addPath] avoids
+  /// allocating one transformed path per glyph (and gives batched replay one
+  /// destination for many adjacent runs).
+  static void _appendGlyphOutlines(ui.Path path, PdfTextRun run) {
+    final transform = run.transform;
+    // This is per text-show run and dense plans can contain thousands of
+    // short labels. Fill the typed matrix directly instead of first allocating
+    // a growable/list-literal copy for Float64List.fromList.
+    final matrix = Float64List(16)
+      ..[0] = transform.a
+      ..[1] = transform.b
+      ..[4] = transform.c
+      ..[5] = transform.d
+      ..[10] = 1
+      ..[12] = transform.e
+      ..[13] = transform.f
+      ..[15] = 1;
+    for (final glyph in run.glyphs!) {
+      final outline = glyph.outline;
+      if (outline == null) continue;
+      matrix[12] = glyph.offset * transform.a +
+          glyph.offsetY * transform.c +
+          transform.e;
+      matrix[13] = glyph.offset * transform.b +
+          glyph.offsetY * transform.d +
+          transform.f;
+      // Flutter web's Path is lazy: addPath retains the matrix object in an
+      // AddPathCommand until CanvasKit materializes the destination path. If
+      // every glyph receives this same mutable list, they all observe a later
+      // glyph's translation and collapse into the corrupted text seen on the
+      // Time Without Tide pages. Native Path consumes the matrix immediately,
+      // so keep its allocation-free loop; web needs a value snapshot per
+      // deferred command.
+      path.addPath(
+        _glyphUiPath(outline),
+        Offset.zero,
+        matrix4: debugGlyphPathMatrixForEngine(matrix),
+      );
+    }
+  }
+
+  /// Returns the matrix representation appropriate for an immediate or lazy
+  /// engine path command.
+  @visibleForTesting
+  static Float64List debugGlyphPathMatrixForEngine(
+    Float64List matrix, {
+    bool deferred = kIsWeb,
+  }) =>
+      deferred ? Float64List.fromList(matrix) : matrix;
+
+  /// Materializes the combined outline bounds used by the web regression test.
+  @visibleForTesting
+  static Rect debugEmbeddedGlyphPathBounds(PdfTextRun run) {
+    final path = ui.Path();
+    _appendGlyphOutlines(path, run);
+    return path.getBounds();
   }
 
   @override
   void drawImage(PdfImageRequest request) {
     final image = images[pdfImageKey(request)];
     if (image == null) return; // not decodable (yet): skip silently
+    final softMask = pdfGpuSoftMaskOf(image);
     // antialiased edges leave hairline seams between abutting image slices
     // (PowerPoint and scanners split large images into strips)
     final paint = Paint()
       ..filterQuality = FilterQuality.medium
       ..isAntiAlias = false
-      ..blendMode = _elementBlend;
+      ..blendMode = softMask == null ? _fillElementBlend : BlendMode.srcOver;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
       paint.colorFilter = ColorFilter.mode(
@@ -1351,12 +1632,51 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     // image space: unit square, y-up; image pixels: y-down from the top
     canvas.translate(0, 1);
     canvas.scale(1, -1);
+    if (softMask != null) {
+      // Isolate the base + mask so the PDF blend mode applies to the finished
+      // composite, not to the base against a transparent temporary surface.
+      // The mask JPEG is grayscale, so its red sample is the specified alpha.
+      canvas.saveLayer(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..blendMode = _fillElementBlend,
+      );
+    }
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       const Rect.fromLTWH(0, 0, 1, 1),
       paint,
     );
+    if (softMask != null) {
+      // The dstIn and the red->alpha filter go on a *layer* paint, not on the
+      // mask's own draw paint. Impeller ignores a draw paint's blend mode when
+      // that same paint also carries a colour filter: the mask then composites
+      // srcOver, painting its filtered samples (opaque black where the mask is
+      // white) over the base instead of cutting the base's alpha - every
+      // /SMask'd JPEG on the page turns into a black rectangle (#675). Skia
+      // honours both on one paint, and both engines honour this shape.
+      canvas.saveLayer(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..colorFilter = const ColorFilter.matrix(_redToAlpha),
+      );
+      canvas.drawImageRect(
+        softMask,
+        Rect.fromLTWH(
+          0,
+          0,
+          softMask.width.toDouble(),
+          softMask.height.toDouble(),
+        ),
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..isAntiAlias = false,
+      );
+      canvas.restore();
+      canvas.restore();
+    }
     canvas.restore();
   }
 
@@ -1365,25 +1685,30 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     final name = run.fontName ?? '';
     final cjk = _cjkPrimaryFontFor(name);
     final symbol = name.contains('ZapfDingbats') || name.contains('Symbol');
+    final adventor = pdfUsesAdventorSubstitute(name);
     return TextStyle(
-      color: foreground == null ? _toColor(run.color, 1) : null,
+      color: foreground == null ? _toColor(run.color, run.fillAlpha) : null,
       foreground: foreground,
       fontSize: 100,
       fontFamily: cjk ??
-          switch (name) {
-            _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
-            _ when name.contains('Symbol') => 'Symbol',
-            _ when name.contains('Courier') || name.contains('Mono') =>
-              'Courier',
-            _ when name.contains('Times') || name.contains('Serif') =>
-              'Times New Roman',
-            _ => 'Helvetica',
-          },
+          (adventor
+              ? pdfBundledAdventorFontFamily
+              : switch (name) {
+                  _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
+                  _ when name.contains('Symbol') => 'Symbol',
+                  _ when name.contains('Courier') || name.contains('Mono') =>
+                    'Courier',
+                  _ when name.contains('Times') || name.contains('Serif') =>
+                    'Times New Roman',
+                  _ => 'Helvetica',
+                }),
       fontFamilyFallback: cjk != null
           ? _cjkFontFallbacks
-          : symbol
-              ? _symbolFontFallbacks
-              : _defaultFontFallbacks,
+          : adventor
+              ? _adventorFontFallbacks
+              : symbol
+                  ? _symbolFontFallbacks
+                  : _defaultFontFallbacks,
       fontWeight: name.contains('Bold') ? FontWeight.bold : FontWeight.normal,
       fontStyle: name.contains('Italic') || name.contains('Oblique')
           ? FontStyle.italic
@@ -1453,6 +1778,15 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     'Microsoft YaHei',
   ];
 
+  static const _adventorFontFallbacks = [
+    pdfAdventorFontFamily,
+    'Century Gothic',
+    'URW Gothic L',
+    'Avenir Next',
+    'Futura',
+    ..._defaultFontFallbacks,
+  ];
+
   static const _symbolFontFallbacks = [
     'Noto Sans Symbols',
     'Noto Sans Symbols 2',
@@ -1518,24 +1852,31 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   }
 
   static ui.Path _toUiPath(PdfPath path, PdfFillRule rule) {
-    final out = ui.Path()
-      ..fillType = rule == PdfFillRule.evenOdd
-          ? PathFillType.evenOdd
-          : PathFillType.nonZero;
-    for (final segment in path.segments) {
-      switch (segment) {
-        case PdfMoveTo(:final x, :final y):
-          out.moveTo(x, y);
-        case PdfLineTo(:final x, :final y):
-          out.lineTo(x, y);
-        case PdfCubicTo():
-          out.cubicTo(segment.x1, segment.y1, segment.x2, segment.y2,
-              segment.x3, segment.y3);
-        case PdfClosePath():
+    final out = _emptyUiPath(rule);
+    _appendUiPath(out, path);
+    return out;
+  }
+
+  static ui.Path _emptyUiPath(PdfFillRule rule) => ui.Path()
+    ..fillType = rule == PdfFillRule.evenOdd
+        ? PathFillType.evenOdd
+        : PathFillType.nonZero;
+
+  static void _appendUiPath(ui.Path out, PdfPath path) {
+    final cursor = path.cursor();
+    while (cursor.moveNext()) {
+      switch (cursor.verb) {
+        case PdfPathVerb.moveTo:
+          out.moveTo(cursor.x1, cursor.y1);
+        case PdfPathVerb.lineTo:
+          out.lineTo(cursor.x1, cursor.y1);
+        case PdfPathVerb.cubicTo:
+          out.cubicTo(
+              cursor.x1, cursor.y1, cursor.x2, cursor.y2, cursor.x3, cursor.y3);
+        case PdfPathVerb.close:
           out.close();
       }
     }
-    return out;
   }
 
   static Float64List _toFloat64(PdfMatrix m) => Float64List.fromList([
@@ -1576,6 +1917,18 @@ class _TextLayout {
   final bool ownsParts;
   final double width;
   final double baseline;
+  int _references = 1;
+  bool _disposed = false;
+
+  /// Adds one owner of this immutable layout. Exact-placement run layouts use
+  /// this for glyph-cache entries they embed: cache eviction and run eviction
+  /// can then happen in either order without handing either owner a disposed
+  /// paragraph.
+  _TextLayout retain() {
+    assert(!_disposed);
+    _references++;
+    return this;
+  }
 
   /// Paints the run at [offset] in the painter's 100px-per-em space.
   void paint(Canvas canvas, Offset offset) {
@@ -1592,6 +1945,10 @@ class _TextLayout {
   /// Disposes what this layout owns: its own painter, and its parts when they
   /// were shaped for it rather than borrowed from the glyph cache.
   void dispose() {
+    if (_disposed) return;
+    _references--;
+    if (_references > 0) return;
+    _disposed = true;
     painter?.dispose();
     if (ownsParts) {
       for (final part in parts!) {

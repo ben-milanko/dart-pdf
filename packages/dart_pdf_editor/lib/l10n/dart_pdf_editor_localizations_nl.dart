@@ -893,6 +893,31 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get searchRegex => 'Reguliere expressie';
 
   @override
+  String get searchReplace => 'Vervangen';
+
+  @override
+  String get searchReplaceAll => 'Alles vervangen';
+
+  @override
+  String get searchReplaceHint => 'Vervangen door';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Die overeenkomst kan niet afzonderlijk worden vervangen — gebruik Alles vervangen of bewerk hem met het inhoudsgereedschap';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count overeenkomsten vervangen',
+      one: '1 overeenkomst vervangen',
+      zero: 'Niets vervangen',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Zoekresultaten';
 
   @override
@@ -1339,6 +1364,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Tekstvak automatisch aanpassen (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Lettertype passend maken in tekstvak';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Teken een lijn met bekende lengte om de schaal te kalibreren.';
 
@@ -1579,6 +1607,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameEraser => 'Inktstreken wissen';
+
+  @override
+  String get tbNameHand => 'Hand';
 
   @override
   String get tbNameHighlight => 'Markeren';
@@ -2029,4 +2060,63 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Alles selecteren';
+
+  @override
+  String get annotationLibraryTitle => 'Annotatiebibliotheek';
+
+  @override
+  String get annotationLibraryEmpty => 'Geen opgeslagen annotaties.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Selecteer een ondersteunde annotatie en kies ‘Opslaan in annotatiebibliotheek’ in het menu. Koppelingen en formuliervelden kunnen niet worden opgeslagen.';
+
+  @override
+  String get annotationLibrarySave => 'Opslaan in annotatiebibliotheek';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Annotatie opslaan';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Bibliotheekitem hernoemen';
+
+  @override
+  String get annotationLibrarySearchHint => 'Bibliotheek doorzoeken';
+
+  @override
+  String get annotationLibraryNoMatches => 'Geen overeenkomende annotaties.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Niet gegroepeerd';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Naar groep verplaatsen';
+
+  @override
+  String get annotationLibraryNewGroup => 'Nieuwe groep…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'Nieuwe annotatiegroep';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Annotatiegroep hernoemen';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Groep verwijderen';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Klik op de pagina om te plaatsen. Druk op Escape om te annuleren.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Aangepaste stempels…';
+
+  @override
+  String get signatureLibraryManage => 'Handtekeningen beheren';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Handtekening hernoemen';
+
+  @override
+  String get signatureLibraryEmpty => 'Geen opgeslagen handtekeningen.';
 }

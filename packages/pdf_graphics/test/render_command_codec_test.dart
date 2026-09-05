@@ -5,15 +5,15 @@
 // codec preserves every command and value type (paths, colours, strokes,
 // gradients, meshes, text runs with glyph outlines, nested soft-mask groups).
 //
-// Image XObjects serialize too (given the source document via `cos`):
-// serializeCommands inline-resolves the image's stream subgraph, so the buffer
-// round-trips to the same transcript (the transcript captures the image's
-// transform + alpha, which survive). Without a `cos`, or for an inline image,
-// the buffer still declines to null and the caller renders that page locally.
+// Image XObjects serialize too (given the source document via `cos`): indirect
+// streams cross as compact object references and direct streams fall back to a
+// self-contained inline subgraph. Without a `cos`, or for an inline image, the
+// buffer still declines to null and the caller renders that page locally.
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -202,6 +202,24 @@ void main() {
       final b = serializeCommands(recorder.commands)!;
       expect(a, equals(b));
     });
+
+    test('text opacity survives command serialization', () {
+      const run = PdfTextRun(
+        text: 'Faded',
+        transform: PdfMatrix.identity,
+        color: PdfColor.black,
+        width: 3,
+        fillAlpha: 0.25,
+        strokeColor: PdfColor(1, 0, 0),
+        strokeAlpha: 0.6,
+      );
+
+      final restored = deserializeCommands(
+        serializeCommands([const PdfDrawTextCommand(run)])!,
+      ).single as PdfDrawTextCommand;
+      expect(restored.run.fillAlpha, 0.25);
+      expect(restored.run.strokeAlpha, 0.6);
+    });
   });
 
   group('worker state-scope compaction', () {
@@ -266,7 +284,8 @@ void main() {
       expect(restored[2], isA<PdfSetBlendModeCommand>());
     });
 
-    test('round-trips overprint state (fill/stroke/mode) through the codec', () {
+    test('round-trips overprint state (fill/stroke/mode) through the codec',
+        () {
       final commands = <PdfRenderCommand>[
         const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
         const PdfSetOverprintCommand(fill: false, stroke: true, mode: 0),
@@ -310,8 +329,8 @@ void main() {
 
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
   // (their drawMask content), blend modes, gradients, knockout - and images,
-  // which round-trip through the inline-resolved stream subgraph (given `cos`)
-  // to the same transcript, or decline to null without a `cos`.
+  // which round-trip through an indirect reference or inline fallback (given
+  // `cos`) to the same transcript, or decline to null without a `cos`.
   group('corpus round-trip', () {
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf',
@@ -349,9 +368,9 @@ void main() {
             expect(noCos, isNotNull, reason: '$name page $i has no images');
           }
 
-          // With the document, image XObjects serialize via their inlined
-          // stream subgraph; the buffer round-trips to the same transcript.
-          // (An inline image would still decline - none in these fixtures.)
+          // With the document, image XObjects serialize via an indirect object
+          // reference; the buffer round-trips to the same transcript. (An
+          // inline image would still decline - none in these fixtures.)
           final bytes = serializeCommands(recorder.commands, cos: doc.cos);
           expect(bytes, isNotNull,
               reason: '$name page $i should serialize with a cos');
@@ -385,13 +404,15 @@ void main() {
     expect(_imageCommands(restored).single.request.decoded, isNull);
   });
 
-  test('an inline ImageMask (stencil) serializes - Type3 pages reach the '
+  test(
+      'an inline ImageMask (stencil) serializes - Type3 pages reach the '
       'worker (#554)', () {
     final doc = PdfDocument.open(_inlineStencilPdf());
     final page = doc.page(0);
     final ops = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
-    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+    PdfInterpreter(cos: doc.cos, device: recorder)
+        .drawPageOperations(page, ops);
     final request = recorder.imageRequests.single;
     expect(request.isInline, isTrue);
     expect(request.isStencil, isTrue);
@@ -414,10 +435,11 @@ void main() {
     final page = doc.page(0);
     final ops = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
-    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+    PdfInterpreter(cos: doc.cos, device: recorder)
+        .drawPageOperations(page, ops);
 
-    final bytes = serializeCommands(recorder.commands,
-        cos: doc.cos, decodeImages: true);
+    final bytes =
+        serializeCommands(recorder.commands, cos: doc.cos, decodeImages: true);
     expect(bytes, isNotNull);
     final restored = _imageCommands(deserializeCommands(bytes!)).single.request;
     expect(restored.isStencil, isTrue);
@@ -573,6 +595,69 @@ void main() {
       expect(restored.request.decoded!.width, 1);
       expect(restored.request.decoded!.height, 1);
       expect(restored.request.decoded!.rgba, decoded.rgba);
+    });
+
+    test('deferred indirect images cross as object references', () {
+      final doc = PdfDocument.open(
+        PdfImageDocument.fromImageBytes([buildTestJpeg()]),
+      );
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+        page,
+        ContentStreamParser.parse(page.contentBytes()),
+      );
+      final source = recorder.imageRequests.single;
+      final reference = doc.cos.referenceTo(source.stream);
+      expect(reference, isNotNull,
+          reason: 'an XObject loaded from the page must retain its identity');
+
+      final bytes = serializeCommands(
+        recorder.commands,
+        cos: doc.cos,
+        decodeImages: false,
+      )!;
+      final restored = _imageCommands(deserializeCommands(bytes)).single;
+      expect(restored.request.sourceReference, reference);
+      expect(restored.request.isInline, isFalse);
+      expect(restored.request.stream.rawBytes, isEmpty,
+          reason: 'the worker buffer must not copy the JPEG payload');
+      expect(bytes.length, lessThan(source.stream.rawBytes.length),
+          reason: 'the reference wire record should be smaller than the JPEG');
+    });
+
+    test('an image decode filter defers selected source streams', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      CosStream rgb(int value) => CosStream(
+            CosDictionary({
+              'Width': const CosInteger(1),
+              'Height': const CosInteger(1),
+              'BitsPerComponent': const CosInteger(8),
+              'ColorSpace': const CosName('DeviceRGB'),
+            }),
+            Uint8List.fromList([value, value + 1, value + 2]),
+          );
+      final embedded = rgb(10);
+      final deferred = rgb(20);
+      final bytes = serializeCommands(
+        [
+          PdfDrawImageCommand(
+              PdfImageRequest(stream: embedded, transform: PdfMatrix.identity)),
+          PdfDrawImageCommand(
+              PdfImageRequest(stream: deferred, transform: PdfMatrix.identity)),
+        ],
+        cos: cos,
+        decodeImages: true,
+        imageDecodeFilter: (_, request) => request.stream != deferred,
+      );
+
+      final images = _imageCommands(deserializeCommands(bytes!));
+      expect(images[0].request.decoded, isNotNull,
+          reason: 'accepted images still carry worker-decoded pixels');
+      expect(images[1].request.decoded, isNull,
+          reason: 'deferred direct images keep a self-contained source stream');
+      expect(images[1].request.stream.rawBytes, deferred.rawBytes,
+          reason: 'the consumer must retain enough data to decode locally');
     });
 
     test('a shared image cache makes a re-record byte-identical and free', () {
@@ -759,6 +844,108 @@ void main() {
       expect(decoded.rgba, [40, 100, 7, 255]);
     });
 
+    test('imageDecodeRegion reuses browser-seeded Flate samples byte-for-byte',
+        () {
+      // Web detail records obtain the post-Flate/post-predictor sample plane
+      // from DecompressionStream, seed it into the COS decoded-stream LRU, and
+      // leave the established region crop/scale path unchanged. Use a plane
+      // above the ordinary 1 MiB per-item cache cap so this only avoids the
+      // inflate when the explicit browser seed is honoured.
+      const width = 1024;
+      const height = 512;
+      final samples = Uint8List(width * height * 3);
+      for (var i = 0; i < samples.length; i++) {
+        samples[i] = (i * 31 + (i >> 9)) & 0xff;
+      }
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(samples)),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(1024, 0, 0, 512, 0, 0),
+      ));
+      final cos = CosDocument.open(buildClassicPdf());
+      Uint8List? record() => serializeCommands(
+            [command],
+            cos: cos,
+            decodeImages: true,
+            maxImagePixelRatio: 4,
+            imageDecodeRegion: const PdfRect(120, 140, 360, 300),
+          );
+
+      final portable = record();
+      expect(portable, isNotNull);
+      cos.seedDecodedStreamData(stream, samples, allowOversize: true);
+
+      final wasEnabled = PdfPerf.enabled;
+      try {
+        PdfPerf.enabled = true;
+        PdfPerf.reset();
+        final seeded = record();
+        expect(seeded, portable,
+            reason: 'native inflation may change only where samples came from');
+        expect(PdfPerf.snapshot().phaseCallCount(PdfPerfPhase.flate), 0,
+            reason: 'serialization must consume the seeded sample plane');
+      } finally {
+        PdfPerf.reset();
+        PdfPerf.enabled = wasEnabled;
+      }
+    });
+
+    test('imageDecodeRegion reuses a retained native DCT decode', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceCMYK'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        // Deliberately not a JPEG: a successful record proves the region path
+        // used the retained native pixels instead of invoking the decoder.
+        Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      final rgba = Uint8List(4 * 4 * 4);
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          final offset = (y * 4 + x) * 4;
+          rgba
+            ..[offset] = x * 40
+            ..[offset + 1] = y * 50
+            ..[offset + 2] = 7
+            ..[offset + 3] = 255;
+        }
+      }
+      final cache = PdfImageDecodeCache()
+        ..put(stream, null, null, PdfDecodedPixels(rgba, 4, 4));
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(400, 0, 0, 400, 100, 200),
+      ));
+
+      final bytes = serializeCommands(
+        [command],
+        cos: cos,
+        decodeImages: true,
+        maxImagePixelRatio: 100,
+        imageDecodeRegion: const PdfRect(200, 300, 300, 400),
+        imageCache: cache,
+      );
+
+      expect(bytes, isNotNull);
+      expect(cache.hits, 1);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      expect(restored.request.decoded!.rgba, [40, 100, 7, 255]);
+    });
+
     test('imageDecodeRegion skips off-region images with transparent pixels',
         () {
       final cos = CosDocument.open(buildClassicPdf());
@@ -891,7 +1078,8 @@ void main() {
           expect(images.length, originals.length,
               reason: '$name page $i image count diverged');
           for (var k = 0; k < originals.length; k++) {
-            final expected = decodePdfImagePixels(doc.cos, originals[k].stream);
+            final expected = decodePdfImagePixels(doc.cos, originals[k].stream,
+                luminosityMask: originals[k].isLuminosityMask);
             final got = images[k].request.decoded;
             if (expected == null) {
               expect(got, isNull,
@@ -920,6 +1108,46 @@ void main() {
   // them; a null/huge ratio must leave them at native resolution; and the
   // command transcript must be untouched either way (only the pixels change).
   group('image resolution cap', () {
+    test('uses a higher-resolution MRC stencil as the composite source size',
+        () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        Uint8List.fromList([0x50]),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Mask': mask,
+        }),
+        Uint8List.fromList([255, 0, 0]),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(2, 0, 0, 1, 0, 0),
+      ));
+
+      final bytes = serializeCommands(
+        [command],
+        cos: cos,
+        decodeImages: true,
+        maxImagePixelRatio: 1,
+      );
+      final decoded =
+          _imageCommands(deserializeCommands(bytes!)).single.request.decoded!;
+
+      expect((decoded.width, decoded.height), (2, 1));
+      expect(decoded.rgba, [127, 0, 0, 127, 127, 0, 0, 127]);
+    });
+
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/'
           'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',
@@ -1117,10 +1345,10 @@ void main() {
 
       final before = _decodedPixelSum(deserializeCommands(unbudgeted));
       final after = _decodedPixelSum(deserializeCommands(budgeted));
-      // The per-image 2x headroom alone ships 4 raster-fulls PER image; the
-      // page budget is that headroom squared for the whole page.
-      expect(before, 4 * 512 * 512);
-      expect(after, lessThanOrEqualTo(4 * raster + 4 * 16 + 64));
+      // The per-image display cap alone ships one raster-full per image; the
+      // page budget is one raster for the whole layered page.
+      expect(before, 4 * 256 * 256);
+      expect(after, lessThanOrEqualTo(raster + 4 * 16 + 64));
       expect(after * 4, lessThanOrEqualTo(before),
           reason: 'the tile-sized budget did not bind');
       // The record crossing the worker seam sheds every one of those pixels
@@ -1129,6 +1357,59 @@ void main() {
       // that floor is #451's, not this one's.
       expect(unbudgeted.length - budgeted.length,
           greaterThanOrEqualTo(4 * (before - after) - 1024));
+    });
+
+    test('does not apply the page budget twice to predecoded pixels', () {
+      // The web worker first decodes simple Flate images asynchronously with
+      // the browser inflater, then hands those already-budgeted pixels to the
+      // command serializer. Recomputing the cap from that smaller plane would
+      // multiply the page scale a second time and blur layered pages.
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 4));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+      final ratio = 256 / page.cropBox.width;
+      final raster = pdfPageRasterPixels(page.cropBox, ratio)!;
+
+      final first = serializeCommands(
+        recorder.commands,
+        cos: doc.cos,
+        decodeImages: true,
+        maxImagePixelRatio: ratio,
+        pageRasterPixels: raster,
+      )!;
+      final firstImages = _imageCommands(deserializeCommands(first));
+      var imageIndex = 0;
+      final predecoded = <PdfRenderCommand>[];
+      for (final command in recorder.commands) {
+        if (command is! PdfDrawImageCommand) {
+          predecoded.add(command);
+          continue;
+        }
+        final request = command.request;
+        predecoded.add(PdfDrawImageCommand(PdfImageRequest(
+          stream: request.stream,
+          transform: request.transform,
+          alpha: request.alpha,
+          isStencil: request.isStencil,
+          stencilColor: request.stencilColor,
+          isInline: request.isInline,
+          decoded: firstImages[imageIndex++].request.decoded,
+          sourceReference: request.sourceReference,
+        )));
+      }
+
+      final second = serializeCommands(
+        predecoded,
+        cos: doc.cos,
+        decodeImages: true,
+        maxImagePixelRatio: ratio,
+        pageRasterPixels: raster,
+      )!;
+      expect(second, first,
+          reason: 'pixels already decoded to the final page budget must pass '
+              'through the command seam byte-for-byte');
     });
 
     test('never scales a lone underlay a page render legitimately wants', () {
@@ -1205,13 +1486,13 @@ Uint8List _layeredImagePdf({required int draws}) {
   obj(
       3,
       '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
-          '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>');
+      '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>');
   obj(4, '<< /Length ${contentBytes.length} >>', contentBytes);
   obj(
       5,
       '<< /Type /XObject /Subtype /Image /Width $size /Height $size '
-          '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
-          '/Length ${pixels.length} >>',
+      '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
+      '/Length ${pixels.length} >>',
       pixels);
 
   final xref = out.length;

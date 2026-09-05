@@ -1,5 +1,56 @@
 # Changelog
 
+## 4.2.0
+
+- Let `buildMultiPagePdf` write `/Rotate` on every page via a new `rotation`
+  argument, for tests about display-rotated pages.
+- Align with the dart-pdf 4.2.0 package suite.
+
+## 4.1.0
+
+- Let `buildMultiPagePdf` create custom-size pages for deterministic raster,
+  sampling, and memory-budget tests.
+- Align with the dart-pdf 4.1.0 package suite and update `archive` to 4.2.0.
+
+## 4.0.0
+
+- Lockstep major release for the dart-pdf 4.0.0 package suite. No public
+  fixture API changes since 3.8.0.
+
+## 3.8.0
+
+- Add the public `buildCadImageStripPdf` fixture for benchmarking and testing
+  image-heavy CAD pages.
+- Make deterministic fixture generation browser-safe by avoiding integer
+  arithmetic that JavaScript runtimes cannot represent exactly.
+
+## 3.7.0
+
+- Add `buildTextLinesPdf`, a one-page fixture drawing each line as its own text
+  run, for content-editing tests that need several runs whose text is the same
+  or deliberately different.
+
+## 3.6.0
+
+- Add a Bluebeam-style FreeText fixture covering `/DS` and rich-text `/RC`
+  CSS fallbacks for alignment, leading, letter spacing, font stretch, and
+  underline.
+
+## 3.5.1
+
+- Add JBIG2 refinement and JPEG 2000 fixtures used to verify scanned MRC masks
+  and refined text symbols.
+
+## 3.5.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.5.0. No
+  public fixture API changes since 3.4.0.
+
+## 3.4.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.4.0. No
+  public fixture API changes since 3.3.1.
+
 ## 3.3.1
 
 - Add `buildIndirectAnnotsPdf()`, a regression fixture for annotation arrays

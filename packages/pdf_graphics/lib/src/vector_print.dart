@@ -324,7 +324,7 @@ class _EncodingDevice implements PdfDevice {
     final color = run.fill ? run.color : run.strokeColor!;
     final m = run.transform.concat(_toDevice);
     _w.u8(_opText);
-    _w.rgba(color, 1);
+    _w.rgba(color, run.fill ? run.fillAlpha : run.strokeAlpha);
     _w.u8(_fontFlags(run.fontName));
     _w.matrix(m);
     _w.f32(run.fontSize);
@@ -342,13 +342,13 @@ class _EncodingDevice implements PdfDevice {
           .concat(_toDevice);
       if (run.fill) {
         _w.u8(_opFillPath);
-        _w.rgba(run.color, 1);
+        _w.rgba(run.color, run.fillAlpha);
         _w.u8(0); // glyph outlines fill nonzero
         _writePathTransformed(outline, m);
       }
       if (run.strokeColor != null) {
         _w.u8(_opStrokePath);
-        _w.rgba(run.strokeColor!, 1);
+        _w.rgba(run.strokeColor!, run.strokeAlpha);
         _w.f32(run.strokeWidth > 0 ? run.strokeWidth : 0);
         _w.u8(0);
         _w.u8(0);

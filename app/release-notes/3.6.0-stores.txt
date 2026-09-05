@@ -1,0 +1,7 @@
+New in 3.6.0
+
+- Annotation panels are easier to navigate, keep selections visible after edits, and preserve text-box opacity.
+- Bluebeam text boxes retain their alignment, spacing, and caret position.
+- Multiple document windows now support dragging tabs between them.
+- Substituted text keeps more natural glyph proportions and spacing.
+- Fixes stale pages after edits and cloud-folder reveal actions.

@@ -5,6 +5,10 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testWindowingBootstrapIsEnabledByDefault() {
+    XCTAssertTrue(DartPdfWindowingBootstrap.isEnabled)
+  }
+
   func testFileRangeReaderReturnsRequestedBytesAndShortReadsAtEOF() throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

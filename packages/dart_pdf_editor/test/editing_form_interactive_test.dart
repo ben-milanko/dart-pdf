@@ -117,6 +117,8 @@ void main() {
       expect(editor, findsOneWidget);
       final field = tester.widget<TextField>(editor);
       expect(field.cursorWidth, closeTo(1, 0.01));
+      expect(field.cursorHeight,
+          closeTo(field.style!.fontSize! * field.style!.height!, 0.01));
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
@@ -195,6 +197,10 @@ void main() {
 
     testWidgets('check box and radio toggle on a plain tap', (tester) async {
       final session = await pumpViewer(tester);
+      expect(
+        find.byKey(const ValueKey('pdf-form-field-0-agree-0')),
+        findsOneWidget,
+      );
 
       await tap(tester, view(82, 550)); // the agree check box
       expect(session.acroForm!.fieldNamed('agree')!.isChecked, isTrue);
