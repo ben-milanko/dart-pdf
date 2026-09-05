@@ -820,19 +820,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// Extends the in-progress ink stroke to the view-space [localPosition].
   /// Normally each sample appends, tracing the freehand path. While Shift is
-  /// held, the new tail rubber-bands from the point at which Shift was first
-  /// observed and snaps to the nearest 45° direction. Shared by both paths.
+  /// pressed, the tail snaps to the nearest 45° direction from the latest
+  /// sample. The constraint stays latched until this pointer stroke ends so
+  /// releasing Shift just before the pointer cannot add a freehand hook.
   void _extendActiveStroke(Offset localPosition) {
     _penCursor = localPosition;
     _bumpCursor();
     final page = _geometry.toPagePoint(localPosition);
     final pressures = _activeStrokePressures;
     final pressure = _pointerPressure ?? pressures?.last;
-    if (HardwareKeyboard.instance.isShiftPressed) {
+    if (HardwareKeyboard.instance.isShiftPressed ||
+        _inkShiftAnchorIndex != null) {
       final anchorIndex = _inkShiftAnchorIndex ??= _activeStroke!.length - 1;
       final anchor = _activeStroke![anchorIndex];
-      final snapped = _straightSnap(
-          _geometry.toViewOffset(anchor.$1, anchor.$2), localPosition);
+      final snapped =
+          _snap45(_geometry.toViewOffset(anchor.$1, anchor.$2), localPosition);
       final snappedPage = _geometry.toPagePoint(snapped);
       _activeStroke!
         ..length = anchorIndex + 1
@@ -843,11 +845,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           ..add(pressure ?? pressures.last);
       }
     } else {
-      _inkShiftAnchorIndex = null;
       _activeStroke!.add(page);
       if (pressures != null) pressures.add(pressure ?? pressures.last);
     }
     _bumpActiveStroke();
+  }
+
+  void _bufferInkStroke(List<(double, double)> stroke, List<double>? pressures,
+      int? shiftAnchor) {
+    final parts = _inkStrokeParts(stroke, pressures, shiftAnchor);
+    for (var i = 0; i < parts.strokes.length; i++) {
+      _controller.addInkStroke(widget.pageIndex, parts.strokes[i],
+          pressures: parts.pressures[i]);
+    }
   }
 
   /// The latest normalized pressure of the pointer being tracked, or null
@@ -1613,6 +1623,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// Returns [point] unchanged when Shift is up (or the delta is zero).
   Offset _straightSnap(Offset anchor, Offset point) {
     if (!HardwareKeyboard.instance.isShiftPressed) return point;
+    return _snap45(anchor, point);
+  }
+
+  /// Ink keeps snapping after Shift is released; other tools retain their
+  /// live modifier behavior through [_straightSnap].
+  Offset _snap45(Offset anchor, Offset point) {
     final delta = point - anchor;
     if (delta == Offset.zero) return point;
     const step = math.pi / 4; // 45° increments (8 directions)
@@ -1914,6 +1930,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _pointers.clearRaw();
     final stroke = _activeStroke;
     final pressures = _activeStrokePressures;
+    final shiftAnchor = _inkShiftAnchorIndex;
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -1930,7 +1947,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       stroke.add(stroke.single);
       pressures?.add(pressures.single);
     }
-    _controller.addInkStroke(widget.pageIndex, stroke, pressures: pressures);
+    _bufferInkStroke(stroke, pressures, shiftAnchor);
   }
 
   /// Sweeps the circle eraser to the view-space [position]: extends the
@@ -4302,6 +4319,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     final stroke = _activeStroke;
     final strokePressures = _activeStrokePressures;
+    final shiftAnchor = _inkShiftAnchorIndex;
     final dragStart = _dragStart;
     final dragCurrent = _dragCurrent;
     final moveStart = _moveStart;
@@ -4527,8 +4545,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
           to: _selectedViewRect?.shift(moveCurrent - moveStart));
     } else if (stroke != null && stroke.isNotEmpty) {
-      _controller.addInkStroke(widget.pageIndex, stroke,
-          pressures: strokePressures);
+      _bufferInkStroke(stroke, strokePressures, shiftAnchor);
     } else if (dragStart != null && dragCurrent != null) {
       final viewRect = Rect.fromPoints(dragStart, dragCurrent);
       if (_lineDragTool) {
@@ -6808,6 +6825,28 @@ class _EyedropperChip extends StatelessWidget {
   }
 }
 
+/// Split at the Shift anchor so Catmull-Rom smoothing cannot bend a straight
+/// tail. Preview and commit use the same paths and pressure samples. The
+/// controller still groups them into one annotation and one undo operation.
+({
+  List<List<(double, double)>> strokes,
+  List<List<double>?> pressures
+}) _inkStrokeParts(
+    List<(double, double)> stroke, List<double>? pressures, int? shiftAnchor) {
+  if (shiftAnchor == null ||
+      shiftAnchor <= 0 ||
+      shiftAnchor >= stroke.length - 1) {
+    return (strokes: [stroke], pressures: [pressures]);
+  }
+  return (
+    strokes: [stroke.sublist(0, shiftAnchor + 1), stroke.sublist(shiftAnchor)],
+    pressures: [
+      pressures?.sublist(0, shiftAnchor + 1),
+      pressures?.sublist(shiftAnchor),
+    ],
+  );
+}
+
 /// Paints page-space ink [strokes] with the committed appearance's
 /// Catmull-Rom smoothing and pressure-mapped width. Shared by the heavy
 /// preview painter (buffered/committed strokes) and the lightweight
@@ -6917,10 +6956,13 @@ class _ActiveStrokePainter extends CustomPainter {
     final geometry = _state._geometry;
     var display = stroke;
     var pressures = _state._activeStrokePressures;
+    final shiftAnchor = _state._inkShiftAnchorIndex;
     // a forward-extrapolated lead so the line keeps up with the pen tip -
     // display only, recomputed each repaint (so the next real sample
     // replaces it) and never folded into the committed stroke
-    if (_state.widget.predictStrokes) {
+    // A constrained tail already reaches its endpoint. Extrapolating it makes
+    // the preview overshoot the line that will be saved.
+    if (shiftAnchor == null && _state.widget.predictStrokes) {
       final lead = pdfPredictStrokeLead(stroke);
       if (lead.isNotEmpty) {
         display = [...stroke, ...lead];
@@ -6929,11 +6971,12 @@ class _ActiveStrokePainter extends CustomPainter {
         }
       }
     }
+    final parts = _inkStrokeParts(display, pressures, shiftAnchor);
     _paintInkStrokes(
       canvas,
       geometry,
-      [display],
-      [pressures],
+      parts.strokes,
+      parts.pressures,
       _state._controller.color,
       _state._controller.preferences.strokeWidth * geometry.scale,
     );
