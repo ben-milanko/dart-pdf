@@ -80,6 +80,88 @@ class PdfAnnotationMenuItem {
 typedef PdfAnnotationMenuBuilder = List<PdfAnnotationMenuItem> Function(
     BuildContext context, PdfAnnotationMenuRequest request);
 
+/// What a text-selection context menu acts on: the editing session (null
+/// in a plain reader), the page the menu opened on, and the text selection
+/// as it stood the moment the menu opened.
+///
+/// The quads are the ones a text markup would use, so a host entry can
+/// build a `/Link`, a `/Highlight`, or its own annotation from the same
+/// geometry the stock entries do - see
+/// [PdfViewerController.selectionRectsOn], which is where they come from.
+class PdfTextMenuRequest {
+  const PdfTextMenuRequest({
+    required this.controller,
+    required this.pageIndex,
+    required this.selectedText,
+    required this.selectionPages,
+    required this.quadsByPage,
+    required this.pagePoint,
+  });
+
+  /// The editing session behind the viewer, or null in a plain reader -
+  /// a host entry that writes to the document must handle both.
+  final PdfEditingController? controller;
+
+  /// The page the menu was opened on (where the right-click landed).
+  final int pageIndex;
+
+  /// The selected text, empty when the click found no word to select
+  /// (the menu still opens for Select all).
+  final String selectedText;
+
+  /// Pages the selection touches, in document order; empty without a
+  /// selection.
+  final List<int> selectionPages;
+
+  /// The selection's rectangles per page, in PDF page coordinates -
+  /// ready to use as the quads of a text-markup or `/Link` annotation.
+  /// Keyed by the entries of [selectionPages].
+  final Map<int, List<PdfRect>> quadsByPage;
+
+  /// Where on [pageIndex] the menu was opened, in PDF page coordinates.
+  final (double, double) pagePoint;
+
+  /// Whether the menu opened on a text selection. Host entries that act
+  /// on text should disable themselves when this is false.
+  bool get hasSelection => selectedText.isNotEmpty;
+}
+
+/// One host entry in the text-selection context menu. The stock entries
+/// (markup, Copy, Select all) are built internally and always come first.
+class PdfTextMenuItem {
+  const PdfTextMenuItem({
+    this.key,
+    required this.label,
+    this.icon,
+    this.enabled = true,
+    required this.onSelected,
+  });
+
+  /// Optional key on the menu row, for tests.
+  final Key? key;
+
+  final String label;
+  final IconData? icon;
+  final bool enabled;
+
+  /// Runs when the entry is picked, with the request the menu was built
+  /// from - the selection it names is the one the user right-clicked,
+  /// even if the viewer's live selection has moved on since.
+  final FutureOr<void> Function(PdfTextMenuRequest request) onSelected;
+}
+
+/// Builds the host's extra entries for the text-selection context menu -
+/// the [PdfAnnotationMenuBuilder] of the text menu. Returning an empty
+/// list adds nothing; the stock entries always come first, with a divider
+/// before the custom ones.
+///
+/// Called every time the menu opens, including when nothing is selected
+/// (a right-click that found no word, where only Select all is live), so
+/// entries that need text should key off [PdfTextMenuRequest.hasSelection]
+/// rather than assume one.
+typedef PdfTextMenuBuilder = List<PdfTextMenuItem> Function(
+    BuildContext context, PdfTextMenuRequest request);
+
 /// Shows the annotation context menu at [position] (global coordinates)
 /// for [controller]'s current selection: copy/cut/apply-to-pages/paste,
 /// bring to front, send to back, add/remove node (a single /PolyLine or

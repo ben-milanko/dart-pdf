@@ -241,6 +241,7 @@ class PdfEditorView extends StatefulWidget {
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
     this.onContextMenuRequested,
@@ -334,6 +335,7 @@ class PdfEditorView extends StatefulWidget {
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
     this.onContextMenuRequested,
@@ -519,6 +521,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.annotationMenuBuilder].
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
+
+  /// See [PdfViewer.textMenuBuilder].
+  final PdfTextMenuBuilder? textMenuBuilder;
 
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
@@ -793,6 +798,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onAnnotationTap: widget.onAnnotationTap,
         pageOverlayBuilder: widget.pageOverlayBuilder,
         annotationMenuBuilder: widget.annotationMenuBuilder,
+        textMenuBuilder: widget.textMenuBuilder,
         contextMenuEnabled: widget.contextMenuEnabled,
         showSelectionChip: widget.showSelectionChip,
         onContextMenuRequested: widget.onContextMenuRequested,
@@ -1532,6 +1538,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         onAnnotationTap: widget.onAnnotationTap,
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
+                        textMenuBuilder: widget.textMenuBuilder,
                         contextMenuEnabled: widget.contextMenuEnabled,
                         showSelectionChip: widget.showSelectionChip,
                         onContextMenuRequested: widget.onContextMenuRequested,
