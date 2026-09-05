@@ -552,7 +552,8 @@ void main() {
   group('text context menu (mouse)', () {
     // a plain reader (no editing controller); fixture text 'Page 1' sits
     // at 72,720 in 24pt Helvetica ('Page' spans x 72..120)
-    Future<PdfViewerController> pumpReader(WidgetTester tester) async {
+    Future<PdfViewerController> pumpReader(WidgetTester tester,
+        {PdfTextMenuBuilder? textMenuBuilder}) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(MaterialApp(
@@ -561,6 +562,7 @@ void main() {
             initialFit: PdfViewerFit.width,
             document: PdfDocument.open(buildMultiPagePdf(1)),
             controller: controller,
+            textMenuBuilder: textMenuBuilder,
           ),
         ),
       ));
@@ -572,6 +574,7 @@ void main() {
         pumpEditor(
       WidgetTester tester, {
       PdfStyledTextPrompt? styledTextPrompt,
+      PdfTextMenuBuilder? textMenuBuilder,
     }) async {
       final viewer = PdfViewerController();
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -587,6 +590,7 @@ void main() {
               controller: viewer,
               editing: editing,
               editingStyledTextPrompt: styledTextPrompt,
+              textMenuBuilder: textMenuBuilder,
             ),
           ),
         ),
@@ -756,6 +760,161 @@ void main() {
           .join();
       expect(text, 'Document 1');
       expect(state.viewer.hasSelection, isFalse);
+    });
+
+    testWidgets('host text entries ride below a divider and get the request',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final controller = await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-record'),
+            label: 'Link to a record',
+            icon: Icons.link,
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720)); // 'Page'
+      expect(controller.selectedText, 'Page');
+      // stock (Copy | Select all) then the host's group below the divider
+      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      expect(find.text('Link to a record'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('host-link-record')));
+      await tester.pumpAndSettle();
+
+      expect(received, isNotNull);
+      expect(received!.controller, isNull, reason: 'plain reader');
+      expect(received!.pageIndex, 0);
+      expect(received!.selectedText, 'Page');
+      expect(received!.hasSelection, isTrue);
+      expect(received!.selectionPages, [0]);
+      expect(received!.quadsByPage.keys, [0]);
+      expect(received!.quadsByPage[0], isNotEmpty);
+      // the click point, in PDF page coordinates
+      expect(received!.pagePoint.$1, closeTo(100, 1));
+      expect(received!.pagePoint.$2, closeTo(720, 1));
+    });
+
+    testWidgets('a disabled host entry cannot be picked', (tester) async {
+      var picked = false;
+      await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-disabled'),
+            label: 'Link to a record',
+            enabled: false,
+            onSelected: (request) => picked = true,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      final item = tester
+          .widget<PopupMenuItem>(find.byKey(const ValueKey('host-disabled')));
+      expect(item.enabled, isFalse);
+      await tester.tap(find.byKey(const ValueKey('host-disabled')));
+      await tester.pumpAndSettle();
+      expect(picked, isFalse);
+      expect(find.text('Link to a record'), findsOneWidget,
+          reason: 'a disabled row does not close the menu');
+    });
+
+    testWidgets('host entries still show with nothing selected',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final controller = await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-no-selection'),
+            label: 'Link to this page',
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(450, 400)); // no text here
+      expect(controller.hasSelection, isFalse);
+      await tester.tap(find.byKey(const ValueKey('host-no-selection')));
+      await tester.pumpAndSettle();
+
+      expect(received, isNotNull);
+      expect(received!.hasSelection, isFalse);
+      expect(received!.selectedText, isEmpty);
+      expect(received!.selectionPages, isEmpty);
+      expect(received!.quadsByPage, isEmpty);
+    });
+
+    testWidgets('the editor menu keeps its stock entries above the host ones',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final state = await pumpEditor(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-record'),
+            label: 'Link to a record',
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-menu-highlight')),
+          findsOneWidget);
+      // markup | copy+select-all | host
+      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
+
+      await tester.tap(find.byKey(const ValueKey('host-link-record')));
+      await tester.pumpAndSettle();
+      expect(identical(received!.controller, state.editing), isTrue);
+      expect(received!.selectedText, 'Page');
+      expect(received!.quadsByPage[0], isNotEmpty);
+    });
+
+    testWidgets('the host entry keeps the selection the menu opened on',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final controller = await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-record'),
+            label: 'Link to a record',
+            onSelected: (request) async => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      // the selection moves on while the menu is open; the picked entry
+      // must still act on what the user right-clicked
+      controller.selectAllTextOn(0);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('host-link-record')));
+      await tester.pumpAndSettle();
+
+      expect(received!.selectedText, 'Page');
+      expect(controller.selectedText, 'Page 1');
+    });
+
+    testWidgets('selectAllTextOn selects a page and ignores a bad index',
+        (tester) async {
+      final controller = await pumpReader(tester);
+
+      controller.selectAllTextOn(0);
+      await tester.pump();
+      expect(controller.selectedText, 'Page 1');
+
+      controller.selectAllTextOn(7); // out of range: selection untouched
+      await tester.pump();
+      expect(controller.selectedText, 'Page 1');
     });
   });
 }

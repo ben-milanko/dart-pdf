@@ -8,6 +8,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_interaction.dart';
+import 'editing/editing_menu.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_thumbnails.dart';
 import 'l10n/pdf_l10n.dart';
@@ -138,6 +139,7 @@ class PdfReader extends StatefulWidget {
     this.onLaunchUrl,
     this.onShareReflowImage,
     this.pageOverlayBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
@@ -193,6 +195,7 @@ class PdfReader extends StatefulWidget {
     this.onLaunchUrl,
     this.onShareReflowImage,
     this.pageOverlayBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
@@ -301,6 +304,10 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
+
+  /// See [PdfViewer.textMenuBuilder]. A reader has no editing session,
+  /// so the request's controller is always null here.
+  final PdfTextMenuBuilder? textMenuBuilder;
 
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
@@ -571,6 +578,7 @@ class _PdfReaderState extends State<PdfReader> {
                           onAnnotationTap: widget.onAnnotationTap,
                           onLaunchUrl: widget.onLaunchUrl,
                           pageOverlayBuilder: widget.pageOverlayBuilder,
+                          textMenuBuilder: widget.textMenuBuilder,
                           contextMenuEnabled: widget.contextMenuEnabled,
                           onContextMenuRequested: widget.onContextMenuRequested,
                           pageLayout: widget.pageLayout,
