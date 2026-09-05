@@ -1,4 +1,9 @@
 import 'dart:typed_data';
+import 'pdf_cache_policy.dart';
+
+bool get canManageCachedPdfs => false;
+Future<PdfCacheUsage?> cachedPdfUsage() async => null;
+Future<bool> clearCachedPdfs() async => false;
 
 /// A target with neither `dart:io` nor JS interop can't snapshot opened bytes,
 /// so Recent entries there still need a fresh pick to reopen.
@@ -8,4 +13,4 @@ Future<String?> cacheOpenedPdf(Uint8List bytes) async => null;
 
 Future<Uint8List?> readCachedPdf(String cacheKey) async => null;
 
-Future<void> pruneCachedPdfs(Set<String> keep) async {}
+Future<Set<String>?> pruneCachedPdfs(Set<String> keep) async => null;

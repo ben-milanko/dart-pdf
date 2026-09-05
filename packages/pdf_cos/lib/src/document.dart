@@ -49,6 +49,14 @@ class CosDocument {
   /// dangles the same way a not-yet-fetched compressed object already does.
   final List<int>? _populated;
 
+  /// Snapshot of the populated `[start, end)` byte pairs, or null for a
+  /// complete buffer. Pass this alongside a copy of [bytes] when reopening
+  /// across an isolate boundary: the buffer's identity-keyed map cannot travel
+  /// with the copy. Missing objects in a sparse document may be unfetched,
+  /// rather than absent from the original file.
+  List<int>? get populatedRanges =>
+      _populated == null ? null : List<int>.unmodifiable(_populated);
+
   /// The document image the xref offsets refer to. Grows in place when an
   /// append-only incremental revision is fed through [applyIncrementalUpdate];
   /// the prefix is always byte-identical, so objects cached against the old
@@ -163,6 +171,9 @@ class CosDocument {
     // caller's literal may be neither.
     final declared = populatedRanges ?? cosSparseBufferRanges[bytes];
     final populated = declared == null ? null : List<int>.of(declared);
+    if (populated != null) {
+      cosSparseBufferRanges[bytes] = List<int>.unmodifiable(populated);
+    }
     if (PdfPerf.enabled) {
       PdfPerf.sink?.call('cos open bytes=${bytes.length} '
           '${populated == null ? 'whole-file' : 'sparse spans=${populated.length >> 1}'}');
@@ -237,6 +248,7 @@ class CosDocument {
       } else {
         populated.addAll([bytes.length, newBytes.length]);
       }
+      cosSparseBufferRanges[newBytes] = List<int>.unmodifiable(populated);
     }
     bytes = newBytes;
     startXref = newStartXref;

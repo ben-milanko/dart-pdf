@@ -265,5 +265,11 @@
   "updateFailed": "Aktualizacja nie powiodła się: {error}",
   "imageSourceTakePhoto": "Zrób zdjęcie",
   "imageSourceChooseFile": "Wybierz plik",
-  "imageSourceCameraFailed": "Nie udało się zrobić zdjęcia"
+  "imageSourceCameraFailed": "Nie udało się zrobić zdjęcia",
+  "settingsCachedDocuments": "Dokumenty w pamięci podręcznej",
+  "settingsCacheUsage": "Wykorzystano {used} MiB z {limit} MiB",
+  "settingsCacheExplanation": "Pliki większe niż {limit} MiB nie są buforowane. Czyszczenie zachowuje listę ostatnich plików, otwarte dokumenty i niezapisane zmiany; pliki z pamięci podręcznej trzeba ponownie wybrać, aby je otworzyć.",
+  "settingsClearCachedDocuments": "Wyczyść dokumenty z pamięci podręcznej",
+  "settingsCacheUnavailable": "Rozmiar pamięci podręcznej niedostępny",
+  "settingsCacheClearFailed": "Nie udało się wyczyścić pamięci podręcznej dokumentów. Spróbuj ponownie."
 }

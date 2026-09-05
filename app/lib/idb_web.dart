@@ -18,15 +18,17 @@ import 'package:web/web.dart' as web;
 /// same version never fires `onupgradeneeded`, so every transaction against the
 /// missing store would throw "object store not found". We detect that and
 /// reopen at the next version to add it.
-Future<web.IDBDatabase> openIdb(String name, List<String> stores) async {
-  var db = await _openAt(name, stores, null);
+Future<web.IDBDatabase> openIdb(String name, List<String> stores,
+    {void Function(web.IDBDatabase, web.IDBTransaction)? onUpgrade}) async {
+  var db = await _openAt(name, stores, null, onUpgrade);
   if (stores.every((s) => db.objectStoreNames.contains(s))) return db;
   final next = db.version + 1;
   db.close();
-  return _openAt(name, stores, next);
+  return _openAt(name, stores, next, onUpgrade);
 }
 
-Future<web.IDBDatabase> _openAt(String name, List<String> stores, int? version) {
+Future<web.IDBDatabase> _openAt(String name, List<String> stores, int? version,
+    void Function(web.IDBDatabase, web.IDBTransaction)? onUpgrade) {
   final completer = Completer<web.IDBDatabase>();
   final request = version == null
       ? web.window.indexedDB.open(name)
@@ -36,13 +38,27 @@ Future<web.IDBDatabase> _openAt(String name, List<String> stores, int? version) 
     for (final store in stores) {
       if (!db.objectStoreNames.contains(store)) db.createObjectStore(store);
     }
+    onUpgrade?.call(db, request.transaction!);
   }.toJS;
   request.onsuccess = (web.Event _) {
-    completer.complete(request.result as web.IDBDatabase);
+    final db = request.result as web.IDBDatabase;
+    if (completer.isCompleted) {
+      db.close();
+      return;
+    }
+    completer.complete(db);
   }.toJS;
   request.onerror = (web.Event _) {
+    if (completer.isCompleted) return;
     completer.completeError(
         StateError('IndexedDB open failed: ${request.error?.message}'));
+  }.toJS;
+  request.onblocked = (web.Event _) {
+    if (completer.isCompleted) return;
+    // An older app tab may hold a connection without a versionchange handler.
+    // Optional storage must fail promptly instead of waiting forever for it.
+    completer
+        .completeError(StateError('IndexedDB upgrade blocked by another tab'));
   }.toJS;
   return completer.future;
 }

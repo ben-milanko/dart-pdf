@@ -1072,4 +1072,27 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Impossible de prendre une photo';
+
+  @override
+  String get settingsCachedDocuments => 'Documents en cache';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB utilisés sur $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Les fichiers de plus de $limit MiB ne sont pas mis en cache. La suppression conserve les fichiers récents, les documents ouverts et les modifications non enregistrées ; les fichiers en cache devront être sélectionnés à nouveau pour les rouvrir.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Effacer les documents en cache';
+
+  @override
+  String get settingsCacheUnavailable => 'Taille du cache indisponible';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Impossible d’effacer les documents en cache. Réessayez.';
 }

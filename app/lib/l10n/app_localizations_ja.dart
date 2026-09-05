@@ -1037,4 +1037,26 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => '写真を撮影できませんでした';
+
+  @override
+  String get settingsCachedDocuments => 'キャッシュされたドキュメント';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB 中 $used MiB 使用';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB を超えるファイルはキャッシュされません。削除しても最近使ったファイルの一覧、開いているドキュメント、未保存の変更は保持されます。キャッシュされたファイルを再度開くには、ファイルを選び直す必要があります。';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'ドキュメントのキャッシュを削除';
+
+  @override
+  String get settingsCacheUnavailable => 'キャッシュサイズを取得できません';
+
+  @override
+  String get settingsCacheClearFailed => 'ドキュメントのキャッシュを削除できませんでした。再試行してください。';
 }

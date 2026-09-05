@@ -1056,4 +1056,27 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'फ़ोटो नहीं ली जा सकी';
+
+  @override
+  String get settingsCachedDocuments => 'कैश किए गए दस्तावेज़';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB में से $used MiB उपयोग में';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB से बड़ी फ़ाइलें कैश नहीं की जातीं। साफ़ करने पर हाल की फ़ाइलों की सूची, खुले दस्तावेज़ और बिना सहेजे बदलाव बने रहते हैं; कैश की गई फ़ाइलों को फिर से खोलने के लिए दोबारा चुनना होगा।';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'कैश किए गए दस्तावेज़ साफ़ करें';
+
+  @override
+  String get settingsCacheUnavailable => 'कैश का आकार उपलब्ध नहीं है';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'कैश किए गए दस्तावेज़ साफ़ नहीं किए जा सके। फिर से कोशिश करें।';
 }

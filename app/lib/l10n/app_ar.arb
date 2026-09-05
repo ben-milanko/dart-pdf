@@ -265,5 +265,11 @@
   "updateFailed": "فشل التحديث: {error}",
   "imageSourceTakePhoto": "التقاط صورة",
   "imageSourceChooseFile": "اختيار ملف",
-  "imageSourceCameraFailed": "تعذّر التقاط صورة"
+  "imageSourceCameraFailed": "تعذّر التقاط صورة",
+  "settingsCachedDocuments": "المستندات المخزنة مؤقتًا",
+  "settingsCacheUsage": "تم استخدام {used} MiB من {limit} MiB",
+  "settingsCacheExplanation": "لا تُخزّن الملفات التي تتجاوز {limit} MiB مؤقتًا. يحتفظ المسح بقائمة الملفات الأخيرة والمستندات المفتوحة والتغييرات غير المحفوظة؛ يجب اختيار الملفات المخزنة مؤقتًا مجددًا لإعادة فتحها.",
+  "settingsClearCachedDocuments": "مسح المستندات المخزنة مؤقتًا",
+  "settingsCacheUnavailable": "حجم التخزين المؤقت غير متاح",
+  "settingsCacheClearFailed": "تعذر مسح المستندات المخزنة مؤقتًا. حاول مجددًا."
 }

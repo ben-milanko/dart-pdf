@@ -1400,5 +1400,42 @@
   "imageSourceCameraFailed": "Couldn't take a photo",
   "@imageSourceCameraFailed":   {
       "description": "Toast shown when the camera cannot be opened - no camera on the device, or access refused."
+  },
+  "settingsCachedDocuments": "Cached documents",
+  "settingsCacheUsage": "{used} MiB of {limit} MiB used",
+  "settingsCacheExplanation": "Files over {limit} MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.",
+  "settingsClearCachedDocuments": "Clear cached documents",
+  "settingsCacheUnavailable": "Cache size unavailable",
+  "settingsCacheClearFailed": "Could not clear cached documents. Try again.",
+  "@settingsCachedDocuments": {
+    "description": "Opened PDF snapshot cache settings: settingsCachedDocuments"
+  },
+  "@settingsCacheUsage": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheUsage",
+    "placeholders": {
+      "used": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "@settingsCacheExplanation": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheExplanation",
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "@settingsClearCachedDocuments": {
+    "description": "Opened PDF snapshot cache settings: settingsClearCachedDocuments"
+  },
+  "@settingsCacheUnavailable": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheUnavailable"
+  },
+  "@settingsCacheClearFailed": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheClearFailed"
   }
 }

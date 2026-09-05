@@ -265,5 +265,11 @@
   "updateFailed": "Échec de la mise à jour : {error}",
   "imageSourceTakePhoto": "Prendre une photo",
   "imageSourceChooseFile": "Choisir un fichier",
-  "imageSourceCameraFailed": "Impossible de prendre une photo"
+  "imageSourceCameraFailed": "Impossible de prendre une photo",
+  "settingsCachedDocuments": "Documents en cache",
+  "settingsCacheUsage": "{used} MiB utilisés sur {limit} MiB",
+  "settingsCacheExplanation": "Les fichiers de plus de {limit} MiB ne sont pas mis en cache. La suppression conserve les fichiers récents, les documents ouverts et les modifications non enregistrées ; les fichiers en cache devront être sélectionnés à nouveau pour les rouvrir.",
+  "settingsClearCachedDocuments": "Effacer les documents en cache",
+  "settingsCacheUnavailable": "Taille du cache indisponible",
+  "settingsCacheClearFailed": "Impossible d’effacer les documents en cache. Réessayez."
 }

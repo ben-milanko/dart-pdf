@@ -265,5 +265,11 @@
   "updateFailed": "การอัปเดตล้มเหลว: {error}",
   "imageSourceTakePhoto": "ถ่ายภาพ",
   "imageSourceChooseFile": "เลือกไฟล์",
-  "imageSourceCameraFailed": "ถ่ายภาพไม่สำเร็จ"
+  "imageSourceCameraFailed": "ถ่ายภาพไม่สำเร็จ",
+  "settingsCachedDocuments": "เอกสารที่แคชไว้",
+  "settingsCacheUsage": "ใช้ไป {used} MiB จาก {limit} MiB",
+  "settingsCacheExplanation": "ไฟล์ที่ใหญ่กว่า {limit} MiB จะไม่ถูกแคช การล้างจะเก็บรายการล่าสุด เอกสารที่เปิดอยู่ และการเปลี่ยนแปลงที่ยังไม่ได้บันทึกไว้ โดยต้องเลือกไฟล์ที่เคยแคชอีกครั้งเพื่อเปิดใหม่",
+  "settingsClearCachedDocuments": "ล้างเอกสารที่แคชไว้",
+  "settingsCacheUnavailable": "ไม่สามารถดูขนาดแคชได้",
+  "settingsCacheClearFailed": "ไม่สามารถล้างเอกสารที่แคชไว้ได้ โปรดลองอีกครั้ง"
 }

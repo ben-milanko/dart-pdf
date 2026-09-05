@@ -265,5 +265,11 @@
   "updateFailed": "Güncelleme başarısız: {error}",
   "imageSourceTakePhoto": "Fotoğraf çek",
   "imageSourceChooseFile": "Dosya seç",
-  "imageSourceCameraFailed": "Fotoğraf çekilemedi"
+  "imageSourceCameraFailed": "Fotoğraf çekilemedi",
+  "settingsCachedDocuments": "Önbelleğe alınan belgeler",
+  "settingsCacheUsage": "{limit} MiB alanın {used} MiB kadarı kullanılıyor",
+  "settingsCacheExplanation": "{limit} MiB üzerindeki dosyalar önbelleğe alınmaz. Temizleme, son dosyalar listesini, açık belgeleri ve kaydedilmemiş değişiklikleri korur; önbellekteki dosyaları yeniden açmak için tekrar seçmeniz gerekir.",
+  "settingsClearCachedDocuments": "Önbellekteki belgeleri temizle",
+  "settingsCacheUnavailable": "Önbellek boyutu kullanılamıyor",
+  "settingsCacheClearFailed": "Önbellekteki belgeler temizlenemedi. Tekrar deneyin."
 }

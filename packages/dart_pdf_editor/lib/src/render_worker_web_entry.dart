@@ -157,7 +157,7 @@ bool _presentPageSurfaceBitmap(
 /// full wiring.
 ///
 /// Protocol (mirrors the native isolate backend):
-/// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared}` → opens the
+/// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared, populatedRanges?}` → opens the
 ///   document, replies `{kind:'ready', shared}`.
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
 ///   buffer:ArrayBuffer|null}` (null = the page can't be offloaded; the main
@@ -225,7 +225,12 @@ void runPdfRenderWorker() {
         final bytes = shared
             ? _jsUint8View(buffer).toDart
             : (buffer as JSArrayBuffer).toDart.asUint8List();
-        document = PdfDocument.open(bytes);
+        final populatedRanges =
+            (data.getProperty('populatedRanges'.toJS) as JSArray<JSNumber>?)
+                ?.toDart
+                .map((value) => value.toDartInt)
+                .toList();
+        document = PdfDocument.open(bytes, populatedRanges: populatedRanges);
         imageCache = PdfImageDecodeCache(); // new document, new streams
         flateSampleCache = _BrowserFlateSampleCache();
         flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);

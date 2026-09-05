@@ -99,6 +99,17 @@ initialization. This applies to debug, release, and Store builds, so dialogs
 and regular windows cannot end up on incompatible engine modes. See
 [the implementation notes](../doc/dev-log/2026-08-14-flutter-347-multi-window.md).
 
+Web Recent documents use disposable IndexedDB snapshots with a **256 MiB total
+budget** and a **64 MiB per-file limit**. Opening or reopening a cached document
+refreshes its recency; older snapshots are evicted as needed. New snapshots are
+skipped when they would consume the last 10% of the browser's estimated origin
+quota. If the estimate is unavailable, the app's own limits still apply.
+Settings → **Cached documents** shows the stored PDF size and offers **Clear
+cached documents**. Evicted or cleared documents stay in Recents and need to be
+picked again. Clearing leaves open documents and unsaved-change recovery intact.
+Existing caches are brought under the limits on startup. These limits currently
+apply to the web snapshot store; native snapshot storage is unchanged.
+
 On web, `dart_pdf_editor` uses its bundled page-render worker asset
 automatically. If the browser cannot load it, rendering falls back to the main
 thread.

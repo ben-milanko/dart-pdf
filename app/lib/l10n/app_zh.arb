@@ -265,5 +265,11 @@
   "updateFailed": "更新失败：{error}",
   "imageSourceTakePhoto": "拍照",
   "imageSourceChooseFile": "选择文件",
-  "imageSourceCameraFailed": "无法拍照"
+  "imageSourceCameraFailed": "无法拍照",
+  "settingsCachedDocuments": "缓存的文档",
+  "settingsCacheUsage": "已使用 {used} MiB，共 {limit} MiB",
+  "settingsCacheExplanation": "超过 {limit} MiB 的文件不会缓存。清除后会保留最近文件列表、打开的文档和未保存的更改；要重新打开缓存的文件，需要再次选择文件。",
+  "settingsClearCachedDocuments": "清除缓存的文档",
+  "settingsCacheUnavailable": "无法获取缓存大小",
+  "settingsCacheClearFailed": "无法清除缓存的文档。请重试。"
 }

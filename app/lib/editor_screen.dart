@@ -840,15 +840,25 @@ class _EditorScreenState extends State<EditorScreen>
     await _session.save(documents);
   }
 
-  /// Deletes private PDF snapshots and first-page thumbnails that no Recent
-  /// entry still references, so local caches cannot grow without bound as
-  /// entries roll off the list.
+  /// Serializes snapshot writes plus their Recent updates against pruning.
+  Future<void> _recentCacheWork = Future<void>.value();
+
+  /// Prunes unreferenced snapshots/thumbnails and enforces the web byte budget.
   void _pruneRecentCache() {
+    _recentCacheWork = _recentCacheWork.then((_) => _pruneRecentCacheNow());
+  }
+
+  Future<void> _pruneRecentCacheNow() async {
+    if (!mounted) return;
     final keep = {
       for (final entry in _recents.items)
         if (entry.cachePath != null) entry.cachePath!,
     };
-    unawaited(pruneCachedPdfs(keep));
+    final available = await pruneCachedPdfs(keep);
+    if (!mounted) return;
+    if (available != null) {
+      await _recents.updateCachedAvailability(keep, available);
+    }
     unawaited(_recentThumbnails.retain(_recents.items));
   }
 
@@ -1191,16 +1201,26 @@ class _EditorScreenState extends State<EditorScreen>
   /// pick, then records the recent (and re-persists the session) once the
   /// snapshot is on disk. Runs off the open hot path - the tab is already
   /// visible - so a slow disk write never blocks the loading placeholder.
-  Future<void> _snapshotOpenedDocument(DocumentTab tab, Uint8List bytes) async {
+  Future<void> _snapshotOpenedDocument(DocumentTab tab, Uint8List bytes) {
+    // A prune must not delete a snapshot between its write and its Recent add.
+    return _recentCacheWork = _recentCacheWork.then((_) async {
+      await _snapshotOpenedDocumentNow(tab, bytes);
+      await _pruneRecentCacheNow();
+    });
+  }
+
+  Future<void> _snapshotOpenedDocumentNow(
+      DocumentTab tab, Uint8List bytes) async {
+    if (!mounted || !_tabs.contains(tab)) return;
     final cachePath = await cacheOpenedPdf(bytes);
     if (!mounted || !_tabs.contains(tab)) return;
     if (cachePath == null) {
       // The snapshot failed: still record a (non-reopenable) recent.
-      _recents.add(title: tab.title, bookmark: tab.originBookmark);
+      await _recents.add(title: tab.title, bookmark: tab.originBookmark);
       return;
     }
     tab.cachePath = cachePath;
-    _recents.add(
+    await _recents.add(
         title: tab.title, cachePath: cachePath, bookmark: tab.originBookmark);
     unawaited(_persistSession());
   }
@@ -2149,7 +2169,11 @@ class _EditorScreenState extends State<EditorScreen>
             bookmark: entry.bookmark);
       }
     } catch (e) {
-      await _recents.remove(entry.id);
+      if (originPath == null && entry.cachePath != null) {
+        await _recents.updateCachedAvailability({entry.cachePath!}, {});
+      } else {
+        await _recents.remove(entry.id);
+      }
       _pruneRecentCache();
       if (!mounted) return;
       AppDevTools.instance.addLog(

@@ -1057,4 +1057,28 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Không thể chụp ảnh';
+
+  @override
+  String get settingsCachedDocuments => 'Tài liệu đã lưu vào bộ nhớ đệm';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Đã dùng $used MiB trên $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Tệp lớn hơn $limit MiB không được lưu vào bộ nhớ đệm. Việc xóa vẫn giữ danh sách gần đây, tài liệu đang mở và thay đổi chưa lưu; bạn cần chọn lại tệp đã lưu trong bộ nhớ đệm để mở lại.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Xóa tài liệu trong bộ nhớ đệm';
+
+  @override
+  String get settingsCacheUnavailable =>
+      'Không có thông tin kích thước bộ nhớ đệm';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Không thể xóa tài liệu trong bộ nhớ đệm. Hãy thử lại.';
 }

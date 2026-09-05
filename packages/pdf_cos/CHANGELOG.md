@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Expose immutable populated-range snapshots for transferring sparse buffers,
+  and retain their metadata when reopening or appending a revision.
+
 ## 4.2.0
 
 - Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public COS

@@ -265,5 +265,11 @@
   "updateFailed": "更新失敗：{error}",
   "imageSourceTakePhoto": "拍照",
   "imageSourceChooseFile": "選擇檔案",
-  "imageSourceCameraFailed": "無法拍照"
+  "imageSourceCameraFailed": "無法拍照",
+  "settingsCachedDocuments": "快取的文件",
+  "settingsCacheUsage": "已使用 {used} MiB，共 {limit} MiB",
+  "settingsCacheExplanation": "超過 {limit} MiB 的檔案不會快取。清除後會保留最近使用的檔案清單、開啟的文件和未儲存的變更；若要重新開啟快取的檔案，需再次選取檔案。",
+  "settingsClearCachedDocuments": "清除快取的文件",
+  "settingsCacheUnavailable": "無法取得快取大小",
+  "settingsCacheClearFailed": "無法清除快取的文件。請重試。"
 }

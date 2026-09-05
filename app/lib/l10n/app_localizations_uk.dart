@@ -1076,4 +1076,27 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Не вдалося зробити знімок';
+
+  @override
+  String get settingsCachedDocuments => 'Кешовані документи';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Використано $used МіБ із $limit МіБ';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Файли понад $limit МіБ не кешуються. Очищення зберігає список нещодавніх файлів, відкриті документи та незбережені зміни; для відкриття кешованих файлів їх потрібно вибрати знову.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Очистити кеш документів';
+
+  @override
+  String get settingsCacheUnavailable => 'Розмір кешу недоступний';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Не вдалося очистити кеш документів. Спробуйте ще раз.';
 }

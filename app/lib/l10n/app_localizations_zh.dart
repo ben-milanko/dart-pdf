@@ -1030,6 +1030,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => '无法拍照';
+
+  @override
+  String get settingsCachedDocuments => '缓存的文档';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '已使用 $used MiB，共 $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '超过 $limit MiB 的文件不会缓存。清除后会保留最近文件列表、打开的文档和未保存的更改；要重新打开缓存的文件，需要再次选择文件。';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => '清除缓存的文档';
+
+  @override
+  String get settingsCacheUnavailable => '无法获取缓存大小';
+
+  @override
+  String get settingsCacheClearFailed => '无法清除缓存的文档。请重试。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2059,4 +2081,26 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get imageSourceCameraFailed => '無法拍照';
+
+  @override
+  String get settingsCachedDocuments => '快取的文件';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '已使用 $used MiB，共 $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '超過 $limit MiB 的檔案不會快取。清除後會保留最近使用的檔案清單、開啟的文件和未儲存的變更；若要重新開啟快取的檔案，需再次選取檔案。';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => '清除快取的文件';
+
+  @override
+  String get settingsCacheUnavailable => '無法取得快取大小';
+
+  @override
+  String get settingsCacheClearFailed => '無法清除快取的文件。請重試。';
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Preserve sparse-buffer ranges across native and web render workers, pooled
+  and urgent workers, and overprint retries, including edit/undo/redo updates.
+
 ## 4.2.0
 
 - Add `textMenuBuilder`, the text-selection counterpart to

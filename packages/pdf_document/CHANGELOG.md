@@ -5,6 +5,8 @@
 - Add `PdfMerger.merge` for bytes-only merging with per-input passwords.
 - Preserve imported AcroForm fields, default font resources, named destinations,
   and outline hierarchies; rename collisions and remap internal page targets.
+- Accept `populatedRanges` in `PdfDocument.open` so copied progressive buffers
+  keep treating unfetched objects as missing.
 
 ## 4.2.0
 

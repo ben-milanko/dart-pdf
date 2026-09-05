@@ -1054,4 +1054,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Couldn\'t take a photo';
+
+  @override
+  String get settingsCachedDocuments => 'Cached documents';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB of $limit MiB used';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Files over $limit MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Clear cached documents';
+
+  @override
+  String get settingsCacheUnavailable => 'Cache size unavailable';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Could not clear cached documents. Try again.';
 }
