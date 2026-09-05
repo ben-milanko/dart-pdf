@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -465,8 +466,41 @@ class PdfEditingController extends ChangeNotifier {
   /// across sessions). See [PdfThumbnailCache].
   final PdfThumbnailCache thumbnailCache = PdfThumbnailCache();
 
+  bool _notificationPending = false;
+  bool _disposed = false;
+
+  /// Page lifecycle callbacks can change editing state while the lazy viewer
+  /// is building or laying out (for example, closing an off-screen editor).
+  /// Keep the state change immediate, but deliver its UI notification after
+  /// that frame so listeners cannot dirty a partially rebuilt page subtree.
+  /// Normal input and headless controller use retain synchronous delivery.
+  @override
+  void notifyListeners() {
+    SchedulerBinding? scheduler;
+    try {
+      scheduler = SchedulerBinding.instance;
+    } catch (_) {
+      // A controller can be used without installing a Flutter binding.
+    }
+    if (!_disposed &&
+        scheduler?.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      if (_notificationPending) return;
+      _notificationPending = true;
+      scheduler!.addPostFrameCallback((_) {
+        if (_disposed || !_notificationPending) return;
+        _notificationPending = false;
+        super.notifyListeners();
+      });
+      return;
+    }
+    _notificationPending = false;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
+    _notificationPending = false;
     _settlePick(null);
     _inkTimer?.cancel();
     _flashTimer?.cancel();
