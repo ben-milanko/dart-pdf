@@ -264,5 +264,11 @@
   "updateFailed": "Falha na atualização: {error}",
   "imageSourceTakePhoto": "Tirar foto",
   "imageSourceChooseFile": "Escolher arquivo",
-  "imageSourceCameraFailed": "Não foi possível tirar a foto"
+  "imageSourceCameraFailed": "Não foi possível tirar a foto",
+  "settingsCachedDocuments": "Documentos em cache",
+  "settingsCacheUsage": "{used} MiB de {limit} MiB usados",
+  "settingsCacheExplanation": "Arquivos maiores que {limit} MiB não são armazenados em cache. A limpeza mantém a lista de recentes, os documentos abertos e as alterações não salvas; os arquivos em cache devem ser selecionados novamente para reabrir.",
+  "settingsClearCachedDocuments": "Limpar documentos em cache",
+  "settingsCacheUnavailable": "Tamanho do cache indisponível",
+  "settingsCacheClearFailed": "Não foi possível limpar os documentos em cache. Tente novamente."
 }

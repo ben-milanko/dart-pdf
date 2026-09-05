@@ -264,5 +264,11 @@
   "updateFailed": "更新に失敗しました: {error}",
   "imageSourceTakePhoto": "写真を撮る",
   "imageSourceChooseFile": "ファイルを選択",
-  "imageSourceCameraFailed": "写真を撮影できませんでした"
+  "imageSourceCameraFailed": "写真を撮影できませんでした",
+  "settingsCachedDocuments": "キャッシュされたドキュメント",
+  "settingsCacheUsage": "{limit} MiB 中 {used} MiB 使用",
+  "settingsCacheExplanation": "{limit} MiB を超えるファイルはキャッシュされません。削除しても最近使ったファイルの一覧、開いているドキュメント、未保存の変更は保持されます。キャッシュされたファイルを再度開くには、ファイルを選び直す必要があります。",
+  "settingsClearCachedDocuments": "ドキュメントのキャッシュを削除",
+  "settingsCacheUnavailable": "キャッシュサイズを取得できません",
+  "settingsCacheClearFailed": "ドキュメントのキャッシュを削除できませんでした。再試行してください。"
 }

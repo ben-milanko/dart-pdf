@@ -157,6 +157,9 @@ jobs:
       - name: Test DartPDF app
         working-directory: app
         run: flutter test --coverage
+      - name: Test browser PDF snapshot cache
+        working-directory: app
+        run: flutter test --platform chrome test/web/pdf_cache_web_test.dart
       - name: Upload app coverage
         uses: codecov/codecov-action@v7
         with:

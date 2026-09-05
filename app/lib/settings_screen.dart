@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'cached_documents_settings.dart';
 import 'l10n/app_l10n.dart';
 import 'l10n/app_localizations.dart';
 import 'language_names.dart';
+import 'pdf_cache.dart';
 import 'recents.dart';
 import 'update.dart';
 import 'update_install_flow.dart';
@@ -232,6 +234,10 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                       .settingsRecentCount(widget.recents.items.length),
                   style: theme.textTheme.bodySmall,
                 ),
+                if (canManageCachedPdfs) ...[
+                  const Divider(height: 32),
+                  CachedDocumentsSettings(recents: widget.recents),
+                ],
                 const Divider(height: 32),
                 Text(appL10n(context).settingsSystem,
                     style: theme.textTheme.titleSmall),
