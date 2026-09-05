@@ -17,6 +17,7 @@ import 'package:pdf_graphics/raster.dart'
 import 'region_replay_index.dart';
 import 'jpeg_accelerator.dart';
 import 'render_worker.dart';
+import 'render_worker_ranges.dart';
 import 'render_worker_transcript_cache.dart'
     show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
 
@@ -65,8 +66,10 @@ int debugPdfRenderWorkerIgnoredStaleCancels = 0;
 /// kill this long-lived pooled worker. See
 /// `packages/pdf_graphics/tool/bench_render_seam.dart` and
 /// `doc/dev-log/2026-07-17-seam-transfer-measurement.md`.
-PdfRenderWorker startRenderWorker(Uint8List bytes) =>
-    _IsolateRenderWorker(bytes);
+PdfRenderWorker startRenderWorker(Uint8List bytes,
+        {List<int>? populatedRanges}) =>
+    _IsolateRenderWorker(
+        bytes, renderWorkerPopulatedRanges(bytes, populatedRanges));
 
 /// No-op on native: spawning a background isolate carries no fetch/compile cost
 /// (the ~1.45 s #450 warm-up is dart2js-on-the-web specific), so there is
@@ -77,8 +80,8 @@ void prewarmRenderWorkers(int count) {}
 void disposePrewarmedRenderWorkers() {}
 
 class _IsolateRenderWorker extends PdfRenderWorker {
-  _IsolateRenderWorker(Uint8List bytes) {
-    unawaited(_spawn(bytes));
+  _IsolateRenderWorker(Uint8List bytes, List<int>? populatedRanges) {
+    unawaited(_spawn(bytes, populatedRanges));
   }
 
   Isolate? _isolate;
@@ -126,9 +129,9 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     _pump();
   }
 
-  Future<void> _spawn(Uint8List bytes) async {
+  Future<void> _spawn(Uint8List bytes, List<int>? populatedRanges) async {
     try {
-      await _spawnInner(bytes);
+      await _spawnInner(bytes, populatedRanges);
     } catch (error, stack) {
       // isolates unsupported / spawn threw: behave like the null worker -
       // every queued and future record() resolves to null (local render).
@@ -150,7 +153,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     }
   }
 
-  Future<void> _spawnInner(Uint8List bytes) async {
+  Future<void> _spawnInner(Uint8List bytes, List<int>? populatedRanges) async {
     final handshake = Completer<List<SendPort>>();
     _fromWorker.listen((message) {
       if (message is List<SendPort>) {
@@ -219,6 +222,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     final isolate = await Isolate.spawn(
       _workerMain,
       _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes]),
+          populatedRanges: populatedRanges,
           perfEnabled: PdfPerfLog.enabled,
           deferStaleCancel: debugDeferPdfRenderWorkerCancelUntilNextRequest),
       debugName: 'pdf-render-worker',
@@ -743,7 +747,12 @@ class _PendingRequest {
 
 class _WorkerInit {
   _WorkerInit(this.reply, this.bytes,
-      {this.perfEnabled = false, this.deferStaleCancel = false});
+      {this.populatedRanges,
+      this.perfEnabled = false,
+      this.deferStaleCancel = false});
+
+  /// Populated byte pairs; unlike the buffer's Expando, these cross isolates.
+  final List<int>? populatedRanges;
 
   /// The port the worker sends its own command port (and every response) on.
   final SendPort reply;
@@ -782,6 +791,7 @@ void _workerMain(_WorkerInit init) {
   // append-only revisions arrive ('update' messages), so the buffer the open
   // document parses from stays valid across edits.
   var workerBytes = init.bytes.materialize().asUint8List();
+  var populatedRanges = init.populatedRanges;
   PdfDocument? document;
   // One decoded-image cache per open document, mirroring the web backend: a
   // page recorded several times in a scroll reuses its image decodes instead of
@@ -789,7 +799,7 @@ void _workerMain(_WorkerInit init) {
   // cannot change what a record renders.
   var imageCache = PdfImageDecodeCache();
   try {
-    document = PdfDocument.open(workerBytes);
+    document = PdfDocument.open(workerBytes, populatedRanges: populatedRanges);
   } catch (_) {
     document = null; // a broken document fails every page → all local renders
   }
@@ -846,14 +856,19 @@ void _workerMain(_WorkerInit init) {
         final appended =
             (request[3] as TransferableTypedData).materialize().asUint8List();
         final newLength = request[4] as int;
+        if (newLength != baseLength + appended.length) {
+          throw ArgumentError('inconsistent revision length');
+        }
         final changed = (request[5] as List?)?.cast<int>().toSet();
         final rebuilt = Uint8List(baseLength + appended.length)
           ..setRange(0, baseLength, workerBytes)
           ..setRange(baseLength, baseLength + appended.length, appended);
         final live = Uint8List.sublistView(rebuilt, 0, newLength);
+        final nextRanges =
+            renderWorkerRevisionRanges(populatedRanges, baseLength, newLength);
         var incremental = false;
         final doc = document;
-        if (doc != null) {
+        if (doc != null && baseLength == doc.cos.bytes.length) {
           try {
             doc.applyIncrementalUpdate(live);
             incremental = true;
@@ -864,7 +879,7 @@ void _workerMain(_WorkerInit init) {
         }
         if (!incremental) {
           try {
-            document = PdfDocument.open(live);
+            document = PdfDocument.open(live, populatedRanges: nextRanges);
             imageCache = PdfImageDecodeCache(); // new document, new streams
           } catch (_) {
             document = null;
@@ -872,6 +887,7 @@ void _workerMain(_WorkerInit init) {
         }
         // Commit the grown buffer only once the document reflects it.
         workerBytes = rebuilt;
+        populatedRanges = nextRanges;
         // On the in-place fast path only the changed pages' cached commands are
         // stale; a re-open makes a fresh document, so every cached command
         // (which referenced the old one) must go. A suspended record walks the

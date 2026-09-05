@@ -24,8 +24,15 @@ class PdfDocument {
   /// the user and then as the owner password (the empty default is what
   /// most owner-locked business documents expect); a wrong password
   /// throws [CosPasswordException].
-  static PdfDocument open(Uint8List bytes, {String password = ''}) =>
-      PdfDocument._(CosDocument.open(bytes, password: password));
+  ///
+  /// [populatedRanges] carries a sparse buffer's populated `[start, end)` byte
+  /// pairs when [bytes] has been copied (including across isolates). Omit it
+  /// to inherit the map attached to this exact buffer, or treat an unmarked
+  /// buffer as complete. See [CosDocument.populatedRanges].
+  static PdfDocument open(Uint8List bytes,
+          {String password = '', List<int>? populatedRanges}) =>
+      PdfDocument._(CosDocument.open(bytes,
+          password: password, populatedRanges: populatedRanges));
 
   /// Opens a document from an asynchronous, random-access [source] - a remote
   /// file over HTTP Range requests, a local file read on demand, or any other

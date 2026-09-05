@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart' show cosSparseBufferRanges;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
@@ -10,6 +11,7 @@ import 'budgeted_cache.dart';
 import 'perf_log.dart';
 import 'region_replay_index.dart';
 import 'render_trace.dart';
+import 'render_worker_ranges.dart';
 import 'render_worker_transcript_cache.dart' show retainedCommandGraphWeight;
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
@@ -239,16 +241,19 @@ const int pdfRenderWorkerPoolMinPages = 12;
 /// the edit session's grow-only buffer, which is replaced rather than mutated).
 /// Skipping the pool's defensive snapshot saves a full-document allocation per
 /// worker generation - the single-worker branch never copied either.
+/// [populatedRanges] follows [PdfDocument.open]'s sparse-buffer contract.
 PdfRenderWorker startPdfRenderWorker(
   Uint8List bytes, {
   required int pageCount,
   int? workerCount,
   bool copySource = false,
+  List<int>? populatedRanges,
 }) {
   final count = math.max(1, workerCount ?? pdfRenderWorkerPoolSize);
   final backend = count > 1 && pageCount >= pdfRenderWorkerPoolMinPages
-      ? PdfPooledRenderWorker(bytes, count, copySource: copySource)
-      : startRenderWorker(bytes);
+      ? PdfPooledRenderWorker(bytes, count,
+          copySource: copySource, populatedRanges: populatedRanges)
+      : startRenderWorker(bytes, populatedRanges: populatedRanges);
   return PdfCachingRenderWorker(backend);
 }
 
@@ -299,8 +304,11 @@ abstract class PdfRenderWorker {
   /// from scratch (see that class), and concurrent requests for one page share a
   /// single decode. The cache wraps the whole pool, so it is shared across every
   /// worker and is fresh for each document.
-  static PdfRenderWorker start(Uint8List bytes) =>
-      PdfCachingRenderWorker(_backend(bytes));
+  ///
+  /// [populatedRanges] follows [PdfDocument.open]'s sparse-buffer contract;
+  /// omitted ranges are inherited from the source buffer before it is copied.
+  static PdfRenderWorker start(Uint8List bytes, {List<int>? populatedRanges}) =>
+      PdfCachingRenderWorker(_backend(bytes, populatedRanges));
 
   /// Builds the uncached backend: a single platform worker, or - when
   /// [pdfRenderWorkerPoolSize] asks for more than one - a pool of them.
@@ -310,10 +318,12 @@ abstract class PdfRenderWorker {
   /// first paint's sparse buffer - both immutable under the worker), so a
   /// full-document snapshot here is pure waste on the big files #359 makes
   /// common.
-  static PdfRenderWorker _backend(Uint8List bytes) => pdfRenderWorkerPoolSize >
-          1
-      ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize, copySource: false)
-      : startRenderWorker(bytes);
+  static PdfRenderWorker _backend(
+          Uint8List bytes, List<int>? populatedRanges) =>
+      pdfRenderWorkerPoolSize > 1
+          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize,
+              copySource: false, populatedRanges: populatedRanges)
+          : startRenderWorker(bytes, populatedRanges: populatedRanges);
 
   /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
   /// only: for exercising the inner queue/cancel/priority contract, which the
@@ -321,8 +331,9 @@ abstract class PdfRenderWorker {
   /// queue). Production code uses [start]. (No `@visibleForTesting` annotation
   /// because this library stays Flutter-free so the web worker can compile via
   /// `dart compile js` without pulling in Flutter.)
-  static PdfRenderWorker startUncached(Uint8List bytes) =>
-      startRenderWorker(bytes);
+  static PdfRenderWorker startUncached(Uint8List bytes,
+          {List<int>? populatedRanges}) =>
+      startRenderWorker(bytes, populatedRanges: populatedRanges);
 
   /// Warms the platform render worker ahead of a document, so its startup cost
   /// overlaps whatever the user is doing (choosing or loading a file) instead of
@@ -670,10 +681,12 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// from [bytes], saving a full-document-sized allocation on every (re)start -
   /// worth ~one document copy per worker generation on the big files #359 makes
   /// common.
+  /// [populatedRanges] is copied with the shared snapshot; if omitted, the map
+  /// attached to [bytes] is inherited.
   factory PdfPooledRenderWorker(Uint8List bytes, int size,
-          {bool copySource = true}) =>
+          {bool copySource = true, List<int>? populatedRanges}) =>
       PdfPooledRenderWorker._shared(
-        copySource ? Uint8List.fromList(bytes) : bytes,
+        _prepareSource(bytes, copySource, populatedRanges),
         size,
         startRenderWorker,
       );
@@ -688,9 +701,20 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     int size,
     PdfRenderWorker Function(Uint8List) spawn, {
     bool copySource = true,
+    List<int>? populatedRanges,
   }) =>
       PdfPooledRenderWorker._shared(
-          copySource ? Uint8List.fromList(bytes) : bytes, size, spawn);
+          _prepareSource(bytes, copySource, populatedRanges), size, spawn);
+
+  static Uint8List _prepareSource(
+      Uint8List bytes, bool copySource, List<int>? populatedRanges) {
+    final ranges = renderWorkerPopulatedRanges(bytes, populatedRanges);
+    final shared = copySource ? Uint8List.fromList(bytes) : bytes;
+    // Every lane (including the lazy urgent lane) inherits this one snapshot's
+    // map when startRenderWorker constructs its platform init payload.
+    if (ranges != null) cosSparseBufferRanges[shared] = ranges;
+    return shared;
+  }
 
   /// Seeds every worker and the urgent lane from the already-owned [shared]
   /// snapshot (the factories above copy the caller's bytes once into it).
@@ -1100,6 +1124,9 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       final next = Uint8List(newLength);
       next.setRange(0, baseLength, urgentBytes);
       next.setRange(baseLength, newLength, appendedBytes);
+      final ranges = renderWorkerRevisionRanges(
+          cosSparseBufferRanges[urgentBytes], baseLength, newLength);
+      if (ranges != null) cosSparseBufferRanges[next] = ranges;
       _urgentBytes = next;
     }
     _urgentWorker?.dispose();
