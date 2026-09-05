@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.2.0
+
+- Let `buildMultiPagePdf` write `/Rotate` on every page via a new `rotation`
+  argument, for tests about display-rotated pages.
+- Align with the dart-pdf 4.2.0 package suite.
+
 ## 4.1.0
 
 - Let `buildMultiPagePdf` create custom-size pages for deterministic raster,

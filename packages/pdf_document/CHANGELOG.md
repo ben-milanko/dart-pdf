@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.2.0
+
+- Add `PdfAnnotation.appearanceRotation`, the rotation an annotation's normal
+  appearance carries in page space. This is the annotation's own rotation, so
+  unlike a view-space measurement it is unaffected by the page's display
+  `/Rotate`.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
 ## 4.1.0
 
 - Add document-level content movement between positions and pages, retaining

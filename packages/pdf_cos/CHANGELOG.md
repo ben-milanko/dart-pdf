@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public COS
+  object model, filter, or parsing changes since 4.1.0.
+
 ## 4.1.0
 
 - Treat holes in sparse progressive byte sources as cache misses tied to the
