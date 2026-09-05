@@ -491,9 +491,12 @@ class PdfPageView extends StatefulWidget {
   /// 2. **When the record lands** - at most [motionSafeMaxCommands] commands
   ///    and no more image pixels than [motionSafeMaxImagePixels].
   ///
-  /// A page that fails either test keeps the classic behaviour: held until the
-  /// scroll settles, then one per frame. Set false to restore the old
-  /// strictly-paced scrolling everywhere.
+  /// A worker-backed page that fails either test uses the slow-motion lane:
+  /// its expensive replay stays out of fast wheel/drag frames but may sharpen
+  /// during a sustained slow scroll, or as soon as input stops, without
+  /// waiting for the longer conservative settle hold. A failing local page
+  /// keeps the classic held behaviour. Set false to restore strictly-paced
+  /// scrolling everywhere.
   static bool motionSafeRenders = true;
 
   /// Content-stream ceiling for entering the motion-safe lane with **no render
@@ -2603,9 +2606,10 @@ class _PdfPageViewState extends State<PdfPageView>
   PdfRenderMotionClass _motionSafePass = PdfRenderMotionClass.held;
 
   /// This page's record has already come back too big (or image-bearing) to
-  /// replay during a scroll. The request-time verdict is a guess; this is the
-  /// answer, and it stops the page from speculatively recording again on
-  /// every hold only to be abandoned at the same gate.
+  /// replay during fast input. The request-time verdict is a guess; this is
+  /// the answer, and it stops the page from speculatively taking the fully
+  /// free lane again. A worker-backed pass can still use the slow-motion lane;
+  /// a local pass keeps the strict settle hold.
   bool _recordKnownHeld = false;
 
   /// Cached answer of [_xObjectsWithinMotionBudget] for [_xObjectBudgetPage].
@@ -2660,21 +2664,49 @@ class _PdfPageViewState extends State<PdfPageView>
   /// either the walk runs in a worker (free to this thread) or the page is
   /// small enough to walk here ([motionSafeLocalMaxRawContentBytes]).
   PdfRenderMotionClass _pageAllowsMotionRender() {
-    if (!PdfPageView.motionSafeRenders || _recordKnownHeld) {
+    if (!PdfPageView.motionSafeRenders) {
       return PdfRenderMotionClass.held;
+    }
+    final workerBacked = widget.renderWorker?.isActive ?? false;
+    if (_recordKnownHeld) {
+      return workerBacked
+          ? PdfRenderMotionClass.slow
+          : PdfRenderMotionClass.held;
     }
     // A page-level XObject can hide megabytes of image behind a
     // three-operator content stream - but the dictionary says how many pixels
     // it declares, so measure rather than assume (see
-    // [PdfPageView.motionSafeMaxImagePixels]).
-    if (!_xObjectsWithinMotionBudget()) return PdfRenderMotionClass.held;
+    // [PdfPageView.motionSafeMaxImagePixels]). A worker moves the walk and
+    // decode off this thread; keep the upload/replay out of fast input, but let
+    // the focused page sharpen during sustained slow motion instead of waiting
+    // out the full conservative settle window.
+    if (!_xObjectsWithinMotionBudget()) {
+      return workerBacked
+          ? PdfRenderMotionClass.slow
+          : PdfRenderMotionClass.held;
+    }
     // A live worker means the walk costs this thread nothing: free.
-    if (widget.renderWorker?.isActive ?? false) {
+    if (workerBacked) {
       return PdfRenderMotionClass.free;
     }
-    // No worker, so the walk runs here. Small pages may still take the quiet
-    // window - motion has stopped by then and the hold is only insurance
-    // against it resuming - but never a live gesture.
+    return _pageAllowsLocalMotionRender();
+  }
+
+  /// The motion verdict when the page will actually walk on the UI isolate.
+  ///
+  /// This deliberately ignores whether a worker reports itself active. An
+  /// active worker may still decline an individual page; letting that status
+  /// leak into the fallback verdict would move the very large local walk this
+  /// policy protects into the short quiet lane.
+  PdfRenderMotionClass _pageAllowsLocalMotionRender() {
+    if (!PdfPageView.motionSafeRenders ||
+        _recordKnownHeld ||
+        !_xObjectsWithinMotionBudget()) {
+      return PdfRenderMotionClass.held;
+    }
+    // Small local pages may take the quiet window - motion has stopped by then
+    // and the hold is only insurance against it resuming - but never a live
+    // gesture.
     return widget.page.rawContentLength <=
             PdfPageView.motionSafeLocalMaxRawContentBytes
         ? PdfRenderMotionClass.quiet
@@ -2709,7 +2741,14 @@ class _PdfPageViewState extends State<PdfPageView>
     List<PdfRenderCommand>? commands,
   }) async {
     if (commands != null && !_recordAllowsMotionReplay(commands)) {
-      _motionSafePass = PdfRenderMotionClass.held;
+      // The worker already paid the unknown walk/decode away from the UI
+      // isolate. A large replay still must not land in a fast wheel/drag
+      // frame, but it can sharpen during sustained slow motion; waiting the
+      // remaining 500 ms settle insurance after input has stopped is also pure
+      // visible latency.
+      _motionSafePass = PdfPageView.motionSafeRenders
+          ? PdfRenderMotionClass.slow
+          : PdfRenderMotionClass.held;
       _recordKnownHeld = true;
     }
     final scheduler = widget.renderScheduler;
@@ -2850,7 +2889,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // before the lane existed.
     // This walk runs on the UI thread whatever the request thought, so the
     // pass can be no freer than the local class allows.
-    final local = _pageAllowsMotionRender();
+    final local = _pageAllowsLocalMotionRender();
     if (local == PdfRenderMotionClass.held ||
         _motionSafePass == PdfRenderMotionClass.held) {
       _motionSafePass = PdfRenderMotionClass.held;

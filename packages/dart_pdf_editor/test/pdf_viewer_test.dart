@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -73,6 +74,26 @@ Uint8List buildUriLinkPdf(String url) {
 Uint8List buildPlainAnnotationPdf() {
   final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
     ..addNote(0, 100, 700, 'Host action');
+  return editor.save();
+}
+
+Uint8List buildDisjointHighlightPdf({bool rotated = false}) {
+  final document = PdfDocument.open(buildClassicPdf());
+  final editor = PdfEditor(document)
+    ..addHighlight(0, const [
+      PdfRect(80, 680, 140, 700),
+      PdfRect(220, 680, 280, 700),
+      PdfRect(330, 680, 390, 700),
+    ]);
+  if (rotated) {
+    final annotation = document.page(0).annotations.single;
+    editor.rotateAnnotation(0, annotation, 20);
+    // One malformed group must not discard the two usable rotated groups and
+    // reinstate the broad /Rect hit target.
+    final points = document.cos.resolve(annotation.dict['QuadPoints']);
+    (points as CosArray).items[16] = const CosName('broken');
+    editor.setAnnotationContents(0, annotation, 'rotated fixture');
+  }
   return editor.save();
 }
 
@@ -342,6 +363,91 @@ void main() {
     expect(controller.hasSelection, isFalse);
     // drain the double-tap recognizer's timeout timer
     await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('mouse drag between text lines grab-pans the page',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+
+    // The 12pt runs occupy y=717..729 and y=693..705. A press at y=711 is
+    // visibly between them but was within the old 14pt nearest-text radius.
+    final before = controller.visiblePageRegion(0)!;
+    final gesture = await tester.startGesture(view(100, 711),
+        kind: PointerDeviceKind.mouse);
+    await gesture.moveBy(const Offset(0, -20)); // cross drag slop over line 1
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -80));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    final after = controller.visiblePageRegion(0)!;
+    expect(after.bottom, greaterThan(before.bottom),
+        reason: 'inter-line whitespace should start grab-pan, not selection');
+    expect(controller.hasSelection, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('inter-line gap shows the grab cursor', (tester) async {
+    await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+            of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+        .first);
+
+    final hover =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 77);
+    await hover.addPointer(location: view(100, 711));
+    await tester.pump();
+    await hover.moveTo(view(101, 711));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab);
+    await hover.removePointer();
+    await tester.pump();
+  });
+
+  testWidgets('mouse double-click between text lines does not select',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    final gap = Offset(100 * scale, (792 - 711) * scale);
+    await tester.tapAt(gap, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(gap, kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    expect(controller.hasSelection, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('right-click between text lines does not select adjacent text',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildTextLinesPdf(const ['First line', 'Second line']),
+    );
+    const scale = 800 / 612;
+    final gap = Offset(100 * scale, (792 - 711) * scale);
+    await tester.tapAt(
+      gap,
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(controller.hasSelection, isFalse);
+    expect(controller.selectedText, isEmpty);
   });
 
   testWidgets('explicit Hand mode pans over text instead of selecting it',
@@ -1101,6 +1207,69 @@ void main() {
     expect(tap.pagePoint.dy, closeTo(690, 0.5));
     expect(tap.pageViewPosition.dx, closeTo(annotView(110, 690).dx, 0.5));
     expect(tap.pageViewPosition.dy, closeTo(annotView(110, 690).dy, 0.5));
+  });
+
+  testWidgets('text markup callback and click cursor only hit visible quads',
+      (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(
+      tester,
+      bytes: buildDisjointHighlightPdf(),
+      onAnnotationTap: taps.add,
+    );
+
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+          of: find.byType(PdfViewer),
+          matching: find.byType(MouseRegion),
+        )
+        .first);
+    final gesture =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 13);
+    await gesture.addPointer(location: annotView(170, 690));
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.moveTo(annotView(171, 690));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab,
+        reason: 'the invisible gap inside a markup /Rect is not clickable');
+
+    await tester.tapAt(annotView(170, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
+
+    await gesture.moveTo(annotView(110, 690));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.click);
+
+    await tester.tapAt(annotView(110, 690));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation.subtype, 'Highlight');
+  });
+
+  testWidgets(
+      'rotated markup uses valid quadrilaterals despite a malformed group',
+      (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(
+      tester,
+      bytes: buildDisjointHighlightPdf(rotated: true),
+      onAnnotationTap: taps.add,
+    );
+
+    // All source points turn 20 degrees around the annotation centre
+    // (235,690). This point is the turned centre of the whitespace between
+    // the first two colored runs: inside /Rect, outside both usable quads.
+    await tester.tapAt(annotView(183.32, 671.19));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
+
+    // Turned centre of the first run.
+    await tester.tapAt(annotView(117.54, 647.25));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation.subtype, 'Highlight');
   });
 
   testWidgets('tapping an http link opens it via the default launcher',

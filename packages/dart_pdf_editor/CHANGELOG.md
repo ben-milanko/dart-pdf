@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.2.0
+
+- Sharpen pages directionally during sustained slow scrolling with a bounded
+  accelerated look-ahead, and warm pages ahead of the scroll direction, while
+  preserving fast-scroll preemption and strict worker, raster-cache, and
+  Canvas-fallback safeguards.
+- Use the optional Flutter GPU route to accelerate full-page raster warming
+  when the backend reports support for it.
+- Add annotation alignment guides and page rulers for precise placement.
+- Anchor `Ctrl`/`Cmd`+wheel zoom on the pointer across the fit-width seam, and
+  carry the focal point through the zoom settle so the web's pinch-reported
+  `Ctrl`+wheel also holds the point under the cursor. `PdfViewerController.setZoom`
+  now zooms about the viewport centre the reader is looking at.
+- Fix selection chrome, resize previews, and inline text editing on pages with
+  a display `/Rotate`: the resting rotation now comes from
+  `PdfAnnotation.appearanceRotation` in page space rather than from a
+  view-space quad, so a square annotation on a `/Rotate 90` page is no longer
+  treated as turned a quarter turn (which transposed committed rects). Resize
+  cursors now follow the handle's on-screen direction.
+- Fix text-markup hit testing for disjoint highlight quads, so multi-line
+  markup is selected by its `QuadPoints` rather than its bounding box.
+- Avoid blurry text under multi-line highlights by rendering wrapped highlight
+  appearances as tightly clipped per-region pictures instead of one large
+  Multiply compositing surface.
+- Allow panning between text lines instead of starting a text selection.
+- Defer editing notifications raised during viewer frame updates.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
 ## 4.1.0
 
 - Add a persistent named handwritten-signature library with previews,

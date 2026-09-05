@@ -287,18 +287,18 @@ void main() {
     expect(PdfPageView.debugTileStoreOverride, isNull);
   });
 
-  testWidgets('the idle raster warm selector applies live', (tester) async {
+  testWidgets('the page raster warm selector applies live', (tester) async {
     await pumpWithDoc(tester);
     addTearDown(() => AppDevTools.instance
-        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled()));
+        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.nearby()));
     await tester.sendKeyEvent(LogicalKeyboardKey.f12);
     await tester.pump();
 
     final warm = find.byKey(const ValueKey('devtools-page-raster-warm'));
     await tester.ensureVisible(warm);
     await tester.pump();
-    expect(find.text('Off'), findsWidgets,
-        reason: 'no background full-raster work until asked for');
+    expect(find.text('Idle ±3 · slow →3'), findsWidgets,
+        reason: 'the app warms a bounded nearby working set by default');
 
     await tester.tap(warm);
     await tester.pumpAndSettle();

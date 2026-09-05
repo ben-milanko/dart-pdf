@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Report full-page raster warm-up support to `dart_pdf_editor` via the new
+  `supportsFullPageRasterWarmUp` backend getter, so document raster warming can
+  use the GPU route where it is available.
+- Make deterministic GPU buffer reuse stable under benchmarking.
+- Require the dart-pdf 4.2.0 package suite. No public constructor or rendering
+  entry point was removed.
+
 ## 0.3.0
 
 - Greatly expand exact retained-GPU coverage for blends, transparency groups,

@@ -65,6 +65,20 @@ abstract class PdfTileRasterBackend {
   /// for backends that have no scene-specific preparation.
   bool get supportsSessionWarmUp => false;
 
+  /// Whether idle full-page raster warming may render through this backend.
+  ///
+  /// The resulting [ui.Image] is retained by the viewer's exact-raster LRU,
+  /// not by the short-lived session. This lets a host make a budgeted set (or
+  /// an entire modest document) immediately sharp on navigation without
+  /// keeping every page widget and tile session alive. Returning false keeps
+  /// the universal Canvas warm path.
+  ///
+  /// Implementations should opt in only when a full-page request has the same
+  /// exactness and ownership guarantees as an ordinary tile request. Returning
+  /// null from [createSession], or throwing during the raster, still falls back
+  /// to Canvas for that page.
+  bool get supportsFullPageRasterWarmUp => false;
+
   /// Prepares process- or view-scoped resources before the first tile.
   ///
   /// [PdfViewer] calls this after useful pixels and a quiet window, never while

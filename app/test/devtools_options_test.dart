@@ -28,22 +28,23 @@ void main() {
     );
     AppDevTools.instance.useAutoPageRasterCache();
     AppDevTools.instance
-        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.nearby());
     AppDevTools.instance.setGpuTileBudgets(
       maxTextureBytes: 256 << 20,
       maxGeometryBytes: 256 << 20,
     );
     AppDevTools.instance.setGpuOverprintApproximation(false);
-    AppDevTools.instance.setTileRasterBackendMode(TileRasterBackendMode.canvas);
+    AppDevTools.instance
+        .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
     AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
     PdfPerfLog.enabled = false;
     pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
   });
 
-  test('Canvas is the default tile raster backend', () {
+  test('flutter_gpu is the default tile raster backend', () {
     expect(
       AppDevTools.instance.tileRasterBackendMode.value,
-      TileRasterBackendMode.canvas,
+      TileRasterBackendMode.flutterGpu,
     );
   });
 
@@ -134,33 +135,45 @@ void main() {
     );
   });
 
-  test('the idle raster warm policy round-trips', () async {
+  test('the page raster warm policy round-trips', () async {
     SharedPreferences.setMockInitialValues({});
     final tools = AppDevTools.instance;
-    expect(tools.pageRasterWarmPolicy.value.enabled, isFalse,
-        reason: 'warming is off until a host asks for it');
+    expect(tools.pageRasterWarmPolicy.value,
+        const PdfPageRasterWarmPolicy.nearby(),
+        reason: 'the app proactively warms only its nearby working set');
 
-    tools.setPageRasterWarmPolicy(
-        const PdfPageRasterWarmPolicy.nearby(window: 5));
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.nearby(
+      window: 5,
+      slowScrollWindow: 4,
+    ));
     await tools.persistOptions();
 
     tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     await tools.restoreOptions();
-    expect(tools.pageRasterWarmPolicy.value,
-        const PdfPageRasterWarmPolicy.nearby(window: 5));
+    expect(
+      tools.pageRasterWarmPolicy.value,
+      const PdfPageRasterWarmPolicy.nearby(
+        window: 5,
+        slowScrollWindow: 4,
+      ),
+    );
 
-    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.document());
+    tools.setPageRasterWarmPolicy(
+        const PdfPageRasterWarmPolicy.document(slowScrollWindow: 2));
     await tools.persistOptions();
     tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     await tools.restoreOptions();
     expect(
-        tools.pageRasterWarmPolicy.value.mode, PdfPageRasterWarmMode.document);
+      tools.pageRasterWarmPolicy.value,
+      const PdfPageRasterWarmPolicy.document(slowScrollWindow: 2),
+    );
   });
 
   test('restore with nothing persisted leaves the defaults alone', () async {
     SharedPreferences.setMockInitialValues({});
     pdfRenderWorkerPoolSize = 3;
-    AppDevTools.instance.setTileRasterBackendMode(TileRasterBackendMode.canvas);
+    AppDevTools.instance
+        .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
     AppDevTools.instance.setPageRasterCachePolicy(
       const PdfPageRasterCachePolicy(),
     );
@@ -173,17 +186,19 @@ void main() {
     expect(AppDevTools.instance.deepZoomMode, AppDevTools.modePatch);
     expect(
       AppDevTools.instance.tileRasterBackendMode.value,
-      TileRasterBackendMode.canvas,
+      TileRasterBackendMode.flutterGpu,
     );
     expect(pdfRenderWorkerPoolSize, 3);
     expect(
       AppDevTools.instance.pageRasterCachePolicy.value,
       const PdfPageRasterCachePolicy(),
     );
-    expect(AppDevTools.instance.pageRasterWarmPolicy.value.enabled, isFalse);
+    expect(AppDevTools.instance.pageRasterWarmPolicy.value,
+        const PdfPageRasterWarmPolicy.nearby());
   });
 
-  test('legacy automatic flutter_gpu selection migrates to Canvas', () async {
+  test('legacy flutter_gpu selection remains selected without marker',
+      () async {
     SharedPreferences.setMockInitialValues({
       'flutter.devtools.options': jsonEncode({
         'tileRasterBackend': TileRasterBackendMode.flutterGpu.name,
@@ -194,12 +209,26 @@ void main() {
 
     await tools.restoreOptions();
 
-    expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.canvas);
+    expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.flutterGpu);
 
     await tools.persistOptions();
     final stored =
         (await SharedPreferences.getInstance()).getString('devtools.options');
-    expect(jsonDecode(stored!)['flutterGpuOptIn'], isFalse);
+    expect(jsonDecode(stored!)['flutterGpuOptIn'], isTrue);
+  });
+
+  test('an explicit persisted Canvas preference remains selected', () async {
+    SharedPreferences.setMockInitialValues({
+      'flutter.devtools.options': jsonEncode({
+        'tileRasterBackend': TileRasterBackendMode.canvas.name,
+      }),
+    });
+    final tools = AppDevTools.instance;
+    tools.setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+
+    await tools.restoreOptions();
+
+    expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.canvas);
   });
 
   test('a corrupt payload is logged, not thrown', () async {

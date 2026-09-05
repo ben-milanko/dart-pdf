@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public
+  rendering or colour API changes since 4.1.0.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
 ## 4.1.0
 
 - Allow retained renderers to request a larger overprint colourant grid when

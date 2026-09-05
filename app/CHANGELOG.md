@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.2.0
+
+- Keep nearby pages sharp during slow scrolling and warm pages ahead of the
+  scroll direction using spare GPU capacity, while fast scrolling continues to
+  prioritize responsiveness.
+- Prefer the Flutter GPU renderer by default, with the existing Canvas
+  fallback for scenes it cannot draw exactly.
+- Add annotation alignment guides and page rulers for precise placement.
+- Zoom around the pointer with `Ctrl`/`Cmd`+wheel, on desktop and on the web.
+- Fix annotation selection, resizing, and text editing on rotated pages, where
+  a square annotation could be handled as though it were turned a quarter turn.
+- Fix selecting multi-line highlights, and keep text under them sharp.
+- Allow panning between lines of text instead of starting a selection.
+
 ## 4.1.0
 
 - Save and manage named handwritten signatures, and reuse saved annotations

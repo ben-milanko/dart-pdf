@@ -128,13 +128,16 @@ class AppDevTools extends ChangeNotifier {
   final ValueNotifier<PdfPageRasterCachePolicy> pageRasterCachePolicy =
       ValueNotifier(const PdfPageRasterCachePolicy());
 
-  /// Whether idle viewer time is spent baking exact page rasters ahead of
-  /// navigation (#614). Off by default; the panel's presets turn it on. Kept
-  /// as its own notifier for the same reason as [pageRasterCachePolicy] - a
-  /// policy change must reach the mounted document without waiting for the
-  /// log-traffic rebuild.
+  /// Whether spare viewer time is spent baking exact page rasters ahead of
+  /// navigation (#614). The product warms only the nearby working set by
+  /// default: idle time covers both directions, while sustained slow scrolling
+  /// uses a bounded accelerated window in the travel direction. The work stays
+  /// preemptible and bounded by [pageRasterCachePolicy]; Developer tools can
+  /// disable or expand it. Kept as its own notifier for the same reason as
+  /// [pageRasterCachePolicy] - a policy change must reach the mounted document
+  /// without waiting for the log-traffic rebuild.
   final ValueNotifier<PdfPageRasterWarmPolicy> pageRasterWarmPolicy =
-      ValueNotifier(const PdfPageRasterWarmPolicy.disabled());
+      ValueNotifier(const PdfPageRasterWarmPolicy.nearby());
 
   /// Runtime tile-backend selection exposed by Developer tools.
   ///
@@ -143,11 +146,15 @@ class AppDevTools extends ChangeNotifier {
   /// old scene sessions without reopening the PDF; the base raster stays
   /// visible while the selected backend repopulates the invalidated LoD.
   ///
-  /// The custom flutter_gpu backend is experimental. Keep Canvas as the safe
-  /// default even on supported platforms; developers can opt into flutter_gpu
-  /// from the panel when they are deliberately testing it.
+  /// DartPDF prefers flutter_gpu wherever the compiled backend is available.
+  /// The preference remains switchable at runtime, and unsupported scenes or
+  /// raster failures still replay exactly through Canvas.
   late final ValueNotifier<TileRasterBackendMode> tileRasterBackendMode =
-      ValueNotifier(TileRasterBackendMode.canvas);
+      ValueNotifier(
+    flutterGpuTileRasterBackend.isPlatformSupported
+        ? TileRasterBackendMode.flutterGpu
+        : TileRasterBackendMode.canvas,
+  );
 
   /// Changes when the selected backend instance is replaced without changing
   /// its mode (for example after editing a GPU byte ceiling).
@@ -159,7 +166,6 @@ class AppDevTools extends ChangeNotifier {
   int _gpuTextureBytes = 256 << 20;
   int _gpuGeometryBytes = 256 << 20;
   bool _gpuOverprintApproximation = false;
-  bool _flutterGpuOptIn = false;
 
   bool get gpuOverprintApproximation => _gpuOverprintApproximation;
 
@@ -179,13 +185,7 @@ class AppDevTools extends ChangeNotifier {
           ? flutterGpuTileRasterBackend
           : _canvasTileRasterBackend;
 
-  void setTileRasterBackendMode(
-    TileRasterBackendMode mode, {
-    bool recordOptIn = true,
-  }) {
-    if (recordOptIn) {
-      _flutterGpuOptIn = mode == TileRasterBackendMode.flutterGpu;
-    }
+  void setTileRasterBackendMode(TileRasterBackendMode mode) {
     if (tileRasterBackendMode.value == mode) return;
     tileRasterBackendMode.value = mode;
     // A backend A/B switch must not keep serving already-rendered slabs from
@@ -564,14 +564,16 @@ class AppDevTools extends ChangeNotifier {
         '${policy.maxEntryBytes >> 20}MB/page');
   }
 
-  /// Applies an idle full-raster warm policy to every mounted viewer.
+  /// Applies a full-raster warm policy to every mounted viewer.
   void setPageRasterWarmPolicy(PdfPageRasterWarmPolicy policy) {
     if (pageRasterWarmPolicy.value == policy) return;
     pageRasterWarmPolicy.value = policy;
     PdfPerfLog.log('raster-warm policy mode=${policy.mode.name} '
-        'window=${policy.window} idleMs=${policy.idleDelay.inMilliseconds}');
-    addLog('devtools: idle raster warm \u2192 ${policy.mode.name}'
-        '${policy.mode == PdfPageRasterWarmMode.nearby ? ' (\u00b1${policy.window})' : ''}');
+        'window=${policy.window} slowWindow=${policy.slowScrollWindow} '
+        'idleMs=${policy.idleDelay.inMilliseconds}');
+    addLog('devtools: page raster warm \u2192 ${policy.mode.name}'
+        '${policy.mode == PdfPageRasterWarmMode.nearby ? ' (\u00b1${policy.window})' : ''}, '
+        'slow-scroll \u2192${policy.slowScrollWindow}');
   }
 
   /// Returns the visited-page raster cache to adaptive machine-headroom mode.
@@ -657,20 +659,17 @@ class AppDevTools extends ChangeNotifier {
             .where((value) => value.name == mode)
             .firstOrNull;
         if (restored != null) {
-          // Older releases selected flutter_gpu automatically on supported
-          // Macs and then persisted that choice. Requiring this new marker
-          // migrates those installs back to Canvas while preserving a
-          // deliberate Developer Tools opt-in made after this change.
+          // Keep an explicit stored preference. A stored flutter_gpu choice
+          // falls back to Canvas only when this build cannot provide it; the
+          // old opt-in marker is intentionally no longer required now that
+          // flutter_gpu is DartPDF's supported-platform default.
           final restoreFlutterGpu =
               restored == TileRasterBackendMode.flutterGpu &&
-                  map['flutterGpuOptIn'] == true &&
                   flutterGpuTileRasterBackend.isPlatformSupported;
-          _flutterGpuOptIn = restoreFlutterGpu;
           setTileRasterBackendMode(
             restoreFlutterGpu
                 ? TileRasterBackendMode.flutterGpu
                 : TileRasterBackendMode.canvas,
-            recordOptIn: false,
           );
         }
       }
@@ -710,9 +709,18 @@ class AppDevTools extends ChangeNotifier {
           final int v when v > 0 => v,
           _ => 3,
         };
+        final slowWindow = switch (map['pageRasterWarmSlowScrollWindow']) {
+          final int v when v >= 0 => v,
+          _ => 3,
+        };
         setPageRasterWarmPolicy(switch (mode) {
-          'nearby' => PdfPageRasterWarmPolicy.nearby(window: window),
-          'document' => const PdfPageRasterWarmPolicy.document(),
+          'nearby' => PdfPageRasterWarmPolicy.nearby(
+              window: window,
+              slowScrollWindow: slowWindow,
+            ),
+          'document' => PdfPageRasterWarmPolicy.document(
+              slowScrollWindow: slowWindow,
+            ),
           _ => const PdfPageRasterWarmPolicy.disabled(),
         });
       }
@@ -737,7 +745,10 @@ class AppDevTools extends ChangeNotifier {
         jsonEncode({
           'deepZoomMode': deepZoomMode,
           'tileRasterBackend': tileRasterBackendMode.value.name,
-          'flutterGpuOptIn': _flutterGpuOptIn,
+          // Retain the marker for backwards compatibility with builds that
+          // predate flutter_gpu becoming the default.
+          'flutterGpuOptIn':
+              tileRasterBackendMode.value == TileRasterBackendMode.flutterGpu,
           'gpuTextureBytes': flutterGpuTileRasterBackend.maxTextureBytes,
           'gpuGeometryBytes': flutterGpuTileRasterBackend.maxGeometryBytes,
           'gpuOverprintApproximation': _gpuOverprintApproximation,
@@ -754,6 +765,8 @@ class AppDevTools extends ChangeNotifier {
               _fixedPageRasterCachePolicy.maxEntryBytes,
           'pageRasterWarmMode': pageRasterWarmPolicy.value.mode.name,
           'pageRasterWarmWindow': pageRasterWarmPolicy.value.window,
+          'pageRasterWarmSlowScrollWindow':
+              pageRasterWarmPolicy.value.slowScrollWindow,
         }),
       );
     } catch (e) {

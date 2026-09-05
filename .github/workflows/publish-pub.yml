@@ -26,6 +26,13 @@ on:
       - 'pdf_ocr_vlm-v*'
       - 'pdf_ocr_ondevice-v*'
 
+# GitHub can occasionally deliver the same tag push more than once. Serialize
+# each immutable tag so a duplicate waits, observes the published version in
+# check-publish-needed, and exits as a successful no-op.
+concurrency:
+  group: pub-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   check-publish-needed:
     runs-on: ubuntu-latest

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -141,6 +143,29 @@ void main() {
 
     test('fieldValue is null without a /V anywhere', () {
       expect(widget('address').fieldValue, isNull);
+    });
+  });
+
+  group('appearanceRotation', () {
+    test('is 0 for an appearance square to its /Rect', () {
+      final doc = PdfDocument.open(buildAppearanceAnnotationsPdf());
+      // the Square's /AP is a plain BBox scaled onto its /Rect
+      expect(doc.page(0).annotations.first.appearanceRotation, 0);
+    });
+
+    test("reads the quarter turn out of an /AP's /Matrix", () {
+      final doc = PdfDocument.open(buildAppearanceAnnotationsPdf());
+      // the Stamp's /AP carries /Matrix [0 1 -1 0 0 0]
+      final stamp =
+          doc.page(0).annotations.firstWhere((a) => a.subtype == 'Stamp');
+      expect(stamp.appearanceRotation, closeTo(math.pi / 2, 1e-9));
+    });
+
+    test('is 0 without an appearance stream', () {
+      final doc = PdfDocument.open(buildAnnotatedPdf());
+      final bare =
+          doc.page(0).annotations.firstWhere((a) => a.normalAppearance == null);
+      expect(bare.appearanceRotation, 0);
     });
   });
 }

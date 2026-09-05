@@ -95,6 +95,28 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="4.2.0" date="2026-09-05">
+      <description>
+        <ul>
+          <li>Keep nearby pages sharp while scrolling slowly, using spare GPU capacity.</li>
+          <li>Render with the Flutter GPU route by default, falling back to Canvas when needed.</li>
+          <li>Place annotations precisely with alignment guides and page rulers.</li>
+          <li>Zoom around the pointer with Ctrl or Cmd and the mouse wheel.</li>
+          <li>Fix annotation editing on rotated pages, multi-line highlight selection, and panning between lines of text.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.1.0" date="2026-09-02">
+      <description>
+        <ul>
+          <li>Save named handwritten signatures and reuse saved annotations across documents.</li>
+          <li>Place edits precisely with cursor guides, a visible grid, and optional snapping.</li>
+          <li>Move selected PDF content within a page or drag it to another page.</li>
+          <li>Improve digital-signature reliability and colour picking.</li>
+          <li>Render large drawings, complex blends, transparency, images, and remote PDFs faster and more accurately.</li>
+        </ul>
+      </description>
+    </release>
     <release version="4.0.0" date="2026-08-25">
       <description>
         <ul>

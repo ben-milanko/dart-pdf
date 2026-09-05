@@ -47,7 +47,7 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfViewerController viewerController,
 );
 
-/// Opens the stock cursor-guide and grid-snap settings.
+/// Opens the stock guide, snapping, grid, and ruler settings.
 ///
 /// The switches update [preferences] live and persist through
 /// [PdfEditingPreferences]. They are display/interaction settings only; no
@@ -63,73 +63,94 @@ Future<void> showPdfEditingGuidesDialog(
   await showPdfDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Cursor guides and grid'),
+      title: const Text('Guides, snapping and rulers'),
       contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       content: SizedBox(
         width: 360,
         child: ListenableBuilder(
           listenable: preferences,
-          builder: (context, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                key: const ValueKey('pdf-cursor-guide-vertical'),
-                secondary: const Icon(Icons.vertical_align_center),
-                title: const Text('Vertical cursor line'),
-                value: preferences.showVerticalCursorGuide,
-                onChanged: (value) =>
-                    preferences.showVerticalCursorGuide = value,
-              ),
-              SwitchListTile(
-                key: const ValueKey('pdf-cursor-guide-horizontal'),
-                secondary: const Icon(Icons.horizontal_rule),
-                title: const Text('Horizontal cursor line'),
-                value: preferences.showHorizontalCursorGuide,
-                onChanged: (value) =>
-                    preferences.showHorizontalCursorGuide = value,
-              ),
-              const Divider(height: 1),
-              SwitchListTile(
-                key: const ValueKey('pdf-grid-snap'),
-                secondary: const Icon(Icons.grid_4x4),
-                title: const Text('Snap to grid'),
-                subtitle: const Text('Hold Alt to bypass snapping'),
-                value: preferences.snapToGrid,
-                onChanged: (value) => preferences.snapToGrid = value,
-              ),
-              SwitchListTile(
-                key: const ValueKey('pdf-grid-visible'),
-                secondary: const Icon(Icons.grid_on_outlined),
-                title: const Text('Show grid lines'),
-                subtitle: const Text('Display only; not added to the PDF'),
-                value: preferences.showSnapGrid,
-                onChanged: (value) => preferences.showSnapGrid = value,
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Row(children: [
-                  const Text('Grid spacing'),
-                  Expanded(
-                    child: Slider(
-                      key: const ValueKey('pdf-grid-spacing'),
-                      value: preferences.gridSpacing.clamp(1, 144),
-                      min: 1,
-                      max: 144,
-                      divisions: 143,
-                      label: '${spacingLabel(preferences.gridSpacing)} pt',
-                      onChanged: (value) => preferences.gridSpacing = value,
+          builder: (context, _) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  key: const ValueKey('pdf-smart-alignment-guides'),
+                  secondary: const Icon(Icons.align_horizontal_center),
+                  title: const Text('Smart alignment guides'),
+                  subtitle: const Text(
+                      'Snap annotation edges and centres • Hold Alt to bypass'),
+                  value: preferences.smartAlignmentGuides,
+                  onChanged: (value) =>
+                      preferences.smartAlignmentGuides = value,
+                ),
+                SwitchListTile(
+                  key: const ValueKey('pdf-page-rulers'),
+                  secondary: const Icon(Icons.straighten),
+                  title: const Text('Page rulers'),
+                  subtitle: const Text('Show point measurements at page edges'),
+                  value: preferences.showPageRulers,
+                  onChanged: (value) => preferences.showPageRulers = value,
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  key: const ValueKey('pdf-cursor-guide-vertical'),
+                  secondary: const Icon(Icons.vertical_align_center),
+                  title: const Text('Vertical cursor line'),
+                  value: preferences.showVerticalCursorGuide,
+                  onChanged: (value) =>
+                      preferences.showVerticalCursorGuide = value,
+                ),
+                SwitchListTile(
+                  key: const ValueKey('pdf-cursor-guide-horizontal'),
+                  secondary: const Icon(Icons.horizontal_rule),
+                  title: const Text('Horizontal cursor line'),
+                  value: preferences.showHorizontalCursorGuide,
+                  onChanged: (value) =>
+                      preferences.showHorizontalCursorGuide = value,
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  key: const ValueKey('pdf-grid-snap'),
+                  secondary: const Icon(Icons.grid_4x4),
+                  title: const Text('Snap to grid'),
+                  subtitle: const Text('Hold Alt to bypass snapping'),
+                  value: preferences.snapToGrid,
+                  onChanged: (value) => preferences.snapToGrid = value,
+                ),
+                SwitchListTile(
+                  key: const ValueKey('pdf-grid-visible'),
+                  secondary: const Icon(Icons.grid_on_outlined),
+                  title: const Text('Show grid lines'),
+                  subtitle: const Text('Display only; not added to the PDF'),
+                  value: preferences.showSnapGrid,
+                  onChanged: (value) => preferences.showSnapGrid = value,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Row(children: [
+                    const Text('Grid spacing'),
+                    Expanded(
+                      child: Slider(
+                        key: const ValueKey('pdf-grid-spacing'),
+                        value: preferences.gridSpacing.clamp(1, 144),
+                        min: 1,
+                        max: 144,
+                        divisions: 143,
+                        label: '${spacingLabel(preferences.gridSpacing)} pt',
+                        onChanged: (value) => preferences.gridSpacing = value,
+                      ),
                     ),
-                  ),
-                  SizedBox(
-                    width: 48,
-                    child: Text(
-                      '${spacingLabel(preferences.gridSpacing)} pt',
-                      textAlign: TextAlign.end,
+                    SizedBox(
+                      width: 48,
+                      child: Text(
+                        '${spacingLabel(preferences.gridSpacing)} pt',
+                        textAlign: TextAlign.end,
+                      ),
                     ),
-                  ),
-                ]),
-              ),
-            ],
+                  ]),
+                ),
+              ],
+            ),
           ),
         ),
       ),

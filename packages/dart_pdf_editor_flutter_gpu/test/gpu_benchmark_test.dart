@@ -58,6 +58,18 @@ Future<void> _waitForGpuIdle(FlutterGpuTileRasterBackend backend) async {
   );
 }
 
+Future<int> _timeSerialGpuImage(
+  FlutterGpuTileRasterBackend backend,
+  Future<ui.Image> Function() render,
+) async {
+  final elapsed = await _timeSettledImage(render);
+  // Pixel readback can resolve just before Flutter delivers the command-buffer
+  // completion callback. Wait for that callback too so the next sample sees
+  // the just-used transient resources back in their pools.
+  await _waitForGpuIdle(backend);
+  return elapsed;
+}
+
 Future<(int, Uint8List)> _timePixels(Future<ui.Image> Function() render) async {
   final clock = Stopwatch()..start();
   final image = await render();
@@ -194,7 +206,8 @@ void main() {
       backend.stats.reset();
       final settled = <int>[];
       for (var index = 0; index < 15; index++) {
-        settled.add(await _timeSettledImage(
+        settled.add(await _timeSerialGpuImage(
+          backend,
           () => session.rasterizeRegion(region, pixelRatio: 0.5),
         ));
       }
@@ -303,7 +316,8 @@ void main() {
       backend.stats.reset();
       final settled = <int>[];
       for (var index = 0; index < 15; index++) {
-        settled.add(await _timeSettledImage(
+        settled.add(await _timeSerialGpuImage(
+          backend,
           () => session.rasterizeRegion(region, pixelRatio: 0.5),
         ));
       }

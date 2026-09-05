@@ -14,7 +14,8 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 void main() {
   MouseRegion region(WidgetTester tester) => tester.widget<MouseRegion>(find
-      .descendant(of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+      .descendant(
+          of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
       .first);
 
   testWidgets('hover over a heavy page does not extract text synchronously',
@@ -22,8 +23,7 @@ void main() {
     final previous = PdfViewer.hoverTextExtractMaxRawContentBytes;
     // Treat every page as "heavy" so the ordinary fixture exercises the gate.
     PdfViewer.hoverTextExtractMaxRawContentBytes = 0;
-    addTearDown(
-        () => PdfViewer.hoverTextExtractMaxRawContentBytes = previous);
+    addTearDown(() => PdfViewer.hoverTextExtractMaxRawContentBytes = previous);
 
     final document = PdfDocument.open(buildClassicPdf());
     final controller = PdfViewerController();

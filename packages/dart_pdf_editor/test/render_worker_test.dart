@@ -656,11 +656,11 @@ void main() {
 
   testWidgets('PdfPageView defers worker replay when render hold resumes',
       (tester) async {
-    // A record big enough to matter is still held: the motion-safe lane
-    // (PdfPageView.motionSafeRenders) only lets a SMALL image-free buffer
-    // replay through a scroll, and pinning the ceiling at zero puts this
-    // fixture on the classic side of that line. The lane's own behaviour is
-    // covered in motion_safe_render_test.dart.
+    // A record big enough to matter cannot replay through live input. Pinning
+    // the ceiling at zero puts this fixture on the input-quiet side of that
+    // line; this test raises the hold without separately ending the gesture,
+    // so the result remains deferred. The lane's complete behaviour is covered
+    // in motion_safe_render_test.dart.
     final previousCeiling = PdfPageView.motionSafeMaxCommands;
     PdfPageView.motionSafeMaxCommands = 0;
     addTearDown(() => PdfPageView.motionSafeMaxCommands = previousCeiling);
@@ -703,7 +703,9 @@ void main() {
     expect(worker.calls.single.$3, isTrue,
         reason: 'the fresh preview skips the vector-first pass');
 
-    scheduler.holding = true;
+    scheduler
+      ..holding = true
+      ..activeGesture = true;
     worker.completeAll();
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 16));
@@ -712,7 +714,9 @@ void main() {
         reason: 'a worker result that arrives after motion restarts must not '
             'replay/rasterize on the UI side');
 
-    scheduler.holding = false;
+    scheduler
+      ..activeGesture = false
+      ..holding = false;
     for (var i = 0; i < 40 && rasters == 0; i++) {
       worker.completeAll();
       await tester.pump(const Duration(milliseconds: 16));
