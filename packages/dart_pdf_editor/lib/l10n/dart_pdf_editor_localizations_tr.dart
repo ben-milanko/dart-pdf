@@ -2115,4 +2115,25 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Kayıtlı imza yok.';
+
+  @override
+  String get splitTitle => 'PDF’yi böl…';
+
+  @override
+  String get splitHelp =>
+      'Sayfa aralıklarını virgülle ayırarak girin. Her aralık ayrı bir PDF oluşturur.';
+
+  @override
+  String get splitRanges => 'Sayfa aralıkları';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return '1–$count arasındaki sayfaları virgülle ayırın. Aralıklar artan sırada olmalıdır.';
+  }
+
+  @override
+  String get splitConfirm => 'Böl';
+
+  @override
+  String get splitFailed => 'Bu PDF bölünemedi.';
 }

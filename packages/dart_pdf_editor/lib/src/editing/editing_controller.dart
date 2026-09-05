@@ -4054,6 +4054,11 @@ class PdfEditingController extends ChangeNotifier {
   Uint8List exportPageRange(int start, int end) =>
       _document.extractPageRange(start, end);
 
+  /// Exports one standalone PDF per zero-based inclusive range, without an
+  /// edit or undo entry. See [PdfSplitter] for the extraction semantics.
+  List<Uint8List> exportPageRanges(List<PdfPageRange> ranges) =>
+      _document.extractPageRanges(ranges);
+
   // ---------------------------------------------------------------------
   // page selection (the thumbnail strip's multi-select)
 

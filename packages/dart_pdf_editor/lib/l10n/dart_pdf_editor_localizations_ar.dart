@@ -2158,4 +2158,25 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'لا توجد توقيعات محفوظة.';
+
+  @override
+  String get splitTitle => 'تقسيم PDF…';
+
+  @override
+  String get splitHelp =>
+      'أدخل نطاقات الصفحات مفصولة بفواصل. ينشئ كل نطاق ملف PDF منفصلاً.';
+
+  @override
+  String get splitRanges => 'نطاقات الصفحات';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'استخدم الصفحات من 1 إلى $count، مفصولة بفواصل. يجب أن تكون النطاقات تصاعدية.';
+  }
+
+  @override
+  String get splitConfirm => 'تقسيم';
+
+  @override
+  String get splitFailed => 'تعذر تقسيم ملف PDF هذا.';
 }

@@ -236,6 +236,7 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
     this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
@@ -330,6 +331,7 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
     this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
@@ -500,6 +502,11 @@ class PdfEditorView extends StatefulWidget {
   /// thumbnail strip's "Export pages…" action asks for the range, then
   /// hands the bytes here). When null the action is hidden.
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Receives all standalone PDFs from the thumbnail menu's "Split PDF…"
+  /// action in one call, in range order. The host saves or opens each result.
+  /// When null, the action is hidden. Does not modify the editing session.
+  final void Function(List<Uint8List> documents)? onSplitPages;
 
   /// Lets a PDF dragged in from outside the app be dropped at a chosen
   /// position in the page thumbnails (strip or full-area grid) instead of
@@ -792,6 +799,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
+        onSplitPages: complete ? widget.onSplitPages : null,
         thumbnailDropController:
             complete ? widget.thumbnailDropController : null,
         onAction: widget.onAction,
@@ -978,6 +986,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                onSplitPages: widget.onSplitPages,
                 // dropping a PDF between two tiles inserts it there; a
                 // read-only shell takes no structural page edits
                 fileDropController: features.pageEditing
@@ -1069,6 +1078,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                onSplitPages: widget.onSplitPages,
                 fileDropController: features.pageEditing
                     ? widget.thumbnailDropController
                     : null,

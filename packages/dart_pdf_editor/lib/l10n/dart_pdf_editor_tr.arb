@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Özel damgalar…",
   "signatureLibraryManage": "İmzaları yönet",
   "signatureLibraryRenameTitle": "İmzayı yeniden adlandır",
-  "signatureLibraryEmpty": "Kayıtlı imza yok."
+  "signatureLibraryEmpty": "Kayıtlı imza yok.",
+  "splitTitle": "PDF’yi böl…",
+  "splitHelp": "Sayfa aralıklarını virgülle ayırarak girin. Her aralık ayrı bir PDF oluşturur.",
+  "splitRanges": "Sayfa aralıkları",
+  "splitInvalidRanges": "1–{count} arasındaki sayfaları virgülle ayırın. Aralıklar artan sırada olmalıdır.",
+  "splitConfirm": "Böl",
+  "splitFailed": "Bu PDF bölünemedi."
 }

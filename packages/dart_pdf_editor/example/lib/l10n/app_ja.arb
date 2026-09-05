@@ -119,5 +119,6 @@
   "undo": "元に戻す",
   "exFileTypePdf": "PDF ドキュメント",
   "exFileTypeImages": "画像",
-  "exFileTypeFonts": "フォント"
+  "exFileTypeFonts": "フォント",
+  "exExtractedTitle": "{title} - パート{part}.pdf"
 }

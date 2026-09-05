@@ -635,5 +635,17 @@
   "exFileTypeFonts": "Fonts",
   "@exFileTypeFonts":   {
       "description": "File-picker filter label for TrueType/OpenType font files."
+  },
+  "exExtractedTitle": "{title} - part {part}.pdf",
+  "@exExtractedTitle": {
+    "description": "Tab and suggested file name for extracted PDF pages.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "part": {
+        "type": "int"
+      }
+    }
   }
 }

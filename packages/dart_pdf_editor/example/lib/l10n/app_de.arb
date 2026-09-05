@@ -119,5 +119,6 @@
   "undo": "Rückgängig",
   "exFileTypePdf": "PDF-Dokumente",
   "exFileTypeImages": "Bilder",
-  "exFileTypeFonts": "Schriftarten"
+  "exFileTypeFonts": "Schriftarten",
+  "exExtractedTitle": "{title} - Teil {part}.pdf"
 }

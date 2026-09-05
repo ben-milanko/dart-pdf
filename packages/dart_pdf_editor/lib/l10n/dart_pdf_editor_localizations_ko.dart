@@ -2094,4 +2094,24 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => '저장된 서명이 없습니다.';
+
+  @override
+  String get splitTitle => 'PDF 분할…';
+
+  @override
+  String get splitHelp => '페이지 범위를 쉼표로 구분하여 입력하세요. 각 범위마다 별도의 PDF가 생성됩니다.';
+
+  @override
+  String get splitRanges => '페이지 범위';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return '1~$count페이지를 쉼표로 구분하세요. 범위는 오름차순이어야 합니다.';
+  }
+
+  @override
+  String get splitConfirm => '분할';
+
+  @override
+  String get splitFailed => '이 PDF를 분할할 수 없습니다.';
 }

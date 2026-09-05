@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "أختام مخصصة…",
   "signatureLibraryManage": "إدارة التوقيعات",
   "signatureLibraryRenameTitle": "إعادة تسمية التوقيع",
-  "signatureLibraryEmpty": "لا توجد توقيعات محفوظة."
+  "signatureLibraryEmpty": "لا توجد توقيعات محفوظة.",
+  "splitTitle": "تقسيم PDF…",
+  "splitHelp": "أدخل نطاقات الصفحات مفصولة بفواصل. ينشئ كل نطاق ملف PDF منفصلاً.",
+  "splitRanges": "نطاقات الصفحات",
+  "splitInvalidRanges": "استخدم الصفحات من 1 إلى {count}، مفصولة بفواصل. يجب أن تكون النطاقات تصاعدية.",
+  "splitConfirm": "تقسيم",
+  "splitFailed": "تعذر تقسيم ملف PDF هذا."
 }

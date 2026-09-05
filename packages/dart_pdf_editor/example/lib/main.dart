@@ -935,13 +935,30 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   /// Opens [bytes] in a brand-new tab and makes it the active one.
-  void _openBytes(Uint8List bytes, String title, {bool isDemo = false}) {
+  void _openBytes(Uint8List bytes, String title,
+      {bool isDemo = false, bool isExtracted = false}) {
     _addTab(_DocumentTab.document(
       title: title,
       bytes: bytes,
       preferences: _prefs,
       isDemo: isDemo,
+      isExtracted: isExtracted,
     ));
+  }
+
+  void _openExtracted(List<Uint8List> outputs, String sourceTitle) {
+    final l10n = appL10n(context);
+    final stem =
+        sourceTitle.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
+    final titles = {for (final tab in _tabs) tab.title};
+    var part = 1;
+    for (final output in outputs) {
+      var title = l10n.exExtractedTitle(stem, part++);
+      while (!titles.add(title)) {
+        title = l10n.exExtractedTitle(stem, part++);
+      }
+      _openBytes(output, title, isExtracted: true);
+    }
   }
 
   /// Adds a tab that just reports an open failure.
@@ -1752,9 +1769,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,
                                 onSave: (saved) => unawaited(_saveAs(saved)),
+                                alwaysAllowSave: tab.isExtracted,
                                 onPickPdfToInsert: _pickPdfBytes,
                                 onExportPages: (bytes) =>
-                                    unawaited(_saveAs(bytes)),
+                                    _openExtracted([bytes], tab.title),
+                                onSplitPages: (outputs) =>
+                                    _openExtracted(outputs, tab.title),
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
@@ -1987,6 +2007,7 @@ class _DocumentTab {
       : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         error = null,
         compareBefore = null,
         compareAfter = null,
@@ -1997,6 +2018,7 @@ class _DocumentTab {
     required Uint8List bytes,
     required PdfEditingPreferences preferences,
     this.isDemo = false,
+    this.isExtracted = false,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
         error = null,
@@ -2009,6 +2031,7 @@ class _DocumentTab {
       : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         compareBefore = null,
         compareAfter = null,
         loadingProgress = null,
@@ -2023,6 +2046,7 @@ class _DocumentTab {
   })  : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         error = null,
         compareBefore = before,
         compareAfter = after,
@@ -2032,6 +2056,8 @@ class _DocumentTab {
   final String title;
   final String? error;
   final bool isDemo;
+  // A new extraction has no saved file yet, even without any edits.
+  final bool isExtracted;
   final bool isLoading;
 
   /// Download progress (0..1) for a remote-load ([_openFromUrl]) loading tab,

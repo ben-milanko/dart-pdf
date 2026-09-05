@@ -33,6 +33,7 @@ export 'src/matrix_geometry.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
 export 'src/signing_identity.dart';
+export 'src/splitter.dart';
 export 'src/stamp_template.dart';
 export 'src/struct_tree.dart';
 export 'src/takeoff.dart';

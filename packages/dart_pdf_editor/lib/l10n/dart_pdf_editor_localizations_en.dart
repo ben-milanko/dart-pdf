@@ -2110,4 +2110,25 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'No saved signatures.';
+
+  @override
+  String get splitTitle => 'Split PDF…';
+
+  @override
+  String get splitHelp =>
+      'Enter page ranges separated by commas. Each range creates a separate PDF.';
+
+  @override
+  String get splitRanges => 'Page ranges';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Use pages 1–$count, separated by commas. Ranges must run from first to last.';
+  }
+
+  @override
+  String get splitConfirm => 'Split';
+
+  @override
+  String get splitFailed => 'Could not split this PDF.';
 }

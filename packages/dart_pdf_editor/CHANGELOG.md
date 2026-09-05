@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `PdfEditingController.exportPageRanges`, `showPdfSplitDialog`, and the
+  `onSplitPages` host callback on the editor shell and both thumbnail layouts.
+  The Split PDF action accepts comma-separated ranges and generates one PDF
+  per range in a single batch. The example opens extracted results in new tabs.
 - Preserve sparse-buffer ranges across native and web render workers, pooled
   and urgent workers, and overprint retries, including edit/undo/redo updates.
 

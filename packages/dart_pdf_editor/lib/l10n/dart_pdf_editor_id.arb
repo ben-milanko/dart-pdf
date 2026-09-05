@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Stempel khusus…",
   "signatureLibraryManage": "Kelola tanda tangan",
   "signatureLibraryRenameTitle": "Ganti nama tanda tangan",
-  "signatureLibraryEmpty": "Tidak ada tanda tangan tersimpan."
+  "signatureLibraryEmpty": "Tidak ada tanda tangan tersimpan.",
+  "splitTitle": "Pisahkan PDF…",
+  "splitHelp": "Masukkan rentang halaman yang dipisahkan koma. Setiap rentang menghasilkan PDF terpisah.",
+  "splitRanges": "Rentang halaman",
+  "splitInvalidRanges": "Gunakan halaman 1–{count}, dipisahkan koma. Rentang harus berurutan naik.",
+  "splitConfirm": "Pisahkan",
+  "splitFailed": "PDF ini tidak dapat dipisahkan."
 }
