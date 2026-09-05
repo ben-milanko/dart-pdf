@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Carimbos personalizados…",
   "signatureLibraryManage": "Gerir assinaturas",
   "signatureLibraryRenameTitle": "Mudar o nome da assinatura",
-  "signatureLibraryEmpty": "Nenhuma assinatura guardada."
+  "signatureLibraryEmpty": "Nenhuma assinatura guardada.",
+  "splitTitle": "Dividir PDF…",
+  "splitHelp": "Introduza intervalos de páginas separados por vírgulas. Cada intervalo cria um PDF separado.",
+  "splitRanges": "Intervalos de páginas",
+  "splitInvalidRanges": "Use páginas de 1 a {count}, separadas por vírgulas. Os intervalos devem ser crescentes.",
+  "splitConfirm": "Dividir",
+  "splitFailed": "Não foi possível dividir este PDF."
 }

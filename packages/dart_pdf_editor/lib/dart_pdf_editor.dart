@@ -4,6 +4,8 @@ library;
 export 'package:pdf_document/pdf_document.dart'
     show
         PdfDocument,
+        PdfPageRange,
+        PdfSplitter,
         PdfAnnotationSnapshot,
         PdfStampTemplate,
         PdfStampTemplateComponent,
@@ -79,6 +81,7 @@ export 'src/page_number_field.dart';
 export 'src/page_render_session.dart';
 export 'src/perf_log.dart';
 export 'src/page_range_dialog.dart';
+export 'src/split_dialog.dart';
 export 'src/pdf_editor_view.dart';
 export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';

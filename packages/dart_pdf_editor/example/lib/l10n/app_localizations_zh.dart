@@ -436,6 +436,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => '字体';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - 第 $part 部分.pdf';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -870,4 +875,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get exFileTypeFonts => '字型';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - 第 $part 部分.pdf';
+  }
 }

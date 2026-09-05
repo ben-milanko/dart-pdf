@@ -2105,4 +2105,25 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'ไม่มีลายเซ็นที่บันทึกไว้';
+
+  @override
+  String get splitTitle => 'แยก PDF…';
+
+  @override
+  String get splitHelp =>
+      'ป้อนช่วงหน้าโดยคั่นด้วยจุลภาค แต่ละช่วงจะสร้าง PDF แยกกัน';
+
+  @override
+  String get splitRanges => 'ช่วงหน้า';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'ใช้หน้า 1–$count โดยคั่นด้วยจุลภาค ช่วงหน้าต้องเรียงจากน้อยไปมาก';
+  }
+
+  @override
+  String get splitConfirm => 'แยก';
+
+  @override
+  String get splitFailed => 'ไม่สามารถแยก PDF นี้ได้';
 }

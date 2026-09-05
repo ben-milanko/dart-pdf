@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `PdfSplitter.split`, `splitRange`, and `splitExpression` for bytes-only
+  PDF splitting, with validated `PdfPageRange` batches and one-based range
+  parsing. `PdfDocument.extractPageRanges` reuses an already-open document.
+- Document splitting examples and the extraction semantics.
+
 ## 4.2.0
 
 - Add `PdfAnnotation.appearanceRotation`, the rotation an annotation's normal

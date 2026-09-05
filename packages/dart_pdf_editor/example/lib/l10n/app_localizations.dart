@@ -852,6 +852,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Fonts'**
   String get exFileTypeFonts;
+
+  /// Tab and suggested file name for extracted PDF pages.
+  ///
+  /// In en, this message translates to:
+  /// **'{title} - part {part}.pdf'**
+  String exExtractedTitle(String title, int part);
 }
 
 class _AppLocalizationsDelegate

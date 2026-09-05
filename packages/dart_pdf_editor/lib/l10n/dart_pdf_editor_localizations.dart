@@ -3847,6 +3847,42 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'No saved signatures.'**
   String get signatureLibraryEmpty;
+
+  /// Title and menu action for splitting a PDF into multiple documents.
+  ///
+  /// In en, this message translates to:
+  /// **'Split PDF…'**
+  String get splitTitle;
+
+  /// Explains the batch split expression.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter page ranges separated by commas. Each range creates a separate PDF.'**
+  String get splitHelp;
+
+  /// Label of the split expression field.
+  ///
+  /// In en, this message translates to:
+  /// **'Page ranges'**
+  String get splitRanges;
+
+  /// Validation error for a split expression.
+  ///
+  /// In en, this message translates to:
+  /// **'Use pages 1–{count}, separated by commas. Ranges must run from first to last.'**
+  String splitInvalidRanges(int count);
+
+  /// Confirm the batch PDF split.
+  ///
+  /// In en, this message translates to:
+  /// **'Split'**
+  String get splitConfirm;
+
+  /// Shown when PDF extraction fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not split this PDF.'**
+  String get splitFailed;
 }
 
 class _DartPdfEditorLocalizationsDelegate

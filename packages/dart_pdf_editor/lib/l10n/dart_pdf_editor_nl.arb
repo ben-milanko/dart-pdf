@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Aangepaste stempels…",
   "signatureLibraryManage": "Handtekeningen beheren",
   "signatureLibraryRenameTitle": "Handtekening hernoemen",
-  "signatureLibraryEmpty": "Geen opgeslagen handtekeningen."
+  "signatureLibraryEmpty": "Geen opgeslagen handtekeningen.",
+  "splitTitle": "PDF splitsen…",
+  "splitHelp": "Voer paginabereiken in, gescheiden door komma’s. Elk bereik wordt een afzonderlijke PDF.",
+  "splitRanges": "Paginabereiken",
+  "splitInvalidRanges": "Gebruik pagina’s 1–{count}, gescheiden door komma’s. Bereiken moeten oplopend zijn.",
+  "splitConfirm": "Splitsen",
+  "splitFailed": "Deze PDF kon niet worden gesplitst."
 }

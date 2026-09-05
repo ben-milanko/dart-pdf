@@ -2707,5 +2707,34 @@
   "signatureLibraryEmpty": "No saved signatures.",
   "@signatureLibraryEmpty": {
     "description": "Empty-state text in the saved handwritten-signature library."
+  },
+  "splitTitle": "Split PDF…",
+  "@splitTitle": {
+    "description": "Title and menu action for splitting a PDF into multiple documents."
+  },
+  "splitHelp": "Enter page ranges separated by commas. Each range creates a separate PDF.",
+  "@splitHelp": {
+    "description": "Explains the batch split expression."
+  },
+  "splitRanges": "Page ranges",
+  "@splitRanges": {
+    "description": "Label of the split expression field."
+  },
+  "splitInvalidRanges": "Use pages 1–{count}, separated by commas. Ranges must run from first to last.",
+  "@splitInvalidRanges": {
+    "description": "Validation error for a split expression.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitConfirm": "Split",
+  "@splitConfirm": {
+    "description": "Confirm the batch PDF split."
+  },
+  "splitFailed": "Could not split this PDF.",
+  "@splitFailed": {
+    "description": "Shown when PDF extraction fails."
   }
 }

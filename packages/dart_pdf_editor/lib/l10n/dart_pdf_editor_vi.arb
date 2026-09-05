@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Con dấu tùy chỉnh…",
   "signatureLibraryManage": "Quản lý chữ ký",
   "signatureLibraryRenameTitle": "Đổi tên chữ ký",
-  "signatureLibraryEmpty": "Không có chữ ký đã lưu."
+  "signatureLibraryEmpty": "Không có chữ ký đã lưu.",
+  "splitTitle": "Tách PDF…",
+  "splitHelp": "Nhập các khoảng trang, phân cách bằng dấu phẩy. Mỗi khoảng tạo một PDF riêng.",
+  "splitRanges": "Khoảng trang",
+  "splitInvalidRanges": "Dùng các trang từ 1 đến {count}, phân cách bằng dấu phẩy. Các khoảng phải theo thứ tự tăng dần.",
+  "splitConfirm": "Tách",
+  "splitFailed": "Không thể tách PDF này."
 }

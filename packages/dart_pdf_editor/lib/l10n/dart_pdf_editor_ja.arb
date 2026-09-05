@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "カスタムスタンプ…",
   "signatureLibraryManage": "署名を管理",
   "signatureLibraryRenameTitle": "署名の名前を変更",
-  "signatureLibraryEmpty": "保存済みの署名はありません。"
+  "signatureLibraryEmpty": "保存済みの署名はありません。",
+  "splitTitle": "PDFを分割…",
+  "splitHelp": "ページ範囲をカンマで区切って入力してください。範囲ごとに別のPDFを作成します。",
+  "splitRanges": "ページ範囲",
+  "splitInvalidRanges": "1～{count}ページをカンマで区切って指定してください。範囲は昇順で指定してください。",
+  "splitConfirm": "分割",
+  "splitFailed": "このPDFを分割できませんでした。"
 }

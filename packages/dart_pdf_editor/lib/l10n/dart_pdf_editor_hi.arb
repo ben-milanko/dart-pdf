@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "कस्टम स्टैम्प…",
   "signatureLibraryManage": "हस्ताक्षर प्रबंधित करें",
   "signatureLibraryRenameTitle": "हस्ताक्षर का नाम बदलें",
-  "signatureLibraryEmpty": "कोई सहेजा गया हस्ताक्षर नहीं है।"
+  "signatureLibraryEmpty": "कोई सहेजा गया हस्ताक्षर नहीं है।",
+  "splitTitle": "PDF विभाजित करें…",
+  "splitHelp": "पृष्ठ श्रेणियाँ अल्पविराम से अलग करके दर्ज करें। हर श्रेणी से एक अलग PDF बनेगा।",
+  "splitRanges": "पृष्ठ श्रेणियाँ",
+  "splitInvalidRanges": "1 से {count} तक के पृष्ठ अल्पविराम से अलग करें। श्रेणियाँ बढ़ते क्रम में होनी चाहिए।",
+  "splitConfirm": "विभाजित करें",
+  "splitFailed": "यह PDF विभाजित नहीं किया जा सका।"
 }

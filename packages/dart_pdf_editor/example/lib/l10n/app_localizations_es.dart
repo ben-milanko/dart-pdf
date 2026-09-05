@@ -442,4 +442,9 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => 'Fuentes';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - parte $part.pdf';
+  }
 }

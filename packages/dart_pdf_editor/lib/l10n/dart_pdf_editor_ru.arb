@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Пользовательские штампы…",
   "signatureLibraryManage": "Управление подписями",
   "signatureLibraryRenameTitle": "Переименовать подпись",
-  "signatureLibraryEmpty": "Нет сохранённых подписей."
+  "signatureLibraryEmpty": "Нет сохранённых подписей.",
+  "splitTitle": "Разделить PDF…",
+  "splitHelp": "Введите диапазоны страниц через запятую. Для каждого диапазона будет создан отдельный PDF.",
+  "splitRanges": "Диапазоны страниц",
+  "splitInvalidRanges": "Укажите страницы от 1 до {count} через запятую. Диапазоны должны идти по возрастанию.",
+  "splitConfirm": "Разделить",
+  "splitFailed": "Не удалось разделить этот PDF."
 }

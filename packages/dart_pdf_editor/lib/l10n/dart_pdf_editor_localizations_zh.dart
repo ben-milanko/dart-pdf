@@ -2085,6 +2085,26 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => '没有已保存的签名。';
+
+  @override
+  String get splitTitle => '拆分 PDF…';
+
+  @override
+  String get splitHelp => '输入以逗号分隔的页面范围。每个范围生成一个独立的 PDF。';
+
+  @override
+  String get splitRanges => '页面范围';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return '请输入 1 至 $count 之间的页码，以逗号分隔。范围必须按升序填写。';
+  }
+
+  @override
+  String get splitConfirm => '拆分';
+
+  @override
+  String get splitFailed => '无法拆分此 PDF。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4168,4 +4188,24 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get signatureLibraryEmpty => '沒有已儲存的簽名。';
+
+  @override
+  String get splitTitle => '分割 PDF…';
+
+  @override
+  String get splitHelp => '輸入以逗號分隔的頁面範圍。每個範圍會產生一個獨立的 PDF。';
+
+  @override
+  String get splitRanges => '頁面範圍';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return '請輸入 1 至 $count 之間的頁碼，以逗號分隔。範圍必須按遞增順序填寫。';
+  }
+
+  @override
+  String get splitConfirm => '分割';
+
+  @override
+  String get splitFailed => '無法分割此 PDF。';
 }

@@ -618,5 +618,11 @@
   "annotationLibraryCustomStamps": "Timbri personalizzati…",
   "signatureLibraryManage": "Gestisci firme",
   "signatureLibraryRenameTitle": "Rinomina firma",
-  "signatureLibraryEmpty": "Nessuna firma salvata."
+  "signatureLibraryEmpty": "Nessuna firma salvata.",
+  "splitTitle": "Dividi PDF…",
+  "splitHelp": "Inserisci intervalli di pagine separati da virgole. Ogni intervallo crea un PDF separato.",
+  "splitRanges": "Intervalli di pagine",
+  "splitInvalidRanges": "Usa pagine da 1 a {count}, separate da virgole. Gli intervalli devono essere crescenti.",
+  "splitConfirm": "Dividi",
+  "splitFailed": "Impossibile dividere questo PDF."
 }

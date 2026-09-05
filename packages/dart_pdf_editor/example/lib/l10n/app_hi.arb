@@ -119,5 +119,6 @@
   "undo": "पूर्ववत करें",
   "exFileTypePdf": "PDF दस्तावेज़",
   "exFileTypeImages": "छवियाँ",
-  "exFileTypeFonts": "फ़ॉन्ट"
+  "exFileTypeFonts": "फ़ॉन्ट",
+  "exExtractedTitle": "{title} - भाग {part}.pdf"
 }

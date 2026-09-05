@@ -436,4 +436,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => '글꼴';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - 파트 $part.pdf';
+  }
 }

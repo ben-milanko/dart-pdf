@@ -2110,4 +2110,25 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Không có chữ ký đã lưu.';
+
+  @override
+  String get splitTitle => 'Tách PDF…';
+
+  @override
+  String get splitHelp =>
+      'Nhập các khoảng trang, phân cách bằng dấu phẩy. Mỗi khoảng tạo một PDF riêng.';
+
+  @override
+  String get splitRanges => 'Khoảng trang';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Dùng các trang từ 1 đến $count, phân cách bằng dấu phẩy. Các khoảng phải theo thứ tự tăng dần.';
+  }
+
+  @override
+  String get splitConfirm => 'Tách';
+
+  @override
+  String get splitFailed => 'Không thể tách PDF này.';
 }

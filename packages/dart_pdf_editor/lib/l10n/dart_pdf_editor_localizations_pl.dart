@@ -2156,4 +2156,25 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Brak zapisanych podpisów.';
+
+  @override
+  String get splitTitle => 'Podziel PDF…';
+
+  @override
+  String get splitHelp =>
+      'Wpisz zakresy stron oddzielone przecinkami. Każdy zakres tworzy osobny plik PDF.';
+
+  @override
+  String get splitRanges => 'Zakresy stron';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Użyj stron od 1 do $count, oddzielonych przecinkami. Zakresy muszą być rosnące.';
+  }
+
+  @override
+  String get splitConfirm => 'Podziel';
+
+  @override
+  String get splitFailed => 'Nie udało się podzielić tego pliku PDF.';
 }

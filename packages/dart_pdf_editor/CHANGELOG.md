@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `PdfEditingController.exportPageRanges`, `showPdfSplitDialog`, and the
+  `onSplitPages` host callback on the editor shell and both thumbnail layouts.
+  The Split PDF action accepts comma-separated ranges and generates one PDF
+  per range in a single batch. The example opens extracted results in new tabs.
+
 ## 4.2.0
 
 - Add `textMenuBuilder`, the text-selection counterpart to
