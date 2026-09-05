@@ -264,5 +264,11 @@
   "updateFailed": "Bijwerken mislukt: {error}",
   "imageSourceTakePhoto": "Foto maken",
   "imageSourceChooseFile": "Bestand kiezen",
-  "imageSourceCameraFailed": "Kan geen foto maken"
+  "imageSourceCameraFailed": "Kan geen foto maken",
+  "settingsCachedDocuments": "Documenten in cache",
+  "settingsCacheUsage": "{used} MiB van {limit} MiB gebruikt",
+  "settingsCacheExplanation": "Bestanden groter dan {limit} MiB worden niet gecachet. Wissen behoudt de lijst met recente bestanden, geopende documenten en niet-opgeslagen wijzigingen; gecachete bestanden moeten opnieuw worden gekozen om ze te openen.",
+  "settingsClearCachedDocuments": "Documentcache wissen",
+  "settingsCacheUnavailable": "Cachegrootte niet beschikbaar",
+  "settingsCacheClearFailed": "Kan documentcache niet wissen. Probeer het opnieuw."
 }

@@ -264,5 +264,11 @@
   "updateFailed": "Не удалось обновить: {error}",
   "imageSourceTakePhoto": "Сделать снимок",
   "imageSourceChooseFile": "Выбрать файл",
-  "imageSourceCameraFailed": "Не удалось сделать снимок"
+  "imageSourceCameraFailed": "Не удалось сделать снимок",
+  "settingsCachedDocuments": "Кэшированные документы",
+  "settingsCacheUsage": "Использовано {used} МиБ из {limit} МиБ",
+  "settingsCacheExplanation": "Файлы больше {limit} МиБ не кэшируются. Очистка сохраняет список недавних файлов, открытые документы и несохранённые изменения; для открытия кэшированных файлов потребуется выбрать их заново.",
+  "settingsClearCachedDocuments": "Очистить кэш документов",
+  "settingsCacheUnavailable": "Размер кэша недоступен",
+  "settingsCacheClearFailed": "Не удалось очистить кэш документов. Повторите попытку."
 }

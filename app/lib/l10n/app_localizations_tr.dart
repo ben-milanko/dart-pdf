@@ -1053,4 +1053,27 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Fotoğraf çekilemedi';
+
+  @override
+  String get settingsCachedDocuments => 'Önbelleğe alınan belgeler';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB alanın $used MiB kadarı kullanılıyor';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB üzerindeki dosyalar önbelleğe alınmaz. Temizleme, son dosyalar listesini, açık belgeleri ve kaydedilmemiş değişiklikleri korur; önbellekteki dosyaları yeniden açmak için tekrar seçmeniz gerekir.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Önbellekteki belgeleri temizle';
+
+  @override
+  String get settingsCacheUnavailable => 'Önbellek boyutu kullanılamıyor';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Önbellekteki belgeler temizlenemedi. Tekrar deneyin.';
 }

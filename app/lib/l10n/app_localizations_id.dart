@@ -1057,4 +1057,27 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Tidak dapat mengambil foto';
+
+  @override
+  String get settingsCachedDocuments => 'Dokumen dalam cache';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB dari $limit MiB digunakan';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'File di atas $limit MiB tidak disimpan dalam cache. Menghapus cache tetap menyimpan daftar terbaru, dokumen terbuka, dan perubahan yang belum disimpan; file dalam cache harus dipilih lagi untuk dibuka kembali.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Hapus dokumen dalam cache';
+
+  @override
+  String get settingsCacheUnavailable => 'Ukuran cache tidak tersedia';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Tidak dapat menghapus dokumen dalam cache. Coba lagi.';
 }

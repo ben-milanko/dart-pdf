@@ -16,6 +16,7 @@ import 'perf_log.dart';
 import 'region_replay_index.dart';
 import 'render_trace.dart';
 import 'render_worker.dart';
+import 'render_worker_ranges.dart';
 
 // Worker lifecycle diagnostics, routed through PdfPerfLog so they ride the same
 // zero-overhead toggle as the rest of the perf trace (a single bool branch when
@@ -71,7 +72,8 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 /// [web.Worker] fails to construct - this degrades to a null worker
 /// ([isActive] false), so hosts can force local rendering. See
 /// `doc/render_worker_web.md`.
-PdfRenderWorker startRenderWorker(Uint8List bytes) {
+PdfRenderWorker startRenderWorker(Uint8List bytes,
+    {List<int>? populatedRanges}) {
   final url = pdfRenderWorkerScriptUrl;
   _wlog('startRenderWorker url=$url bytes=${bytes.length}');
   if (url == null) {
@@ -79,7 +81,8 @@ PdfRenderWorker startRenderWorker(Uint8List bytes) {
     return _WebRenderWorker.disabled();
   }
   try {
-    return _WebRenderWorker(bytes, url);
+    return _WebRenderWorker(
+        bytes, url, renderWorkerPopulatedRanges(bytes, populatedRanges));
   } catch (e) {
     // Worker construction can throw (bad URL, blocked by CSP): fall back.
     _wlog('construction threw: $e - falling back to local');
@@ -164,7 +167,8 @@ void disposePrewarmedRenderWorkers() {
 }
 
 class _WebRenderWorker extends PdfRenderWorker {
-  _WebRenderWorker(Uint8List bytes, String scriptUrl) {
+  _WebRenderWorker(
+      Uint8List bytes, String scriptUrl, List<int>? populatedRanges) {
     // Adopt a pre-booted worker (its fetch/compile/boot already overlapped the
     // file pick) when one is available, else construct on demand as before.
     final worker = _prewarmedWorkers.isNotEmpty
@@ -181,6 +185,10 @@ class _WebRenderWorker extends PdfRenderWorker {
     _wlog('worker constructed from $scriptUrl');
 
     final init = JSObject()..setProperty('kind'.toJS, 'init'.toJS);
+    if (populatedRanges != null) {
+      init.setProperty('populatedRanges'.toJS,
+          populatedRanges.map((value) => value.toJS).toList().toJS);
+    }
     init.setProperty('timings'.toJS, (_perfClock != null).toJS);
     init.setProperty(
       'reuseTranscripts'.toJS,

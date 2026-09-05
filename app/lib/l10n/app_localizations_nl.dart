@@ -1065,4 +1065,27 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Kan geen foto maken';
+
+  @override
+  String get settingsCachedDocuments => 'Documenten in cache';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB van $limit MiB gebruikt';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Bestanden groter dan $limit MiB worden niet gecachet. Wissen behoudt de lijst met recente bestanden, geopende documenten en niet-opgeslagen wijzigingen; gecachete bestanden moeten opnieuw worden gekozen om ze te openen.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Documentcache wissen';
+
+  @override
+  String get settingsCacheUnavailable => 'Cachegrootte niet beschikbaar';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Kan documentcache niet wissen. Probeer het opnieuw.';
 }

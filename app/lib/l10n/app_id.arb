@@ -264,5 +264,11 @@
   "updateFailed": "Pembaruan gagal: {error}",
   "imageSourceTakePhoto": "Ambil foto",
   "imageSourceChooseFile": "Pilih berkas",
-  "imageSourceCameraFailed": "Tidak dapat mengambil foto"
+  "imageSourceCameraFailed": "Tidak dapat mengambil foto",
+  "settingsCachedDocuments": "Dokumen dalam cache",
+  "settingsCacheUsage": "{used} MiB dari {limit} MiB digunakan",
+  "settingsCacheExplanation": "File di atas {limit} MiB tidak disimpan dalam cache. Menghapus cache tetap menyimpan daftar terbaru, dokumen terbuka, dan perubahan yang belum disimpan; file dalam cache harus dipilih lagi untuk dibuka kembali.",
+  "settingsClearCachedDocuments": "Hapus dokumen dalam cache",
+  "settingsCacheUnavailable": "Ukuran cache tidak tersedia",
+  "settingsCacheClearFailed": "Tidak dapat menghapus dokumen dalam cache. Coba lagi."
 }

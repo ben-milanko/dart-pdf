@@ -48,7 +48,10 @@ void main() {
     expect(find.byKey(const ValueKey('settings-default-app')), findsOneWidget);
     expect(find.text('Set up as default application'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('settings-default-app')));
+    final tile = find.byKey(const ValueKey('settings-default-app'));
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(tile);
     await tester.pumpAndSettle();
 
     expect(find.text('Set up as default application'), findsWidgets);

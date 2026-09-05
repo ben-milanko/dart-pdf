@@ -1722,6 +1722,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t take a photo'**
   String get imageSourceCameraFailed;
+
+  /// Opened PDF snapshot cache settings: settingsCachedDocuments
+  ///
+  /// In en, this message translates to:
+  /// **'Cached documents'**
+  String get settingsCachedDocuments;
+
+  /// Opened PDF snapshot cache settings: settingsCacheUsage
+  ///
+  /// In en, this message translates to:
+  /// **'{used} MiB of {limit} MiB used'**
+  String settingsCacheUsage(String used, String limit);
+
+  /// Opened PDF snapshot cache settings: settingsCacheExplanation
+  ///
+  /// In en, this message translates to:
+  /// **'Files over {limit} MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.'**
+  String settingsCacheExplanation(String limit);
+
+  /// Opened PDF snapshot cache settings: settingsClearCachedDocuments
+  ///
+  /// In en, this message translates to:
+  /// **'Clear cached documents'**
+  String get settingsClearCachedDocuments;
+
+  /// Opened PDF snapshot cache settings: settingsCacheUnavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Cache size unavailable'**
+  String get settingsCacheUnavailable;
+
+  /// Opened PDF snapshot cache settings: settingsCacheClearFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not clear cached documents. Try again.'**
+  String get settingsCacheClearFailed;
 }
 
 class _AppLocalizationsDelegate

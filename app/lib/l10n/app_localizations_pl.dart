@@ -1088,4 +1088,29 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Nie udało się zrobić zdjęcia';
+
+  @override
+  String get settingsCachedDocuments => 'Dokumenty w pamięci podręcznej';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Wykorzystano $used MiB z $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Pliki większe niż $limit MiB nie są buforowane. Czyszczenie zachowuje listę ostatnich plików, otwarte dokumenty i niezapisane zmiany; pliki z pamięci podręcznej trzeba ponownie wybrać, aby je otworzyć.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments =>
+      'Wyczyść dokumenty z pamięci podręcznej';
+
+  @override
+  String get settingsCacheUnavailable =>
+      'Rozmiar pamięci podręcznej niedostępny';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Nie udało się wyczyścić pamięci podręcznej dokumentów. Spróbuj ponownie.';
 }

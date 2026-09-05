@@ -1047,4 +1047,27 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'ถ่ายภาพไม่สำเร็จ';
+
+  @override
+  String get settingsCachedDocuments => 'เอกสารที่แคชไว้';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'ใช้ไป $used MiB จาก $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'ไฟล์ที่ใหญ่กว่า $limit MiB จะไม่ถูกแคช การล้างจะเก็บรายการล่าสุด เอกสารที่เปิดอยู่ และการเปลี่ยนแปลงที่ยังไม่ได้บันทึกไว้ โดยต้องเลือกไฟล์ที่เคยแคชอีกครั้งเพื่อเปิดใหม่';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'ล้างเอกสารที่แคชไว้';
+
+  @override
+  String get settingsCacheUnavailable => 'ไม่สามารถดูขนาดแคชได้';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'ไม่สามารถล้างเอกสารที่แคชไว้ได้ โปรดลองอีกครั้ง';
 }

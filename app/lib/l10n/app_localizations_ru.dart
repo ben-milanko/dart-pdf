@@ -1070,4 +1070,27 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Не удалось сделать снимок';
+
+  @override
+  String get settingsCachedDocuments => 'Кэшированные документы';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Использовано $used МиБ из $limit МиБ';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Файлы больше $limit МиБ не кэшируются. Очистка сохраняет список недавних файлов, открытые документы и несохранённые изменения; для открытия кэшированных файлов потребуется выбрать их заново.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Очистить кэш документов';
+
+  @override
+  String get settingsCacheUnavailable => 'Размер кэша недоступен';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Не удалось очистить кэш документов. Повторите попытку.';
 }
