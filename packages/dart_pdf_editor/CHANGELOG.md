@@ -2,6 +2,13 @@
 
 ## 4.2.0
 
+- Add `textMenuBuilder`, the text-selection counterpart to
+  `annotationMenuBuilder`: hosts append their own entries to the right-click
+  text menu (below a divider, after the stock markup/Copy/Select all) on
+  `PdfViewer`, `PdfEditorView`, and `PdfReader`, in reader mode as well as
+  with an editing session. Also expose `PdfViewerController.selectAllTextOn`
+  so a host that takes the whole menu over with `onContextMenuRequested` can
+  rebuild Select all.
 - Sharpen pages directionally during sustained slow scrolling with a bounded
   accelerated look-ahead, and warm pages ahead of the scroll direction, while
   preserving fast-scroll preemption and strict worker, raster-cache, and
@@ -30,16 +37,6 @@
 
 ## 4.1.0
 
-- Add `textMenuBuilder`, the text-selection counterpart to
-  `annotationMenuBuilder`: hosts append their own entries to the right-click
-  text menu (below a divider, after the stock markup/Copy/Select all) on
-  `PdfViewer`, `PdfEditorView`, and `PdfReader`, in reader mode as well as
-  with an editing session. Also expose `PdfViewerController.selectAllTextOn`
-  so a host that takes the whole menu over with `onContextMenuRequested` can
-  rebuild Select all.
-- Sharpen pages directionally during sustained slow scrolling with a bounded
-  accelerated look-ahead, while preserving fast-scroll preemption and strict
-  worker, raster-cache, and Canvas-fallback safeguards.
 - Add a persistent named handwritten-signature library with previews,
   selection, rename/redraw/delete management, and automatic migration from the
   previous single saved signature.
