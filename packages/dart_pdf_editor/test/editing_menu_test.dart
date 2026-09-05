@@ -553,14 +553,14 @@ void main() {
     // a plain reader (no editing controller); fixture text 'Page 1' sits
     // at 72,720 in 24pt Helvetica ('Page' spans x 72..120)
     Future<PdfViewerController> pumpReader(WidgetTester tester,
-        {PdfTextMenuBuilder? textMenuBuilder}) async {
+        {PdfTextMenuBuilder? textMenuBuilder, Uint8List? document}) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: PdfViewer(
             initialFit: PdfViewerFit.width,
-            document: PdfDocument.open(buildMultiPagePdf(1)),
+            document: PdfDocument.open(document ?? buildMultiPagePdf(1)),
             controller: controller,
             textMenuBuilder: textMenuBuilder,
           ),
@@ -902,6 +902,50 @@ void main() {
 
       expect(received!.selectedText, 'Page');
       expect(controller.selectedText, 'Page 1');
+    });
+
+    testWidgets('a page with no text at all opens no menu', (tester) async {
+      // an empty content stream: nothing to select and nothing to Select all,
+      // so every stock entry would be dead and the menu stays shut
+      final controller =
+          await pumpReader(tester, document: buildTextLinesPdf(const []));
+
+      await rightClick(tester, viewPoint(300, 400));
+      expect(controller.hasSelection, isFalse);
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')), findsNothing);
+    });
+
+    testWidgets('host entries alone open the menu on a page with no text',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      await pumpReader(
+        tester,
+        document: buildTextLinesPdf(const []),
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-page'),
+            label: 'Link to a record',
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(300, 400));
+      // the stock rows come along, both dead; the host's is the live one
+      final copy = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-copy')));
+      expect(copy.enabled, isFalse);
+      final all = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')));
+      expect(all.enabled, isFalse);
+
+      await tester.tap(find.byKey(const ValueKey('host-link-page')));
+      await tester.pumpAndSettle();
+      expect(received, isNotNull);
+      expect(received!.hasSelection, isFalse);
+      expect(received!.pageIndex, 0);
     });
 
     testWidgets('selectAllTextOn selects a page and ignores a bad index',
