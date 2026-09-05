@@ -461,12 +461,14 @@ class PdfRetainedScene {
     ({double? maxImagePixelRatio, double imageDecodeHeadroom}) options,
   ) async {
     final source = TransferableTypedData.fromList([page.document.cos.bytes]);
+    final populatedRanges = page.document.cos.populatedRanges;
     final annotations = plan.annotations;
     final decodeRatio = options.maxImagePixelRatio == null
         ? null
         : options.maxImagePixelRatio! * options.imageDecodeHeadroom;
     final encoded = await Isolate.run(() {
-      final document = PdfDocument.open(source.materialize().asUint8List());
+      final document = PdfDocument.open(source.materialize().asUint8List(),
+          populatedRanges: populatedRanges);
       if (pageIndex >= document.pageCount) return null;
       final retryPage = document.page(pageIndex);
       final recorder = RecordingPdfDevice();

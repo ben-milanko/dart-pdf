@@ -646,10 +646,15 @@ jobs:
             exit 1
           fi
       - run: flutter pub get
-      - name: Compile the bundled web render worker (output discarded)
+      - name: Compile the bundled web render worker for browser integration
         run: |
           dart run dart_pdf_editor:build_web_worker \
-            --out "${RUNNER_TEMP}/pdf_render_worker.dart.js"
+            --out packages/dart_pdf_editor/lib/src/sparse_test_worker.js
+      - name: Test sparse buffers in web workers
+        working-directory: packages/dart_pdf_editor
+        run: >-
+          flutter test --platform chrome --no-cross-origin-isolation
+          test/render_worker_sparse_web_test.dart --reporter expanded
 
   # Build the Linux desktop target and validate its desktop-integration files.
   # Mirrors the release-app.yml linux job's build deps (GTK + libsecret for

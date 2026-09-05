@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Accept `populatedRanges` in `PdfDocument.open` so copied progressive buffers
+  keep treating unfetched objects as missing.
+
 ## 4.2.0
 
 - Add `PdfAnnotation.appearanceRotation`, the rotation an annotation's normal
