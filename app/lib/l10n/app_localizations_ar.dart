@@ -461,6 +461,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorMenuScanDocument => 'مسح إلى مستند جديد…';
 
   @override
+  String get editorMenuInsertDocument => 'إدراج مستند…';
+
+  @override
   String get editorMenuInsertScan => 'إدراج مسح ضوئي…';
 
   @override

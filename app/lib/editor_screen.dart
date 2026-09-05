@@ -2019,6 +2019,34 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  /// The menu counterpart to dropping a PDF on a thumbnail: insert after the
+  /// current page, retain this tab's identity, and reveal the imported pages.
+  Future<void> _insertDocument(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null || _readOnly) return;
+    final l10n = appL10n(context);
+    final failure = pdfL10n(context).thumbInsertFileFailed;
+    try {
+      final bytes = await pickPdfBytes(l10n.fileTypePdf);
+      if (bytes == null ||
+          !mounted ||
+          !containsTab(tab) ||
+          _readOnly ||
+          !identical(tab.session, session)) {
+        return;
+      }
+      final at =
+          (tab.viewer!.currentPage + 1).clamp(0, session.document.pageCount);
+      session.insertPagesFromBytes(bytes, at: at);
+      if (identical(_active, tab)) _revealInsertedPage(at);
+      _toast(l10n.editorInsertedIntoTitle(1, tab.title));
+    } catch (e) {
+      AppDevTools.instance
+          .addLog('insert document failed: $e', level: DevLogLevel.error);
+      if (mounted) _toast('$failure ${openErrorSummary(e)}');
+    }
+  }
+
   /// Scrolls the active viewer to [index] - the first page a positioned
   /// insert just added. The revision swap rebuilds the viewer and a
   /// geometry-changing revision resets its scroll in a post-frame callback,
@@ -3085,6 +3113,16 @@ class _EditorScreenState extends State<EditorScreen>
                   _usesMobileShare ? null : _menuShortcut('S', shift: true),
             ),
           ),
+          if (!_readOnly)
+            PopupMenuItem(
+              key: const ValueKey('menu-insert-document'),
+              height: _appMenuItemHeight(),
+              value: () => unawaited(_insertDocument(tab!)),
+              child: _appMenuTile(
+                icon: Icons.post_add_outlined,
+                title: appL10n(context).editorMenuInsertDocument,
+              ),
+            ),
           if (_canScan && !_readOnly)
             PopupMenuItem(
               key: const ValueKey('menu-insert-scan'),

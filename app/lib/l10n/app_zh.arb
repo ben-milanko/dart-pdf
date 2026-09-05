@@ -113,6 +113,7 @@
   "editorMenuPrint": "打印…",
   "editorMenuSaveAs": "另存为…",
   "editorMenuScanDocument": "扫描为新文档…",
+  "editorMenuInsertDocument": "插入文档…",
   "editorMenuInsertScan": "插入扫描件…",
   "editorScanFailed": "无法扫描文档。",
   "editorInsertedScan": "已插入扫描的页面。",

@@ -439,6 +439,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorMenuScanDocument => '新しいドキュメントにスキャン…';
 
   @override
+  String get editorMenuInsertDocument => 'ドキュメントを挿入…';
+
+  @override
   String get editorMenuInsertScan => 'スキャンを挿入…';
 
   @override

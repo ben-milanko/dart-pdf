@@ -113,6 +113,7 @@
   "editorMenuPrint": "Cetak…",
   "editorMenuSaveAs": "Simpan sebagai…",
   "editorMenuScanDocument": "Pindai ke dokumen baru…",
+  "editorMenuInsertDocument": "Sisipkan dokumen…",
   "editorMenuInsertScan": "Sisipkan pindaian…",
   "editorScanFailed": "Tidak dapat memindai dokumen.",
   "editorInsertedScan": "Halaman pindaian disisipkan.",

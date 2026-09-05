@@ -113,6 +113,7 @@
   "editorMenuPrint": "列印…",
   "editorMenuSaveAs": "另存新檔…",
   "editorMenuScanDocument": "掃描為新文件…",
+  "editorMenuInsertDocument": "插入文件…",
   "editorMenuInsertScan": "插入掃描件…",
   "editorScanFailed": "無法掃描文件。",
   "editorInsertedScan": "已插入掃描的頁面。",

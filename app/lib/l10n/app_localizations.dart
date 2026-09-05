@@ -811,6 +811,12 @@ abstract class AppLocalizations {
   /// **'Scan to new document…'**
   String get editorMenuScanDocument;
 
+  /// Menu action to pick a PDF and insert its pages after the current page in the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert document…'**
+  String get editorMenuInsertDocument;
+
   /// App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document.
   ///
   /// In en, this message translates to:

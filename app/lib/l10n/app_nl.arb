@@ -113,6 +113,7 @@
   "editorMenuPrint": "Afdrukken…",
   "editorMenuSaveAs": "Opslaan als…",
   "editorMenuScanDocument": "Scannen naar nieuw document…",
+  "editorMenuInsertDocument": "Document invoegen…",
   "editorMenuInsertScan": "Scan invoegen…",
   "editorScanFailed": "Kan het document niet scannen.",
   "editorInsertedScan": "Gescande pagina's ingevoegd.",

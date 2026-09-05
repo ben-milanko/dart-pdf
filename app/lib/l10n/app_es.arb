@@ -113,6 +113,7 @@
   "editorMenuPrint": "Imprimir…",
   "editorMenuSaveAs": "Guardar como…",
   "editorMenuScanDocument": "Escanear a un nuevo documento…",
+  "editorMenuInsertDocument": "Insertar documento…",
   "editorMenuInsertScan": "Insertar escaneo…",
   "editorScanFailed": "No se pudo escanear el documento.",
   "editorInsertedScan": "Páginas escaneadas insertadas.",

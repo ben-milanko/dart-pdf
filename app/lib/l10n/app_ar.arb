@@ -113,6 +113,7 @@
   "editorMenuPrint": "طباعة…",
   "editorMenuSaveAs": "حفظ باسم…",
   "editorMenuScanDocument": "مسح إلى مستند جديد…",
+  "editorMenuInsertDocument": "إدراج مستند…",
   "editorMenuInsertScan": "إدراج مسح ضوئي…",
   "editorScanFailed": "تعذّر مسح المستند.",
   "editorInsertedScan": "تمت إضافة الصفحات الممسوحة ضوئيًا.",

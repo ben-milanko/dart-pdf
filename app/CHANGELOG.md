@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add **Insert document…** to the app menu: insert a PDF after the current page
+  as one undo step, with the existing tab identity and session recovery.
+- Preserve imported form fields, bookmarks, and named links when inserting PDFs.
+
 ## 4.2.0
 
 - Keep nearby pages sharp during slow scrolling and warm pages ahead of the

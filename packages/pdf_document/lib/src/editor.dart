@@ -52,6 +52,7 @@ part 'form_styling.dart';
 part 'ocr_editor.dart';
 part 'pades_editor.dart';
 part 'page_editor.dart';
+part 'document_merge.dart';
 part 'signature_editor.dart';
 part 'struct_tree_editor.dart';
 part 'vector_snapshot.dart';

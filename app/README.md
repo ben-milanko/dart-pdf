@@ -29,6 +29,9 @@ AppImage and portable tarball builds remain available from
 - Open PDFs from the picker, the OS ("open with" / share), drag-and-drop
   (desktop + web), recent files, or a launch argument. Recent documents can
   be browsed as a page-thumbnail grid.
+- Merge PDFs with **Insert document…** in the app menu (after the current page),
+  or drop them on the thumbnail strip to choose an insertion point. Each file
+  inserts as one undo step, stays in the original tab, and is covered by recovery.
 - On mobile, scan straight to a new PDF or insert a scan into the current
   document, and capture a page or placed image with the camera.
 - The full editing UI from the SDK: annotations, ink, shapes, free text,

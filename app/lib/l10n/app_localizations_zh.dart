@@ -436,6 +436,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuScanDocument => '扫描为新文档…';
 
   @override
+  String get editorMenuInsertDocument => '插入文档…';
+
+  @override
   String get editorMenuInsertScan => '插入扫描件…';
 
   @override
@@ -1459,6 +1462,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorMenuScanDocument => '掃描為新文件…';
+
+  @override
+  String get editorMenuInsertDocument => '插入文件…';
 
   @override
   String get editorMenuInsertScan => '插入掃描件…';

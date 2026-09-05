@@ -444,6 +444,9 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorMenuScanDocument => 'Quét thành tài liệu mới…';
 
   @override
+  String get editorMenuInsertDocument => 'Chèn tài liệu…';
+
+  @override
   String get editorMenuInsertScan => 'Chèn bản quét…';
 
   @override

@@ -113,6 +113,7 @@
   "editorMenuPrint": "Drukuj…",
   "editorMenuSaveAs": "Zapisz jako…",
   "editorMenuScanDocument": "Skanuj do nowego dokumentu…",
+  "editorMenuInsertDocument": "Wstaw dokument…",
   "editorMenuInsertScan": "Wstaw skan…",
   "editorScanFailed": "Nie można zeskanować dokumentu.",
   "editorInsertedScan": "Wstawiono zeskanowane strony.",

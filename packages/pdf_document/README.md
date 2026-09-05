@@ -57,6 +57,36 @@ editor.addFreeText(0, const PdfRect(72, 600, 280, 660), 'Reviewed.');
 final saved = editor.save(); // incremental update
 ```
 
+## Merge PDFs
+
+```dart
+import 'package:pdf_document/pdf_document.dart';
+
+final mergedBytes = PdfMerger.merge([coverBytes, reportBytes, appendixBytes]);
+final merged = PdfDocument.open(mergedBytes);
+print('${merged.pageCount} pages');
+```
+
+For protected inputs, pass a matching `passwords: ['', 'report-password', '']`
+list. The first input supplies the output's encryption, metadata, and viewing
+settings, including `/PageMode`. Imported streams are decrypted and re-encrypted
+with the first input's settings on save. An unprotected first input produces
+unprotected output; a protected first input keeps its password.
+
+Forms remain fillable. Colliding root field names gain `_2`, `_3`, … suffixes
+(for example, `client.name` becomes `client_2.name`); form font resources and
+default appearances are remapped together. Imported outlines retain their
+hierarchy, and named links resolve to their source's pages even when another
+input uses the same destination name. Colliding destination names are suffixed
+in the merged name tree.
+
+To insert into an existing edit session, use
+`editor.appendPagesFrom(source, at: pageIndex)` or Flutter's
+`editing.insertPagesFromBytes(bytes, at: pageIndex)`. A subset import keeps only
+widgets on the selected pages; destinations on omitted pages become inactive.
+Document-level attachments, XFA, and JavaScript from later inputs are not
+merged, and their signatures do not certify the output.
+
 ## The suite
 
 | Package | Layer |

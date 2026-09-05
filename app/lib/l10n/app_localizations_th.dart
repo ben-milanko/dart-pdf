@@ -444,6 +444,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuScanDocument => 'สแกนเป็นเอกสารใหม่…';
 
   @override
+  String get editorMenuInsertDocument => 'แทรกเอกสาร…';
+
+  @override
   String get editorMenuInsertScan => 'แทรกสแกน…';
 
   @override

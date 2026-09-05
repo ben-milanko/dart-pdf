@@ -450,6 +450,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get editorMenuScanDocument => 'Escanear a un nuevo documento…';
 
   @override
+  String get editorMenuInsertDocument => 'Insertar documento…';
+
+  @override
   String get editorMenuInsertScan => 'Insertar escaneo…';
 
   @override

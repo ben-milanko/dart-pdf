@@ -451,6 +451,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorMenuScanDocument => 'Numériser vers un nouveau document…';
 
   @override
+  String get editorMenuInsertDocument => 'Insérer un document…';
+
+  @override
   String get editorMenuInsertScan => 'Insérer une numérisation…';
 
   @override

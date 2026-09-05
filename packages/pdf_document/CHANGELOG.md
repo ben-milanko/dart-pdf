@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `PdfMerger.merge` for bytes-only merging with per-input passwords.
+- Preserve imported AcroForm fields, default font resources, named destinations,
+  and outline hierarchies; rename collisions and remap internal page targets.
+
 ## 4.2.0
 
 - Add `PdfAnnotation.appearanceRotation`, the rotation an annotation's normal

@@ -113,6 +113,7 @@
   "editorMenuPrint": "प्रिंट करें…",
   "editorMenuSaveAs": "इस रूप में सहेजें…",
   "editorMenuScanDocument": "नए दस्तावेज़ में स्कैन करें…",
+  "editorMenuInsertDocument": "दस्तावेज़ डालें…",
   "editorMenuInsertScan": "स्कैन डालें…",
   "editorScanFailed": "दस्तावेज़ स्कैन नहीं किया जा सका।",
   "editorInsertedScan": "स्कैन किए गए पृष्ठ जोड़े गए।",

@@ -447,6 +447,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorMenuScanDocument => 'Yeni belgeye tara…';
 
   @override
+  String get editorMenuInsertDocument => 'Belge ekle…';
+
+  @override
   String get editorMenuInsertScan => 'Tarama ekle…';
 
   @override

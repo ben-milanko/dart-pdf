@@ -113,6 +113,7 @@
   "editorMenuPrint": "In…",
   "editorMenuSaveAs": "Lưu thành…",
   "editorMenuScanDocument": "Quét thành tài liệu mới…",
+  "editorMenuInsertDocument": "Chèn tài liệu…",
   "editorMenuInsertScan": "Chèn bản quét…",
   "editorScanFailed": "Không thể quét tài liệu.",
   "editorInsertedScan": "Đã chèn các trang đã quét.",
