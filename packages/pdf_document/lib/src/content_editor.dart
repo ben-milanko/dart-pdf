@@ -140,18 +140,36 @@ extension PdfContentEditing on PdfEditor {
     );
   }
 
-  /// Deletes bounded non-text elements overlapping [rect] and text glyphs
+  /// Erases the portions of bounded graphics inside [rect] and text glyphs
   /// whose centres fall inside it. Surviving glyphs keep their original
   /// positions, including kerning and text spacing. Glyph widths come from
   /// the font; glyph heights are approximate, as in [PdfPageElements].
   /// Composite glyph slicing supports Identity-H. Other composite encodings
   /// and text that establishes a clipping path are left alone.
+  /// Graphics crossing the boundary retain their vector appearance under
+  /// a clipping path; graphics entirely inside the region are removed.
   /// Annotations and unbounded elements are untouched. Returns the number
   /// of affected elements. Handles must come from the current page revision.
   int deleteElementsInRect(PdfPageElements elements, PdfRect rect) {
-    if (rect.width <= 0 || rect.height <= 0) return 0;
+    if (rect.width <= 0 ||
+        rect.height <= 0 ||
+        ![rect.left, rect.bottom, rect.right, rect.top]
+            .every((v) => v.isFinite)) {
+      return 0;
+    }
     return _deleteElementsInRegion(
       elements,
+      [
+        (rect.left, rect.bottom),
+        (rect.right, rect.bottom),
+        (rect.right, rect.top),
+        (rect.left, rect.top)
+      ],
+      (bounds) =>
+          rect.left <= bounds.left &&
+          rect.bottom <= bounds.bottom &&
+          rect.right >= bounds.right &&
+          rect.top >= bounds.top,
       (bounds) =>
           bounds.right > rect.left &&
           bounds.left < rect.right &&
@@ -181,6 +199,8 @@ extension PdfContentEditing on PdfEditor {
     }
     return _deleteElementsInRegion(
       elements,
+      polygon,
+      (bounds) => _polygonContainsRect(polygon, bounds),
       (bounds) => _polygonHitsRect(polygon, bounds),
       (x, y) => _pointInPolygon(x, y, polygon),
     );
@@ -188,6 +208,8 @@ extension PdfContentEditing on PdfEditor {
 
   int _deleteElementsInRegion(
     PdfPageElements elements,
+    List<(double, double)> region,
+    bool Function(PdfRect bounds) containsBounds,
     bool Function(PdfRect bounds) hitsBounds,
     bool Function(double x, double y) hitsGlyph,
   ) {
@@ -205,16 +227,12 @@ extension PdfContentEditing on PdfEditor {
         if (!removed.contains(true)) continue;
         replacements[element.start] = _regionTextReplacement(
             elements.operations[element.start], glyphs, removed);
-      } else {
-        final bounds = element.bounds;
-        if (bounds == null || !hitsBounds(bounds)) continue;
-        // End a path without painting it. Its construction and any pending
-        // W/W* clip or interleaved graphics-state operators must survive.
-        replacements[element.end - 1] =
-            element.kind == PdfElementKind.path ? 'n' : '';
+        changed++;
       }
-      changed++;
     }
+    changed += _RegionGraphicsClipper(document.page(elements.pageIndex),
+            elements, region, hitsBounds, containsBounds, replacements)
+        .rewrite();
     if (changed == 0) return 0;
     _setContent(
         elements.pageIndex,
@@ -312,6 +330,32 @@ extension PdfContentEditing on PdfEditor {
       }
     }
     return false;
+  }
+
+  static bool _polygonContainsRect(List<(double, double)> polygon, PdfRect r) {
+    final corners = [
+      (r.left, r.bottom),
+      (r.right, r.bottom),
+      (r.right, r.top),
+      (r.left, r.top)
+    ];
+    if (!corners.every((p) => _pointInPolygon(p.$1, p.$2, polygon))) {
+      return false;
+    }
+    // A concave notch (or an even-odd hole) can enter the box while all four
+    // corners remain inside. Only drop a drawing if no boundary enters it.
+    for (var i = 0; i < polygon.length; i++) {
+      final a = polygon[i], b = polygon[(i + 1) % polygon.length];
+      if (a.$1 > r.left && a.$1 < r.right && a.$2 > r.bottom && a.$2 < r.top) {
+        return false;
+      }
+      for (var j = 0; j < 4; j++) {
+        if (_segmentsCross(a, b, corners[j], corners[(j + 1) % 4])) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   /// Do open segments a-b and c-d properly cross?

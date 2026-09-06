@@ -181,9 +181,10 @@ void main() {
             PdfPageElements.of(doc, 0), const PdfRect(110, 110, 120, 120)),
         2);
     final out = PdfDocument.open(editor.save());
-    expect(pageText(out), contains('W\n1 0 0 rg\nn'));
-    expect(PdfPageElements.of(out, 0).elements.single.kind,
-        PdfElementKind.shading);
+    expect(pageText(out), contains('1 0 0 rg'));
+    expect(pageText(out), contains('W*'));
+    expect(PdfPageElements.of(out, 0).elements.map((e) => e.kind),
+        [PdfElementKind.path, PdfElementKind.path, PdfElementKind.shading]);
   });
 
   test('unsupported composite encodings and clipping text stay untouched', () {
@@ -207,6 +208,57 @@ void main() {
     }
   });
 
+  test('a rectangular cut retains a curve and its stroke style', () {
+    final doc = PdfDocument.open(
+        buildContentPdf('4 w [6 3] 2 d 50 100 m 80 180 220 180 250 100 c S'));
+    final editor = PdfEditor(doc);
+    expect(
+        editor.deleteElementsInRect(
+            PdfPageElements.of(doc, 0), const PdfRect(120, 80, 160, 200)),
+        1);
+    final out = PdfDocument.open(editor.save());
+    final elements = PdfPageElements.of(out, 0);
+    expect(elements.elements.single.kind, PdfElementKind.path);
+    expect(elements.operations.where((o) => o.operator == 'c'), hasLength(2));
+    expect(elements.operations.where((o) => o.operator == 'S'), hasLength(1));
+    expect(pageText(out), contains('4 w'));
+    expect(pageText(out), contains('[6 3] 2 d'));
+    expect(pageText(out), contains('W*'));
+  });
+
+  test('fully enclosed graphics are still removed', () {
+    final doc = PdfDocument.open(buildContentPdf('100 100 50 50 re f'));
+    final editor = PdfEditor(doc);
+    expect(
+        editor.deleteElementsInRect(
+            PdfPageElements.of(doc, 0), const PdfRect(90, 90, 160, 160)),
+        1);
+    expect(PdfPageElements.of(PdfDocument.open(editor.save()), 0).elements,
+        isEmpty);
+  });
+
+  test('a polygon notch keeps artwork even when every bound corner is enclosed',
+      () {
+    final doc = PdfDocument.open(buildContentPdf('100 100 200 200 re f'));
+    final editor = PdfEditor(doc);
+    expect(
+        editor.deleteElementsInPolygon(PdfPageElements.of(doc, 0), const [
+          (80, 80),
+          (320, 80),
+          (320, 320),
+          (220, 320),
+          (220, 200),
+          (180, 200),
+          (180, 320),
+          (80, 320),
+        ]),
+        1);
+    final out = PdfDocument.open(editor.save());
+    expect(
+        PdfPageElements.of(out, 0).elements.single.kind, PdfElementKind.path);
+    expect(pageText(out), contains('W*'));
+  });
+
   test('zero-width paths can be erased; empty and collinear regions cannot',
       () {
     final doc = PdfDocument.open(buildContentPdf('100 100 m 100 150 l S'));
@@ -224,7 +276,9 @@ void main() {
     expect(
         editor.deleteElementsInRect(elements, const PdfRect(95, 110, 105, 120)),
         1);
-    expect(PdfPageElements.of(PdfDocument.open(editor.save()), 0).elements,
-        isEmpty);
+    final out = PdfDocument.open(editor.save());
+    expect(
+        PdfPageElements.of(out, 0).elements.single.kind, PdfElementKind.path);
+    expect(pageText(out), contains('W*'));
   });
 }

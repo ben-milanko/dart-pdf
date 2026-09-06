@@ -4,7 +4,9 @@
 
 - Add rectangular and polygonal page-content deletion with glyph-level text
   slicing. Preserve font encodings, kerning, spacing, surviving glyph positions,
-  and path clipping state; concave lassos can erase disjoint text spans.
+  and path clipping state; concave lassos can erase disjoint text spans. Clip
+  crossing vectors, images, and Form XObjects at the erase boundary, retaining
+  their outside portions and vector curves, strokes, and dashes.
 - Add `PdfCompressor.optimize` and expand `PdfEditor.compress` with independent
   lossless cleanup, resource deduplication, TrueType/CFF font subsetting, and
   opt-in DPI/JPEG image optimisation. Include presets and exact per-pass size

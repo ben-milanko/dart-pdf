@@ -7980,8 +7980,9 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Deletes every bounded non-text page-content element whose bounds overlap
-  /// [rect]. Text glyphs are deleted when their centres fall inside it.
+  /// Erases bounded page graphics inside [rect], clipping crossing vectors
+  /// and images at the boundary. Text glyphs are deleted when their centres
+  /// fall inside it.
   /// Unbounded elements are left alone because there is no reliable hit box
   /// for a region delete. Returns the number of elements affected.
   int deleteElementsInRect(int pageIndex, PdfRect rect) {
@@ -7992,8 +7993,9 @@ class PdfEditingController extends ChangeNotifier {
     return count;
   }
 
-  /// The lasso counterpart of [deleteElementsInRect]: deletes every bounded
-  /// page-content element that falls inside the closed [polygon] (page space).
+  /// Erases bounded page graphics inside the closed [polygon] (page space),
+  /// like [deleteElementsInRect]. Graphics
+  /// crossing its boundary retain their outside portions.
   /// Text runs are sliced to the glyphs whose centres land inside it. Returns
   /// the number of elements affected; a degenerate polygon is a no-op.
   int deleteElementsInPolygon(int pageIndex, List<(double, double)> polygon) {
