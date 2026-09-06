@@ -285,5 +285,104 @@
   "settingsCacheExplanation": "Dateien über {limit} MiB werden nicht zwischengespeichert. Beim Leeren bleiben die Liste zuletzt geöffneter Dateien, offene Dokumente und ungespeicherte Änderungen erhalten; zwischengespeicherte Dateien müssen zum Öffnen erneut ausgewählt werden.",
   "settingsClearCachedDocuments": "Zwischengespeicherte Dokumente löschen",
   "settingsCacheUnavailable": "Cache-Größe nicht verfügbar",
-  "settingsCacheClearFailed": "Zwischengespeicherte Dokumente konnten nicht gelöscht werden. Erneut versuchen."
+  "settingsCacheClearFailed": "Zwischengespeicherte Dokumente konnten nicht gelöscht werden. Erneut versuchen.",
+  "printOptionsPrinter": "Drucker",
+  "printOptionsNativePrinter": "Wählen Sie im anschließenden Systemdruckdialog den Drucker, das Papierfach, Farbe, beidseitigen Druck und die Geräteeigenschaften. Lassen Sie die Skalierung bei 100 % und die Kopienanzahl bei 1, um das hier angezeigte Layout zu verwenden.",
+  "printOptionsPages": "Seiten",
+  "printOptionsSelected": "Ausgewählt",
+  "printOptionsPageRange": "Seiten (zum Beispiel 1, 3-5)",
+  "printOptionsAddFiles": "Dateien hinzufügen…",
+  "printOptionsAddFailed": "Die ausgewählten Dateien konnten nicht hinzugefügt werden.",
+  "printOptionsGetWindow": "Bereich auswählen",
+  "printOptionsClearWindow": "Bereich aufheben",
+  "printOptionsWindowHint": "Ziehen Sie auf dieser Originalseite ein Rechteck auf, um den Druckbereich auszuwählen.",
+  "printOptionsPaper": "Papier",
+  "printOptionsPaperSize": "Papierformat",
+  "printOptionsPageSize": "Seitenformat des Dokuments verwenden",
+  "printOptionsOrientation": "Ausrichtung",
+  "printOptionsAuto": "Automatisch",
+  "printOptionsPortrait": "Hochformat",
+  "printOptionsLandscape": "Querformat",
+  "printOptionsCopies": "Kopien",
+  "printOptionsCollate": "Sortieren",
+  "printOptionsReverse": "Umgekehrte Seitenreihenfolge",
+  "printOptionsLayout": "Seitenlayout",
+  "printOptionsScaling": "Seitenskalierung",
+  "printOptionsScaleNone": "Keine (tatsächliche Größe)",
+  "printOptionsFitPaper": "An Papier anpassen",
+  "printOptionsReducePaper": "Auf Papiergröße verkleinern",
+  "printOptionsFitMargins": "An Seitenränder anpassen",
+  "printOptionsReduceMargins": "Auf Seitenränder verkleinern",
+  "printOptionsCustomScale": "Benutzerdefinierte Skalierung",
+  "printOptionsMultiple": "Mehrere Seiten pro Blatt",
+  "printOptionsScalePercent": "Skalierung (%)",
+  "printOptionsMargin": "Seitenränder (pt)",
+  "printOptionsPagesPerSheet": "Seiten pro Blatt",
+  "printOptionsPageOrder": "Seitenreihenfolge",
+  "printOptionsHorizontal": "Horizontal",
+  "printOptionsHorizontalReverse": "Horizontal umgekehrt",
+  "printOptionsVertical": "Vertikal",
+  "printOptionsVerticalReverse": "Vertikal umgekehrt",
+  "printOptionsBorder": "Seitenrahmen drucken",
+  "printOptionsRotation": "Drehung (im Uhrzeigersinn)",
+  "printOptionsNoRotation": "Keine",
+  "printOptionsCenter": "Auf Papier zentrieren",
+  "printOptionsOffsetX": "Versatz nach rechts (pt)",
+  "printOptionsOffsetY": "Versatz nach unten (pt)",
+  "printOptionsContents": "Druckinhalt",
+  "printOptionsDocumentAndMarkups": "Dokument und Anmerkungen",
+  "printOptionsDocumentOnly": "Nur Dokument",
+  "printOptionsMarkupsOnly": "Nur Anmerkungen",
+  "printOptionsDimPage": "Seiteninhalt abschwächen",
+  "printOptionsDimMarkups": "Anmerkungen abschwächen",
+  "printOptionsHyperlinks": "Sichtbare Hyperlinks drucken",
+  "printOptionsDefaults": "Standardwerte",
+  "printOptionsInvalidNumber": "Geben Sie vor dem Drucken gültige Zahlen ein.",
+  "printOptionsInvalidValue": "Ungültiger Wert",
+  "printOptionsMarginGuide": "Die roten Linien zeigen die Seitenränder an und werden nicht gedruckt.",
+  "printOptionsAreaSize": "Bereich: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Original: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Blatt: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Blatt {sheet} von {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "Dieses Layout konnte nicht erstellt werden. Prüfen Sie Papierformat, Seitenränder und Skalierung."
 }

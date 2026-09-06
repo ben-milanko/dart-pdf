@@ -1125,4 +1125,194 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Could not clear cached documents. Try again.';
+
+  @override
+  String get printOptionsPrinter => 'Printer';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.';
+
+  @override
+  String get printOptionsPages => 'Pages';
+
+  @override
+  String get printOptionsSelected => 'Selected';
+
+  @override
+  String get printOptionsPageRange => 'Pages (for example, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Add files…';
+
+  @override
+  String get printOptionsAddFailed => 'Could not add the selected files.';
+
+  @override
+  String get printOptionsGetWindow => 'Get window';
+
+  @override
+  String get printOptionsClearWindow => 'Clear window';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Drag a rectangle on this source page to choose the area to print.';
+
+  @override
+  String get printOptionsPaper => 'Paper';
+
+  @override
+  String get printOptionsPaperSize => 'Paper size';
+
+  @override
+  String get printOptionsPageSize => 'Use document page size';
+
+  @override
+  String get printOptionsOrientation => 'Orientation';
+
+  @override
+  String get printOptionsAuto => 'Auto';
+
+  @override
+  String get printOptionsPortrait => 'Portrait';
+
+  @override
+  String get printOptionsLandscape => 'Landscape';
+
+  @override
+  String get printOptionsCopies => 'Copies';
+
+  @override
+  String get printOptionsCollate => 'Collate';
+
+  @override
+  String get printOptionsReverse => 'Reverse page order';
+
+  @override
+  String get printOptionsLayout => 'Page layout';
+
+  @override
+  String get printOptionsScaling => 'Page scaling';
+
+  @override
+  String get printOptionsScaleNone => 'None (actual size)';
+
+  @override
+  String get printOptionsFitPaper => 'Fit to paper';
+
+  @override
+  String get printOptionsReducePaper => 'Reduce to paper';
+
+  @override
+  String get printOptionsFitMargins => 'Fit to margins';
+
+  @override
+  String get printOptionsReduceMargins => 'Reduce to margins';
+
+  @override
+  String get printOptionsCustomScale => 'Custom scale';
+
+  @override
+  String get printOptionsMultiple => 'Multiple pages per sheet';
+
+  @override
+  String get printOptionsScalePercent => 'Scale (%)';
+
+  @override
+  String get printOptionsMargin => 'Margins (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Pages per sheet';
+
+  @override
+  String get printOptionsPageOrder => 'Page order';
+
+  @override
+  String get printOptionsHorizontal => 'Horizontal';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Horizontal reversed';
+
+  @override
+  String get printOptionsVertical => 'Vertical';
+
+  @override
+  String get printOptionsVerticalReverse => 'Vertical reversed';
+
+  @override
+  String get printOptionsBorder => 'Print page borders';
+
+  @override
+  String get printOptionsRotation => 'Rotation (clockwise)';
+
+  @override
+  String get printOptionsNoRotation => 'None';
+
+  @override
+  String get printOptionsCenter => 'Center on paper';
+
+  @override
+  String get printOptionsOffsetX => 'Offset right (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Offset down (pt)';
+
+  @override
+  String get printOptionsContents => 'Print contents';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Document and markups';
+
+  @override
+  String get printOptionsDocumentOnly => 'Document only';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Markups only';
+
+  @override
+  String get printOptionsDimPage => 'Dim page content';
+
+  @override
+  String get printOptionsDimMarkups => 'Dim markups';
+
+  @override
+  String get printOptionsHyperlinks => 'Print visible hyperlinks';
+
+  @override
+  String get printOptionsDefaults => 'Defaults';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Enter valid numbers before printing.';
+
+  @override
+  String get printOptionsInvalidValue => 'Invalid value';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Red lines show the margins; they do not print.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Window: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Source: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Sheet: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Sheet $sheet of $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'This layout could not be prepared. Check the paper size, margins and scale.';
 }

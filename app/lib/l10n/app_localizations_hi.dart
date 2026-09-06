@@ -1127,4 +1127,195 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'कैश किए गए दस्तावेज़ साफ़ नहीं किए जा सके। फिर से कोशिश करें।';
+
+  @override
+  String get printOptionsPrinter => 'प्रिंटर';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'अगले सिस्टम प्रिंट संवाद में प्रिंटर, पेपर ट्रे, रंग, दोतरफ़ा प्रिंटिंग और डिवाइस के गुण चुनें। यहाँ दिखाए गए लेआउट का उपयोग करने के लिए स्केल 100% और प्रतियों की संख्या 1 ही रखें।';
+
+  @override
+  String get printOptionsPages => 'पृष्ठ';
+
+  @override
+  String get printOptionsSelected => 'चुने गए';
+
+  @override
+  String get printOptionsPageRange => 'पृष्ठ (उदाहरण के लिए, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'फ़ाइलें जोड़ें…';
+
+  @override
+  String get printOptionsAddFailed => 'चुनी गई फ़ाइलें जोड़ी नहीं जा सकीं।';
+
+  @override
+  String get printOptionsGetWindow => 'क्षेत्र चुनें';
+
+  @override
+  String get printOptionsClearWindow => 'क्षेत्र हटाएँ';
+
+  @override
+  String get printOptionsWindowHint =>
+      'प्रिंट करने का क्षेत्र चुनने के लिए इस मूल पृष्ठ पर खींचकर एक आयत बनाएँ।';
+
+  @override
+  String get printOptionsPaper => 'कागज़';
+
+  @override
+  String get printOptionsPaperSize => 'कागज़ का आकार';
+
+  @override
+  String get printOptionsPageSize => 'दस्तावेज़ के पृष्ठ का आकार उपयोग करें';
+
+  @override
+  String get printOptionsOrientation => 'ओरिएंटेशन';
+
+  @override
+  String get printOptionsAuto => 'अपने आप';
+
+  @override
+  String get printOptionsPortrait => 'पोर्ट्रेट';
+
+  @override
+  String get printOptionsLandscape => 'लैंडस्केप';
+
+  @override
+  String get printOptionsCopies => 'प्रतियाँ';
+
+  @override
+  String get printOptionsCollate => 'प्रतियाँ क्रम में रखें';
+
+  @override
+  String get printOptionsReverse => 'पृष्ठों का क्रम उलटें';
+
+  @override
+  String get printOptionsLayout => 'पृष्ठ लेआउट';
+
+  @override
+  String get printOptionsScaling => 'पृष्ठ का स्केल';
+
+  @override
+  String get printOptionsScaleNone => 'कोई नहीं (वास्तविक आकार)';
+
+  @override
+  String get printOptionsFitPaper => 'कागज़ के अनुसार फ़िट करें';
+
+  @override
+  String get printOptionsReducePaper => 'कागज़ में फ़िट करने के लिए छोटा करें';
+
+  @override
+  String get printOptionsFitMargins => 'मार्जिन के भीतर फ़िट करें';
+
+  @override
+  String get printOptionsReduceMargins =>
+      'मार्जिन में फ़िट करने के लिए छोटा करें';
+
+  @override
+  String get printOptionsCustomScale => 'कस्टम स्केल';
+
+  @override
+  String get printOptionsMultiple => 'प्रति शीट कई पृष्ठ';
+
+  @override
+  String get printOptionsScalePercent => 'स्केल (%)';
+
+  @override
+  String get printOptionsMargin => 'मार्जिन (पॉइंट)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'प्रति शीट पृष्ठ';
+
+  @override
+  String get printOptionsPageOrder => 'पृष्ठों का क्रम';
+
+  @override
+  String get printOptionsHorizontal => 'क्षैतिज';
+
+  @override
+  String get printOptionsHorizontalReverse => 'उलटा क्षैतिज क्रम';
+
+  @override
+  String get printOptionsVertical => 'लंबवत';
+
+  @override
+  String get printOptionsVerticalReverse => 'उलटा लंबवत क्रम';
+
+  @override
+  String get printOptionsBorder => 'पृष्ठों के बॉर्डर प्रिंट करें';
+
+  @override
+  String get printOptionsRotation => 'घुमाव (घड़ी की दिशा में)';
+
+  @override
+  String get printOptionsNoRotation => 'कोई नहीं';
+
+  @override
+  String get printOptionsCenter => 'कागज़ के बीच में रखें';
+
+  @override
+  String get printOptionsOffsetX => 'दाईं ओर खिसकाएँ (पॉइंट)';
+
+  @override
+  String get printOptionsOffsetY => 'नीचे खिसकाएँ (पॉइंट)';
+
+  @override
+  String get printOptionsContents => 'प्रिंट सामग्री';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'दस्तावेज़ और टिप्पणियाँ';
+
+  @override
+  String get printOptionsDocumentOnly => 'केवल दस्तावेज़';
+
+  @override
+  String get printOptionsMarkupsOnly => 'केवल टिप्पणियाँ';
+
+  @override
+  String get printOptionsDimPage => 'पृष्ठ की सामग्री हल्की करें';
+
+  @override
+  String get printOptionsDimMarkups => 'टिप्पणियाँ हल्की करें';
+
+  @override
+  String get printOptionsHyperlinks => 'दिखाई देने वाले हाइपरलिंक प्रिंट करें';
+
+  @override
+  String get printOptionsDefaults => 'डिफ़ॉल्ट';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'प्रिंट करने से पहले मान्य संख्याएँ दर्ज करें।';
+
+  @override
+  String get printOptionsInvalidValue => 'अमान्य मान';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'लाल रेखाएँ मार्जिन दिखाती हैं; वे प्रिंट नहीं होंगी।';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'क्षेत्र: $width × $height पॉइंट';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'मूल: $width × $height पॉइंट';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'शीट: $width × $height पॉइंट';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'शीट $sheet / $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'यह लेआउट तैयार नहीं किया जा सका। कागज़ का आकार, मार्जिन और स्केल जाँचें।';
 }
