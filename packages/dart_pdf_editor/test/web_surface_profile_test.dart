@@ -14,6 +14,7 @@ PdfTextRun _run({
   double width = 3.5,
   List<double>? charOffsets,
   String fontName = 'Helvetica',
+  double letterSpacing = 0,
 }) =>
     PdfTextRun(
       text: text,
@@ -25,6 +26,7 @@ PdfTextRun _run({
       fill: fill,
       strokeColor: strokeColor,
       charOffsets: charOffsets,
+      letterSpacing: letterSpacing,
     );
 
 void main() {
@@ -155,6 +157,63 @@ void main() {
     expect(layout!.parts, hasLength(1));
     expect(layout.parts.single.text, 'Territory');
     expect(layout.parts.single.x, 0);
+  });
+
+  test('Canvas2D sizes glyphs by the PDF width, not the spaced pen step', () {
+    // `( 3)Tj` under a `15.137 Tc` at 9pt - a bridging-details table reaching
+    // its column. The pen steps 2.24 em across a digit the PDF gives 0.556 em,
+    // and scaling the glyph to the step drew it four times too wide.
+    const tc = 15.137 / 9;
+    const space = 0.278 + tc;
+    const digit = 0.556 + tc;
+    final layout = pdfCanvas2dTextLayout(
+      _run(
+        text: ' 3',
+        width: space + digit,
+        charOffsets: const [0, space, space + digit],
+        letterSpacing: tc,
+      ),
+      (_) => 55.6,
+    );
+
+    expect(layout, isNotNull);
+    expect(layout!.unitsPerEm, closeTo(100, 1e-9),
+        reason: 'the digit is drawn at its own width, spacing left as a gap');
+    expect(layout.parts.single.text, '3');
+    expect(layout.parts.single.x / layout.unitsPerEm, closeTo(space, 1e-12),
+        reason: 'the gap the Tc opens is still in front of the digit');
+  });
+
+  test('Canvas2D cuts a spaced word where its interior would drift', () {
+    // A Tc the shaped text does not carry pushes the characters apart a
+    // fortieth of an em at a time; the parts must be cut before any of them
+    // sits more than the 0.02 em tolerance from its own offset.
+    const tc = 0.025;
+    final offsets = <double>[0];
+    for (var i = 0; i < 4; i++) {
+      offsets.add(offsets.last + 0.5 + tc);
+    }
+    final layout = pdfCanvas2dTextLayout(
+      _run(
+        text: 'BOOK',
+        width: offsets.last,
+        charOffsets: offsets,
+        letterSpacing: tc,
+      ),
+      (_) => 50,
+    );
+
+    expect(layout, isNotNull);
+    expect(layout!.unitsPerEm, closeTo(100, 1e-9));
+    expect(layout.parts.length, greaterThan(1),
+        reason: 'shaping the word whole would leave its tail 0.075 em short');
+    expect(layout.parts.map((part) => part.text).join(), 'BOOK');
+    var index = 0;
+    for (final part in layout.parts) {
+      expect(part.x / layout.unitsPerEm, closeTo(offsets[index], 1e-12),
+          reason: 'every part starts on the PDF offset of its first character');
+      index += part.text.length;
+    }
   });
 
   test('Century Gothic routes to the metric-compatible Canvas2D family', () {

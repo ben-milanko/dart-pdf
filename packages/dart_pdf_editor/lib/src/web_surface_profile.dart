@@ -22,8 +22,9 @@ class PdfCanvas2dTextLayout {
   final List<PdfCanvas2dTextPart> parts;
 }
 
-/// How far a substitute's natural boundary may differ from the PDF's before a
-/// word is split into independently positioned glyphs.
+/// How far a character shaped inside one part may sit from the offset the PDF
+/// gives it before the part is cut there and the next one starts on its own
+/// offset.
 const double _canvas2dPlacementToleranceEm = 0.02;
 
 /// Plans substituted text at the PDF's own per-character advances.
@@ -33,8 +34,13 @@ const double _canvas2dPlacementToleranceEm = 0.02;
 /// wrong when (for example) unembedded Century Gothic is painted with
 /// Helvetica. [measureText] measures one character in the active Canvas2D font;
 /// the returned plan applies one uniform horizontal glyph scale while placing
-/// each mismatched character at its PDF offset. Words whose interior already
-/// agrees within 0.02 em remain whole so their shaping and kerning are kept.
+/// each mismatched character at its PDF offset. That scale weighs the
+/// substitute's glyphs against the widths the PDF gives the same glyphs -
+/// [PdfTextRun.glyphWidthAt], the pen step less the spacing that follows it -
+/// so a run set with a large Tc opens its gaps instead of stretching its
+/// glyphs across them. A word is painted in the longest pieces that stay
+/// within 0.02 em of the PDF's own offsets, so one the substitute agrees with
+/// is painted whole and keeps its shaping and kerning.
 /// Font-family substitution is responsible for compatible glyph proportions;
 /// individual glyphs are never distorted to force them into their cells.
 ///
@@ -74,8 +80,13 @@ PdfCanvas2dTextLayout? pdfCanvas2dTextLayout(
     if (_canvas2dTrimWhitespace(codeUnit)) continue;
     final width = widthOf(codeUnit);
     if (!width.isFinite) return null;
+    // The glyph's own width, not the pen's step across it: the step carries
+    // the run's Tc, and scaling shapes by it stretches a spaced digit to fill
+    // the gap instead of leaving the gap open.
+    final glyphWidth = run.glyphWidthAt(i, 1);
+    if (glyphWidth == null) return null;
     natural += width;
-    advance += offsets[i + 1] - offsets[i];
+    advance += glyphWidth;
   }
   if (natural <= 0 || advance <= 0) return null;
 
@@ -93,42 +104,34 @@ PdfCanvas2dTextLayout? pdfCanvas2dTextLayout(
         end < text.length && !_canvas2dTrimWhitespace(text.codeUnitAt(end))) {
       end++;
     }
-    if (_canvas2dWordHolds(text, offsets, start, end, unitsPerEm, widthOf)) {
-      parts.add(PdfCanvas2dTextPart(
-        text.substring(start, end),
-        offsets[start] * unitsPerEm,
-      ));
-    } else {
-      for (var i = start; i < end; i++) {
+    // Cut the word into the longest pieces the browser can shape tight without
+    // a character landing more than 0.02 em from its own PDF offset, each
+    // painted at the offset of its first character. A word the substitute
+    // already agrees with stays whole; a disagreement - the substitute's own
+    // drift, or a Tc the shaped text does not carry - is spent at a cut
+    // instead of accumulating across the word.
+    var piece = start;
+    var shaped = 0.0;
+    for (var i = start; i < end; i++) {
+      if (i > piece &&
+          (shaped / unitsPerEm - (offsets[i] - offsets[piece])).abs() >
+              _canvas2dPlacementToleranceEm) {
         parts.add(PdfCanvas2dTextPart(
-          text.substring(i, i + 1),
-          offsets[i] * unitsPerEm,
+          text.substring(piece, i),
+          offsets[piece] * unitsPerEm,
         ));
+        piece = i;
+        shaped = 0;
       }
+      shaped += widthOf(text.codeUnitAt(i));
     }
+    parts.add(PdfCanvas2dTextPart(
+      text.substring(piece, end),
+      offsets[piece] * unitsPerEm,
+    ));
     start = end;
   }
   return parts.isEmpty ? null : PdfCanvas2dTextLayout(unitsPerEm, parts);
-}
-
-bool _canvas2dWordHolds(
-  String text,
-  List<double> offsets,
-  int start,
-  int end,
-  double unitsPerEm,
-  double Function(int codeUnit) widthOf,
-) {
-  var natural = 0.0;
-  for (var i = start; i < end; i++) {
-    if ((natural / unitsPerEm - (offsets[i] - offsets[start])).abs() >
-        _canvas2dPlacementToleranceEm) {
-      return false;
-    }
-    natural += widthOf(text.codeUnitAt(i));
-  }
-  return (natural / unitsPerEm - (offsets[end] - offsets[start])).abs() <=
-      _canvas2dPlacementToleranceEm;
 }
 
 bool _canvas2dPlaceableRun(String text) {
