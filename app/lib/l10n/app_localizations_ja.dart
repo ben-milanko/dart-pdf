@@ -1109,6 +1109,131 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsCacheClearFailed => 'ドキュメントのキャッシュを削除できませんでした。再試行してください。';
 
   @override
+  String get editorMenuReduceFileSize => 'ファイルサイズを縮小…';
+
+  @override
+  String get reduceSizeTitle => 'ファイルサイズを縮小';
+
+  @override
+  String get reduceSizeDescription => '現在の文書を最適化し、削減量を確認してから、小さいコピーを保存します。';
+
+  @override
+  String get reduceSizePreset => 'プリセット';
+
+  @override
+  String get reduceSizeLossless => '可逆 — 画質を維持';
+
+  @override
+  String get reduceSizeScreen => '画面 — 72 DPI、JPEG品質60';
+
+  @override
+  String get reduceSizeEbook => '電子書籍 — 150 DPI、JPEG品質75';
+
+  @override
+  String get reduceSizePrinter => '印刷 — 300 DPI、JPEG品質90';
+
+  @override
+  String get reduceSizeLosslessHint => '画像の解像度と品質は変わりません。';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '指定の解像度を超える画像は縮小され、JPEGに変換される場合があります。細部が失われることがありますが、テキストとベクター画像は鮮明なままです。';
+
+  @override
+  String get reduceSizeAdvanced => '詳細設定';
+
+  @override
+  String get reduceSizeRecompress => 'ストリームを再圧縮';
+
+  @override
+  String get reduceSizeUnusedResources => '未使用のリソースを削除';
+
+  @override
+  String get reduceSizeDeduplicate => '重複するオブジェクトを統合';
+
+  @override
+  String get reduceSizeSubsetFonts => '埋め込みフォントを使用文字に限定';
+
+  @override
+  String get reduceSizeDpi => '画像の目標解像度';
+
+  @override
+  String get reduceSizeKeepImages => '元の画像を保持（可逆）';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG品質: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'この署名済みPDFを書き直すと、保存したコピーの電子署名が無効になります。';
+
+  @override
+  String get reduceSizeInvalidateSignatures => 'このコピーの署名を無効にすることを許可';
+
+  @override
+  String get reduceSizeEncrypted => '暗号化されたPDFは最適化できません。';
+
+  @override
+  String get reduceSizeIncomplete => '文書の読み込みが完了してからサイズを縮小してください。';
+
+  @override
+  String get reduceSizeRun => '最適化';
+
+  @override
+  String get reduceSizeRunning => '文書を最適化中…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'このPDFを最適化できませんでした: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'コピーを保存できませんでした: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'コピーを保存…';
+
+  @override
+  String get reduceSizeChangeSettings => '設定を変更';
+
+  @override
+  String get reduceSizeBefore => '元のサイズ';
+
+  @override
+  String get reduceSizeAfter => '最適化後のサイズ';
+
+  @override
+  String get reduceSizeSavings => '削減量';
+
+  @override
+  String get reduceSizeNoSavings => 'この設定では文書はすでに十分小さくなっています。元のデータを保持しました。';
+
+  @override
+  String get reduceSizeReportHint => '最適化の各段階で削減したバイト数:';
+
+  @override
+  String get reduceSizeStructure => '文書構造';
+
+  @override
+  String get reduceSizeResources => '未使用のリソース';
+
+  @override
+  String get reduceSizeFonts => '埋め込みフォント';
+
+  @override
+  String get reduceSizeImages => '画像';
+
+  @override
+  String get reduceSizeDuplicates => '重複するオブジェクト';
+
+  @override
+  String get reduceSizeCustom => 'カスタム設定';
+
+  @override
   String get printOptionsPrinter => 'プリンター';
 
   @override

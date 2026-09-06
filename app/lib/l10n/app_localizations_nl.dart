@@ -1141,6 +1141,139 @@ class AppLocalizationsNl extends AppLocalizations {
       'Kan documentcache niet wissen. Probeer het opnieuw.';
 
   @override
+  String get editorMenuReduceFileSize => 'Bestandsgrootte verkleinen…';
+
+  @override
+  String get reduceSizeTitle => 'Bestandsgrootte verkleinen';
+
+  @override
+  String get reduceSizeDescription =>
+      'Optimaliseer het huidige document, bekijk de besparing en sla een kleinere kopie op.';
+
+  @override
+  String get reduceSizePreset => 'Voorinstelling';
+
+  @override
+  String get reduceSizeLossless => 'Zonder verlies — beeldkwaliteit behouden';
+
+  @override
+  String get reduceSizeScreen => 'Scherm — 72 DPI, JPEG-kwaliteit 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, JPEG-kwaliteit 75';
+
+  @override
+  String get reduceSizePrinter => 'Afdrukken — 300 DPI, JPEG-kwaliteit 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'De resolutie en kwaliteit van afbeeldingen blijven gelijk.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Afbeeldingen boven de doelresolutie kunnen worden verkleind en als JPEG worden gecodeerd. Fijne details kunnen verloren gaan; tekst en vectorafbeeldingen blijven scherp.';
+
+  @override
+  String get reduceSizeAdvanced => 'Geavanceerde instellingen';
+
+  @override
+  String get reduceSizeRecompress => 'Gegevensstromen opnieuw comprimeren';
+
+  @override
+  String get reduceSizeUnusedResources => 'Ongebruikte bronnen verwijderen';
+
+  @override
+  String get reduceSizeDeduplicate => 'Dubbele objecten samenvoegen';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Ingesloten lettertypen beperken tot gebruikte tekens';
+
+  @override
+  String get reduceSizeDpi => 'Doelresolutie voor afbeeldingen';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Originele afbeeldingen behouden (zonder verlies)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG-kwaliteit: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Het herschrijven van deze ondertekende PDF maakt de digitale handtekeningen in de opgeslagen kopie ongeldig.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Handtekeningen in deze kopie ongeldig laten maken';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'Versleutelde PDF’s kunnen niet worden geoptimaliseerd.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Wacht tot het document volledig is geladen voordat u het verkleint.';
+
+  @override
+  String get reduceSizeRun => 'Optimaliseren';
+
+  @override
+  String get reduceSizeRunning => 'Document optimaliseren…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Deze PDF kan niet worden geoptimaliseerd: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'De kopie kan niet worden opgeslagen: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Kopie opslaan…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Instellingen wijzigen';
+
+  @override
+  String get reduceSizeBefore => 'Oorspronkelijke grootte';
+
+  @override
+  String get reduceSizeAfter => 'Geoptimaliseerde grootte';
+
+  @override
+  String get reduceSizeSavings => 'Bespaarde ruimte';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Dit document is al compact met deze instellingen. De oorspronkelijke gegevens zijn behouden.';
+
+  @override
+  String get reduceSizeReportHint => 'Bespaarde bytes per optimalisatiestap:';
+
+  @override
+  String get reduceSizeStructure => 'Documentstructuur';
+
+  @override
+  String get reduceSizeResources => 'Ongebruikte bronnen';
+
+  @override
+  String get reduceSizeFonts => 'Ingesloten lettertypen';
+
+  @override
+  String get reduceSizeImages => 'Afbeeldingen';
+
+  @override
+  String get reduceSizeDuplicates => 'Dubbele objecten';
+
+  @override
+  String get reduceSizeCustom => 'Aangepaste instellingen';
+
+  @override
   String get printOptionsPrinter => 'Printer';
 
   @override

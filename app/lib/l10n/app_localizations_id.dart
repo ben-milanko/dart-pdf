@@ -1133,6 +1133,141 @@ class AppLocalizationsId extends AppLocalizations {
       'Tidak dapat menghapus dokumen dalam cache. Coba lagi.';
 
   @override
+  String get editorMenuReduceFileSize => 'Kurangi ukuran file…';
+
+  @override
+  String get reduceSizeTitle => 'Kurangi ukuran file';
+
+  @override
+  String get reduceSizeDescription =>
+      'Optimalkan dokumen saat ini, tinjau penghematannya, lalu simpan salinan yang lebih kecil.';
+
+  @override
+  String get reduceSizePreset => 'Prasetel';
+
+  @override
+  String get reduceSizeLossless =>
+      'Tanpa kehilangan — pertahankan kualitas gambar';
+
+  @override
+  String get reduceSizeScreen => 'Layar — 72 DPI, kualitas JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, kualitas JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'Cetak — 300 DPI, kualitas JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Resolusi dan kualitas gambar tetap sama.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Gambar di atas resolusi target dapat diperkecil dan dikodekan sebagai JPEG. Detail halus dapat hilang; teks dan grafis vektor tetap tajam.';
+
+  @override
+  String get reduceSizeAdvanced => 'Pengaturan lanjutan';
+
+  @override
+  String get reduceSizeRecompress => 'Kompresi ulang aliran data';
+
+  @override
+  String get reduceSizeUnusedResources =>
+      'Hapus sumber daya yang tidak digunakan';
+
+  @override
+  String get reduceSizeDeduplicate => 'Gabungkan objek duplikat';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Batasi font tertanam ke glif yang digunakan';
+
+  @override
+  String get reduceSizeDpi => 'Resolusi target gambar';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Pertahankan gambar asli (tanpa kehilangan)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Kualitas JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Menulis ulang PDF bertanda tangan ini membatalkan tanda tangan digital pada salinan yang disimpan.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Izinkan pembatalan tanda tangan pada salinan ini';
+
+  @override
+  String get reduceSizeEncrypted => 'PDF terenkripsi tidak dapat dioptimalkan.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Tunggu hingga dokumen selesai dimuat sebelum mengurangi ukurannya.';
+
+  @override
+  String get reduceSizeRun => 'Optimalkan';
+
+  @override
+  String get reduceSizeRunning => 'Mengoptimalkan dokumen…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Tidak dapat mengoptimalkan PDF ini: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Tidak dapat menyimpan salinan: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Simpan salinan…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Ubah pengaturan';
+
+  @override
+  String get reduceSizeBefore => 'Ukuran asli';
+
+  @override
+  String get reduceSizeAfter => 'Ukuran setelah optimalisasi';
+
+  @override
+  String get reduceSizeSavings => 'Ruang yang dihemat';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Dokumen ini sudah ringkas dengan pengaturan ini. Data asli dipertahankan.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Byte yang dihemat pada setiap tahap optimalisasi:';
+
+  @override
+  String get reduceSizeStructure => 'Struktur dokumen';
+
+  @override
+  String get reduceSizeResources => 'Sumber daya tidak digunakan';
+
+  @override
+  String get reduceSizeFonts => 'Font tertanam';
+
+  @override
+  String get reduceSizeImages => 'Gambar';
+
+  @override
+  String get reduceSizeDuplicates => 'Objek duplikat';
+
+  @override
+  String get reduceSizeCustom => 'Pengaturan khusus';
+
+  @override
   String get printOptionsPrinter => 'Printer';
 
   @override

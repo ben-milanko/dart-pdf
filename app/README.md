@@ -32,6 +32,15 @@ AppImage and portable tarball builds remain available from
 - Merge PDFs with **Insert document…** in the app menu (after the current page),
   or drop them on the thumbnail strip to choose an insertion point. Each file
   inserts as one undo step, stays in the original tab, and is covered by recovery.
+- Use **Reduce file size…** in the app menu, choose a preset or adjust the
+  individual passes under **Advanced settings**, then **Optimise** to review
+  the size savings. **Save copy…** writes a separate PDF and preserves the open
+  session and undo history. Lossless is the default; screen, eBook, and print
+  presets opt into image downsampling and JPEG quality changes. Encrypted PDFs
+  are refused; signed PDFs require consent to invalidate signatures in the
+  rewritten copy. Optimisation runs in a background isolate on native platforms
+  and a dedicated Web Worker in the browser; **Cancel** stops the job. Australian
+  and UK English use **Optimise**, while US English uses **Optimize**.
 - On mobile, scan straight to a new PDF or insert a scan into the current
   document, and capture a page or placed image with the camera.
 - The full editing UI from the SDK: annotations, ink, shapes, free text,

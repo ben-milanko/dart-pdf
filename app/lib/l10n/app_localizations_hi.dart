@@ -1129,6 +1129,138 @@ class AppLocalizationsHi extends AppLocalizations {
       'कैश किए गए दस्तावेज़ साफ़ नहीं किए जा सके। फिर से कोशिश करें।';
 
   @override
+  String get editorMenuReduceFileSize => 'फ़ाइल का आकार घटाएँ…';
+
+  @override
+  String get reduceSizeTitle => 'फ़ाइल का आकार घटाएँ';
+
+  @override
+  String get reduceSizeDescription =>
+      'वर्तमान दस्तावेज़ को अनुकूलित करें, बचत की समीक्षा करें और फिर छोटी कॉपी सहेजें।';
+
+  @override
+  String get reduceSizePreset => 'प्रीसेट';
+
+  @override
+  String get reduceSizeLossless => 'दोषरहित — छवि की गुणवत्ता बनाए रखें';
+
+  @override
+  String get reduceSizeScreen => 'स्क्रीन — 72 DPI, JPEG गुणवत्ता 60';
+
+  @override
+  String get reduceSizeEbook => 'ई-बुक — 150 DPI, JPEG गुणवत्ता 75';
+
+  @override
+  String get reduceSizePrinter => 'प्रिंट — 300 DPI, JPEG गुणवत्ता 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'छवि का रिज़ॉल्यूशन और गुणवत्ता समान रहते हैं।';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'लक्षित रिज़ॉल्यूशन से बड़ी छवियाँ छोटी करके JPEG में बदली जा सकती हैं। बारीक विवरण खो सकते हैं; टेक्स्ट और वेक्टर ग्राफ़िक्स स्पष्ट रहते हैं।';
+
+  @override
+  String get reduceSizeAdvanced => 'उन्नत सेटिंग';
+
+  @override
+  String get reduceSizeRecompress => 'डेटा स्ट्रीम फिर से संपीड़ित करें';
+
+  @override
+  String get reduceSizeUnusedResources => 'अप्रयुक्त संसाधन हटाएँ';
+
+  @override
+  String get reduceSizeDeduplicate => 'डुप्लिकेट ऑब्जेक्ट मर्ज करें';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'एम्बेड किए गए फ़ॉन्ट को प्रयुक्त ग्लिफ़ तक सीमित करें';
+
+  @override
+  String get reduceSizeDpi => 'छवि का लक्षित रिज़ॉल्यूशन';
+
+  @override
+  String get reduceSizeKeepImages => 'मूल छवियाँ रखें (दोषरहित)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG गुणवत्ता: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'इस हस्ताक्षरित PDF को फिर से लिखने से सहेजी गई कॉपी के डिजिटल हस्ताक्षर अमान्य हो जाते हैं।';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'इस कॉपी के हस्ताक्षर अमान्य करने की अनुमति दें';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'एन्क्रिप्ट किए गए PDF अनुकूलित नहीं किए जा सकते।';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'आकार घटाने से पहले दस्तावेज़ के पूरी तरह लोड होने की प्रतीक्षा करें।';
+
+  @override
+  String get reduceSizeRun => 'अनुकूलित करें';
+
+  @override
+  String get reduceSizeRunning => 'दस्तावेज़ अनुकूलित हो रहा है…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'यह PDF अनुकूलित नहीं किया जा सका: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'कॉपी सहेजी नहीं जा सकी: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'कॉपी सहेजें…';
+
+  @override
+  String get reduceSizeChangeSettings => 'सेटिंग बदलें';
+
+  @override
+  String get reduceSizeBefore => 'मूल आकार';
+
+  @override
+  String get reduceSizeAfter => 'अनुकूलित आकार';
+
+  @override
+  String get reduceSizeSavings => 'बची हुई जगह';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'इन सेटिंग के साथ यह दस्तावेज़ पहले से छोटा है। मूल डेटा रखा गया है।';
+
+  @override
+  String get reduceSizeReportHint => 'अनुकूलन के प्रत्येक चरण में बचे बाइट:';
+
+  @override
+  String get reduceSizeStructure => 'दस्तावेज़ संरचना';
+
+  @override
+  String get reduceSizeResources => 'अप्रयुक्त संसाधन';
+
+  @override
+  String get reduceSizeFonts => 'एम्बेड किए गए फ़ॉन्ट';
+
+  @override
+  String get reduceSizeImages => 'छवियाँ';
+
+  @override
+  String get reduceSizeDuplicates => 'डुप्लिकेट ऑब्जेक्ट';
+
+  @override
+  String get reduceSizeCustom => 'कस्टम सेटिंग';
+
+  @override
   String get printOptionsPrinter => 'प्रिंटर';
 
   @override

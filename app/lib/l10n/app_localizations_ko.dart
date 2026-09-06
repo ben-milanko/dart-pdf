@@ -1107,6 +1107,133 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsCacheClearFailed => '캐시된 문서를 삭제하지 못했습니다. 다시 시도하세요.';
 
   @override
+  String get editorMenuReduceFileSize => '파일 크기 줄이기…';
+
+  @override
+  String get reduceSizeTitle => '파일 크기 줄이기';
+
+  @override
+  String get reduceSizeDescription =>
+      '현재 문서를 최적화하고 절약된 용량을 확인한 후 더 작은 사본을 저장합니다.';
+
+  @override
+  String get reduceSizePreset => '사전 설정';
+
+  @override
+  String get reduceSizeLossless => '무손실 — 이미지 품질 유지';
+
+  @override
+  String get reduceSizeScreen => '화면 — 72 DPI, JPEG 품질 60';
+
+  @override
+  String get reduceSizeEbook => '전자책 — 150 DPI, JPEG 품질 75';
+
+  @override
+  String get reduceSizePrinter => '인쇄 — 300 DPI, JPEG 품질 90';
+
+  @override
+  String get reduceSizeLosslessHint => '이미지 해상도와 품질이 유지됩니다.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '목표 해상도보다 큰 이미지는 축소되어 JPEG로 인코딩될 수 있습니다. 미세한 이미지 세부 사항은 손실될 수 있지만 텍스트와 벡터 그래픽은 선명하게 유지됩니다.';
+
+  @override
+  String get reduceSizeAdvanced => '고급 설정';
+
+  @override
+  String get reduceSizeRecompress => '스트림 다시 압축';
+
+  @override
+  String get reduceSizeUnusedResources => '사용하지 않는 리소스 제거';
+
+  @override
+  String get reduceSizeDeduplicate => '중복 객체 병합';
+
+  @override
+  String get reduceSizeSubsetFonts => '내장 글꼴을 사용된 글리프로 축소';
+
+  @override
+  String get reduceSizeDpi => '이미지 목표 해상도';
+
+  @override
+  String get reduceSizeKeepImages => '원본 이미지 유지(무손실)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG 품질: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      '이 서명된 PDF를 다시 작성하면 저장된 사본의 디지털 서명이 무효화됩니다.';
+
+  @override
+  String get reduceSizeInvalidateSignatures => '이 사본의 서명 무효화 허용';
+
+  @override
+  String get reduceSizeEncrypted => '암호화된 PDF는 최적화할 수 없습니다.';
+
+  @override
+  String get reduceSizeIncomplete => '크기를 줄이기 전에 문서 로딩이 완료될 때까지 기다리세요.';
+
+  @override
+  String get reduceSizeRun => '최적화';
+
+  @override
+  String get reduceSizeRunning => '문서 최적화 중…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return '이 PDF를 최적화할 수 없습니다: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return '사본을 저장할 수 없습니다: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => '사본 저장…';
+
+  @override
+  String get reduceSizeChangeSettings => '설정 변경';
+
+  @override
+  String get reduceSizeBefore => '원본 크기';
+
+  @override
+  String get reduceSizeAfter => '최적화된 크기';
+
+  @override
+  String get reduceSizeSavings => '절약된 공간';
+
+  @override
+  String get reduceSizeNoSavings =>
+      '이 문서는 현재 설정으로 이미 충분히 작습니다. 원본 데이터가 유지되었습니다.';
+
+  @override
+  String get reduceSizeReportHint => '각 최적화 단계에서 절약된 바이트:';
+
+  @override
+  String get reduceSizeStructure => '문서 구조';
+
+  @override
+  String get reduceSizeResources => '사용하지 않는 리소스';
+
+  @override
+  String get reduceSizeFonts => '내장 글꼴';
+
+  @override
+  String get reduceSizeImages => '이미지';
+
+  @override
+  String get reduceSizeDuplicates => '중복 객체';
+
+  @override
+  String get reduceSizeCustom => '사용자 지정 설정';
+
+  @override
   String get printOptionsPrinter => '프린터';
 
   @override

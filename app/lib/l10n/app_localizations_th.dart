@@ -1123,6 +1123,136 @@ class AppLocalizationsTh extends AppLocalizations {
       'ไม่สามารถล้างเอกสารที่แคชไว้ได้ โปรดลองอีกครั้ง';
 
   @override
+  String get editorMenuReduceFileSize => 'ลดขนาดไฟล์…';
+
+  @override
+  String get reduceSizeTitle => 'ลดขนาดไฟล์';
+
+  @override
+  String get reduceSizeDescription =>
+      'ปรับเอกสารปัจจุบันให้เหมาะสม ตรวจสอบพื้นที่ที่ประหยัดได้ แล้วบันทึกสำเนาที่เล็กลง';
+
+  @override
+  String get reduceSizePreset => 'ค่าที่ตั้งไว้';
+
+  @override
+  String get reduceSizeLossless => 'ไม่สูญเสียข้อมูล — คงคุณภาพภาพ';
+
+  @override
+  String get reduceSizeScreen => 'หน้าจอ — 72 DPI, คุณภาพ JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'อีบุ๊ก — 150 DPI, คุณภาพ JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'พิมพ์ — 300 DPI, คุณภาพ JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint => 'ความละเอียดและคุณภาพของภาพยังคงเดิม';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'ภาพที่มีความละเอียดสูงกว่าเป้าหมายอาจถูกย่อและเข้ารหัสเป็น JPEG รายละเอียดเล็กน้อยอาจสูญหาย แต่ข้อความและกราฟิกเวกเตอร์ยังคงคมชัด';
+
+  @override
+  String get reduceSizeAdvanced => 'การตั้งค่าขั้นสูง';
+
+  @override
+  String get reduceSizeRecompress => 'บีบอัดสตรีมข้อมูลอีกครั้ง';
+
+  @override
+  String get reduceSizeUnusedResources => 'ลบทรัพยากรที่ไม่ได้ใช้';
+
+  @override
+  String get reduceSizeDeduplicate => 'รวมวัตถุที่ซ้ำกัน';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'ลดฟอนต์ที่ฝังไว้ให้เหลือเฉพาะอักขระที่ใช้';
+
+  @override
+  String get reduceSizeDpi => 'ความละเอียดเป้าหมายของภาพ';
+
+  @override
+  String get reduceSizeKeepImages => 'เก็บภาพต้นฉบับ (ไม่สูญเสียข้อมูล)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'คุณภาพ JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'การเขียน PDF ที่ลงนามแล้วนี้ใหม่จะทำให้ลายเซ็นดิจิทัลในสำเนาที่บันทึกใช้ไม่ได้';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'อนุญาตให้ลายเซ็นในสำเนานี้ใช้ไม่ได้';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'ไม่สามารถปรับ PDF ที่เข้ารหัสให้เหมาะสมได้';
+
+  @override
+  String get reduceSizeIncomplete => 'รอให้โหลดเอกสารเสร็จก่อนลดขนาด';
+
+  @override
+  String get reduceSizeRun => 'ปรับให้เหมาะสม';
+
+  @override
+  String get reduceSizeRunning => 'กำลังปรับเอกสารให้เหมาะสม…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'ไม่สามารถปรับ PDF นี้ให้เหมาะสมได้: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'ไม่สามารถบันทึกสำเนาได้: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'บันทึกสำเนา…';
+
+  @override
+  String get reduceSizeChangeSettings => 'เปลี่ยนการตั้งค่า';
+
+  @override
+  String get reduceSizeBefore => 'ขนาดต้นฉบับ';
+
+  @override
+  String get reduceSizeAfter => 'ขนาดหลังปรับ';
+
+  @override
+  String get reduceSizeSavings => 'พื้นที่ที่ประหยัดได้';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'เอกสารนี้มีขนาดเล็กอยู่แล้วด้วยการตั้งค่าเหล่านี้ ระบบเก็บข้อมูลต้นฉบับไว้';
+
+  @override
+  String get reduceSizeReportHint => 'จำนวนไบต์ที่ประหยัดได้ในแต่ละขั้นตอน:';
+
+  @override
+  String get reduceSizeStructure => 'โครงสร้างเอกสาร';
+
+  @override
+  String get reduceSizeResources => 'ทรัพยากรที่ไม่ได้ใช้';
+
+  @override
+  String get reduceSizeFonts => 'ฟอนต์ที่ฝังไว้';
+
+  @override
+  String get reduceSizeImages => 'ภาพ';
+
+  @override
+  String get reduceSizeDuplicates => 'วัตถุที่ซ้ำกัน';
+
+  @override
+  String get reduceSizeCustom => 'การตั้งค่าแบบกำหนดเอง';
+
+  @override
   String get printOptionsPrinter => 'เครื่องพิมพ์';
 
   @override

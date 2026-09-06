@@ -34,19 +34,30 @@ class CosDocumentBuilder {
   /// stream (§7.5.7-7.5.8) - much smaller for object-heavy documents.
   /// [deflateLevel] (0-9) sets the object-stream and xref-stream compression
   /// level; it is ignored for the classic table.
+  /// [preserveRealPrecision] retains all parsed double precision, including
+  /// font matrices, when this builder is used for a lossless graph rewrite.
   Uint8List build({
     required CosReference root,
     CosReference? info,
     String version = '1.7',
     bool objectStreams = false,
     int deflateLevel = 6,
+    bool preserveRealPrecision = false,
   }) {
     final t0 = PdfPerf.begin();
     try {
       final built = objectStreams
           ? _buildCompressed(
-              root: root, info: info, version: version, level: deflateLevel)
-          : _buildClassic(root: root, info: info, version: version);
+              root: root,
+              info: info,
+              version: version,
+              level: deflateLevel,
+              preserveRealPrecision: preserveRealPrecision)
+          : _buildClassic(
+              root: root,
+              info: info,
+              version: version,
+              preserveRealPrecision: preserveRealPrecision);
       PdfPerf.add(PdfPerfCount.savedBytes, built.length);
       PdfPerf.add(PdfPerfCount.savedObjects, _objects.length);
       return built;
@@ -59,16 +70,17 @@ class CosDocumentBuilder {
     required CosReference root,
     CosReference? info,
     String version = '1.7',
+    required bool preserveRealPrecision,
   }) {
     final out = BytesBuilder(copy: false);
     _writeHeader(out, version);
 
-    final serializer = CosSerializer(out);
+    final serializer =
+        CosSerializer(out, preserveRealPrecision: preserveRealPrecision);
     final offsets = <int>[];
     for (var i = 0; i < _objects.length; i++) {
       offsets.add(out.length);
-      serializer
-          .writeIndirectObject(CosIndirectObject(i + 1, 0, _objects[i]));
+      serializer.writeIndirectObject(CosIndirectObject(i + 1, 0, _objects[i]));
     }
 
     final tail = CosXrefTableWriter(out);
@@ -106,11 +118,13 @@ class CosDocumentBuilder {
     CosReference? info,
     required String version,
     required int level,
+    required bool preserveRealPrecision,
   }) {
     // Object streams need a 1.5-era header even if the caller asked lower.
     final out = BytesBuilder(copy: false);
     _writeHeader(out, _atLeast15(version));
-    final serializer = CosSerializer(out);
+    final serializer =
+        CosSerializer(out, preserveRealPrecision: preserveRealPrecision);
 
     final n = _objects.length;
     final offsets = <int, int>{}; // type-1: object number -> byte offset
@@ -135,7 +149,8 @@ class CosDocumentBuilder {
       final bodyOffsets = <int>[];
       for (final number in members) {
         bodyOffsets.add(bodies.length);
-        bodies.add(CosSerializer.serialize(_objects[number - 1]));
+        bodies.add(CosSerializer.serialize(_objects[number - 1],
+            preserveRealPrecision: preserveRealPrecision));
         bodies.addByte(0x0A); // whitespace separator between bodies
       }
       final headerText = StringBuffer();
@@ -175,7 +190,8 @@ class CosDocumentBuilder {
     for (var i = 0; i < n; i++) {
       if (_objects[i] is CosStream) {
         offsets[i + 1] = out.length;
-        serializer.writeIndirectObject(CosIndirectObject(i + 1, 0, _objects[i]));
+        serializer
+            .writeIndirectObject(CosIndirectObject(i + 1, 0, _objects[i]));
       }
     }
 
