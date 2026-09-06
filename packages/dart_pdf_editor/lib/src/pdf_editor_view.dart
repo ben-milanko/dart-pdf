@@ -1511,6 +1511,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (features.reflowView) reflowControl,
                   for (final item in panelItems)
                     PdfShellControlItem(
+                      group: PdfShellControlGroup.panels,
                       key: item.key,
                       icon: item.icon,
                       label: item.tooltip,
@@ -1519,6 +1520,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     ),
                   if (widget.onSave != null && widget.showSaveButton)
                     PdfShellControlItem(
+                      group: PdfShellControlGroup.actions,
                       key: const ValueKey('pdf-shell-save'),
                       icon: widget.saveButtonIcon,
                       label: widget.saveButtonLabel ?? pdfL10n(context).save,

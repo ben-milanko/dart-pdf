@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Group mobile Controls into View and Panels sections in both shells, keeping
+  Settings and Reflow with view controls and allowing the sheet to scroll.
 - Add complete Australian and UK English locales for editor controls, including
   colour, centre and organisation, while the base English locale uses US spelling.
   Localise the smart alignment guide hint.

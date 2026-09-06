@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Separate panel buttons from Settings and Reflow in the mobile Controls menu.
 - Rename a PDF on Android and iOS by tapping its title (the active tab on
   tablets). Keep the new name in Recent files, session recovery, and sharing.
 - Fix Android document scanning failing before the camera opens in release
