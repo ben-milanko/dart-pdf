@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Apply US and UK/Australian English spellings consistently across app dialogs,
+  editor controls and OCR messages, with CI checks for regional bundle drift.
 - Keep the browser responsive during PDF optimisation with a dedicated worker;
   Cancel stops the job immediately. Use **Optimise** throughout the Australian
   and UK English dialog, retaining **Optimize** for US English.

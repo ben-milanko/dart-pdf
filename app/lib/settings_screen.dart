@@ -290,7 +290,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   key: const ValueKey('settings-licenses'),
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.article_outlined),
-                  title: const Text('Open source licenses'),
+                  title: Text(MaterialLocalizations.of(context)
+                      .viewLicensesButtonLabel),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showLicensePage(
                     context: context,

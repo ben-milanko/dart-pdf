@@ -2181,6 +2181,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get splitFailed => 'Не вдалося розділити цей PDF.';
 
   @override
+  String get guidesSnapHint =>
+      'Прив’язка до країв і центрів анотацій • Утримуйте Alt, щоб пропустити';
+
+  @override
   String get tbToolContentDelete => 'Стерти';
 
   @override

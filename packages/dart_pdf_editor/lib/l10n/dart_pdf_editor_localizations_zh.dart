@@ -2107,6 +2107,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get splitFailed => '无法拆分此 PDF。';
 
   @override
+  String get guidesSnapHint => '吸附批注边缘和中心 • 按住 Alt 跳过';
+
+  @override
   String get tbToolContentDelete => '擦除';
 
   @override
@@ -4214,6 +4217,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get splitFailed => '無法分割此 PDF。';
+
+  @override
+  String get guidesSnapHint => '吸附註解邊緣和中心 • 按住 Alt 略過';
 
   @override
   String get tbToolContentDelete => '擦除';

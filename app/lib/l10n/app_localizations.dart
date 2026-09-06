@@ -444,7 +444,7 @@ abstract class AppLocalizations {
   /// Subtitle for the advanced bring-your-own-certificate signing section.
   ///
   /// In en, this message translates to:
-  /// **'For a signing certificate from your organisation'**
+  /// **'For a signing certificate from your organization'**
   String get appSigUseOwnCertificateSubtitle;
 
   /// Fallback title for an identity from a certificate that has no signer name.
@@ -1248,19 +1248,19 @@ abstract class AppLocalizations {
   /// Toast shown when the browser-local OCR bridge failed to initialize.
   ///
   /// In en, this message translates to:
-  /// **'Browser OCR failed to initialise'**
+  /// **'Browser OCR failed to initialize'**
   String get ocrBrowserInitFailed;
 
   /// Toast shown when an OCR job is cancelled before any pages are processed.
   ///
   /// In en, this message translates to:
-  /// **'OCR cancelled'**
+  /// **'OCR canceled'**
   String get ocrCancelled;
 
   /// Toast shown when OCR is cancelled after adding some text spans.
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{OCR cancelled after 1 text span} other{OCR cancelled after {count} text spans}}'**
+  /// **'{count, plural, =1{OCR canceled after 1 text span} other{OCR canceled after {count} text spans}}'**
   String ocrCancelledAfterSpans(int count);
 
   /// Button that confirms downloading the OCR model.

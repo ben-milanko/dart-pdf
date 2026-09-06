@@ -625,6 +625,7 @@
   "splitInvalidRanges": "Usa pagine da 1 a {count}, separate da virgole. Gli intervalli devono essere crescenti.",
   "splitConfirm": "Dividi",
   "splitFailed": "Impossibile dividere questo PDF.",
+  "guidesSnapHint": "Aggancia bordi e centri delle annotazioni • Tieni premuto Alt per ignorare",
   "tbToolContentDelete": "Cancella",
   "tbTipContentDelete": "Elimina contenuto: trascina un rettangolo oppure fai clic sui vertici del poligono e doppio clic per terminare"
 }

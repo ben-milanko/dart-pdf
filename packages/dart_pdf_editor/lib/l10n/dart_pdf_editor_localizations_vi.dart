@@ -2133,6 +2133,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get splitFailed => 'Không thể tách PDF này.';
 
   @override
+  String get guidesSnapHint =>
+      'Bám vào cạnh và tâm chú thích • Giữ Alt để bỏ qua';
+
+  @override
   String get tbToolContentDelete => 'Xóa';
 
   @override

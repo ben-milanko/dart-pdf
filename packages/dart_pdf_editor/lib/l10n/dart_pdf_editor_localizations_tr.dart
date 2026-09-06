@@ -2138,6 +2138,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get splitFailed => 'Bu PDF bölünemedi.';
 
   @override
+  String get guidesSnapHint =>
+      'Ek açıklama kenarlarına ve merkezlerine yasla • Atlamak için Alt tuşunu basılı tutun';
+
+  @override
   String get tbToolContentDelete => 'Sil';
 
   @override

@@ -2128,6 +2128,10 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get splitFailed => 'ไม่สามารถแยก PDF นี้ได้';
 
   @override
+  String get guidesSnapHint =>
+      'จัดแนวขอบและจุดกึ่งกลางของคำอธิบายประกอบ • กด Alt ค้างไว้เพื่อข้าม';
+
+  @override
   String get tbToolContentDelete => 'ลบ';
 
   @override

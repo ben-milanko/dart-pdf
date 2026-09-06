@@ -78,8 +78,7 @@ Future<void> showPdfEditingGuidesDialog(
                   key: const ValueKey('pdf-smart-alignment-guides'),
                   secondary: const Icon(Icons.align_horizontal_center),
                   title: const Text('Smart alignment guides'),
-                  subtitle: const Text(
-                      'Snap annotation edges and centres • Hold Alt to bypass'),
+                  subtitle: Text(pdfL10n(context).guidesSnapHint),
                   value: preferences.smartAlignmentGuides,
                   onChanged: (value) =>
                       preferences.smartAlignmentGuides = value,

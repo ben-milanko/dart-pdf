@@ -625,6 +625,7 @@
   "splitInvalidRanges": "1～{count}ページをカンマで区切って指定してください。範囲は昇順で指定してください。",
   "splitConfirm": "分割",
   "splitFailed": "このPDFを分割できませんでした。",
+  "guidesSnapHint": "注釈の端と中心にスナップ • Alt キーを押して無効化",
   "tbToolContentDelete": "消去",
   "tbTipContentDelete": "コンテンツを削除 — ドラッグで長方形を描くか、多角形の頂点をクリックし、ダブルクリックで完了"
 }

@@ -2137,6 +2137,10 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get splitFailed => 'यह PDF विभाजित नहीं किया जा सका।';
 
   @override
+  String get guidesSnapHint =>
+      'टिप्पणियों के किनारों और केंद्रों को संरेखित करें • छोड़ने के लिए Alt दबाए रखें';
+
+  @override
   String get tbToolContentDelete => 'मिटाएँ';
 
   @override

@@ -2142,6 +2142,10 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get splitFailed => 'Deze PDF kon niet worden gesplitst.';
 
   @override
+  String get guidesSnapHint =>
+      'Randen en middelpunten van annotaties uitlijnen • Houd Alt ingedrukt om over te slaan';
+
+  @override
   String get tbToolContentDelete => 'Wissen';
 
   @override

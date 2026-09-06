@@ -2146,6 +2146,10 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get splitFailed => 'Diese PDF-Datei konnte nicht aufgeteilt werden.';
 
   @override
+  String get guidesSnapHint =>
+      'Anmerkungskanten und Mittelpunkte einrasten • Zum Umgehen Alt gedrückt halten';
+
+  @override
   String get tbToolContentDelete => 'Löschen';
 
   @override
