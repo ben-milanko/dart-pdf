@@ -454,10 +454,58 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorMenuSettings => '設定';
 
   @override
-  String get editorMenuSwitchToEdit => '編集モードに切り替え';
+  String get editorMenuSectionFile => 'ファイル';
 
   @override
-  String get editorMenuSwitchToReadOnly => '読み取り専用に切り替え';
+  String get editorMenuSectionDocument => 'このドキュメント';
+
+  @override
+  String get editorMenuSectionApp => 'アプリ';
+
+  @override
+  String get editorMenuReadOnly => '読み取り専用';
+
+  @override
+  String get editorMenuSearchActions => '操作を検索…';
+
+  @override
+  String get paletteHint => '操作・ツール・パネルを検索';
+
+  @override
+  String get paletteNoMatch => '一致するコマンドがありません';
+
+  @override
+  String get paletteKeyHints => '↑↓ 移動 · ⏎ 実行 · esc 閉じる';
+
+  @override
+  String paletteCount(int count) {
+    return '$count 件のコマンド';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total 件中 $count 件';
+  }
+
+  @override
+  String get paletteSourceMenu => 'メニュー';
+
+  @override
+  String get paletteSourcePanel => 'パネル';
+
+  @override
+  String get paletteSourceView => '表示';
+
+  @override
+  String get paletteSourceFile => 'ファイル';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$groupツール';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'ドキュメントを開いてください';
 
   @override
   String editorNamedAction(String name) {

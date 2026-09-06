@@ -621,13 +621,87 @@
   "@editorMenuSettings": {
     "description": "App menu item to open the settings screen."
   },
-  "editorMenuSwitchToEdit": "Switch to edit mode",
-  "@editorMenuSwitchToEdit": {
-    "description": "App menu item to leave read-only mode and allow editing."
+  "editorMenuSectionFile": "File",
+  "@editorMenuSectionFile": {
+    "description": "Section header in the app menu over the create/open actions."
   },
-  "editorMenuSwitchToReadOnly": "Switch to read-only",
-  "@editorMenuSwitchToReadOnly": {
-    "description": "App menu item to switch the app into read-only mode."
+  "editorMenuSectionDocument": "This document",
+  "@editorMenuSectionDocument": {
+    "description": "Section header in the app menu over actions on the open document."
+  },
+  "editorMenuSectionApp": "App",
+  "@editorMenuSectionApp": {
+    "description": "Section header in the app menu over app-level entries."
+  },
+  "editorMenuReadOnly": "Read-only",
+  "@editorMenuReadOnly": {
+    "description": "Label of the read-only switch row in the app menu."
+  },
+  "editorMenuSearchActions": "Search actions…",
+  "@editorMenuSearchActions": {
+    "description": "App menu row that opens the command palette."
+  },
+  "paletteHint": "Search actions, tools and panels",
+  "@paletteHint": {
+    "description": "Placeholder in the command palette search field."
+  },
+  "paletteNoMatch": "No command matches",
+  "@paletteNoMatch": {
+    "description": "Shown when no command matches what was typed."
+  },
+  "paletteKeyHints": "↑↓ move · ⏎ run · esc close",
+  "@paletteKeyHints": {
+    "description": "Keyboard hints in the palette footer. Keep the key glyphs."
+  },
+  "paletteCount": "{count} commands",
+  "@paletteCount": {
+    "description": "How many commands the palette indexes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "paletteCountFiltered": "{count} of {total}",
+  "@paletteCountFiltered": {
+    "description": "How many commands match, out of the whole index.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "paletteSourceMenu": "Menu",
+  "@paletteSourceMenu": {
+    "description": "Palette result label: the command lives in the app menu."
+  },
+  "paletteSourcePanel": "Panel",
+  "@paletteSourcePanel": {
+    "description": "Palette result label: the command shows or hides a panel."
+  },
+  "paletteSourceView": "View",
+  "@paletteSourceView": {
+    "description": "Palette result label: the command is a view option."
+  },
+  "paletteSourceFile": "File",
+  "@paletteSourceFile": {
+    "description": "Palette result label: the command opens a recent file."
+  },
+  "paletteSourceTool": "{group} tool",
+  "@paletteSourceTool": {
+    "description": "Palette result label for an editing tool, e.g. \"Shapes tool\".",
+    "placeholders": {
+      "group": {
+        "type": "String"
+      }
+    }
+  },
+  "paletteNeedsDocument": "Needs an open document",
+  "@paletteNeedsDocument": {
+    "description": "Why a palette command is unavailable."
   },
   "editorNamedAction": "Named action: {name}",
   "@editorNamedAction": {
@@ -1294,108 +1368,108 @@
     "description": "Tooltip on the toggle that shows recent documents as a list."
   },
   "settingsDefaultAppSubtitle": "{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}",
-  "@settingsDefaultAppSubtitle":   {
-      "description": "One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.",
-      "placeholders": {
-          "platform": {
-              "type": "String"
-          }
+  "@settingsDefaultAppSubtitle": {
+    "description": "One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.",
+    "placeholders": {
+      "platform": {
+        "type": "String"
       }
+    }
   },
   "settingsDefaultAppInstructions": "{platform, select, web{Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.} windows{Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.} macos{In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.} linux{Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.} android{Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.} ios{iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.} other{Use the system settings for file handlers to associate PDF documents with DartPDF.}}",
-  "@settingsDefaultAppInstructions":   {
-      "description": "Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.",
-      "placeholders": {
-          "platform": {
-              "type": "String"
-          }
+  "@settingsDefaultAppInstructions": {
+    "description": "Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.",
+    "placeholders": {
+      "platform": {
+        "type": "String"
       }
+    }
   },
   "ocrChipDownloadingModel": "Downloading OCR model…",
-  "@ocrChipDownloadingModel":   {
-      "description": "OCR progress chip while the recognition model downloads (size unknown)."
+  "@ocrChipDownloadingModel": {
+    "description": "OCR progress chip while the recognition model downloads (size unknown)."
   },
   "ocrChipDownloadingModelPercent": "Downloading model {percent}%",
-  "@ocrChipDownloadingModelPercent":   {
-      "description": "OCR progress chip while the recognition model downloads, with percent.",
-      "placeholders": {
-          "percent": {
-              "type": "int"
-          }
+  "@ocrChipDownloadingModelPercent": {
+    "description": "OCR progress chip while the recognition model downloads, with percent.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
       }
+    }
   },
   "ocrChipRecognising": "OCR {page}/{pageCount}",
-  "@ocrChipRecognising":   {
-      "description": "OCR progress chip while recognizing text, showing page of total.",
-      "placeholders": {
-          "page": {
-              "type": "int"
-          },
-          "pageCount": {
-              "type": "int"
-          }
+  "@ocrChipRecognising": {
+    "description": "OCR progress chip while recognizing text, showing page of total.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "pageCount": {
+        "type": "int"
       }
+    }
   },
   "ocrChipFinishing": "Finishing OCR…",
-  "@ocrChipFinishing":   {
-      "description": "OCR progress chip while assembling the recognized PDF after the last page."
+  "@ocrChipFinishing": {
+    "description": "OCR progress chip while assembling the recognized PDF after the last page."
   },
   "fileTypePdf": "PDF documents",
-  "@fileTypePdf":   {
-      "description": "File-picker filter label for PDF files."
+  "@fileTypePdf": {
+    "description": "File-picker filter label for PDF files."
   },
   "fileTypeImages": "Images",
-  "@fileTypeImages":   {
-      "description": "File-picker filter label for PNG/JPEG image files."
+  "@fileTypeImages": {
+    "description": "File-picker filter label for PNG/JPEG image files."
   },
   "fileTypeStampBundle": "DartPDF stamps",
-  "@fileTypeStampBundle":   {
-      "description": "File-picker filter label for exported custom-stamp JSON bundles."
+  "@fileTypeStampBundle": {
+    "description": "File-picker filter label for exported custom-stamp JSON bundles."
   },
   "appSigKeyFileType": "RSA private keys",
-  "@appSigKeyFileType":   {
-      "description": "File-picker filter label when choosing a private key to sign with."
+  "@appSigKeyFileType": {
+    "description": "File-picker filter label when choosing a private key to sign with."
   },
   "appSigCertificateFileType": "X.509 certificates",
-  "@appSigCertificateFileType":   {
-      "description": "File-picker filter label when choosing signing certificates."
+  "@appSigCertificateFileType": {
+    "description": "File-picker filter label when choosing signing certificates."
   },
   "appSigErrorNoCertificateSelected": "Select at least one X.509 certificate.",
-  "@appSigErrorNoCertificateSelected":   {
-      "description": "Signing error: the user picked a key but no certificate."
+  "@appSigErrorNoCertificateSelected": {
+    "description": "Signing error: the user picked a key but no certificate."
   },
   "appSigErrorInvalidCertificate": "Certificate {index} is not valid X.509.",
-  "@appSigErrorInvalidCertificate":   {
-      "description": "Signing error: a chosen certificate file could not be parsed as X.509.",
-      "placeholders": {
-          "index": {
-              "type": "int"
-          }
+  "@appSigErrorInvalidCertificate": {
+    "description": "Signing error: a chosen certificate file could not be parsed as X.509.",
+    "placeholders": {
+      "index": {
+        "type": "int"
       }
+    }
   },
   "appSigErrorKeyCertificateMismatch": "The private key does not match any selected RSA certificate.",
-  "@appSigErrorKeyCertificateMismatch":   {
-      "description": "Signing error: the key pairs with none of the chosen certificates."
+  "@appSigErrorKeyCertificateMismatch": {
+    "description": "Signing error: the key pairs with none of the chosen certificates."
   },
   "appSigErrorEncryptedKeyUnsupported": "Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.",
-  "@appSigErrorEncryptedKeyUnsupported":   {
-      "description": "Signing error: the chosen private key is an encrypted PEM."
+  "@appSigErrorEncryptedKeyUnsupported": {
+    "description": "Signing error: the chosen private key is an encrypted PEM."
   },
   "appSigErrorKeyNotRsa": "The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.",
-  "@appSigErrorKeyNotRsa":   {
-      "description": "Signing error: the chosen private key could not be read as RSA."
+  "@appSigErrorKeyNotRsa": {
+    "description": "Signing error: the chosen private key could not be read as RSA."
   },
   "appSigErrorNoCertificateFound": "No X.509 certificates were found.",
-  "@appSigErrorNoCertificateFound":   {
-      "description": "Signing error: the chosen files contained no X.509 certificate."
+  "@appSigErrorNoCertificateFound": {
+    "description": "Signing error: the chosen files contained no X.509 certificate."
   },
   "imageSourceTakePhoto": "Take photo",
-  "@imageSourceTakePhoto":   {
-      "description": "Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera."
+  "@imageSourceTakePhoto": {
+    "description": "Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera."
   },
   "imageSourceChooseFile": "Choose file",
-  "@imageSourceChooseFile":   {
-      "description": "Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera."
+  "@imageSourceChooseFile": {
+    "description": "Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera."
   },
   "imageSourceCameraFailed": "Couldn't take a photo",
   "@imageSourceCameraFailed":   {

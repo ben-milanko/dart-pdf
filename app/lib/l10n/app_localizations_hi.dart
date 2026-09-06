@@ -461,10 +461,58 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorMenuSettings => 'सेटिंग्स';
 
   @override
-  String get editorMenuSwitchToEdit => 'संपादन मोड में जाएँ';
+  String get editorMenuSectionFile => 'फ़ाइल';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'केवल-पढ़ने में जाएँ';
+  String get editorMenuSectionDocument => 'यह दस्तावेज़';
+
+  @override
+  String get editorMenuSectionApp => 'ऐप';
+
+  @override
+  String get editorMenuReadOnly => 'केवल पढ़ने योग्य';
+
+  @override
+  String get editorMenuSearchActions => 'क्रियाएँ खोजें…';
+
+  @override
+  String get paletteHint => 'क्रियाएँ, टूल और पैनल खोजें';
+
+  @override
+  String get paletteNoMatch => 'कोई कमांड मेल नहीं खाता';
+
+  @override
+  String get paletteKeyHints => '↑↓ चुनें · ⏎ चलाएँ · esc बंद करें';
+
+  @override
+  String paletteCount(int count) {
+    return '$count कमांड';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total में से $count';
+  }
+
+  @override
+  String get paletteSourceMenu => 'मेन्यू';
+
+  @override
+  String get paletteSourcePanel => 'पैनल';
+
+  @override
+  String get paletteSourceView => 'व्यू';
+
+  @override
+  String get paletteSourceFile => 'फ़ाइल';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group टूल';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'खुला दस्तावेज़ आवश्यक';
 
   @override
   String editorNamedAction(String name) {

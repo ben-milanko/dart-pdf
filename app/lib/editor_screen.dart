@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
 import 'autosave.dart';
+import 'command_palette.dart';
 import 'devtools.dart';
 import 'devtools_panel.dart';
 import 'digital_signature.dart';
@@ -349,6 +350,9 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Whether the developer tools panel is docked over the editor (F12).
   bool _devToolsOpen = false;
+
+  /// True while the command palette is up, so ⌘K can't stack copies.
+  bool _paletteOpen = false;
 
   DocumentTab? get _active =>
       _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
@@ -3075,152 +3079,151 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
-  List<PopupMenuEntry<VoidCallback>> _appMenuItems(
-          BuildContext menuContext, DocumentTab? tab) =>
-      [
-        PopupMenuItem(
-          key: const ValueKey('menu-new-document'),
-          height: _appMenuItemHeight(),
-          value: () => unawaited(_newDocument()),
-          child: _appMenuTile(
-            icon: Icons.note_add_outlined,
-            title: appL10n(context).editorMenuNewDocument,
-            shortcut: _menuShortcut('N'),
-          ),
+  /// The app menu's plain rows, grouped by the section they belong to.
+  ///
+  /// These descriptors are the single list behind two surfaces: the menu
+  /// renders them, and [_paletteCommands] indexes them, so an action added
+  /// here reaches both without a second registration. The two rows that are
+  /// not plain - Open Recent (a submenu) and Read-only (a switch) - are
+  /// assembled around them.
+  List<_MenuAction> _fileActions() {
+    final l = appL10n(context);
+    return [
+      _MenuAction(
+        id: 'new-document',
+        icon: Icons.note_add_outlined,
+        title: l.editorMenuNewDocument,
+        shortcut: _menuShortcut('N'),
+        run: () => unawaited(_newDocument()),
+      ),
+      if (widget.onNewWindow != null)
+        _MenuAction(
+          id: 'new-window',
+          icon: Icons.open_in_new,
+          title: l.editorMenuNewWindow,
+          shortcut: _menuShortcut('N', shift: true),
+          run: _newWindow,
         ),
-        if (widget.onNewWindow != null)
-          PopupMenuItem(
-            key: const ValueKey('menu-new-window'),
-            height: _appMenuItemHeight(),
-            value: _newWindow,
-            child: _appMenuTile(
-              icon: Icons.open_in_new,
-              title: appL10n(context).editorMenuNewWindow,
-              shortcut: _menuShortcut('N', shift: true),
-            ),
-          ),
-        if (_canScan)
-          PopupMenuItem(
-            key: const ValueKey('menu-scan-document'),
-            height: _appMenuItemHeight(),
-            value: () => unawaited(_newDocumentFromScan()),
-            child: _appMenuTile(
-              icon: Icons.document_scanner_outlined,
-              title: appL10n(context).editorMenuScanDocument,
-            ),
-          ),
-        PopupMenuItem(
-          key: const ValueKey('menu-open'),
-          height: _appMenuItemHeight(),
-          value: () => unawaited(_pickAndOpen()),
-          child: _appMenuTile(
-            icon: Icons.folder_open,
-            title: appL10n(context).editorMenuOpen,
-            shortcut: _menuShortcut('O'),
-          ),
+      if (_canScan)
+        _MenuAction(
+          id: 'scan-document',
+          icon: Icons.document_scanner_outlined,
+          title: l.editorMenuScanDocument,
+          run: () => unawaited(_newDocumentFromScan()),
         ),
-        ..._recentMenuItems(menuContext),
-        const PopupMenuDivider(),
-        if (tab?.session != null) ...[
-          PopupMenuItem(
-            key: const ValueKey('menu-save-as'),
-            height: _appMenuItemHeight(),
-            value: () => _save(tab!, saveAs: true),
-            child: _appMenuTile(
-              icon: _usesMobileShare
-                  ? Icons.share_outlined
-                  : Icons.save_as_outlined,
-              title: _usesMobileShare
-                  ? WidgetsLocalizations.of(context).shareButtonLabel
-                  : appL10n(context).editorMenuSaveAs,
-              shortcut:
-                  _usesMobileShare ? null : _menuShortcut('S', shift: true),
-            ),
-          ),
-          if (!_readOnly)
-            PopupMenuItem(
-              key: const ValueKey('menu-insert-document'),
-              height: _appMenuItemHeight(),
-              value: () => unawaited(_insertDocument(tab!)),
-              child: _appMenuTile(
-                icon: Icons.post_add_outlined,
-                title: appL10n(context).editorMenuInsertDocument,
-              ),
-            ),
-          if (_canScan && !_readOnly)
-            PopupMenuItem(
-              key: const ValueKey('menu-insert-scan'),
-              height: _appMenuItemHeight(),
-              value: () => unawaited(_insertScan(tab!)),
-              child: _appMenuTile(
-                icon: Icons.add_a_photo_outlined,
-                title: appL10n(context).editorMenuInsertScan,
-              ),
-            ),
-          PopupMenuItem(
-            key: const ValueKey('menu-digital-signature'),
-            height: _appMenuItemHeight(),
-            enabled: !_digitallySigning,
-            value: () => unawaited(_digitallySign(tab!)),
-            child: _appMenuTile(
-              icon: Icons.verified_user_outlined,
-              title: _digitallySigning
-                  ? appL10n(context).editorMenuDigitallySigning
-                  : appL10n(context).editorMenuDigitallySign,
-            ),
-          ),
-          PopupMenuItem(
-            key: const ValueKey('menu-print'),
-            height: _appMenuItemHeight(),
-            value: () => unawaited(_print(tab!)),
-            child: _appMenuTile(
-              icon: Icons.print_outlined,
-              title: appL10n(context).editorMenuPrint,
-              shortcut: _menuShortcut('P'),
-            ),
-          ),
-          PopupMenuItem(
-            key: const ValueKey('menu-export-image'),
-            height: _appMenuItemHeight(),
-            value: () => unawaited(_exportImage(tab!)),
-            child: _appMenuTile(
-              icon: Icons.image_outlined,
-              title: appL10n(context).editorMenuExportImage,
-            ),
-          ),
-          PopupMenuItem(
-            height: _appMenuItemHeight(),
-            value: _compareWith,
-            child: _appMenuTile(
-              icon: Icons.compare_arrows,
-              title: appL10n(context).editorMenuCompareWith,
-            ),
-          ),
-          PopupMenuItem(
-            height: _appMenuItemHeight(),
-            value: () => setState(() => _readOnly = !_readOnly),
-            child: _appMenuTile(
-              icon: _readOnly ? Icons.edit : Icons.edit_off,
-              title: _readOnly
-                  ? appL10n(context).editorMenuSwitchToEdit
-                  : appL10n(context).editorMenuSwitchToReadOnly,
-            ),
-          ),
-          if (OnDeviceOcr.isSupported)
-            PopupMenuItem(
-              key: const ValueKey('menu-ocr'),
-              height: _appMenuItemHeight(),
-              value: () => unawaited(_runOcr()),
-              child: _appMenuTile(
-                icon: Icons.document_scanner_outlined,
-                title: appL10n(context).editorMenuOcr,
-              ),
-            ),
-          const PopupMenuDivider(),
-        ],
-        PopupMenuItem(
-          height: _appMenuItemHeight(),
-          value: () => showAppSettings(
+      _MenuAction(
+        id: 'open',
+        icon: Icons.folder_open,
+        title: l.editorMenuOpen,
+        shortcut: _menuShortcut('O'),
+        run: () => unawaited(_pickAndOpen()),
+      ),
+    ];
+  }
+
+  /// Actions on the open document. Every one needs a document, so they carry
+  /// `requiresDocument` rather than being built conditionally: the menu drops
+  /// them when there is nothing open, while the palette lists them dimmed
+  /// with the reason - "where is it?" deserves an answer, not a gap.
+  List<_MenuAction> _documentActions() {
+    final l = appL10n(context);
+    return [
+      _MenuAction(
+        id: 'save-as',
+        requiresDocument: true,
+        icon: _usesMobileShare ? Icons.share_outlined : Icons.save_as_outlined,
+        title: _usesMobileShare
+            ? WidgetsLocalizations.of(context).shareButtonLabel
+            : l.editorMenuSaveAs,
+        shortcut: _usesMobileShare ? null : _menuShortcut('S', shift: true),
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_save(tab, saveAs: true));
+        },
+      ),
+      _MenuAction(
+        id: 'print',
+        requiresDocument: true,
+        icon: Icons.print_outlined,
+        title: l.editorMenuPrint,
+        shortcut: _menuShortcut('P'),
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_print(tab));
+        },
+      ),
+      _MenuAction(
+        id: 'export-image',
+        requiresDocument: true,
+        icon: Icons.image_outlined,
+        title: l.editorMenuExportImage,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_exportImage(tab));
+        },
+      ),
+      _MenuAction(
+        id: 'digital-signature',
+        requiresDocument: true,
+        icon: Icons.verified_user_outlined,
+        title: _digitallySigning
+            ? l.editorMenuDigitallySigning
+            : l.editorMenuDigitallySign,
+        enabled: !_digitallySigning,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_digitallySign(tab));
+        },
+      ),
+      if (OnDeviceOcr.isSupported)
+        _MenuAction(
+          id: 'ocr',
+          requiresDocument: true,
+          icon: Icons.document_scanner_outlined,
+          title: l.editorMenuOcr,
+          run: () => unawaited(_runOcr()),
+        ),
+      _MenuAction(
+        id: 'compare',
+        requiresDocument: true,
+        icon: Icons.compare_arrows,
+        title: l.editorMenuCompareWith,
+        run: _compareWith,
+      ),
+      _MenuAction(
+        id: 'insert-document',
+        requiresDocument: true,
+        icon: Icons.post_add_outlined,
+        title: l.editorMenuInsertDocument,
+        // Inserting pages edits the document, so it goes with read-only.
+        hiddenWhenReadOnly: true,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_insertDocument(tab));
+        },
+      ),
+      if (_canScan)
+        _MenuAction(
+          id: 'insert-scan',
+          requiresDocument: true,
+          icon: Icons.add_a_photo_outlined,
+          title: l.editorMenuInsertScan,
+          // Inserting pages edits the document, so it goes with read-only.
+          hiddenWhenReadOnly: true,
+          run: () {
+            final tab = _active;
+            if (tab != null) unawaited(_insertScan(tab));
+          },
+        ),
+    ];
+  }
+
+  List<_MenuAction> _appActions() => [
+        _MenuAction(
+          id: 'settings',
+          icon: Icons.settings_outlined,
+          title: appL10n(context).editorMenuSettings,
+          run: () => showAppSettings(
             context,
             prefs: _prefs,
             recents: _recents,
@@ -3228,12 +3231,291 @@ class _EditorScreenState extends State<EditorScreen>
             updateInstaller: _updateInstaller,
             onOpenDevTools: kDevToolsEnabled ? _toggleDevTools : null,
           ),
-          child: _appMenuTile(
-            icon: Icons.settings_outlined,
-            title: appL10n(context).editorMenuSettings,
-          ),
         ),
       ];
+
+  /// A section header inside the app menu - the same 11px uppercase label the
+  /// editor's tool sheet uses, so the two popups read as one family.
+  PopupMenuEntry<VoidCallback> _appMenuSectionLabel(String text) =>
+      PopupMenuItem<VoidCallback>(
+        key: ValueKey('menu-section-$text'),
+        enabled: false,
+        height: _usesCompactAppMenu ? 28 : 32,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+
+  /// Read-only as a switch rather than a verb: the row stops rewriting its
+  /// own label ("Switch to read-only" / "Switch to edit mode") and the state
+  /// is legible the moment the menu opens.
+  PopupMenuEntry<VoidCallback> _readOnlyMenuItem() =>
+      PopupMenuItem<VoidCallback>(
+        key: const ValueKey('menu-read-only'),
+        height: _appMenuItemHeight(),
+        value: () => setState(() => _readOnly = !_readOnly),
+        child: _appMenuTile(
+          icon: Icons.visibility_outlined,
+          title: appL10n(context).editorMenuReadOnly,
+          // The row itself carries the tap; the switch is the state readout.
+          trailing: IgnorePointer(
+            child: Switch(
+              value: _readOnly,
+              onChanged: (_) {},
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ),
+      );
+
+  List<PopupMenuEntry<VoidCallback>> _appMenuItems(
+      BuildContext menuContext, DocumentTab? tab) {
+    final l = appL10n(context);
+    final hasDocument = tab?.session != null;
+    PopupMenuItem<VoidCallback> item(_MenuAction action) =>
+        PopupMenuItem<VoidCallback>(
+          key: ValueKey('menu-${action.id}'),
+          height: _appMenuItemHeight(),
+          enabled: action.enabled,
+          value: action.run,
+          child: _appMenuTile(
+            icon: action.icon,
+            title: action.title,
+            shortcut: action.shortcut,
+          ),
+        );
+
+    final file = <PopupMenuEntry<VoidCallback>>[
+      ..._fileActions().map(item),
+      ..._recentMenuItems(menuContext),
+    ];
+    final document = <PopupMenuEntry<VoidCallback>>[
+      if (hasDocument)
+        for (final action in _documentActions())
+          if (!(action.hiddenWhenReadOnly && _readOnly)) item(action),
+    ];
+    final app = <PopupMenuEntry<VoidCallback>>[
+      if (hasDocument) _readOnlyMenuItem(),
+      ..._appActions().map(item),
+    ];
+
+    final sections =
+        <({String label, List<PopupMenuEntry<VoidCallback>> items})>[
+      (label: l.editorMenuSectionFile, items: file),
+      if (document.isNotEmpty)
+        (label: l.editorMenuSectionDocument, items: document),
+      (label: l.editorMenuSectionApp, items: app),
+    ];
+
+    return [
+      PopupMenuItem<VoidCallback>(
+        key: const ValueKey('menu-command-palette'),
+        height: _appMenuItemHeight(),
+        value: _openCommandPalette,
+        child: _appMenuTile(
+          icon: Icons.search,
+          title: l.editorMenuSearchActions,
+          shortcut: _menuShortcut('K'),
+        ),
+      ),
+      const PopupMenuDivider(),
+      for (final (index, section) in sections.indexed) ...[
+        if (index > 0) const PopupMenuDivider(),
+        // A label is earned by two rows or more: over a lone row it would
+        // say less than the divider above it already does.
+        if (section.items.length >= 2) _appMenuSectionLabel(section.label),
+        ...section.items,
+      ],
+    ];
+  }
+
+  /// Everything the palette indexes, in browse order: the menu's own
+  /// actions, then the editing tools straight out of the dock's catalogue,
+  /// then the panels, the view options and the recent files.
+  List<AppCommand> _paletteCommands() {
+    final l = appL10n(context);
+    final pdf = pdfL10n(context);
+    final tab = _active;
+    final session = tab?.session;
+    final hasDocument = session != null;
+    final commands = <AppCommand>[];
+
+    for (final action in [
+      ..._fileActions(),
+      ..._documentActions(),
+      ..._appActions(),
+    ]) {
+      final needsDocument = action.requiresDocument && !hasDocument;
+      final blockedByReadOnly = action.hiddenWhenReadOnly && _readOnly;
+      commands.add(AppCommand(
+        id: 'menu-${action.id}',
+        label: action.title,
+        icon: action.icon,
+        source: l.paletteSourceMenu,
+        shortcut: action.shortcut,
+        enabled: action.enabled && !needsDocument && !blockedByReadOnly,
+        // Only the two structural reasons are worth spelling out; an action
+        // that is momentarily busy (a signature in flight) says nothing
+        // rather than blaming the wrong thing.
+        disabledReason: needsDocument
+            ? l.paletteNeedsDocument
+            : blockedByReadOnly
+                ? l.editorMenuReadOnly
+                : null,
+        run: action.run,
+      ));
+    }
+
+    if (hasDocument) {
+      commands.add(AppCommand(
+        id: 'menu-read-only',
+        label: l.editorMenuReadOnly,
+        icon: Icons.visibility_outlined,
+        source: l.paletteSourceMenu,
+        selected: _readOnly,
+        run: () => setState(() => _readOnly = !_readOnly),
+      ));
+    }
+
+    // The dock's own catalogue - a tool added there joins the palette with
+    // its real name, icon and shortcut, and nothing to keep in step here.
+    for (final (:group, :entry) in pdfToolCatalog()) {
+      final tool = entry.tool;
+      final markup = entry.markup;
+      commands.add(AppCommand(
+        id: tool != null ? 'tool-${tool.name}' : 'markup-${markup!.name}',
+        label: entry.label(context),
+        icon: entry.icon,
+        source: l.paletteSourceTool(group.label(context)),
+        shortcut: tool == null ? null : pdfEditToolShortcutLabel(tool),
+        enabled: hasDocument && !_readOnly,
+        disabledReason:
+            hasDocument ? l.editorMenuReadOnly : l.paletteNeedsDocument,
+        selected: tool != null
+            ? session?.tool == tool
+            : session?.markupTool == markup,
+        run: () {
+          final target = _active?.session;
+          if (target == null) return;
+          if (tool != null) {
+            target.tool = tool;
+          } else {
+            target.markupTool = markup;
+          }
+        },
+      ));
+    }
+
+    void toggle(
+      String id,
+      IconData icon,
+      String label,
+      String source,
+      bool value,
+      void Function(bool) set,
+    ) =>
+        commands.add(AppCommand(
+          id: id,
+          label: label,
+          icon: icon,
+          source: source,
+          selected: value,
+          enabled: hasDocument,
+          disabledReason: l.paletteNeedsDocument,
+          run: () => set(!value),
+        ));
+
+    final panel = l.paletteSourcePanel;
+    toggle(
+        'panel-search',
+        Icons.manage_search,
+        pdf.shellPanelSearchResults,
+        panel,
+        _prefs.showSearchResultsPanel,
+        (v) => _prefs.showSearchResultsPanel = v);
+    toggle('panel-pages', Icons.grid_view, pdf.shellPanelPages, panel,
+        _prefs.showThumbnailSidebar, (v) => _prefs.showThumbnailSidebar = v);
+    toggle(
+        'panel-bookmarks',
+        Icons.bookmarks_outlined,
+        pdf.shellPanelBookmarks,
+        panel,
+        _prefs.showBookmarkSidebar,
+        (v) => _prefs.showBookmarkSidebar = v);
+    toggle(
+        'panel-annotations',
+        Icons.list_alt,
+        pdf.shellPanelAnnotations,
+        panel,
+        _prefs.showAnnotationSidebar,
+        (v) => _prefs.showAnnotationSidebar = v);
+    toggle(
+        'panel-annotation-library',
+        Icons.collections_bookmark_outlined,
+        pdf.annotationLibraryTitle,
+        panel,
+        _prefs.showAnnotationLibraryPanel,
+        (v) => _prefs.showAnnotationLibraryPanel = v);
+    toggle('panel-properties', Icons.tune, pdf.shellPanelProperties, panel,
+        _prefs.showPropertiesPanel, (v) => _prefs.showPropertiesPanel = v);
+
+    final view = l.paletteSourceView;
+    toggle(
+        'view-annotations',
+        Icons.visibility_outlined,
+        pdf.shellShowAnnotations,
+        view,
+        _prefs.showAnnotations,
+        (v) => _prefs.showAnnotations = v);
+    toggle('view-reflow', Icons.article_outlined, pdf.shellReflowText, view,
+        _prefs.showReflowView, (v) => _prefs.showReflowView = v);
+    toggle('view-page-grid', Icons.grid_view_outlined, pdf.shellPageGrid, view,
+        _prefs.showThumbnailView, (v) => _prefs.showThumbnailView = v);
+    toggle(
+        'view-form-fields',
+        Icons.ballot_outlined,
+        pdf.shellHighlightFormFields,
+        view,
+        _prefs.highlightFormFields,
+        (v) => _prefs.highlightFormFields = v);
+    toggle(
+        'view-scrollbar-chapters',
+        Icons.toc,
+        pdf.shellShowScrollbarChapters,
+        view,
+        _prefs.showScrollbarChapters,
+        (v) => _prefs.showScrollbarChapters = v);
+
+    for (final entry in _recentMenuEntries()) {
+      commands.add(AppCommand(
+        id: 'recent-${entry.id}',
+        label: entry.title.isEmpty ? l.editorUntitled : entry.title,
+        icon: Icons.picture_as_pdf_outlined,
+        source: l.paletteSourceFile,
+        subtitle: entry.path,
+        run: () => unawaited(_openRecent(entry)),
+      ));
+    }
+
+    return commands;
+  }
+
+  Future<void> _openCommandPalette() async {
+    if (_paletteOpen) return;
+    _paletteOpen = true;
+    try {
+      await showCommandPalette(context, commands: _paletteCommands());
+    } finally {
+      _paletteOpen = false;
+    }
+  }
 
   /// Shows/hides the developer tools panel (F12; every build mode unless
   /// stripped with --dart-define=DEVTOOLS=false).
@@ -3251,6 +3533,18 @@ class _EditorScreenState extends State<EditorScreen>
         event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.f12) {
       _toggleDevTools();
+      return true;
+    }
+    // ⌘K / Ctrl+K reaches the command palette from anywhere, for the same
+    // reason F12 does: a global surface that only answers while some
+    // particular widget holds focus is a surface you cannot rely on. With
+    // nothing open yet - the welcome screen, no focused viewer - it is the
+    // one way in besides the menu.
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.keyK &&
+        (HardwareKeyboard.instance.isMetaPressed ||
+            HardwareKeyboard.instance.isControlPressed)) {
+      unawaited(_openCommandPalette());
       return true;
     }
     return false;
@@ -5206,4 +5500,40 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       ),
     );
   }
+}
+
+/// One plain row of the app menu: what it says, what it runs, and the state
+/// that decides whether it can run at all.
+///
+/// The menu and the command palette are both built from these, which is what
+/// keeps them in step.
+class _MenuAction {
+  const _MenuAction({
+    required this.id,
+    required this.icon,
+    required this.title,
+    required this.run,
+    this.shortcut,
+    this.enabled = true,
+    this.requiresDocument = false,
+    this.hiddenWhenReadOnly = false,
+  });
+
+  /// Stable identity: also the menu row's key (`menu-<id>`).
+  final String id;
+  final IconData icon;
+  final String title;
+  final VoidCallback run;
+  final String? shortcut;
+
+  /// False for an action that is present but momentarily unavailable (a
+  /// signature already in flight).
+  final bool enabled;
+
+  /// Needs an open document. The menu hides these without one; the palette
+  /// lists them dimmed.
+  final bool requiresDocument;
+
+  /// Edits the document, so it goes away in read-only mode.
+  final bool hiddenWhenReadOnly;
 }

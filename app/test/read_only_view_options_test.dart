@@ -32,7 +32,8 @@ void main() {
   Future<void> switchToReadOnly(WidgetTester tester) async {
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
-    final item = find.text('Switch to read-only');
+    // Read-only is a switch row now, not a "Switch to read-only" verb.
+    final item = find.byKey(const ValueKey('menu-read-only'));
     await tester.ensureVisible(item);
     await tester.pumpAndSettle();
     await tester.tap(item);
@@ -51,8 +52,8 @@ void main() {
     expect(find.byType(PdfReader), findsOneWidget);
     await openViewOptions(tester);
     // the menu is open (annotations item shows) but page color is gone
-    expect(
-        find.byKey(const ValueKey('pdf-shell-show-annotations')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
+        findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-shell-page-color')), findsNothing);
   });
 

@@ -841,17 +841,101 @@ abstract class AppLocalizations {
   /// **'Settings'**
   String get editorMenuSettings;
 
-  /// App menu item to leave read-only mode and allow editing.
+  /// Section header in the app menu over the create/open actions.
   ///
   /// In en, this message translates to:
-  /// **'Switch to edit mode'**
-  String get editorMenuSwitchToEdit;
+  /// **'File'**
+  String get editorMenuSectionFile;
 
-  /// App menu item to switch the app into read-only mode.
+  /// Section header in the app menu over actions on the open document.
   ///
   /// In en, this message translates to:
-  /// **'Switch to read-only'**
-  String get editorMenuSwitchToReadOnly;
+  /// **'This document'**
+  String get editorMenuSectionDocument;
+
+  /// Section header in the app menu over app-level entries.
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get editorMenuSectionApp;
+
+  /// Label of the read-only switch row in the app menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only'**
+  String get editorMenuReadOnly;
+
+  /// App menu row that opens the command palette.
+  ///
+  /// In en, this message translates to:
+  /// **'Search actions…'**
+  String get editorMenuSearchActions;
+
+  /// Placeholder in the command palette search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search actions, tools and panels'**
+  String get paletteHint;
+
+  /// Shown when no command matches what was typed.
+  ///
+  /// In en, this message translates to:
+  /// **'No command matches'**
+  String get paletteNoMatch;
+
+  /// Keyboard hints in the palette footer. Keep the key glyphs.
+  ///
+  /// In en, this message translates to:
+  /// **'↑↓ move · ⏎ run · esc close'**
+  String get paletteKeyHints;
+
+  /// How many commands the palette indexes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} commands'**
+  String paletteCount(int count);
+
+  /// How many commands match, out of the whole index.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {total}'**
+  String paletteCountFiltered(int count, int total);
+
+  /// Palette result label: the command lives in the app menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get paletteSourceMenu;
+
+  /// Palette result label: the command shows or hides a panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Panel'**
+  String get paletteSourcePanel;
+
+  /// Palette result label: the command is a view option.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get paletteSourceView;
+
+  /// Palette result label: the command opens a recent file.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get paletteSourceFile;
+
+  /// Palette result label for an editing tool, e.g. "Shapes tool".
+  ///
+  /// In en, this message translates to:
+  /// **'{group} tool'**
+  String paletteSourceTool(String group);
+
+  /// Why a palette command is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs an open document'**
+  String get paletteNeedsDocument;
 
   /// Toast reporting a PDF named action that the viewer does not navigate.
   ///

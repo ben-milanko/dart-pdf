@@ -163,7 +163,8 @@ void main() {
     await open(tester);
     await tester.tap(find.byKey(const ValueKey('dartpdf-app-menu')));
     await tester.pumpAndSettle();
-    final mode = find.text('Switch to read-only');
+    // Read-only is a switch row now, not a "Switch to read-only" verb.
+    final mode = find.byKey(const ValueKey('menu-read-only'));
     await tester.ensureVisible(mode);
     await tester.tap(mode);
     await tester.pumpAndSettle();

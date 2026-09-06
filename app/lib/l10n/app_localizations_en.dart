@@ -461,10 +461,58 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorMenuSettings => 'Settings';
 
   @override
-  String get editorMenuSwitchToEdit => 'Switch to edit mode';
+  String get editorMenuSectionFile => 'File';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Switch to read-only';
+  String get editorMenuSectionDocument => 'This document';
+
+  @override
+  String get editorMenuSectionApp => 'App';
+
+  @override
+  String get editorMenuReadOnly => 'Read-only';
+
+  @override
+  String get editorMenuSearchActions => 'Search actions…';
+
+  @override
+  String get paletteHint => 'Search actions, tools and panels';
+
+  @override
+  String get paletteNoMatch => 'No command matches';
+
+  @override
+  String get paletteKeyHints => '↑↓ move · ⏎ run · esc close';
+
+  @override
+  String paletteCount(int count) {
+    return '$count commands';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count of $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Panel';
+
+  @override
+  String get paletteSourceView => 'View';
+
+  @override
+  String get paletteSourceFile => 'File';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group tool';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Needs an open document';
 
   @override
   String editorNamedAction(String name) {

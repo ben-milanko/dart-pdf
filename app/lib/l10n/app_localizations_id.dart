@@ -465,10 +465,58 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorMenuSettings => 'Pengaturan';
 
   @override
-  String get editorMenuSwitchToEdit => 'Beralih ke mode edit';
+  String get editorMenuSectionFile => 'Berkas';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Beralih ke hanya-baca';
+  String get editorMenuSectionDocument => 'Dokumen ini';
+
+  @override
+  String get editorMenuSectionApp => 'Aplikasi';
+
+  @override
+  String get editorMenuReadOnly => 'Hanya-baca';
+
+  @override
+  String get editorMenuSearchActions => 'Cari tindakan…';
+
+  @override
+  String get paletteHint => 'Cari tindakan, alat, dan panel';
+
+  @override
+  String get paletteNoMatch => 'Tidak ada perintah yang cocok';
+
+  @override
+  String get paletteKeyHints => '↑↓ pindah · ⏎ jalankan · esc tutup';
+
+  @override
+  String paletteCount(int count) {
+    return '$count perintah';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count dari $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Panel';
+
+  @override
+  String get paletteSourceView => 'Tampilan';
+
+  @override
+  String get paletteSourceFile => 'Berkas';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Alat $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Perlu dokumen yang terbuka';
 
   @override
   String editorNamedAction(String name) {
