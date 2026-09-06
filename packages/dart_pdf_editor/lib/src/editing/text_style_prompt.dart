@@ -70,8 +70,8 @@ Future<PdfStyledTextEdit?> showPdfStyledTextPrompt(
 }) {
   return showPdfDialog<PdfStyledTextEdit>(
     context: context,
-    builder: (context) =>
-        _StyledTextDialog(initial: initial, palette: palette, pickFont: pickFont),
+    builder: (context) => _StyledTextDialog(
+        initial: initial, palette: palette, pickFont: pickFont),
   );
 }
 
@@ -262,11 +262,12 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           key: const ValueKey('pdf-styled-ok'),
           onPressed: _submit,
           child: Text(pdfL10n(context).apply),
-        ),
+        )),
       ],
     );
   }

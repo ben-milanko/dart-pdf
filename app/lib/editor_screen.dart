@@ -112,6 +112,8 @@ class EditorScreen extends StatefulWidget {
     this.saveDocumentAs,
     this.saveDocumentToPath,
     this.compressDocument,
+    this.snapshotClipboardWriter,
+    this.pdfClipboardReader,
     this.imageClipboardWriter,
     this.imageClipboardReader,
     this.textClipboardReader,
@@ -196,6 +198,12 @@ class EditorScreen extends StatefulWidget {
   /// flutter_test). Production leaves this null and the screen falls back to
   /// [copyPngToClipboard].
   final ImageClipboardWriter? imageClipboardWriter;
+
+  /// Override for writing PDF + PNG representations in one clipboard item.
+  final SnapshotClipboardWriter? snapshotClipboardWriter;
+
+  /// Override for reading PDF data copied by another application.
+  final PdfClipboardReader? pdfClipboardReader;
 
   /// Override for reading an image from the system clipboard. Tests inject a
   /// fake; production falls back to [readImageFromClipboard].
@@ -369,9 +377,16 @@ class _EditorScreenState extends State<EditorScreen>
   bool _readOnly = false;
   bool _digitallySigning = false;
 
+  void _onLocalAnnotationCopy() {
+    if (PdfAnnotationSnapshotClipboard.instance.isNotEmpty) {
+      unawaited(markLocalClipboardCopy());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    PdfAnnotationSnapshotClipboard.instance.addListener(_onLocalAnnotationCopy);
     WidgetsBinding.instance.addObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
@@ -576,6 +591,8 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    PdfAnnotationSnapshotClipboard.instance
+        .removeListener(_onLocalAnnotationCopy);
     _registeredTabDragCoordinator
       ?..removeListener(_syncDestinationTabDragOverlay)
       ..unregister(this);
@@ -2114,11 +2131,12 @@ class _EditorScreenState extends State<EditorScreen>
             onPressed: () => Navigator.of(context).pop(_DropAction.open),
             child: Text(appL10n(context).editorOpenInNewTab(count)),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('drop-action-insert'),
             onPressed: () => Navigator.of(context).pop(_DropAction.insert),
             child: Text(appL10n(context).editorInsertPages),
-          ),
+          )),
         ],
       ),
     );
@@ -2474,10 +2492,11 @@ class _EditorScreenState extends State<EditorScreen>
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(appL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(appL10n(context).editorDiscard),
-          ),
+          )),
         ],
       ),
     );
@@ -3909,6 +3928,8 @@ class _EditorScreenState extends State<EditorScreen>
       annotationMenuBuilder: _annotationMenuActions,
       formImagePicker: (context, field) => pickImageBytesFromSource(context),
       imagePicker: pickImageBytesFromSource,
+      systemPdfPasteProvider: (context) =>
+          (widget.pdfClipboardReader ?? readPdfFromClipboard)(),
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
       systemTextPasteProvider: (context) =>
@@ -3918,9 +3939,10 @@ class _EditorScreenState extends State<EditorScreen>
       onExportCustomStamps: _exportCustomStamps,
       onImportCustomStamps: _importCustomStamps,
       // The Snapshot tool keeps a vector copy on the in-app clipboard for
-      // paste-back; this also drops the captured PNG on the system clipboard.
+      // paste-back; desktop also offers PDF and PNG on the system clipboard.
       onSnapshot: clipboardSnapshotHandler(
         writer: widget.imageClipboardWriter,
+        snapshotWriter: widget.snapshotClipboardWriter,
         onResult: (copied) {
           if (!mounted) return;
           _toast(copied

@@ -52,26 +52,32 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
 Future<void> _showDefaultAppSetup(BuildContext context) {
   return showPdfDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(appL10n(context).settingsSetUpAsDefault),
-      content: Text(_defaultAppInstructions(context)),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(appL10n(context).close),
-        ),
-        if (_canOpenDefaultAppsSettings)
-          FilledButton.icon(
-            key: const ValueKey('default-app-open-settings'),
-            icon: const Icon(Icons.open_in_new),
-            label: Text(appL10n(context).settingsOpenSettings),
-            onPressed: () {
-              Navigator.of(context).pop();
-              _openDefaultAppsSettings(context);
-            },
+    builder: (context) {
+      final closeButton = TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: Text(appL10n(context).close),
+      );
+      return AlertDialog(
+        title: Text(appL10n(context).settingsSetUpAsDefault),
+        content: Text(_defaultAppInstructions(context)),
+        actions: [
+          if (_canOpenDefaultAppsSettings) closeButton,
+          PdfDialogSubmit(
+            child: _canOpenDefaultAppsSettings
+                ? FilledButton.icon(
+                    key: const ValueKey('default-app-open-settings'),
+                    icon: const Icon(Icons.open_in_new),
+                    label: Text(appL10n(context).settingsOpenSettings),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _openDefaultAppsSettings(context);
+                    },
+                  )
+                : closeButton,
           ),
-      ],
-    ),
+        ],
+      );
+    },
   );
 }
 
@@ -305,10 +311,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        PdfDialogSubmit(
+            child: TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).close),
-        ),
+        )),
       ],
     );
   }

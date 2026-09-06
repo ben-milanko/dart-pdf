@@ -374,10 +374,11 @@ class PdfStampPickerDialog extends StatelessWidget {
           onPressed: () => _create(context),
           child: Text(pdfL10n(context).stampNewStamp),
         ),
-        TextButton(
+        PdfDialogSubmit(
+            child: TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).close),
-        ),
+        )),
       ],
     );
   }
@@ -878,8 +879,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       key: const ValueKey('pdf-stamp-width'),
                       controller: _width,
                       keyboardType: TextInputType.number,
-                      decoration:
-                          InputDecoration(labelText: pdfL10n(context).stampWidth),
+                      decoration: InputDecoration(
+                          labelText: pdfL10n(context).stampWidth),
                       onSubmitted: (_) => _commitSize(),
                     ),
                   ),
@@ -890,8 +891,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       key: const ValueKey('pdf-stamp-height'),
                       controller: _height,
                       keyboardType: TextInputType.number,
-                      decoration:
-                          InputDecoration(labelText: pdfL10n(context).stampHeight),
+                      decoration: InputDecoration(
+                          labelText: pdfL10n(context).stampHeight),
                       onSubmitted: (_) => _commitSize(),
                     ),
                   ),
@@ -1056,10 +1057,12 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           onPressed: _components.isEmpty
               ? null
               : () {
+                  _commitSize();
                   final initial = widget.initial;
                   Navigator.of(context).pop(PdfCustomStamp(
                     text: _caption,
@@ -1070,7 +1073,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                   ));
                 },
           child: Text(pdfL10n(context).save),
-        ),
+        )),
       ],
     );
   }
@@ -1240,8 +1243,8 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
   }
 
   void _tapUp(TapUpDetails details, Size size) {
-    widget.onSelect(_hitComponent(_toTemplate(details.localPosition, size),
-        _scale(size)));
+    widget.onSelect(
+        _hitComponent(_toTemplate(details.localPosition, size), _scale(size)));
   }
 
   void _queueDelta(Offset delta) {

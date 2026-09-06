@@ -257,6 +257,29 @@ class MainFlutterWindow: NSWindow {
       name: "dev.milanko.dartpdf/image_clipboard",
       binaryMessenger: binaryMessenger)
     imageClipboardChannel.setMethodCallHandler { (call, result) in
+      if call.method == "markLocalCopy" {
+        SnapshotClipboard.shared.markLocalCopy()
+        result(nil)
+        return
+      }
+      if call.method == "copySnapshot" {
+        guard let args = call.arguments as? [String: Any],
+              let pdf = args["pdf"] as? FlutterStandardTypedData,
+              let png = args["png"] as? FlutterStandardTypedData else {
+          result(FlutterError(code: "bad_args",
+            message: "copySnapshot expects PDF and PNG bytes", details: nil))
+          return
+        }
+        result(SnapshotClipboard.shared.copy(pdf: pdf.data, png: png.data))
+        return
+      }
+      if call.method == "readPdf" {
+        result(SnapshotClipboard.shared.readExternalPdf().map {
+          ["pdf": FlutterStandardTypedData(bytes: $0),
+           "changeToken": NSPasteboard.general.changeCount] as [String: Any]
+        })
+        return
+      }
       if call.method == "readImage" {
         result(self.readImageFromClipboard())
         return

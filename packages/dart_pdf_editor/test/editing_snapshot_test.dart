@@ -3,6 +3,7 @@
 // vector graphics kept on the clipboard for pasting back into the PDF.
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,67 @@ void main() {
   });
 
   group('PdfEditingController snapshot clipboard', () {
+    test('PDF import replaces the clipboard, shares vectors, and undoes once',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+      final bytes = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      final before = Uint8List.fromList(editing.bytes);
+      expect(editing.pasteSnapshotBytes(bytes, 1, at: (300, 400)), isTrue);
+      expect(editing.hasAnnotationClipboard, isFalse);
+      expect(editing.document.page(1).annotations.single.rect,
+          const PdfRect(220, 380, 380, 420));
+      final firstSnapshot = editing.snapshotClipboard.snapshot;
+      editing.undo();
+      expect(editing.bytes, before);
+      expect(editing.snapshotClipboard.snapshot, same(firstSnapshot));
+      editing.redo();
+      expect(editing.document.page(1).annotations, hasLength(1));
+      final tab = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(tab.dispose);
+      expect(tab.pasteSnapshot(0), isTrue);
+      expect(tab.document.page(0).annotations.single.subtype, 'Stamp');
+    });
+
+    test('repeat PDF imports preserve the snapshot and position cascade', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      final pdf = PdfEditor(editing.document)
+          .captureVectorSnapshot(0, const PdfRect(0, 0, 100, 50))
+          .toPdfBytes();
+      expect(editing.pasteSnapshotBytes(pdf, 0), isTrue);
+      final snapshot = editing.snapshotClipboard.snapshot;
+      final first = editing.document.page(0).annotations.single.rect;
+      expect(editing.pasteSnapshotBytes(Uint8List.fromList(pdf), 0), isTrue);
+      expect(editing.snapshotClipboard.snapshot, same(snapshot));
+      expect(
+          editing.document.page(0).annotations.last.rect.left, first.left + 12);
+    });
+
+    test('invalid PDF or target leaves the document and clipboards intact', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+      final before = Uint8List.fromList(editing.bytes);
+      final pdf = editing
+          .captureVectorSnapshot(0, const PdfRect(0, 0, 100, 50))
+          .toPdfBytes();
+      expect(editing.pasteSnapshotBytes(Uint8List.fromList([1, 2, 3]), 0),
+          isFalse);
+      expect(editing.pasteSnapshotBytes(pdf, -1), isFalse);
+      expect(editing.pasteSnapshotBytes(pdf, 1), isFalse);
+      expect(editing.bytes, before);
+      expect(editing.hasAnnotationClipboard, isTrue);
+      expect(editing.hasSnapshotClipboard, isFalse);
+    });
+
     test('copyVectorSnapshot fills the clipboard; paste adds a vector stamp',
         () {
       SharedPreferences.setMockInitialValues({});
@@ -108,9 +170,8 @@ void main() {
 
       final stamp = editing.document.page(0).annotations.single;
       final cos = editing.document.cos;
-      final res =
-          cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-              as CosDictionary;
+      final res = cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
       final xobj = cos.resolve(res['XObject']) as CosDictionary;
       final cap = cos.resolve(xobj['Cap']) as CosStream;
       // the captured graphics now paint in the chosen ink
@@ -125,8 +186,7 @@ void main() {
       editing.selectAnnotationAt(0, 35, 35);
       expect(editing.hasAnnotationSelection, isTrue);
       expect(editing.canRecolorSnapshotSelected, isFalse);
-      expect(
-          editing.recolorSnapshotSelected(const Color(0xFF00FF00)), isFalse);
+      expect(editing.recolorSnapshotSelected(const Color(0xFF00FF00)), isFalse);
     });
 
     test('a snapshot pasted at a point centers there, off the page included',
@@ -169,10 +229,10 @@ void main() {
       // two documents ("tabs") that share one snapshot clipboard, mirroring
       // the app's process-wide PdfSnapshotClipboard.instance
       final clip = PdfSnapshotClipboard();
-      final tabA = PdfEditingController(buildMultiPagePdf(1),
-          snapshotClipboard: clip);
-      final tabB = PdfEditingController(buildMultiPagePdf(1),
-          snapshotClipboard: clip);
+      final tabA =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
+      final tabB =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
       addTearDown(tabA.dispose);
       addTearDown(tabB.dispose);
 
@@ -185,8 +245,8 @@ void main() {
 
       final stamp = tabB.document.page(0).annotations.single;
       expect(stamp.subtype, 'Stamp');
-      final ap = latin1.decode(
-          tabB.document.cos.decodeStreamData(stamp.normalAppearance!));
+      final ap = latin1
+          .decode(tabB.document.cos.decodeStreamData(stamp.normalAppearance!));
       // the appearance *draws* the captured form - it is vector, not an image
       expect(ap, contains('/Cap Do'));
     });
@@ -194,10 +254,10 @@ void main() {
     test('the shared clipboard survives closing the source tab', () {
       SharedPreferences.setMockInitialValues({});
       final clip = PdfSnapshotClipboard();
-      final tabA = PdfEditingController(buildMultiPagePdf(1),
-          snapshotClipboard: clip);
-      final tabB = PdfEditingController(buildMultiPagePdf(1),
-          snapshotClipboard: clip);
+      final tabA =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
+      final tabB =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
       addTearDown(tabB.dispose);
 
       tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
@@ -282,6 +342,9 @@ void main() {
       expect(captured, isNotNull);
       expect(captured!.pageIndex, 0);
       expect(captured!.pngBytes, isNotEmpty);
+      final pdf = PdfDocument.open(captured!.pdfBytes);
+      expect(pdf.pageCount, 1);
+      expect(pdf.page(0).mediaBox.width, captured!.vector.displayWidth);
       // PNG magic number
       expect(captured!.pngBytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
       // the vector half pastes back into the document

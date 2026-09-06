@@ -738,8 +738,7 @@ void main() {
           find.byKey(const ValueKey('pdf-bookmark-title')), 'Chapter 1');
       await tester.enterText(
           find.byKey(const ValueKey('pdf-bookmark-page')), '2');
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-save')),
-          kind: PointerDeviceKind.mouse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
       expect(editing.outline.items.single.title, 'Chapter 1');
@@ -750,8 +749,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(
           find.byKey(const ValueKey('pdf-bookmark-title')), 'Renamed');
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-save')),
-          kind: PointerDeviceKind.mouse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
       expect(editing.outline.items.single.title, 'Renamed');

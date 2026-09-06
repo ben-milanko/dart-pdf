@@ -144,19 +144,19 @@ class OnDeviceOcr {
         key: const ValueKey('ocr-download-confirm'),
         title: Text(appL10n(context).ocrDownloadPromptTitle),
         content: Text(
-          appL10n(context)
-              .ocrDownloadPromptBody(sizeText, _model.displayName),
+          appL10n(context).ocrDownloadPromptBody(sizeText, _model.displayName),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(appL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('ocr-download-confirm-ok'),
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(appL10n(context).ocrDownload),
-          ),
+          )),
         ],
       ),
     );
