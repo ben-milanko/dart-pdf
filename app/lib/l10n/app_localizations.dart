@@ -1,10 +1,29 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
-import 'app_localizations_en.dart' deferred as app_localizations_en;
+import 'app_localizations_ar.dart';
+import 'app_localizations_de.dart';
+import 'app_localizations_en.dart';
+import 'app_localizations_es.dart';
+import 'app_localizations_fr.dart';
+import 'app_localizations_hi.dart';
+import 'app_localizations_id.dart';
+import 'app_localizations_it.dart';
+import 'app_localizations_ja.dart';
+import 'app_localizations_ko.dart';
+import 'app_localizations_nl.dart';
+import 'app_localizations_pl.dart';
+import 'app_localizations_pt.dart';
+import 'app_localizations_ru.dart';
+import 'app_localizations_th.dart';
+import 'app_localizations_tr.dart';
+import 'app_localizations_uk.dart';
+import 'app_localizations_vi.dart';
+import 'app_localizations_zh.dart';
 
 // ignore_for_file: type=lint
 
@@ -91,7 +110,28 @@ abstract class AppLocalizations {
   ];
 
   /// A list of this localizations delegate's supported locales.
-  static const List<Locale> supportedLocales = <Locale>[Locale('en')];
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
+    Locale('de'),
+    Locale('en'),
+    Locale('es'),
+    Locale('fr'),
+    Locale('hi'),
+    Locale('id'),
+    Locale('it'),
+    Locale('ja'),
+    Locale('ko'),
+    Locale('nl'),
+    Locale('pl'),
+    Locale('pt'),
+    Locale('ru'),
+    Locale('th'),
+    Locale('tr'),
+    Locale('uk'),
+    Locale('vi'),
+    Locale('zh'),
+    Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
+  ];
 
   /// Generic button that adds a new item.
   ///
@@ -723,6 +763,24 @@ abstract class AppLocalizations {
   /// **'New document…'**
   String get editorMenuNewDocument;
 
+  /// Experimental desktop app menu item to open another native editor window.
+  ///
+  /// In en, this message translates to:
+  /// **'New window'**
+  String get editorMenuNewWindow;
+
+  /// Desktop tab context-menu item that moves the document into another native window.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to new window'**
+  String get editorMoveToNewWindow;
+
+  /// Toast shown when the experimental native window could not be created.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t open a new window'**
+  String get editorUnableToOpenNewWindow;
+
   /// App menu item to run on-device OCR over the document.
   ///
   /// In en, this message translates to:
@@ -747,23 +805,137 @@ abstract class AppLocalizations {
   /// **'Save as…'**
   String get editorMenuSaveAs;
 
+  /// App menu item (mobile/tablet) to scan pages with the device camera into a new document.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan to new document…'**
+  String get editorMenuScanDocument;
+
+  /// Menu action to pick a PDF and insert its pages after the current page in the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert document…'**
+  String get editorMenuInsertDocument;
+
+  /// App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert scan…'**
+  String get editorMenuInsertScan;
+
+  /// Toast shown when a device document scan fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t scan the document.'**
+  String get editorScanFailed;
+
+  /// Toast shown after scanned pages are inserted into the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Inserted scanned pages.'**
+  String get editorInsertedScan;
+
   /// App menu item to open the settings screen.
   ///
   /// In en, this message translates to:
   /// **'Settings'**
   String get editorMenuSettings;
 
-  /// App menu item to leave read-only mode and allow editing.
+  /// Section header in the app menu over the create/open actions.
   ///
   /// In en, this message translates to:
-  /// **'Switch to edit mode'**
-  String get editorMenuSwitchToEdit;
+  /// **'File'**
+  String get editorMenuSectionFile;
 
-  /// App menu item to switch the app into read-only mode.
+  /// Section header in the app menu over actions on the open document.
   ///
   /// In en, this message translates to:
-  /// **'Switch to read-only'**
-  String get editorMenuSwitchToReadOnly;
+  /// **'This document'**
+  String get editorMenuSectionDocument;
+
+  /// Section header in the app menu over app-level entries.
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get editorMenuSectionApp;
+
+  /// Label of the read-only switch row in the app menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only'**
+  String get editorMenuReadOnly;
+
+  /// App menu row that opens the command palette.
+  ///
+  /// In en, this message translates to:
+  /// **'Search actions…'**
+  String get editorMenuSearchActions;
+
+  /// Placeholder in the command palette search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search actions, tools and panels'**
+  String get paletteHint;
+
+  /// Shown when no command matches what was typed.
+  ///
+  /// In en, this message translates to:
+  /// **'No command matches'**
+  String get paletteNoMatch;
+
+  /// Keyboard hints in the palette footer. Keep the key glyphs.
+  ///
+  /// In en, this message translates to:
+  /// **'↑↓ move · ⏎ run · esc close'**
+  String get paletteKeyHints;
+
+  /// How many commands the palette indexes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} commands'**
+  String paletteCount(int count);
+
+  /// How many commands match, out of the whole index.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {total}'**
+  String paletteCountFiltered(int count, int total);
+
+  /// Palette result label: the command lives in the app menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get paletteSourceMenu;
+
+  /// Palette result label: the command shows or hides a panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Panel'**
+  String get paletteSourcePanel;
+
+  /// Palette result label: the command is a view option.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get paletteSourceView;
+
+  /// Palette result label: the command opens a recent file.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get paletteSourceFile;
+
+  /// Palette result label for an editing tool, e.g. "Shapes tool".
+  ///
+  /// In en, this message translates to:
+  /// **'{group} tool'**
+  String paletteSourceTool(String group);
+
+  /// Why a palette command is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs an open document'**
+  String get paletteNeedsDocument;
 
   /// Toast reporting a PDF named action that the viewer does not navigate.
   ///
@@ -819,6 +991,12 @@ abstract class AppLocalizations {
   /// **'Open Recent'**
   String get editorOpenRecent;
 
+  /// Open Recent submenu action that opens the full recent-files browser.
+  ///
+  /// In en, this message translates to:
+  /// **'View all recent files…'**
+  String get editorViewAllRecentFiles;
+
   /// Tooltip on the mobile app-bar button that shows the open tabs sheet.
   ///
   /// In en, this message translates to:
@@ -872,6 +1050,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'PDF'**
   String get editorPreviewPdf;
+
+  /// Toast shown at launch when documents with unsaved edits were restored after a crash.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Recovered unsaved changes from your last session.} other{Recovered unsaved changes in {count} documents from your last session.}}'**
+  String editorRecoveredUnsavedChanges(int count);
 
   /// Toast confirming a just-placed signature was undone.
   ///
@@ -932,6 +1116,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Later'**
   String get editorUpdateLater;
+
+  /// Button that downloads and installs the newer release in place (desktop), instead of opening a browser download.
+  ///
+  /// In en, this message translates to:
+  /// **'Update now'**
+  String get updateInstallNow;
+
+  /// Title of the dialog shown while an in-app update is downloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update'**
+  String get updateDownloadingTitle;
+
+  /// Status shown before download progress is known.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing…'**
+  String get updatePreparing;
+
+  /// Download progress line with the percentage complete.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading… {percent}%'**
+  String updateDownloadingPercent(int percent);
+
+  /// Status shown after the AppImage is replaced, just before the app relaunches.
+  ///
+  /// In en, this message translates to:
+  /// **'Restarting to finish the update…'**
+  String get updateRestarting;
+
+  /// Snackbar shown after a macOS/Windows update is downloaded and handed to the OS installer.
+  ///
+  /// In en, this message translates to:
+  /// **'Update downloaded. Opening the installer…'**
+  String get updateHandedOff;
+
+  /// Snackbar shown when an in-app update download or install fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed: {error}'**
+  String updateFailed(String error);
 
   /// Tooltip on the desktop button that opens the all-tabs grid dialog.
   ///
@@ -1131,6 +1357,84 @@ abstract class AppLocalizations {
   /// **'Printing'**
   String get printDlgTitle;
 
+  /// Range option in the print preview: print every page.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get printPreviewAll;
+
+  /// Range option in the print preview: print only the page the viewer is on.
+  ///
+  /// In en, this message translates to:
+  /// **'Current'**
+  String get printPreviewCurrent;
+
+  /// Label of the first page of the print range.
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get printPreviewFrom;
+
+  /// Tooltip on the print preview's next-page button.
+  ///
+  /// In en, this message translates to:
+  /// **'Next page'**
+  String get printPreviewNextPage;
+
+  /// Which page of the document the print preview is showing.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} of {total}'**
+  String printPreviewPageOf(int page, int total);
+
+  /// Tooltip on the print preview's previous-page button.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous page'**
+  String get printPreviewPreviousPage;
+
+  /// Button in the print preview that starts the print job.
+  ///
+  /// In en, this message translates to:
+  /// **'Print'**
+  String get printPreviewPrint;
+
+  /// Range option in the print preview: print the typed page span.
+  ///
+  /// In en, this message translates to:
+  /// **'Range'**
+  String get printPreviewRange;
+
+  /// Error shown when the typed print range is not a range of pages.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a page range between 1 and {total}.'**
+  String printPreviewRangeError(int total);
+
+  /// How many pages the chosen print range covers.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages to print: {count}'**
+  String printPreviewSelection(int count);
+
+  /// Title of the dialog previewing what a print job will look like.
+  ///
+  /// In en, this message translates to:
+  /// **'Print preview'**
+  String get printPreviewTitle;
+
+  /// Label of the last page of the print range.
+  ///
+  /// In en, this message translates to:
+  /// **'To'**
+  String get printPreviewTo;
+
+  /// Shown in place of the preview when a page could not be rendered.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview unavailable'**
+  String get printPreviewUnavailable;
+
   /// Generic button/tooltip to redo the last undone change.
   ///
   /// In en, this message translates to:
@@ -1178,6 +1482,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Check now'**
   String get settingsCheckNow;
+
+  /// Section header / label for the UI language picker in settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// Language picker option that follows the device's language instead of a fixed choice.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsLanguageSystem;
 
   /// Status line shown while an update check is in progress.
   ///
@@ -1293,6 +1609,18 @@ abstract class AppLocalizations {
   /// **'You have {name} {version}.'**
   String settingsUpdateIdle(String name, String version);
 
+  /// Windows-only setting that opts into rolling test builds from main.
+  ///
+  /// In en, this message translates to:
+  /// **'Nightly updates'**
+  String get settingsNightlyUpdates;
+
+  /// Explains the risk and behavior of the nightly update channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Receive automatic update notifications for unsigned Windows test builds from main.'**
+  String get settingsNightlyUpdatesSubtitle;
+
   /// Section header for the software-update block in settings.
   ///
   /// In en, this message translates to:
@@ -1329,6 +1657,18 @@ abstract class AppLocalizations {
   /// **'Recent'**
   String get welcomeRecent;
 
+  /// Hint for the recent-files filename search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search recent files'**
+  String get welcomeSearchRecentFiles;
+
+  /// Empty state when recent-file search has no matches.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent files match your search'**
+  String get welcomeNoMatchingRecentFiles;
+
   /// Tooltip on the button that removes an entry from the recent-files list.
   ///
   /// In en, this message translates to:
@@ -1340,6 +1680,528 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tap to reopen'**
   String get welcomeTapToReopen;
+
+  /// Tooltip on the toggle that shows recent documents as a thumbnail grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid view'**
+  String get welcomeViewAsGrid;
+
+  /// Tooltip on the toggle that shows recent documents as a list.
+  ///
+  /// In en, this message translates to:
+  /// **'List view'**
+  String get welcomeViewAsList;
+
+  /// One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.
+  ///
+  /// In en, this message translates to:
+  /// **'{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}'**
+  String settingsDefaultAppSubtitle(String platform);
+
+  /// Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'{platform, select, web{Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.} windows{Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.} macos{In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.} linux{Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.} android{Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.} ios{iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.} other{Use the system settings for file handlers to associate PDF documents with DartPDF.}}'**
+  String settingsDefaultAppInstructions(String platform);
+
+  /// OCR progress chip while the recognition model downloads (size unknown).
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading OCR model…'**
+  String get ocrChipDownloadingModel;
+
+  /// OCR progress chip while the recognition model downloads, with percent.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading model {percent}%'**
+  String ocrChipDownloadingModelPercent(int percent);
+
+  /// OCR progress chip while recognizing text, showing page of total.
+  ///
+  /// In en, this message translates to:
+  /// **'OCR {page}/{pageCount}'**
+  String ocrChipRecognising(int page, int pageCount);
+
+  /// OCR progress chip while assembling the recognized PDF after the last page.
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing OCR…'**
+  String get ocrChipFinishing;
+
+  /// File-picker filter label for PDF files.
+  ///
+  /// In en, this message translates to:
+  /// **'PDF documents'**
+  String get fileTypePdf;
+
+  /// File-picker filter label for PNG/JPEG image files.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get fileTypeImages;
+
+  /// File-picker filter label for exported custom-stamp JSON bundles.
+  ///
+  /// In en, this message translates to:
+  /// **'DartPDF stamps'**
+  String get fileTypeStampBundle;
+
+  /// File-picker filter label when choosing a private key to sign with.
+  ///
+  /// In en, this message translates to:
+  /// **'RSA private keys'**
+  String get appSigKeyFileType;
+
+  /// File-picker filter label when choosing signing certificates.
+  ///
+  /// In en, this message translates to:
+  /// **'X.509 certificates'**
+  String get appSigCertificateFileType;
+
+  /// Signing error: the user picked a key but no certificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one X.509 certificate.'**
+  String get appSigErrorNoCertificateSelected;
+
+  /// Signing error: a chosen certificate file could not be parsed as X.509.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate {index} is not valid X.509.'**
+  String appSigErrorInvalidCertificate(int index);
+
+  /// Signing error: the key pairs with none of the chosen certificates.
+  ///
+  /// In en, this message translates to:
+  /// **'The private key does not match any selected RSA certificate.'**
+  String get appSigErrorKeyCertificateMismatch;
+
+  /// Signing error: the chosen private key is an encrypted PEM.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.'**
+  String get appSigErrorEncryptedKeyUnsupported;
+
+  /// Signing error: the chosen private key could not be read as RSA.
+  ///
+  /// In en, this message translates to:
+  /// **'The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.'**
+  String get appSigErrorKeyNotRsa;
+
+  /// Signing error: the chosen files contained no X.509 certificate.
+  ///
+  /// In en, this message translates to:
+  /// **'No X.509 certificates were found.'**
+  String get appSigErrorNoCertificateFound;
+
+  /// Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Take photo'**
+  String get imageSourceTakePhoto;
+
+  /// Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose file'**
+  String get imageSourceChooseFile;
+
+  /// Toast shown when the camera cannot be opened - no camera on the device, or access refused.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t take a photo'**
+  String get imageSourceCameraFailed;
+
+  /// Opened PDF snapshot cache settings: settingsCachedDocuments
+  ///
+  /// In en, this message translates to:
+  /// **'Cached documents'**
+  String get settingsCachedDocuments;
+
+  /// Opened PDF snapshot cache settings: settingsCacheUsage
+  ///
+  /// In en, this message translates to:
+  /// **'{used} MiB of {limit} MiB used'**
+  String settingsCacheUsage(String used, String limit);
+
+  /// Opened PDF snapshot cache settings: settingsCacheExplanation
+  ///
+  /// In en, this message translates to:
+  /// **'Files over {limit} MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.'**
+  String settingsCacheExplanation(String limit);
+
+  /// Opened PDF snapshot cache settings: settingsClearCachedDocuments
+  ///
+  /// In en, this message translates to:
+  /// **'Clear cached documents'**
+  String get settingsClearCachedDocuments;
+
+  /// Opened PDF snapshot cache settings: settingsCacheUnavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Cache size unavailable'**
+  String get settingsCacheUnavailable;
+
+  /// Opened PDF snapshot cache settings: settingsCacheClearFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not clear cached documents. Try again.'**
+  String get settingsCacheClearFailed;
+
+  /// Print settings dialog: Printer
+  ///
+  /// In en, this message translates to:
+  /// **'Printer'**
+  String get printOptionsPrinter;
+
+  /// Print settings dialog: Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.'**
+  String get printOptionsNativePrinter;
+
+  /// Print settings dialog: Pages
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get printOptionsPages;
+
+  /// Print settings dialog: Selected
+  ///
+  /// In en, this message translates to:
+  /// **'Selected'**
+  String get printOptionsSelected;
+
+  /// Print settings dialog: Pages (for example, 1, 3-5)
+  ///
+  /// In en, this message translates to:
+  /// **'Pages (for example, 1, 3-5)'**
+  String get printOptionsPageRange;
+
+  /// Print settings dialog: Add files…
+  ///
+  /// In en, this message translates to:
+  /// **'Add files…'**
+  String get printOptionsAddFiles;
+
+  /// Print settings dialog: Could not add the selected files.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not add the selected files.'**
+  String get printOptionsAddFailed;
+
+  /// Print settings dialog: Get window
+  ///
+  /// In en, this message translates to:
+  /// **'Get window'**
+  String get printOptionsGetWindow;
+
+  /// Print settings dialog: Clear window
+  ///
+  /// In en, this message translates to:
+  /// **'Clear window'**
+  String get printOptionsClearWindow;
+
+  /// Print settings dialog: Drag a rectangle on this source page to choose the area to print.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag a rectangle on this source page to choose the area to print.'**
+  String get printOptionsWindowHint;
+
+  /// Print settings dialog: Paper
+  ///
+  /// In en, this message translates to:
+  /// **'Paper'**
+  String get printOptionsPaper;
+
+  /// Print settings dialog: Paper size
+  ///
+  /// In en, this message translates to:
+  /// **'Paper size'**
+  String get printOptionsPaperSize;
+
+  /// Print settings dialog: Use document page size
+  ///
+  /// In en, this message translates to:
+  /// **'Use document page size'**
+  String get printOptionsPageSize;
+
+  /// Print settings dialog: Orientation
+  ///
+  /// In en, this message translates to:
+  /// **'Orientation'**
+  String get printOptionsOrientation;
+
+  /// Print settings dialog: Auto
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get printOptionsAuto;
+
+  /// Print settings dialog: Portrait
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get printOptionsPortrait;
+
+  /// Print settings dialog: Landscape
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get printOptionsLandscape;
+
+  /// Print settings dialog: Copies
+  ///
+  /// In en, this message translates to:
+  /// **'Copies'**
+  String get printOptionsCopies;
+
+  /// Print settings dialog: Collate
+  ///
+  /// In en, this message translates to:
+  /// **'Collate'**
+  String get printOptionsCollate;
+
+  /// Print settings dialog: Reverse page order
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse page order'**
+  String get printOptionsReverse;
+
+  /// Print settings dialog: Page layout
+  ///
+  /// In en, this message translates to:
+  /// **'Page layout'**
+  String get printOptionsLayout;
+
+  /// Print settings dialog: Page scaling
+  ///
+  /// In en, this message translates to:
+  /// **'Page scaling'**
+  String get printOptionsScaling;
+
+  /// Print settings dialog: None (actual size)
+  ///
+  /// In en, this message translates to:
+  /// **'None (actual size)'**
+  String get printOptionsScaleNone;
+
+  /// Print settings dialog: Fit to paper
+  ///
+  /// In en, this message translates to:
+  /// **'Fit to paper'**
+  String get printOptionsFitPaper;
+
+  /// Print settings dialog: Reduce to paper
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce to paper'**
+  String get printOptionsReducePaper;
+
+  /// Print settings dialog: Fit to margins
+  ///
+  /// In en, this message translates to:
+  /// **'Fit to margins'**
+  String get printOptionsFitMargins;
+
+  /// Print settings dialog: Reduce to margins
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce to margins'**
+  String get printOptionsReduceMargins;
+
+  /// Print settings dialog: Custom scale
+  ///
+  /// In en, this message translates to:
+  /// **'Custom scale'**
+  String get printOptionsCustomScale;
+
+  /// Print settings dialog: Multiple pages per sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Multiple pages per sheet'**
+  String get printOptionsMultiple;
+
+  /// Print settings dialog: Scale (%)
+  ///
+  /// In en, this message translates to:
+  /// **'Scale (%)'**
+  String get printOptionsScalePercent;
+
+  /// Print settings dialog: Margins (pt)
+  ///
+  /// In en, this message translates to:
+  /// **'Margins (pt)'**
+  String get printOptionsMargin;
+
+  /// Print settings dialog: Pages per sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Pages per sheet'**
+  String get printOptionsPagesPerSheet;
+
+  /// Print settings dialog: Page order
+  ///
+  /// In en, this message translates to:
+  /// **'Page order'**
+  String get printOptionsPageOrder;
+
+  /// Print settings dialog: Horizontal
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal'**
+  String get printOptionsHorizontal;
+
+  /// Print settings dialog: Horizontal reversed
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal reversed'**
+  String get printOptionsHorizontalReverse;
+
+  /// Print settings dialog: Vertical
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical'**
+  String get printOptionsVertical;
+
+  /// Print settings dialog: Vertical reversed
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical reversed'**
+  String get printOptionsVerticalReverse;
+
+  /// Print settings dialog: Print page borders
+  ///
+  /// In en, this message translates to:
+  /// **'Print page borders'**
+  String get printOptionsBorder;
+
+  /// Print settings dialog: Rotation (clockwise)
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation (clockwise)'**
+  String get printOptionsRotation;
+
+  /// Print settings dialog: None
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get printOptionsNoRotation;
+
+  /// Print settings dialog: Center on paper
+  ///
+  /// In en, this message translates to:
+  /// **'Center on paper'**
+  String get printOptionsCenter;
+
+  /// Print settings dialog: Offset right (pt)
+  ///
+  /// In en, this message translates to:
+  /// **'Offset right (pt)'**
+  String get printOptionsOffsetX;
+
+  /// Print settings dialog: Offset down (pt)
+  ///
+  /// In en, this message translates to:
+  /// **'Offset down (pt)'**
+  String get printOptionsOffsetY;
+
+  /// Print settings dialog: Print contents
+  ///
+  /// In en, this message translates to:
+  /// **'Print contents'**
+  String get printOptionsContents;
+
+  /// Print settings dialog: Document and markups
+  ///
+  /// In en, this message translates to:
+  /// **'Document and markups'**
+  String get printOptionsDocumentAndMarkups;
+
+  /// Print settings dialog: Document only
+  ///
+  /// In en, this message translates to:
+  /// **'Document only'**
+  String get printOptionsDocumentOnly;
+
+  /// Print settings dialog: Markups only
+  ///
+  /// In en, this message translates to:
+  /// **'Markups only'**
+  String get printOptionsMarkupsOnly;
+
+  /// Print settings dialog: Dim page content
+  ///
+  /// In en, this message translates to:
+  /// **'Dim page content'**
+  String get printOptionsDimPage;
+
+  /// Print settings dialog: Dim markups
+  ///
+  /// In en, this message translates to:
+  /// **'Dim markups'**
+  String get printOptionsDimMarkups;
+
+  /// Print settings dialog: Print visible hyperlinks
+  ///
+  /// In en, this message translates to:
+  /// **'Print visible hyperlinks'**
+  String get printOptionsHyperlinks;
+
+  /// Print settings dialog: Defaults
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults'**
+  String get printOptionsDefaults;
+
+  /// Print settings dialog: Enter valid numbers before printing.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter valid numbers before printing.'**
+  String get printOptionsInvalidNumber;
+
+  /// Print settings dialog: Invalid value
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid value'**
+  String get printOptionsInvalidValue;
+
+  /// Print settings dialog: Red lines show the margins; they do not print.
+  ///
+  /// In en, this message translates to:
+  /// **'Red lines show the margins; they do not print.'**
+  String get printOptionsMarginGuide;
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Window: {width} × {height} pt'**
+  String printOptionsAreaSize(String width, String height);
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Source: {width} × {height} pt'**
+  String printOptionsSourceSize(String width, String height);
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Sheet: {width} × {height} pt'**
+  String printOptionsSheetSize(String width, String height);
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Sheet {sheet} of {total}'**
+  String printOptionsSheetOf(int sheet, int total);
+
+  /// Print settings validation when the sheet cannot be composed.
+  ///
+  /// In en, this message translates to:
+  /// **'This layout could not be prepared. Check the paper size, margins and scale.'**
+  String get printOptionsInvalidLayout;
 }
 
 class _AppLocalizationsDelegate
@@ -1348,24 +2210,89 @@ class _AppLocalizationsDelegate
 
   @override
   Future<AppLocalizations> load(Locale locale) {
-    return lookupAppLocalizations(locale);
+    return SynchronousFuture<AppLocalizations>(lookupAppLocalizations(locale));
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['en'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+        'ar',
+        'de',
+        'en',
+        'es',
+        'fr',
+        'hi',
+        'id',
+        'it',
+        'ja',
+        'ko',
+        'nl',
+        'pl',
+        'pt',
+        'ru',
+        'th',
+        'tr',
+        'uk',
+        'vi',
+        'zh'
+      ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
-Future<AppLocalizations> lookupAppLocalizations(Locale locale) {
+AppLocalizations lookupAppLocalizations(Locale locale) {
+  // Lookup logic when language+script codes are specified.
+  switch (locale.languageCode) {
+    case 'zh':
+      {
+        switch (locale.scriptCode) {
+          case 'Hant':
+            return AppLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return AppLocalizationsAr();
+    case 'de':
+      return AppLocalizationsDe();
     case 'en':
-      return app_localizations_en
-          .loadLibrary()
-          .then((dynamic _) => app_localizations_en.AppLocalizationsEn());
+      return AppLocalizationsEn();
+    case 'es':
+      return AppLocalizationsEs();
+    case 'fr':
+      return AppLocalizationsFr();
+    case 'hi':
+      return AppLocalizationsHi();
+    case 'id':
+      return AppLocalizationsId();
+    case 'it':
+      return AppLocalizationsIt();
+    case 'ja':
+      return AppLocalizationsJa();
+    case 'ko':
+      return AppLocalizationsKo();
+    case 'nl':
+      return AppLocalizationsNl();
+    case 'pl':
+      return AppLocalizationsPl();
+    case 'pt':
+      return AppLocalizationsPt();
+    case 'ru':
+      return AppLocalizationsRu();
+    case 'th':
+      return AppLocalizationsTh();
+    case 'tr':
+      return AppLocalizationsTr();
+    case 'uk':
+      return AppLocalizationsUk();
+    case 'vi':
+      return AppLocalizationsVi();
+    case 'zh':
+      return AppLocalizationsZh();
   }
 
   throw FlutterError(

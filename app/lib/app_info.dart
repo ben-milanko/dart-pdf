@@ -11,6 +11,11 @@ class AppInfo {
   static const tagline = 'A fully native Flutter PDF editor';
   static const sourceUrl = 'https://github.com/ben-milanko/dart-pdf';
 
+  /// Git commit supplied by CI through `--dart-define=PDF_BUILD_COMMIT=...`.
+  /// Release builds without the define stay honest rather than inventing one.
+  static const buildCommit =
+      String.fromEnvironment('PDF_BUILD_COMMIT', defaultValue: 'unknown');
+
   static String version = '1.4.1';
 
   /// Build number from the same artifact (`+18` in `2.0.0+18`). Empty when

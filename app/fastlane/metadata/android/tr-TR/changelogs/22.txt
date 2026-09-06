@@ -1,0 +1,4 @@
+3.1.1’deki yenilikler
+
+• Büyük veya görsel açıdan yoğun PDF’lerde daha az kare kaybıyla daha akıcı kaydırma.
+• Hızlı kaydırırken sayfa önizlemeleri görünür kalır, ardından tam ayrıntılı ve net biçimde işlenir.

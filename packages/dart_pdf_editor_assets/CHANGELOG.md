@@ -1,4 +1,80 @@
-## 2.1.0
+# Changelog
+
+## 4.2.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 4.2.0 and
+  align the optional assets package with the lockstep minor release.
+
+## 4.1.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 4.1.0 and
+  align the optional assets package with the lockstep minor release.
+
+## 4.0.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 4.0.0 and
+  align the optional assets package with the lockstep major release.
+
+## 3.8.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.8.0.
+
+## 3.7.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.7.0.
+
+## 3.6.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.6.0.
+- Bundle TeX Gyre Adventor regular and bold as metric-compatible fallbacks for
+  unembedded Century Gothic and Avant Garde text.
+
+## 3.5.1
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.5.1 and
+  align the optional asset package with the lockstep patch release.
+
+## 3.5.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.5.0 and
+  align the optional asset package with the lockstep release.
+
+## 3.4.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.4.0.
+
+## 3.3.1
+
+- Lockstep patch release to align the optional bundled assets with
+  `dart_pdf_editor` 3.3.1.
+
+## 3.3.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.3.0.
+
+## 3.2.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.2.0.
+
+## 3.1.1
+
+- Lockstep patch release to align the optional bundled assets with
+  `dart_pdf_editor` 3.1.1.
+
+## 3.1.0
+
+- The bundled web render worker is now generated at build time by
+  `dart_pdf_editor`'s `build_web_worker` tool instead of being committed as a
+  prebuilt file, so the asset always matches the editor sources (#582). The
+  worker gained the streaming-partial-record and off-thread text-extraction
+  protocols (see `dart_pdf_editor` 3.1.0) (#564, #396).
+- The bundled editor fonts defer off app cold start: they register their byte
+  loaders without reading font data until first use (#569).
+
+## 3.0.0
 
 - Initial release. Holds the optional `dart_pdf_editor` bundled assets - the six
   editor fonts and the prebuilt web render worker - split out of

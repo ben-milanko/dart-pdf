@@ -101,4 +101,30 @@ void main() {
     await tester.pump();
     expect(fieldPainter(tester), isNull);
   });
+
+  testWidgets(
+      'flattening clears cached field highlights and undo restores them',
+      (tester) async {
+    final editing = PdfEditingController(buildAcroFormPdf());
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(fieldPainter(tester), isNotNull);
+
+    expect(editing.flattenDocument(), isTrue);
+    await tester.pump();
+    expect(fieldPainter(tester), isNull);
+
+    editing.undo();
+    await tester.pump();
+    expect(fieldPainter(tester), isNotNull);
+  });
 }

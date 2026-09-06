@@ -16,6 +16,7 @@ import 'perf_log.dart';
 import 'region_replay_index.dart';
 import 'render_trace.dart';
 import 'render_worker.dart';
+import 'render_worker_ranges.dart';
 
 // Worker lifecycle diagnostics, routed through PdfPerfLog so they ride the same
 // zero-overhead toggle as the rest of the perf trace (a single bool branch when
@@ -71,7 +72,8 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 /// [web.Worker] fails to construct - this degrades to a null worker
 /// ([isActive] false), so hosts can force local rendering. See
 /// `doc/render_worker_web.md`.
-PdfRenderWorker startRenderWorker(Uint8List bytes) {
+PdfRenderWorker startRenderWorker(Uint8List bytes,
+    {List<int>? populatedRanges}) {
   final url = pdfRenderWorkerScriptUrl;
   _wlog('startRenderWorker url=$url bytes=${bytes.length}');
   if (url == null) {
@@ -79,7 +81,8 @@ PdfRenderWorker startRenderWorker(Uint8List bytes) {
     return _WebRenderWorker.disabled();
   }
   try {
-    return _WebRenderWorker(bytes, url);
+    return _WebRenderWorker(
+        bytes, url, renderWorkerPopulatedRanges(bytes, populatedRanges));
   } catch (e) {
     // Worker construction can throw (bad URL, blocked by CSP): fall back.
     _wlog('construction threw: $e - falling back to local');
@@ -164,7 +167,8 @@ void disposePrewarmedRenderWorkers() {
 }
 
 class _WebRenderWorker extends PdfRenderWorker {
-  _WebRenderWorker(Uint8List bytes, String scriptUrl) {
+  _WebRenderWorker(
+      Uint8List bytes, String scriptUrl, List<int>? populatedRanges) {
     // Adopt a pre-booted worker (its fetch/compile/boot already overlapped the
     // file pick) when one is available, else construct on demand as before.
     final worker = _prewarmedWorkers.isNotEmpty
@@ -181,6 +185,10 @@ class _WebRenderWorker extends PdfRenderWorker {
     _wlog('worker constructed from $scriptUrl');
 
     final init = JSObject()..setProperty('kind'.toJS, 'init'.toJS);
+    if (populatedRanges != null) {
+      init.setProperty('populatedRanges'.toJS,
+          populatedRanges.map((value) => value.toJS).toList().toJS);
+    }
     init.setProperty('timings'.toJS, (_perfClock != null).toJS);
     init.setProperty(
       'reuseTranscripts'.toJS,
@@ -223,15 +231,15 @@ class _WebRenderWorker extends PdfRenderWorker {
   static int _nextWorkerNumber = 0;
 
   final int _workerNumber = _nextWorkerNumber++;
-  final Stopwatch? _perfClock = PdfPerfLog.enabled
-      ? (Stopwatch()..start())
-      : null;
+  final Stopwatch? _perfClock =
+      PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
 
   web.Worker? _worker;
   final _queue = <_WebPending>[];
   _WebPending? _inFlight;
   int _nextId = 0;
   int _seq = 0;
+  int _nextSurfaceId = 0;
   bool _disposed = false;
   bool _failed = false;
   // The worker posts 'ready' once it has opened the document; records sent
@@ -256,6 +264,18 @@ class _WebRenderWorker extends PdfRenderWorker {
   @override
   PdfRenderTrace? get lastRenderTrace => _lastRenderTrace;
 
+  @override
+  bool get supportsPageSurfaces => isActive;
+
+  @override
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) {
+    if (!isActive) return null;
+    return _WebPageSurfaceSession(this, _nextSurfaceId++, surface);
+  }
+
   void _onMessage(web.MessageEvent event) {
     final data = event.data as JSObject?;
     if (data == null) return;
@@ -264,10 +284,24 @@ class _WebRenderWorker extends PdfRenderWorker {
       final shared =
           (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
       final openUs = (data.getProperty('openUs'.toJS) as JSNumber?)?.toDartInt;
+      final browserImageDecode =
+          (data.getProperty('browserImageDecode'.toJS) as JSBoolean?)?.toDart;
+      final browserImageDecodeMissing =
+          (data.getProperty('browserImageDecodeMissing'.toJS) as JSString?)
+              ?.toDart;
+      // Absent on a worker bundle built before #451's decode reuse. Logged as
+      // `imageDecodeCache=no` rather than omitted, so the line answers the
+      // question instead of leaving it to be inferred from a missing field.
+      final imageDecodeCache =
+          (data.getProperty('imageDecodeCache'.toJS) as JSBoolean?)?.toDart ??
+              false;
       final startupUs = _perfClock?.elapsedMicroseconds;
       _wlog(
         'ready worker=$_workerNumber '
         '(worker opened the document, sharedBytes=$shared)'
+        '${browserImageDecode == null ? '' : ' browserImageDecode=$browserImageDecode'}'
+        '${browserImageDecodeMissing == null ? '' : ' missing=$browserImageDecodeMissing'}'
+        ' imageDecodeCache=${imageDecodeCache ? 'yes' : 'no'}'
         '${startupUs == null ? '' : ' startup=${_traceMs(startupUs)}'}'
         '${openUs == null ? '' : ' open=${_traceMs(openUs)}'}',
       );
@@ -283,6 +317,21 @@ class _WebRenderWorker extends PdfRenderWorker {
       final active =
           (data.getProperty('activeId'.toJS) as JSNumber?)?.toDartInt;
       _wlog('ignored stale cancel target=$target active=$active');
+      return;
+    }
+    if (kind == 'partial') {
+      // A progressive linework prefix of a record still in flight (#564).
+      // Forward it to the request's sink WITHOUT clearing _inFlight or completing
+      // the completer; the final decoded buffer still arrives on the ordinary
+      // 'result' path. Drop a partial for a request that is no longer in flight
+      // (disposed, or requeued under a new id after preemption).
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final request = _inFlight;
+      if (request == null || request.id != id) return;
+      final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
+      if (buffer != null) {
+        request.onPartialBytes?.call(buffer.toDart.asUint8List());
+      }
       return;
     }
     if (kind != 'result') return;
@@ -313,7 +362,8 @@ class _WebRenderWorker extends PdfRenderWorker {
       '${err == null ? '' : '\n  worker error: $err'}',
     );
     if (buffers == null &&
-        request.kind == _WebRequestKind.record &&
+        (request.kind == _WebRequestKind.record ||
+            request.kind == _WebRequestKind.surface) &&
         request.requeueAfterPreemption &&
         !_disposed) {
       request
@@ -337,6 +387,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
   }) async {
     if (_disposed || _failed) {
       _wlog(
@@ -354,6 +405,20 @@ class _WebRenderWorker extends PdfRenderWorker {
       decodeImages,
       commandLimit,
       imageDecodeRegion,
+      // Deserialize each interim linework buffer on arrival and hand the caller
+      // real commands (#564). A corrupt partial is dropped - the final still
+      // arrives through the completer.
+      onPartial == null
+          ? null
+          : (bytes) {
+              final List<PdfRenderCommand> commands;
+              try {
+                commands = deserializeCommands(bytes);
+              } catch (_) {
+                return;
+              }
+              onPartial(commands);
+            },
     );
     _trace(request);
     _queue.add(request);
@@ -364,9 +429,8 @@ class _WebRenderWorker extends PdfRenderWorker {
       return null;
     }
     try {
-      final deserializeClock = request.trace == null
-          ? null
-          : (Stopwatch()..start());
+      final deserializeClock =
+          request.trace == null ? null : (Stopwatch()..start());
       final commands = deserializeCommands(buffers.single);
       if (deserializeClock != null) {
         deserializeClock.stop();
@@ -413,9 +477,8 @@ class _WebRenderWorker extends PdfRenderWorker {
       return null;
     }
     try {
-      final deserializeClock = request.trace == null
-          ? null
-          : (Stopwatch()..start());
+      final deserializeClock =
+          request.trace == null ? null : (Stopwatch()..start());
       final plan = decodeStripPlan(buffers.single);
       if (deserializeClock != null) {
         deserializeClock.stop();
@@ -468,9 +531,8 @@ class _WebRenderWorker extends PdfRenderWorker {
       return null;
     }
     try {
-      final deserializeClock = request.trace == null
-          ? null
-          : (Stopwatch()..start());
+      final deserializeClock =
+          request.trace == null ? null : (Stopwatch()..start());
       final detail = PdfStripDetail(
         deserializeCommands(buffers[0]),
         decodeStripPlan(buffers[1]),
@@ -517,6 +579,74 @@ class _WebRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
+    if (_disposed || _failed) return null;
+    final request = _WebPending.extractText(priority, _seq++, pageIndex);
+    _trace(request);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
+    try {
+      return deserializePageText(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → extract in-isolate rather than crash
+    }
+  }
+
+  Future<bool> _renderPageSurface(
+    _WebPageSurfaceSession session,
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    required PdfPageSurfaceRegion? region,
+    required int? rotation,
+    required int priority,
+  }) async {
+    if (_disposed || _failed || width <= 0 || height <= 0) return false;
+    final request = _WebPending.surface(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      session.id,
+      session.takeSurface(),
+      width,
+      height,
+      pageColor,
+      region,
+      rotation,
+    );
+    _trace(request);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    final ok = buffers != null &&
+        buffers.length == 1 &&
+        buffers.single.isNotEmpty &&
+        buffers.single.first == 1;
+    request.trace?.log(
+      _workerNumber,
+      request,
+      outcome: ok ? 'presented' : 'declined',
+    );
+    if (ok) _recordTrace(request);
+    return ok;
+  }
+
+  void _releasePageSurface(int id) {
+    final worker = _worker;
+    if (worker == null || _disposed || _failed) return;
+    worker.postMessage(
+      JSObject()
+        ..setProperty('kind'.toJS, 'releaseSurface'.toJS)
+        ..setProperty('surfaceId'.toJS, id.toJS),
+    );
+  }
+
   void _trace(_WebPending request) {
     final clock = _perfClock;
     if (clock == null) return;
@@ -529,7 +659,9 @@ class _WebRenderWorker extends PdfRenderWorker {
   /// prints to the perf console).
   void _recordTrace(_WebPending request) {
     final trace = request.trace;
-    if (trace != null) _lastRenderTrace = trace.toRenderTrace(request.pageIndex);
+    if (trace != null) {
+      _lastRenderTrace = trace.toRenderTrace(request.pageIndex);
+    }
   }
 
   /// Sends the highest-priority queued request to the worker when it is idle
@@ -556,7 +688,8 @@ class _WebRenderWorker extends PdfRenderWorker {
         }
       }
       if (_queue[bestQueued].priority < _inFlight!.priority) {
-        if (_inFlight!.kind == _WebRequestKind.record) {
+        if (_inFlight!.kind == _WebRequestKind.record ||
+            _inFlight!.kind == _WebRequestKind.surface) {
           _inFlight!.requeueAfterPreemption = true;
         }
         worker.postMessage(
@@ -587,6 +720,9 @@ class _WebRenderWorker extends PdfRenderWorker {
       ..setProperty('annotations'.toJS, request.annotations.toJS);
     if (request.kind == _WebRequestKind.record) {
       message.setProperty('decodeImages'.toJS, request.decodeImages.toJS);
+      if (request.onPartialBytes != null) {
+        message.setProperty('wantsPartials'.toJS, true.toJS); // #564
+      }
       final ratio = request.imagePixelRatio;
       if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
       final limit = request.commandLimit;
@@ -624,7 +760,37 @@ class _WebRenderWorker extends PdfRenderWorker {
         ..setProperty('maxCommands'.toJS, request.regionMaxCommands.toJS)
         ..setProperty('buildGrid'.toJS, request.regionBuildGrid.toJS);
     }
-    worker.postMessage(message);
+    if (request.kind == _WebRequestKind.surface) {
+      message
+        ..setProperty('surfaceId'.toJS, request.surfaceId.toJS)
+        ..setProperty('deviceWidth'.toJS, request.deviceWidth.toJS)
+        ..setProperty('deviceHeight'.toJS, request.deviceHeight.toJS)
+        ..setProperty('pageColor'.toJS, request.pageColor.toJS);
+      final surfaceRegion = request.surfaceRegion;
+      if (surfaceRegion != null) {
+        message
+          ..setProperty('regionLeft'.toJS, surfaceRegion.left.toJS)
+          ..setProperty('regionTop'.toJS, surfaceRegion.top.toJS)
+          ..setProperty('regionRight'.toJS, surfaceRegion.right.toJS)
+          ..setProperty('regionBottom'.toJS, surfaceRegion.bottom.toJS)
+          ..setProperty('pixelRatio'.toJS, surfaceRegion.pixelRatio.toJS);
+      }
+      final rotation = request.rotation;
+      if (rotation != null) {
+        message.setProperty('rotation'.toJS, rotation.toJS);
+      }
+      final surface = request.surface;
+      if (surface != null) {
+        final jsSurface = surface as JSObject;
+        message.setProperty('surface'.toJS, jsSurface);
+        request.surface = null;
+        worker.postMessage(message, <JSAny>[jsSurface].toJS);
+      } else {
+        worker.postMessage(message);
+      }
+    } else {
+      worker.postMessage(message);
+    }
 
     // Watchdog: a record that never comes back wedges the single in-flight slot
     // (and so every queued page) forever. Bound it - but a miss frees only THIS
@@ -749,7 +915,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin, detail, regionIndex }
+enum _WebRequestKind { record, bin, detail, regionIndex, extractText, surface }
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
@@ -762,15 +928,21 @@ class _WebPending {
     this.imagePixelRatio,
     this.decodeImages,
     this.commandLimit,
-    this.imageDecodeRegion,
-  ) : kind = _WebRequestKind.record,
-      pageToDevice = null,
-      deviceWidth = 0,
-      deviceHeight = 0,
-      binPixelRatio = 0,
-      slugGlyphs = false,
-      regionMaxCommands = 0,
-      regionBuildGrid = false;
+    this.imageDecodeRegion, [
+    this.onPartialBytes,
+  ])  : kind = _WebRequestKind.record,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        surfaceId = -1,
+        surface = null,
+        pageColor = 0,
+        surfaceRegion = null,
+        rotation = null;
 
   _WebPending.bin(
     this.priority,
@@ -782,13 +954,19 @@ class _WebPending {
     this.deviceHeight,
     this.binPixelRatio,
     this.slugGlyphs,
-  ) : kind = _WebRequestKind.bin,
-      imagePixelRatio = null,
-      decodeImages = false,
-      commandLimit = null,
-      imageDecodeRegion = null,
-      regionMaxCommands = 0,
-      regionBuildGrid = false;
+  )   : kind = _WebRequestKind.bin,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        surfaceId = -1,
+        surface = null,
+        pageColor = 0,
+        surfaceRegion = null,
+        rotation = null,
+        onPartialBytes = null;
 
   _WebPending.detail(
     this.priority,
@@ -800,13 +978,19 @@ class _WebPending {
     this.deviceHeight,
     this.binPixelRatio,
     this.imageDecodeRegion,
-  ) : kind = _WebRequestKind.detail,
-      imagePixelRatio = null,
-      decodeImages = true,
-      commandLimit = null,
-      slugGlyphs = false,
-      regionMaxCommands = 0,
-      regionBuildGrid = false;
+  )   : kind = _WebRequestKind.detail,
+        imagePixelRatio = null,
+        decodeImages = true,
+        commandLimit = null,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        surfaceId = -1,
+        surface = null,
+        pageColor = 0,
+        surfaceRegion = null,
+        rotation = null,
+        onPartialBytes = null;
 
   _WebPending.regionIndex(
     this.priority,
@@ -815,16 +999,67 @@ class _WebPending {
     this.annotations,
     this.regionMaxCommands,
     this.regionBuildGrid,
-  ) : kind = _WebRequestKind.regionIndex,
-      imagePixelRatio = null,
-      decodeImages = false,
-      commandLimit = null,
-      imageDecodeRegion = null,
-      pageToDevice = null,
-      deviceWidth = 0,
-      deviceHeight = 0,
-      binPixelRatio = 0,
-      slugGlyphs = false;
+  )   : kind = _WebRequestKind.regionIndex,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        surfaceId = -1,
+        surface = null,
+        pageColor = 0,
+        surfaceRegion = null,
+        rotation = null,
+        onPartialBytes = null;
+
+  _WebPending.extractText(this.priority, this.seq, this.pageIndex)
+      : kind = _WebRequestKind.extractText,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        surfaceId = -1,
+        surface = null,
+        pageColor = 0,
+        surfaceRegion = null,
+        rotation = null,
+        onPartialBytes = null;
+
+  _WebPending.surface(
+    this.priority,
+    this.seq,
+    this.pageIndex,
+    this.annotations,
+    this.surfaceId,
+    this.surface,
+    this.deviceWidth,
+    this.deviceHeight,
+    this.pageColor,
+    this.surfaceRegion,
+    this.rotation,
+  )   : kind = _WebRequestKind.surface,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   final _WebRequestKind kind;
   final int priority;
@@ -842,10 +1077,76 @@ class _WebPending {
   final bool slugGlyphs;
   final int regionMaxCommands;
   final bool regionBuildGrid;
+  final int surfaceId;
+  Object? surface;
+  final int pageColor;
+  final PdfPageSurfaceRegion? surfaceRegion;
+  final int? rotation;
+  // record-only: forwards each interim linework buffer (#564) to the caller's
+  // sink. Null on every other kind and on records that opted out of partials.
+  final void Function(Uint8List)? onPartialBytes;
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
   _WebRequestTrace? trace;
+}
+
+class _WebPageSurfaceSession extends PdfPageSurfaceSession {
+  _WebPageSurfaceSession(this.worker, this.id, this._surface);
+
+  final _WebRenderWorker worker;
+  final int id;
+  Object? _surface;
+  Future<void> _tail = Future.value();
+  bool _disposed = false;
+
+  Object? takeSurface() {
+    final surface = _surface;
+    _surface = null;
+    return surface;
+  }
+
+  @override
+  Future<bool> render(
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    PdfPageSurfaceRegion? region,
+    int? rotation,
+    int priority = 0,
+  }) {
+    if (_disposed) return Future.value(false);
+    final completer = Completer<bool>();
+    _tail = _tail.then((_) async {
+      if (_disposed) {
+        completer.complete(false);
+        return;
+      }
+      final ok = await worker._renderPageSurface(
+        this,
+        pageIndex,
+        annotations: annotations,
+        width: width,
+        height: height,
+        pageColor: pageColor,
+        region: region,
+        rotation: rotation,
+        priority: priority,
+      );
+      completer.complete(ok);
+    });
+    return completer.future;
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _surface = null;
+    _tail.whenComplete(() => worker._releasePageSurface(id));
+  }
 }
 
 class _WebRequestTrace {
@@ -864,6 +1165,7 @@ class _WebRequestTrace {
   int deserializeUs = 0;
   bool transcriptHit = false;
   String? cosStatsJson;
+  String? imageDecodeSummary;
 
   void receive(JSObject data, int nowUs) {
     receivedUs = nowUs;
@@ -877,6 +1179,8 @@ class _WebRequestTrace {
     transcriptHit =
         (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
     cosStatsJson = (data.getProperty('cosStats'.toJS) as JSString?)?.toDart;
+    imageDecodeSummary =
+        (data.getProperty('imageDecode'.toJS) as JSString?)?.toDart;
   }
 
   /// Assembles this request's collected halves into one unified [PdfRenderTrace]
@@ -896,6 +1200,7 @@ class _WebRequestTrace {
       ..transferUs = math.max(0, roundTripUs - workerUs)
       ..deserializeUs = deserializeUs
       ..transcriptHit = transcriptHit
+      ..imageDecodeSummary = imageDecodeSummary
       ..cosStats = cosStatsJson == null
           ? null
           : PdfPerfStats.fromJson(
@@ -916,8 +1221,39 @@ class _WebRequestTrace {
       'decode=${_traceMs(decodeUs)} serialize=${_traceMs(serializeUs)} '
       'bin=${_traceMs(binUs)} transfer=${_traceMs(transferUs)} '
       'deserialize=${_traceMs(deserializeUs)} total=${_traceMs(totalUs)} '
-      'transcript=${transcriptHit ? 'hit' : 'miss'}',
+      'transcript=${transcriptHit ? 'hit' : 'miss'}'
+      '${imageDecodeSummary == null ? '' : ' imageDecode=$imageDecodeSummary'}'
+      '${_imagePhaseSummary(cosStatsJson)}',
     );
+  }
+}
+
+String _imagePhaseSummary(String? json) {
+  if (json == null) return '';
+  try {
+    final stats = PdfPerfStats.fromJson(
+      jsonDecode(json) as Map<String, Object?>,
+    );
+    final phases = <String>[];
+    void add(String label, PdfPerfPhase phase) {
+      final us = stats.phaseTotalUs(phase);
+      if (us > 0) phases.add('$label=${_traceMs(us)}');
+    }
+
+    add('image', PdfPerfPhase.imageDecode);
+    add('scale', PdfPerfPhase.imageDownsample);
+    add('color', PdfPerfPhase.imageColorConvert);
+    add('alpha', PdfPerfPhase.imageAlpha);
+    add('flate', PdfPerfPhase.flate);
+    add('dct', PdfPerfPhase.dct);
+    add('tokenize', PdfPerfPhase.contentTokenize);
+    final contentOps = stats.count(PdfPerfCount.contentOps);
+    final contentBytes = stats.count(PdfPerfCount.contentBytes);
+    if (contentOps > 0) phases.add('ops=$contentOps');
+    if (contentBytes > 0) phases.add('contentBytes=$contentBytes');
+    return phases.isEmpty ? '' : ' imagePhases=${phases.join(',')}';
+  } catch (_) {
+    return '';
   }
 }
 
@@ -927,12 +1263,28 @@ int _intProperty(JSObject object, String name) =>
 String _traceMs(int microseconds) =>
     '${(microseconds / 1000).toStringAsFixed(1)}ms';
 
+// A [PdfPooledRenderWorker] deliberately seeds every platform worker from the
+// exact same immutable Uint8List instance. Preserve that sharing on web: a
+// SharedArrayBuffer can be posted to any number of workers, so allocating and
+// filling a fresh one for every pool member only multiplies startup latency and
+// memory traffic. Expando keeps the cache tied to the Dart byte-view identity;
+// once the document revision is no longer reachable, its JS buffer can be
+// collected with it.
+final Expando<JSObject> _sharedDocumentBuffers =
+    Expando<JSObject>('dart_pdf_editor shared document buffer');
+
 JSObject? _sharedDocumentBuffer(Uint8List bytes) {
   if (!_canUseSharedDocumentBytes) return null;
+  final cached = _sharedDocumentBuffers[bytes];
+  if (cached != null) {
+    _wlog('reusing SharedArrayBuffer bytes=${bytes.length}');
+    return cached;
+  }
   try {
     final buffer = _constructJsObject('SharedArrayBuffer', bytes.length.toJS);
     final view = _constructJsObject('Uint8Array', buffer) as JSUint8Array;
     view.toDart.setAll(0, bytes);
+    _sharedDocumentBuffers[bytes] = buffer;
     return buffer;
   } catch (e) {
     _wlog('SharedArrayBuffer unavailable at runtime: $e');

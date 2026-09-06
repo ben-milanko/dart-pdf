@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -29,6 +30,18 @@ dynamic overlayPainter(WidgetTester tester) => tester
             matching: find.byType(CustomPaint))
         .first)
     .painter;
+
+/// The overlay's hover-cursor layer - the pen dot, eraser ring, count/stamp
+/// previews and rotate glyph, which read live state and repaint without a
+/// rebuild. Read through a dynamic cast (the painter class is private).
+dynamic cursorPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .firstWhere(
+        (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
 
 (int r, int g, int b, int a) pixelAt(ByteData pixels, int width, int x, int y) {
   final i = (y * width + x) * 4;
@@ -564,15 +577,31 @@ void main() {
       expect(editing.document.page(0).annotations.single.contents, 'Signed');
     });
 
-    test('clamps so the whole stamp stays on the page', () {
+    test('a stamp dropped at the corner hangs off the page', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..activeStamp = approved;
       final box = editing.document.page(0).cropBox;
       expect(editing.placeStamp(0, box.right, box.top), isTrue);
 
+      // the tap is the centre, edge or not: the placement keeps where the
+      // user aimed and the page clip trims what runs off it
       final stamp = editing.document.page(0).annotations.single;
-      expect(stamp.rect.right, lessThanOrEqualTo(box.right + 0.01));
-      expect(stamp.rect.top, lessThanOrEqualTo(box.top + 0.01));
+      expect((stamp.rect.left + stamp.rect.right) / 2, closeTo(box.right, 1e-6));
+      expect((stamp.rect.bottom + stamp.rect.top) / 2, closeTo(box.top, 1e-6));
+      expect(stamp.rect.right, greaterThan(box.right));
+      expect(stamp.rect.top, greaterThan(box.top));
+    });
+
+    test('a stamp is never sized larger than the page', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..activeStamp = approved;
+      final box = editing.document.page(0).cropBox;
+      // running off the edge is a placement, not a size: the auto-sizing
+      // caps still hold
+      expect(editing.placeStamp(0, box.right, box.top, height: 5000), isTrue);
+      final stamp = editing.document.page(0).annotations.single;
+      expect(stamp.rect.width, lessThanOrEqualTo(box.width * 0.9 + 1e-6));
+      expect(stamp.rect.height, lessThanOrEqualTo(box.height * 0.9 + 1e-6));
     });
 
     test('changing colour keeps and recolours the active saved stamp', () {
@@ -648,6 +677,143 @@ void main() {
       final content = appearanceText(editing);
       expect(content, contains('0 1 -1 0'));
       expect(content, contains('(REVIEWED) Tj'));
+    });
+  });
+
+  group('saving a placed stamp back to the collection', () {
+    /// A controller with one stamp on page 0, selected.
+    PdfEditingController withSelectedStamp(
+        void Function(PdfEditingController) place) {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      place(editing);
+      editing
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      return editing;
+    }
+
+    test('a template stamp comes back with its design and fields intact', () {
+      final template = PdfStampTemplate(
+        width: 240,
+        height: 96,
+        components: [
+          PdfStampTemplateComponent.rectangle(
+              x: 6, y: 16, width: 228, height: 64, color: 0x2E7D32),
+          PdfStampTemplateComponent.text(
+              x: 20,
+              y: 30,
+              width: 200,
+              height: 36,
+              text: 'APPROVED {{date}}',
+              color: 0x2E7D32),
+        ],
+      );
+      const source = PdfCustomStamp(
+        text: 'APPROVED {{date}}',
+        color: 0x2E7D32,
+        type: 'Approval',
+        tags: ['audit'],
+      );
+      final editing = withSelectedStamp((editing) {
+        editing.stampTemplateClock = () => DateTime(2026, 8, 6);
+        editing.activeStamp = PdfCustomStamp(
+          text: source.text,
+          color: source.color,
+          template: template,
+          type: source.type,
+          tags: source.tags,
+        );
+        expect(editing.placeStamp(0, 300, 400), isTrue);
+      });
+      // the placed stamp shows the resolved date
+      expect(editing.document.page(0).annotations.single.contents,
+          'APPROVED 2026-08-06');
+
+      // pretend the stamp arrived in the document, not from this session
+      editing
+        ..activeStamp = null
+        ..preferences.customStamps = const [];
+
+      expect(editing.canSaveSelectedAsCustomStamp, isTrue);
+      final saved = editing.saveSelectedAsCustomStamp();
+      expect(saved, isNotNull);
+      expect(editing.savedCustomStamps, [saved]);
+      expect(editing.activeStamp, saved);
+      // the design round-tripped, placeholder and metadata included
+      expect(saved!.template, template);
+      expect(saved.text, 'APPROVED {{date}}');
+      expect(saved.color, 0x2E7D32);
+      expect(saved.type, 'Approval');
+      expect(saved.tags, ['audit']);
+
+      // and it places again with today's date, not the day it was stamped
+      editing.stampTemplateClock = () => DateTime(2026, 9, 1);
+      expect(editing.placeStamp(0, 300, 200), isTrue);
+      expect(editing.document.page(0).annotations[1].contents,
+          'APPROVED 2026-09-01');
+    });
+
+    test('saving the same stamp twice does not duplicate the entry', () {
+      final editing = withSelectedStamp((editing) {
+        editing.activeStamp =
+            const PdfCustomStamp(text: 'PAID', color: 0xC03030);
+        expect(editing.placeStamp(0, 300, 400), isTrue);
+      });
+      final first = editing.saveSelectedAsCustomStamp();
+      final second = editing.saveSelectedAsCustomStamp();
+      expect(first, second);
+      expect(editing.savedCustomStamps, hasLength(1));
+    });
+
+    test('a plain text stamp is recovered from its caption and colour', () {
+      final editing = withSelectedStamp((editing) {
+        expect(
+            editing.placeTextStamp(0, 300, 400, 'REVIEWED', color: 0x1A3E8C),
+            isTrue);
+      });
+      final saved = editing.saveSelectedAsCustomStamp();
+      expect(saved, const PdfCustomStamp(text: 'REVIEWED', color: 0x1A3E8C));
+      // no template metadata to recover, so it saves as a classic text stamp
+      expect(saved!.template, isNull);
+    });
+
+    test('stamps with no recoverable design are not offered', () {
+      // a count check-mark
+      final counted = withSelectedStamp(
+          (editing) => expect(editing.placeCheckMark(0, 300, 400), isTrue));
+      expect(counted.canSaveSelectedAsCustomStamp, isFalse);
+      expect(counted.saveSelectedAsCustomStamp(), isNull);
+
+      // a picture
+      final picture = withSelectedStamp(
+          (editing) => expect(editing.placeImage(0, 300, 400, _png), isTrue));
+      expect(picture.canSaveSelectedAsCustomStamp, isFalse);
+
+      // a pasted vector snapshot (a /Stamp, but captured page graphics)
+      final snapshot = withSelectedStamp((editing) {
+        editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      });
+      expect(snapshot.canSaveSelectedAsCustomStamp, isFalse);
+    });
+
+    test('a non-stamp annotation, or a multi-selection, is not offered', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing
+        ..addRectangle(0, const PdfRect(60, 700, 160, 750))
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      expect(editing.canSaveSelectedAsCustomStamp, isFalse);
+
+      editing
+        ..activeStamp = const PdfCustomStamp(text: 'PAID', color: 0xC03030)
+        ..placeStamp(0, 300, 400);
+      editing.selectAnnotationsIn(0, const PdfRect(0, 0, 612, 792));
+      expect(editing.selectedAnnotationSlots, hasLength(2));
+      // one stamp at a time - a block selection has no single design
+      expect(editing.canSaveSelectedAsCustomStamp, isFalse);
     });
   });
 
@@ -901,7 +1067,7 @@ void main() {
       await tester.pump();
 
       expect(editing.document.page(0).annotations, isEmpty);
-      final preview = overlayPainter(tester).stampPreview;
+      final preview = cursorPainter(tester).stampPreview;
       expect(preview, isNotNull);
       expect(preview.text, 'PAID');
       expect(preview.template, isNotNull);
@@ -912,7 +1078,7 @@ void main() {
 
       await mouse.moveTo(origin + const Offset(-20, -20));
       await tester.pump();
-      expect(overlayPainter(tester).stampPreview, isNull);
+      expect(cursorPainter(tester).stampPreview, isNull);
     });
 
     testWidgets('stamp hover previews a TEXT placeholder without an active stamp',
@@ -959,7 +1125,7 @@ void main() {
       // hovering shows the placeholder; nothing is committed until a click
       // prompts for the real caption.
       expect(editing.document.page(0).annotations, isEmpty);
-      final preview = overlayPainter(tester).stampPreview;
+      final preview = cursorPainter(tester).stampPreview;
       expect(preview, isNotNull);
       expect(preview.text, 'TEXT');
       expect(preview.rect.center.dx, moreOrLessEquals(local(300, 400).dx));
@@ -967,7 +1133,7 @@ void main() {
 
       await mouse.moveTo(origin + const Offset(-20, -20));
       await tester.pump();
-      expect(overlayPainter(tester).stampPreview, isNull);
+      expect(cursorPainter(tester).stampPreview, isNull);
     });
 
     testWidgets('adding a stamp keeps existing annotations painted',
@@ -1706,6 +1872,88 @@ void main() {
       expect(find.text('Audit · external'), findsOneWidget);
       expect(find.byTooltip('Edit stamp'), findsNothing);
       expect(find.byTooltip('Delete stamp'), findsNothing);
+    });
+  });
+
+  group('localized stamp date/time formatting', () {
+    setUpAll(initializeDateFormatting);
+
+    final noon = DateTime(2026, 7, 4, 9, 5, 6);
+
+    test('defaults to English when no locale is given', () {
+      // Backward compatibility: hosts that never register the localization
+      // delegate (localeName == null) keep the bundled English shapes.
+      expect(PdfStampDateFormat.monthNameDayYear.format(noon), 'Jul 4, 2026');
+      expect(PdfStampDateFormat.dayMonthNameYear.format(noon), '4 Jul 2026');
+      expect(PdfStampTimeFormat.twelveHour.format(noon), '9:05 AM');
+    });
+
+    test('localizes the spelled-out month name', () {
+      expect(
+        PdfStampDateFormat.monthNameDayYear.format(noon, localeName: 'ja'),
+        contains('7月'),
+      );
+      expect(
+        PdfStampDateFormat.dayMonthNameYear.format(noon, localeName: 'ja'),
+        contains('7月'),
+      );
+      // English stays English even through the intl path.
+      expect(
+        PdfStampDateFormat.monthNameDayYear.format(noon, localeName: 'en'),
+        'Jul 4, 2026',
+      );
+    });
+
+    test('numeric date shapes stay ASCII regardless of locale', () {
+      // iso is a fixed technical format; the slash shapes carry no month name.
+      expect(
+        PdfStampDateFormat.iso.format(noon, localeName: 'ja'),
+        '2026-07-04',
+      );
+      expect(
+        PdfStampDateFormat.dayMonthYear.format(noon, localeName: 'ar'),
+        '04/07/2026',
+      );
+    });
+
+    test('localizes the AM/PM marker on 12-hour times', () {
+      final morning = PdfStampTimeFormat.twelveHour
+          .format(DateTime(2026, 7, 4, 9, 5), localeName: 'ja');
+      expect(morning, startsWith('9:05 '));
+      expect(morning, isNot(contains('AM')));
+      expect(morning, contains('午前'));
+      // 24-hour shapes carry no marker and are locale-independent.
+      expect(
+        PdfStampTimeFormat.twentyFourHour.format(noon, localeName: 'ja'),
+        '09:05',
+      );
+    });
+
+    test('falls back to English for an unknown locale instead of throwing', () {
+      expect(
+        () => PdfStampDateFormat.monthNameDayYear
+            .format(noon, localeName: 'zzz-not-a-locale'),
+        returnsNormally,
+      );
+      expect(
+        PdfStampDateFormat.monthNameDayYear
+            .format(noon, localeName: 'zzz-not-a-locale'),
+        'Jul 4, 2026',
+      );
+    });
+
+    test('controller resolves stamp fields through its uiLocale', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..stampTemplateClock = (() => noon)
+        ..preferences.stampDateFormat = PdfStampDateFormat.monthNameDayYear
+        ..uiLocale = const ui.Locale('ja');
+      addTearDown(editing.dispose);
+
+      expect(editing.resolvedStampTemplateValues['date'], contains('7月'));
+
+      // Clearing the override falls back to English (no persisted preference).
+      editing.uiLocale = null;
+      expect(editing.resolvedStampTemplateValues['date'], 'Jul 4, 2026');
     });
   });
 }

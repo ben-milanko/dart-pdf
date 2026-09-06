@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to add PDF editing to a Flutter app | DartPDF</title>
+  <meta name="description"
+    content="Add an open-source PDF editor to Flutter. Open an existing PDF, add a complete editing UI, and save the edited bytes on Android, iOS, desktop, and web." />
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+  <link rel="canonical" href="https://dart-pdf.com/guides/add-pdf-editing-to-flutter" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="DartPDF" />
+  <meta property="og:url" content="https://dart-pdf.com/guides/add-pdf-editing-to-flutter" />
+  <meta property="og:title" content="How to add PDF editing to a Flutter app" />
+  <meta property="og:description"
+    content="A complete, runnable Flutter PDF editor integration: open an existing PDF, edit it in place, and save the changed bytes." />
+  <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="dart_pdf_editor, an open-source Flutter PDF editor" />
+  <meta property="article:published_time" content="2026-08-21" />
+  <meta property="article:modified_time" content="2026-08-21" />
+  <meta property="article:author" content="Ben Milanko" />
+
+  <!-- X / Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="How to add PDF editing to a Flutter app" />
+  <meta name="twitter:description"
+    content="Open an existing PDF, add a complete editor UI, and save the edited bytes with one open-source Flutter package." />
+  <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <meta name="theme-color" content="#0169b4" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap"
+    rel="stylesheet" />
+
+  <style>
+    :root {
+      --paper: #ffffff;
+      --bg: #fbfcfd;
+      --ink: #202124;
+      --ink-soft: #3c4043;
+      --grey: #6b7177;
+      --line: #e7ebee;
+      --line-soft: #eef2f5;
+      --tint: #c6e3f8;
+      --tint-soft: #eaf5fe;
+      --blue: #0169b4;
+      --blue-bright: #16bafd;
+      --amber: #ffc93c;
+      --dark: #1a1b1d;
+      --radius: 14px;
+      --radius-lg: 22px;
+      --maxw: 1180px;
+      --article: 760px;
+      --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
+      --shadow-sm: 0 1px 2px rgba(32, 33, 36, .06), 0 1px 3px rgba(32, 33, 36, .05);
+      --shadow-md: 0 12px 36px rgba(32, 33, 36, .09), 0 3px 10px rgba(32, 33, 36, .05);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 94px;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      line-height: 1.65;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -.025em;
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-size: clamp(38px, 6vw, 66px);
+      max-width: 900px;
+    }
+
+    h2 {
+      margin-top: 64px;
+      font-size: clamp(27px, 3.4vw, 38px);
+    }
+
+    h3 {
+      margin-top: 34px;
+      font-size: 21px;
+    }
+
+    p {
+      margin: 18px 0 0;
+      text-wrap: pretty;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      text-decoration-thickness: 2px;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    :not(pre)>code {
+      padding: .14em .38em;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f6f8fa;
+      font-size: .88em;
+    }
+
+    ::selection {
+      background: rgba(255, 201, 60, .55);
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(251, 252, 253, .88);
+      backdrop-filter: saturate(180%) blur(14px);
+    }
+
+    .nav {
+      display: flex;
+      min-height: 70px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink);
+      font-size: 19px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .brand img {
+      width: 31px;
+      height: 31px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .nav-links a {
+      color: var(--ink-soft);
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--blue);
+    }
+
+    .nav-cta {
+      padding: 9px 14px;
+      border-radius: 9px;
+      background: var(--grad);
+      color: #fff !important;
+      box-shadow: 0 6px 16px -7px rgba(1, 105, 180, .7);
+    }
+
+    .hero {
+      padding: 74px 0 56px;
+      border-bottom: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 78% 6%, rgba(22, 186, 253, .13), transparent 30%),
+        linear-gradient(180deg, #fff 0%, var(--bg) 100%);
+    }
+
+    .crumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .crumbs a {
+      color: var(--grey);
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .dek {
+      max-width: 820px;
+      margin-top: 24px;
+      color: var(--ink-soft);
+      font-size: clamp(18px, 2.2vw, 23px);
+      line-height: 1.55;
+    }
+
+    .answer {
+      max-width: 860px;
+      margin-top: 32px;
+      padding: 22px 24px;
+      border: 1px solid var(--tint);
+      border-left: 5px solid var(--blue-bright);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+      font-size: 17px;
+    }
+
+    .answer p {
+      margin: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 16px;
+      margin-top: 24px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .meta a {
+      font-weight: 700;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: var(--shadow-sm);
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+      color: #fff;
+    }
+
+    .article-grid {
+      display: grid;
+      grid-template-columns: minmax(0, var(--article)) 250px;
+      gap: 70px;
+      align-items: start;
+      padding-top: 52px;
+      padding-bottom: 90px;
+    }
+
+    article {
+      min-width: 0;
+    }
+
+    article>p,
+    article>ul,
+    article>ol {
+      color: var(--ink-soft);
+      font-size: 16px;
+    }
+
+    article ul,
+    article ol {
+      margin: 18px 0 0;
+      padding-left: 24px;
+    }
+
+    article li+li {
+      margin-top: 8px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 98px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toc strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .toc a {
+      display: block;
+      padding: 7px 0;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      color: var(--blue);
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .step span {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--grad);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .step h2 {
+      margin-top: 0;
+    }
+
+    pre {
+      position: relative;
+      margin: 22px 0 0;
+      padding: 20px 22px;
+      overflow-x: auto;
+      border: 1px solid #30333a;
+      border-radius: var(--radius);
+      background: var(--dark);
+      color: #e8eaed;
+      font-size: 13.5px;
+      line-height: 1.65;
+      tab-size: 2;
+    }
+
+    .comment {
+      color: #9aa0a6;
+    }
+
+    .keyword {
+      color: #6fd0ff;
+    }
+
+    .string {
+      color: #a5d6a7;
+    }
+
+    .callout {
+      margin-top: 24px;
+      padding: 19px 21px;
+      border: 1px solid var(--tint);
+      border-radius: var(--radius);
+      background: var(--tint-soft);
+      color: var(--ink-soft);
+      font-size: 15px;
+    }
+
+    .callout strong {
+      color: var(--ink);
+    }
+
+    .shot {
+      margin: 30px 0 0;
+    }
+
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+
+    .shot figcaption {
+      margin-top: 10px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      margin-top: 24px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f9fb;
+      color: var(--ink);
+      font-size: 12px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .choice {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    .choice strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .choice p {
+      margin: 0;
+      color: var(--grey);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .faq {
+      margin-top: 20px;
+      padding-top: 4px;
+      border-top: 1px solid var(--line);
+    }
+
+    .faq h3 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+
+    .faq p {
+      color: var(--ink-soft);
+    }
+
+    .next {
+      margin-top: 64px;
+      padding: 30px;
+      border-radius: var(--radius-lg);
+      background: var(--dark);
+      color: #fff;
+    }
+
+    .next h2 {
+      margin-top: 0;
+      color: #fff;
+    }
+
+    .next p {
+      color: #c9cdd2;
+    }
+
+    .next .btn {
+      margin-top: 20px;
+      border-color: rgba(255, 255, 255, .18);
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+    }
+
+    .next .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      background: #f3f5f7;
+    }
+
+    .foot {
+      display: flex;
+      min-height: 88px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .foot a {
+      color: var(--ink-soft);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .article-grid {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .toc {
+        display: none;
+      }
+
+      .choice-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .wrap {
+        padding: 0 20px;
+      }
+
+      .nav-links a:not(.nav-cta) {
+        display: none;
+      }
+
+      .hero {
+        padding: 48px 0 42px;
+      }
+
+      h1 {
+        font-size: clamp(35px, 12vw, 50px);
+      }
+
+      h2 {
+        margin-top: 52px;
+      }
+
+      .answer,
+      pre {
+        margin-right: -4px;
+        margin-left: -4px;
+      }
+
+      .answer {
+        padding: 18px;
+      }
+
+      pre {
+        padding: 18px;
+        font-size: 12.5px;
+      }
+
+      th,
+      td {
+        padding: 12px;
+      }
+
+      .foot {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 22px;
+        padding-bottom: 22px;
+      }
+    }
+  </style>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "TechArticle",
+        "@id": "https://dart-pdf.com/guides/add-pdf-editing-to-flutter#article",
+        "mainEntityOfPage": "https://dart-pdf.com/guides/add-pdf-editing-to-flutter",
+        "headline": "How to add PDF editing to a Flutter app",
+        "description": "A step-by-step guide to opening an existing PDF, adding a complete editor UI, and saving the edited bytes in a Flutter application.",
+        "datePublished": "2026-08-21",
+        "dateModified": "2026-08-21",
+        "proficiencyLevel": "Beginner",
+        "image": "https://dart-pdf.com/assets/editor-screenshot.png",
+        "author": {
+          "@type": "Person",
+          "name": "Ben Milanko",
+          "url": "https://github.com/ben-milanko"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "DartPDF",
+          "url": "https://dart-pdf.com/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://dart-pdf.com/assets/icon-512.png"
+          }
+        },
+        "about": {
+          "@id": "https://dart-pdf.com/flutter-pdf-editor#software"
+        }
+      },
+      {
+        "@type": ["SoftwareApplication", "SoftwareSourceCode"],
+        "@id": "https://dart-pdf.com/flutter-pdf-editor#software",
+        "name": "dart_pdf_editor",
+        "description": "An open-source Flutter PDF editor and viewer written entirely in Dart.",
+        "url": "https://dart-pdf.com/flutter-pdf-editor",
+        "codeRepository": "https://github.com/ben-milanko/dart-pdf",
+        "downloadUrl": "https://pub.dev/packages/dart_pdf_editor",
+        "programmingLanguage": "Dart",
+        "runtimePlatform": "Flutter",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Android, iOS, Linux, macOS, Web, Windows",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "DartPDF",
+            "item": "https://dart-pdf.com/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Flutter PDF editor",
+            "item": "https://dart-pdf.com/flutter-pdf-editor"
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "How to add PDF editing to a Flutter app",
+            "item": "https://dart-pdf.com/guides/add-pdf-editing-to-flutter"
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="/" aria-label="DartPDF home">
+        <img src="/assets/favicon.svg" alt="" aria-hidden="true" />
+        DartPDF
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/flutter-pdf-editor">Flutter PDF editor</a>
+        <a href="https://github.com/ben-milanko/dart-pdf">GitHub</a>
+        <a class="nav-cta" href="https://pub.dev/packages/dart_pdf_editor">Get the package</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <a href="/">DartPDF</a><span aria-hidden="true">/</span>
+          <a href="/flutter-pdf-editor">Flutter PDF editor</a><span aria-hidden="true">/</span>
+          <span>Integration guide</span>
+        </nav>
+        <p class="eyebrow">Flutter integration guide</p>
+        <h1>How to add PDF editing to a Flutter app</h1>
+        <p class="dek">Open an existing PDF, give users a complete editing interface, and save their changes back to
+          PDF bytes—with one open-source package and the same Dart engine on every Flutter platform.</p>
+
+        <div class="answer">
+          <p><strong>Short answer:</strong> add <a
+              href="https://pub.dev/packages/dart_pdf_editor"><code>dart_pdf_editor</code></a>, pass your PDF's
+            <code>Uint8List</code> to <code>PdfEditorView</code>, and handle the edited bytes in <code>onSave</code>.
+            The included UI supports annotations, existing-text editing, forms, signatures, redaction, page
+            management, search, and undo/redo. It is Apache-2.0 licensed and runs on Android, iOS, Linux, macOS, web,
+            and Windows.</p>
+        </div>
+
+        <div class="meta">
+          <span>By <a href="https://github.com/ben-milanko">Ben Milanko</a>, maintainer of dart-pdf</span>
+          <span>Published 21 August 2026</span>
+          <span>Tested with <code>dart_pdf_editor 3.6.0</code></span>
+        </div>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://dart-pdf-demo.web.app">Try the live Flutter demo</a>
+          <a class="btn" href="https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor/example">View
+            the complete example</a>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap article-grid">
+      <article>
+        <section id="choose">
+          <h2>First, choose the kind of PDF editing you need</h2>
+          <p>“PDF editing” can mean three different jobs. Using the right layer avoids building an editor around a
+            package that only creates new documents or draws temporary overlays.</p>
+          <div class="choice-grid">
+            <div class="choice">
+              <strong>Complete in-app editor</strong>
+              <p>Use <code>PdfEditorView</code> for ready-made viewer, toolbar, panels, gestures, undo/redo, and save
+                UI.</p>
+            </div>
+            <div class="choice">
+              <strong>Custom editing workflow</strong>
+              <p>Use <code>PdfEditingController</code>, <code>PdfViewer</code>, or the lower-level
+                <code>PdfEditor</code> API.</p>
+            </div>
+            <div class="choice">
+              <strong>Create a new PDF</strong>
+              <p>That is document generation, not editing. Use a PDF-generation package when there is no existing file
+                to preserve.</p>
+            </div>
+          </div>
+          <p>This guide takes the first path: a drop-in editor for an existing PDF. You can progressively replace its
+            stock chrome later because the viewer, controller, toolbar, and panels are also public widgets.</p>
+        </section>
+
+        <section id="install">
+          <div class="step">
+            <span>1</span>
+            <h2>Install the Flutter PDF editor</h2>
+          </div>
+          <p>From the root of your Flutter project, add the editor package:</p>
+          <pre><code>flutter pub add dart_pdf_editor</code></pre>
+          <p>No native PDF SDK, license key, or platform view is required. The parser, renderer, editing engine, and UI
+            are implemented in Dart.</p>
+          <div class="callout">
+            <strong>Optional editor assets:</strong> for the bundled font catalogue and the prebuilt off-main-thread web
+            render worker, also run <code>flutter pub add dart_pdf_editor_assets</code> and call
+            <code>registerBundledEditorAssets()</code> before <code>runApp</code>. The core editor works without this
+            optional package.
+          </div>
+        </section>
+
+        <section id="bytes">
+          <div class="step">
+            <span>2</span>
+            <h2>Load the existing PDF as bytes</h2>
+          </div>
+          <p><code>PdfEditorView</code> accepts a <code>Uint8List</code>, so the document can come from an asset, file
+            picker, database, cloud object store, or HTTP response. Loading an asset looks like this:</p>
+          <pre><code><span class="keyword">import</span> <span class="string">'dart:typed_data'</span>;
+
+<span class="keyword">import</span> <span class="string">'package:flutter/services.dart'</span> show rootBundle;
+
+Future&lt;Uint8List&gt; loadPdf() async {
+  <span class="keyword">final</span> data = await rootBundle.load(<span class="string">'assets/sample.pdf'</span>);
+  <span class="keyword">return</span> data.buffer.asUint8List();
+}</code></pre>
+          <p>Declare the file under <code>flutter/assets</code> in <code>pubspec.yaml</code> when loading from your app
+            bundle. If a user picked the PDF, pass the picker's returned bytes instead.</p>
+        </section>
+
+        <section id="editor">
+          <div class="step">
+            <span>3</span>
+            <h2>Put the editor in a bounded Flutter layout</h2>
+          </div>
+          <p>The following widget is the complete editor integration. The shell includes page thumbnails, search,
+            annotation and properties panels, editing tools, forms, keyboard shortcuts, touch and stylus input, and
+            undo/redo.</p>
+          <pre><code><span class="keyword">import</span> <span class="string">'dart:typed_data'</span>;
+
+<span class="keyword">import</span> <span class="string">'package:dart_pdf_editor/dart_pdf_editor.dart'</span>;
+<span class="keyword">import</span> <span class="string">'package:flutter/material.dart'</span>;
+
+<span class="keyword">class</span> PdfEditorScreen extends StatelessWidget {
+  <span class="keyword">const</span> PdfEditorScreen({
+    super.key,
+    required <span class="keyword">this</span>.pdfBytes,
+    required <span class="keyword">this</span>.savePdf,
+  });
+
+  <span class="keyword">final</span> Uint8List pdfBytes;
+  <span class="keyword">final</span> Future&lt;void&gt; Function(Uint8List bytes) savePdf;
+
+  @override
+  Widget build(BuildContext context) {
+    <span class="keyword">return</span> Scaffold(
+      body: PdfEditorView(
+        bytes: pdfBytes,
+        onSave: savePdf,
+      ),
+    );
+  }
+}</code></pre>
+          <p>Give the editor bounded space: a <code>Scaffold.body</code>, an <code>Expanded</code> child, or a sized
+            panel. The stock Save button and <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> both call
+            <code>onSave</code> with the current PDF revision.</p>
+
+          <figure class="shot">
+            <img src="/assets/editor-screenshot.png" width="2208" height="1552" loading="lazy"
+              alt="A Flutter PDF editor with page thumbnails, search, annotation tools, a properties panel, and a PDF page being edited." />
+            <figcaption><code>PdfEditorView</code> supplies the complete editing surface shown here; the surrounding
+              file picker and storage remain under your app's control.</figcaption>
+          </figure>
+        </section>
+
+        <section id="save">
+          <div class="step">
+            <span>4</span>
+            <h2>Save, upload, or share the edited PDF</h2>
+          </div>
+          <p>The editor deliberately returns bytes rather than choosing a storage package for you. That keeps the widget
+            equally usable on mobile, desktop, web, and in apps with their own storage or sync layer.</p>
+          <pre><code>Future&lt;void&gt; savePdf(Uint8List editedBytes) async {
+  <span class="comment">// Choose the destination your app already uses:</span>
+  <span class="comment">// - write to a user-selected local file</span>
+  <span class="comment">// - upload to your API or cloud storage</span>
+  <span class="comment">// - attach to a share sheet</span>
+  <span class="comment">// - store as a new document revision</span>
+  await documents.save(<span class="string">'edited.pdf'</span>, editedBytes);
+}</code></pre>
+          <p>For autosave, use <code>onDocumentChanged</code>. It fires after an edit, undo, or redo and receives that
+            revision's complete bytes. For programmatic access, construct a <code>PdfEditingController</code> and pass
+            it through <code>PdfEditorView(controller: ...)</code>.</p>
+        </section>
+
+        <section id="features">
+          <h2>What can users edit?</h2>
+          <p>The editor changes the PDF itself and writes the changes back into the saved file. It is not a screenshot
+            canvas layered over the document.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Editing need</th>
+                  <th>Included support</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Annotations</td>
+                  <td>Highlight, underline, strikeout, ink, shapes, text boxes, notes, stamps, images, links, and
+                    measurement tools</td>
+                </tr>
+                <tr>
+                  <td>Existing text</td>
+                  <td>In-place text changes plus paragraph-aware reflow where the page content permits it</td>
+                </tr>
+                <tr>
+                  <td>Forms</td>
+                  <td>Fill and author AcroForm text, checkbox, radio, choice, and button fields</td>
+                </tr>
+                <tr>
+                  <td>Pages</td>
+                  <td>Reorder, rotate, delete, append, merge, extract, and split pages</td>
+                </tr>
+                <tr>
+                  <td>Signatures</td>
+                  <td>Drawn signatures and certificate-backed PAdES digital signatures</td>
+                </tr>
+                <tr>
+                  <td>Redaction</td>
+                  <td>True redaction that removes covered text and images from the saved bytes</td>
+                </tr>
+                <tr>
+                  <td>OCR</td>
+                  <td>A pluggable OCR seam for adding an invisible, searchable text layer to scans</td>
+                </tr>
+                <tr>
+                  <td>Platforms</td>
+                  <td>Android, iOS, Linux, macOS, web, and Windows from the same Dart implementation</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Every edit is an incremental PDF revision. The controller uses those revisions for undo/redo and can emit
+            annotation changes for a collaborative store. See the <a href="/flutter-pdf-editor">Flutter PDF editor
+              overview</a> for architecture, performance measurements, package layers, and the comparison with
+            commercial SDKs.</p>
+        </section>
+
+        <section id="customize">
+          <h2>How to customize the editor</h2>
+          <p>Turn off stock features without rebuilding the shell. This example exposes only selection, ink, and text
+            boxes and adds a host-controlled Publish action:</p>
+          <pre><code>PdfEditorView(
+  bytes: pdfBytes,
+  features: <span class="keyword">const</span> PdfEditorFeatures(
+    propertiesPanel: <span class="keyword">false</span>,
+    flatten: <span class="keyword">false</span>,
+    tools: {
+      PdfEditTool.select,
+      PdfEditTool.ink,
+      PdfEditTool.freeText,
+    },
+  ),
+  toolbarTrailing: [
+    (context, editing, viewer) =&gt; IconButton(
+      icon: <span class="keyword">const</span> Icon(Icons.cloud_upload_outlined),
+      tooltip: <span class="string">'Publish'</span>,
+      onPressed: () =&gt; publish(editing.bytes),
+    ),
+  ],
+)</code></pre>
+          <p>For fully custom chrome, use <code>toolbarBuilder</code> or compose the public <code>PdfViewer</code>,
+            <code>PdfEditingController</code>, <code>PdfEditingToolbar</code>, and panel widgets directly.</p>
+        </section>
+
+        <section id="questions">
+          <h2>Common Flutter PDF editing questions</h2>
+          <div class="faq">
+            <h3>Can Flutter edit text already inside a PDF?</h3>
+            <p>Yes, but PDF text is positioned page content rather than a Word-style flowing document. The editor can
+              replace existing text in place and reflow supported paragraphs. Complex layouts and unusual embedded
+              fonts may require a narrower edit or a replacement text box.</p>
+
+            <h3>Is this different from the <code>pdf</code> package?</h3>
+            <p>Yes. The <code>pdf</code> package is primarily a document generator: it builds a new PDF from Dart
+              widgets. <code>dart_pdf_editor</code> opens, renders, interacts with, and saves changes to an existing PDF.
+            </p>
+
+            <h3>Do PDFs get uploaded to a server?</h3>
+            <p>No. Parsing, rendering, and editing run locally by default. The widget accepts and returns bytes; an app
+              only uploads them if its own save callback chooses to.</p>
+
+            <h3>Do I need a commercial PDF SDK or license key?</h3>
+            <p>No. <code>dart_pdf_editor</code> is Apache-2.0 licensed and does not require an activation server,
+              per-document fee, or commercial SDK. Commercial products may still be appropriate when a project needs a
+              vendor SLA, consultancy, or an established procurement relationship.</p>
+
+            <h3>Does it work on Flutter web and desktop?</h3>
+            <p>Yes. The same package supports Android, iOS, Linux, macOS, web, and Windows. There are no platform views
+              and no native PDF library below the Flutter UI.</p>
+          </div>
+        </section>
+
+        <section class="next" aria-labelledby="next-title">
+          <h2 id="next-title">Try the complete editor</h2>
+          <p>The web demo opens with a built-in showcase PDF, so you can test text editing, annotations, forms, page
+            management, signatures, redaction, and saving before adding the package to your app.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://dart-pdf-demo.web.app">Open the live demo</a>
+            <a class="btn" href="https://pub.dev/packages/dart_pdf_editor">Read the package documentation</a>
+          </div>
+        </section>
+      </article>
+
+      <aside class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <a href="#choose">Choose an editing approach</a>
+        <a href="#install">1. Install the package</a>
+        <a href="#bytes">2. Load PDF bytes</a>
+        <a href="#editor">3. Add the editor UI</a>
+        <a href="#save">4. Save the edited PDF</a>
+        <a href="#features">Supported editing</a>
+        <a href="#customize">Customize the editor</a>
+        <a href="#questions">Common questions</a>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span>© Railway Engineering Solutions · <a href="/">DartPDF app</a> · <a
+          href="/flutter-pdf-editor">Flutter SDK</a></span>
+      <span>Free and open source under Apache-2.0.</span>
+    </div>
+  </footer>
+</body>
+
+</html>

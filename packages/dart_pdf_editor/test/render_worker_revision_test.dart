@@ -37,6 +37,7 @@ class _FakeBackend extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
   }) async {
     recordCounts[pageIndex] = (recordCounts[pageIndex] ?? 0) + 1;
     if (gate != null) await gate!.future;

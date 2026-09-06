@@ -9,7 +9,7 @@
 #
 # Defaults: corpus=test_corpora/pdfjs, count=20, scale=2, maxPages=5, repeat=3.
 #
-# Requirements: fvm/flutter 3.44.4, node, global playwright (+ chromium),
+# Requirements: fvm/flutter 3.47.0, node, global playwright (+ chromium),
 # python3 (for the compare table).
 set -euo pipefail
 
@@ -29,7 +29,7 @@ mkdir -p "$OUT"
 if [[ -z "$CORPUS" ]]; then CORPUS="$REPO/test_corpora/pdfjs"; fi
 CORPUS="$(cd "$CORPUS" && pwd)"
 
-FLUTTER="${FLUTTER:-$HOME/fvm/versions/3.44.4/bin/flutter}"
+FLUTTER="${FLUTTER:-$HOME/fvm/versions/3.47.0/bin/flutter}"
 export NODE_PATH="${NODE_PATH:-$(npm root -g)}"
 
 echo "==> manifest ($COUNT files from $CORPUS, scale=$SCALE, maxPages=$MAXPAGES, repeat=$REPEAT)"

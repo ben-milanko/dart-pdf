@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -5,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:dart_pdf_editor/src/canvas_device.dart';
 import 'package:dart_pdf_editor/src/image_decoder.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -15,6 +17,23 @@ Future<Uint8List> pixelsOf(ui.Image image) async {
   return data!.buffer.asUint8List();
 }
 
+Future<ui.Image> solidGrayImage(int width, int height) {
+  final pixels = Uint8List(width * height * 4);
+  for (var i = 0; i < pixels.length; i += 4) {
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = 128;
+    pixels[i + 3] = 255;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    pixels,
+    width,
+    height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  return completer.future;
+}
+
 /// Wraps a stream the way the interpreter hands images to the decoder.
 PdfImageRequest req(CosStream stream) =>
     PdfImageRequest(stream: stream, transform: PdfMatrix.identity);
@@ -23,6 +42,31 @@ void main() {
   late CosDocument cos;
 
   setUp(() => cos = CosDocument.open(buildClassicPdf()));
+  tearDown(() => debugAppleJpxDecoder = null);
+
+  test('inline image key survives the worker-pixel handoff', () {
+    final stream = CosStream(
+      CosDictionary({
+        'Width': const CosInteger(1),
+        'Height': const CosInteger(1),
+      }),
+      Uint8List.fromList([0]),
+    );
+    final request = PdfImageRequest(
+      stream: stream,
+      transform: PdfMatrix.identity,
+      isInline: true,
+      decoded: PdfDecodedPixels(Uint8List.fromList([255, 0, 0, 255]), 1, 1),
+    );
+    final before = pdfImageKey(request);
+
+    request.releaseDecodedPixels();
+
+    expect(request.decoded, isNull);
+    expect(request.decodedWidth, 1);
+    expect(request.decodedHeight, 1);
+    expect(pdfImageKey(request), before);
+  });
 
   testWidgets('stencil masks decode to alpha coverage', (tester) async {
     await tester.runAsync(() async {
@@ -91,6 +135,230 @@ void main() {
     });
   });
 
+  testWidgets('a DCT soft mask is composited through luminance alpha',
+      (tester) async {
+    await tester.runAsync(() async {
+      const width = 16;
+      final gray = img.Image(width: width, height: 1);
+      for (final pixel in gray) {
+        final value = pixel.x < width ~/ 2 ? 255 : 0;
+        pixel
+          ..r = value
+          ..g = value
+          ..b = value;
+      }
+      final jpeg = Uint8List.fromList(img.encodeJpg(gray, quality: 100));
+      final smask = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        jpeg,
+      );
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList([
+          for (var i = 0; i < width; i++) ...[255, 0, 0],
+        ]),
+      );
+
+      final request = req(image);
+      final images = await decodeImages(
+        cos,
+        [request],
+        maxImagePixelRatio: 4,
+        imageDecodeHeadroom: 1,
+      );
+      expect(images[image]!.width, 4,
+          reason: 'the composite must retain the display-resolution cap');
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder)..scale(4, 1);
+      CanvasPdfDevice(canvas, images: images).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(4, 1);
+      final pixels = await pixelsOf(rendered);
+      expect(pixels[0 * 4 + 3], greaterThan(240));
+      expect(pixels[3 * 4 + 3], lessThan(15));
+      rendered.dispose();
+      picture.dispose();
+      for (final image in images.values) {
+        disposePdfDecodedImage(image);
+      }
+    });
+  });
+
+  testWidgets('an accelerated grayscale DCT mask stays on the GPU path',
+      (tester) async {
+    pdfDctGrayDecoder = (
+      _, {
+      int? targetWidth,
+      int? targetHeight,
+    }) =>
+        PdfDctGraySamples(Uint8List.fromList([255, 0]), 2, 1);
+    addTearDown(() => pdfDctGrayDecoder = null);
+
+    await tester.runAsync(() async {
+      final smask = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList([255, 0, 0, 255, 0, 0]),
+      );
+      final request = req(stream);
+      final decoded = (await decodeImages(cos, [request]))[stream]!;
+      expect(pdfGpuSoftMaskOf(decoded), isNotNull);
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder)..scale(2, 1);
+      CanvasPdfDevice(canvas, images: {stream: decoded}).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(2, 1);
+      final pixels = await pixelsOf(rendered);
+      expect(pixels[3], greaterThan(240));
+      expect(pixels[7], lessThan(15));
+
+      rendered.dispose();
+      picture.dispose();
+      disposePdfDecodedImage(decoded);
+    });
+  });
+
+  testWidgets('a cached DCT soft mask survives clone and master eviction',
+      (tester) async {
+    await tester.runAsync(() async {
+      const width = 16;
+      final gray = img.Image(width: width, height: 1);
+      for (final pixel in gray) {
+        final value = pixel.x < width ~/ 2 ? 255 : 0;
+        pixel
+          ..r = value
+          ..g = value
+          ..b = value;
+      }
+      final smask = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList(img.encodeJpg(gray, quality: 100)),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList([
+          for (var i = 0; i < width; i++) ...[255, 0, 0],
+        ]),
+      );
+      final request = req(stream);
+      final cache = PdfImageCache();
+      final first = (await decodeImages(cos, [request], cache: cache))[stream]!;
+      expect(pdfGpuSoftMaskOf(first), isNotNull);
+      expect(cache.bytes, width * 1 * 4 * 2,
+          reason: 'the cache budget must count the base and mask surfaces');
+      disposePdfDecodedImage(first);
+
+      final clone = (await decodeImages(cos, [request], cache: cache))[stream]!;
+      expect(pdfGpuSoftMaskOf(clone), isNotNull,
+          reason: 'a cache hit must clone the companion mask too');
+      cache.clear();
+      expect(cache.bytes, 0);
+
+      // Clearing the cached masters must not pull either surface out from
+      // under the outstanding clone that a page picture is about to record.
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder)..scale(width.toDouble(), 1);
+      CanvasPdfDevice(canvas, images: {stream: clone}).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(width, 1);
+      final pixels = await pixelsOf(rendered);
+      expect(pixels[3], greaterThan(240));
+      expect(pixels[(width - 1) * 4 + 3], lessThan(15));
+
+      rendered.dispose();
+      picture.dispose();
+      disposePdfDecodedImage(clone);
+      cache.dispose();
+    });
+  });
+
+  testWidgets('DCT soft masks can be materialized for raw-image consumers',
+      (tester) async {
+    await tester.runAsync(() async {
+      const width = 16;
+      final gray = img.Image(width: width, height: 1);
+      for (final pixel in gray) {
+        final value = pixel.x < width ~/ 2 ? 255 : 0;
+        pixel
+          ..r = value
+          ..g = value
+          ..b = value;
+      }
+      final smask = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList(img.encodeJpg(gray, quality: 100)),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList([
+          for (var i = 0; i < width; i++) ...[255, 0, 0],
+        ]),
+      );
+      final decoded = (await decodeImages(
+        cos,
+        [req(stream)],
+        deferSimpleDctSoftMasks: false,
+      ))[stream]!;
+      expect(pdfGpuSoftMaskOf(decoded), isNull);
+      final pixels = await pixelsOf(decoded);
+      expect(pixels[3], greaterThan(240));
+      expect(pixels[(width - 1) * 4 + 3], lessThan(15));
+      disposePdfDecodedImage(decoded);
+    });
+  });
+
   testWidgets('SMask resamples when dimensions differ', (tester) async {
     await tester.runAsync(() async {
       final smask = CosStream(
@@ -156,6 +424,86 @@ void main() {
       expect(pixels.sublist(8, 12), [255, 0, 0, 255]);
       expect(pixels.sublist(12, 16), [0, 0, 0, 0]);
     });
+  });
+
+  testWidgets(
+      'Apple JPX codec preserves and antialiases a higher-res MRC stencil',
+      (tester) async {
+    final calls = <(int?, int?, bool)>[];
+    debugAppleJpxDecoder = (
+      bytes, {
+      targetWidth,
+      targetHeight,
+      required allowUpscaling,
+    }) async {
+      expect(bytes, grayJpxCodestream);
+      calls.add((targetWidth, targetHeight, allowUpscaling));
+      return solidGrayImage(targetWidth ?? 16, targetHeight ?? 16);
+    };
+    await tester.runAsync(() async {
+      const maskWidth = 32;
+      const height = 16;
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(maskWidth),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        Uint8List.fromList(List.filled(height * 4, 0x55)),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('JPXDecode'),
+          'Mask': mask,
+        }),
+        grayJpxCodestream,
+      );
+
+      // Without a display cap, the colour plane is promoted to the stencil's
+      // native resolution instead of flattening its 300-DPI detail to the
+      // scanner's lower-resolution colour grid.
+      final full = (await decodeImages(cos, [req(stream)]))[stream]!;
+      expect((full.width, full.height), (maskWidth, height));
+      expect(pdfGpuSoftMaskOf(full), isNotNull);
+      disposePdfDecodedImage(full);
+
+      // At a 16px display footprint every adjacent paint/skip pair becomes a
+      // half-covered edge. The companion mask must upload coverage as opaque
+      // grayscale: storing it in both RGB and alpha makes the canvas colour
+      // filter unpremultiply every partial sample back to fully opaque.
+      final request = PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(16, 0, 0, 16, 0, 0),
+      );
+      final decoded = (await decodeImages(
+        cos,
+        [request],
+        maxImagePixelRatio: 1,
+        imageDecodeHeadroom: 1,
+      ))[stream]!;
+      expect((decoded.width, decoded.height), (16, height));
+      expect(pdfGpuSoftMaskOf(decoded), isNotNull);
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      CanvasPdfDevice(canvas, images: {stream: decoded}).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(16, height);
+      final pixels = await pixelsOf(rendered);
+      for (var i = 3; i < pixels.length; i += 4) {
+        expect(pixels[i], inInclusiveRange(120, 135));
+      }
+
+      rendered.dispose();
+      picture.dispose();
+      disposePdfDecodedImage(decoded);
+    });
+    expect(calls, [(32, 16, true), (16, 16, true)]);
   });
 
   testWidgets('/Decode [1 0] inverts gray samples', (tester) async {
@@ -307,6 +655,161 @@ void main() {
       final pixels = await pixelsOf(images[image]!);
       expect(pixels.sublist(0, 4), [255, 0, 0, 255]); // red
       expect(pixels.sublist(4, 8), [0, 255, 0, 255]); // green
+    });
+  });
+
+  testWidgets('a plain grayscale DCT image uses the installed accelerator',
+      (tester) async {
+    var calls = 0;
+    pdfDctGrayDecoder = (
+      _, {
+      int? targetWidth,
+      int? targetHeight,
+    }) {
+      calls++;
+      return PdfDctGraySamples(Uint8List.fromList([12, 200]), 2, 1);
+    };
+    addTearDown(() => pdfDctGrayDecoder = null);
+
+    await tester.runAsync(() async {
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      );
+      final image = (await decodeImages(cos, [req(stream)]))[stream]!;
+      final pixels = await pixelsOf(image);
+      expect(calls, 1);
+      expect(pixels, [12, 12, 12, 255, 200, 200, 200, 255]);
+      disposePdfDecodedImage(image);
+    });
+  });
+
+  testWidgets('a plain RGB DCT image uses the installed accelerator',
+      (tester) async {
+    var calls = 0;
+    pdfDctRgbaDecoder = (
+      _, {
+      int? targetWidth,
+      int? targetHeight,
+    }) {
+      calls++;
+      return PdfDctRgbaSamples(
+        Uint8List.fromList([12, 34, 56, 255, 200, 150, 100, 255]),
+        2,
+        1,
+      );
+    };
+    addTearDown(() => pdfDctRgbaDecoder = null);
+
+    await tester.runAsync(() async {
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      );
+      final image = (await decodeImages(cos, [req(stream)]))[stream]!;
+      expect(calls, 1);
+      expect(await pixelsOf(image), [12, 34, 56, 255, 200, 150, 100, 255]);
+      disposePdfDecodedImage(image);
+    });
+  });
+
+  testWidgets('a grayscale DCT reused as a soft mask decodes once per batch',
+      (tester) async {
+    var calls = 0;
+    pdfDctGrayDecoder = (
+      _, {
+      int? targetWidth,
+      int? targetHeight,
+    }) {
+      calls++;
+      return PdfDctGraySamples(Uint8List.fromList([255, 0]), 2, 1);
+    };
+    addTearDown(() => pdfDctGrayDecoder = null);
+
+    await tester.runAsync(() async {
+      final smask = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      );
+      final base = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList([255, 0, 0, 0, 0, 255]),
+      );
+      final decoded = await decodeImages(cos, [req(smask), req(base)]);
+      expect(calls, 1);
+      expect(decoded.keys, containsAll([smask, base]));
+      expect(pdfGpuSoftMaskOf(decoded[base]!), isNotNull);
+      disposePdfDecodedImage(decoded[base]!);
+      disposePdfDecodedImage(decoded[smask]!);
+    });
+  });
+
+  testWidgets('a DCT base with a plain gray soft mask stays on the GPU path',
+      (tester) async {
+    await tester.runAsync(() async {
+      final smask = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(8),
+          'Height': const CosInteger(8),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+        }),
+        Uint8List.fromList([
+          for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++) x < 4 ? 255 : 0,
+        ]),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(8),
+          'Height': const CosInteger(8),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('DCTDecode'),
+          'SMask': smask,
+        }),
+        buildTestJpeg(),
+      );
+      final request = req(stream);
+      final decoded = (await decodeImages(cos, [request]))[stream]!;
+      expect(pdfGpuSoftMaskOf(decoded), isNotNull);
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder)..scale(8, 8);
+      CanvasPdfDevice(canvas, images: {stream: decoded}).drawImage(request);
+      final picture = recorder.endRecording();
+      final rendered = await picture.toImage(8, 8);
+      final pixels = await pixelsOf(rendered);
+      expect(pixels[(2 * 4) + 3], greaterThan(240));
+      expect(pixels[(6 * 4) + 3], lessThan(15));
+
+      rendered.dispose();
+      picture.dispose();
+      disposePdfDecodedImage(decoded);
     });
   });
 
@@ -727,8 +1230,7 @@ void main() {
       );
       final images = await decodeImages(cos, [req(image)]);
       final pixels = await pixelsOf(images[image]!);
-      final expected =
-          PdfColor.cmyk(c / 255, m / 255, y / 255, k / 255);
+      final expected = PdfColor.cmyk(c / 255, m / 255, y / 255, k / 255);
       expect(pixels[0], (expected.red * 255).round());
       expect(pixels[1], (expected.green * 255).round());
       expect(pixels[2], (expected.blue * 255).round());
@@ -821,7 +1323,8 @@ void main() {
       });
     });
 
-    testWidgets('a DCTDecode base under a non-DCT soft mask caps on the '
+    testWidgets(
+        'a DCTDecode base under a non-DCT soft mask caps on the '
         'platform-codec path', (tester) async {
       await tester.runAsync(() async {
         // The #458 shape: a non-CMYK JPEG base (platform codec, not the
@@ -841,9 +1344,8 @@ void main() {
         // A fully-opaque Flate gray mask at the base's native size: if _fitMask
         // did not shrink it, pdfApplyImageAlpha would upsize the capped base
         // back to 512x384.
-        final maskBytes =
-            Uint8List.fromList(ZLibCodec(level: 6).encode(Uint8List(w * h)
-              ..fillRange(0, w * h, 0xFF)));
+        final maskBytes = Uint8List.fromList(ZLibCodec(level: 6)
+            .encode(Uint8List(w * h)..fillRange(0, w * h, 0xFF)));
         final base = CosStream(
           CosDictionary({
             'Subtype': const CosName('Image'),
@@ -881,6 +1383,207 @@ void main() {
         // Base and (fitted) mask agree, so the composite is the capped size,
         // not the mask's native 512x384.
         expect(image.width, greaterThan(0));
+      });
+    });
+  });
+
+  group('concurrent decode (#454)', () {
+    CosStream rgbPixel(int r, int g, int b) => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(1),
+            'Height': const CosInteger(1),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([r, g, b]),
+        );
+
+    testWidgets('decodes every distinct image in one batch', (tester) async {
+      await tester.runAsync(() async {
+        final streams = [
+          rgbPixel(10, 20, 30),
+          rgbPixel(40, 50, 60),
+          rgbPixel(70, 80, 90),
+          rgbPixel(100, 110, 120),
+        ];
+        final images =
+            await decodeImages(cos, [for (final s in streams) req(s)]);
+        expect(images.length, 4);
+        for (final s in streams) {
+          expect(images[s], isNotNull);
+        }
+        expect(
+            (await pixelsOf(images[streams[0]]!)).sublist(0, 3), [10, 20, 30]);
+        expect((await pixelsOf(images[streams[3]]!)).sublist(0, 3),
+            [100, 110, 120]);
+      });
+    });
+
+    testWidgets('a repeated image is decoded once across the batch',
+        (tester) async {
+      await tester.runAsync(() async {
+        final shared = rgbPixel(11, 22, 33);
+        final other = rgbPixel(44, 55, 66);
+        // shared appears three times; the map must collapse to two entries
+        // (proving the dedup happens before the concurrent decodes launch).
+        final images = await decodeImages(
+            cos, [req(shared), req(other), req(shared), req(shared)]);
+        expect(images.length, 2);
+        expect(images[shared], isNotNull);
+        expect(images[other], isNotNull);
+      });
+    });
+
+    testWidgets('a warm cache serves the second batch without re-decoding',
+        (tester) async {
+      await tester.runAsync(() async {
+        final cache = PdfImageCache();
+        final stream = rgbPixel(7, 8, 9);
+        final first = await decodeImages(cos, [req(stream)], cache: cache);
+        final cold = await pixelsOf(first[stream]!);
+        // Second call with the same cache must return the same pixels; the
+        // hit is resolved in the synchronous planning pass, before any decode.
+        final second = await decodeImages(cos, [req(stream)], cache: cache);
+        final warm = await pixelsOf(second[stream]!);
+        expect(warm, cold);
+      });
+    });
+  });
+
+  // The shared cache used to key worker-decoded pixels and locally-decoded
+  // pixels by different *shapes*: a request carrying pixels produced a bare
+  // content key, while a capped local decode produced a sized one. The same
+  // image could therefore occupy two entries, and a record whose pixels were
+  // dropped would miss the entry its own decode had populated. The two shapes
+  // coincided whenever the resolution cap happened to be a no-op, which is why
+  // it went unnoticed - so these pin both directions (#451).
+  group('cache key shape (#451)', () {
+    // A 2x2 image, and "worker" pixels for it in a colour a real decode of
+    // that stream would never produce. If a later local decode returns this
+    // colour, it resolved through the cache rather than decoding again -
+    // which is exactly what a shared key buys.
+    CosStream red2x2() => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(2),
+            'Height': const CosInteger(2),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([
+            for (var i = 0; i < 4; i++) ...[255, 0, 0],
+          ]),
+        );
+
+    PdfDecodedPixels marker(int w, int h) => PdfDecodedPixels(
+          Uint8List.fromList([
+            for (var i = 0; i < w * h; i++) ...[0, 255, 0, 255],
+          ]),
+          w,
+          h,
+        );
+
+    // A big image drawn small, so the resolution cap genuinely binds. That
+    // matters: for an image the cap leaves alone, `_decodeTarget` returns null
+    // and the old and new key shapes coincide - so a test on a small image
+    // passes either way and proves nothing.
+    CosStream big() => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(64),
+            'Height': const CosInteger(64),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([
+            for (var i = 0; i < 64 * 64; i++) ...[255, 0, 0],
+          ]),
+        );
+
+    testWidgets('worker-decoded and locally-decoded pixels share one entry',
+        (tester) async {
+      await tester.runAsync(() async {
+        final stream = big();
+        // 64x64 native drawn into an 8x8pt box at 0.5 px/pt.
+        final small = PdfMatrix(8, 0, 0, 8, 0, 0);
+        const ratio = 0.5;
+
+        // Discover the size the cap lands on rather than hard-coding the
+        // headroom arithmetic, then confirm it really did bind.
+        final probe = await decodeImages(
+            cos, [PdfImageRequest(stream: stream, transform: small)],
+            maxImagePixelRatio: ratio);
+        final capped = probe[stream]!;
+        expect(capped.width, lessThan(64),
+            reason: 'the cap must bind, or this test proves nothing');
+        final (cw, ch) = (capped.width, capped.height);
+
+        // The worker path: a record carrying pixels already decoded to that
+        // same capped size.
+        final cache = PdfImageCache();
+        final fromWorker = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream, transform: small, decoded: marker(cw, ch)),
+            ],
+            cache: cache);
+        expect(await pixelsOf(fromWorker[stream]!), marker(cw, ch).rgba);
+
+        // Then the same image with no pixels attached - the shape a record
+        // takes once its RGBA has been dropped. It must find the entry the
+        // worker path populated instead of decoding the stream afresh.
+        final local = await decodeImages(
+            cos, [PdfImageRequest(stream: stream, transform: small)],
+            cache: cache, maxImagePixelRatio: ratio);
+        expect(await pixelsOf(local[stream]!), marker(cw, ch).rgba,
+            reason: 'a local decode should hit the entry worker pixels stored');
+      });
+    });
+
+    testWidgets('two resolutions of one image still cache separately',
+        (tester) async {
+      await tester.runAsync(() async {
+        // The other direction: unifying the shape must not let a sharp decode
+        // and a small one stand in for each other. Distinct sizes, distinct
+        // marker pixels; each must come back as itself.
+        final cache = PdfImageCache();
+        final stream = red2x2();
+
+        final sharp = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream,
+                  transform: PdfMatrix.identity,
+                  decoded: marker(2, 2)),
+            ],
+            cache: cache);
+        expect(await pixelsOf(sharp[stream]!), marker(2, 2).rgba);
+
+        final tiny = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream,
+                  transform: PdfMatrix.identity,
+                  decoded: marker(1, 1)),
+            ],
+            cache: cache);
+        final tinyPixels = tiny[stream]!;
+        expect(tinyPixels.width, 1,
+            reason: 'the 1x1 decode must not be served the 2x2 entry');
+        expect(await pixelsOf(tinyPixels), marker(1, 1).rgba);
+
+        // And the sharp one must still be intact afterwards.
+        final again = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream,
+                  transform: PdfMatrix.identity,
+                  decoded: marker(2, 2)),
+            ],
+            cache: cache);
+        expect(again[stream]!.width, 2);
       });
     });
   });

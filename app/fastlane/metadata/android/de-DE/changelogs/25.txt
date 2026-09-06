@@ -1,0 +1,5 @@
+Neu in 3.3.1
+
+• Keine doppelten Anmerkungen mehr nach Eigenschaftsänderungen.
+• Eingebettete Schriften bleiben bei Textfarbänderungen erhalten; Wolken- und Polygonvorschauen behalten ihre Musterskalierung.
+• Das Neuanordnen mehrerer Seiten bietet klareres Gruppenfeedback und arbeitet zuverlässiger.

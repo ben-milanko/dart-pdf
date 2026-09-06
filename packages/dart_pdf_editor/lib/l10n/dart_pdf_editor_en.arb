@@ -4,6 +4,78 @@
   "@add": {
     "description": "Generic button that adds a new item."
   },
+  "annotCaret": "Caret",
+  "@annotCaret": {
+    "description": "Annotation type name: a caret marking an insertion point."
+  },
+  "annotCircle": "Circle",
+  "@annotCircle": {
+    "description": "Annotation type name: a circle/ellipse shape."
+  },
+  "annotFileAttachment": "File attachment",
+  "@annotFileAttachment": {
+    "description": "Annotation type name: an embedded file attachment."
+  },
+  "annotFreeText": "Text box",
+  "@annotFreeText": {
+    "description": "Annotation type name: a free-text box drawn on the page."
+  },
+  "annotHighlight": "Highlight",
+  "@annotHighlight": {
+    "description": "Annotation type name: a text highlight."
+  },
+  "annotInk": "Ink",
+  "@annotInk": {
+    "description": "Annotation type name: a freehand ink drawing."
+  },
+  "annotLine": "Line",
+  "@annotLine": {
+    "description": "Annotation type name: a straight line."
+  },
+  "annotLink": "Link",
+  "@annotLink": {
+    "description": "Annotation type name: a hyperlink."
+  },
+  "annotPolygon": "Polygon",
+  "@annotPolygon": {
+    "description": "Annotation type name: a closed polygon shape."
+  },
+  "annotPolyline": "Polyline",
+  "@annotPolyline": {
+    "description": "Annotation type name: an open multi-segment line."
+  },
+  "annotRedact": "Redaction",
+  "@annotRedact": {
+    "description": "Annotation type name: a redaction region."
+  },
+  "annotSquare": "Square",
+  "@annotSquare": {
+    "description": "Annotation type name: a rectangle/square shape."
+  },
+  "annotSquiggly": "Squiggly",
+  "@annotSquiggly": {
+    "description": "Annotation type name: a squiggly (wavy) underline."
+  },
+  "annotStamp": "Stamp",
+  "@annotStamp": {
+    "description": "Annotation type name: a rubber stamp."
+  },
+  "annotStrikeOut": "Strike-out",
+  "@annotStrikeOut": {
+    "description": "Annotation type name: a strike-through over text."
+  },
+  "annotText": "Note",
+  "@annotText": {
+    "description": "Annotation type name: a sticky note / text comment."
+  },
+  "annotUnderline": "Underline",
+  "@annotUnderline": {
+    "description": "Annotation type name: a text underline."
+  },
+  "annotWidget": "Form field",
+  "@annotWidget": {
+    "description": "Annotation type name: an interactive form field widget."
+  },
   "apply": "Apply",
   "@apply": {
     "description": "Generic button that applies pending changes."
@@ -290,6 +362,22 @@
   "@editorViewAuthorNameTitle": {
     "description": "Dialog title for the prompt that sets the default annotation author name."
   },
+  "lineStyleDashDot": "Dash-dot",
+  "@lineStyleDashDot": {
+    "description": "Border line style: an alternating dash-dot line."
+  },
+  "lineStyleDashed": "Dashed",
+  "@lineStyleDashed": {
+    "description": "Border line style: a dashed line."
+  },
+  "lineStyleDotted": "Dotted",
+  "@lineStyleDotted": {
+    "description": "Border line style: a dotted line."
+  },
+  "lineStyleSolid": "Solid",
+  "@lineStyleSolid": {
+    "description": "Border line style: an unbroken solid line."
+  },
   "measCalibrate": "Calibrate",
   "@measCalibrate": {
     "description": "Button that switches from typing a scale to calibrating by drawing a reference segment."
@@ -301,6 +389,42 @@
   "measDepthLabel": "Depth: ",
   "@measDepthLabel": {
     "description": "Inline label preceding the volume depth input field."
+  },
+  "measKindAngle": "Angle",
+  "@measKindAngle": {
+    "description": "Measurement kind: an angle measurement."
+  },
+  "measKindArc": "Arc",
+  "@measKindArc": {
+    "description": "Measurement kind: an arc-length measurement."
+  },
+  "measKindArea": "Area",
+  "@measKindArea": {
+    "description": "Measurement kind: an area measurement."
+  },
+  "measKindCount": "Count",
+  "@measKindCount": {
+    "description": "Measurement kind: a running count of tally marks."
+  },
+  "measKindLength": "Length",
+  "@measKindLength": {
+    "description": "Measurement kind: a distance/length measurement."
+  },
+  "measKindNetArea": "Net area",
+  "@measKindNetArea": {
+    "description": "Measurement kind: an area with cut-outs subtracted."
+  },
+  "measKindPerimeter": "Perimeter",
+  "@measKindPerimeter": {
+    "description": "Measurement kind: the perimeter of a shape."
+  },
+  "measKindSlope": "Slope",
+  "@measKindSlope": {
+    "description": "Measurement kind: a slope (rise over run)."
+  },
+  "measKindVolume": "Volume",
+  "@measKindVolume": {
+    "description": "Measurement kind: a volume (area times depth)."
   },
   "measLineRepresents": "The line you drew represents:",
   "@measLineRepresents": {
@@ -387,6 +511,14 @@
   "@menuFlattenForm": {
     "description": "Form-field context-menu item that flattens all form fields into page content."
   },
+  "menuLock": "Lock",
+  "@menuLock": {
+    "description": "Annotation context-menu item that locks the selected annotation(s) so they can't be moved, resized, deleted, or edited (sets the /F Locked and LockedContents flags)."
+  },
+  "menuUnlock": "Unlock",
+  "@menuUnlock": {
+    "description": "Annotation context-menu item shown when right-clicking a locked annotation; unlocks it so it can be edited again."
+  },
   "menuRecolour": "Recolour…",
   "@menuRecolour": {
     "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."
@@ -394,6 +526,10 @@
   "menuRemoveNode": "Remove node",
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
+  },
+  "menuSaveToStamps": "Save to stamps",
+  "@menuSaveToStamps": {
+    "description": "Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection."
   },
   "menuSetAsDefaultStyle": "Set as default style",
   "@menuSetAsDefaultStyle": {
@@ -458,6 +594,30 @@
   "overlayStampText": "Stamp text",
   "@overlayStampText": {
     "description": "Title of the prompt asking for the caption of a text stamp being placed on a page."
+  },
+  "linkDialogTitle": "Add link",
+  "@linkDialogTitle": {
+    "description": "Title of the dialog that collects a hyperlink's target when adding a link annotation."
+  },
+  "linkKindWeb": "Web address",
+  "@linkKindWeb": {
+    "description": "Label of the choice for an external (URL) hyperlink target in the Add-link dialog."
+  },
+  "linkKindPage": "Page in document",
+  "@linkKindPage": {
+    "description": "Label of the choice for an internal (jump to a page) hyperlink target in the Add-link dialog."
+  },
+  "linkUrlLabel": "URL",
+  "@linkUrlLabel": {
+    "description": "Text field label for the web address of an external hyperlink in the Add-link dialog."
+  },
+  "linkPageLabel": "Page number",
+  "@linkPageLabel": {
+    "description": "Text field label for the target page number of an internal hyperlink in the Add-link dialog."
+  },
+  "toolLink": "Link",
+  "@toolLink": {
+    "description": "Label and tooltip for the link tool in the editing toolbar."
   },
   "overlayUnderline": "Underline",
   "@overlayUnderline": {
@@ -565,6 +725,10 @@
   "propContents": "Contents",
   "@propContents": {
     "description": "Label for the editable contents/text of an annotation."
+  },
+  "propCornerRadius": "Corner radius",
+  "@propCornerRadius": {
+    "description": "Slider label for the corner rounding of a selected rectangle annotation."
   },
   "propEditsApplyToAll": "Edits apply to all compatible annotations",
   "@propEditsApplyToAll": {
@@ -886,6 +1050,71 @@
   "@save": {
     "description": "Generic button that saves the document or changes."
   },
+  "sbarActionJavaScript": "JavaScript",
+  "@sbarActionJavaScript": {
+    "description": "Link target subtitle: runs a JavaScript action."
+  },
+  "sbarActionPage": "Page {page}",
+  "@sbarActionPage": {
+    "description": "Link target subtitle: jumps to the given 1-based page number.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "sbarCallout": "Callout",
+  "@sbarCallout": {
+    "description": "Annotation title for a callout (a text box with a leader line)."
+  },
+  "sbarFieldButton": "Button field",
+  "@sbarFieldButton": {
+    "description": "Form-field type shown as an annotation title: a button (push/check/radio)."
+  },
+  "sbarFieldChoice": "Choice field",
+  "@sbarFieldChoice": {
+    "description": "Form-field type shown as an annotation title: a list/combo choice field."
+  },
+  "sbarFieldGeneric": "Form field",
+  "@sbarFieldGeneric": {
+    "description": "Fallback form-field type shown as an annotation title."
+  },
+  "sbarFieldSignature": "Signature field",
+  "@sbarFieldSignature": {
+    "description": "Form-field type shown as an annotation title: a digital-signature field."
+  },
+  "sbarFieldText": "Text field",
+  "@sbarFieldText": {
+    "description": "Form-field type shown as an annotation title: a text input field."
+  },
+  "sbarStateAccepted": "Accepted",
+  "@sbarStateAccepted": {
+    "description": "Review-state chip: the markup was accepted."
+  },
+  "sbarStateCancelled": "Cancelled",
+  "@sbarStateCancelled": {
+    "description": "Review-state chip: the markup was cancelled."
+  },
+  "sbarStateMarked": "Marked",
+  "@sbarStateMarked": {
+    "description": "Review-state chip: the markup is flagged/marked."
+  },
+  "sbarStateRejected": "Rejected",
+  "@sbarStateRejected": {
+    "description": "Review-state chip: the markup was rejected."
+  },
+  "sbarStateResolved": "Resolved",
+  "@sbarStateResolved": {
+    "description": "Review-state chip: the comment thread is resolved/completed."
+  },
+  "sbarStateUnmarked": "Unmarked",
+  "@sbarStateUnmarked": {
+    "description": "Review-state chip: the markup's mark was cleared."
+  },
+  "searchAnnotations": "Search annotations",
+  "@searchAnnotations": {
+    "description": "Tooltip on the search option toggle that also searches annotation contents (notes, comments, free text)."
+  },
   "searchClearSearch": "Clear search",
   "@searchClearSearch": {
     "description": "Tooltip on the button that clears the document search field."
@@ -936,6 +1165,31 @@
   "searchRegex": "Regular expression",
   "@searchRegex": {
     "description": "Tooltip on the search option toggle that treats the query as a regular expression."
+  },
+  "searchReplace": "Replace",
+  "@searchReplace": {
+    "description": "Label on the search panel button that replaces the current match."
+  },
+  "searchReplaceAll": "Replace all",
+  "@searchReplaceAll": {
+    "description": "Label on the search panel button that replaces every match in the document."
+  },
+  "searchReplaceHint": "Replace with",
+  "@searchReplaceHint": {
+    "description": "Placeholder in the search panel's replacement text field."
+  },
+  "searchReplaceNotTargetable": "That match can\u2019t be replaced on its own \u2014 use Replace all, or edit it with the content tool",
+  "@searchReplaceNotTargetable": {
+    "description": "Shown when a single search match cannot be pinned to one editable text run, so Replace did nothing."
+  },
+  "searchReplaced": "{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}",
+  "@searchReplaced": {
+    "description": "Confirmation after replacing search matches.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "searchResultsTitle": "Search results",
   "@searchResultsTitle": {
@@ -1046,7 +1300,7 @@
   "@shellPressAKey": {
     "description": "Dialog title shown while capturing a keyboard shortcut for an editing tool."
   },
-  "shellPressLetterKeyHint": "Press a letter key, or Delete to clear.",
+  "shellPressLetterKeyHint": "Press a letter key, add Shift for a variant, or Delete to clear.",
   "@shellPressLetterKeyHint": {
     "description": "Instructional text in the keyboard-shortcut capture dialog."
   },
@@ -1077,6 +1331,10 @@
   "shellShowAnnotations": "Show annotations",
   "@shellShowAnnotations": {
     "description": "Toggle label controlling whether annotations are shown."
+  },
+  "shellShowScrollbarChapters": "Show chapters on scrollbar",
+  "@shellShowScrollbarChapters": {
+    "description": "Toggle label controlling whether PDF outline chapters appear as markers on the scrollbar."
   },
   "shellTabHere": "Tab here",
   "@shellTabHere": {
@@ -1114,6 +1372,14 @@
   "sidebarDeleteSignature": "Delete signature",
   "@sidebarDeleteSignature": {
     "description": "Tooltip for the button that removes a digital signature from a signature-field row."
+  },
+  "sidebarLockAnnotation": "Lock",
+  "@sidebarLockAnnotation": {
+    "description": "Tooltip for a sidebar row's button that locks the annotation so it can't be moved, resized, deleted, or edited."
+  },
+  "sidebarUnlockAnnotation": "Unlock",
+  "@sidebarUnlockAnnotation": {
+    "description": "Tooltip for a sidebar row's button that unlocks a locked annotation, making it editable again."
   },
   "sidebarMore": "More",
   "@sidebarMore": {
@@ -1178,6 +1444,83 @@
       }
     }
   },
+  "sidebarSignatureChecking": "Checking…",
+  "@sidebarSignatureChecking": {
+    "description": "Status pill on a signature-field row while its validation is still being computed."
+  },
+  "sidebarSignatureTrusted": "Valid — trusted",
+  "@sidebarSignatureTrusted": {
+    "description": "Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority."
+  },
+  "sidebarSignatureUnverified": "Valid — unverified",
+  "@sidebarSignatureUnverified": {
+    "description": "Status pill when the signature is cryptographically intact but its signer does not chain to a configured trust anchor."
+  },
+  "sidebarSignatureInvalid": "Invalid",
+  "@sidebarSignatureInvalid": {
+    "description": "Status pill when the signature fails its cryptographic check (digest or signature mismatch)."
+  },
+  "sidebarSignatureSignedBy": "Signed by {name}",
+  "@sidebarSignatureSignedBy": {
+    "description": "Detail line naming the certificate subject that signed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureSignedAt": "Signed {time}",
+  "@sidebarSignatureSignedAt": {
+    "description": "Detail line giving the signing time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureTrustedVia": "Trusted via {authority}",
+  "@sidebarSignatureTrustedVia": {
+    "description": "Detail line naming the trusted authority the signer chains to.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
+  "@sidebarSignatureUntrustedDetail": {
+    "description": "Detail line when the signer does not chain to any configured trust anchor."
+  },
+  "sidebarSignatureNoAnchors": "No trusted authorities are configured",
+  "@sidebarSignatureNoAnchors": {
+    "description": "Detail line when no trust anchors are configured, so trust can't be judged."
+  },
+  "sidebarSignatureModified": "Document was changed after signing",
+  "@sidebarSignatureModified": {
+    "description": "Detail line when the document was changed after this signature was applied."
+  },
+  "sidebarSignatureRevoked": "The signer's certificate was revoked",
+  "@sidebarSignatureRevoked": {
+    "description": "Detail line when the signer's certificate is listed as revoked by embedded material."
+  },
+  "sidebarSignatureTimestamped": "Timestamped {time}",
+  "@sidebarSignatureTimestamped": {
+    "description": "Detail line giving the trusted timestamp time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureLevel": "PAdES {level}",
+  "@sidebarSignatureLevel": {
+    "description": "Detail line naming the PAdES baseline level the signature reaches.",
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
   "sidebarWriteReplyHint": "Write a reply…",
   "@sidebarWriteReplyHint": {
     "description": "Placeholder text in the inline reply text field."
@@ -1226,6 +1569,10 @@
   "@stampCircle": {
     "description": "Label of the button that adds an ellipse component to the stamp template."
   },
+  "stampCustomCaption": "Custom stamp",
+  "@stampCustomCaption": {
+    "description": "Default display name for a custom stamp that has no text component."
+  },
   "stampDateFormat": "Date format",
   "@stampDateFormat": {
     "description": "Label for the dropdown selecting the date format used by stamp {{date}} fields."
@@ -1246,9 +1593,33 @@
   "@stampExport": {
     "description": "Label of the button that exports saved custom stamps out of the app."
   },
+  "stampFieldDate": "Date",
+  "@stampFieldDate": {
+    "description": "Insertable stamp template field: the current date."
+  },
+  "stampFieldDateTime": "Date & time",
+  "@stampFieldDateTime": {
+    "description": "Insertable stamp template field: the current date and time."
+  },
+  "stampFieldTime": "Time",
+  "@stampFieldTime": {
+    "description": "Insertable stamp template field: the current time."
+  },
+  "stampFieldUsername": "Username",
+  "@stampFieldUsername": {
+    "description": "Insertable stamp template field: the current user's name."
+  },
   "stampFont": "Font",
   "@stampFont": {
     "description": "Tooltip on the button that chooses the font of the selected stamp text component."
+  },
+  "stampFontBold": "Bold",
+  "@stampFontBold": {
+    "description": "Font-style modifier shown after a font family name in the stamp font menu."
+  },
+  "stampFontItalic": "Italic",
+  "@stampFontItalic": {
+    "description": "Font-style modifier shown after a font family name in the stamp font menu."
   },
   "stampHeight": "Height",
   "@stampHeight": {
@@ -1278,6 +1649,10 @@
   "@stampNewStampTitle": {
     "description": "Title of the stamp editor dialog when creating a new stamp."
   },
+  "stampSavedToCollection": "Saved to stamps",
+  "@stampSavedToCollection": {
+    "description": "Snackbar shown after a stamp on the page was saved into the user's stamp collection."
+  },
   "stampSelectTextToEdit": "Select text to edit",
   "@stampSelectTextToEdit": {
     "description": "Placeholder label shown on the stamp text input when no text component is selected."
@@ -1297,6 +1672,14 @@
   "stampText": "Text",
   "@stampText": {
     "description": "Label of the button that adds a text component to the stamp template."
+  },
+  "stampTime12Hour": "12 hr",
+  "@stampTime12Hour": {
+    "description": "Suffix in the stamp time-format preview marking a 12-hour (AM/PM) clock format."
+  },
+  "stampTime24Hour": "24 hr",
+  "@stampTime24Hour": {
+    "description": "Suffix in the stamp time-format preview marking a 24-hour clock format."
   },
   "stampTimeFormat": "Time format",
   "@stampTimeFormat": {
@@ -1376,9 +1759,9 @@
   "@tbAlignVerticalCenters": {
     "description": "Tooltip: align selected annotations on their vertical centers."
   },
-  "tbAnnotationsFlattened": "Annotations flattened into the pages",
+  "tbAnnotationsFlattened": "Annotations and form fields flattened into the pages",
   "@tbAnnotationsFlattened": {
-    "description": "Snackbar confirming annotations were baked into the page content."
+    "description": "Snackbar confirming annotations and form fields were baked into the page content."
   },
   "tbApplyRedactionsMessage": "The marked content will be permanently removed from the document. This cannot be undone.",
   "@tbApplyRedactionsMessage": {
@@ -1396,6 +1779,10 @@
   "@tbAutosizeTextBox": {
     "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
   },
+  "tbAutosizeTextFont": "Fit font to text box",
+  "@tbAutosizeTextFont": {
+    "description": "Tooltip for choosing the largest font size that fits the selected free-text box."
+  },
   "tbCalibrateScaleHint": "Draw a line of known length to calibrate the scale.",
   "@tbCalibrateScaleHint": {
     "description": "Snackbar guiding the user to draw a reference line when calibrating a measurement scale."
@@ -1411,6 +1798,26 @@
   "tbCheckMarksOnDocument": "Check-marks on the document",
   "@tbCheckMarksOnDocument": {
     "description": "Tooltip on the tally chip counting check-marks placed by the Count tool."
+  },
+  "tbCropImage": "Crop image",
+  "@tbCropImage": {
+    "description": "Tooltip on the button that starts cropping the selected image."
+  },
+  "tbCroppingImage": "Cropping image",
+  "@tbCroppingImage": {
+    "description": "Label shown on the toolbar while the image-crop tool is active."
+  },
+  "tbCropApply": "Apply crop",
+  "@tbCropApply": {
+    "description": "Tooltip on the button that confirms the pending image crop."
+  },
+  "tbCropCancel": "Cancel crop",
+  "@tbCropCancel": {
+    "description": "Tooltip on the button that abandons the pending image crop."
+  },
+  "tbCropReset": "Reset crop",
+  "@tbCropReset": {
+    "description": "Tooltip on the button that removes the crop and restores the whole image."
   },
   "tbColorLabel": "Color",
   "@tbColorLabel": {
@@ -1527,9 +1934,9 @@
   "@tbFingerScrolls": {
     "description": "Tooltip when finger scrolls and only the pen draws; tapping switches finger to drawing."
   },
-  "tbFlattenAnnotationsTooltip": "Flatten annotations into the pages",
+  "tbFlattenAnnotationsTooltip": "Flatten annotations and form fields into the pages",
   "@tbFlattenAnnotationsTooltip": {
-    "description": "Tooltip for the button that bakes annotations into page content."
+    "description": "Tooltip for the button that bakes annotations and form fields into page content."
   },
   "tbFlattenForm": "Flatten form",
   "@tbFlattenForm": {
@@ -1559,6 +1966,34 @@
   "@tbFormFieldsFlattened": {
     "description": "Snackbar confirming form fields were baked into the page content."
   },
+  "tbGroupDraw": "Draw",
+  "@tbGroupDraw": {
+    "description": "Toolbar dock group label: freehand drawing tools."
+  },
+  "tbGroupEdit": "Edit",
+  "@tbGroupEdit": {
+    "description": "Toolbar dock group label: document-editing tools (content/form/redact/…)."
+  },
+  "tbGroupInsert": "Insert",
+  "@tbGroupInsert": {
+    "description": "Toolbar dock group label: insert tools (text box/note/stamp/…)."
+  },
+  "tbGroupMarkup": "Markup",
+  "@tbGroupMarkup": {
+    "description": "Toolbar dock group label: text-markup tools (highlight/underline/…)."
+  },
+  "tbGroupMeasure": "Measure",
+  "@tbGroupMeasure": {
+    "description": "Toolbar dock group label: measurement tools."
+  },
+  "tbGroupSelect": "Select",
+  "@tbGroupSelect": {
+    "description": "Toolbar dock group label: the selection tools."
+  },
+  "tbGroupShapes": "Shapes",
+  "@tbGroupShapes": {
+    "description": "Toolbar dock group label: shape tools (rectangle/line/…)."
+  },
   "tbImageButtonOption": "Image button",
   "@tbImageButtonOption": {
     "description": "Menu option: create an image push-button form field."
@@ -1583,17 +2018,157 @@
   "@tbManageStamps": {
     "description": "Stamp menu item that opens the manage-stamps dialog."
   },
+  "tbMarkupHighlight": "Highlight",
+  "@tbMarkupHighlight": {
+    "description": "Text-markup tool name: highlight text."
+  },
+  "tbMarkupHighlightTip": "Highlight text",
+  "@tbMarkupHighlightTip": {
+    "description": "Tooltip for the text highlight tool."
+  },
+  "tbMarkupSquiggly": "Squiggly-underline",
+  "@tbMarkupSquiggly": {
+    "description": "Text-markup tool name: squiggly-underline text."
+  },
+  "tbMarkupSquigglyTip": "Squiggly-underline text",
+  "@tbMarkupSquigglyTip": {
+    "description": "Tooltip for the squiggly-underline tool."
+  },
+  "tbMarkupStrikeOut": "Strike out",
+  "@tbMarkupStrikeOut": {
+    "description": "Text-markup tool name: strike out text."
+  },
+  "tbMarkupStrikeOutTip": "Strike out text",
+  "@tbMarkupStrikeOutTip": {
+    "description": "Tooltip for the strike-out tool."
+  },
+  "tbMarkupUnderline": "Underline",
+  "@tbMarkupUnderline": {
+    "description": "Text-markup tool name: underline text."
+  },
+  "tbMarkupUnderlineTip": "Underline text",
+  "@tbMarkupUnderlineTip": {
+    "description": "Tooltip for the underline tool."
+  },
   "tbMoreColors": "More colors…",
   "@tbMoreColors": {
     "description": "Tooltip for the button opening the full color picker."
+  },
+  "tbNameArrow": "Arrow",
+  "@tbNameArrow": {
+    "description": "Tool name: draw an arrow."
+  },
+  "tbNameCallout": "Callout",
+  "@tbNameCallout": {
+    "description": "Tool name: insert a callout (text box with a leader line)."
+  },
+  "tbNameCloudPolygon": "Cloud polygon",
+  "@tbNameCloudPolygon": {
+    "description": "Tool name: draw a cloud-outline polygon."
+  },
+  "tbNameCount": "Count",
+  "@tbNameCount": {
+    "description": "Tool name: drop tally check-marks."
+  },
+  "tbNameDigitalSignature": "Digital signature",
+  "@tbNameDigitalSignature": {
+    "description": "Tool name: place and cryptographically sign a signature box."
+  },
+  "tbNameDraw": "Draw",
+  "@tbNameDraw": {
+    "description": "Tool name: freehand ink drawing."
+  },
+  "tbNameEllipse": "Ellipse",
+  "@tbNameEllipse": {
+    "description": "Tool name: draw an ellipse shape."
+  },
+  "tbNameEraser": "Erase ink strokes",
+  "@tbNameEraser": {
+    "description": "Tool name: erases ink strokes."
+  },
+  "tbNameHand": "Hand",
+  "@tbNameHand": {
+    "description": "Name of the default page-navigation mode, which pans the document by dragging."
+  },
+  "tbNameHighlight": "Highlight",
+  "@tbNameHighlight": {
+    "description": "Tool name: freehand highlighter."
+  },
+  "tbNameImage": "Image",
+  "@tbNameImage": {
+    "description": "Tool name: insert a raster image."
+  },
+  "tbNameLine": "Line",
+  "@tbNameLine": {
+    "description": "Tool name: draw a straight line."
+  },
+  "tbNameMeasureAngle": "Measure angle",
+  "@tbNameMeasureAngle": {
+    "description": "Tool name: measure an interior angle."
+  },
+  "tbNameMeasureArc": "Measure arc length",
+  "@tbNameMeasureArc": {
+    "description": "Tool name: measure an arc length."
+  },
+  "tbNameMeasureArea": "Measure area",
+  "@tbNameMeasureArea": {
+    "description": "Tool name: measure an area."
+  },
+  "tbNameMeasureDistance": "Measure distance",
+  "@tbNameMeasureDistance": {
+    "description": "Tool name: measure a straight-line distance."
+  },
+  "tbNameMeasurePerimeter": "Measure perimeter",
+  "@tbNameMeasurePerimeter": {
+    "description": "Tool name: measure a perimeter."
+  },
+  "tbNameMeasureSlope": "Measure slope (rise/run)",
+  "@tbNameMeasureSlope": {
+    "description": "Tool name: measure a slope as rise over run."
+  },
+  "tbNameMeasureVolume": "Measure volume (area × depth)",
+  "@tbNameMeasureVolume": {
+    "description": "Tool name: measure a volume as area times depth."
+  },
+  "tbNameNote": "Note",
+  "@tbNameNote": {
+    "description": "Tool name: insert a sticky note."
+  },
+  "tbNamePolygon": "Polygon",
+  "@tbNamePolygon": {
+    "description": "Tool name: draw a closed polygon."
+  },
+  "tbNamePolyline": "Polyline",
+  "@tbNamePolyline": {
+    "description": "Tool name: draw an open multi-segment line."
+  },
+  "tbNameRectangle": "Rectangle",
+  "@tbNameRectangle": {
+    "description": "Tool name: draw a rectangle shape."
+  },
+  "tbNameSelect": "Select",
+  "@tbNameSelect": {
+    "description": "Tool name: the select/move tool."
+  },
+  "tbNameSignature": "Signature",
+  "@tbNameSignature": {
+    "description": "Tool name: place a saved handwritten signature."
+  },
+  "tbNameStamp": "Stamp",
+  "@tbNameStamp": {
+    "description": "Tool name: insert a rubber stamp."
+  },
+  "tbNameTextBox": "Text box",
+  "@tbNameTextBox": {
+    "description": "Tool name: insert a free-text box."
   },
   "tbNewFieldType": "New field type - drag on a page to add one",
   "@tbNewFieldType": {
     "description": "Tooltip for the menu selecting which type of form field a drag will create."
   },
-  "tbNoAnnotationsToFlatten": "No annotations to flatten",
+  "tbNoAnnotationsToFlatten": "No annotations or form fields to flatten",
   "@tbNoAnnotationsToFlatten": {
-    "description": "Snackbar shown when the flatten action runs but there are no annotations."
+    "description": "Snackbar shown when the flatten action runs but there are no annotations or form fields."
   },
   "tbNoCustomStamps": "No custom stamps",
   "@tbNoCustomStamps": {
@@ -1675,9 +2250,9 @@
   "@tbScale": {
     "description": "Leading label of the measurement-scale chip."
   },
-  "tbSelectTextForMarkup": "Select text to use markup",
+  "tbSelectTextForMarkup": "Choose a markup, then select text",
   "@tbSelectTextForMarkup": {
-    "description": "Hint shown when the markup tools are open but no text is selected."
+    "description": "Hint explaining the arm-first text-markup workflow."
   },
   "tbSelectionCount": "{count, plural, =1{Selection} other{{count} selected}}",
   "@tbSelectionCount": {
@@ -1748,6 +2323,54 @@
   "tbTextTitle": "Text",
   "@tbTextTitle": {
     "description": "Dialog title for editing a free-text annotation's text."
+  },
+  "tbTipCallout": "Callout - drag from the point to where the box goes",
+  "@tbTipCallout": {
+    "description": "Tooltip for the callout tool, explaining the drag gesture."
+  },
+  "tbTipContent": "Edit page content",
+  "@tbTipContent": {
+    "description": "Tooltip for the page-content editing tool."
+  },
+  "tbTipCount": "Count - tap to drop check-marks and tally them",
+  "@tbTipCount": {
+    "description": "Tooltip for the count tool."
+  },
+  "tbTipDigitalSignature": "Digital signature - drag a box to place and sign",
+  "@tbTipDigitalSignature": {
+    "description": "Tooltip for the digital-signature box tool."
+  },
+  "tbTipForm": "Form fields - tap to select, double-tap to fill, drag to add",
+  "@tbTipForm": {
+    "description": "Tooltip for the form-fields tool."
+  },
+  "tbTipHighlightDraw": "Highlight - draw freehand",
+  "@tbTipHighlightDraw": {
+    "description": "Tooltip for the freehand highlighter tool."
+  },
+  "tbTipImage": "Image - tap to place, or drag out a box",
+  "@tbTipImage": {
+    "description": "Tooltip for the insert-image tool."
+  },
+  "tbTipMeasureAngle": "Measure angle - click three points",
+  "@tbTipMeasureAngle": {
+    "description": "Tooltip for the angle-measurement tool."
+  },
+  "tbTipMeasureArc": "Measure arc length - click three points",
+  "@tbTipMeasureArc": {
+    "description": "Tooltip for the arc-length-measurement tool."
+  },
+  "tbTipRedact": "Redact - drag a region, then apply",
+  "@tbTipRedact": {
+    "description": "Tooltip for the redaction tool."
+  },
+  "tbTipSignature": "Signature - tap a page to place it",
+  "@tbTipSignature": {
+    "description": "Tooltip for placing a saved handwritten signature."
+  },
+  "tbTipSnapshot": "Snapshot - drag a region to capture it (paste back as vector)",
+  "@tbTipSnapshot": {
+    "description": "Tooltip for the snapshot capture tool."
   },
   "tbToolContent": "Content",
   "@tbToolContent": {
@@ -2008,5 +2631,112 @@
   "viewerSelectAll": "Select all",
   "@viewerSelectAll": {
     "description": "Menu/chip action that selects all text on the current page."
-  }
+  },
+  "annotationLibraryTitle": "Annotation library",
+  "@annotationLibraryTitle": {
+    "description": "Title and toolbar tooltip for the reusable annotation library."
+  },
+  "annotationLibraryEmpty": "No saved annotations.",
+  "@annotationLibraryEmpty": {
+    "description": "Empty-state text in the reusable annotation library."
+  },
+  "annotationLibraryHelp": "Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.",
+  "@annotationLibraryHelp": {
+    "description": "Explanation of how to save reusable annotations and which interactive types are deliberately unsupported."
+  },
+  "annotationLibrarySave": "Save to annotation library",
+  "@annotationLibrarySave": {
+    "description": "Annotation context-menu action that saves the selected annotation for reuse."
+  },
+  "annotationLibrarySaveTitle": "Save annotation",
+  "@annotationLibrarySaveTitle": {
+    "description": "Title of the prompt that names an annotation library item."
+  },
+  "annotationLibraryRenameTitle": "Rename library item",
+  "@annotationLibraryRenameTitle": {
+    "description": "Title of the prompt that renames an annotation library item."
+  },
+  "annotationLibrarySearchHint": "Search library",
+  "@annotationLibrarySearchHint": {
+    "description": "Placeholder in the reusable annotation-library panel search field."
+  },
+  "annotationLibraryNoMatches": "No matching annotations.",
+  "@annotationLibraryNoMatches": {
+    "description": "Empty state when annotation-library search filters out every item."
+  },
+  "annotationLibraryUngrouped": "Ungrouped",
+  "@annotationLibraryUngrouped": {
+    "description": "Heading for reusable annotations that have no user-defined group."
+  },
+  "annotationLibraryChooseGroup": "Move to group",
+  "@annotationLibraryChooseGroup": {
+    "description": "Action that assigns a reusable annotation to a library group."
+  },
+  "annotationLibraryNewGroup": "New group…",
+  "@annotationLibraryNewGroup": {
+    "description": "Action that creates and assigns a new annotation-library group."
+  },
+  "annotationLibraryGroupTitle": "New annotation group",
+  "@annotationLibraryGroupTitle": {
+    "description": "Title of the prompt that names a new annotation-library group."
+  },
+  "annotationLibraryRenameGroupTitle": "Rename annotation group",
+  "@annotationLibraryRenameGroupTitle": {
+    "description": "Title of the prompt that renames an annotation-library group."
+  },
+  "annotationLibraryRemoveGroup": "Remove group",
+  "@annotationLibraryRemoveGroup": {
+    "description": "Tooltip that removes a group while leaving its annotations ungrouped."
+  },
+  "annotationLibraryPlacementHint": "Click the page to place. Press Escape to cancel.",
+  "@annotationLibraryPlacementHint": {
+    "description": "Hint shown while a reusable annotation follows the pointer ready for placement."
+  },
+  "annotationLibraryCustomStamps": "Custom stamps…",
+  "@annotationLibraryCustomStamps": {
+    "description": "Button that opens custom stamps from the broader annotation library."
+  },
+  "signatureLibraryManage": "Manage signatures",
+  "@signatureLibraryManage": {
+    "description": "Toolbar tooltip that opens the saved handwritten-signature library."
+  },
+  "signatureLibraryRenameTitle": "Rename signature",
+  "@signatureLibraryRenameTitle": {
+    "description": "Title of the prompt that renames a saved handwritten signature."
+  },
+  "signatureLibraryEmpty": "No saved signatures.",
+  "@signatureLibraryEmpty": {
+    "description": "Empty-state text in the saved handwritten-signature library."
+  },
+  "splitTitle": "Split PDF…",
+  "@splitTitle": {
+    "description": "Title and menu action for splitting a PDF into multiple documents."
+  },
+  "splitHelp": "Enter page ranges separated by commas. Each range creates a separate PDF.",
+  "@splitHelp": {
+    "description": "Explains the batch split expression."
+  },
+  "splitRanges": "Page ranges",
+  "@splitRanges": {
+    "description": "Label of the split expression field."
+  },
+  "splitInvalidRanges": "Use pages 1–{count}, separated by commas. Ranges must run from first to last.",
+  "@splitInvalidRanges": {
+    "description": "Validation error for a split expression.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitConfirm": "Split",
+  "@splitConfirm": {
+    "description": "Confirm the batch PDF split."
+  },
+  "splitFailed": "Could not split this PDF.",
+  "@splitFailed": {
+    "description": "Shown when PDF extraction fails."
+  },
+  "tbToolContentDelete": "Delete content",
+  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish"
 }

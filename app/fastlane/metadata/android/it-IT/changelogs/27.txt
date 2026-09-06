@@ -1,0 +1,6 @@
+Novità nella versione 3.5.0
+
+- I PDF grandi e dettagliati restano reattivi durante scorrimento, panoramica e zoom, rendendo nitida prima l'area visibile.
+- Le anteprime acquistano dettaglio progressivamente durante la navigazione rapida.
+- Le pagine restano nitide e visibili vicino ai bordi della vista.
+- Caricamento più rapido dei documenti remoti e uso della memoria più prevedibile.

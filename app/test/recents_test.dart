@@ -62,4 +62,21 @@ void main() {
     await store.clear();
     expect(store.isEmpty, isTrue);
   });
+
+  test('eviction preserves identity, order and a usable original path',
+      () async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', cachePath: 'a');
+    await store.add(title: 'b.pdf', cachePath: 'b', path: '/b.pdf');
+    await store.add(title: 'new.pdf', cachePath: 'new');
+    final ids = store.items.map((entry) => entry.id).toList();
+    final times = store.items.map((entry) => entry.openedAt).toList();
+    await store.updateCachedAvailability({'a', 'b'}, {});
+    expect(store.items.map((entry) => entry.id), ids);
+    expect(store.items.map((entry) => entry.openedAt), times);
+    expect(store.items.map((entry) => entry.isReopenable), [true, true, false]);
+    await store.add(title: 'a.pdf', cachePath: 'a');
+    expect(store.items.length, 3);
+    expect(store.items.first.isReopenable, isTrue);
+  });
 }

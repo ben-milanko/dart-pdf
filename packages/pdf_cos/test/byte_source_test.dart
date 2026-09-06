@@ -32,10 +32,10 @@ class RecordingSource implements PdfByteSource {
   final List<({int start, int end})> reads = [];
   int closes = 0;
 
-  int get bytesFetched =>
-      reads.fold(0, (sum, r) => sum + (r.end - r.start));
+  int get bytesFetched => reads.fold(0, (sum, r) => sum + (r.end - r.start));
 
-  bool covers(int offset) => reads.any((r) => offset >= r.start && offset < r.end);
+  bool covers(int offset) =>
+      reads.any((r) => offset >= r.start && offset < r.end);
 
   @override
   Future<int?> get length async => knownLength ? _bytes.length : null;
@@ -113,8 +113,12 @@ void main() {
       // branch, and /Prev following through streams.
       final base = CosDocument.open(buildXrefStreamPdf());
       final updated = (CosIncrementalUpdater(base)
-            ..replaceObject(1,
-                CosDictionary({'Type': const CosName('Catalog'), 'Pages': const CosReference(2, 0)})))
+            ..replaceObject(
+                1,
+                CosDictionary({
+                  'Type': const CosName('Catalog'),
+                  'Pages': const CosReference(2, 0)
+                })))
           .save();
       final doc = await CosDocument.openSource(RecordingSource(updated));
       expect(doc.catalog.typeName, 'Catalog');
@@ -127,8 +131,12 @@ void main() {
       // stream (and its /Prev chain) fits, covering the retry path.
       final base = CosDocument.open(buildXrefStreamPdf());
       final updated = (CosIncrementalUpdater(base)
-            ..replaceObject(1,
-                CosDictionary({'Type': const CosName('Catalog'), 'Pages': const CosReference(2, 0)})))
+            ..replaceObject(
+                1,
+                CosDictionary({
+                  'Type': const CosName('Catalog'),
+                  'Pages': const CosReference(2, 0)
+                })))
           .save();
       final doc = await CosDocument.openSource(RecordingSource(updated),
           options: const PdfSourceLoadOptions(
@@ -150,7 +158,8 @@ void main() {
       // Small probes so the body is fetched separately from the header/tail,
       // making the ranged (non-blob) behaviour observable on a small file.
       await CosDocument.openSource(source,
-          options: const PdfSourceLoadOptions(headWindow: 128, tailWindow: 128));
+          options:
+              const PdfSourceLoadOptions(headWindow: 128, tailWindow: 128));
 
       // Progressive: more than one request, none of them the whole file.
       expect(source.reads.length, greaterThan(1));
@@ -315,14 +324,14 @@ void main() {
       // Some servers answer a ranged read with more bytes than requested
       // (a 206 carrying the whole file). The loader must clamp, not throw a
       // RangeError past the buffer end.
-      final doc = await CosDocument.openSource(_OverReadSource(buildClassicPdf()));
+      final doc =
+          await CosDocument.openSource(_OverReadSource(buildClassicPdf()));
       expect(doc.catalog.typeName, 'Catalog');
     });
   });
 
   group('encrypted documents', () {
-    test('decrypts through the source path with the owner password',
-        () async {
+    test('decrypts through the source path with the owner password', () async {
       final source = RecordingSource(buildEncryptedPdf());
       final doc = await CosDocument.openSource(source, password: 'owner');
       expect(doc.isEncrypted, isTrue);
@@ -402,9 +411,7 @@ void main() {
       final full = RecordingSource(bytes);
       await CosDocument.openSource(full,
           options: const PdfSourceLoadOptions(
-              headWindow: 64,
-              tailWindow: 200,
-              xrefWindow: 4096));
+              headWindow: 64, tailWindow: 200, xrefWindow: 4096));
       expect(source.bytesFetched, lessThan(full.bytesFetched));
     });
 
@@ -421,6 +428,149 @@ void main() {
       expect(source.covers(offsetOf(bytes, '(Page 4)')), isFalse);
     });
 
+    test('preview mode stops the page-tree walk at the covered leaves',
+        () async {
+      final bytes = buildMultiPagePdf(80);
+      final source = RecordingSource(bytes);
+      final doc = await CosDocument.openSource(source,
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              completeFirstPaintPageTree: false,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+
+      expect(doc.catalog.typeName, 'Catalog');
+      expect(source.covers(offsetOf(bytes, '(Page 1)')), isTrue);
+      expect(source.covers(offsetOf(bytes, '(Page 2)')), isFalse);
+
+      final text = latin1.decode(bytes, allowInvalid: true);
+      final firstLeaf = text.indexOf('/Type /Page /Parent');
+      final secondLeaf = text.indexOf('/Type /Page /Parent', firstLeaf + 1);
+      expect(source.covers(firstLeaf), isTrue);
+      expect(source.covers(secondLeaf), isFalse);
+      expect(source.reads.length, lessThan(12));
+    });
+
+    test('an object left in a hole dangles instead of scanning for it',
+        () async {
+      // The bug behind the 219 MB pack's 13-second freeze: a hole is all
+      // zeros, 0x00 is PDF whitespace, so parsing at an unfetched offset used
+      // to skip whitespace forward until the next populated byte - the whole
+      // rest of the file, per object, on the UI thread. The loader's fetched
+      // ranges make it a miss.
+      final bytes = buildMultiPagePdf(8);
+      final doc = await CosDocument.openSource(RecordingSource(bytes),
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+
+      final pages = doc.resolve(doc.catalog['Pages']) as CosDictionary;
+      final kids = (pages['Kids'] as CosArray).items;
+      // Page 1 was fetched and still resolves completely.
+      final first = doc.resolve(kids.first) as CosDictionary;
+      expect(doc.resolve(first['Contents']), isA<CosStream>());
+      // Page 8's content stream was never fetched: its object is missing, not
+      // some other object the scan happened to land on.
+      final last = doc.resolve(kids.last) as CosDictionary;
+      expect(doc.resolve(last['Contents']), isA<CosNull>());
+    });
+
+    test('a hole is authoritative even when real bytes sit inside it', () {
+      // Declaring a populated map is a statement about the buffer, not a
+      // heuristic over its contents: an object inside a hole stays missing
+      // even though its bytes are right there, which is what keeps the parser
+      // from wandering into a partially-fetched range.
+      final bytes = buildMultiPagePdf(4);
+      final text = latin1.decode(bytes, allowInvalid: true);
+      final holeStart = text.indexOf('9 0 obj');
+      final holeEnd = text.indexOf('11 0 obj');
+      expect(holeStart, greaterThan(0));
+      expect(holeEnd, greaterThan(holeStart));
+
+      final whole = CosDocument.open(bytes);
+      expect(whole.getObject(9, 0), isA<CosDictionary>());
+
+      final sparse = CosDocument.open(bytes,
+          populatedRanges: [0, holeStart, holeEnd, bytes.length]);
+      expect(sparse.getObject(9, 0), isA<CosNull>());
+      // Its neighbours, in populated ranges, are unaffected.
+      expect(sparse.getObject(1, 0), isA<CosDictionary>());
+      expect(sparse.getObject(11, 0), isA<CosDictionary>());
+    });
+
+    test('a parse cannot run off the end of its populated range', () {
+      // A fetched range can end mid-object (window sizing, coalescing). The
+      // parse is bounded to the run it starts in, so it fails there instead of
+      // reading the zeros - or the next object - that follow.
+      final bytes = buildMultiPagePdf(4);
+      final text = latin1.decode(bytes, allowInvalid: true);
+      final truncated = text.indexOf('3 0 obj');
+      final resumes = text.indexOf('5 0 obj');
+      expect(truncated, greaterThan(0));
+
+      final sparse = CosDocument.open(bytes, populatedRanges: [
+        0,
+        truncated + 12, // inside object 3's dictionary
+        resumes,
+        bytes.length,
+      ]);
+      expect(sparse.getObject(3, 0), isA<CosNull>());
+      expect(sparse.getObject(5, 0), isA<CosDictionary>());
+    });
+
+    test('re-opening the same sparse buffer inherits its holes', () async {
+      // How the freeze actually reached the UI: the app paints its preview by
+      // handing the sparse bytes to another reader, which opens its own
+      // session over them - a plain CosDocument.open, with no way to be told
+      // the buffer is full of holes. The map follows the buffer.
+      final bytes = buildMultiPagePdf(8);
+      final first = await CosDocument.openSource(RecordingSource(bytes),
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+
+      final again = CosDocument.open(first.bytes);
+      final pages = again.resolve(again.catalog['Pages']) as CosDictionary;
+      final kids = (pages['Kids'] as CosArray).items;
+      expect(
+          again.resolve(
+              (again.resolve(kids.first) as CosDictionary)['Contents']),
+          isA<CosStream>());
+      expect(
+          again
+              .resolve((again.resolve(kids.last) as CosDictionary)['Contents']),
+          isA<CosNull>(),
+          reason: 'the unfetched page is a hole in this document too');
+    });
+
+    test('an appended revision is real bytes, not another hole', () {
+      // A sparse document that later takes an incremental update must not read
+      // the appended revision as a hole - its objects would silently vanish.
+      final bytes = buildMultiPagePdf(3);
+      final text = latin1.decode(bytes, allowInvalid: true);
+      final holeStart = text.indexOf('7 0 obj');
+      final holeEnd = text.indexOf('9 0 obj');
+      final doc = CosDocument.open(bytes,
+          populatedRanges: [0, holeStart, holeEnd, bytes.length]);
+      expect(doc.getObject(7, 0), isA<CosNull>());
+
+      final updated = CosIncrementalUpdater(doc)
+        ..replaceObject(1, CosDictionary()..entries['Marker'] = CosName('Hit'));
+      final revision = updated.save();
+      doc.applyIncrementalUpdate(revision);
+
+      final root = doc.getObject(1, 0);
+      expect(root, isA<CosDictionary>());
+      expect((root as CosDictionary)['Marker'], isA<CosName>());
+      // ...and the original hole is still a hole.
+      expect(doc.getObject(7, 0), isA<CosNull>());
+    });
+
     test('page 1 is fully resolvable from the partial buffer', () async {
       final bytes = buildMultiPagePdf(5);
       final doc = await CosDocument.openSource(RecordingSource(bytes),
@@ -434,7 +584,8 @@ void main() {
       final firstKid =
           doc.resolve((pages['Kids'] as CosArray).items.first) as CosDictionary;
       final content = doc.resolve(firstKid['Contents']) as CosStream;
-      expect(latin1.decode(doc.decodeStreamData(content)), contains('(Page 1)'));
+      expect(
+          latin1.decode(doc.decodeStreamData(content)), contains('(Page 1)'));
     });
 
     test('handles a compressed (object-stream) page dictionary', () async {

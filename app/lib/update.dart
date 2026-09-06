@@ -6,6 +6,11 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'devtools.dart';
+import 'update_distribution_stub.dart'
+    if (dart.library.io) 'update_distribution_io.dart';
+
+/// The rolling GitHub prerelease populated by the nightly Windows workflow.
+const dartPdfNightlyTag = 'app-nightly';
 
 /// A parsed semantic version (`major.minor.patch`), tolerant of the leading
 /// `app-v` / `v` that the release tags carry, an optional `+build` metadata
@@ -90,6 +95,9 @@ class ReleaseInfo {
     required this.notes,
     required this.htmlUrl,
     required this.assets,
+    this.assetSizes = const {},
+    this.isNightly = false,
+    this.commitSha,
   });
 
   final AppVersion version;
@@ -101,22 +109,66 @@ class ReleaseInfo {
   /// Asset file name → `browser_download_url`.
   final Map<String, String> assets;
 
+  /// Asset file name → byte size, from the GitHub release metadata. Used to
+  /// verify an in-app update download landed complete (a truncated download
+  /// is rejected rather than written over the running install).
+  final Map<String, int> assetSizes;
+
+  /// Whether this is the rolling build produced from the tip of `main`.
+  final bool isNightly;
+
+  /// Source commit recorded by the nightly workflow, when present.
+  final String? commitSha;
+
+  /// Human-readable build label for update banners and buttons.
+  String get displayVersion {
+    if (!isNightly) return version.toString();
+    final sha = commitSha;
+    final shortSha = sha?.substring(0, sha.length < 7 ? sha.length : 7);
+    return shortSha == null || shortSha.isEmpty
+        ? 'nightly'
+        : 'nightly ($shortSha)';
+  }
+
+  /// Stable identity used by "Later". A rolling tag alone is insufficient:
+  /// every nightly shares `app-nightly`, so include its source commit.
+  String get identity =>
+      isNightly && commitSha != null ? '$tagName@$commitSha' : tagName;
+
+  static final _nightlyCommitMarker =
+      RegExp(r'<!-- main-sha: ([0-9a-fA-F]{7,40}) -->');
+  static final _nightlyVersionMarker =
+      RegExp(r'<!-- app-version: ([0-9A-Za-z.+-]+) -->');
+
   /// Builds a release from one element of the GitHub `/releases` array,
   /// returning null when the tag isn't a parseable version (so non-app tags
   /// and malformed entries are simply skipped).
   static ReleaseInfo? fromJson(Map<String, dynamic> json) {
     final tag = json['tag_name'] as String?;
     if (tag == null) return null;
-    final version = AppVersion.tryParse(tag);
+    final notes = (json['body'] as String?)?.trim() ?? '';
+    final isNightly = tag == dartPdfNightlyTag;
+    final version = AppVersion.tryParse(tag) ??
+        (isNightly
+            ? AppVersion.tryParse(
+                _nightlyVersionMarker.firstMatch(notes)?.group(1) ?? '')
+            : null);
     if (version == null) return null;
+    final commitSha =
+        _nightlyCommitMarker.firstMatch(notes)?.group(1)?.toLowerCase();
     final assets = <String, String>{};
+    final assetSizes = <String, int>{};
     final rawAssets = json['assets'];
     if (rawAssets is List) {
       for (final asset in rawAssets) {
         if (asset is! Map) continue;
         final name = asset['name'];
         final url = asset['browser_download_url'];
-        if (name is String && url is String) assets[name] = url;
+        if (name is String && url is String) {
+          assets[name] = url;
+          final size = asset['size'];
+          if (size is int && size > 0) assetSizes[name] = size;
+        }
       }
     }
     return ReleaseInfo(
@@ -125,9 +177,12 @@ class ReleaseInfo {
       name: (json['name'] as String?)?.trim().isNotEmpty == true
           ? (json['name'] as String).trim()
           : tag,
-      notes: (json['body'] as String?)?.trim() ?? '',
+      notes: notes,
       htmlUrl: (json['html_url'] as String?) ?? '',
       assets: assets,
+      assetSizes: assetSizes,
+      isNightly: isNightly,
+      commitSha: commitSha,
     );
   }
 }
@@ -171,19 +226,24 @@ typedef ReleaseFetcher = Future<List<ReleaseInfo>> Function();
 class UpdateService extends ChangeNotifier {
   UpdateService({
     required this.currentVersion,
+    this.currentBuildCommit = 'unknown',
     this.repoOwner = 'ben-milanko',
     this.repoName = 'dart-pdf',
     this.tagPrefix = 'app-v',
+    this.nightlyTag = dartPdfNightlyTag,
     ReleaseFetcher? fetcher,
     http.Client Function()? clientFactory,
     Duration checkInterval = const Duration(hours: 24),
     DateTime Function() now = DateTime.now,
     TargetPlatform? platform,
+    bool? storeManagedBuild,
   })  : _fetcher = fetcher,
         _clientFactory = clientFactory ?? http.Client.new,
         _checkInterval = checkInterval,
         _now = now,
-        _platform = platform {
+        _platform = platform,
+        _storeManagedBuild =
+            storeManagedBuild ?? defaultStoreManagedUpdateChannel {
     _restored = _restore();
   }
 
@@ -191,6 +251,12 @@ class UpdateService extends ChangeNotifier {
   /// can refresh it once `package_info` resolves the real build version, in
   /// case the service was built against the compile-time fallback.
   String currentVersion;
+
+  /// Git commit stamped into the running binary with `PDF_BUILD_COMMIT`.
+  /// Nightly builds use this to avoid offering the exact build already
+  /// installed even though every nightly shares one rolling release tag.
+  final String currentBuildCommit;
+
   final String repoOwner;
   final String repoName;
 
@@ -198,14 +264,19 @@ class UpdateService extends ChangeNotifier {
   /// per-package pub.dev release tags in the same repo are ignored.
   final String tagPrefix;
 
+  /// Exact tag of the rolling nightly prerelease.
+  final String nightlyTag;
+
   final ReleaseFetcher? _fetcher;
   final http.Client Function() _clientFactory;
   final Duration _checkInterval;
   final DateTime Function() _now;
   final TargetPlatform? _platform;
+  final bool _storeManagedBuild;
 
   static const _lastCheckedKey = 'dart_pdf_editor_app.update.lastChecked';
   static const _dismissedKey = 'dart_pdf_editor_app.update.dismissedTag';
+  static const _nightlyKey = 'dart_pdf_editor_app.update.nightly';
 
   UpdateStatus _status = UpdateStatus.idle;
   UpdateStatus get status => _status;
@@ -224,14 +295,73 @@ class UpdateService extends ChangeNotifier {
   DateTime? get lastChecked => _lastChecked;
 
   String? _dismissedTag;
+  bool _nightlyUpdates = false;
   Future<void> _restored = Future.value();
 
-  /// Whether update checks make sense on this platform. The web build is always
-  /// served fresh (and an installed PWA refreshes through its service worker),
-  /// so there is nothing to check there.
-  static bool get supported => !kIsWeb;
+  /// Completes when persisted throttle, dismissal, and channel state is ready.
+  Future<void> get ready => _restored;
 
   TargetPlatform get _targetPlatform => _platform ?? defaultTargetPlatform;
+
+  /// Whether update checks make sense on this platform.
+  ///
+  /// Only the desktop builds are distributed as direct downloads from GitHub
+  /// Releases, so only they benefit from a "newer build available, download it"
+  /// nudge. Two platforms opt out:
+  ///
+  /// * The web build is always served fresh (and an installed PWA refreshes
+  ///   through its service worker), so there is nothing to check.
+  /// * The Android/iOS builds update through their app stores, and a GitHub
+  ///   release routinely lands *before* the store review clears. Checking
+  ///   GitHub there would nag mobile users about a version they can't install
+  ///   yet, and the "Download" button would only send them to a GitHub page
+  ///   that isn't their update channel - exactly the confusing dead end we
+  ///   want to avoid.
+  /// * Flatpak and Snap builds update through their package repositories.
+  ///   Offering a parallel AppImage download would bypass that package
+  ///   manager and leave two competing installations on the machine.
+  ///
+  /// This is an instance getter (not static) so the injected [platform] is
+  /// honoured and the gate is testable.
+  bool get supported {
+    if (kIsWeb || _storeManagedBuild) return false;
+    return switch (_targetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux =>
+        true,
+      _ => false,
+    };
+  }
+
+  /// Whether this platform has a nightly artifact and can opt into the channel.
+  bool get nightlySupported =>
+      supported && _targetPlatform == TargetPlatform.windows;
+
+  /// Whether rolling builds from `main` participate in update checks.
+  bool get nightlyUpdates => _nightlyUpdates && nightlySupported;
+
+  /// Switches update channel and clears the cross-channel throttle so the new
+  /// channel can be checked immediately. The Settings UI follows this with a
+  /// forced check; startup checks pick up the persisted value through [ready].
+  Future<void> setNightlyUpdates(bool value) async {
+    await _restored;
+    final enabled = value && nightlySupported;
+    if (enabled == _nightlyUpdates) return;
+    _nightlyUpdates = enabled;
+    _status = UpdateStatus.idle;
+    _latest = null;
+    _error = null;
+    _lastChecked = null;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_nightlyKey, enabled);
+      await prefs.remove(_lastCheckedKey);
+    } catch (_) {
+      // No storage - keep the in-memory choice for this session.
+    }
+  }
 
   AppVersion? get _current => AppVersion.tryParse(currentVersion);
 
@@ -241,7 +371,8 @@ class UpdateService extends ChangeNotifier {
 
   /// True when the user should be nudged about [latest]: an update is available
   /// and they haven't already dismissed this exact release.
-  bool get shouldNotify => updateAvailable && _latest!.tagName != _dismissedTag;
+  bool get shouldNotify =>
+      updateAvailable && _latest!.identity != _dismissedTag;
 
   /// The GitHub endpoint used by the default fetcher.
   Uri get releasesUri => Uri.https(
@@ -250,14 +381,43 @@ class UpdateService extends ChangeNotifier {
         const {'per_page': '30'},
       );
 
+  /// Direct endpoint for the rolling release. GitHub orders `/releases` by
+  /// creation time, not by later asset/body edits, so a long-lived rolling
+  /// release eventually falls out of the first page unless fetched by tag.
+  Uri get nightlyReleaseUri => Uri.https(
+        'api.github.com',
+        '/repos/$repoOwner/$repoName/releases/tags/$nightlyTag',
+      );
+
   /// The best download URL for [latest] on the current platform: the matching
-  /// release asset when there is one, else the release page (iOS, and anything
-  /// without a direct artifact, send the user to the page).
+  /// release asset when there is one, else the release page (a desktop build
+  /// with no direct artifact falls back to the page). Only resolved on the
+  /// desktop platforms where updates are [supported].
   String? get downloadUrl {
     final release = _latest;
     if (release == null) return null;
-    final asset = _platformAsset(release.assets);
+    final name = _platformAssetName(release.assets);
+    final asset = name == null ? null : release.assets[name];
     return asset ?? (release.htmlUrl.isEmpty ? null : release.htmlUrl);
+  }
+
+  /// The file name of the platform artifact for [latest], or null when there
+  /// is no direct artifact (so only the release page is available). The
+  /// in-app installer needs the name to decide how to apply the update and
+  /// where to stage the download.
+  String? get downloadAssetName {
+    final release = _latest;
+    if (release == null) return null;
+    return _platformAssetName(release.assets);
+  }
+
+  /// The expected byte size of [downloadAssetName], when GitHub reported one,
+  /// for verifying an in-app download landed complete.
+  int? get downloadAssetSize {
+    final release = _latest;
+    final name = downloadAssetName;
+    if (release == null || name == null) return null;
+    return release.assetSizes[name];
   }
 
   /// Queries GitHub for a newer release. Throttled to [_checkInterval] unless
@@ -277,12 +437,25 @@ class UpdateService extends ChangeNotifier {
       _lastChecked = _now();
       unawaited(_persistLastChecked());
       final current = _current;
-      final appReleases = releases
+      final stableReleases = releases
           .where((r) => r.tagName.startsWith(tagPrefix))
           .toList()
         ..sort((a, b) => b.version.compareTo(a.version));
-      final newest = appReleases.isEmpty ? null : appReleases.first;
-      if (newest != null && current != null && newest.version > current) {
+      ReleaseInfo? newest =
+          stableReleases.isEmpty ? null : stableReleases.first;
+      if (nightlyUpdates) {
+        final nightlies =
+            releases.where((r) => r.tagName == nightlyTag).toList();
+        if (nightlies.isNotEmpty) {
+          final nightly = nightlies.first;
+          // A final release with a higher app version wins. At the same app
+          // version the nightly is newer by source commit, so prefer it.
+          if (newest == null || nightly.version >= newest.version) {
+            newest = nightly;
+          }
+        }
+      }
+      if (newest != null && current != null && _isNewer(newest, current)) {
         _latest = newest;
         _status = UpdateStatus.updateAvailable;
       } else {
@@ -300,11 +473,27 @@ class UpdateService extends ChangeNotifier {
 
   /// Suppresses the startup banner for [latest] until a newer release ships.
   Future<void> dismiss() async {
-    final tag = _latest?.tagName;
-    if (tag == null) return;
-    _dismissedTag = tag;
+    final identity = _latest?.identity;
+    if (identity == null) return;
+    _dismissedTag = identity;
     notifyListeners();
-    await _persistDismissed(tag);
+    await _persistDismissed(identity);
+  }
+
+  bool _isNewer(ReleaseInfo release, AppVersion current) {
+    final versionOrder = release.version.compareTo(current);
+    if (versionOrder != 0) return versionOrder > 0;
+    if (!release.isNightly) return false;
+    return !_sameCommit(release.commitSha, currentBuildCommit);
+  }
+
+  static bool _sameCommit(String? a, String? b) {
+    if (a == null || b == null) return false;
+    final left = a.trim().toLowerCase();
+    final right = b.trim().toLowerCase();
+    final hex = RegExp(r'^[0-9a-f]{7,40}$');
+    if (!hex.hasMatch(left) || !hex.hasMatch(right)) return false;
+    return left == right || left.startsWith(right) || right.startsWith(left);
   }
 
   bool _withinThrottle() {
@@ -312,25 +501,29 @@ class UpdateService extends ChangeNotifier {
     return last != null && _now().difference(last) < _checkInterval;
   }
 
-  String? _platformAsset(Map<String, String> assets) {
+  String? _platformAssetName(Map<String, String> assets) {
     if (assets.isEmpty) return null;
     final patterns = switch (_targetPlatform) {
       TargetPlatform.macOS => ['dartpdf-macos.dmg'],
       TargetPlatform.windows => [
+          'dartpdf-nightly-windows-installer.exe',
           'dartpdf-windows-installer.exe',
           'dartpdf-windows-portable.exe',
+          'dartpdf-nightly-windows-x64.zip',
           'dartpdf-windows-x64.zip',
         ],
       TargetPlatform.linux => [
           'dartpdf-linux-x86_64.AppImage',
           'dartpdf-linux-x64.tar.gz',
         ],
-      TargetPlatform.android => ['app-release.apk'],
+      // Mobile (Android/iOS) never reaches here: those platforms opt out of
+      // update checks (see [supported]) because they update through their app
+      // stores, so downloadUrl is only ever resolved for the desktop builds.
       _ => const <String>[],
     };
     for (final pattern in patterns) {
       for (final entry in assets.entries) {
-        if (entry.key == pattern) return entry.value;
+        if (entry.key == pattern) return entry.key;
       }
     }
     return null;
@@ -338,15 +531,16 @@ class UpdateService extends ChangeNotifier {
 
   Future<List<ReleaseInfo>> _fetchFromGitHub() async {
     final client = _clientFactory();
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      // GitHub rejects API requests that don't identify themselves.
+      'User-Agent': 'DartPDF-update-checker',
+    };
     try {
       final response = await client.get(
         releasesUri,
-        headers: const {
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          // GitHub rejects API requests that don't identify themselves.
-          'User-Agent': 'DartPDF-update-checker',
-        },
+        headers: headers,
       );
       if (response.statusCode != 200) {
         throw http.ClientException(
@@ -356,11 +550,34 @@ class UpdateService extends ChangeNotifier {
       }
       final decoded = jsonDecode(response.body);
       if (decoded is! List) return const [];
-      return decoded
+      final releases = decoded
           .whereType<Map>()
           .map((e) => ReleaseInfo.fromJson(e.cast<String, dynamic>()))
           .whereType<ReleaseInfo>()
           .toList();
+      if (nightlyUpdates) {
+        final nightlyResponse =
+            await client.get(nightlyReleaseUri, headers: headers);
+        // Before the first workflow run there simply is no nightly release.
+        if (nightlyResponse.statusCode != 404) {
+          if (nightlyResponse.statusCode != 200) {
+            throw http.ClientException(
+              'GitHub returned HTTP ${nightlyResponse.statusCode}',
+              nightlyReleaseUri,
+            );
+          }
+          final nightlyJson = jsonDecode(nightlyResponse.body);
+          if (nightlyJson is Map) {
+            final nightly =
+                ReleaseInfo.fromJson(nightlyJson.cast<String, dynamic>());
+            if (nightly != null) {
+              releases.removeWhere((r) => r.tagName == nightly.tagName);
+              releases.add(nightly);
+            }
+          }
+        }
+      }
+      return releases;
     } finally {
       client.close();
     }
@@ -374,6 +591,9 @@ class UpdateService extends ChangeNotifier {
         _lastChecked = DateTime.fromMillisecondsSinceEpoch(last);
       }
       _dismissedTag = prefs.getString(_dismissedKey);
+      _nightlyUpdates =
+          (prefs.getBool(_nightlyKey) ?? false) && nightlySupported;
+      notifyListeners();
     } catch (_) {
       // No storage (tests) - keep the in-memory defaults.
     }

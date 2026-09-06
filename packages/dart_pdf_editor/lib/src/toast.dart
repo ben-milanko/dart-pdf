@@ -14,15 +14,20 @@ import 'package:flutter/material.dart';
 /// ```
 ///
 /// On wide windows (≥600px) the toast is a compact [pill]-wide bubble in
-/// the bottom-right corner so it never covers the page; on narrow windows
-/// it spans the width with a 16px gutter.
-EdgeInsets pdfFloatingToastMargin(BuildContext context, {double pill = 360}) {
+/// the bottom trailing corner (bottom-right in LTR, bottom-left in RTL) so it
+/// never covers the page; on narrow windows it spans the width with a 16px
+/// gutter.
+EdgeInsetsGeometry pdfFloatingToastMargin(BuildContext context,
+    {double pill = 360}) {
   final size = MediaQuery.sizeOf(context);
   // The dock sits at the bottom; lift the toast above it AND above the
   // device's bottom safe-area inset, which the dock pads itself out by.
   final bottom = 96.0 + MediaQuery.paddingOf(context).bottom;
   if (size.width >= 600) {
-    return EdgeInsets.only(left: size.width - pill - 24, right: 24, bottom: bottom);
+    // Directional so the pill hugs the trailing edge (bottom-right in LTR,
+    // bottom-left in RTL) instead of always the physical right.
+    return EdgeInsetsDirectional.only(
+        start: size.width - pill - 24, end: 24, bottom: bottom);
   }
   return EdgeInsets.fromLTRB(16, 0, 16, bottom);
 }

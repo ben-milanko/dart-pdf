@@ -17,7 +17,7 @@
 //  - the abstract default (which the unsupported-platform stub inherits)
 //    declines with null.
 import 'dart:typed_data';
-import 'dart:ui' show Rect;
+import 'dart:ui' show Image, ImageByteFormat, Rect;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/region_replay_index.dart';
@@ -33,6 +33,11 @@ import 'render_seam_test.dart' show buildStripsPdf;
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
 
 List<double> _coeffs(PdfMatrix m) => [m.a, m.b, m.c, m.d, m.e, m.f];
+
+Future<Uint8List> _rgba(Image image) async =>
+    (await image.toByteData(format: ImageByteFormat.rawRgba))!
+        .buffer
+        .asUint8List();
 
 /// A one-page PDF dense enough (thousands of interpreter ops) that a bin
 /// job reliably spans several of the worker's cooperative yield points, so
@@ -71,7 +76,13 @@ Uint8List buildDenseVectorPdf({int rects = 4000}) {
   return Uint8List.fromList(buffer.toString().codeUnits);
 }
 
-Uint8List _buildTwoPageDenseVectorPdf({int rects = 8000}) {
+// Each rectangle contributes three PDF operators. Keep this above the native
+// worker's 64k-operation resumable-record chunk so the first page necessarily
+// reaches a cooperative cancellation boundary before it can finish. This test
+// used 8k rectangles when the chunk was 4k operations; the merged performance
+// work grew that chunk, making the old fixture too small to exercise
+// preemption at all.
+Uint8List _buildTwoPageDenseVectorPdf({int rects = 24000}) {
   final dense = StringBuffer();
   for (var i = 0; i < rects; i++) {
     dense.write('${(i % 10) / 10} 0 0 rg '
@@ -146,6 +157,70 @@ void main() {
       expect(encodeStripPlan(detail.plan), encodeStripPlan(local.finish()),
           reason: 'the returned plan must describe the returned commands, '
               'not a separate base recording');
+    });
+  });
+
+  testWidgets('isolate detail culls a wide CAD transcript byte-identically',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildSyntheticCadStrip(ops: 6000, streams: 2);
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+
+      final commands = await worker.record(0, decodeImages: false);
+      expect(commands, isNotNull);
+      final fullScene = await PdfRetainedScene.fromCommands(page, commands!);
+      addTearDown(fullScene.dispose);
+
+      const region = Rect.fromLTWH(120, 300, 300, 180);
+      const ratio = 1.5;
+      final geometry = fullScene.stripRegionGeometry(
+        region,
+        pixelRatio: ratio,
+      );
+      final m = geometry.pageToDevice;
+      final size = fullScene.pageSize;
+      final detail = await worker.recordStripDetail(
+        0,
+        annotations: true,
+        pageToDevice: _coeffs(m),
+        deviceWidth: geometry.width,
+        deviceHeight: geometry.height,
+        pixelRatio: ratio,
+        imageDecodeRegion: PdfRect(
+          region.left,
+          size.height - region.bottom,
+          region.right,
+          size.height - region.top,
+        ),
+      );
+      expect(detail, isNotNull);
+      expect(detail!.commands.length, lessThan(commands.length ~/ 2),
+          reason: 'the worker should not transfer the offscreen CAD strokes');
+
+      final detailScene = await PdfRetainedScene.fromCommands(
+        page,
+        detail.commands,
+      );
+      addTearDown(detailScene.dispose);
+      final expected = await fullScene.rasterizeRegionStrips(
+        region,
+        pixelRatio: ratio,
+      );
+      final actual = await detailScene.rasterizeRegionStrips(
+        region,
+        pixelRatio: ratio,
+        stripPlan: detail.plan,
+      );
+      try {
+        expect(await _rgba(actual), await _rgba(expected),
+            reason: 'selective worker detail must preserve region pixels');
+      } finally {
+        actual.dispose();
+        expected.dispose();
+      }
     });
   });
 
@@ -437,16 +512,19 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       final bytes = _buildTwoPageDenseVectorPdf();
-      final worker = PdfRenderWorker.startUncached(bytes);
-      addTearDown(worker.dispose);
+      // Enable the defer hook BEFORE spawning: the worker reads the global into
+      // its init synchronously as it starts, so a later assignment is too late.
       isolate_worker.debugDeferPdfRenderWorkerCancelUntilNextRequest = true;
-      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
       addTearDown(() => isolate_worker
           .debugDeferPdfRenderWorkerCancelUntilNextRequest = false);
+      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
 
       // Warm the handshake, then let page 1 request preemption while page 0
-      // is already running. The test hook withholds page 0's cancel until its
-      // response has dispatched page 1, recreating the old cross-request race.
+      // is already running. The worker withholds page 0's cancel until page 1
+      // goes active, then replays it - recreating the old cross-request race
+      // deterministically, on the worker's own event loop.
       expect(await worker.record(1), isNotNull);
       final first = worker.record(0, priority: 10);
       final next = worker.record(1, priority: 0);
@@ -585,7 +663,8 @@ class _BinLogWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -650,7 +729,8 @@ class _DefaultWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

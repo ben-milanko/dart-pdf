@@ -1,0 +1,201 @@
+# Snap recipe for DartPDF (https://snapcraft.io/dartpdf).
+#
+# Mirrors the layout of the published snap (rev 6): core24 base, the
+# gnome-46-2404 platform runtime (SNAP_DESKTOP_RUNTIME), mesa-2404 GPU
+# passthrough wrapper, desktop-launch command chain, and the cups printing
+# content interface. Reconstructed from the installed snap's meta/snap.yaml
+# because the original recipe was never checked in.
+#
+# NEW vs rev 6: the `dartpdf-dbus` slot below. The Flutter Linux runner
+# registers its GApplication ID as a D-Bus well-known name at startup; strict
+# confinement denied that ownership and the app exited at launch ("not allowed
+# to own the service dev.milanko.dartpdf due to AppArmor policy"). The slot
+# generates the AppArmor `dbus (own) bus=session name=dev.milanko.dartpdf`
+# rule, so launch works AND a second `dartpdf file.pdf` invocation still
+# routes into the running instance via GApplication's primary-instance
+# machinery (the app's my_application_open warm-start path).
+#
+# Build:  sudo snapcraft
+# Verify: sudo snap install --dangerous dartpdf_<version>_amd64.snap
+# Run:    snap run dartpdf ; snap run dartpdf ~/some/file.pdf
+# Publish (needs `snapcraft login` once):
+#         snapcraft upload --release=stable dartpdf_<version>_amd64.snap
+
+name: dartpdf
+title: DartPDF
+summary: Edit, annotate, sign, and fill in PDFs
+description: |-
+  DartPDF is a PDF editor that runs entirely on your device. Open any PDF
+  to mark it up, fill in forms, sign it, redact content, rearrange pages,
+  or edit the text and images on the page. Changes save back to the
+  original file.
+
+
+
+  Nothing is uploaded. There is no account, no sync, and no ads. It is a
+  full, native PDF editor that keeps your documents on your own machine
+  rather than routing them through a proprietary incumbent's cloud.
+
+
+  Features:
+
+  - Highlight, underline, strikethrough, and freehand ink
+  - Shapes, arrows, text boxes, notes, and stamps
+  - Edit existing text and add images
+  - Redaction that removes the covered text and images from the file, not just from view
+  - Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own
+  - Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures
+  - OCR scanned PDFs so text can be selected and searched
+  - Reorder, delete, and export pages to a new file
+  - Full-text search, text selection, and links
+  - Compare two versions side by side
+  - Open password-protected files
+
+
+  Opens PDFs from your file manager, via drag-and-drop, or as a launch
+  argument. Light and dark themes.
+license: Apache-2.0
+base: core24
+confinement: strict
+grade: stable
+architectures:
+  - amd64
+
+# Version is adopted from app/pubspec.yaml by the dart-pdf-editor part's
+# override-pull; keep this key UNSET so adopt-info owns it.
+adopt-info: dart-pdf-editor
+
+apps:
+  dartpdf:
+    command: dart_pdf_editor_app
+    common-id: dev.milanko.dartpdf
+    command-chain:
+      - snap/command-chain/gpu-2404-wrapper
+      - snap/command-chain/desktop-launch
+    plugs:
+      - desktop
+      - desktop-legacy
+      - gsettings
+      - opengl
+      - wayland
+      - x11
+      - home
+      - network
+      - removable-media
+      - password-manager-service
+      - cups
+    slots:
+      - dartpdf-dbus
+  # cli: the dartpdf-cli binary's source lives outside this repository.
+  # Restore this app (and the matching `cli` part below) once the source is
+  # shared; until then, `snap run dartpdf.cli` is absent from the build.
+  # cli:
+  #   command: dartpdf-cli
+  #   plugs:
+  #     - home
+  #     - removable-media
+
+plugs:
+  dartpdf-install-cups:
+    interface: content
+    content: dartpdf-cups
+    target: $SNAP_DATA/cups
+    default-provider: cups
+  gpu-2404:
+    interface: content
+    target: $SNAP/gpu-2404
+    default-provider: mesa-2404
+  desktop:
+    mount-host-font-cache: false
+  gtk-3-themes:
+    interface: content
+    target: $SNAP/data-dir/themes
+    default-provider: gtk-common-themes
+  icon-themes:
+    interface: content
+    target: $SNAP/data-dir/icons
+    default-provider: gtk-common-themes
+  sound-themes:
+    interface: content
+    target: $SNAP/data-dir/sounds
+    default-provider: gtk-common-themes
+  gnome-46-2404:
+    interface: content
+    target: $SNAP/gnome-platform
+    default-provider: gnome-46-2404
+
+slots:
+  dartpdf-dbus:
+    interface: dbus
+    bus: session
+    name: dev.milanko.dartpdf
+
+hooks:
+  configure:
+    command-chain:
+      - snap/command-chain/hooks-configure-fonts
+    plugs:
+      - desktop
+
+environment:
+  SNAP_DESKTOP_RUNTIME: $SNAP/gnome-platform
+  GTK_USE_PORTAL: '1'
+  LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/lib
+  PATH: $SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/sbin:$SNAP/bin:$PATH
+
+layout:
+  /usr/share/libdrm:
+    bind: $SNAP/gpu-2404/libdrm
+  /usr/share/drirc.d:
+    symlink: $SNAP/gpu-2404/drirc.d
+  /usr/share/X11/XErrorDB:
+    symlink: $SNAP/gpu-2404/X11/XErrorDB
+  /usr/lib/x86_64-linux-gnu/webkit2gtk-4.0:
+    bind: $SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/webkit2gtk-4.0
+  /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1:
+    bind: $SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1
+  /usr/lib/x86_64-linux-gnu/libproxy:
+    bind: $SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/libproxy
+  /usr/share/xml/iso-codes:
+    bind: $SNAP/gnome-platform/usr/share/xml/iso-codes
+
+parts:
+  dart-pdf-editor:
+    # Repo root: `app` is a pub-workspace member of the root pubspec, so pub
+    # must resolve from the root (CI does the same: flutter pub get at the
+    # root, then flutter build linux inside app/).
+    source: ../../..
+    plugin: nil
+    adopt-info: dart-pdf-editor
+    build-snaps:
+      - flutter
+    build-packages:
+      - clang
+      - cmake
+      - ninja-build
+      - pkg-config
+      - libgtk-3-dev
+      - libsecret-1-dev
+      - libjsoncpp-dev
+    override-pull: |
+      snapcraftctl set-version \
+        "$(sed -n 's/^version: *\([0-9][0-9.]*\)[^0-9].*/\1/p' "$SNAPCRAFT_PART_SRC/app/pubspec.yaml" | head -1)"
+    override-build: |
+      set -eux
+      cd "$SNAPCRAFT_PART_SRC"
+      flutter config --no-analytics
+      flutter pub get
+      cd app
+      flutter build linux --release \
+        --build-name="$SNAPCRAFT_PROJECT_VERSION" --build-number=1
+      # The bundle carries the desktop integration already: app/linux's
+      # CMakeLists installs the .desktop, AppStream metainfo and hicolor
+      # icons under share/ (same files the flatpak recipe stages).
+      cp -r build/linux/x64/release/bundle/* "$SNAPCRAFT_PART_INSTALL/"
+
+  # cli:
+  #   source: <path to the dartpdf-cli source once shared>
+  #   plugin: nil
+  #   override-build: |
+  #     set -eux
+  #     ... dart compile exe ... -o "$SNAPCRAFT_PART_INSTALL/dartpdf-cli"

@@ -1,0 +1,7 @@
+Novidades da versão 4.2.0
+
+- As páginas próximas continuam nítidas durante a rolagem lenta, usando a capacidade gráfica disponível.
+- Posicione anotações com precisão com as novas guias de alinhamento e réguas de página.
+- Amplie ao redor do ponteiro com Ctrl ou Cmd e a roda do mouse.
+- Corrigida a edição de anotações em páginas giradas e a seleção de destaques de várias linhas.
+- Desloque a visualização entre linhas de texto em vez de iniciar uma seleção.

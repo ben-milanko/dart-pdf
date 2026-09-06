@@ -7,10 +7,34 @@ import 'perf/perf.dart';
 
 /// One content-stream instruction: operands followed by an operator.
 class ContentOperation {
-  ContentOperation(this.operator, this.operands);
+  ContentOperation(this.operator, List<CosObject> operands)
+      : _operands = operands,
+        numberOperands = null;
+
+  ContentOperation._numbers(this.operator, this.numberOperands)
+      : _operands = null;
 
   final String operator;
-  final List<CosObject> operands;
+
+  List<CosObject>? _operands;
+
+  /// Primitive numeric operands supplied by the incremental parser.
+  ///
+  /// Content streams are overwhelmingly numeric. Keeping a number-dense
+  /// instruction in `num` form lets the graphics interpreter consume CAD path
+  /// coordinates without allocating a [CosInteger]/[CosReal] wrapper for every
+  /// token. General COS consumers keep using [operands], which materializes the
+  /// exact object types lazily when required (serialization and editing retain
+  /// their established behavior).
+  final List<num>? numberOperands;
+
+  List<CosObject> get operands => _operands ??= <CosObject>[
+        for (final value in numberOperands!)
+          value is int ? _intObject(value) : CosReal(value.toDouble()),
+      ];
+
+  static CosObject _intObject(int value) =>
+      ContentStreamParser._intObject(value);
 
   @override
   String toString() =>
@@ -331,8 +355,10 @@ class ContentOperationCursor {
   final int? operationLimit;
 
   final CosLexer _lexer;
+  final CosTokenBuffer _tokenBuffer = CosTokenBuffer();
   final int _contentLength;
-  var _operands = <CosObject>[];
+  var _numberOperands = <num>[];
+  List<CosObject>? _objectOperands;
   var _operationCount = 0;
   bool _finished;
   bool _perfReported = false;
@@ -358,43 +384,82 @@ class ContentOperationCursor {
   ContentOperation? nextOperation() {
     if (_finished) return null;
     while (true) {
-      final token = _lexer.nextToken();
+      final token = _lexer.nextToken(_tokenBuffer);
       switch (token.type) {
         case CosTokenType.eof:
           _finished = true;
           _reportPerf();
           return null;
         case CosTokenType.integer:
-          _operands.add(ContentStreamParser._intObject(token.intValue));
+          _addNumber(token.intValue);
         case CosTokenType.real:
-          _operands.add(CosReal(token.realValue));
+          _addNumber(token.realValue);
         case CosTokenType.keyword:
           final keyword = token.textValue;
           switch (keyword) {
             case 'true':
-              _operands.add(const CosBoolean(true));
+              _addObject(const CosBoolean(true));
               continue;
             case 'false':
-              _operands.add(const CosBoolean(false));
+              _addObject(const CosBoolean(false));
               continue;
             case 'null':
-              _operands.add(CosNull.instance);
+              _addObject(CosNull.instance);
               continue;
             case 'BI':
               final operation = ContentStreamParser._parseInlineImage(_lexer);
               // Match the materialized parser's lenient boundary behavior:
               // junk operands before BI do not leak into the following op.
-              _operands = <CosObject>[];
+              _clearOperands();
               return _emit(operation);
             default:
-              final operation = ContentOperation(keyword, _operands);
-              _operands = <CosObject>[];
+              final operation = _takeOperation(keyword);
               return _emit(operation);
           }
         default:
-          _operands.add(ContentStreamParser._parseObject(_lexer, token));
+          _addObject(ContentStreamParser._parseObject(_lexer, token));
       }
     }
+  }
+
+  void _addNumber(num value) {
+    final objects = _objectOperands;
+    if (objects == null) {
+      _numberOperands.add(value);
+    } else {
+      objects.add(value is int
+          ? ContentStreamParser._intObject(value)
+          : CosReal(value.toDouble()));
+    }
+  }
+
+  void _addObject(CosObject value) {
+    final objects = _objectOperands ??= <CosObject>[
+      for (final number in _numberOperands)
+        number is int
+            ? ContentStreamParser._intObject(number)
+            : CosReal(number.toDouble()),
+    ];
+    _numberOperands = <num>[];
+    objects.add(value);
+  }
+
+  ContentOperation _takeOperation(String operator) {
+    final objects = _objectOperands;
+    if (objects != null) {
+      _clearOperands();
+      return ContentOperation(operator, objects);
+    }
+    final numbers = _numberOperands;
+    _numberOperands = <num>[];
+    return numbers.isEmpty
+        ? ContentOperation(operator, const <CosObject>[])
+        : ContentOperation._numbers(operator, numbers);
+  }
+
+  void _clearOperands() {
+    _numberOperands = <num>[];
+    _objectOperands = null;
   }
 
   ContentOperation _emit(ContentOperation operation) {

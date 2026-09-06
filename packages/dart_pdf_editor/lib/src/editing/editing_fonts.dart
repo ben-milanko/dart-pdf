@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
+import '../search_field_style.dart';
 import 'editing_controller.dart';
 import 'text_prompt.dart';
 import '../l10n/pdf_l10n.dart';
@@ -16,7 +18,8 @@ import '../l10n/pdf_l10n.dart';
 /// from a source Flutter's asset bundle can't reach) - either way the outlines
 /// embed into the document so the text renders everywhere.
 class PdfBundledFont {
-  const PdfBundledFont(this.label, this.assetKey, {this.package, this.loadBytes});
+  const PdfBundledFont(this.label, this.assetKey,
+      {this.package, this.loadBytes});
 
   /// The name shown in the font menu.
   final String label;
@@ -133,8 +136,8 @@ Future<List<PdfEmbeddedFont>> loadFallbackFonts() async {
 
 /// Applies [font] to [controller]: it becomes the font new free text is
 /// written in (an embedded font sets [PdfEditingController.activeFont]; a
-/// standard family sets [PdfEditingController.fontFamily]) and, when a
-/// single free-text box is selected, restyles it in place too.
+/// standard family sets [PdfEditingController.fontFamily]) and restyles every
+/// selected free-text box too. Other selected annotation subtypes are ignored.
 void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
   if (font is PdfStandardFont) {
     controller.fontFamily = font;
@@ -290,6 +293,38 @@ Future<String?> _ensureDocumentFontPreview(PdfEmbeddedFont font) async {
   }
 }
 
+/// Bundled font labels already registered with the engine for menu previews
+/// (see [_ensureBundledFontPreview]), so each registers once per session.
+final Set<String> _bundledPreviewFamilies = <String>{};
+
+/// Registers a bundled font's program bytes with the engine under its own
+/// label so its menu row previews in that face, returning the family name
+/// (null when the bytes can't load or the engine can't register them, e.g. a
+/// headless test - the row then previews in the default UI face and the font
+/// still embeds fine on pick).
+///
+/// The bundled faces used to be declared in `dart_pdf_editor_assets`'s pubspec
+/// `fonts:` block, which registered every one of them at startup (a real
+/// fetch-and-parse before the first frame under CanvasKit web) for previews
+/// most sessions never open. Registering here, on first font-menu open, keeps
+/// that cost off cold start. DejaVu Sans stays pubspec-declared - the renderer
+/// names it as a script fallback and needs it from the first paint - and
+/// re-registering it under its bare label here is harmless.
+Future<String?> _ensureBundledFontPreview(PdfBundledFont font) async {
+  final family = font.label;
+  if (_bundledPreviewFamilies.contains(family)) return family;
+  try {
+    final bytes = await loadBundledFont(font);
+    await (FontLoader(family)
+          ..addFont(Future.value(ByteData.sublistView(bytes))))
+        .load();
+    _bundledPreviewFamilies.add(family);
+    return family;
+  } catch (_) {
+    return null; // preview only - the font still embeds fine on pick
+  }
+}
+
 class _FontEntry {
   const _FontEntry({
     required this.key,
@@ -298,7 +333,7 @@ class _FontEntry {
     required this.choice,
     this.subtitle,
     this.fontFamily,
-    this.package,
+    this.bundledFont,
     this.recentKey,
     this.section,
     this.limited = false,
@@ -309,8 +344,16 @@ class _FontEntry {
   final String? subtitle;
   final String searchText;
   final _FontChoice choice;
+
+  /// The engine font-family name to preview this row in, if one is registered.
+  /// For bundled fonts this fills in lazily once [bundledFont] registers (see
+  /// [_PdfFontPickerDialogState]); null previews in the default UI face.
   final String? fontFamily;
-  final String? package;
+
+  /// The bundled face this row offers, when it is one. The picker dialog
+  /// registers it with the engine on open (off the cold-start path) to preview
+  /// the row in its own face; null for every non-bundled row.
+  final PdfBundledFont? bundledFont;
 
   /// Whether this is a document subset font that can't cover the basic Latin
   /// alphabet, so typing new text in it would drop unavailable characters -
@@ -345,6 +388,43 @@ class _PdfFontPickerDialog extends StatefulWidget {
 class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
   late final TextEditingController _search = TextEditingController()
     ..addListener(() => setState(() {}));
+
+  /// Bundled preview families resolved for this open, keyed by font label.
+  /// Seeded synchronously from the cache and filled in as each lazy
+  /// registration completes, so the dialog appears immediately and each
+  /// bundled row swaps into its own face without ever blocking the open.
+  final Map<String, String> _bundledPreview = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _registerBundledPreviews();
+  }
+
+  /// Registers the bundled faces this menu offers with the engine so their
+  /// rows can preview in their own face. Already-registered faces resolve
+  /// synchronously (an instant re-open); the rest register in the background
+  /// and [setState] their row when ready. Never awaited by [showPdfFontMenu],
+  /// which is what keeps the ~1.85 MB of bundled parsing off the click that
+  /// opens the dialog (and off cold start).
+  void _registerBundledPreviews() {
+    final fonts = <String, PdfBundledFont>{};
+    for (final entry in [...widget.entries, ...widget.recent]) {
+      final font = entry.bundledFont;
+      if (font != null) fonts[font.label] = font;
+    }
+    for (final font in fonts.values) {
+      if (_bundledPreviewFamilies.contains(font.label)) {
+        _bundledPreview[font.label] = font.label; // already registered
+        continue;
+      }
+      _ensureBundledFontPreview(font).then((family) {
+        if (family != null && mounted) {
+          setState(() => _bundledPreview[font.label] = family);
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -398,7 +478,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                   isDense: true,
                   prefixIcon: const Icon(Icons.search),
                   hintText: pdfL10n(context).propSearchFonts,
-                  border: const OutlineInputBorder(),
+                  border: pdfSearchInputBorder,
                 ),
               ),
               const SizedBox(height: 8),
@@ -416,8 +496,16 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                         itemCount: rows.length,
                         itemBuilder: (context, index) {
                           final row = rows[index];
-                          if (row is String) return _sectionHeader(context, row);
+                          if (row is String) {
+                            return _sectionHeader(context, row);
+                          }
                           final entry = row as _FontEntry;
+                          // Bundled rows preview in the family the dialog
+                          // registered on open (once ready); everything else
+                          // uses the family resolved when the entry was built.
+                          final previewFamily = entry.bundledFont != null
+                              ? _bundledPreview[entry.bundledFont!.label]
+                              : entry.fontFamily;
                           return ListTile(
                             key: entry.key,
                             dense: true,
@@ -425,8 +513,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                               entry.label,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontFamily: entry.fontFamily,
-                                package: entry.package,
+                                fontFamily: previewFamily,
                               ),
                             ),
                             subtitle: entry.subtitle == null
@@ -440,9 +527,8 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                                     child: Icon(
                                       Icons.warning_amber_rounded,
                                       size: 18,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outline,
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
                                     ),
                                   )
                                 : null,
@@ -573,8 +659,13 @@ Future<void> showPdfFontMenu({
         subtitle: pdfL10n(context).propBundledFont,
         searchText: '${bundledFonts[i].label} bundled font'.toLowerCase(),
         choice: _BundledChoice(bundledFonts[i]),
-        fontFamily: bundledFonts[i].label,
-        package: bundledFonts[i].package,
+        // Seed the preview face from the cache so a re-open is instant; a
+        // first open shows the default face and the dialog swaps it in as the
+        // lazy registration completes (see [_PdfFontPickerDialogState]).
+        fontFamily: _bundledPreviewFamilies.contains(bundledFonts[i].label)
+            ? bundledFonts[i].label
+            : null,
+        bundledFont: bundledFonts[i],
         recentKey: 'bundled:${bundledFonts[i].label}',
         section: pdfL10n(context).propSectionAllFonts,
       ),
@@ -607,7 +698,9 @@ Future<void> showPdfFontMenu({
   // no current match (e.g. a document font from a since-closed file) drop out.
   final byRecentKey = <String, _FontEntry>{};
   for (final entry in entries) {
-    if (entry.recentKey case final key?) byRecentKey.putIfAbsent(key, () => entry);
+    if (entry.recentKey case final key?) {
+      byRecentKey.putIfAbsent(key, () => entry);
+    }
   }
   final recent = <_FontEntry>[];
   for (final key in controller.preferences.recentFonts) {
@@ -620,14 +713,14 @@ Future<void> showPdfFontMenu({
       searchText: match.searchText,
       choice: match.choice,
       fontFamily: match.fontFamily,
-      package: match.package,
+      bundledFont: match.bundledFont,
       recentKey: match.recentKey,
       section: match.section,
       limited: match.limited,
     ));
   }
 
-  final choice = await showDialog<_FontChoice>(
+  final choice = await showPdfDialog<_FontChoice>(
     context: context,
     builder: (_) => _PdfFontPickerDialog(entries: entries, recent: recent),
   );

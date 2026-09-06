@@ -1,0 +1,6 @@
+Có gì mới trong 3.8.0
+
+- Duyệt PDF gần đây bằng bản xem trước trang có thể tìm kiếm.
+- Sửa chú thích ngoài mép trang, đổi kiểu vùng chọn hỗn hợp, màu và độ dày chữ ký.
+- Xem trước tác vụ in trước khi gửi.
+- Cuộn và phóng to bản vẽ lớn mượt hơn, đồng thời sửa con trỏ, cửa sổ bật lên và lỗi treo.

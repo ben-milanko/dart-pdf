@@ -109,6 +109,61 @@ void main() {
       // its grip is the horizontal (row-resize) variant, not the column one
       expect(find.byKey(const ValueKey('v-grip')), findsOneWidget);
     });
+
+    testWidgets('a top-docked thumbnail strip scrolls pages horizontally',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(8));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+
+      await pump(
+        tester,
+        Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 600,
+            child: PdfThumbnailSidebar(
+              controller: editing,
+              viewerController: viewer,
+              dock: PdfPanelDock.top,
+              width: 180,
+              resizable: false,
+            ),
+          ),
+        ),
+      );
+
+      final list = tester.widget<ReorderableListView>(
+        find.byType(ReorderableListView),
+      );
+      expect(list.scrollDirection, Axis.horizontal);
+      final bar = tester.widget<PdfScrollbar>(
+        find.descendant(
+          of: find.byType(PdfThumbnailSidebar),
+          matching: find.byType(PdfScrollbar),
+        ),
+      );
+      expect(bar.axis, Axis.horizontal);
+
+      final first = tester.getCenter(
+        find.byKey(const ValueKey('pdf-thumbnail-tile-chip-0')),
+      );
+      final second = tester.getCenter(
+        find.byKey(const ValueKey('pdf-thumbnail-tile-chip-1')),
+      );
+      expect(second.dx, greaterThan(first.dx));
+      expect(second.dy, closeTo(first.dy, 0.5));
+
+      final scrollable = find.descendant(
+        of: find.byType(ReorderableListView),
+        matching: find.byType(Scrollable),
+      );
+      await tester.drag(scrollable, const Offset(-240, 0));
+      await tester.pumpAndSettle();
+      expect(tester.state<ScrollableState>(scrollable).position.pixels,
+          greaterThan(0));
+    });
   });
 
   group('drag to redock', () {
@@ -309,6 +364,57 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-panel-tab-properties')),
           findsOneWidget);
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  group('panels reserve space beside the viewer', () {
+    Widget shell({List<Widget> leading = const [], double panelWidth = 260}) =>
+        PdfShellPanelLayout(
+          viewer: const SizedBox.expand(
+            key: ValueKey('test-viewer'),
+            child: ColoredBox(color: Color(0xFF000000)),
+          ),
+          leadingPanels: [
+            for (final _ in leading)
+              SizedBox(
+                key: const ValueKey('test-panel'),
+                width: panelWidth,
+                height: double.infinity,
+                child: const ColoredBox(color: Color(0xFF888888)),
+              ),
+          ],
+        );
+
+    testWidgets('the viewer fills the whole area with no panels open',
+        (tester) async {
+      await pump(tester, shell());
+      final full = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+      expect(full.width, greaterThan(0));
+      expect(full.height, greaterThan(0));
+    });
+
+    testWidgets('opening a panel reduces the viewer width', (tester) async {
+      await pump(tester, shell());
+      final before = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      // open a leading panel
+      await pump(tester, shell(leading: const [SizedBox()]));
+      expect(find.byKey(const ValueKey('test-panel')), findsOneWidget);
+      final after = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      expect(after.width, before.width - 260);
+      expect(after.height, before.height);
+    });
+
+    testWidgets('resizing a panel adjusts the viewer width', (tester) async {
+      await pump(tester, shell(leading: const [SizedBox()], panelWidth: 200));
+      final before = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      await pump(tester, shell(leading: const [SizedBox()], panelWidth: 360));
+      final after = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      expect(after.width, before.width - 160);
+      expect(after.height, before.height);
     });
   });
 }

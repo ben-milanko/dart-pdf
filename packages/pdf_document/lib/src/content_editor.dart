@@ -140,236 +140,137 @@ extension PdfContentEditing on PdfEditor {
     );
   }
 
-  /// Deletes every bounded page-content element whose bounds overlap [rect].
-  /// Text runs are sliced to character boundaries when [rect] only covers
-  /// part of the run; non-text elements are removed as whole elements.
-  ///
-  /// Returns how many bounded elements were affected. Unbounded elements are
-  /// skipped because a region delete has no reliable hit box for them.
-  int deleteElementsInRect(PdfPageElements elements, PdfRect rect) =>
-      _deleteElementsInRegion(
-        elements,
-        (bounds) => _intersects(bounds, rect),
-        (element) => _textSlice(element, rect),
-      );
-
-  /// Deletes every bounded page-content element whose bounds fall inside the
-  /// closed [polygon] (page space, at least three vertices). Text runs are
-  /// sliced to the glyphs whose centres land inside the polygon; non-text
-  /// elements are removed whole. The polygon counterpart of
-  /// [deleteElementsInRect] — the lasso variant of the content-erase tool.
-  ///
-  /// Returns how many bounded elements were affected.
-  int deleteElementsInPolygon(
-      PdfPageElements elements, List<(double, double)> polygon) {
-    if (polygon.length < 3) return 0;
+  /// Deletes bounded non-text elements overlapping [rect] and text glyphs
+  /// whose centres fall inside it. Surviving glyphs keep their original
+  /// positions, including kerning and text spacing. Glyph widths come from
+  /// the font; glyph heights are approximate, as in [PdfPageElements].
+  /// Composite glyph slicing supports Identity-H. Other composite encodings
+  /// and text that establishes a clipping path are left alone.
+  /// Annotations and unbounded elements are untouched. Returns the number
+  /// of affected elements. Handles must come from the current page revision.
+  int deleteElementsInRect(PdfPageElements elements, PdfRect rect) {
+    if (rect.width <= 0 || rect.height <= 0) return 0;
     return _deleteElementsInRegion(
       elements,
-      (bounds) => _polygonHitsRect(polygon, bounds),
-      (element) => _textSlicePolygon(element, polygon),
+      (bounds) =>
+          bounds.right > rect.left &&
+          bounds.left < rect.right &&
+          bounds.top > rect.bottom &&
+          bounds.bottom < rect.top,
+      (x, y) =>
+          x > rect.left && x < rect.right && y > rect.bottom && y < rect.top,
     );
   }
 
-  /// Shared body for the region-delete tools. [hitsBounds] decides whether an
-  /// element's bounds fall in the region; [sliceText] returns the glyph range
-  /// of a text run to erase (or null to leave it). Non-text elements that pass
-  /// [hitsBounds] are removed whole.
+  /// The closed polygon counterpart of [deleteElementsInRect], using an
+  /// even-odd fill rule. Concave regions can remove several separate spans
+  /// of a text run; glyphs outside the region always survive. Fewer than
+  /// three non-collinear vertices is a no-op.
+  int deleteElementsInPolygon(
+      PdfPageElements elements, List<(double, double)> polygon) {
+    if (polygon.length < 3 ||
+        polygon.any((p) => !p.$1.isFinite || !p.$2.isFinite)) {
+      return 0;
+    }
+    final a = polygon.first;
+    final b = polygon.firstWhere((p) => p != a, orElse: () => a);
+    if (!polygon.any((p) =>
+        ((b.$1 - a.$1) * (p.$2 - a.$2) - (b.$2 - a.$2) * (p.$1 - a.$1)).abs() >
+        1e-9)) {
+      return 0;
+    }
+    return _deleteElementsInRegion(
+      elements,
+      (bounds) => _polygonHitsRect(polygon, bounds),
+      (x, y) => _pointInPolygon(x, y, polygon),
+    );
+  }
+
   int _deleteElementsInRegion(
     PdfPageElements elements,
     bool Function(PdfRect bounds) hitsBounds,
-    ({int start, int end})? Function(PdfContentElement element) sliceText,
+    bool Function(double x, double y) hitsGlyph,
   ) {
-    final page = document.page(elements.pageIndex);
-    final drop = <int>{};
     final replacements = <int, String>{};
     var changed = 0;
-
-    void dropElement(PdfContentElement element) {
-      for (var i = element.start; i < element.end; i++) {
-        drop.add(i);
-      }
-      final op = elements.operations[element.start];
-      final sideEffects = _textSideEffectReplacement(op);
-      if (sideEffects != null) replacements[element.start] = sideEffects;
-    }
-
     for (final element in elements.elements) {
-      final bounds = element.bounds;
-      if (bounds == null || !hitsBounds(bounds)) continue;
-
       if (element.kind == PdfElementKind.text) {
-        final slice = sliceText(element);
-        if (slice == null) continue;
-        changed++;
-        if (slice.start == 0 && slice.end == element.text!.length) {
-          dropElement(element);
-          continue;
-        }
-        final op = elements.operations[element.start];
-        final bytes = _shownBytes(op);
-        if (bytes == null || bytes.length != element.text!.length) {
-          dropElement(element);
-          continue;
-        }
-        drop.add(element.start);
-        replacements[element.start] =
-            _slicedTextReplacement(op, bytes, slice.start, slice.end);
-        continue;
-      }
-
-      changed++;
-      dropElement(element);
-    }
-
-    if (changed == 0) return 0;
-    _setContent(elements.pageIndex, page,
-        elements.serialize(drop: drop, replacements: replacements));
-    return changed;
-  }
-
-  /// Region erasing. Removes the part of every bounded element that falls
-  /// inside [rect]. Elements fully contained by [rect] are deleted; elements
-  /// that cross the rectangle are preserved under a clipping path that covers
-  /// the rest of the page, so content outside the drag area remains visible.
-  /// Returns how many elements were deleted or clipped.
-  int eraseElementsInRect(PdfPageElements elements, PdfRect rect) {
-    final page = document.page(elements.pageIndex);
-    final pageBox = page.cropBox;
-    final erase = rect.intersect(pageBox);
-    if (erase.width <= 0 || erase.height <= 0) return 0;
-
-    final clip = _outsideRectClip(pageBox, erase);
-    final drop = <int>{};
-    final replacements = <int, String>{};
-    final prefixes = <int, String>{};
-    final suffixes = <int, String>{};
-    var changed = 0;
-
-    for (final element in elements.elements) {
-      final bounds = element.bounds;
-      if (bounds == null || !_intersects(bounds, erase)) continue;
-      changed++;
-      if (_containsRect(erase, bounds) || clip == null) {
-        for (var i = element.start; i < element.end; i++) {
-          drop.add(i);
-        }
-        final op = elements.operations[element.start];
-        if (op.operator == "'") {
-          replacements[element.start] = 'T*';
-        } else if (op.operator == '"' && op.operands.length >= 3) {
-          final aw = _num(op.operands[0]);
-          final ac = _num(op.operands[1]);
-          replacements[element.start] =
-              '${ContentWriter.fmt(aw)} Tw ${ContentWriter.fmt(ac)} Tc T*';
-        }
+        final glyphs = element.textGlyphs;
+        if (glyphs.isEmpty || element.textPlacement?.fontSize == 0) continue;
+        // Test glyphs directly: TJ may backtrack, so the run's start/end
+        // bounding box need not enclose every glyph.
+        final removed = [
+          for (final g in glyphs) hitsGlyph(g.center.$1, g.center.$2)
+        ];
+        if (!removed.contains(true)) continue;
+        replacements[element.start] = _regionTextReplacement(
+            elements.operations[element.start], glyphs, removed);
       } else {
-        prefixes[element.start] = 'q\n$clip';
-        suffixes[element.end - 1] = 'Q\n';
+        final bounds = element.bounds;
+        if (bounds == null || !hitsBounds(bounds)) continue;
+        // End a path without painting it. Its construction and any pending
+        // W/W* clip or interleaved graphics-state operators must survive.
+        replacements[element.end - 1] =
+            element.kind == PdfElementKind.path ? 'n' : '';
       }
+      changed++;
     }
-
     if (changed == 0) return 0;
     _setContent(
         elements.pageIndex,
-        page,
+        document.page(elements.pageIndex),
         elements.serialize(
-            drop: drop,
-            replacements: replacements,
-            prefixes: prefixes,
-            suffixes: suffixes));
+            drop: replacements.keys.toSet(), replacements: replacements));
     return changed;
   }
 
-  static bool _intersects(PdfRect a, PdfRect b) {
-    final hit = a.intersect(b);
-    return hit.width > 0 && hit.height > 0;
-  }
-
-  static bool _containsRect(PdfRect outer, PdfRect inner) =>
-      outer.left <= inner.left &&
-      outer.bottom <= inner.bottom &&
-      outer.right >= inner.right &&
-      outer.top >= inner.top;
-
-  static ({int start, int end})? _textSlice(
-      PdfContentElement element, PdfRect rect) {
-    final text = element.text;
-    final bounds = element.bounds;
-    if (text == null || text.isEmpty || bounds == null) return null;
-
-    final horizontal = bounds.width >= bounds.height;
-    final axisStart = horizontal ? bounds.left : bounds.bottom;
-    final axisEnd = horizontal ? bounds.right : bounds.top;
-    final eraseStart =
-        math.max(axisStart, horizontal ? rect.left : rect.bottom);
-    final eraseEnd = math.min(axisEnd, horizontal ? rect.right : rect.top);
-    final axisLength = axisEnd - axisStart;
-    if (axisLength <= 0 || eraseEnd <= eraseStart) return null;
-
-    final totalWidth = measureHelvetica(text, 1);
-    if (totalWidth <= 0) return null;
-    final eraseUnits0 = (eraseStart - axisStart) / axisLength * totalWidth;
-    final eraseUnits1 = (eraseEnd - axisStart) / axisLength * totalWidth;
-
-    // Erase a glyph when its centre falls inside the drag box, so the slice
-    // boundary lands where the box crosses each glyph rather than swallowing a
-    // neighbour that the box only grazes (a box drawn flush to a glyph edge
-    // would otherwise pull in the next glyph on a floating-point tie). Centres
-    // are monotonic, so the erased indices stay contiguous.
-    var first = -1;
-    var last = -1;
-    var cursor = 0.0;
-    for (var i = 0; i < text.length; i++) {
-      final next = cursor + measureHelvetica(text[i], 1);
-      final center = (cursor + next) / 2;
-      if (center > eraseUnits0 && center < eraseUnits1) {
-        first = first < 0 ? i : first;
-        last = i + 1;
+  static String _regionTextReplacement(
+      ContentOperation op, List<PdfContentGlyph> glyphs, List<bool> removed) {
+    final output = <CosObject>[];
+    var glyphIndex = 0;
+    void show(CosString string) {
+      final bytes = string.bytes;
+      var start = 0;
+      var offset = 0;
+      while (offset < bytes.length && glyphIndex < glyphs.length) {
+        final glyph = glyphs[glyphIndex];
+        if (removed[glyphIndex]) {
+          if (start < offset) {
+            output.add(CosString(Uint8List.sublistView(bytes, start, offset),
+                isHex: string.isHex));
+          }
+          // Keep the advance even at the end of the run: a following Tj
+          // still depends on the text matrix left by this operation.
+          output.add(CosReal(-glyph.advance));
+          start = offset + glyph.byteLength;
+        }
+        offset += glyph.byteLength;
+        glyphIndex++;
       }
-      cursor = next;
-    }
-    if (first < 0 || last <= first) return null;
-    return (start: first, end: last);
-  }
-
-  /// The [_textSlice] counterpart for a lasso: erases the glyphs whose centre
-  /// point falls inside [polygon]. Centres run along the baseline in order, so
-  /// the covered indices stay contiguous for a simple lasso and reuse the same
-  /// single-cut replacement machinery.
-  static ({int start, int end})? _textSlicePolygon(
-      PdfContentElement element, List<(double, double)> polygon) {
-    final text = element.text;
-    final bounds = element.bounds;
-    if (text == null || text.isEmpty || bounds == null) return null;
-
-    final horizontal = bounds.width >= bounds.height;
-    final axisStart = horizontal ? bounds.left : bounds.bottom;
-    final axisEnd = horizontal ? bounds.right : bounds.top;
-    final cross = horizontal
-        ? (bounds.bottom + bounds.top) / 2
-        : (bounds.left + bounds.right) / 2;
-    final axisLength = axisEnd - axisStart;
-    if (axisLength <= 0) return null;
-
-    final totalWidth = measureHelvetica(text, 1);
-    if (totalWidth <= 0) return null;
-
-    var first = -1;
-    var last = -1;
-    var cursor = 0.0;
-    for (var i = 0; i < text.length; i++) {
-      final next = cursor + measureHelvetica(text[i], 1);
-      final along = axisStart + (cursor + next) / 2 / totalWidth * axisLength;
-      final x = horizontal ? along : cross;
-      final y = horizontal ? cross : along;
-      if (_pointInPolygon(x, y, polygon)) {
-        first = first < 0 ? i : first;
-        last = i + 1;
+      if (start < bytes.length) {
+        output.add(CosString(Uint8List.sublistView(bytes, start),
+            isHex: string.isHex));
       }
-      cursor = next;
     }
-    if (first < 0 || last <= first) return null;
-    return (start: first, end: last);
+
+    if (op.operator == 'TJ') {
+      for (final item in (op.operands.first as CosArray).items) {
+        if (item is CosString) {
+          show(item);
+        } else {
+          output.add(item); // original kerning survives verbatim
+        }
+      }
+    } else {
+      show(op.operands[op.operator == '"' ? 2 : 0] as CosString);
+    }
+    final sideEffects = op.operator == '"'
+        ? '${ContentWriter.fmt(_num(op.operands[0]))} Tw '
+            '${ContentWriter.fmt(_num(op.operands[1]))} Tc T*\n'
+        : op.operator == "'"
+            ? 'T*\n'
+            : '';
+    return '$sideEffects${latin1.decode(CosSerializer.serialize(CosArray(output)))} TJ';
   }
 
   /// Even-odd ray cast: is (x, y) inside the closed [polygon]?
@@ -378,8 +279,7 @@ extension PdfContentEditing on PdfEditor {
     for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       final (xi, yi) = poly[i];
       final (xj, yj) = poly[j];
-      if ((yi > y) != (yj > y) &&
-          x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+      if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
         inside = !inside;
       }
     }
@@ -426,66 +326,409 @@ extension PdfContentEditing on PdfEditor {
     return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0);
   }
 
-  static Uint8List? _shownBytes(ContentOperation op) {
-    if (op.operator == 'TJ' && op.operands.isNotEmpty) {
-      final array = op.operands[0];
-      if (array is! CosArray) return null;
-      final out = BytesBuilder();
-      for (final item in array.items) {
-        if (item is CosString) out.add(item.bytes);
+  /// Tier 2b - element repositioning. Shifts the [ids] listed in [elements]
+  /// (a snapshot from [PdfPageElements.of]) by [dx], [dy] **page points**
+  /// and rewrites the page's content stream. Returns how many elements
+  /// actually moved.
+  ///
+  /// The drawing is left exactly as it was - same operators, same operands,
+  /// same resources - and only the space it draws in is shifted, so a
+  /// rotated logo stays rotated and a scaled image keeps its scale. Paths,
+  /// images, forms, inline images and shadings are bracketed with
+  /// `q`/`cm`…`Q`; a text run gets a `Tm` in front of it and a `Tm`
+  /// behind, putting the text object's own state back so the rest of the
+  /// line - and every `Td`/`T*` after it - lands where it did before. Where
+  /// a following run shares the line, the moved run's advance is replayed
+  /// as a kern-only `TJ` so its neighbours do not slide.
+  ///
+  /// An element is skipped (and not counted) when it cannot be shifted
+  /// safely: a degenerate transform with no inverse, a path that also
+  /// establishes a clip (`W`/`W*` - bracketing it would confine the clip to
+  /// the moved drawing), or a text run at font size 0.
+  ///
+  /// Element ids survive the rewrite: the splices are `q`/`cm`/`Q`/`Tm` and
+  /// kern-only `TJ` operators, none of which is a drawing, so re-reading the
+  /// page with [PdfPageElements.of] yields the same elements in the same
+  /// order. Note that this repositions the *drawing*, not the text flow: a
+  /// moved run does not re-wrap, and moving it out from under a clip or a
+  /// tiling pattern's phase can change what it looks like.
+  int moveElements(
+    PdfPageElements elements,
+    Iterable<int> ids, {
+    required double dx,
+    required double dy,
+  }) {
+    final page = document.page(elements.pageIndex);
+    final before = <int, String>{};
+    final after = <int, String>{};
+    var moved = 0;
+    for (final id in ids) {
+      if (id < 0 || id >= elements.elements.length) {
+        throw RangeError.range(id, 0, elements.elements.length - 1, 'ids');
       }
-      return out.takeBytes();
+      final element = elements.elements[id];
+      if (before.containsKey(element.start)) continue; // a repeated id
+      if (dx == 0 && dy == 0) continue;
+      final delta = translationUnder(element.ctm, dx, dy);
+      if (delta == null) continue;
+      if (element.kind == PdfElementKind.text) {
+        final placement = element.textPlacement;
+        if (placement == null ||
+            placement.fontSize <= 0 ||
+            placement.horizontalScale == 0) {
+          continue;
+        }
+        // `'` and `"` perform their own `T*` after this `Tm`, so they are
+        // seeded with the matrix the operator *enters* on and left to do the
+        // line move; everything else is seeded with the run's own matrix, so
+        // a run that starts partway along its line stays there.
+        final operator = elements.operations[element.start].operator;
+        final seed = operator == "'" || operator == '"'
+            ? placement.entryLineMatrix
+            : placement.matrix;
+        before[element.start] = '${_matrixOperands(seed.concat(delta))} Tm';
+        // Put the text state back: the line matrix exactly (so a following
+        // `Td`/`T*` still measures from the real line), then the run's own
+        // advance as a kern-only `TJ` so a neighbour sharing the line starts
+        // where it did. `Tm` is the only operator that sets the text matrix,
+        // and it always resets the line matrix with it - hence the two steps.
+        final restore =
+            StringBuffer('${_matrixOperands(placement.lineMatrix)} Tm');
+        final advance = placement.advance + _lineAdvance(placement);
+        if (advance.abs() > 1e-9) {
+          final kern =
+              -1000 * advance / placement.fontSize / placement.horizontalScale;
+          restore.write(' [ ${ContentWriter.fmt(kern)} ] TJ');
+        }
+        after[element.start] = restore.toString();
+      } else {
+        if (_establishesClip(elements, element)) continue;
+        before[element.start] = 'q ${_matrixOperands(delta)} cm';
+        after[element.end - 1] = 'Q';
+      }
+      moved++;
     }
-
-    final stringIndex = op.operator == '"' ? 2 : 0;
-    if (op.operands.length <= stringIndex) return null;
-    final string = op.operands[stringIndex];
-    return string is CosString ? string.bytes : null;
+    if (moved == 0) return 0;
+    _setContent(
+      elements.pageIndex,
+      page,
+      elements.serialize(before: before, after: after),
+    );
+    return moved;
   }
 
-  static String? _textSideEffectReplacement(ContentOperation op) {
-    if (op.operator == "'") return 'T*';
-    if (op.operator == '"' && op.operands.length >= 3) {
-      final aw = _num(op.operands[0]);
-      final ac = _num(op.operands[1]);
-      return '${ContentWriter.fmt(aw)} Tw ${ContentWriter.fmt(ac)} Tc T*';
+  /// Moves the [ids] from [elements]' source page into [targetPage], mapping
+  /// their source-page coordinates through [transform]. Returns how many
+  /// elements moved.
+  ///
+  /// Unlike wrapping the drawing in a Form XObject, this appends the original
+  /// operators to the destination page. A text run therefore remains a text
+  /// run, an image remains an image, and the content tool can keep editing the
+  /// dropped element. Graphics-state operators needed by the drawing travel
+  /// with it; the source page is rewritten with the same stand-ins
+  /// [PdfPageElements.operationsRetaining] uses for a drag preview, so text
+  /// following a moved run holds its position.
+  ///
+  /// Page resource names are local to a page. Referenced fonts, XObjects,
+  /// colour spaces, patterns, shadings, graphics states, and marked-content
+  /// properties are imported into the target under non-conflicting names and
+  /// the appended operators are remapped to those names. The resource objects
+  /// themselves stay shared within this document; only the page dictionaries
+  /// and content streams are rewritten.
+  ///
+  /// [transform] maps source page user space onto target page user space. A
+  /// simple same-orientation move is a [PdfMatrix.translation]. A viewer
+  /// moving between differently rotated pages can supply the corresponding
+  /// rotation-and-translation so the drawing keeps its displayed orientation.
+  int moveElementsToPage(
+    PdfPageElements elements,
+    Iterable<int> ids,
+    int targetPage, {
+    required PdfMatrix transform,
+  }) {
+    if (targetPage < 0 || targetPage >= document.pageCount) {
+      throw RangeError.range(
+          targetPage, 0, document.pageCount - 1, 'targetPage');
     }
-    return null;
-  }
+    if (targetPage == elements.pageIndex) {
+      final origin = transform.apply(0, 0);
+      final xAxis = transform.apply(1, 0);
+      final yAxis = transform.apply(0, 1);
+      final translationOnly = (xAxis.$1 - origin.$1 - 1).abs() < 1e-9 &&
+          (xAxis.$2 - origin.$2).abs() < 1e-9 &&
+          (yAxis.$1 - origin.$1).abs() < 1e-9 &&
+          (yAxis.$2 - origin.$2 - 1).abs() < 1e-9;
+      if (!translationOnly) {
+        throw ArgumentError.value(
+            transform, 'transform', 'a same-page move must be a translation');
+      }
+      return moveElements(
+        elements,
+        ids,
+        dx: origin.$1,
+        dy: origin.$2,
+      );
+    }
 
-  static String _slicedTextReplacement(
-      ContentOperation op, Uint8List bytes, int start, int end) {
-    final erased = latin1.decode(Uint8List.sublistView(bytes, start, end));
-    final gap = -measureHelvetica(erased, 1) * 1000;
-    final items = <CosObject>[
-      if (start > 0) CosString(Uint8List.sublistView(bytes, 0, start)),
-      if (end < bytes.length) CosReal(gap),
-      if (end < bytes.length)
-        CosString(Uint8List.sublistView(bytes, end, bytes.length)),
+    final moving = <int>{};
+    for (final id in ids) {
+      if (id < 0 || id >= elements.elements.length) {
+        throw RangeError.range(id, 0, elements.elements.length - 1, 'ids');
+      }
+      final element = elements.elements[id];
+      if (!_canMoveElement(elements, element)) continue;
+      moving.add(id);
+    }
+    if (moving.isEmpty) return 0;
+
+    final source = document.page(elements.pageIndex);
+    final target = document.page(targetPage);
+    final sourceOps = elements.operationsRetaining(
+      (element) => moving.contains(element.id),
+    );
+    final resourceNames = _importContentResources(source, target, sourceOps);
+    final movedOps = [
+      for (final op in sourceOps) _remapContentResources(op, resourceNames),
     ];
-    final show =
-        '${latin1.decode(CosSerializer.serialize(CosArray(items)))} TJ';
-    final sideEffects = _textSideEffectReplacement(op);
-    return sideEffects == null ? show : '$sideEffects\n$show';
+    final movedBytes = BytesBuilder(copy: false)
+      ..add(latin1.encode('q ${_matrixOperands(transform)} cm\n'))
+      ..add(ContentStreamSerializer.serialize(movedOps))
+      ..add(latin1.encode('Q\n'));
+
+    _setContent(
+      elements.pageIndex,
+      source,
+      ContentStreamSerializer.serialize(
+        elements.operationsRetaining((element) => !moving.contains(element.id)),
+      ),
+    );
+    _appendContent(targetPage, target, movedBytes.takeBytes());
+    return moving.length;
   }
 
-  static String? _outsideRectClip(PdfRect page, PdfRect erase) {
-    final out = StringBuffer();
+  static bool _canMoveElement(
+      PdfPageElements elements, PdfContentElement element) {
+    if (element.ctm.inverted() == null) return false;
+    if (element.kind == PdfElementKind.text) {
+      final placement = element.textPlacement;
+      return placement != null &&
+          placement.fontSize > 0 &&
+          placement.horizontalScale != 0;
+    }
+    return !_establishesClip(elements, element);
+  }
 
-    void addRect(double x, double y, double w, double h) {
-      if (w <= 0 || h <= 0) return;
-      out.writeln('${ContentWriter.fmt(x)} ${ContentWriter.fmt(y)} '
-          '${ContentWriter.fmt(w)} ${ContentWriter.fmt(h)} re');
+  /// Imports the page resources referenced by [operations] and returns their
+  /// source-name -> target-name maps, keyed by resource category.
+  Map<String, Map<String, String>> _importContentResources(
+    PdfPage source,
+    PdfPage target,
+    List<ContentOperation> operations,
+  ) {
+    final references = _contentResourceReferences(operations);
+    if (references.isEmpty) return const {};
+    final cos = document.cos;
+    final sourceResources = source.resources;
+    final targetResources = _ownResources(target);
+    final out = <String, Map<String, String>>{};
+    const prefixes = {
+      'Font': 'MvF',
+      'XObject': 'MvX',
+      'ExtGState': 'MvG',
+      'ColorSpace': 'MvC',
+      'Pattern': 'MvP',
+      'Shading': 'MvS',
+      'Properties': 'MvR',
+    };
+
+    bool sameResource(CosObject a, CosObject b) {
+      if (a == b) return true;
+      try {
+        return identical(cos.resolve(a), cos.resolve(b));
+      } catch (_) {
+        return false;
+      }
     }
 
-    addRect(page.left, page.bottom, erase.left - page.left, page.height);
-    addRect(erase.right, page.bottom, page.right - erase.right, page.height);
-    addRect(erase.left, page.bottom, erase.width, erase.bottom - page.bottom);
-    addRect(erase.left, erase.top, erase.width, page.top - erase.top);
-    if (out.isEmpty) return null;
-    out.write('W n\n');
-    return out.toString();
+    for (final category in references.entries) {
+      final sourceCategory = cos.resolve(sourceResources[category.key]);
+      final targetCategory = cos.resolve(targetResources[category.key]);
+      final targetEntries = targetCategory is CosDictionary
+          ? CosDictionary({...targetCategory.entries})
+          : CosDictionary();
+      final names = <String, String>{};
+      final reserved = <String>{...targetEntries.entries.keys};
+      var changed = false;
+
+      String freshName() {
+        final prefix = prefixes[category.key] ?? 'MvR';
+        var i = 1;
+        while (!reserved.add('$prefix$i')) {
+          i++;
+        }
+        return '$prefix$i';
+      }
+
+      for (final sourceName in category.value) {
+        final sourceValue =
+            sourceCategory is CosDictionary ? sourceCategory[sourceName] : null;
+        String? targetName;
+        if (sourceValue != null) {
+          for (final entry in targetEntries.entries.entries) {
+            if (sameResource(sourceValue, entry.value)) {
+              targetName = entry.key;
+              break;
+            }
+          }
+        }
+        if (targetName == null && sourceValue != null) {
+          targetName =
+              targetEntries.containsKey(sourceName) ? freshName() : sourceName;
+          reserved.add(targetName);
+          targetEntries[targetName] = sourceValue;
+          changed = true;
+        } else {
+          // Preserve a missing source resource as missing. If the target has
+          // a resource under that name, remap to an unused name rather than
+          // accidentally changing the drawing's meaning.
+          targetName ??=
+              targetEntries.containsKey(sourceName) ? freshName() : sourceName;
+        }
+        names[sourceName] = targetName;
+      }
+      if (changed) targetResources[category.key] = targetEntries;
+      out[category.key] = names;
+    }
+    return out;
   }
+
+  static Map<String, Set<String>> _contentResourceReferences(
+      List<ContentOperation> operations) {
+    final out = <String, Set<String>>{};
+    void add(String category, CosObject? value) {
+      if (value case CosName(:final value)) {
+        (out[category] ??= <String>{}).add(value);
+      }
+    }
+
+    for (final op in operations) {
+      final operands = op.operands;
+      switch (op.operator) {
+        case 'Tf':
+          if (operands.isNotEmpty) add('Font', operands.first);
+        case 'Do':
+          if (operands.isNotEmpty) add('XObject', operands.first);
+        case 'gs':
+          if (operands.isNotEmpty) add('ExtGState', operands.first);
+        case 'CS' || 'cs':
+          if (operands.isNotEmpty && operands.first is CosName) {
+            final name = (operands.first as CosName).value;
+            if (!const {'DeviceGray', 'DeviceRGB', 'DeviceCMYK', 'Pattern'}
+                .contains(name)) {
+              add('ColorSpace', operands.first);
+            }
+          }
+        case 'SCN' || 'scn':
+          if (operands.isNotEmpty) add('Pattern', operands.last);
+        case 'sh':
+          if (operands.isNotEmpty) add('Shading', operands.first);
+        case 'BDC' || 'DP':
+          if (operands.length >= 2) add('Properties', operands[1]);
+        case 'BI':
+          if (operands.isNotEmpty && operands.first is CosDictionary) {
+            final dict = operands.first as CosDictionary;
+            final colorSpace = dict['CS'] ?? dict['ColorSpace'];
+            if (colorSpace is! CosName ||
+                !const {'G', 'RGB', 'CMYK', 'I'}.contains(colorSpace.value)) {
+              add('ColorSpace', colorSpace);
+            }
+          }
+      }
+    }
+    return out;
+  }
+
+  static ContentOperation _remapContentResources(
+    ContentOperation op,
+    Map<String, Map<String, String>> names,
+  ) {
+    CosObject rename(String category, CosObject value) {
+      if (value is! CosName) return value;
+      final renamed = names[category]?[value.value];
+      return renamed == null || renamed == value.value
+          ? value
+          : CosName(renamed);
+    }
+
+    final operands = List<CosObject>.of(op.operands);
+    switch (op.operator) {
+      case 'Tf':
+        if (operands.isNotEmpty) operands[0] = rename('Font', operands[0]);
+      case 'Do':
+        if (operands.isNotEmpty) operands[0] = rename('XObject', operands[0]);
+      case 'gs':
+        if (operands.isNotEmpty) {
+          operands[0] = rename('ExtGState', operands[0]);
+        }
+      case 'CS' || 'cs':
+        if (operands.isNotEmpty) {
+          operands[0] = rename('ColorSpace', operands[0]);
+        }
+      case 'SCN' || 'scn':
+        if (operands.isNotEmpty) {
+          operands[operands.length - 1] = rename('Pattern', operands.last);
+        }
+      case 'sh':
+        if (operands.isNotEmpty) operands[0] = rename('Shading', operands[0]);
+      case 'BDC' || 'DP':
+        if (operands.length >= 2) {
+          operands[1] = rename('Properties', operands[1]);
+        }
+      case 'BI':
+        if (operands.isNotEmpty && operands.first is CosDictionary) {
+          final original = operands.first as CosDictionary;
+          final dict = CosDictionary({...original.entries});
+          if (dict['CS'] case final value?) {
+            if (value is! CosName ||
+                !const {'G', 'RGB', 'CMYK', 'I'}.contains(value.value)) {
+              dict['CS'] = rename('ColorSpace', value);
+            }
+          }
+          if (dict['ColorSpace'] case final value?) {
+            if (value is! CosName ||
+                !const {'G', 'RGB', 'CMYK', 'I'}.contains(value.value)) {
+              dict['ColorSpace'] = rename('ColorSpace', value);
+            }
+          }
+          operands[0] = dict;
+        }
+    }
+    return ContentOperation(op.operator, operands);
+  }
+
+  /// How far into its line the run already sits: the text matrix differs
+  /// from the line matrix only by the advances of the runs before it, so
+  /// `matrix × lineMatrix⁻¹` is that pure translation.
+  static double _lineAdvance(PdfTextPlacement placement) {
+    final inverse = placement.lineMatrix.inverted();
+    if (inverse == null) return 0;
+    return placement.matrix.concat(inverse).e;
+  }
+
+  /// Whether [element]'s operations also make a clipping path. Bracketing
+  /// such a run in `q`…`Q` would drop the clip the rest of the page expects.
+  static bool _establishesClip(
+      PdfPageElements elements, PdfContentElement element) {
+    for (var i = element.start; i < element.end; i++) {
+      final operator = elements.operations[i].operator;
+      if (operator == 'W' || operator == 'W*') return true;
+    }
+    return false;
+  }
+
+  static String _matrixOperands(PdfMatrix m) => [
+        for (final value in m.toList()) ContentWriter.fmt(value),
+      ].join(' ');
 
   /// Tier 3 - text editing. Replaces occurrences of [find] with [replace]
   /// in the text-showing operations on page [index] and returns how many
@@ -509,9 +752,18 @@ extension PdfContentEditing on PdfEditor {
   /// round-tripped (CFF descendant, stream /CIDToGIDMap, non-Identity-H
   /// encoding, missing program/ToUnicode, or a character the font lacks).
   ///
-  /// Remaining limitations: for simple fonts both strings must be Latin-1;
-  /// and matches do not cross a line break (`Td`/`T*`/`'`/`"`) - this
-  /// corrects and re-flows within a line, it does not re-flow paragraphs.
+  /// Simple (byte-coded) fonts are read and written through their own
+  /// encoding too ([SimpleFont]): `/ToUnicode` and `/Encoding`
+  /// `/Differences` decide what a code reads as, so [find] and [replace] are
+  /// the text on the page rather than the raw bytes drawing it, and a subset
+  /// that renumbered its codes round-trips correctly. A simple-font run is
+  /// left untouched when the font declares no code for one of [replace]'s
+  /// characters - a subsetted face physically lacks the glyph, and writing
+  /// the character's ASCII byte anyway would draw a different one.
+  ///
+  /// Remaining limitation: matches do not cross a line break
+  /// (`Td`/`T*`/`'`/`"`) - this corrects and re-flows within a line, it does
+  /// not re-flow paragraphs.
   /// [fallbackFonts] (composite editing only) supply glyph outlines for
   /// characters the document's own /Type0 font can't draw - a subsetted
   /// embedded font physically lacks the glyphs it dropped, and this library
@@ -585,10 +837,6 @@ extension PdfContentEditing on PdfEditor {
     PdfPageElements? snapshot,
   }) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
-    // the simple-font path is byte-encoded; non-Latin-1 strings can only be
-    // matched/drawn by the composite path, so leave these null there.
-    final findBytes = _tryLatin1(find);
-    final replaceBytes = _tryLatin1(replace);
 
     final page = document.page(index);
     // Reuse the caller's snapshot only while this session has not already
@@ -610,6 +858,14 @@ extension PdfContentEditing on PdfEditor {
       final font = cos.resolve(fonts[name]);
       return font is CosDictionary ? font : null;
     }
+
+    // A simple font's byte codes are only the characters by convention:
+    // /Encoding /Differences and subset renumbering remap them freely, so
+    // both the match and the replacement go through the font's own tables
+    // ([SimpleFont]). Cached per font resource name like the composite ones.
+    final simpleCache = <String?, SimpleFont>{};
+    SimpleFont simpleFor(String? name, CosDictionary? f) =>
+        simpleCache.putIfAbsent(name, () => SimpleFont.decode(cos, f));
 
     // composite (/Type0) fonts are rewritten by a separate path that decodes
     // 2-byte glyph codes - built lazily and cached per font resource name.
@@ -679,27 +935,22 @@ extension PdfContentEditing on PdfEditor {
           run.add(ops[i]);
           i++;
         }
-        // find must be Latin-1 to locate it in a simple-font run; replace may
-        // be non-Latin-1 only when it will be drawn in an embedded font.
-        final simpleRewrite = findBytes == null
-            ? (run, 0)
-            : (styled
-                ? _rewriteStyledTextRun(
-                    page,
-                    run,
-                    font,
-                    fontName,
-                    fontSize,
-                    find,
-                    replaceBytes,
-                    replace,
-                    style,
-                    restoreColorOps,
-                    styledEmbed,
-                  )
-                : (replaceBytes != null
-                    ? _rewriteTextRun(run, font, find, replace)
-                    : (run, 0)));
+        final simpleRewrite = styled
+            ? _rewriteStyledTextRun(
+                page,
+                run,
+                font,
+                fontName,
+                fontSize,
+                find,
+                replace,
+                style,
+                restoreColorOps,
+                styledEmbed,
+                simpleFor(fontName, font),
+              )
+            : _rewriteTextRun(
+                run, font, find, replace, simpleFor(fontName, font));
         final (ops_, n) = _isType0(cos, font) && fontName != null
             ? (type0For(
                   fontName,
@@ -716,16 +967,22 @@ extension PdfContentEditing on PdfEditor {
       if ((op.operator == "'" || op.operator == '"') &&
           (operationRange == null ||
               (i >= operationRange.$1 && i < operationRange.$2)) &&
-          !_isType0(cos, font) &&
-          findBytes != null &&
-          replaceBytes != null) {
+          !_isType0(cos, font)) {
         final si = op.operator == '"' ? 2 : 0;
         if (op.operands.length > si && op.operands[si] is CosString) {
-          final s = op.operands[si] as CosString;
-          final replaced = _replaceBytes(s.bytes, findBytes, replaceBytes);
-          if (replaced != null) {
-            op.operands[si] = CosString(replaced, isHex: s.isHex);
-            count += _findAll(s.bytes, findBytes).length;
+          final simple = simpleFor(fontName, font);
+          // both ends run through the font's own encoding: the codes that
+          // draw `find` on this page, and the codes that will draw `replace`.
+          // A font that can draw neither leaves the operator alone.
+          final findBytes = simple.encode(find);
+          final replaceBytes = simple.encode(replace);
+          if (findBytes != null && replaceBytes != null) {
+            final s = op.operands[si] as CosString;
+            final replaced = _replaceBytes(s.bytes, findBytes, replaceBytes);
+            if (replaced != null) {
+              op.operands[si] = CosString(replaced, isHex: s.isHex);
+              count += _findAll(s.bytes, findBytes).length;
+            }
           }
         }
       }
@@ -798,15 +1055,15 @@ extension PdfContentEditing on PdfEditor {
     String? fontName,
     double fontSize,
     String find,
-    List<int>? replaceBytes,
     String replace,
     PdfTextStyle style,
     List<ContentOperation> restoreColorOps,
     _StyledEmbed? embed,
+    SimpleFont simple,
   ) {
     if (_isType0(document.cos, font)) return (run, 0);
 
-    final origWidthOf = _widthsFor(font);
+    final origWidthOf = simple.widthOf;
 
     // The styled face is resolved lazily, on the first match, by [resolve]:
     // the given embedded font (as Identity-H glyph ids) when it can render the
@@ -818,9 +1075,14 @@ extension PdfContentEditing on PdfEditor {
     final runes = replace.runes.toList();
     final useEmbed =
         embed != null && runes.every((r) => embed.font.glyphForRune(r) != 0);
+    // The bytes to write depend on which face ends up drawing them: a
+    // substituted base-14 face is WinAnsi, so the replacement is Latin-1
+    // there, while the run's own face needs its own codes ([simple]).
+    final variant = _styledVariant(font, style);
+    final replaceBytes =
+        variant != null ? _tryLatin1(replace) : simple.encode(replace);
     if (!useEmbed && replaceBytes == null) {
-      // a non-Latin-1 replacement can only be drawn by an embedded font that
-      // carries its glyphs; without one there is nothing safe to emit.
+      // a replacement the chosen face cannot draw has nothing safe to emit.
       return (run, 0);
     }
 
@@ -837,7 +1099,6 @@ extension PdfContentEditing on PdfEditor {
         }
         return _StyledFace(name, replShow, w);
       }
-      final variant = _styledVariant(font, style);
       final String? name;
       final double Function(int) styledWidthOf;
       if (variant != null) {
@@ -858,6 +1119,7 @@ extension PdfContentEditing on PdfEditor {
     }
 
     final codec = _StyledRunCodec(
+      simple: simple,
       origWidthOf: origWidthOf,
       resolveFace: resolve,
       styledSize: style.fontSize ?? fontSize,
@@ -988,49 +1250,27 @@ extension PdfContentEditing on PdfEditor {
   }
 
   /// Rewrites one run of show operators, replacing [find] with [replace]
-  /// across its strings (both Latin-1). Returns the operations to emit in the
-  /// run's place (the originals untouched when nothing matched) and the number
-  /// of replacements.
+  /// across its strings. Both are matched and written as *text*: [simple]
+  /// turns the run's bytes into what they read as, and turns [replace] back
+  /// into the codes this font draws it with. Returns the operations to emit
+  /// in the run's place (the originals untouched when nothing matched) and
+  /// the number of replacements.
   (List<ContentOperation>, int) _rewriteTextRun(
     List<ContentOperation> run,
     CosDictionary? font,
     String find,
     String replace,
+    SimpleFont simple,
   ) {
     if (_isType0(document.cos, font)) return (run, 0);
-    return TextRunRewriter(_SimpleRunCodec(_widthsFor(font)))
+    // Decided before the rewrite, like the composite path's glyph check: a
+    // font with no code for one of the replacement's characters cannot draw
+    // it, and emitting the Latin-1 byte regardless would silently draw a
+    // different glyph. Leaving the run untouched is the honest outcome.
+    final replaceBytes = simple.encode(replace);
+    if (replaceBytes == null) return (run, 0);
+    return TextRunRewriter(_SimpleRunCodec(simple, replaceBytes))
         .rewrite(run, find, replace);
-  }
-
-  /// An advance-width lookup (thousandths of an em) for [font]: its own
-  /// /Widths when present, else base-14 metrics keyed off /BaseFont,
-  /// falling back to Helvetica.
-  double Function(int code) _widthsFor(CosDictionary? font) {
-    final cos = document.cos;
-    if (font != null) {
-      final widths = cos.resolve(font['Widths']);
-      if (widths is CosArray) {
-        final firstChar = _num(cos.resolve(font['FirstChar'])).round();
-        var missing = 0.0;
-        final descriptor = cos.resolve(font['FontDescriptor']);
-        if (descriptor is CosDictionary) {
-          missing = _num(cos.resolve(descriptor['MissingWidth']));
-        }
-        final table = [for (final w in widths.items) _num(cos.resolve(w))];
-        return (code) {
-          final i = code - firstChar;
-          return i >= 0 && i < table.length ? table[i] : missing;
-        };
-      }
-      final base = cos.resolve(font['BaseFont']);
-      if (base is CosName) {
-        final standard = PdfStandardFont.tryFromName(base.value);
-        if (standard != null) {
-          return (code) => standard.widthOf(code).toDouble();
-        }
-      }
-    }
-    return (code) => PdfStandardFont.helvetica.widthOf(code).toDouble();
   }
 
   static CosObject _numberObject(double value) {
@@ -1167,25 +1407,31 @@ extension PdfContentEditing on PdfEditor {
 /// each shown byte is a glyph, replacements are drawn as Latin-1 bytes in the
 /// run's own font, and cells serialize back into plain (non-hex) show strings.
 class _SimpleRunCodec extends RunCodec {
-  _SimpleRunCodec(this._widthOf);
-  final double Function(int code) _widthOf;
+  _SimpleRunCodec(this._simple, this._replaceBytes);
+
+  /// The run's font, which owns both directions of the code <-> text map.
+  final SimpleFont _simple;
+
+  /// [replace] already encoded in this font's codes - resolved up front so an
+  /// undrawable replacement never reaches the rewriter.
+  final Uint8List _replaceBytes;
 
   @override
   List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
 
   @override
-  String glyphText(int glyph) => String.fromCharCode(glyph);
+  String glyphText(int glyph) => _simple.textFor(glyph);
 
   @override
-  double glyphWidth(int glyph) => _widthOf(glyph);
+  double glyphWidth(int glyph) => _simple.widthOf(glyph);
 
   @override
   void emitReplacement(
       List<Emit> out, String replace, double oldWidth, bool hasTrailing) {
     var newWidth = 0.0;
-    for (final unit in replace.codeUnits) {
-      out.add(CellEmit((glyph: unit, kern: null)));
-      newWidth += _widthOf(unit);
+    for (final code in _replaceBytes) {
+      out.add(CellEmit((glyph: code, kern: null)));
+      newWidth += _simple.widthOf(code);
     }
     if (hasTrailing && (newWidth - oldWidth).abs() >= 0.001) {
       out.add(CellEmit((glyph: null, kern: newWidth - oldWidth)));
@@ -1193,8 +1439,7 @@ class _SimpleRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(
-          List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
@@ -1208,6 +1453,7 @@ class _SimpleRunCodec extends RunCodec {
 /// restored, original-size context) holds the rest of the line in place.
 class _StyledRunCodec extends RunCodec {
   _StyledRunCodec({
+    required this.simple,
     required double Function(int code) origWidthOf,
     required _StyledFace Function() resolveFace,
     required this.styledSize,
@@ -1217,6 +1463,9 @@ class _StyledRunCodec extends RunCodec {
     required this.restoreColorOps,
   })  : _origWidthOf = origWidthOf,
         _resolveFace = resolveFace;
+
+  /// The run's own font, for reading its codes back as text when matching.
+  final SimpleFont simple;
 
   final double Function(int) _origWidthOf;
   final _StyledFace Function() _resolveFace;
@@ -1237,7 +1486,7 @@ class _StyledRunCodec extends RunCodec {
   List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
 
   @override
-  String glyphText(int glyph) => String.fromCharCode(glyph);
+  String glyphText(int glyph) => simple.textFor(glyph);
 
   @override
   double glyphWidth(int glyph) => _origWidthOf(glyph);
@@ -1276,8 +1525,7 @@ class _StyledRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(
-          List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));

@@ -42,8 +42,7 @@ void main() {
         final intDigits = rng.nextInt(8);
         final fracDigits = rng.nextInt(15 - intDigits);
         final sign = ['', '-', '+'][rng.nextInt(3)];
-        final intPart =
-            List.generate(intDigits, (_) => rng.nextInt(10)).join();
+        final intPart = List.generate(intDigits, (_) => rng.nextInt(10)).join();
         final fracPart =
             List.generate(fracDigits, (_) => rng.nextInt(10)).join();
         final s = '$sign$intPart.$fracPart';
@@ -112,8 +111,7 @@ void main() {
     });
 
     test('escapes', () {
-      expect(String.fromCharCodes(lex(r'(a\(b\)c\\d)').bytesValue),
-          r'a(b)c\d');
+      expect(String.fromCharCodes(lex(r'(a\(b\)c\\d)').bytesValue), r'a(b)c\d');
       expect(lex(r'(\n\r\t)').bytesValue, [0x0A, 0x0D, 0x09]);
     });
 
@@ -155,6 +153,30 @@ void main() {
       CosTokenType.keyword,
       CosTokenType.keyword,
     ]);
+  });
+
+  test('explicit token buffer is reused and overwritten', () {
+    final lexer = CosLexer(ascii('12 /Name m'));
+    final buffer = CosTokenBuffer();
+
+    final integer = lexer.nextToken(buffer);
+    expect(identical(integer, buffer), isTrue);
+    expect((integer.type, integer.intValue, integer.offset),
+        (CosTokenType.integer, 12, 0));
+
+    final name = lexer.nextToken(buffer);
+    expect(identical(name, integer), isTrue);
+    expect((name.type, name.textValue, name.offset),
+        (CosTokenType.name, 'Name', 3));
+
+    final keyword = lexer.nextToken(buffer);
+    expect(identical(keyword, integer), isTrue);
+    expect((keyword.type, keyword.textValue, keyword.offset),
+        (CosTokenType.keyword, 'm', 9));
+
+    expect(identical(lexer.nextToken(buffer), buffer), isTrue);
+    expect((buffer.type, buffer.value, buffer.offset),
+        (CosTokenType.eof, null, 10));
   });
 
   test('comments are skipped', () {

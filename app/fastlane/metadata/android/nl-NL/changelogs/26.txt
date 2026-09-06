@@ -1,0 +1,7 @@
+Nieuw in 3.4.0
+
+• Kopieer en plak annotaties tussen geopende documenten.
+• Sleep pdf’s tussen paginaminiaturen om pagina’s precies op de gewenste plek in te voegen.
+• Sla geplaatste stempels op in je collectie en bekijk de kleur van de geselecteerde annotatie in de werkbalk.
+• Tekstselectie en vervangende lettertypen worden nauwkeuriger uitgelijnd.
+• Snellere tabrasters, soepeler trackpadzoomen, veiligere progressieve bestandstoegang en betrouwbaardere afdrukvoorbeelden.

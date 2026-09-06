@@ -9,7 +9,11 @@ import 'package:test/test.dart';
 
 /// One-page PDF around a custom content stream, with /F1 Helvetica and a
 /// 1×1 gray image /Im1 available.
-Uint8List buildContentPdf(String content) {
+Uint8List buildContentPdf(
+  String content, {
+  String font = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  String? toUnicode,
+}) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -17,10 +21,14 @@ Uint8List buildContentPdf(String content) {
         '/Resources << /Font << /F1 5 0 R >> '
         '/XObject << /Im1 6 0 R >> >> >>',
     '<< /Length ${content.length} >>\nstream\n$content\nendstream',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    toUnicode == null
+        ? font
+        : '${font.substring(0, font.lastIndexOf(">>"))} /ToUnicode 7 0 R >>',
     '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 '
         '/ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\n'
         'stream\nx\nendstream',
+    if (toUnicode != null)
+      '<< /Length ${toUnicode.length} >>\nstream\n$toUnicode\nendstream',
   ];
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
@@ -227,7 +235,11 @@ void main() {
       expect(editor.deleteElementsInPolygon(elements, poly), 1);
 
       final out = PdfDocument.open(editor.save());
-      expect(pageText(out), isNot(contains('100 100 50 40 re')));
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.path),
+          isEmpty);
       // text runs it does not enclose are untouched
       expect(
           PdfPageElements.of(out, 0)
@@ -242,47 +254,10 @@ void main() {
       final elements = PdfPageElements.of(doc, 0);
       final editor = PdfEditor(doc);
       expect(
-          editor.deleteElementsInPolygon(elements, const [(0.0, 0.0), (1.0, 1.0)]),
+          editor.deleteElementsInPolygon(
+              elements, const [(0.0, 0.0), (1.0, 1.0)]),
           0);
       expect(editor.hasChanges, isFalse);
-    });
-
-    test('erasing a region clips partial hits instead of dropping them', () {
-      final doc = PdfDocument.open(buildContentPdf(richContent));
-      final elements = PdfPageElements.of(doc, 0);
-      final editor = PdfEditor(doc);
-      expect(
-          editor.eraseElementsInRect(
-              elements, const PdfRect(115, 110, 125, 120)),
-          1);
-
-      final out = PdfDocument.open(editor.save());
-      final text = pageText(out);
-      expect(text, contains('100 100 50 40 re'));
-      expect(text, contains('W n'));
-      expect(text, contains('Q'));
-      expect(
-          PdfPageElements.of(out, 0)
-              .elements
-              .where((e) => e.kind == PdfElementKind.path),
-          hasLength(1));
-    });
-
-    test('erasing a region deletes fully-covered hits', () {
-      final doc = PdfDocument.open(buildContentPdf(richContent));
-      final elements = PdfPageElements.of(doc, 0);
-      final editor = PdfEditor(doc);
-      expect(
-          editor.eraseElementsInRect(elements, const PdfRect(95, 95, 155, 145)),
-          1);
-
-      final out = PdfDocument.open(editor.save());
-      expect(pageText(out), isNot(contains('100 100 50 40 re')));
-      expect(
-          PdfPageElements.of(out, 0)
-              .elements
-              .where((e) => e.kind == PdfElementKind.path),
-          isEmpty);
     });
 
     test('inline images round-trip through a rewrite', () {
@@ -347,8 +322,7 @@ void main() {
 
       expect(
           editor.replaceElementText(elements, texts.first, 'Page', 'Sheet'), 1);
-      expect(
-          editor.replaceElementText(elements, texts[1], 'Page', 'Folio'), 1);
+      expect(editor.replaceElementText(elements, texts[1], 'Page', 'Folio'), 1);
 
       final reopened = PdfDocument.open(editor.save());
       final text = PdfPageElements.of(reopened, 0)

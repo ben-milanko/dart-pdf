@@ -12,6 +12,60 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get add => 'Add';
 
   @override
+  String get annotCaret => 'Caret';
+
+  @override
+  String get annotCircle => 'Circle';
+
+  @override
+  String get annotFileAttachment => 'File attachment';
+
+  @override
+  String get annotFreeText => 'Text box';
+
+  @override
+  String get annotHighlight => 'Highlight';
+
+  @override
+  String get annotInk => 'Ink';
+
+  @override
+  String get annotLine => 'Line';
+
+  @override
+  String get annotLink => 'Link';
+
+  @override
+  String get annotPolygon => 'Polygon';
+
+  @override
+  String get annotPolyline => 'Polyline';
+
+  @override
+  String get annotRedact => 'Redaction';
+
+  @override
+  String get annotSquare => 'Square';
+
+  @override
+  String get annotSquiggly => 'Squiggly';
+
+  @override
+  String get annotStamp => 'Stamp';
+
+  @override
+  String get annotStrikeOut => 'Strike-out';
+
+  @override
+  String get annotText => 'Note';
+
+  @override
+  String get annotUnderline => 'Underline';
+
+  @override
+  String get annotWidget => 'Form field';
+
+  @override
   String get apply => 'Apply';
 
   @override
@@ -226,6 +280,18 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get editorViewAuthorNameTitle => 'Author name';
 
   @override
+  String get lineStyleDashDot => 'Dash-dot';
+
+  @override
+  String get lineStyleDashed => 'Dashed';
+
+  @override
+  String get lineStyleDotted => 'Dotted';
+
+  @override
+  String get lineStyleSolid => 'Solid';
+
+  @override
   String get measCalibrate => 'Calibrate';
 
   @override
@@ -233,6 +299,33 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get measDepthLabel => 'Depth: ';
+
+  @override
+  String get measKindAngle => 'Angle';
+
+  @override
+  String get measKindArc => 'Arc';
+
+  @override
+  String get measKindArea => 'Area';
+
+  @override
+  String get measKindCount => 'Count';
+
+  @override
+  String get measKindLength => 'Length';
+
+  @override
+  String get measKindNetArea => 'Net area';
+
+  @override
+  String get measKindPerimeter => 'Perimeter';
+
+  @override
+  String get measKindSlope => 'Slope';
+
+  @override
+  String get measKindVolume => 'Volume';
 
   @override
   String get measLineRepresents => 'The line you drew represents:';
@@ -303,10 +396,19 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Flatten form';
 
   @override
+  String get menuLock => 'Lock';
+
+  @override
+  String get menuUnlock => 'Unlock';
+
+  @override
   String get menuRecolour => 'Recolour…';
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuSaveToStamps => 'Save to stamps';
 
   @override
   String get menuSetAsDefaultStyle => 'Set as default style';
@@ -355,6 +457,24 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get overlayStampText => 'Stamp text';
+
+  @override
+  String get linkDialogTitle => 'Add link';
+
+  @override
+  String get linkKindWeb => 'Web address';
+
+  @override
+  String get linkKindPage => 'Page in document';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Page number';
+
+  @override
+  String get toolLink => 'Link';
 
   @override
   String get overlayUnderline => 'Underline';
@@ -443,6 +563,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get propContents => 'Contents';
+
+  @override
+  String get propCornerRadius => 'Corner radius';
 
   @override
   String get propEditsApplyToAll => 'Edits apply to all compatible annotations';
@@ -681,6 +804,53 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get save => 'Save';
 
   @override
+  String get sbarActionJavaScript => 'JavaScript';
+
+  @override
+  String sbarActionPage(int page) {
+    return 'Page $page';
+  }
+
+  @override
+  String get sbarCallout => 'Callout';
+
+  @override
+  String get sbarFieldButton => 'Button field';
+
+  @override
+  String get sbarFieldChoice => 'Choice field';
+
+  @override
+  String get sbarFieldGeneric => 'Form field';
+
+  @override
+  String get sbarFieldSignature => 'Signature field';
+
+  @override
+  String get sbarFieldText => 'Text field';
+
+  @override
+  String get sbarStateAccepted => 'Accepted';
+
+  @override
+  String get sbarStateCancelled => 'Cancelled';
+
+  @override
+  String get sbarStateMarked => 'Marked';
+
+  @override
+  String get sbarStateRejected => 'Rejected';
+
+  @override
+  String get sbarStateResolved => 'Resolved';
+
+  @override
+  String get sbarStateUnmarked => 'Unmarked';
+
+  @override
+  String get searchAnnotations => 'Search annotations';
+
+  @override
   String get searchClearSearch => 'Clear search';
 
   @override
@@ -718,6 +888,31 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get searchRegex => 'Regular expression';
+
+  @override
+  String get searchReplace => 'Replace';
+
+  @override
+  String get searchReplaceAll => 'Replace all';
+
+  @override
+  String get searchReplaceHint => 'Replace with';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches replaced',
+      one: '1 match replaced',
+      zero: 'Nothing replaced',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get searchResultsTitle => 'Search results';
@@ -801,7 +996,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get shellPressLetterKeyHint =>
-      'Press a letter key, or Delete to clear.';
+      'Press a letter key, add Shift for a variant, or Delete to clear.';
 
   @override
   String get shellReflow => 'Reflow';
@@ -823,6 +1018,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowAnnotations => 'Show annotations';
+
+  @override
+  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
 
   @override
   String get shellTabHere => 'Tab here';
@@ -849,6 +1047,12 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Delete signature';
+
+  @override
+  String get sidebarLockAnnotation => 'Lock';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Unlock';
 
   @override
   String get sidebarMore => 'More';
@@ -900,6 +1104,57 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get sidebarSignatureChecking => 'Checking…';
+
+  @override
+  String get sidebarSignatureTrusted => 'Valid — trusted';
+
+  @override
+  String get sidebarSignatureUnverified => 'Valid — unverified';
+
+  @override
+  String get sidebarSignatureInvalid => 'Invalid';
+
+  @override
+  String sidebarSignatureSignedBy(String name) {
+    return 'Signed by $name';
+  }
+
+  @override
+  String sidebarSignatureSignedAt(String time) {
+    return 'Signed $time';
+  }
+
+  @override
+  String sidebarSignatureTrustedVia(String authority) {
+    return 'Trusted via $authority';
+  }
+
+  @override
+  String get sidebarSignatureUntrustedDetail =>
+      'Signer is not from a trusted authority';
+
+  @override
+  String get sidebarSignatureNoAnchors =>
+      'No trusted authorities are configured';
+
+  @override
+  String get sidebarSignatureModified => 'Document was changed after signing';
+
+  @override
+  String get sidebarSignatureRevoked => 'The signer\'s certificate was revoked';
+
+  @override
+  String sidebarSignatureTimestamped(String time) {
+    return 'Timestamped $time';
+  }
+
+  @override
+  String sidebarSignatureLevel(String level) {
+    return 'PAdES $level';
+  }
+
+  @override
   String get sidebarWriteReplyHint => 'Write a reply…';
 
   @override
@@ -938,6 +1193,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get stampCircle => 'Circle';
 
   @override
+  String get stampCustomCaption => 'Custom stamp';
+
+  @override
   String get stampDateFormat => 'Date format';
 
   @override
@@ -953,7 +1211,25 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get stampExport => 'Export…';
 
   @override
+  String get stampFieldDate => 'Date';
+
+  @override
+  String get stampFieldDateTime => 'Date & time';
+
+  @override
+  String get stampFieldTime => 'Time';
+
+  @override
+  String get stampFieldUsername => 'Username';
+
+  @override
   String get stampFont => 'Font';
+
+  @override
+  String get stampFontBold => 'Bold';
+
+  @override
+  String get stampFontItalic => 'Italic';
 
   @override
   String get stampHeight => 'Height';
@@ -977,6 +1253,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get stampNewStampTitle => 'New stamp';
 
   @override
+  String get stampSavedToCollection => 'Saved to stamps';
+
+  @override
   String get stampSelectTextToEdit => 'Select text to edit';
 
   @override
@@ -990,6 +1269,12 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get stampText => 'Text';
+
+  @override
+  String get stampTime12Hour => '12 hr';
+
+  @override
+  String get stampTime24Hour => '24 hr';
 
   @override
   String get stampTimeFormat => 'Time format';
@@ -1059,7 +1344,8 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbAlignVerticalCenters => 'Align vertical centers';
 
   @override
-  String get tbAnnotationsFlattened => 'Annotations flattened into the pages';
+  String get tbAnnotationsFlattened =>
+      'Annotations and form fields flattened into the pages';
 
   @override
   String get tbApplyRedactionsMessage =>
@@ -1075,6 +1361,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Fit font to text box';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Draw a line of known length to calibrate the scale.';
 
@@ -1086,6 +1375,21 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Check-marks on the document';
+
+  @override
+  String get tbCropImage => 'Crop image';
+
+  @override
+  String get tbCroppingImage => 'Cropping image';
+
+  @override
+  String get tbCropApply => 'Apply crop';
+
+  @override
+  String get tbCropCancel => 'Cancel crop';
+
+  @override
+  String get tbCropReset => 'Reset crop';
 
   @override
   String get tbColorLabel => 'Color';
@@ -1184,7 +1488,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbFlattenAnnotationsTooltip =>
-      'Flatten annotations into the pages';
+      'Flatten annotations and form fields into the pages';
 
   @override
   String get tbFlattenForm => 'Flatten form';
@@ -1209,6 +1513,27 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbFormFieldsFlattened => 'Form fields flattened into the pages';
 
   @override
+  String get tbGroupDraw => 'Draw';
+
+  @override
+  String get tbGroupEdit => 'Edit';
+
+  @override
+  String get tbGroupInsert => 'Insert';
+
+  @override
+  String get tbGroupMarkup => 'Markup';
+
+  @override
+  String get tbGroupMeasure => 'Measure';
+
+  @override
+  String get tbGroupSelect => 'Select';
+
+  @override
+  String get tbGroupShapes => 'Shapes';
+
+  @override
   String get tbImageButtonOption => 'Image button';
 
   @override
@@ -1227,13 +1552,119 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbManageStamps => 'Manage stamps…';
 
   @override
+  String get tbMarkupHighlight => 'Highlight';
+
+  @override
+  String get tbMarkupHighlightTip => 'Highlight text';
+
+  @override
+  String get tbMarkupSquiggly => 'Squiggly-underline';
+
+  @override
+  String get tbMarkupSquigglyTip => 'Squiggly-underline text';
+
+  @override
+  String get tbMarkupStrikeOut => 'Strike out';
+
+  @override
+  String get tbMarkupStrikeOutTip => 'Strike out text';
+
+  @override
+  String get tbMarkupUnderline => 'Underline';
+
+  @override
+  String get tbMarkupUnderlineTip => 'Underline text';
+
+  @override
   String get tbMoreColors => 'More colors…';
+
+  @override
+  String get tbNameArrow => 'Arrow';
+
+  @override
+  String get tbNameCallout => 'Callout';
+
+  @override
+  String get tbNameCloudPolygon => 'Cloud polygon';
+
+  @override
+  String get tbNameCount => 'Count';
+
+  @override
+  String get tbNameDigitalSignature => 'Digital signature';
+
+  @override
+  String get tbNameDraw => 'Draw';
+
+  @override
+  String get tbNameEllipse => 'Ellipse';
+
+  @override
+  String get tbNameEraser => 'Erase ink strokes';
+
+  @override
+  String get tbNameHand => 'Hand';
+
+  @override
+  String get tbNameHighlight => 'Highlight';
+
+  @override
+  String get tbNameImage => 'Image';
+
+  @override
+  String get tbNameLine => 'Line';
+
+  @override
+  String get tbNameMeasureAngle => 'Measure angle';
+
+  @override
+  String get tbNameMeasureArc => 'Measure arc length';
+
+  @override
+  String get tbNameMeasureArea => 'Measure area';
+
+  @override
+  String get tbNameMeasureDistance => 'Measure distance';
+
+  @override
+  String get tbNameMeasurePerimeter => 'Measure perimeter';
+
+  @override
+  String get tbNameMeasureSlope => 'Measure slope (rise/run)';
+
+  @override
+  String get tbNameMeasureVolume => 'Measure volume (area × depth)';
+
+  @override
+  String get tbNameNote => 'Note';
+
+  @override
+  String get tbNamePolygon => 'Polygon';
+
+  @override
+  String get tbNamePolyline => 'Polyline';
+
+  @override
+  String get tbNameRectangle => 'Rectangle';
+
+  @override
+  String get tbNameSelect => 'Select';
+
+  @override
+  String get tbNameSignature => 'Signature';
+
+  @override
+  String get tbNameStamp => 'Stamp';
+
+  @override
+  String get tbNameTextBox => 'Text box';
 
   @override
   String get tbNewFieldType => 'New field type - drag on a page to add one';
 
   @override
-  String get tbNoAnnotationsToFlatten => 'No annotations to flatten';
+  String get tbNoAnnotationsToFlatten =>
+      'No annotations or form fields to flatten';
 
   @override
   String get tbNoCustomStamps => 'No custom stamps';
@@ -1297,7 +1728,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbScale => 'Scale';
 
   @override
-  String get tbSelectTextForMarkup => 'Select text to use markup';
+  String get tbSelectTextForMarkup => 'Choose a markup, then select text';
 
   @override
   String tbSelectionCount(int count) {
@@ -1353,6 +1784,46 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbTextTitle => 'Text';
+
+  @override
+  String get tbTipCallout =>
+      'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipContent => 'Edit page content';
+
+  @override
+  String get tbTipCount => 'Count - tap to drop check-marks and tally them';
+
+  @override
+  String get tbTipDigitalSignature =>
+      'Digital signature - drag a box to place and sign';
+
+  @override
+  String get tbTipForm =>
+      'Form fields - tap to select, double-tap to fill, drag to add';
+
+  @override
+  String get tbTipHighlightDraw => 'Highlight - draw freehand';
+
+  @override
+  String get tbTipImage => 'Image - tap to place, or drag out a box';
+
+  @override
+  String get tbTipMeasureAngle => 'Measure angle - click three points';
+
+  @override
+  String get tbTipMeasureArc => 'Measure arc length - click three points';
+
+  @override
+  String get tbTipRedact => 'Redact - drag a region, then apply';
+
+  @override
+  String get tbTipSignature => 'Signature - tap a page to place it';
+
+  @override
+  String get tbTipSnapshot =>
+      'Snapshot - drag a region to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';
@@ -1580,4 +2051,91 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get viewerSelectAll => 'Select all';
+
+  @override
+  String get annotationLibraryTitle => 'Annotation library';
+
+  @override
+  String get annotationLibraryEmpty => 'No saved annotations.';
+
+  @override
+  String get annotationLibraryHelp =>
+      'Select a supported annotation and choose “Save to annotation library” from its menu. Links and form fields cannot be saved.';
+
+  @override
+  String get annotationLibrarySave => 'Save to annotation library';
+
+  @override
+  String get annotationLibrarySaveTitle => 'Save annotation';
+
+  @override
+  String get annotationLibraryRenameTitle => 'Rename library item';
+
+  @override
+  String get annotationLibrarySearchHint => 'Search library';
+
+  @override
+  String get annotationLibraryNoMatches => 'No matching annotations.';
+
+  @override
+  String get annotationLibraryUngrouped => 'Ungrouped';
+
+  @override
+  String get annotationLibraryChooseGroup => 'Move to group';
+
+  @override
+  String get annotationLibraryNewGroup => 'New group…';
+
+  @override
+  String get annotationLibraryGroupTitle => 'New annotation group';
+
+  @override
+  String get annotationLibraryRenameGroupTitle => 'Rename annotation group';
+
+  @override
+  String get annotationLibraryRemoveGroup => 'Remove group';
+
+  @override
+  String get annotationLibraryPlacementHint =>
+      'Click the page to place. Press Escape to cancel.';
+
+  @override
+  String get annotationLibraryCustomStamps => 'Custom stamps…';
+
+  @override
+  String get signatureLibraryManage => 'Manage signatures';
+
+  @override
+  String get signatureLibraryRenameTitle => 'Rename signature';
+
+  @override
+  String get signatureLibraryEmpty => 'No saved signatures.';
+
+  @override
+  String get splitTitle => 'Split PDF…';
+
+  @override
+  String get splitHelp =>
+      'Enter page ranges separated by commas. Each range creates a separate PDF.';
+
+  @override
+  String get splitRanges => 'Page ranges';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Use pages 1–$count, separated by commas. Ranges must run from first to last.';
+  }
+
+  @override
+  String get splitConfirm => 'Split';
+
+  @override
+  String get splitFailed => 'Could not split this PDF.';
+
+  @override
+  String get tbToolContentDelete => 'Delete content';
+
+  @override
+  String get tbTipContentDelete =>
+      'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
 }

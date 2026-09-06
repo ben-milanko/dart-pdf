@@ -3,16 +3,21 @@ import 'dart:developer' show TimelineTask;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
+import '../split_dialog.dart';
 import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
+import '../popup_position.dart';
+import '../preview_cache.dart';
 import '../tile_store.dart';
 import '../perf_log.dart';
 import '../raster_cache.dart';
@@ -23,6 +28,7 @@ import '../toast.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
+import 'editing_thumbnail_drop.dart';
 import 'thumbnail_cache.dart';
 
 /// A panel of page thumbnails: tap one to jump there, drag a tile up or
@@ -34,8 +40,10 @@ import 'thumbnail_cache.dart';
 /// clipboard, so pages copied here paste into a different document tab),
 /// insert a blank page before or after, export (when [onExportPages] is
 /// given), delete - that acts on the strip's selection when the tile
-/// belongs to it. Copy/cut/paste are also bound to ⌘/Ctrl+C/X/V. All of
-/// this (export aside) needs [allowPageEditing].
+/// belongs to it. Copy/cut/paste are also bound to ⌘/Ctrl+C/X/V, and
+/// Delete/Backspace removes the strip's selection (or the keyboard/current
+/// page when nothing is selected). All of this (export aside) needs
+/// [allowPageEditing].
 ///
 /// Built to stay light on large documents: thumbnails are rasterized at
 /// tile resolution and cached, keyed by
@@ -69,6 +77,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.dock = PdfPanelDock.left,
+    this.scrollDirection,
     this.resizable = true,
     this.minWidth = 100,
     this.maxWidth = 400,
@@ -78,6 +87,8 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.onClose,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
+    this.fileDropController,
     this.renderWorker,
     this.rasterCache,
   });
@@ -98,8 +109,8 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// The viewer to navigate when a thumbnail is tapped.
   final PdfViewerController viewerController;
 
-  /// The default width - a user-dragged width, persisted in
-  /// [PdfEditingPreferences.thumbnailSidebarWidth], wins over it.
+  /// The default dock extent: width at the left/right edges, height at the
+  /// top/bottom edges. A user-dragged persisted extent wins over it.
   final double width;
 
   /// The paper color thumbnails render on - pass the viewer's
@@ -111,18 +122,24 @@ class PdfThumbnailSidebar extends StatefulWidget {
   final bool showAnnotations;
 
   /// Which edge of the viewer the panel docks on; the resize grip rides
-  /// the opposite (inner) edge.
+  /// the opposite (inner) edge. A docked strip scrolls vertically at the
+  /// left/right edges and horizontally at the top/bottom edges.
   final PdfPanelDock dock;
+
+  /// Overrides the page-strip axis. Null follows [dock] for a docked panel
+  /// and stays vertical in bottom-sheet mode. Tabbed top/bottom panels use
+  /// this to retain their dock's horizontal layout inside the shared frame.
+  final Axis? scrollDirection;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
 
-  /// Clamps for the dragged width.
+  /// Clamps for the dragged dock extent.
   final double minWidth;
   final double maxWidth;
 
-  /// Whether the strip scrolls the current page's tile into view when
-  /// the viewer's page changes.
+  /// Whether the strip scrolls the current page's tile into view when it
+  /// opens, following is enabled, or the viewer's page changes.
   final bool followsViewer;
 
   /// Whether pages can be reordered (drag) and deleted (footer button)
@@ -152,6 +169,19 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// footer menu.
   final void Function(Uint8List bytes)? onExportPages;
 
+  /// Receives one standalone PDF per range from "Split PDF…". When null,
+  /// that action is hidden. Outputs follow the user's range order.
+  final void Function(List<Uint8List> documents)? onSplitPages;
+
+  /// Lets a PDF dragged in from outside the app (the desktop, a browser
+  /// download) be dropped *between two tiles* - the strip paints an
+  /// insertion marker where the pages would land while the drag hovers,
+  /// and the host reads the index back to insert there. The platform's
+  /// drag stream lives with the host, so it drives the controller; the
+  /// strip only supplies the geometry. Null (the default) leaves the
+  /// strip inert to external drags. See [PdfThumbnailDropController].
+  final PdfThumbnailDropController? fileDropController;
+
   /// How many thumbnails have actually been rasterized - cache misses
   /// only, across all sidebars. Tests assert on the deltas.
   @visibleForTesting
@@ -176,6 +206,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
 
   PdfSidebarPanelGeometry? _frameGeometry;
 
+  /// The list's current axis and raster width, captured during layout so
+  /// reveal estimates and external-drop hit testing match what is painted.
+  Axis _layoutAxis = Axis.vertical;
+  double? _layoutTileWidth;
+
   int _lastCurrent = 0;
 
   /// The tile the mouse is over, tracked even while Shift is up so the
@@ -189,6 +224,17 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// The page keyboard navigation last landed on. When null, the current
   /// page selection or viewer page supplies the starting point.
   int? _keyboardPage;
+
+  /// The selected tile currently driving a reorder. Other pages in the same
+  /// selection stay in place as dimmed placeholders while the proxy carries
+  /// the whole selection's page count.
+  int? _reorderPage;
+
+  /// This strip's hit-test, registered with
+  /// [PdfThumbnailSidebar.fileDropController]. Held in a field so attach
+  /// and detach pass the *same* closure (a method tear-off is a fresh
+  /// object each time it's read).
+  late final PdfThumbnailDropResolver _dropResolver = _dropIndexAt;
 
   PdfEditingPreferences get _preferences => widget.controller.preferences;
 
@@ -287,19 +333,31 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     if (!widget.controller.pastePages(at: at)) return;
     _focusPage(at);
     if (widget.followsViewer) {
-      // A paste inserts pages, so the viewer resets its scroll to the top in
-      // a post-frame callback (a geometry-changing revision). A following
-      // strip chases that reset via [_onViewerChanged] and scrolls back to
-      // the top, burying the pages that just landed. Drive the viewer to the
-      // paste target after its reset settles so the strip reveals the new
-      // pages instead - the same route the menu/header paste paths take.
+      // Structural revisions preserve the existing reading position. This
+      // action deliberately reveals the newly pasted page instead, once the
+      // new list metrics exist - the same route the menu/header paste paths
+      // take.
       unawaited(_jumpToInsertedPage(widget.viewerController, at));
     } else {
       _revealPage(at);
     }
   }
 
+  /// Deletes the strip's selection, or the keyboard/current page when
+  /// nothing is selected - the last remaining page is kept either way.
+  void _deletePages() {
+    if (widget.controller.hasPageSelection) {
+      widget.controller.removeSelectedPages();
+    } else if (widget.controller.document.pageCount > 0) {
+      widget.controller.removePage(_keyboardBase());
+    }
+  }
+
   Map<ShortcutActivator, VoidCallback> get _keyboardShortcuts => {
+        const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+            widget.controller.selectAllPages,
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+            widget.controller.selectAllPages,
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
             _moveKeyboardSelection(-1),
         const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
@@ -328,6 +386,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
               _pastePages,
           const SingleActivator(LogicalKeyboardKey.keyV, control: true):
               _pastePages,
+          const SingleActivator(LogicalKeyboardKey.delete): _deletePages,
+          const SingleActivator(LogicalKeyboardKey.backspace): _deletePages,
         },
       };
 
@@ -356,6 +416,12 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// clearance.
   double get _tileWidth => _frameWidth - 26 - _extraRightPadding;
 
+  Axis get _requestedScrollAxis =>
+      widget.scrollDirection ??
+      (widget.bottomSheet || widget.dock.isHorizontal
+          ? Axis.vertical
+          : Axis.horizontal);
+
   @override
   void initState() {
     super.initState();
@@ -366,15 +432,26 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // scrolling the strip re-prioritizes the shared render queue toward the
     // tiles that just came into view
     _scroll.addListener(_onScroll);
+    _attachDrop(widget.fileDropController);
+    _revealCurrentAfterLayout();
   }
 
   @override
   void didUpdateWidget(PdfThumbnailSidebar old) {
     super.didUpdateWidget(old);
+    if (!identical(old.fileDropController, widget.fileDropController)) {
+      _detachDrop(old.fileDropController);
+      _attachDrop(widget.fileDropController);
+    }
     if (!identical(old.viewerController, widget.viewerController)) {
       old.viewerController.removeListener(_onViewerChanged);
       widget.viewerController.addListener(_onViewerChanged);
       _lastCurrent = widget.viewerController.currentPage;
+    }
+    if (!identical(old.viewerController, widget.viewerController) ||
+        !identical(old.controller, widget.controller) ||
+        (!old.followsViewer && widget.followsViewer)) {
+      _revealCurrentAfterLayout();
     }
     if (!identical(old.controller.preferences, _preferences)) {
       old.controller.preferences.removeListener(_onPreferences);
@@ -390,6 +467,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
 
   @override
   void dispose() {
+    _detachDrop(widget.fileDropController);
     widget.viewerController.removeListener(_onViewerChanged);
     _preferences.removeListener(_onPreferences);
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
@@ -401,9 +479,47 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     super.dispose();
   }
 
+  void _attachDrop(PdfThumbnailDropController? drop) {
+    drop
+      ?..attachPanel(_dropResolver)
+      ..addListener(_onDropChanged);
+  }
+
+  void _detachDrop(PdfThumbnailDropController? drop) {
+    drop
+      ?..removeListener(_onDropChanged)
+      ..detachPanel(_dropResolver);
+  }
+
+  /// The drag moved (or ended): repaint so the insertion marker follows it.
+  void _onDropChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Where a PDF dropped at [globalPosition] would be inserted - the slot
+  /// between the tiles nearest the pointer. Null when the point misses the
+  /// strip, or when the strip can't take structural page edits at all.
+  int? _dropIndexAt(Offset globalPosition) {
+    if (!mounted || !widget.allowPageEditing) return null;
+    return pdfThumbnailDropIndexAt(
+      panelContext: context,
+      tileKeys: _tileKeys,
+      pageCount: widget.controller.document.pageCount,
+      axis: _layoutAxis,
+      globalPosition: globalPosition,
+      reversed: _layoutAxis == Axis.horizontal &&
+          Directionality.of(context) == TextDirection.rtl,
+    );
+  }
+
   void _onPreferences() {
     if (mounted) setState(() {});
   }
+
+  /// The gate the shared cache's background warm consults: true while the
+  /// viewer still has foreground page work in flight. See
+  /// [PdfThumbnailCache.bindForegroundGate].
+  bool _viewerRenderBusy() => widget.viewerController.isPageRenderBusy;
 
   /// Pushes the strip's scroll position into the shared cache as the render
   /// focus, so the tiles nearest the visible band render before the rest.
@@ -421,6 +537,18 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // viewer just moved to even before the reveal scroll settles
     _cache.focus = current;
     if (widget.followsViewer) _revealPage(current);
+  }
+
+  /// A newly mounted strip may restore an old scroll offset from PageStorage,
+  /// while the viewer is already on another page. No current-page change will
+  /// arrive to reveal it, so synchronize once the strip has laid out. Read the
+  /// current controller in the callback in case navigation happened meanwhile.
+  void _revealCurrentAfterLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.followsViewer) {
+        _revealPage(widget.viewerController.currentPage);
+      }
+    });
   }
 
   /// Renders one page's thumbnail straight into the shared cache - the idle
@@ -444,17 +572,19 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       worker: widget.renderWorker,
       priority: 3,
       skipIfWorkerDeclines: true,
+      deferUiWork: _viewerRenderBusy,
       reason: 'warm',
       disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
     cache.put(key, image);
   }
 
-  /// Scrolls the strip the minimal distance that makes [index]'s tile
-  /// fully visible. Unbuilt tiles get a jump to an estimated offset
-  /// first; the post-frame pass fine-tunes against the real layout.
+  /// Scrolls the strip the minimal distance along its current axis that makes
+  /// [index]'s tile fully visible. Unbuilt tiles get a jump to an estimated
+  /// offset first; the post-frame pass fine-tunes against the real layout.
   void _revealPage(int index) {
     if (_ensureTileVisible(index)) return;
     if (!_scroll.hasClients) return;
@@ -482,11 +612,15 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     return true;
   }
 
-  /// The list offset where [index]'s tile roughly starts, from the same
-  /// layout math the tiles use (12px side padding, 1px border, 4px
-  /// vertical padding, ~28px footer row).
+  /// The list offset where [index]'s tile roughly starts, using the active
+  /// vertical-column or horizontal-strip tile geometry.
   double _estimateOffset(int index) {
-    final thumbWidth = _tileWidth;
+    final thumbWidth = _layoutTileWidth ?? _tileWidth;
+    if (_layoutAxis == Axis.horizontal) {
+      // Every horizontal strip tile has the same outer width: thumbnail
+      // raster width plus the tile chip's 21px horizontal inset.
+      return 8 + index * (thumbWidth + 21);
+    }
     var offset = 8.0; // the list's top padding
     for (var i = 0; i < index; i++) {
       final size = PdfPageRenderer.pageSize(widget.controller.pageAt(i));
@@ -523,21 +657,40 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // persist thumbnails to disk (bound to this document) so a later session
     // opens onto already-rendered pages instead of re-interpreting them
     _cache.disk = widget.rasterCache;
-    // (re)arm the idle background prerender of every page into the shared
-    // cache, at the resolution this strip renders, so the page grid and
-    // scrolling back open onto already-cached thumbnails. A paced loop that
-    // yields to every visible tile, so it never delays one.
-    final pixelWidth =
-        _thumbnailBucket(_tileWidth * MediaQuery.devicePixelRatioOf(context));
-    _cache.setWarm(
-      this,
-      controller.document.pageCount,
-      '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
-      (index) => _warmRender(index, pixelWidth),
-    );
+    void configureWarm(double tileWidth) {
+      // (re)arm the idle background prerender at the resolution this layout
+      // uses. Top/bottom docks size tiles from the strip height, so this must
+      // run after that cross-axis extent is known.
+      final pixelWidth =
+          _thumbnailBucket(tileWidth * MediaQuery.devicePixelRatioOf(context));
+      // Hold it off entirely while the viewer is rendering: the warm's
+      // replay/rasterize run on the platform thread, so a lower worker
+      // priority alone still lets it land on the frame the visible page
+      // needs (#603).
+      _cache.bindForegroundGate(
+          widget.viewerController.pageRenderActivity, _viewerRenderBusy);
+      if (pdfShouldWarmThumbnails(controller.document.pageCount)) {
+        _cache.setWarm(
+          this,
+          controller.document.pageCount,
+          '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
+          (index) => _warmRender(index, pixelWidth),
+        );
+      } else {
+        // Long web documents render visible tiles on demand and reuse the
+        // viewer's soft previews instead of warming every off-screen page.
+        _cache.clearWarm(this);
+        _cache.bindForegroundGate(
+            widget.viewerController.pageRenderActivity, _viewerRenderBusy);
+      }
+    }
+
     // pages a shift-click would select from the current hover - painted as
     // a ghost of the selection chip while Shift is held
     final rangePreview = _rangePreview;
+    final scrollAxis = _requestedScrollAxis;
+    final horizontal = scrollAxis == Axis.horizontal;
+    _layoutAxis = scrollAxis;
     // a bottom sheet supplies its own width and resize affordance, so the
     // strip drops the side resize grip; the tile column keeps its preferred
     // width, centered in the wider sheet rather than stretched
@@ -559,54 +712,148 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                 listenable: controller,
                 // the implicit desktop scrollbar is replaced by the
                 // viewer-style bar below
-                builder: (context, _) {
-                  // the tile a paste would land after while the mouse hovers -
-                  // marked with an insertion bar. Computed here, inside the
-                  // controller's builder, so filling/clearing the clipboard
-                  // (a controller notification) re-evaluates it.
-                  final pasteInsertionPage = _pasteInsertionPage;
-                  return Column(
-                    children: [
-                      // page-level file actions sit in a slim header at the top so
-                      // they never collide with the floating editing toolbar (or a
-                      // snackbar) that hugs the bottom of the viewport. The slot is
-                      // a fixed height and always present, so swapping in the bulk-
-                      // action bar when 2+ pages are selected never reflows the
-                      // tiles below (a single selection is just the navigation
-                      // cursor - the per-tile delete handles it).
-                      Padding(
+                builder: (context, _) => LayoutBuilder(
+                  builder: (context, constraints) {
+                    final horizontalGripTop = horizontal &&
+                            !geometry.bottomSheet &&
+                            geometry.showGrip &&
+                            geometry.dock == PdfPanelDock.bottom
+                        ? PdfSidebarResizeGrip.width
+                        : 0.0;
+                    final horizontalGripBottom = horizontal &&
+                            !geometry.bottomSheet &&
+                            geometry.showGrip &&
+                            geometry.dock == PdfPanelDock.top
+                        ? PdfSidebarResizeGrip.width
+                        : 0.0;
+                    final horizontalTopPadding = 8 + horizontalGripTop;
+                    final horizontalBottomPadding =
+                        PdfScrollbar.hitExtent + horizontalGripBottom;
+                    // Side docks size the thumbnail from panel width. A
+                    // top/bottom strip instead uses its available height and
+                    // a portrait-page ratio; landscape pages keep the same
+                    // item width and simply leave more air above/below.
+                    final tileWidth = horizontal
+                        ? math.max(
+                            32.0,
+                            (constraints.maxHeight -
+                                    horizontalTopPadding -
+                                    horizontalBottomPadding -
+                                    33) *
+                                0.75,
+                          )
+                        : _tileWidth;
+                    _layoutTileWidth = tileWidth;
+                    configureWarm(tileWidth);
+                    // the tile a paste would land after while the mouse hovers -
+                    // marked with an insertion bar. Computed here, inside the
+                    // controller's builder, so filling/clearing the clipboard
+                    // (a controller notification) re-evaluates it.
+                    final pasteInsertionPage = _pasteInsertionPage;
+                    // ...and the slot an external PDF being dragged over the
+                    // strip would drop into. The marker rides the top edge of
+                    // the tile the pages would land before - or the bottom
+                    // edge of the last tile for a drop past the end.
+                    final dropIndex = widget.fileDropController
+                        ?.indicatorIndexFor(_dropResolver);
+                    final pageCount = controller.document.pageCount;
+                    final rtl = Directionality.of(context) == TextDirection.rtl;
+                    final showPageActions = widget.onPickPdfToInsert != null ||
+                        widget.onExportPages != null ||
+                        widget.onSplitPages != null ||
+                        (widget.allowPageEditing &&
+                            controller.hasPageClipboard);
+                    final moveHandle = geometry.moveHandle(
+                      key: const ValueKey('pdf-thumbnail-panel-move'),
+                    );
+                    final closeButton = geometry.closeButton(
+                      key: const ValueKey('pdf-thumbnail-panel-close'),
+                    );
+
+                    final verticalHeader = Padding(
+                      padding: EdgeInsets.fromLTRB(
+                          8 + inset, 2, _extraRightPadding + inset, 2),
+                      child: SizedBox(
+                        height: 36,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: controller.selectedPageCount > 1
+                                  ? _PageSelectionBar(
+                                      controller: controller,
+                                      allowPageEditing: widget.allowPageEditing,
+                                      onExportPages: widget.onExportPages,
+                                      compact: true,
+                                    )
+                                  : Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            pdfL10n(context).thumbPages,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelMedium,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (showPageActions)
+                                          _PageActionsButton(
+                                            controller: controller,
+                                            viewerController:
+                                                widget.viewerController,
+                                            allowPageEditing:
+                                                widget.allowPageEditing,
+                                            onPickPdfToInsert:
+                                                widget.onPickPdfToInsert,
+                                            onExportPages: widget.onExportPages,
+                                            onSplitPages: widget.onSplitPages,
+                                          ),
+                                      ],
+                                    ),
+                            ),
+                            if (moveHandle != null) moveHandle,
+                            if (closeButton != null) closeButton,
+                          ],
+                        ),
+                      ),
+                    );
+
+                    // A top/bottom panel is a true strip: its header occupies
+                    // a compact leading cell instead of consuming a row above
+                    // the thumbnails, leaving the full panel height available
+                    // to the horizontal page sequence.
+                    final horizontalHeader = SizedBox(
+                      width: 140,
+                      child: Padding(
                         padding: EdgeInsets.fromLTRB(
-                            8 + inset, 2, _extraRightPadding + inset, 2),
-                        child: SizedBox(
-                          height: 36,
-                          child: Row(
-                            children: [
+                            rtl ? 4 : 8, 8 + horizontalGripTop, rtl ? 8 : 4, 8),
+                        child: Column(
+                          children: [
+                            Row(children: [
                               Expanded(
-                                child: controller.selectedPageCount > 1
-                                    ? _PageSelectionBar(
+                                child: Text(
+                                  pdfL10n(context).thumbPages,
+                                  style:
+                                      Theme.of(context).textTheme.labelMedium,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (moveHandle != null) moveHandle,
+                              if (closeButton != null) closeButton,
+                            ]),
+                            Expanded(
+                              child: controller.selectedPageCount > 1
+                                  ? SingleChildScrollView(
+                                      child: _PageSelectionBar(
                                         controller: controller,
                                         allowPageEditing:
                                             widget.allowPageEditing,
                                         onExportPages: widget.onExportPages,
-                                        compact: true,
-                                      )
-                                    : Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              pdfL10n(context).thumbPages,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .labelMedium,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          if (widget.onPickPdfToInsert !=
-                                                  null ||
-                                              widget.onExportPages != null ||
-                                              (widget.allowPageEditing &&
-                                                  controller.hasPageClipboard))
-                                            _PageActionsButton(
+                                      ),
+                                    )
+                                  : Center(
+                                      child: showPageActions
+                                          ? _PageActionsButton(
                                               controller: controller,
                                               viewerController:
                                                   widget.viewerController,
@@ -616,94 +863,157 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                                   widget.onPickPdfToInsert,
                                               onExportPages:
                                                   widget.onExportPages,
-                                            ),
-                                        ],
-                                      ),
-                              ),
-                              // the drag-to-redock handle and the docked
-                              // strip's close button; a bottom sheet supplies
-                              // its own close in its sheet chrome
-                              if (geometry.moveHandle(
-                                key: const ValueKey('pdf-thumbnail-panel-move'),
-                              )
-                                  case final moveHandle?)
-                                moveHandle,
-                              if (geometry.closeButton(
-                                key:
-                                    const ValueKey('pdf-thumbnail-panel-close'),
-                              )
-                                  case final closeButton?)
-                                closeButton,
-                            ],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: ScrollConfiguration(
-                          behavior: ScrollConfiguration.of(context)
-                              .copyWith(scrollbars: false),
-                          child: ReorderableListView.builder(
-                            scrollController: _scroll,
-                            buildDefaultDragHandles: false,
-                            padding: EdgeInsets.fromLTRB(
-                                inset, 8, _extraRightPadding + inset, 8),
-                            itemCount: controller.document.pageCount,
-                            onReorderItem: controller.movePage,
-                            itemBuilder: (context, index) {
-                              final tile = _PageTile(
-                                key: _tileKeys[index] ??= GlobalKey(),
-                                controller: controller,
-                                viewerController: widget.viewerController,
-                                pageIndex: index,
-                                pageColor: widget.pageColor,
-                                showAnnotations: widget.showAnnotations,
-                                allowPageEditing: widget.allowPageEditing,
-                                onExportPages: widget.onExportPages,
-                                cache: _cache,
-                                tileWidth: _tileWidth,
-                                renderWorker: widget.renderWorker,
-                                inRangePreview: rangePreview.contains(index),
-                                showPasteIndicator: pasteInsertionPage == index,
-                                showPageActions:
-                                    !pdfPanelControlsRevealOnHover() ||
-                                        _hoverPage == index,
-                                onHover: (hovering) =>
-                                    _setHover(index, hovering),
-                                onFocusPage: _focusPage,
-                              );
-                              // without the drag listener no reorder can ever start
-                              return widget.allowPageEditing
-                                  ? _ReorderDragStartListener(
-                                      key: ValueKey(index),
-                                      index: index,
-                                      child: tile)
-                                  : KeyedSubtree(
-                                      key: ValueKey(index), child: tile);
-                            },
-                          ),
-                        ),
-                      ),
-                      // a footer to append a blank page; only when the strip
-                      // is editable (a read-only strip is purely navigational)
-                      if (widget.allowPageEditing)
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                              4 + inset, 2, _extraRightPadding + inset, 4),
-                          child: TextButton.icon(
-                            key: const ValueKey('pdf-thumbnail-add-page'),
-                            icon: const Icon(Icons.add, size: 16),
-                            label: Text(pdfL10n(context).thumbAddPage),
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              textStyle:
-                                  Theme.of(context).textTheme.labelMedium,
+                                              onSplitPages: widget.onSplitPages,
+                                            )
+                                          : const SizedBox.shrink(),
+                                    ),
                             ),
-                            onPressed: () => controller.addBlankPage(),
+                          ],
+                        ),
+                      ),
+                    );
+
+                    Widget tiles = ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context)
+                          .copyWith(scrollbars: false),
+                      child: ReorderableListView.builder(
+                        scrollDirection: scrollAxis,
+                        scrollController: _scroll,
+                        buildDefaultDragHandles: false,
+                        padding: horizontal
+                            ? EdgeInsets.fromLTRB(
+                                8,
+                                horizontalTopPadding,
+                                8,
+                                horizontalBottomPadding,
+                              )
+                            : EdgeInsets.fromLTRB(
+                                inset, 8, _extraRightPadding + inset, 8),
+                        itemCount: controller.document.pageCount,
+                        onReorderStart: (index) =>
+                            setState(() => _reorderPage = index),
+                        onReorderEnd: (_) {
+                          if (mounted) setState(() => _reorderPage = null);
+                        },
+                        proxyDecorator: (child, index, animation) {
+                          final count = controller.isPageSelected(index)
+                              ? controller.selectedPageCount
+                              : 1;
+                          return count > 1
+                              ? _MultiPageDragProxy(count: count, child: child)
+                              : child;
+                        },
+                        onReorderItem: controller.movePage,
+                        itemBuilder: (context, index) {
+                          Widget tile = _PageTile(
+                            key: _tileKeys[index] ??= GlobalKey(),
+                            controller: controller,
+                            viewerController: widget.viewerController,
+                            pageIndex: index,
+                            pageColor: widget.pageColor,
+                            showAnnotations: widget.showAnnotations,
+                            allowPageEditing: widget.allowPageEditing,
+                            onExportPages: widget.onExportPages,
+                            cache: _cache,
+                            tileWidth: tileWidth,
+                            renderWorker: widget.renderWorker,
+                            scrollAxis: scrollAxis,
+                            reversed: horizontal && rtl,
+                            inRangePreview: rangePreview.contains(index),
+                            showPasteIndicator: pasteInsertionPage == index,
+                            dropEdge: _tileDropEdge(
+                              dropIndex,
+                              index,
+                              pageCount,
+                              scrollAxis,
+                              reversed: horizontal && rtl,
+                            ),
+                            showPageActions: !pdfPanelControlsRevealOnHover() ||
+                                _hoverPage == index,
+                            onHover: (hovering) => _setHover(index, hovering),
+                            onFocusPage: _focusPage,
+                          );
+                          if (horizontal) {
+                            tile = SizedBox(width: tileWidth + 21, child: tile);
+                          }
+                          if (_reorderPage != null &&
+                              index != _reorderPage &&
+                              controller.isPageSelected(_reorderPage!) &&
+                              controller.isPageSelected(index)) {
+                            tile = Opacity(
+                              key: ValueKey(
+                                  'pdf-thumbnail-reorder-companion-$index'),
+                              opacity: 0.35,
+                              child: tile,
+                            );
+                          }
+                          // Without the drag listener no reorder can start.
+                          return widget.allowPageEditing
+                              ? _ReorderDragStartListener(
+                                  key: ValueKey(index),
+                                  index: index,
+                                  child: tile,
+                                )
+                              : KeyedSubtree(key: ValueKey(index), child: tile);
+                        },
+                      ),
+                    );
+                    if (horizontal) {
+                      tiles = Stack(children: [
+                        Positioned.fill(child: tiles),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: horizontalGripBottom,
+                          child: PdfScrollbar(
+                            scroll: _scroll,
+                            axis: Axis.horizontal,
+                            thumbKey:
+                                const ValueKey('pdf-thumbnail-scrollbar-thumb'),
                           ),
                         ),
-                    ],
-                  );
-                },
+                      ]);
+                    }
+
+                    final addPage = TextButton.icon(
+                      key: const ValueKey('pdf-thumbnail-add-page'),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: Text(pdfL10n(context).thumbAddPage),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        textStyle: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      onPressed: () => controller.addBlankPage(),
+                    );
+
+                    return Flex(
+                      direction: scrollAxis,
+                      children: [
+                        if (horizontal) horizontalHeader else verticalHeader,
+                        Expanded(child: tiles),
+                        // a footer to append a blank page; only when the strip
+                        // is editable (a read-only strip is purely navigational)
+                        if (widget.allowPageEditing)
+                          horizontal
+                              ? SizedBox(
+                                  width: 110,
+                                  child: Padding(
+                                    padding: EdgeInsets.only(
+                                      top: horizontalGripTop,
+                                      bottom: 8,
+                                    ),
+                                    child: Center(child: addPage),
+                                  ),
+                                )
+                              : Padding(
+                                  padding: EdgeInsets.fromLTRB(4 + inset, 2,
+                                      _extraRightPadding + inset, 4),
+                                  child: addPage,
+                                ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -712,8 +1022,26 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // looks and behaves alike
     final scrollbar = PdfScrollbar(
       scroll: _scroll,
+      axis: scrollAxis,
       thumbKey: const ValueKey('pdf-thumbnail-scrollbar-thumb'),
     );
+    // an outline around the whole strip while a file drag hovers it, so the
+    // panel reads as the drop target the per-tile marker is aiming into
+    final dropOutline =
+        widget.fileDropController?.indicatorIndexFor(_dropResolver) == null
+            ? null
+            : Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    key: const ValueKey('pdf-thumbnail-drop-outline'),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2),
+                    ),
+                  ),
+                ),
+              );
 
     // a bottom sheet spans the full width: the list fills it so a drag
     // anywhere in the sheet scrolls (not just over the narrow tile
@@ -721,10 +1049,14 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // the scrollbar pins to the sheet's right edge over the margin
     if (widget.bottomSheet) {
       return LayoutBuilder(builder: (context, constraints) {
-        final inset = math.max(0.0, (constraints.maxWidth - width) / 2);
+        final inset = horizontal
+            ? 0.0
+            : math.max(0.0, (constraints.maxWidth - width) / 2);
         return Stack(children: [
           Positioned.fill(child: buildList(inset)),
-          Positioned(top: 0, bottom: 0, right: 0, child: scrollbar),
+          if (!horizontal)
+            Positioned(top: 0, bottom: 0, right: 0, child: scrollbar),
+          if (dropOutline != null) dropOutline,
         ]);
       });
     }
@@ -733,12 +1065,14 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       Positioned.fill(child: buildList(0)),
       // stepped off the resize grip when the grip rides the same
       // (right) edge
-      Positioned(
-        top: 0,
-        bottom: 0,
-        right: geometry.scrollbarInset,
-        child: scrollbar,
-      ),
+      if (!horizontal)
+        Positioned(
+          top: 0,
+          bottom: 0,
+          right: geometry.scrollbarInset,
+          child: scrollbar,
+        ),
+      if (dropOutline != null) dropOutline,
     ]);
   }
 }
@@ -879,7 +1213,32 @@ class _PageSelectionBar extends StatelessWidget {
   }
 }
 
-enum _PageAction { paste, insert, export }
+/// Which edge of tile [index] carries the file-drop insertion marker for a
+/// drag currently aimed at slot [dropIndex] (null: no drag over this
+/// panel). The marker leads the tile the dropped pages would land before -
+/// or trails the last tile when they'd go past the end - so it always
+/// paints in the gap the pages will fill. [reversed] flips the horizontal
+/// edges for a right-to-left grid.
+PdfThumbnailDropEdge? _tileDropEdge(
+  int? dropIndex,
+  int index,
+  int pageCount,
+  Axis axis, {
+  bool reversed = false,
+}) {
+  if (dropIndex == null) return null;
+  final leading = axis == Axis.vertical
+      ? PdfThumbnailDropEdge.top
+      : (reversed ? PdfThumbnailDropEdge.right : PdfThumbnailDropEdge.left);
+  final trailing = axis == Axis.vertical
+      ? PdfThumbnailDropEdge.bottom
+      : (reversed ? PdfThumbnailDropEdge.left : PdfThumbnailDropEdge.right);
+  if (dropIndex == index) return leading;
+  if (dropIndex >= pageCount && index == pageCount - 1) return trailing;
+  return null;
+}
+
+enum _PageAction { paste, insert, export, split }
 
 const _densePopupMenuHeight = 34.0;
 
@@ -901,6 +1260,7 @@ class _PageActionsButton extends StatelessWidget {
     required this.allowPageEditing,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
   });
 
   final PdfEditingController controller;
@@ -911,6 +1271,10 @@ class _PageActionsButton extends StatelessWidget {
   final bool allowPageEditing;
   final Future<Uint8List?> Function()? onPickPdfToInsert;
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Receives one standalone PDF per range from "Split PDF…". When null,
+  /// that action is hidden. Outputs follow the user's range order.
+  final void Function(List<Uint8List> documents)? onSplitPages;
 
   void _paste() {
     // paste the shared clipboard's pages after the current page, then
@@ -931,8 +1295,12 @@ class _PageActionsButton extends StatelessWidget {
     final bytes = await pick();
     if (bytes == null) return;
     try {
-      controller.insertPagesFromBytes(bytes,
-          at: viewerController.currentPage + 1);
+      final insertedAt = viewerController.currentPage + 1;
+      controller.insertPagesFromBytes(bytes, at: insertedAt);
+      // The structural revision keeps the old reading position by default;
+      // this explicit Insert action reveals the newly imported pages once the
+      // rebuilt list has its new metrics.
+      unawaited(_jumpToInsertedPage(viewerController, insertedAt));
     } catch (_) {
       // a non-PDF, corrupt, or password-protected file can't be opened -
       // tell the user rather than failing silently
@@ -957,6 +1325,31 @@ class _PageActionsButton extends StatelessWidget {
     onExport(controller.exportPageRange(range.start, range.end));
   }
 
+  Future<void> _split(BuildContext context) async {
+    final onSplit = onSplitPages;
+    if (onSplit == null) return;
+    final document = controller.document;
+    final ranges = await showPdfSplitDialog(
+      context,
+      pageCount: document.pageCount,
+    );
+    if (ranges == null ||
+        !context.mounted ||
+        !identical(controller.document, document)) {
+      return;
+    }
+    late final List<Uint8List> outputs;
+    try {
+      outputs = controller.exportPageRanges(ranges);
+    } catch (_) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(pdfL10n(context).splitFailed),
+      ));
+      return;
+    }
+    onSplit(outputs);
+  }
+
   @override
   Widget build(BuildContext context) {
     final canPaste = allowPageEditing && controller.hasPageClipboard;
@@ -975,6 +1368,8 @@ class _PageActionsButton extends StatelessWidget {
             _insert(context);
           case _PageAction.export:
             _export(context);
+          case _PageAction.split:
+            _split(context);
         }
       },
       itemBuilder: (context) => [
@@ -995,6 +1390,14 @@ class _PageActionsButton extends StatelessWidget {
             value: _PageAction.insert,
             height: _densePopupMenuHeight,
             child: Text(pdfL10n(context).thumbInsertPdf,
+                style: _densePopupTextStyle(context)),
+          ),
+        if (onSplitPages != null)
+          PopupMenuItem(
+            key: const ValueKey('pdf-thumbnail-split-pages'),
+            value: _PageAction.split,
+            height: _densePopupMenuHeight,
+            child: Text(pdfL10n(context).splitTitle,
                 style: _densePopupTextStyle(context)),
           ),
         if (canExport)
@@ -1044,6 +1447,8 @@ class PdfThumbnailView extends StatefulWidget {
     this.allowPageEditing = true,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
+    this.fileDropController,
     this.onOpenPage,
     this.renderWorker,
     this.rasterCache,
@@ -1083,6 +1488,16 @@ class PdfThumbnailView extends StatefulWidget {
   /// "Export pages…" page-action and the selection bar's export.
   final void Function(Uint8List bytes)? onExportPages;
 
+  /// Receives one standalone PDF per range from "Split PDF…". When null,
+  /// that action is hidden. Outputs follow the user's range order.
+  final void Function(List<Uint8List> documents)? onSplitPages;
+
+  /// Lets a PDF dragged in from outside the app be dropped between two
+  /// tiles, at the marked position in the page order. The host drives the
+  /// controller from the platform's drag stream; the grid supplies the
+  /// geometry. See [PdfThumbnailDropController].
+  final PdfThumbnailDropController? fileDropController;
+
   /// Called after a double-click scrolls the viewer to [pageIndex]. Hosts
   /// that show the grid in place of the viewer turn it off here so the
   /// chosen page shows.
@@ -1117,6 +1532,12 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
 
   bool _shiftHeld = HardwareKeyboard.instance.isShiftPressed;
   int? _keyboardPage;
+  int? _dragPage;
+
+  /// This grid's hit-test, registered with
+  /// [PdfThumbnailView.fileDropController] - a stable closure so attach and
+  /// detach agree on identity (see the strip's copy).
+  late final PdfThumbnailDropResolver _dropResolver = _dropIndexAt;
 
   Set<int> get _rangePreview => _shiftHeld && _hoverPage != null
       ? widget.controller.pageRangePreviewTo(_hoverPage!).toSet()
@@ -1134,11 +1555,16 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     // the grid builds every cell eagerly, so without a viewport focus every
     // page would compete equally; scroll position drives which render first
     _scroll.addListener(_onScroll);
+    _attachDrop(widget.fileDropController);
   }
 
   @override
   void didUpdateWidget(PdfThumbnailView old) {
     super.didUpdateWidget(old);
+    if (!identical(old.fileDropController, widget.fileDropController)) {
+      _detachDrop(old.fileDropController);
+      _attachDrop(widget.fileDropController);
+    }
     if (!identical(old.controller.preferences, _preferences)) {
       old.controller.preferences.removeListener(_onPreferences);
       _preferences.addListener(_onPreferences);
@@ -1152,6 +1578,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
 
   @override
   void dispose() {
+    _detachDrop(widget.fileDropController);
     _preferences.removeListener(_onPreferences);
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     // the cache belongs to the session, not this grid - only withdraw its
@@ -1162,9 +1589,45 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     super.dispose();
   }
 
+  void _attachDrop(PdfThumbnailDropController? drop) {
+    drop
+      ?..attachPanel(_dropResolver)
+      ..addListener(_onDropChanged);
+  }
+
+  void _detachDrop(PdfThumbnailDropController? drop) {
+    drop
+      ?..removeListener(_onDropChanged)
+      ..detachPanel(_dropResolver);
+  }
+
+  void _onDropChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Where a PDF dropped at [globalPosition] would be inserted: the gap
+  /// between the grid cells nearest the pointer, along the reading
+  /// direction. Null when the point misses the grid or it is read-only.
+  int? _dropIndexAt(Offset globalPosition) {
+    if (!mounted || !widget.allowPageEditing) return null;
+    return pdfThumbnailDropIndexAt(
+      panelContext: context,
+      tileKeys: _tileKeys,
+      pageCount: widget.controller.document.pageCount,
+      axis: Axis.horizontal,
+      globalPosition: globalPosition,
+      reversed: Directionality.of(context) == TextDirection.rtl,
+    );
+  }
+
   void _onPreferences() {
     if (mounted) setState(() {});
   }
+
+  /// The gate the shared cache's background warm consults: true while the
+  /// viewer still has foreground page work in flight. See
+  /// [PdfThumbnailCache.bindForegroundGate].
+  bool _viewerRenderBusy() => widget.viewerController.isPageRenderBusy;
 
   /// Pushes the grid's scroll position into the shared cache as the render
   /// focus, so the rows on screen render before the rest of the document and
@@ -1242,7 +1705,21 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     _revealPage(at);
   }
 
+  /// Deletes the grid's selection, or the keyboard/current page when
+  /// nothing is selected - the last remaining page is kept either way.
+  void _deletePages() {
+    if (widget.controller.hasPageSelection) {
+      widget.controller.removeSelectedPages();
+    } else if (widget.controller.document.pageCount > 0) {
+      widget.controller.removePage(_keyboardBase());
+    }
+  }
+
   Map<ShortcutActivator, VoidCallback> _keyboardShortcuts(int columns) => {
+        const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+            widget.controller.selectAllPages,
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+            widget.controller.selectAllPages,
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _moveKeyboardSelection(-1),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
@@ -1271,6 +1748,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
               _pastePages,
           const SingleActivator(LogicalKeyboardKey.keyV, control: true):
               _pastePages,
+          const SingleActivator(LogicalKeyboardKey.delete): _deletePages,
+          const SingleActivator(LogicalKeyboardKey.backspace): _deletePages,
         },
       };
 
@@ -1307,8 +1786,10 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       worker: widget.renderWorker,
       priority: 3,
       skipIfWorkerDeclines: true,
+      deferUiWork: _viewerRenderBusy,
       reason: 'warm',
       disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -1332,12 +1813,21 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     // paced loop that yields to every visible cell, so it never delays one.
     final pixelWidth = _thumbnailBucket(
         (tileWidth - 21) * MediaQuery.devicePixelRatioOf(context));
-    _cache.setWarm(
-      this,
-      controller.document.pageCount,
-      '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
-      (index) => _warmRender(index, pixelWidth),
-    );
+    // see the strip's copy: the warm stands down while the viewer renders
+    _cache.bindForegroundGate(
+        widget.viewerController.pageRenderActivity, _viewerRenderBusy);
+    if (pdfShouldWarmThumbnails(controller.document.pageCount)) {
+      _cache.setWarm(
+        this,
+        controller.document.pageCount,
+        '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
+        (index) => _warmRender(index, pixelWidth),
+      );
+    } else {
+      _cache.clearWarm(this);
+      _cache.bindForegroundGate(
+          widget.viewerController.pageRenderActivity, _viewerRenderBusy);
+    }
     // the scrollbar overlays the grid's right edge; keep content clear of it
     const barClearance = PdfScrollbar.hitExtent;
     return LayoutBuilder(builder: (context, constraints) {
@@ -1362,6 +1852,12 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                 listenable: controller,
                 builder: (context, _) {
                   final rangePreview = _rangePreview;
+                  // the slot an external PDF being dragged over the grid
+                  // would drop into - marked on the leading edge of the
+                  // cell its pages would land before
+                  final dropIndex = widget.fileDropController
+                      ?.indicatorIndexFor(_dropResolver);
+                  final rtl = Directionality.of(context) == TextDirection.rtl;
                   return Column(
                     children: [
                       // header: title, the tile-size control, and the page-actions menu
@@ -1392,6 +1888,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                           ),
                           if (widget.onPickPdfToInsert != null ||
                               widget.onExportPages != null ||
+                              widget.onSplitPages != null ||
                               (widget.allowPageEditing &&
                                   controller.hasPageClipboard))
                             _PageActionsButton(
@@ -1400,6 +1897,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                               allowPageEditing: widget.allowPageEditing,
                               onPickPdfToInsert: widget.onPickPdfToInsert,
                               onExportPages: widget.onExportPages,
+                              onSplitPages: widget.onSplitPages,
                             ),
                         ]),
                       ),
@@ -1446,12 +1944,32 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             onActivatePage: _openPage,
                                             inRangePreview:
                                                 rangePreview.contains(i),
+                                            dropEdge: _tileDropEdge(
+                                              dropIndex,
+                                              i,
+                                              controller.document.pageCount,
+                                              Axis.horizontal,
+                                              reversed: rtl,
+                                            ),
                                             showPageActions:
                                                 !pdfPanelControlsRevealOnHover() ||
                                                     _hoverPage == i,
                                             onHover: (hovering) =>
                                                 _setHover(i, hovering),
                                             onFocusPage: _focusPage,
+                                            dimmed: _dragPage != null &&
+                                                i != _dragPage &&
+                                                controller.isPageSelected(
+                                                    _dragPage!) &&
+                                                controller.isPageSelected(i),
+                                            onDragStarted: () =>
+                                                setState(() => _dragPage = i),
+                                            onDragEnded: () {
+                                              if (mounted) {
+                                                setState(
+                                                    () => _dragPage = null);
+                                              }
+                                            },
                                           ),
                                         ),
                                       ),
@@ -1470,6 +1988,24 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                   'pdf-thumbnail-view-scrollbar-thumb'),
                             ),
                           ),
+                          // the grid reads as the drop target while a file
+                          // drag hovers it
+                          if (dropIndex != null)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  key: const ValueKey(
+                                      'pdf-thumbnail-view-drop-outline'),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                         ]),
                       ),
                       // a footer to append a blank page; editable grids only
@@ -1537,8 +2073,9 @@ class _ThumbnailSizeControl extends StatelessWidget {
 /// reorder. A mouse picks a tile up immediately (it hovers first, so the
 /// cell knows a pointer is present); touch and stylus need a long press,
 /// so a finger drag still scrolls the grid. Dropping onto another cell
-/// moves the page there ([PdfEditingController.movePage]). With
-/// [allowPageEditing] off the cell is the bare tile - read-only grids
+/// moves the page there ([PdfEditingController.movePage]); if that page is
+/// part of a multi-page selection, the entire selection moves together.
+/// With [allowPageEditing] off the cell is the bare tile - read-only grids
 /// only navigate.
 class _GridPageCell extends StatefulWidget {
   const _GridPageCell({
@@ -1553,7 +2090,11 @@ class _GridPageCell extends StatefulWidget {
     required this.tileWidth,
     required this.renderWorker,
     required this.onActivatePage,
+    required this.dimmed,
+    required this.onDragStarted,
+    required this.onDragEnded,
     this.inRangePreview = false,
+    this.dropEdge,
     this.showPageActions = true,
     this.onHover,
     this.onFocusPage,
@@ -1569,8 +2110,16 @@ class _GridPageCell extends StatefulWidget {
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
+
   final void Function(int pageIndex) onActivatePage;
+  final bool dimmed;
+  final VoidCallback onDragStarted;
+  final VoidCallback onDragEnded;
   final bool inRangePreview;
+
+  /// The edge carrying the file-drop insertion marker, if this cell is the
+  /// one the hovering drag would insert against. See [_PageTile.dropEdge].
+  final PdfThumbnailDropEdge? dropEdge;
   final bool showPageActions;
   final void Function(bool hovering)? onHover;
   final void Function(int pageIndex)? onFocusPage;
@@ -1599,6 +2148,7 @@ class _GridPageCellState extends State<_GridPageCell> {
         onActivatePage: widget.onActivatePage,
         activateOnTap: false,
         inRangePreview: widget.inRangePreview,
+        dropEdge: widget.dropEdge,
         showPageActions: widget.showPageActions,
         onHover: widget.onHover,
         onFocusPage: widget.onFocusPage,
@@ -1609,10 +2159,15 @@ class _GridPageCellState extends State<_GridPageCell> {
     final tile = _tile();
     if (!widget.allowPageEditing) return tile;
 
-    final draggable = MouseRegion(
-      onEnter: (_) => setState(() => _hasMouse = true),
-      onExit: (_) => setState(() => _hasMouse = false),
-      child: _draggable(tile),
+    final draggable = AnimatedOpacity(
+      key: ValueKey('pdf-thumbnail-grid-reorder-companion-${widget.pageIndex}'),
+      opacity: widget.dimmed ? 0.35 : 1,
+      duration: const Duration(milliseconds: 120),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hasMouse = true),
+        onExit: (_) => setState(() => _hasMouse = false),
+        child: _draggable(tile),
+      ),
     );
     return DragTarget<int>(
       // a page never drops onto itself
@@ -1643,8 +2198,13 @@ class _GridPageCellState extends State<_GridPageCell> {
   }
 
   Widget _draggable(Widget tile) {
+    final selectedCount = widget.controller.isPageSelected(widget.pageIndex)
+        ? widget.controller.selectedPageCount
+        : 0;
     final feedback = _DragFeedback(
-      label: pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
+      label: selectedCount > 1
+          ? _dragPageCountLabel(context, selectedCount)
+          : pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
       width: widget.tileWidth,
     );
     // dim the page being dragged in place, leaving a gap-marker
@@ -1652,6 +2212,8 @@ class _GridPageCellState extends State<_GridPageCell> {
     return _hasMouse
         ? Draggable<int>(
             data: widget.pageIndex,
+            onDragStarted: widget.onDragStarted,
+            onDragEnd: (_) => widget.onDragEnded(),
             dragAnchorStrategy: pointerDragAnchorStrategy,
             feedback: feedback,
             childWhenDragging: placeholder,
@@ -1659,12 +2221,55 @@ class _GridPageCellState extends State<_GridPageCell> {
           )
         : LongPressDraggable<int>(
             data: widget.pageIndex,
+            onDragStarted: widget.onDragStarted,
+            onDragEnd: (_) => widget.onDragEnded(),
             dragAnchorStrategy: pointerDragAnchorStrategy,
             feedback: feedback,
             childWhenDragging: placeholder,
             child: tile,
           );
   }
+}
+
+String _dragPageCountLabel(BuildContext context, int count) =>
+    '$count ${pdfL10n(context).thumbPages.toLowerCase()}';
+
+/// Marks the reorder proxy as representing every selected page rather than
+/// only the thumbnail under the pointer.
+class _MultiPageDragProxy extends StatelessWidget {
+  const _MultiPageDragProxy({required this.count, required this.child});
+
+  final int count;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+        clipBehavior: Clip.none,
+        children: [
+          child,
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Material(
+              key: const ValueKey('pdf-thumbnail-reorder-count'),
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(16),
+              elevation: 3,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                child: Text(
+                  _dragPageCountLabel(context, count),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
 }
 
 /// The little card that rides the cursor while a grid tile is dragged.
@@ -1755,10 +2360,13 @@ class _PageTile extends StatefulWidget {
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
+    this.scrollAxis = Axis.vertical,
+    this.reversed = false,
     this.onActivatePage,
     this.activateOnTap = true,
     this.inRangePreview = false,
     this.showPasteIndicator = false,
+    this.dropEdge,
     this.showPageActions = true,
     this.onHover,
     this.onFocusPage,
@@ -1775,16 +2383,29 @@ class _PageTile extends StatefulWidget {
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
 
+  /// The containing strip's scroll axis. Paste markers trail a vertical
+  /// strip at the bottom and a horizontal strip at its reading-order end.
+  final Axis scrollAxis;
+
+  /// Whether the horizontal reading direction runs right-to-left.
+  final bool reversed;
+
   /// Whether a shift-click on this tile would add it to the selection
   /// right now - painted as a faint preview of the selection chip while
   /// the strip's Shift hover is live. Ignored when already [selected].
   final bool inRangePreview;
 
-  /// Whether to paint a paste-insertion bar along this tile's bottom edge:
-  /// the strip sets it on the tile the mouse hovers while the shared page
-  /// clipboard has pages, marking where ⌘/Ctrl+V (or the strip's paste)
-  /// will drop them - right after this page. The grid leaves it false.
+  /// Whether to paint a paste-insertion bar along this tile's trailing edge:
+  /// bottom in a vertical strip, reading-order end in a horizontal one. The
+  /// strip sets it on the hovered tile while the page clipboard has pages,
+  /// marking where ⌘/Ctrl+V (or the strip's paste) will drop them.
   final bool showPasteIndicator;
+
+  /// The edge to paint a file-drop insertion marker on while a PDF dragged
+  /// in from outside the app hovers the panel: the pages would land in the
+  /// gap the marker fills. Null (the usual case) paints nothing. See
+  /// [PdfThumbnailDropController].
+  final PdfThumbnailDropEdge? dropEdge;
 
   /// The mouse entering (true) or leaving (false) this tile, so the strip
   /// can track the hovered page for its Shift range preview. Null off the
@@ -1828,8 +2449,11 @@ class _PageTileState extends State<_PageTile> {
   PdfThumbnailCache get cache => widget.cache;
   double get tileWidth => widget.tileWidth;
   PdfRenderWorker? get renderWorker => widget.renderWorker;
+  Axis get scrollAxis => widget.scrollAxis;
+  bool get reversed => widget.reversed;
   bool get inRangePreview => widget.inRangePreview;
   bool get showPasteIndicator => widget.showPasteIndicator;
+  PdfThumbnailDropEdge? get dropEdge => widget.dropEdge;
   void Function(bool hovering)? get onHover => widget.onHover;
   void Function(int pageIndex)? get onActivatePage => widget.onActivatePage;
   bool get activateOnTap => widget.activateOnTap;
@@ -2112,17 +2736,46 @@ class _PageTileState extends State<_PageTile> {
     // hovers the strip; it never eats a pointer, so tap/drag still work
     Widget content = tile;
     if (showPasteIndicator) {
+      final horizontal = scrollAxis == Axis.horizontal;
       content = Stack(
         children: [
           content,
           Positioned(
-            left: 0,
-            right: 0,
+            left: horizontal && !reversed ? null : 0,
+            right: horizontal && reversed ? null : 0,
+            top: horizontal ? 0 : null,
             bottom: 0,
             child: IgnorePointer(
-              child: _PasteInsertionMarker(
+              child: _InsertionMarker(
                 key: ValueKey('pdf-thumbnail-paste-indicator-$pageIndex'),
                 color: scheme.primary,
+                axis: horizontal ? Axis.vertical : Axis.horizontal,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    // the same bar, on the edge a file dragged in from outside the app
+    // would drop its pages into
+    final dropEdge = this.dropEdge;
+    if (dropEdge != null) {
+      final vertical = dropEdge == PdfThumbnailDropEdge.left ||
+          dropEdge == PdfThumbnailDropEdge.right;
+      content = Stack(
+        children: [
+          content,
+          Positioned(
+            left: dropEdge == PdfThumbnailDropEdge.right ? null : 0,
+            right: dropEdge == PdfThumbnailDropEdge.left ? null : 0,
+            top: dropEdge == PdfThumbnailDropEdge.bottom ? null : 0,
+            bottom: dropEdge == PdfThumbnailDropEdge.top ? null : 0,
+            child: IgnorePointer(
+              child: _InsertionMarker(
+                key: ValueKey(
+                    'pdf-thumbnail-drop-indicator-$pageIndex-${dropEdge.name}'),
+                color: scheme.primary,
+                axis: vertical ? Axis.vertical : Axis.horizontal,
               ),
             ),
           ),
@@ -2139,14 +2792,23 @@ class _PageTileState extends State<_PageTile> {
   }
 }
 
-/// A slim horizontal bar with rounded end caps, painted across a page
-/// tile's bottom edge to mark where a paste will insert the clipboard's
-/// pages - right after the tile it sits under. Purely decorative (the paste
-/// runs from the strip's keyboard/menu paste), so it ignores pointers.
-class _PasteInsertionMarker extends StatelessWidget {
-  const _PasteInsertionMarker({super.key, required this.color});
+/// A slim bar with rounded end caps, painted along a page tile's edge to
+/// mark where pages will be inserted - a paste (right after the tile it
+/// sits under) or a file dragged in from outside the app (into the gap the
+/// bar fills). Purely decorative - the insert runs from the strip's
+/// paste/drop handling - so it ignores pointers.
+class _InsertionMarker extends StatelessWidget {
+  const _InsertionMarker({
+    super.key,
+    required this.color,
+    this.axis = Axis.horizontal,
+  });
 
   final Color color;
+
+  /// The bar's own direction: horizontal along a top/bottom edge (the
+  /// stacked strip), vertical along a left/right one (the flowing grid).
+  final Axis axis;
 
   @override
   Widget build(BuildContext context) {
@@ -2155,21 +2817,23 @@ class _PasteInsertionMarker extends StatelessWidget {
           height: 6,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         );
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(children: [
-        cap(),
-        Expanded(
-          child: Container(
-            height: 3,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(1.5),
-            ),
-          ),
+    final bar = Expanded(
+      child: Container(
+        height: axis == Axis.horizontal ? 3 : null,
+        width: axis == Axis.vertical ? 3 : null,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(1.5),
         ),
-        cap(),
-      ]),
+      ),
+    );
+    return Padding(
+      padding: axis == Axis.horizontal
+          ? const EdgeInsets.symmetric(horizontal: 8)
+          : const EdgeInsets.symmetric(vertical: 8),
+      child: axis == Axis.horizontal
+          ? Row(children: [cap(), bar, cap()])
+          : Column(children: [cap(), bar, cap()]),
     );
   }
 }
@@ -2284,11 +2948,9 @@ Future<void> _showPageTileMenu({
   ];
   if (items.isEmpty) return;
 
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   final picked = await showMenu<_PageTileAction>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: items,
   );
   switch (picked) {
@@ -2329,10 +2991,10 @@ Future<void> _jumpToInsertedPage(
   int pageIndex,
 ) async {
   // The controller notification first rebuilds the viewer with the new page
-  // list. A geometry-changing revision then resets its old scroll position in
-  // a post-frame callback, so navigate on the following frame, after both the
-  // new list metrics and that reset have landed. `endOfFrame` schedules a
-  // frame when idle and avoids leaving a test-host timer behind.
+  // list and restores its existing reading anchor. Navigate on the following
+  // frame, after both the new list metrics and that restoration have landed,
+  // so this deliberate reveal of the inserted page wins. `endOfFrame`
+  // schedules a frame when idle and avoids leaving a test-host timer behind.
   await SchedulerBinding.instance.endOfFrame;
   await SchedulerBinding.instance.endOfFrame;
   await viewerController.jumpToPage(pageIndex);
@@ -2445,6 +3107,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final annotations = widget.showAnnotations;
     final cache = widget.cache;
     final worker = widget.renderWorker;
+    final previews = widget.viewerController.pagePreviewCache;
     cache.request(this, pageIndex, () async {
       // superseded (newer revision, resize) or already landed - skip
       if (!mounted || _pendingKey != key) return;
@@ -2462,6 +3125,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
       // nothing may escape: a single failing page must neither poison the
       // queue nor surface - it just keeps its placeholder
       try {
+        var deferred = false;
         final image = await rasterizeThumbnail(
           controller: controller,
           pageIndex: pageIndex,
@@ -2469,11 +3133,29 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           annotations: annotations,
           pixelWidth: pixelWidth,
           worker: worker,
+          // The task may have been granted before a fast scroll and return
+          // from its worker during the render hold. Do not replay/rasterize
+          // that stale result on the platform thread; keep the viewer preview
+          // and let the shared queue retry after its foreground gate clears.
+          deferUiWork: () {
+            final value = cache.shouldDeferUiWork;
+            deferred |= value;
+            return value;
+          },
           // only persist/read disk for pages untouched this session - the
           // disk key is content-derived and render stamps reset per session
           disk: controller.pageRenderStamp(pageIndex) == 0 ? cache.disk : null,
+          previews: previews,
         );
-        if (image == null) return;
+        if (image == null) {
+          if (deferred && mounted && _pendingKey == key) {
+            // This request has already been removed from the queue. Put the
+            // same token back while the gate is closed; its activity listener
+            // will grant it when the viewer becomes idle again.
+            _enqueue(key, pixelWidth);
+          }
+          return;
+        }
         PdfThumbnailSidebar.debugRasterizations++;
         cache.put(key, image);
         if (!mounted || _pendingKey != key) return;
@@ -2543,6 +3225,18 @@ String thumbnailKey(PdfEditingController controller, int pageIndex,
     '$pageIndex|${controller.pageRenderStamp(pageIndex)}'
     '|${pageColor.toARGB32()}|$pixelWidth${annotations ? '' : '|noannots'}';
 
+/// Whole-document thumbnail warming policy.
+///
+/// Native platforms can rasterize tile-sized pictures away from the Flutter
+/// web platform-thread bottleneck. On web, a dense vector page still costs
+/// hundreds of milliseconds in CanvasKit even at 128 px, so proactively
+/// warming every page of a long document creates periodic frame drops before
+/// the user ever visits those pages. Such documents render visible tiles on
+/// demand and show the viewer's 200 px preview meanwhile.
+@visibleForTesting
+bool pdfShouldWarmThumbnails(int pageCount, {bool? web}) =>
+    !(web ?? kIsWeb) || pageCount <= 24;
+
 /// Raster widths snap to 64px steps so a resize drag doesn't re-render every
 /// page per pixel.
 int _thumbnailBucket(double px) => ((px / 64).ceil() * 64).clamp(64, 1024);
@@ -2569,6 +3263,12 @@ int _thumbnailFocusFromScroll(ScrollController scroll, int pageCount) {
 /// worker preempted for a higher-priority tile - returns null instead of
 /// falling back to a heavy UI-thread interpret, so warming never blocks a
 /// frame.
+///
+/// [previews] is the viewer's preview cache. When it still holds the page's
+/// recorded scene from the last time the page was on screen, the tile is
+/// replayed straight out of it - no content-stream walk and no image decode,
+/// which is what the local fallback below otherwise pays in full to fill a
+/// 128px tile (55 ms per tile in the #699 field trace).
 Future<ui.Image?> rasterizeThumbnail({
   required PdfEditingController controller,
   required int pageIndex,
@@ -2578,8 +3278,11 @@ Future<ui.Image?> rasterizeThumbnail({
   required PdfRenderWorker? worker,
   int priority = 2,
   bool skipIfWorkerDeclines = false,
+  bool Function()? deferUiWork,
   String reason = 'tile',
   PdfRasterCache? disk,
+  PdfPagePreviewCache? previews,
+  bool? allowSoftPreview,
 }) async {
   final page = controller.pageAt(pageIndex);
   final size = PdfPageRenderer.pageSize(page);
@@ -2611,6 +3314,65 @@ Future<ui.Image?> rasterizeThumbnail({
     });
   final sw = Stopwatch()..start();
   try {
+    // Reuse pixels the viewer already produced before replaying its retained
+    // command scene. Intermediate previews can be sharper than the requested
+    // tile; on web, the base 200 px preview is also accepted for a nearby
+    // 256 px request. That small softness avoids the trace's 223 ms CanvasKit
+    // replay of 39k commands (and the resulting 248 ms raster frame).
+    final preview = previews?.thumbnailImageFor(
+      pageIndex,
+      page,
+      width: pixelWidth,
+      height: math.max(1, (size.height * ratio).ceil()),
+      minimumScale: (allowSoftPreview ?? kIsWeb) ? 0.75 : 1,
+    );
+    if (preview != null) {
+      final previewMs = sw.elapsedMicroseconds / 1000.0;
+      trace.instant('preview hit', arguments: {
+        'ms': previewMs,
+        'width': preview.width,
+        'height': preview.height,
+      });
+      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+          'preview-hit ${preview.width}x${preview.height} '
+          'lookup=${_traceMs(previewMs)}');
+      return preview;
+    }
+    // Cheapest live path first: the page's own retained scene. It is already
+    // interpreted and its images are already decoded, so a tile costs a
+    // command replay plus its (tiny) raster - no worker round trip, and none
+    // of the local walk below. The lookup must name the exact display plan the
+    // tile wants; a scene recorded under a view rotation, a different paper
+    // colour, or with annotations the tile does not show simply misses and
+    // every path below is unchanged.
+    final retained = _retainedSceneForTile(previews, pageIndex, page,
+        pageColor: pageColor, annotations: annotations);
+    if (retained != null) {
+      try {
+        final sceneImageRatio = retained.imagePixelRatio;
+        // A scene whose images were decoded below the tile's own ratio would
+        // draw them softer than a fresh render; leave those to the paths
+        // below. A tile ratio is a fraction of any display ratio, so this
+        // holds in practice - it is a guard, not a common case.
+        if ((sceneImageRatio == null || sceneImageRatio >= ratio) &&
+            !(deferUiWork?.call() ?? false)) {
+          final image = await retained.scene.rasterize(pixelRatio: ratio);
+          final retainedMs = sw.elapsedMicroseconds / 1000.0;
+          trace.instant('retained replay+raster', arguments: {
+            'ms': retainedMs,
+            'commands': retained.scene.commands.length,
+          });
+          PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+              'retained replay+raster=${_traceMs(retainedMs)} '
+              'commands=${retained.scene.commands.length}');
+          disk?.storeThumbnail(pageIndex, pixelWidth, image,
+              pageColor: pageColor.toARGB32(), annotations: annotations);
+          return image;
+        }
+      } finally {
+        retained.dispose();
+      }
+    }
     // the heavy interpret runs on the isolate, only the small replay + raster
     // stays here. Image pages and the web fallback return null and rasterize
     // locally.
@@ -2623,14 +3385,46 @@ Future<ui.Image?> rasterizeThumbnail({
         : null;
     final recordMs = sw.elapsedMicroseconds / 1000.0;
     if (commands != null) {
+      // A thumbnail may have started while the viewer was idle, then received
+      // its worker result after scrolling began. Do not turn that result into
+      // a picture/raster on the platform thread now: the tile already has a
+      // soft viewer preview, and foreground motion wins. A visible tile is
+      // re-queued; a warm pass may leave the page for its on-demand render.
+      if (deferUiWork?.call() ?? false) {
+        trace.instant('defer ui replay', arguments: {'ms': recordMs});
+        PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+            'defer ui replay record=${_traceMs(recordMs)}');
+        return null;
+      }
       trace.instant('worker.record',
           arguments: {'ms': recordMs, 'commands': commands.length});
       sw.reset();
-      final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-          pageColor: pageColor);
+      // The replay is the one part of a thumbnail that CANNOT leave the
+      // platform thread, so it gets the tile's own resolution too: any image
+      // the worker's codec declined arrives un-decoded, and without the cap it
+      // would decode at native size here - a 10-megapixel scan run through the
+      // pure-Dart codec to fill a 256px tile (#603). Sliced into the timeline
+      // as its own span so a trace attributes it to the thumbnail rather than
+      // to whatever frame it lands in.
+      final picture = await _timedReplay(
+          pageIndex,
+          reason,
+          () => PdfPageRenderer.pictureFromCommands(page, commands,
+              pageColor: pageColor, maxImagePixelRatio: ratio));
       final replayMs = sw.elapsedMicroseconds / 1000.0;
       sw.reset();
       try {
+        // pictureFromCommands can yield while resolving resources. Re-check
+        // before the much more expensive CanvasKit raster in case scrolling
+        // began during that replay.
+        if (deferUiWork?.call() ?? false) {
+          trace.instant('defer ui raster',
+              arguments: {'recordMs': recordMs, 'replayMs': replayMs});
+          PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+              'defer ui raster record=${_traceMs(recordMs)} '
+              'replay=${_traceMs(replayMs)}');
+          return null;
+        }
         final image = await PdfPageRenderer.rasterize(picture, size, ratio);
         final rasterMs = sw.elapsedMicroseconds / 1000.0;
         trace.instant('rasterize', arguments: {'ms': rasterMs});
@@ -2657,6 +3451,16 @@ Future<ui.Image?> rasterizeThumbnail({
           '${usingWorker ? '(worker declined)' : '(no worker)'}');
       return null;
     }
+    // The worker may have declined only after the viewer started moving. A
+    // visible tile normally falls back to a local interpret here, which is
+    // even more disruptive than replaying a returned command buffer; defer it
+    // under the same gate and retry after settle.
+    if (deferUiWork?.call() ?? false) {
+      trace.instant('defer ui local fallback', arguments: {'ms': recordMs});
+      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+          'defer ui local fallback record=${_traceMs(recordMs)}');
+      return null;
+    }
     sw.reset();
     final image = await PdfPageRenderer.renderImage(page,
         pixelRatio: ratio, pageColor: pageColor, annotations: annotations);
@@ -2673,7 +3477,64 @@ Future<ui.Image?> rasterizeThumbnail({
   }
 }
 
+/// Leases the retained scene a tile of [page] can replay, or null.
+///
+/// The scene has to have been recorded under a display that draws the same
+/// pixels the tile wants, which is not the same as an identical
+/// [PdfPageRenderPlan] - two of the plan's inputs have spellings that coincide:
+///
+///  * **Rotation.** A plan carrying the page's own /Rotate and a plan carrying
+///    null both render the page unrotated relative to itself, and different
+///    producers write different ones (the viewer always resolves an explicit
+///    angle, a bare [PdfPageView] may not).
+///  * **Annotations.** The viewer bakes annotations into the page picture only
+///    when it is not drawing them in a live overlay layer - and an editing
+///    session, which is when this strip exists, always draws them in the
+///    overlay. So its scenes are recorded annotation-free while the strip asks
+///    for annotations, and on a page that carries none those are the same
+///    pixels. Only such a page tries the other spelling.
+///
+/// Everything else - a view rotation, another paper colour, or annotations on
+/// a page that actually has some - misses, as it should: the scene would not
+/// draw what the tile is asking for, and every path below it is unchanged.
+PdfRetainedSceneHandle? _retainedSceneForTile(
+  PdfPagePreviewCache? previews,
+  int pageIndex,
+  PdfPage page, {
+  required Color pageColor,
+  required bool annotations,
+}) =>
+    // A tile always asks for the page's own rotation, so
+    // [PdfPagePreviewCache.retainedSceneForDisplay] - which the preview ladder
+    // shares - covers both of its spellings.
+    previews?.retainedSceneForDisplay(
+      pageIndex,
+      page,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: null,
+    );
+
 String _traceMs(double v) => '${v.toStringAsFixed(1)}ms';
+
+/// Wraps a thumbnail's command replay in its own async timeline slice.
+///
+/// The replay builds a `ui.Picture` on the platform thread - the same thread
+/// the visible page's build needs - so in a DevTools capture it is otherwise
+/// indistinguishable from foreground work. A named slice per page/reason is
+/// what lets a trace say "this frame went to warming page 47's thumbnail"
+/// (#603). Free when nothing is recording.
+Future<T> _timedReplay<T>(
+    int pageIndex, String reason, Future<T> Function() replay) async {
+  final flow = TimelineTask()
+    ..start('thumbnail replay',
+        arguments: {'page': pageIndex, 'reason': reason});
+  try {
+    return await replay();
+  } finally {
+    flow.finish();
+  }
+}
 
 /// Marks the viewer's viewport on a thumbnail: [region] is the visible
 /// part of the page as fractions of its area.

@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+import 'test_finders.dart';
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -42,7 +44,7 @@ void main() {
   // sidebar's own reorderable list in the body).
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   testWidgets('tabs render in a reorderable strip', (tester) async {
@@ -96,9 +98,17 @@ void main() {
     // Both tabs survive and beta is still the active document (its tab keeps
     // the selected weight while alpha reverts to normal).
     expect(find.byTooltip('Close tab'), findsNWidgets(2));
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
-    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.normal);
   });
 }

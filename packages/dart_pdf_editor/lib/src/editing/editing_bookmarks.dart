@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'editing_controller.dart';
@@ -232,7 +233,8 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
         key: ValueKey('pdf-bookmark-tile-$pathKey'),
         onTap: destination == null ? null : () => _activate(item),
         child: Padding(
-          padding: EdgeInsets.only(left: 6 + row.depth * 16.0, right: 4),
+          padding:
+              EdgeInsetsDirectional.only(start: 6 + row.depth * 16.0, end: 4),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 46),
             child: Row(children: [
@@ -405,7 +407,7 @@ Future<_BookmarkEditResult?> _showBookmarkDialog(
   required bool initialOpen,
   required bool editing,
 }) =>
-    showDialog<_BookmarkEditResult>(
+    showPdfDialog<_BookmarkEditResult>(
       context: context,
       builder: (context) => _BookmarkDialog(
         pageCount: pageCount,

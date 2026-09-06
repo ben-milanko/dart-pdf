@@ -2,14 +2,12 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
-#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
-#include <flutter/method_channel.h>
 
 #include <memory>
 #include <string>
 
-#include "native_print.h"
+#include "platform_channels.h"
 #include "win32_window.h"
 
 // Identifies WM_COPYDATA messages that carry a file path forwarded from a
@@ -42,28 +40,7 @@ class FlutterWindow : public Win32Window {
   // The project to run.
   flutter::DartProject project_;
 
-  // The file the app was launched with, drained once by `getInitialFile`.
-  // Empty when the app was launched without a file.
-  std::wstring initial_file_;
-
-  // Channel to the Dart IncomingFileService: cold-start `getInitialFile` and
-  // warm-start `openFile`. Created once the engine exists in OnCreate.
-  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
-      incoming_channel_;
-
-  // Channel that copies Snapshot rasters to / reads images from the Win32
-  // clipboard (`copyPng` / `readImage`). Created once the engine exists.
-  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
-      image_clipboard_channel_;
-
-  // Channel that prints page rasters straight to a GDI printer DC
-  // (`beginJob` / `printPage` / `endJob` / `cancelJob`), bypassing the
-  // `printing` plugin's PDFium. Created once the engine exists.
-  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
-      native_print_channel_;
-
-  // Backs native_print_channel_: holds the in-progress print job's DC.
-  NativePrinter native_printer_;
+  DartPdfPlatformChannels platform_channels_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;

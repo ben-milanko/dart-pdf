@@ -1,0 +1,7 @@
+Nieuw in 3.1.0
+
+• Scan papieren documenten rechtstreeks naar een pdf of maak een foto met de camera.
+• Niet-opgeslagen wijzigingen worden gespiegeld en na een crash hersteld.
+• Nieuwe gereedschappen: hyperlinks, afbeeldingen bijsnijden, annotaties vergrendelen en sneltoetsen voor elk gereedschap.
+• Getrouwe overprint; snellere, geleidelijke paginaweergave.
+• Verklein een pdf verliesvrij bij het opslaan.

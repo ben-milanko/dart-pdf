@@ -1,5 +1,164 @@
 # Changelog
 
+## Unreleased
+
+- Add rectangular and polygonal page-content deletion with glyph-level text
+  slicing. Preserve font encodings, kerning, spacing, surviving glyph positions,
+  and path clipping state; concave lassos can erase disjoint text spans.
+- Add `PdfMerger.merge` for bytes-only merging with per-input passwords.
+- Preserve imported AcroForm fields, default font resources, named destinations,
+  and outline hierarchies; rename collisions and remap internal page targets.
+- Add `PdfSplitter.split`, `splitRange`, and `splitExpression` for bytes-only
+  PDF splitting, with validated `PdfPageRange` batches and one-based range
+  parsing. `PdfDocument.extractPageRanges` reuses an already-open document.
+- Document splitting examples and the extraction semantics.
+- Accept `populatedRanges` in `PdfDocument.open` so copied progressive buffers
+  keep treating unfetched objects as missing.
+
+## 4.2.0
+
+- Add `PdfAnnotation.appearanceRotation`, the rotation an annotation's normal
+  appearance carries in page space. This is the annotation's own rotation, so
+  unlike a view-space measurement it is unaffected by the page's display
+  `/Rotate`.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
+## 4.1.0
+
+- Add document-level content movement between positions and pages, retaining
+  resource references and clipping the moved content to its destination page.
+- Preserve reusable annotation snapshots and digital-signature removal through
+  incremental edits.
+- Align dependency constraints with the dart-pdf 4.1.0 package suite and
+  update `archive` to 4.2.0.
+
+## 4.0.0
+
+- Allow `flattenAnnotations` to target a supplied annotation selection and
+  expose embedded-font descent metrics for accurate free-text box fitting.
+- Flatten empty text, choice, and button widgets without dropping their
+  annotation appearance or blocking the rest of a form.
+- Lockstep major release for the dart-pdf 4.0.0 package suite. The
+  `pdf_document` public API changes in this release are additive.
+
+## 3.8.0
+
+- Add the lazily materialized `PdfDocument.pages` view and keep document caches
+  coherent through `CosDocument.revision`.
+- Add `PdfEditImpact.pageOrderOnly` and reconcile page-order-only incremental
+  edits without rebuilding unchanged page objects.
+- Reduce repeated page-tree and annotation work during large-document startup,
+  structural edits, undo, and redo.
+
+## 3.7.0
+
+- Add `SimpleFont`, the simple-font counterpart to `Type0Font`: one place that
+  resolves a character code to text the way the renderer does (`/ToUnicode`,
+  `/Encoding` `/Differences`, the built-in Symbol and ZapfDingbats encodings,
+  then the base encoding), plus the reverse table for re-encoding replacements
+  and the `/Widths` lookup.
+- Fix content editing against fonts that remap their codes. `PdfPageElements`
+  decoded a simple font's show string as Latin-1, so a subsetted font reported
+  text such as `-=>-/>?-?@` for a page reading `05/08/2026`, and replacements
+  were written back as raw code units. Element text, both run codecs, the `'`
+  and `"` operators, and paragraph reflow now all go through the font's own
+  encoding.
+- Restrict a replacement to codes the font actually declares - a glyph name
+  from the base encoding or `/Differences`, or a `/ToUnicode` entry - so a
+  subset that dropped a character declines the edit instead of drawing notdef.
+  Decoding keeps its lenient Latin-1 fallback. A named base encoding declares
+  printable ASCII (0x20-0x7E) per Annex D.
+- Move the Adobe glyph-name tables down from `pdf_graphics` to
+  `src/fonts/encodings.dart` and export them, so the content editor and the
+  font engine share one copy.
+
+## 3.6.0
+
+- Read Bluebeam FreeText paragraph styling from `/DS` and rich-text `/RC` when
+  standard PDF entries are absent, preserving alignment, leading, character
+  spacing, horizontal scale, and underline when editing or regenerating an
+  appearance.
+- Let FreeText annotations participate in opacity restyling, write opacity on
+  creation, and rebuild their appearances without losing the selected alpha.
+
+## 3.5.1
+
+- Lockstep patch release for the scanned-page rendering fixes in `pdf_cos`,
+  `pdf_graphics`, and `dart_pdf_editor`. No public document API changes.
+
+## 3.5.0
+
+- Let `PdfDocument.openSource` expose its requested first-paint page count as a
+  temporary page-count hint when the source deliberately omits the rest of the
+  page-tree walk. The full document opened during progressive handoff remains
+  authoritative, while sparse page-one previews avoid recovery-scanning every
+  intentionally absent leaf reference.
+
+## 3.4.0
+
+- Preserve the unresolved vector template on authored stamp annotations and
+  expose it through `PdfAnnotation.stampTemplate`, allowing a placed stamp to
+  return to a reusable collection without losing dynamic fields (#651).
+
+## 3.3.1
+
+- Fix annotation property edits duplicating the annotation when a page stores
+  its `/Annots` array indirectly (#638).
+- Preserve embedded font resources when changing FreeText colour, so restyled
+  text continues to use the original embedded typeface (#641).
+
+## 3.3.0
+
+- Add lightweight diagnostics to `PdfDiskCache` for hits, misses, writes,
+  oversize rejections, evictions, and byte totals, with `resetStats()` and a
+  one-line `debugStats` summary. Manifest writes are coalesced across bursts so
+  persistent page-raster caches do not rewrite an O(n) manifest for every
+  entry (#615).
+
+## 3.2.0
+
+- Improve FreeText callout interoperability: recognize third-party callouts
+  from their `/CL` geometry when `/IT` is missing or private, and clamp
+  malformed or negative `/RD` insets to a usable callout text box (#621).
+
+## 3.1.1
+
+- Lockstep patch release to align the dart-pdf package suite at 3.1.1. No
+  public `pdf_document` API changes since 3.1.0.
+
+## 3.1.0
+
+- Add `PdfEditor.compress()`/`PdfCompressionResult`: lossless file-size
+  compaction on save. A whole-graph reachability pass drops the dead objects
+  incremental edits accumulate, non-stream objects pack into object streams,
+  and uncompressed streams are re-deflated (kept only when smaller). Never
+  returns a larger file, includes pending edits, and refuses encrypted
+  documents. Decoded stream content is preserved bit-for-bit (#368).
+- Hyperlink authoring: `addLinkToUri` / `addLinkToDestination` /
+  `addLinkToPage`, mirroring the text-markup creators' quad shape so a text
+  selection turns into a link. /Rect bounds the quads, each quad becomes an
+  active /QuadPoints region, /Border is suppressed by default, and an
+  underline or border decoration bakes an /AP (#500).
+- Crop placed images: the image-stamp appearance bakes a normalized crop
+  rect, read back via `PdfAnnotation.imageStampCrop`; opacity restyles and
+  resizes preserve the crop (#504).
+- Render digital-signature boxes in the signer's local timezone (#570).
+- Add `PdfAnnotation.isPrint` (§12.5.3 print-vs-screen visibility) (#546).
+
+## 3.0.0
+
+Lockstep major release (a breaking change in `dart_pdf_editor` moves the whole
+suite to 3.0.0). `pdf_document`'s own public API is additive.
+
+- Add `PdfEditor.saveSignedExternal`: delegates the RSA operation to a
+  `PdfExternalSigner` callback so the private key can stay in a hardware keystore
+  (Android KeyStore, iOS Keychain). `PdfSignatureAppearance` gains overridable
+  `signedByLabel`/`dateLabel`/`reasonLabel`/`locationLabel`, and the visible `/M`
+  and signature-box date now preserve a non-UTC `signingTime`'s offset (UTC
+  input unchanged) (#507).
+- Fix signature appearance detail text being clipped at the top of the
+  signature box (#468).
+
 ## 2.1.0
 
 - Cache `PdfPage` instances instead of rebuilding them per access, resolving

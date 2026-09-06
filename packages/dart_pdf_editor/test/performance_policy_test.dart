@@ -28,6 +28,10 @@ void main() {
         3);
     expect(
         PdfPerformancePolicy.initialWorkerCount(
+            env(platform: PdfPerformancePlatform.web), auto),
+        1);
+    expect(
+        PdfPerformancePolicy.initialWorkerCount(
             env(platform: PdfPerformancePlatform.web, cores: 2), auto),
         1);
     expect(PdfPerformancePolicy.initialWorkerCount(env(pages: 6), auto), 1,
@@ -35,6 +39,9 @@ void main() {
     expect(
         PdfPerformancePolicy.initialWorkerCount(env(bytes: 600 << 20), auto), 1,
         reason: 'each worker holds its own document/decode working set');
+    expect(
+        PdfPerformancePolicy.initialWorkerCount(env(bytes: 219314443), auto), 2,
+        reason: 'large sources cap the base count before conservative tuning');
     expect(
         PdfPerformancePolicy.initialWorkerCount(
             env(cores: 32), const PdfPerformanceMode.auto(maxWorkers: 2)),
@@ -69,8 +76,7 @@ void main() {
   });
 
   test('slow samples tune safe knobs live and defer worker resize', () {
-    final controller = PdfPerformanceController(
-        environment: env(platform: PdfPerformancePlatform.web));
+    final controller = PdfPerformanceController(environment: env());
     addTearDown(controller.dispose);
     expect(controller.beginWorkerGeneration(), 3);
 
@@ -149,6 +155,15 @@ void main() {
     expect(controller.beginWorkerGeneration(), 1);
   });
 
+  test('large byte buffers start one worker before first paint', () {
+    final controller =
+        PdfPerformanceController(environment: env(pages: 83, bytes: 219314443));
+    addTearDown(controller.dispose);
+    expect(controller.tuning.tier, PdfPerformanceTier.conservative);
+    expect(controller.beginWorkerGeneration(), 1,
+        reason: 'a second worker would materialize another 219 MiB source');
+  });
+
   group('pdfDefaultTileStoreDetail (issue #314/#360 rollout)', () {
     tearDown(() => debugDefaultTargetPlatformOverride = null);
 
@@ -160,6 +175,45 @@ void main() {
         debugDefaultTargetPlatformOverride = platform;
         expect(pdfDefaultTileStoreDetail(), isTrue, reason: '$platform');
       }
+    });
+  });
+
+  group('pdfDefaultTileBudgetBytes (issue #374)', () {
+    const mb = 1024 * 1024;
+
+    test('mobile uses 64 MB, returning 32 MB to the process', () {
+      expect(
+        pdfDefaultTileBudgetBytes(platform: PdfPerformancePlatform.mobile),
+        64 * mb,
+      );
+    });
+
+    test('established 96 MB ceiling stays on non-mobile platforms', () {
+      for (final platform in [
+        PdfPerformancePlatform.desktop,
+        PdfPerformancePlatform.web,
+        PdfPerformancePlatform.other,
+      ]) {
+        expect(pdfDefaultTileBudgetBytes(platform: platform), 96 * mb,
+            reason: '$platform');
+      }
+    });
+
+    test('a default-constructed store adopts the platform policy', () {
+      final store = PdfTileStore(registerForMemoryPressure: false);
+      addTearDown(store.dispose);
+
+      expect(store.maxBytes, pdfDefaultTileBudgetBytes());
+    });
+
+    test('an explicit store budget still wins', () {
+      final store = PdfTileStore(
+        maxBytes: 12 * mb,
+        registerForMemoryPressure: false,
+      );
+      addTearDown(store.dispose);
+
+      expect(store.maxBytes, 12 * mb);
     });
   });
 }

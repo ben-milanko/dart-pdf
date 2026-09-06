@@ -8,6 +8,9 @@
 //   interpretMs   interpret all pages (up to --max-pages) to a NullDevice
 //   extractMs     text extraction over the same pages
 //   saveMs        incremental-save round trip (catalog rewrite)
+//   decodeMs      pure-Dart decode of every image the pages draw (opt-in, see
+//                 the "measures" scenario key) - the codec half of a render,
+//                 which the NullDevice interpret pass never reaches
 //   peakRssBytes  the child process's ProcessInfo.maxRss
 //
 // Each file is measured in its own killable child process (parent re-spawns
@@ -40,7 +43,24 @@ class NullDevice implements PdfDevice {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-const _allMeasures = {'open', 'firstPage', 'interpret', 'extract', 'save'};
+/// A [NullDevice] that keeps the image draws, so the `decodeImages` measure can
+/// run the decode a real device would - without a Flutter engine.
+class _ImageCollectingDevice implements PdfDevice {
+  final requests = <PdfImageRequest>[];
+
+  @override
+  void drawImage(PdfImageRequest request) => requests.add(request);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+const _defaultMeasures = {'open', 'firstPage', 'interpret', 'extract', 'save'};
+
+/// `decodeImages` is opt-in: it is the only measure that costs real time on
+/// image-heavy corpora, and most scenarios exist to track the parse/interpret
+/// path. Scenarios ask for it with the "measures" key.
+const _allMeasures = {..._defaultMeasures, 'decodeImages'};
 
 class _Args {
   String? corpus;
@@ -52,7 +72,7 @@ class _Args {
   int repeat = 3;
   int timeoutS = 120;
   bool phases = false;
-  Set<String> measures = _allMeasures;
+  Set<String> measures = _defaultMeasures;
 }
 
 _Args _parse(List<String> argv) {
@@ -96,7 +116,7 @@ _Args _parse(List<String> argv) {
     stderr.writeln(
         'usage: perf_sweep.dart <corpus-dir-or-file> | --scenario <name>\n'
         '  [--max-pages N] [--repeat N] [--timeout S] [--phases]\n'
-        '  [--measures open,firstPage,interpret,extract,save]\n'
+        '  [--measures open,firstPage,interpret,extract,save,decodeImages]\n'
         '  [--out envelope.json] [--append-history history.ndjson]');
     exit(2);
   }
@@ -115,6 +135,7 @@ Map<String, Object?> _measureOne(_Args args) {
 
   var pages = 0;
   var pagesRendered = 0;
+  var images = 0;
   String? error;
   final best = <String, double>{};
   void record(String key, int us) {
@@ -177,6 +198,33 @@ Map<String, Object?> _measureOne(_Args args) {
       record('extractMs', sw.elapsedMicroseconds);
     }
 
+    if (args.measures.contains('decodeImages')) {
+      // Collect the image draws first (interpretation is already measured
+      // above), then time only the decode - the pure-Dart path the render
+      // worker runs, so the number is engine-free but real.
+      final collector = _ImageCollectingDevice();
+      var done = 0;
+      for (var i = 0; i < limit; i++) {
+        try {
+          PdfInterpreter(cos: doc.cos, device: collector).drawPage(doc.page(i));
+          done++;
+        } catch (e) {
+          error ??= 'collect images page $i: $e';
+        }
+      }
+      if (done > pagesRendered) pagesRendered = done;
+      sw.reset();
+      for (final request in collector.requests) {
+        try {
+          decodePdfImagePixels(doc.cos, request.stream);
+        } catch (e) {
+          error ??= 'decode image: $e';
+        }
+      }
+      record('decodeMs', sw.elapsedMicroseconds);
+      images = collector.requests.length;
+    }
+
     if (args.measures.contains('save')) {
       sw.reset();
       try {
@@ -205,6 +253,8 @@ Map<String, Object?> _measureOne(_Args args) {
     if (best.containsKey('interpretMs')) 'interpretMs': best['interpretMs'],
     if (best.containsKey('extractMs')) 'extractMs': best['extractMs'],
     if (best.containsKey('saveMs')) 'saveMs': best['saveMs'],
+    if (best.containsKey('decodeMs')) 'decodeMs': best['decodeMs'],
+    if (best.containsKey('decodeMs')) 'imagesDecoded': images,
     'peakRssBytes': ProcessInfo.maxRss,
     'error': error,
     if (args.phases) 'perf': PdfPerf.snapshot().toJson(),
@@ -404,6 +454,7 @@ Map<String, Object?> _aggregate(List<Map<String, Object?>> results) {
     ...dist('interpretMs', perPage: true),
     ...dist('extractMs', perPage: true),
     ...dist('saveMs'),
+    ...dist('decodeMs', perPage: true),
     if (rss.isNotEmpty) 'maxPeakRssBytes': percentile(rss, 100).round(),
   };
 }

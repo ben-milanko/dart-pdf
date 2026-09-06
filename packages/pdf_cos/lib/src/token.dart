@@ -37,3 +37,33 @@ class CosToken {
   String toString() =>
       'CosToken(${type.name}${value == null ? '' : ' $value'} @$offset)';
 }
+
+/// Mutable token storage for allocation-sensitive streaming parsers.
+///
+/// [CosLexer.nextToken] creates the ordinary immutable [CosToken] by default.
+/// A consumer that reads one token completely before requesting the next can
+/// pass this buffer explicitly and reuse it. Retaining a returned token while
+/// reusing the same buffer is invalid by construction, so materializing parsers
+/// should keep using the default path.
+class CosTokenBuffer extends CosToken {
+  CosTokenBuffer() : super(CosTokenType.eof, 0);
+
+  CosTokenType _bufferType = CosTokenType.eof;
+  int _bufferOffset = 0;
+  Object? _bufferValue;
+
+  @override
+  CosTokenType get type => _bufferType;
+
+  @override
+  int get offset => _bufferOffset;
+
+  @override
+  Object? get value => _bufferValue;
+
+  void setToken(CosTokenType type, int offset, [Object? value]) {
+    _bufferType = type;
+    _bufferOffset = offset;
+    _bufferValue = value;
+  }
+}

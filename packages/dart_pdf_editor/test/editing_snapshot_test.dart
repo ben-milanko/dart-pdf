@@ -2,6 +2,7 @@
 // as a raster image (handed to PdfViewer.onSnapshot) AND as detached
 // vector graphics kept on the clipboard for pasting back into the PDF.
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ void main() {
     // controllers share the process-wide snapshot clipboard by default; start
     // each test from empty so one test's capture can't leak into the next.
     PdfSnapshotClipboard.instance.clear();
+    PdfAnnotationSnapshotClipboard.instance.clear();
   });
 
   group('PdfEditingController snapshot clipboard', () {
@@ -127,16 +129,39 @@ void main() {
           editing.recolorSnapshotSelected(const Color(0xFF00FF00)), isFalse);
     });
 
-    test('the snapshot clipboard clamps an oversized region into the page', () {
+    test('a snapshot pasted at a point centers there, off the page included',
+        () {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       editing.copyVectorSnapshot(0, const PdfRect(0, 0, 600, 780));
       expect(editing.pasteSnapshot(0, at: (10, 10)), isTrue);
       final rect = editing.document.page(0).annotations.single.rect;
-      // pinned to the low edge of the 612x792 crop box
-      expect(rect.left, closeTo(0, 1e-6));
-      expect(rect.bottom, closeTo(0, 1e-6));
+      // the 600x780 region centers on the point it was pasted at, running
+      // off three sides of the 612x792 crop box
+      expect(rect.left, closeTo(-290, 1e-6));
+      expect(rect.bottom, closeTo(-380, 1e-6));
+      expect(rect.right, closeTo(310, 1e-6));
+      expect(rect.top, closeTo(400, 1e-6));
+    });
+
+    test('the point-less snapshot cascade stays tethered to the page', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(520, 20, 600, 80));
+      final box = editing.document.page(0).cropBox;
+      for (var i = 0; i < 30; i++) {
+        expect(editing.pasteSnapshot(0), isTrue);
+      }
+      const tether = PdfEditingController.pageTether;
+      for (final annotation in editing.document.page(0).annotations) {
+        final rect = annotation.rect;
+        expect(math.min(rect.right, box.right) - math.max(rect.left, box.left),
+            greaterThanOrEqualTo(tether - 1e-6));
+        expect(math.min(rect.top, box.top) - math.max(rect.bottom, box.bottom),
+            greaterThanOrEqualTo(tether - 1e-6));
+      }
     });
 
     test('a snapshot captured in one tab pastes as vector in another', () {

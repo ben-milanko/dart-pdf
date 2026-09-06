@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,6 +166,117 @@ void main() {
     expect(lines[1], isNot(contains('build=')));
   });
 
+  test('interpret reports the progressive phase its clock also spans', () {
+    // Without this the line reads as though the interpreter cost the whole
+    // span, when most of it was a vector-first raster and a frame wait.
+    // progressive + wait + build should account for interpret.
+    final lines = capturePrints(() {
+      PdfPerfLog.enabled = true;
+      PdfPerfLog.interpret(2,
+          path: 'worker',
+          interpretMs: 1224.2,
+          progressiveMs: 982.1,
+          waitMs: 109.0,
+          buildMs: 132.8);
+      // A page with no progressive phase reports zero, not nothing: "ran none"
+      // and "this build predates the split" must not look the same.
+      PdfPerfLog.interpret(3,
+          path: 'worker', interpretMs: 50.0, progressiveMs: 0.0);
+      PdfPerfLog.interpret(4, path: 'recorded', interpretMs: 42.0);
+    });
+
+    expect(lines[0], contains('interpret=1224.2ms'));
+    expect(lines[0], contains('progressive=982.1ms'));
+    expect(lines[1], contains('progressive=0.0ms'));
+    expect(lines[2], isNot(contains('progressive=')));
+  });
+
+  test('a measured raster reports its duration and peak concurrency', () async {
+    final lines = <String>[];
+    PdfPerfLog.sink = lines.add;
+    PdfPerfLog.enabled = true;
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder);
+    final picture = recorder.endRecording();
+    addTearDown(picture.dispose);
+
+    final solo = await PdfRasterProbe.measure(
+      'base-full',
+      page: 0,
+      ratio: 1.4,
+      rasterize: () => picture.toImage(8, 8),
+    );
+    solo.dispose();
+    expect(lines.single, contains('conc=1'),
+        reason: 'an uncontended raster measures its own work');
+    expect(lines.single, contains('ms='));
+    expect(PdfRasterProbe.debugInFlight, 0);
+
+    // Two rasters overlapping: `ms=` on each absorbs the other's queue time, so
+    // the count is what tells a slow raster from a waiting one.
+    lines.clear();
+    final gate = Completer<void>();
+    final first = PdfRasterProbe.measure(
+      'base-full',
+      page: 1,
+      rasterize: () async {
+        await gate.future;
+        return picture.toImage(8, 8);
+      },
+    );
+    final second = PdfRasterProbe.measure(
+      'base-full',
+      page: 2,
+      rasterize: () async {
+        await gate.future;
+        return picture.toImage(8, 8);
+      },
+    );
+    gate.complete();
+    (await first).dispose();
+    (await second).dispose();
+    expect(lines, hasLength(2));
+    expect(lines.every((line) => line.contains('conc=2')), isTrue,
+        reason: 'both rasters were in flight for the other\'s whole lifetime');
+    expect(PdfRasterProbe.debugInFlight, 0);
+  });
+
+  test('a throwing raster is not logged but still retires its probe', () async {
+    final lines = <String>[];
+    PdfPerfLog.sink = lines.add;
+    PdfPerfLog.enabled = true;
+    await expectLater(
+      PdfRasterProbe.measure(
+        'base-full',
+        page: 0,
+        rasterize: () => Future<ui.Image>.error(StateError('web OOM')),
+      ),
+      throwsStateError,
+    );
+    expect(lines, isEmpty);
+    // A leaked probe would inflate `conc=` on every raster for the rest of the
+    // session, quietly turning the diagnostic into a liar.
+    expect(PdfRasterProbe.debugInFlight, 0);
+  });
+
+  test('measure does not allocate a probe while the log is off', () async {
+    PdfPerfLog.enabled = false;
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder);
+    final picture = recorder.endRecording();
+    addTearDown(picture.dispose);
+    final lines = <String>[];
+    PdfPerfLog.sink = lines.add;
+    final image = await PdfRasterProbe.measure(
+      'base-full',
+      page: 0,
+      rasterize: () => picture.toImage(4, 4),
+    );
+    image.dispose();
+    expect(lines, isEmpty);
+    expect(PdfRasterProbe.debugInFlight, 0);
+  });
+
   test('interpret splits the build phase into decode and construction', () {
     final lines = capturePrints(() {
       PdfPerfLog.enabled = true;
@@ -196,4 +308,37 @@ void main() {
         reason: 'a decode without a replay must not print half a split');
   });
 
+  test('interpret splits substituted-text shaping out of replay', () {
+    final lines = capturePrints(() {
+      PdfPerfLog.enabled = true;
+      PdfPerfLog.interpret(0,
+          path: 'worker',
+          interpretMs: 48.0,
+          waitMs: 4.0,
+          buildMs: 44.0,
+          decodeMs: 0.0,
+          replayMs: 43.5,
+          textShapeMs: 33.0,
+          textShapeMiss: 660,
+          textShapeHit: 0);
+      // Call sites without the split (no retained-scene replay, or the log's
+      // off) pass no textShapeMs, and the shape fields stay off the line.
+      PdfPerfLog.interpret(1,
+          path: 'worker',
+          interpretMs: 10.0,
+          waitMs: 1.0,
+          buildMs: 9.0,
+          decodeMs: 0.0,
+          replayMs: 9.0);
+    });
+
+    expect(lines[0], contains('replay=43.5ms'));
+    expect(lines[0], contains('shape=33.0ms'));
+    expect(lines[0], contains('shaped=660'));
+    expect(lines[0], contains('cached=0'));
+
+    expect(lines[1], contains('replay=9.0ms'));
+    expect(lines[1], isNot(contains('shape=')));
+    expect(lines[1], isNot(contains('shaped=')));
+  });
 }

@@ -23,6 +23,7 @@ import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
 import 'signing_identity.dart';
+import 'simple_font.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';
@@ -51,6 +52,7 @@ part 'form_styling.dart';
 part 'ocr_editor.dart';
 part 'pades_editor.dart';
 part 'page_editor.dart';
+part 'document_merge.dart';
 part 'signature_editor.dart';
 part 'struct_tree_editor.dart';
 part 'vector_snapshot.dart';
@@ -67,6 +69,7 @@ class PdfEditImpact {
     required this.contentPages,
     required this.annotationPages,
     required this.pageStructureChanged,
+    required this.pageOrderOnly,
     required this.destructive,
   });
 
@@ -76,6 +79,7 @@ class PdfEditImpact {
     contentPages: <int>{},
     annotationPages: <int>{},
     pageStructureChanged: false,
+    pageOrderOnly: false,
     destructive: false,
   );
 
@@ -85,6 +89,7 @@ class PdfEditImpact {
     contentPages: null,
     annotationPages: null,
     pageStructureChanged: false,
+    pageOrderOnly: false,
     destructive: false,
   );
 
@@ -106,6 +111,7 @@ class PdfEditImpact {
       contentPages: content,
       annotationPages: annotations,
       pageStructureChanged: false,
+      pageOrderOnly: false,
       destructive: false,
     );
   }
@@ -116,6 +122,7 @@ class PdfEditImpact {
     required Iterable<int>? contentPages,
     required Iterable<int>? annotationPages,
     bool pageStructureChanged = false,
+    bool pageOrderOnly = false,
     bool destructive = false,
   }) =>
       PdfEditImpact._(
@@ -127,6 +134,7 @@ class PdfEditImpact {
             ? null
             : Set<int>.unmodifiable(annotationPages),
         pageStructureChanged: pageStructureChanged,
+        pageOrderOnly: pageOrderOnly,
         destructive: destructive,
       );
 
@@ -142,6 +150,14 @@ class PdfEditImpact {
   /// Whether page indices/geometry may have shifted across the document.
   final bool pageStructureChanged;
 
+  /// Whether the structural change only permutes the existing page leaves.
+  ///
+  /// No page was inserted, removed, or imported by the structural portion of
+  /// the edit. Hosts may reconcile presentation state by stable indirect
+  /// identity after verifying the new tree and that the page impact lanes are
+  /// empty (a transaction may still combine a reorder with another mutation).
+  final bool pageOrderOnly;
+
   /// Whether existing page content was irreversibly removed.
   final bool destructive;
 }
@@ -152,6 +168,7 @@ class _PdfEditImpactBuilder {
   Set<int>? contentPages = <int>{};
   Set<int>? annotationPages = <int>{};
   bool pageStructureChanged = false;
+  bool pageOrderOnly = false;
   bool destructive = false;
 
   Set<int>? _merge(Set<int>? current, Iterable<int>? next) {
@@ -165,13 +182,18 @@ class _PdfEditImpactBuilder {
     Iterable<int>? content = const <int>[],
     Iterable<int>? annotations = const <int>[],
     bool structure = false,
+    bool orderOnly = false,
     bool removesContent = false,
   }) {
     known = true;
     visualPages = _merge(visualPages, visual);
     contentPages = _merge(contentPages, content);
     annotationPages = _merge(annotationPages, annotations);
-    pageStructureChanged |= structure;
+    if (structure) {
+      pageOrderOnly =
+          pageStructureChanged ? pageOrderOnly && orderOnly : orderOnly;
+      pageStructureChanged = true;
+    }
     destructive |= removesContent;
   }
 
@@ -187,6 +209,7 @@ class _PdfEditImpactBuilder {
           ? null
           : Set<int>.unmodifiable(annotationPages!),
       pageStructureChanged: pageStructureChanged,
+      pageOrderOnly: pageOrderOnly,
       destructive: destructive,
     );
   }
@@ -232,18 +255,20 @@ class PdfEditor {
 
   void _markVisual(Iterable<int>? pages) => _impact.add(visual: pages);
 
-  void _markAnnotations(Iterable<int> pages, {bool visual = true}) =>
+  void _markAnnotations(Iterable<int>? pages, {bool visual = true}) =>
       _impact.add(visual: visual ? pages : const <int>[], annotations: pages);
 
   void _markContent(Iterable<int> pages) =>
       _impact.add(visual: pages, content: pages);
 
-  void _markStructure() => _impact.add(
-        visual: null,
-        content: null,
-        annotations: null,
-        structure: true,
-      );
+  void _markStructure({bool orderOnly = false}) => orderOnly
+      ? _impact.add(structure: true, orderOnly: true)
+      : _impact.add(
+          visual: null,
+          content: null,
+          annotations: null,
+          structure: true,
+        );
 
   void _markDestructive([Iterable<int>? pages]) => _impact.add(
         visual: pages,
@@ -311,4 +336,74 @@ class PdfEditor {
   /// save. The bytes are only valid appended directly to the document this
   /// editor was built over.
   Uint8List saveTail() => _updater.saveTail();
+
+  /// Rewrites the document as a compacted PDF and returns the result plus a
+  /// before/after report - the lossless structural pass of the file-size
+  /// optimiser (#368).
+  ///
+  /// The rewrite drops the dead objects that incremental edits accumulate,
+  /// packs objects into compressed object streams, and re-deflates streams
+  /// that were stored uncompressed - all lossless for rendered output.
+  /// Pending unsaved edits are included. Because it is a from-scratch file
+  /// (no `/Prev`), it does not preserve prior-revision history and it
+  /// invalidates any existing signature - hence an explicit action, not part
+  /// of [save].
+  ///
+  /// If the compacted file would not be smaller (an already object-stream
+  /// document, or one small enough that framing dominates), the current bytes
+  /// are returned unchanged and [PdfCompressionResult.compacted] is false.
+  /// Throws if the document is encrypted (decrypt it first).
+  PdfCompressionResult compress({int deflateLevel = 9}) {
+    final current = _updater.hasChanges ? _updater.save() : document.cos.bytes;
+    final snapshot =
+        _updater.hasChanges ? PdfDocument.open(current).cos : document.cos;
+    final result = CosCompactor(snapshot, deflateLevel: deflateLevel).run();
+    final smaller = result.bytes.length < current.length;
+    return PdfCompressionResult(
+      bytes: smaller ? result.bytes : Uint8List.fromList(current),
+      bytesBefore: current.length,
+      bytesAfter: smaller ? result.bytes.length : current.length,
+      objectsBefore: result.objectsBefore,
+      objectsAfter: result.objectsAfter,
+      streamsDeflated: result.streamsDeflated,
+      compacted: smaller,
+    );
+  }
+}
+
+/// The outcome of [PdfEditor.compress]: the (possibly rewritten) bytes and a
+/// before/after accounting hosts can surface as "saved N%".
+class PdfCompressionResult {
+  const PdfCompressionResult({
+    required this.bytes,
+    required this.bytesBefore,
+    required this.bytesAfter,
+    required this.objectsBefore,
+    required this.objectsAfter,
+    required this.streamsDeflated,
+    required this.compacted,
+  });
+
+  /// The file to keep: the compacted bytes when smaller, otherwise a copy of
+  /// the input unchanged.
+  final Uint8List bytes;
+  final int bytesBefore;
+  final int bytesAfter;
+
+  /// Object slots the source cross-reference declared, versus live objects
+  /// written to the compacted file.
+  final int objectsBefore;
+  final int objectsAfter;
+
+  /// Previously uncompressed streams that were re-deflated.
+  final int streamsDeflated;
+
+  /// Whether the compacted output was actually smaller and was kept.
+  final bool compacted;
+
+  /// Bytes removed (0 when the input was kept).
+  int get bytesSaved => bytesBefore - bytesAfter;
+
+  /// Fraction of the original size removed, in `[0, 1)`.
+  double get ratio => bytesBefore == 0 ? 0 : bytesSaved / bytesBefore;
 }

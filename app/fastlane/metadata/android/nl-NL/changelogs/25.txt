@@ -1,0 +1,5 @@
+Nieuw in 3.3.1
+
+• Dubbele annotaties na het wijzigen van eigenschappen zijn opgelost.
+• Ingesloten lettertypen blijven behouden bij een andere tekstkleur; wolk- en veelhoekvoorbeelden behouden hun patroonschaal.
+• Meerdere pagina’s herschikken geeft duidelijkere groepsfeedback en werkt betrouwbaarder.

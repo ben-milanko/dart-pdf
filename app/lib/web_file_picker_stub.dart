@@ -8,3 +8,16 @@ Future<List<XFile>> pickPdfFilesWeb({bool multiple = true}) =>
 
 Future<XFile?> pickPdfFileWeb() =>
     throw UnsupportedError('pickPdfFileWeb is web-only');
+
+Future<List<XFile>> pickInMemoryFilesWeb({
+  required String accept,
+  required String fallbackMimeType,
+  bool multiple = true,
+}) =>
+    throw UnsupportedError('pickInMemoryFilesWeb is web-only');
+
+Future<XFile?> pickInMemoryFileWeb({
+  required String accept,
+  required String fallbackMimeType,
+}) =>
+    throw UnsupportedError('pickInMemoryFileWeb is web-only');

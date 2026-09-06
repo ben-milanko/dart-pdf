@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:file_selector_platform_interface/file_selector_platform_interface.dart'
+    show FileSelectorPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -14,6 +16,38 @@ import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/keyless_signing.dart';
 import 'package:dart_pdf_editor_app/signature_appearance_store.dart';
+
+/// A fake file selector that hands back a prepared key file (single-file
+/// picker) and certificate files (multi-file picker), capturing the filter
+/// groups the default pickers pass so we can assert the localized labels.
+class _KeyCertSelector extends FileSelectorPlatform {
+  _KeyCertSelector(this.key, this.certs);
+
+  final XFile key;
+  final List<XFile> certs;
+  XTypeGroup? keyGroup;
+  XTypeGroup? certGroup;
+
+  @override
+  Future<XFile?> openFile({
+    List<XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    keyGroup = acceptedTypeGroups?.single;
+    return key;
+  }
+
+  @override
+  Future<List<XFile>> openFiles({
+    List<XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    certGroup = acceptedTypeGroups?.single;
+    return certs;
+  }
+}
 
 /// An unsigned OIDC token carrying [claims], enough for the keyless flow.
 String _jwt(Map<String, Object?> claims) {
@@ -120,6 +154,99 @@ void main() {
     expect(result!.location, 'Melbourne');
   });
 
+  testWidgets('a key/cert mismatch shows a localized error, not a raw exception',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () => showDigitalSigningDialog(
+              context,
+              // A valid key paired with a certificate for a different key -
+              // fromFiles throws PdfSignatureIdentityException(keyCertificateMismatch),
+              // which the app maps to a localized message at the display site.
+              privateKeyPicker: () async => XFile.fromData(
+                Uint8List.fromList(testSignerKeyPem.codeUnits),
+                name: 'signer-key.pem',
+              ),
+              certificatePicker: () async => [
+                XFile.fromData(
+                  Uint8List.fromList(testChainSignerCertPem.codeUnits),
+                  name: 'other-cert.pem',
+                ),
+              ],
+            ),
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('digital-signature-advanced')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('digital-signature-error')), findsOneWidget);
+    expect(
+      find.text('The private key does not match any selected RSA certificate.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('default pickers load key + cert with localized filter labels',
+      (tester) async {
+    final original = FileSelectorPlatform.instance;
+    final fake = _KeyCertSelector(
+      XFile.fromData(Uint8List.fromList(testSignerKeyPem.codeUnits),
+          name: 'signer-key.pem'),
+      [
+        XFile.fromData(Uint8List.fromList(testSignerCertPem.codeUnits),
+            name: 'signer-cert.pem'),
+      ],
+    );
+    FileSelectorPlatform.instance = fake;
+    addTearDown(() => FileSelectorPlatform.instance = original);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          // No injected pickers - exercises the default _pickPrivateKey /
+          // _pickCertificates, which resolve the localized filter labels.
+          builder: (context) => FilledButton(
+            onPressed: () => showDigitalSigningDialog(context),
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('digital-signature-advanced')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dart PDF Test Signer'), findsOneWidget);
+    expect(fake.keyGroup?.label, 'RSA private keys');
+    expect(fake.certGroup?.label, 'X.509 certificates');
+  });
+
   testWidgets('one-tap: create a self-signed identity and sign with it',
       (tester) async {
     DigitalSignatureOptions? result;
@@ -201,6 +328,11 @@ void main() {
 
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Digitally sign item can sit below the fold - scroll it in before tapping.
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('menu-digital-signature')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
     await tester.pumpAndSettle();
 
@@ -240,6 +372,11 @@ void main() {
 
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Digitally sign item can sit below the fold - scroll it in before tapping.
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('menu-digital-signature')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
     await tester.pumpAndSettle();
 
@@ -278,6 +415,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Digitally sign item can sit below the fold - scroll it in before tapping.
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('menu-digital-signature')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
     await tester.pumpAndSettle();
@@ -367,7 +509,7 @@ void main() {
                 createSelfSignedIdentity: (context, store) async =>
                     PdfSigningIdentity.generate(name: 'Ada Lovelace'),
                 placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
-                logoPicker: () async => logo,
+                logoPicker: (_) async => logo,
                 pageCount: 4,
               );
             },
@@ -437,7 +579,7 @@ void main() {
                 createSelfSignedIdentity: (context, s) async =>
                     PdfSigningIdentity.generate(name: 'Ada Lovelace'),
                 placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
-                logoPicker: () async => logo,
+                logoPicker: (_) async => logo,
                 appearanceStore: store,
               ),
               child: const Text('Open'),
@@ -581,6 +723,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(find.byTooltip('DartPDF menu'));
       await tester.pumpAndSettle();
+      // The app menu is tall (scan entries land above this on mobile), so the
+      // Digitally sign item can sit below the fold - scroll it in first.
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('menu-digital-signature')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
       await tester.pumpAndSettle();
     }
@@ -621,6 +768,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Digitally sign item can sit below the fold - scroll it in before tapping.
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('menu-digital-signature')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
     await tester.pumpAndSettle();

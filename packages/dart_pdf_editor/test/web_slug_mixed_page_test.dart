@@ -75,7 +75,7 @@ void main() {
     });
   });
 
-  testWidgets('detail raster yields to the mixed Slug base during live zoom',
+  testWidgets('mixed Slug base stays sharp without a redundant detail raster',
       (tester) async {
     PdfPageView.webSlugGlyphLayer = true;
     PdfPageView.debugWebSlugGlyphLayerBackendOverride = true;
@@ -110,7 +110,9 @@ void main() {
     final slug = find.byKey(const ValueKey('pdf-page-slug-picture'));
     final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
     await _waitFor(tester, slug, label: 'mixed Slug picture');
-    await _waitFor(tester, detail, label: 'high-resolution detail');
+    expect(detail, findsNothing,
+        reason: 'the image decode already has display-resolution headroom, '
+            'so a raster overlay would only cover transform-sharp Slug text');
     final picture =
         (tester.widget<CustomPaint>(slug).painter! as dynamic).picture;
     final quads = StripPdfDevice.totalSlugQuads;
@@ -128,8 +130,14 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 60));
     await tester.pumpWidget(at(1));
-    await _waitFor(tester, detail, label: 'settled replacement detail');
     expect(slug, findsOneWidget);
+    expect(detail, findsNothing,
+        reason: 'a settle must keep using the complete retained picture');
+    expect(
+        identical(
+            (tester.widget<CustomPaint>(slug).painter! as dynamic).picture,
+            picture),
+        isTrue);
     expect(StripPdfDevice.totalSlugQuads, quads,
         reason: 'settles must reuse the transform-time Slug picture');
   });
@@ -183,23 +191,85 @@ void main() {
       ),
     ));
 
-    await _waitUntil(tester, () => worker.regionRecordStarted.isCompleted,
-        label: 'held region record');
-    expect(worker.fullRecordStarted.isCompleted, isFalse,
-        reason: 'full refinement must not overlap detail rasterization');
-
+    // This viewport shows a slice well below the fixture's image (page-space
+    // y 620..740, i.e. device y 52..172), so replaying the retained vector
+    // scene produces the FINISHED region - and no image-complete region record
+    // is asked for at all. Re-recording and re-rasterizing it would return
+    // byte-identical pixels: a second full-region GPU readback and allocation
+    // for nothing (322ms/1.7MP in the 2026-07-29 trace).
     await _waitFor(tester, find.byKey(const ValueKey('pdf-page-detail-image')),
         label: 'region-first high-resolution detail');
+    expect(worker.regionRecordStarted.isCompleted, isFalse,
+        reason: 'an image-free region needs no image-complete region record');
     expect(worker.fullRecordStarted.isCompleted, isTrue,
         reason: 'the ordinary full-page image record should still warm');
     expect(worker.fullRecordReleased, isFalse,
         reason: 'visible detail must land while the full-page record is held');
-    expect(worker.regionRecordStarted.isCompleted, isTrue);
-    expect(worker.regionRecordReleased, isFalse,
-        reason:
-            'sharp vector detail must also beat the complete region record');
     expect(worker.vectorRecordPriority, -100,
         reason: 'visible detail must preempt ordinary neighbouring pages');
+  });
+
+  testWidgets('a region the image reaches waits for the complete record',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildEmbeddedFontImagePdf();
+    final page = PdfDocument.open(bytes).page(0);
+    final previews = PdfPagePreviewCache();
+    await tester.runAsync(() async {
+      final picture = await PdfPageRenderer.renderPictureRecorded(page);
+      try {
+        await previews.putFromPicture(0, page, picture);
+      } finally {
+        picture.dispose();
+      }
+    });
+    final worker =
+        _DeferredFullRecordWorker(PdfRenderWorker.startUncached(bytes));
+    addTearDown(previews.dispose);
+    addTearDown(worker.dispose);
+
+    // No translation: the visible slice starts at the top of the page, so the
+    // fixture's image DOES reach it. The vector-only scene carries a
+    // placeholder where those pixels belong, so its replay is not a complete
+    // patch and must not be painted as if it were - the soft base stays up
+    // until the image-complete region record lands.
+    await tester.pumpWidget(Align(
+      alignment: Alignment.topLeft,
+      child: OverflowBox(
+        alignment: Alignment.topLeft,
+        maxWidth: double.infinity,
+        maxHeight: double.infinity,
+        child: Transform.scale(
+          alignment: Alignment.topLeft,
+          scale: 2,
+          child: SizedBox(
+            width: 612,
+            height: 792,
+            child: PdfPageView(
+              page: page,
+              scale: 8,
+              renderWorker: worker,
+              previewCache: previews,
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await _waitUntil(tester, () => worker.regionRecordStarted.isCompleted,
+        label: 'held region record');
+    expect(worker.regionRecordReleased, isFalse);
+    // The region record is held forever here, so nothing may sharpen: a vector
+    // replay painted now would show the image's placeholder.
+    for (var i = 0; i < 20; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsNothing,
+        reason: 'an incomplete vector patch must not paint over the base');
   });
 }
 
@@ -229,7 +299,8 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) {
     if (decodeImages && imageDecodeRegion != null) {
       if (!regionRecordStarted.isCompleted) regionRecordStarted.complete();
       return _regionRecord.future;

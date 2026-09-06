@@ -20,6 +20,7 @@ const _defaultMetrics = [
   'interpretMs',
   'extractMs',
   'saveMs',
+  'decodeMs',
   'peakRssBytes',
 ];
 

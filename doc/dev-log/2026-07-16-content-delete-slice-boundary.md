@@ -1,5 +1,8 @@
 # content-delete region slicing: snap to the glyph the box covers
 
+Historical implementation notes. The current implementation and validation
+are described in [the September refresh](2026-09-06-content-delete.md).
+
 PR #112 (`codex/add-content-delete-tool-like-bluebeam-1l9dr0`) adds the
 Bluebeam-style content-erase tool: drag a rectangle and
 `PdfEditor.deleteElementsInRect` (`content_editor.dart`) removes the

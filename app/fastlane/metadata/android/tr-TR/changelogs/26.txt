@@ -1,0 +1,7 @@
+3.4.0 sürümündeki yenilikler
+
+• Açık belgeler arasında ek açıklamaları kopyalayıp yapıştırın.
+• Sayfaları istediğiniz yere eklemek için PDF’leri küçük resimlerin arasına bırakın.
+• Yerleştirilmiş damgaları koleksiyona kaydedin ve seçili açıklamanın rengini araç çubuğunda görün.
+• Metin seçimi ve yedek yazı tipi işleme artık daha hassas hizalanıyor.
+• Daha hızlı sekme ızgaraları, akıcı izleme dörtgeni yakınlaştırması, daha güvenli aşamalı erişim ve güvenilir baskı önizlemeleri.

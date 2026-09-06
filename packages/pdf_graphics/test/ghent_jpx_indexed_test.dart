@@ -8,11 +8,10 @@
 // component were colour paints the raw index value instead - index 0 → gray 0
 // → a solid black square, leaving a black X exposed.
 //
-// These pages grade themselves, so this pins the decode directly rather than
-// relying on the rasterized baseline (which the render suite tolerates as a
-// colour deviation for the ICC sibling, and which cannot distinguish "image
-// drew its palette colour" from "image drew black"). The image must decode to
-// a uniform, opaque, distinctly-hued square - never the old black.
+// These pages grade themselves, so this pins the decode directly as well as
+// through the all-page raster baseline. The image must decode to a uniform,
+// opaque, distinctly-hued square - never the old black. The ICC sibling's
+// palette green is then converted through the document OutputIntent.
 import 'dart:io';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -44,10 +43,12 @@ void main() {
     expect(pixels.width, 236);
     expect(pixels.height, 236);
     final (r, g, b) = _uniformOpaqueColor(pixels);
-    // hival 0, palette RGB [114 247 13] → green. The regression paints black.
-    expect(g, greaterThan(200), reason: 'green channel; black would be ~0');
-    expect(r, lessThan(180));
-    expect(b, lessThan(120));
+    // hival 0, palette RGB [114 247 13] → output-managed green. The
+    // regression paints black; the profile conversion gives approximately
+    // RGB(85,175,59), so assert the hue rather than the unmanaged source byte.
+    expect(g, greaterThan(150), reason: 'green channel; black would be ~0');
+    expect(g - r, greaterThan(60));
+    expect(g - b, greaterThan(80));
   });
 }
 

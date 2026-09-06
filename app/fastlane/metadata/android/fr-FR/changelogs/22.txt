@@ -1,0 +1,4 @@
+Nouveautés de la 3.1.1
+
+• Défilement plus fluide dans les PDF volumineux ou visuellement denses, avec moins d’images perdues.
+• Les aperçus restent visibles pendant le défilement rapide, puis retrouvent tous leurs détails.

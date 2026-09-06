@@ -1,0 +1,7 @@
+Nieuw in 4.2.0
+
+- Nabije pagina's blijven scherp tijdens langzaam scrollen, dankzij beschikbare grafische capaciteit.
+- Plaats annotaties nauwkeurig met nieuwe uitlijnhulplijnen en paginalinialen.
+- Zoom rond de aanwijzer met Ctrl of Cmd en het muiswiel.
+- Annotaties bewerken op gedraaide pagina's en meerregelige markeringen selecteren opgelost.
+- Pan tussen tekstregels in plaats van een selectie te starten.

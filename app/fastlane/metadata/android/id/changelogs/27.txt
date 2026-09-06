@@ -1,0 +1,6 @@
+Yang baru di 3.5.0
+
+- PDF besar dan sangat detail tetap responsif saat digulir, digeser, dan diperbesar; area yang terlihat dipertajam lebih dahulu.
+- Pratinjau halaman menjadi makin jelas saat navigasi cepat.
+- Halaman tetap tajam dan terlihat di dekat tepi tampilan.
+- Dokumen jarak jauh dimuat lebih cepat dengan penggunaan memori yang lebih terprediksi.

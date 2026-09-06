@@ -1,0 +1,5 @@
+Điểm mới trong 3.2.0
+
+• Hiển thị nhanh và ổn định hơn nhờ bộ nhớ đệm trang thích ứng với bộ nhớ và giảm kết xuất lặp.
+• Tương thích FreeText và chú thích tốt hơn, đồng thời chọn đánh dấu nhiều dòng chính xác hơn.
+• Sửa lỗi dừng khi tải, chậm khôi phục phiên từ xa và thu phóng Ctrl/Cmd+con lăn sau khi vẽ có ràng buộc.

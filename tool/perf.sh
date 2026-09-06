@@ -8,6 +8,10 @@
 #   tool/perf.sh web build                      # (re)build the web harness bundle
 #   tool/perf.sh web loop [N]                   # legacy scroll loop, N iters
 #   tool/perf.sh webdiff <ref> [scenario] ...   # one-command web A/B vs a git ref
+#   tool/perf.sh competitive [scenario] ...     # DartPDF vs Chromium/PDFium journey
+#   tool/perf.sh pdfium-gate [scenario ...]      # default-off surface experiment budgets
+#   tool/perf.sh screenshot-probe               # calibrate screenshot sample clock
+#   tool/perf.sh surface-check [scenario] ...   # worker canvas pixel gate
 #   tool/perf.sh compare-pdfium [corpus]        # dart-pdf vs PDFium tables
 #   tool/perf.sh gate [--update-baseline]       # deterministic PR counter gate
 #   tool/perf.sh dce                            # PDF_PERF=false tree-shake proof
@@ -86,6 +90,47 @@ case "$cmd" in
     args=(--baseline "$REF")
     if [ $# -gt 0 ] && [[ "$1" != --* ]]; then args+=(--scenario "$1"); shift; fi
     (cd "$PERF_DIR" && node bench.mjs "${args[@]}" "$@")
+    ;;
+  competitive|parity)
+    PERF_DIR="$ROOT/app/tool/perf"
+    [ -d "$PERF_DIR/node_modules" ] || (cd "$PERF_DIR" && npm install)
+    SCENARIO="${1:-parity-plan}"
+    shift || true
+    # build.sh resolves a relative output from the caller's directory, while
+    # the Node runner executes from PERF_DIR. Pin it to one absolute path
+    # before either side reads it so a custom build can never serve stale
+    # bytes from a same-named directory under app/tool/perf.
+    if [ -n "${PERF_BUILD_OUTPUT:-}" ] && [[ "$PERF_BUILD_OUTPUT" != /* ]]; then
+      export PERF_BUILD_OUTPUT="$PWD/$PERF_BUILD_OUTPUT"
+    fi
+    # The common-journey surface lives in the compiled harness. Rebuild by
+    # default so a stale bundle can never be compared with the current source;
+    # PERF_NO_BUILD=1 is the explicit fast-loop escape hatch.
+    [ "${PERF_NO_BUILD:-0}" = "1" ] || "$PERF_DIR/build.sh"
+    (cd "$PERF_DIR" && node competitive.mjs --scenario "$SCENARIO" "$@")
+    ;;
+  pdfium-gate)
+    bash "$ROOT/tool/perf/pdfium_gate.sh" "$@"
+    ;;
+  screenshot-probe)
+    PERF_DIR="$ROOT/app/tool/perf"
+    [ -d "$PERF_DIR/node_modules" ] || (cd "$PERF_DIR" && npm install)
+    (cd "$PERF_DIR" && node screenshot_timing_probe.mjs "$@")
+    ;;
+  surface-check)
+    PERF_DIR="$ROOT/app/tool/perf"
+    [ -d "$PERF_DIR/node_modules" ] || (cd "$PERF_DIR" && npm install)
+    SCENARIO="${1:-parity-plan}"
+    shift || true
+    if [ -n "${PERF_BUILD_OUTPUT:-}" ] && [[ "$PERF_BUILD_OUTPUT" != /* ]]; then
+      export PERF_BUILD_OUTPUT="$PWD/$PERF_BUILD_OUTPUT"
+    fi
+    # The worker-owned presentation target is SkWasm; build that backend unless
+    # the caller explicitly selected another one or supplied a prebuilt bundle.
+    export WASM="${WASM:-1}"
+    [ "${PERF_NO_BUILD:-0}" = "1" ] || "$PERF_DIR/build.sh"
+    (cd "$PERF_DIR" && node surface_compare.mjs \
+      --scenario "$SCENARIO" --gate "$@")
     ;;
   compare-pdfium)
     (cd "$ROOT/benchmark" && ./run.sh "$@")

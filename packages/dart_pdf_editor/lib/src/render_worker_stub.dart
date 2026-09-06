@@ -8,7 +8,9 @@ import 'render_worker.dart';
 /// Fallback used where `dart:isolate` is unavailable (the web) until a Web
 /// Worker backend lands: a worker that never offloads, so every page renders
 /// locally exactly as it did before the worker existed.
-PdfRenderWorker startRenderWorker(Uint8List bytes) => const _NullRenderWorker();
+PdfRenderWorker startRenderWorker(Uint8List bytes,
+        {List<int>? populatedRanges}) =>
+    const _NullRenderWorker();
 
 /// No-op: there is no worker to prewarm on this platform (#450 is web-specific).
 void prewarmRenderWorkers(int count) {}
@@ -29,7 +31,8 @@ class _NullRenderWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

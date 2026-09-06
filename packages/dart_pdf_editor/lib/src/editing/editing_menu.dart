@@ -5,6 +5,8 @@ import 'package:pdf_document/pdf_document.dart';
 
 import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
+import '../popup_position.dart';
+import 'annotation_presentation.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_form_style.dart';
@@ -78,6 +80,88 @@ class PdfAnnotationMenuItem {
 typedef PdfAnnotationMenuBuilder = List<PdfAnnotationMenuItem> Function(
     BuildContext context, PdfAnnotationMenuRequest request);
 
+/// What a text-selection context menu acts on: the editing session (null
+/// in a plain reader), the page the menu opened on, and the text selection
+/// as it stood the moment the menu opened.
+///
+/// The quads are the ones a text markup would use, so a host entry can
+/// build a `/Link`, a `/Highlight`, or its own annotation from the same
+/// geometry the stock entries do - see
+/// [PdfViewerController.selectionRectsOn], which is where they come from.
+class PdfTextMenuRequest {
+  const PdfTextMenuRequest({
+    required this.controller,
+    required this.pageIndex,
+    required this.selectedText,
+    required this.selectionPages,
+    required this.quadsByPage,
+    required this.pagePoint,
+  });
+
+  /// The editing session behind the viewer, or null in a plain reader -
+  /// a host entry that writes to the document must handle both.
+  final PdfEditingController? controller;
+
+  /// The page the menu was opened on (where the right-click landed).
+  final int pageIndex;
+
+  /// The selected text, empty when the click found no word to select
+  /// (the menu still opens for Select all).
+  final String selectedText;
+
+  /// Pages the selection touches, in document order; empty without a
+  /// selection.
+  final List<int> selectionPages;
+
+  /// The selection's rectangles per page, in PDF page coordinates -
+  /// ready to use as the quads of a text-markup or `/Link` annotation.
+  /// Keyed by the entries of [selectionPages].
+  final Map<int, List<PdfRect>> quadsByPage;
+
+  /// Where on [pageIndex] the menu was opened, in PDF page coordinates.
+  final (double, double) pagePoint;
+
+  /// Whether the menu opened on a text selection. Host entries that act
+  /// on text should disable themselves when this is false.
+  bool get hasSelection => selectedText.isNotEmpty;
+}
+
+/// One host entry in the text-selection context menu. The stock entries
+/// (markup, Copy, Select all) are built internally and always come first.
+class PdfTextMenuItem {
+  const PdfTextMenuItem({
+    this.key,
+    required this.label,
+    this.icon,
+    this.enabled = true,
+    required this.onSelected,
+  });
+
+  /// Optional key on the menu row, for tests.
+  final Key? key;
+
+  final String label;
+  final IconData? icon;
+  final bool enabled;
+
+  /// Runs when the entry is picked, with the request the menu was built
+  /// from - the selection it names is the one the user right-clicked,
+  /// even if the viewer's live selection has moved on since.
+  final FutureOr<void> Function(PdfTextMenuRequest request) onSelected;
+}
+
+/// Builds the host's extra entries for the text-selection context menu -
+/// the [PdfAnnotationMenuBuilder] of the text menu. Returning an empty
+/// list adds nothing; the stock entries always come first, with a divider
+/// before the custom ones.
+///
+/// Called every time the menu opens, including when nothing is selected
+/// (a right-click that found no word, where only Select all is live), so
+/// entries that need text should key off [PdfTextMenuRequest.hasSelection]
+/// rather than assume one.
+typedef PdfTextMenuBuilder = List<PdfTextMenuItem> Function(
+    BuildContext context, PdfTextMenuRequest request);
+
 /// Shows the annotation context menu at [position] (global coordinates)
 /// for [controller]'s current selection: copy/cut/apply-to-pages/paste,
 /// bring to front, send to back, add/remove node (a single /PolyLine or
@@ -96,7 +180,9 @@ Future<void> showPdfAnnotationMenu({
   required PdfEditingController controller,
   required int pageIndex,
   PdfAnnotationMenuBuilder? customActions,
+  PdfTextPrompt textPrompt = showPdfTextPrompt,
   (double, double)? pagePoint,
+  (int page, int slot)? unlockTarget,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
@@ -104,12 +190,26 @@ Future<void> showPdfAnnotationMenu({
   final canPasteSnapshot = controller.hasSnapshotClipboard;
   final canPaste = canPasteSnapshot || controller.hasAnnotationClipboard;
   final hasSelection = request.annotations.isNotEmpty;
-  if (!hasSelection && !canPaste) return;
+  // A locked annotation can't be selected, so a right-click on one opens
+  // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
+  // selection/paste entries.
+  if (!hasSelection && !canPaste && unlockTarget == null) return;
 
   // The stock entries are grouped so [_menuRowsWithDividers] can rule off
-  // each cluster: clipboard, z-order arrange, node editing, recolour, then
-  // the destructive delete. Empty groups drop out and no divider is drawn
-  // for them, so a small selection still reads as a tight menu.
+  // each cluster: unlock, clipboard, z-order arrange, node editing,
+  // recolour, then the destructive lock/delete. Empty groups drop out and
+  // no divider is drawn for them, so a small selection still reads as a
+  // tight menu.
+  final unlock = <PdfAnnotationMenuItem>[
+    if (unlockTarget != null)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-unlock'),
+        label: pdfL10n(context).menuUnlock,
+        icon: Icons.lock_open_outlined,
+        onSelected: (request) => request.controller
+            .setAnnotationLocked(unlockTarget.$1, unlockTarget.$2, false),
+      ),
+  ];
   final clipboard = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
@@ -147,15 +247,18 @@ Future<void> showPdfAnnotationMenu({
         },
       ),
     ],
-    PdfAnnotationMenuItem(
-      key: const ValueKey('pdf-annot-menu-paste'),
-      label: pdfL10n(context).paste,
-      icon: Icons.paste,
-      enabled: canPaste,
-      onSelected: (request) => canPasteSnapshot
-          ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
-          : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
-    ),
+    // Paste rides the selection/clipboard menu; it stays out of the
+    // standalone Unlock menu (no selection, no clipboard).
+    if (canPaste || hasSelection)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-paste'),
+        label: pdfL10n(context).paste,
+        icon: Icons.paste,
+        enabled: canPaste,
+        onSelected: (request) => canPasteSnapshot
+            ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
+            : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
+      ),
   ];
   final arrange = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
@@ -226,9 +329,60 @@ Future<void> showPdfAnnotationMenu({
         onSelected: (request) =>
             request.controller.applySelectedStyleAsDefault(),
       ),
+    // A stamp on the page goes back into the stamp collection, so a design
+    // that arrived in a document can be reused like one made in the editor.
+    if (hasSelection && controller.canSaveSelectedAsCustomStamp)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-save-stamp'),
+        label: pdfL10n(context).menuSaveToStamps,
+        icon: Icons.approval_outlined,
+        onSelected: (request) {
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          final saved = request.controller.saveSelectedAsCustomStamp();
+          if (saved == null) return;
+          messenger
+            ?..clearSnackBars()
+            ..showSnackBar(SnackBar(
+              content: Text(pdfL10n(context).stampSavedToCollection),
+              behavior: SnackBarBehavior.floating,
+            ));
+        },
+      ),
+    if (hasSelection && controller.canSaveSelectedAnnotation)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-save-library'),
+        label: pdfL10n(context).annotationLibrarySave,
+        icon: Icons.collections_bookmark_outlined,
+        onSelected: (request) async {
+          final annotation = request.primary;
+          if (annotation == null) return;
+          final name = await textPrompt(
+            context,
+            title: pdfL10n(context).annotationLibrarySaveTitle,
+            initial: pdfAnnotationLabel(context, annotation.subtype),
+            multiline: false,
+          );
+          if (name != null) request.controller.saveSelectedAnnotation(name);
+        },
+      ),
   ];
   final destructive = <PdfAnnotationMenuItem>[
-    if (hasSelection)
+    if (hasSelection) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-flatten'),
+        label: pdfL10n(context).tbFlattenLabel,
+        icon: Icons.layers_clear_outlined,
+        enabled: controller.canFlattenSelectedAnnotations,
+        onSelected: (request) =>
+            request.controller.flattenSelectedAnnotations(),
+      ),
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-lock'),
+        label: pdfL10n(context).menuLock,
+        icon: Icons.lock_outline,
+        enabled: controller.canLockSelected,
+        onSelected: (request) => request.controller.lockSelectedAnnotations(),
+      ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
         label: pdfL10n(context).delete,
@@ -236,17 +390,16 @@ Future<void> showPdfAnnotationMenu({
         enabled: true,
         onSelected: (request) => request.controller.deleteSelected(),
       ),
+    ],
   ];
   final custom =
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   final picked = await showMenu<PdfAnnotationMenuItem>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: _menuRowsWithDividers(
-        [clipboard, arrange, nodes, recolor, destructive, custom]),
+        [unlock, clipboard, arrange, nodes, recolor, destructive, custom]),
   );
   await picked?.onSelected(request);
 }
@@ -321,12 +474,9 @@ Future<void> showPdfFormFieldMenu({
           icon: Icons.list_alt_outlined,
           enabled: enabled && field.options.isNotEmpty,
           onSelected: (_) async {
-            final overlay =
-                Overlay.of(context).context.findRenderObject()! as RenderBox;
             final picked = await showMenu<String>(
               context: context,
-              position: RelativeRect.fromRect(
-                  position & Size.zero, Offset.zero & overlay.size),
+              position: pdfPopupPosition(context, position),
               items: [
                 for (final (export, display) in field.options)
                   PopupMenuItem(
@@ -439,11 +589,9 @@ Future<void> showPdfFormFieldMenu({
     ),
   ];
 
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   final picked = await showMenu<PdfAnnotationMenuItem>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: _menuRowsWithDividers([edit, structure, destructive]),
   );
   // the request param is unused by these closures; reuse the row type

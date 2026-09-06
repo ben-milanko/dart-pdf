@@ -1,0 +1,6 @@
+Nouveautés de la version 3.5.0
+
+- Les PDF volumineux et détaillés restent fluides pendant le défilement et le zoom, et la zone visible est affinée en premier.
+- Les aperçus gagnent progressivement en netteté pendant la navigation rapide.
+- Les pages restent nettes et visibles près des bords de la vue.
+- Chargement plus rapide des documents distants et mémoire plus prévisible.

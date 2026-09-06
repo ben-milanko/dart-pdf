@@ -1,6 +1,6 @@
 /// Optional bundled assets for `dart_pdf_editor`: the six editor fonts offered
-/// by the font menu (and used as composite-text fallbacks) and the prebuilt web
-/// render worker.
+/// by the font menu (and used as composite-text fallbacks), TeX Gyre Adventor
+/// for unembedded Century Gothic / Avant Garde, and the prebuilt web worker.
 ///
 /// These assets are declared in *this* package rather than in `dart_pdf_editor`
 /// so a viewer-only application never bundles them - Flutter includes a

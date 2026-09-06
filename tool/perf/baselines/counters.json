@@ -75,10 +75,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:1-CMYK/GWG010_CMYK_OP_x3.pdf": {
-    "objectsLoaded": 51,
+    "objectsLoaded": 56,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 14,
-    "bytesDecodedFlate": 20752,
+    "streamsDecoded": 16,
+    "bytesDecodedFlate": 1556505,
     "bytesDecodedOther": 0,
     "contentOps": 1728,
     "contentBytes": 29874,
@@ -90,10 +90,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:1-CMYK/GWG050_Font_Substitution_x3.pdf": {
-    "objectsLoaded": 18,
+    "objectsLoaded": 21,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 5,
-    "bytesDecodedFlate": 1088171,
+    "streamsDecoded": 6,
+    "bytesDecodedFlate": 2614899,
     "bytesDecodedOther": 0,
     "contentOps": 232,
     "contentBytes": 7138,
@@ -105,10 +105,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:1-CMYK/GWG060_Shading_x1a.pdf": {
-    "objectsLoaded": 33,
+    "objectsLoaded": 36,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 13,
-    "bytesDecodedFlate": 263276,
+    "streamsDecoded": 14,
+    "bytesDecodedFlate": 1790004,
     "bytesDecodedOther": 0,
     "contentOps": 588,
     "contentBytes": 19628,
@@ -120,10 +120,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf": {
-    "objectsLoaded": 41,
+    "objectsLoaded": 50,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 7,
-    "bytesDecodedFlate": 11810,
+    "streamsDecoded": 12,
+    "bytesDecodedFlate": 1855324,
     "bytesDecodedOther": 0,
     "contentOps": 668,
     "contentBytes": 10370,
@@ -135,10 +135,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:3-ICC-CMS/GWG206_ICC_V4-RGB-Image_x4.pdf": {
-    "objectsLoaded": 20,
+    "objectsLoaded": 23,
     "objectStreamsLoaded": 2,
-    "streamsDecoded": 9,
-    "bytesDecodedFlate": 11357,
+    "streamsDecoded": 10,
+    "bytesDecodedFlate": 1840450,
     "bytesDecodedOther": 0,
     "contentOps": 208,
     "contentBytes": 4560,
@@ -150,10 +150,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:3-ICC-CMS/GWG230_Four_different Grays_x1a.pdf": {
-    "objectsLoaded": 29,
+    "objectsLoaded": 32,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 7,
-    "bytesDecodedFlate": 195928,
+    "streamsDecoded": 8,
+    "bytesDecodedFlate": 2025021,
     "bytesDecodedOther": 0,
     "contentOps": 450,
     "contentBytes": 9098,

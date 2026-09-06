@@ -18,31 +18,36 @@ import 'web_file_picker_stub.dart'
 const _macosFileAccessChannel =
     MethodChannel('dev.milanko.dartpdf/file_access');
 
-/// One filter, every platform: desktop and web match on the extension,
-/// Android on the MIME type, iOS/macOS on the uniform type identifier -
-/// a type group missing the field a platform filters by throws there.
-const pdfTypeGroup = XTypeGroup(
-  label: 'PDF documents',
-  extensions: ['pdf'],
-  mimeTypes: ['application/pdf'],
-  uniformTypeIdentifiers: ['com.adobe.pdf'],
-);
+// The `label` shows in the native desktop file dialog's type-filter dropdown,
+// so it is localized: the callers (which have a BuildContext) pass the resolved
+// string in. Everything else is a stable platform identifier and stays put -
+// desktop and web match on the extension, Android on the MIME type, iOS/macOS
+// on the uniform type identifier; a group missing the field a platform filters
+// by throws there.
+
+/// The file filter for PDFs, labelled [label] (already localized by the caller).
+XTypeGroup pdfTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['pdf'],
+      mimeTypes: const ['application/pdf'],
+      uniformTypeIdentifiers: const ['com.adobe.pdf'],
+    );
 
 /// Images accepted by the form tool's push-button fill and the image tool.
-const imageTypeGroup = XTypeGroup(
-  label: 'Images',
-  extensions: ['png', 'jpg', 'jpeg'],
-  mimeTypes: ['image/png', 'image/jpeg'],
-  uniformTypeIdentifiers: ['public.png', 'public.jpeg'],
-);
+XTypeGroup imageTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['png', 'jpg', 'jpeg'],
+      mimeTypes: const ['image/png', 'image/jpeg'],
+      uniformTypeIdentifiers: const ['public.png', 'public.jpeg'],
+    );
 
 /// Custom stamp bundles exported from the Manage Stamps dialog.
-const stampBundleTypeGroup = XTypeGroup(
-  label: 'DartPDF stamps',
-  extensions: ['json'],
-  mimeTypes: ['application/json'],
-  uniformTypeIdentifiers: ['public.json'],
-);
+XTypeGroup stampBundleTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['json'],
+      mimeTypes: const ['application/json'],
+      uniformTypeIdentifiers: const ['public.json'],
+    );
 
 const _stampBundleFormat = 'dev.milanko.dartpdf.custom-stamps';
 
@@ -71,6 +76,7 @@ class MobilePickedPdf {
     required this.token,
     required this.name,
     this.length,
+    this.provider,
     required this.seekable,
   });
 
@@ -79,6 +85,12 @@ class MobilePickedPdf {
   final String token;
   final String name;
   final int? length;
+
+  /// A non-secret provider identifier supplied by the runner. Android reports
+  /// the content URI authority; iOS reports the iCloud container display name
+  /// when available and otherwise a generic File Provider label. Unlike
+  /// [token], this is safe to include in exported diagnostics.
+  final String? provider;
 
   /// Whether native ranged reads over [token] are random-access. False for a
   /// non-seekable pipe (many cloud providers), where the caller streams whole
@@ -111,10 +123,12 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
   for (final entry in picked) {
     final token = entry['token'] as String?;
     if (token == null || token.isEmpty) continue;
+    final rawLength = (entry['length'] as num?)?.toInt();
     out.add(MobilePickedPdf(
       token: token,
       name: (entry['name'] as String?) ?? 'document.pdf',
-      length: (entry['length'] as num?)?.toInt(),
+      length: rawLength != null && rawLength >= 0 ? rawLength : null,
+      provider: entry['provider'] as String?,
       seekable: entry['seekable'] == true,
     ));
   }
@@ -140,21 +154,21 @@ PdfByteSource pdfByteSourceForMobileToken(
 /// On the web this reads the picked file's bytes directly (see [pickPdfFileWeb])
 /// instead of going through `file_selector`, whose blob-URL XFiles hang on
 /// `readAsBytes()` under the deployed site's cross-origin isolation.
-Future<XFile?> pickPdfFile() => kIsWeb
+Future<XFile?> pickPdfFile(String pdfLabel) => kIsWeb
     ? pickPdfFileWeb()
-    : openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+    : openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker for one or more PDFs. Returns an empty list
 /// when the user cancels. On the web, reads the bytes eagerly (see
 /// [pickPdfFilesWeb]) for the same reason as [pickPdfFile].
-Future<List<XFile>> pickPdfFiles() => kIsWeb
+Future<List<XFile>> pickPdfFiles(String pdfLabel) => kIsWeb
     ? pickPdfFilesWeb()
-    : openFiles(acceptedTypeGroups: const [pdfTypeGroup]);
+    : openFiles(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read - callers surface that.
-Future<PickedPdf?> pickPdf() async {
-  final file = await pickPdfFile();
+Future<PickedPdf?> pickPdf(String pdfLabel) async {
+  final file = await pickPdfFile(pdfLabel);
   if (file == null) return null;
   final path = originPathForPickedFile(file);
   final bytes = await file.readAsBytes();
@@ -196,15 +210,15 @@ Future<String?> securityBookmarkForPath(String? path) async {
 
 /// Picks a PDF and returns just its bytes (null when cancelled) - the source
 /// for "Insert PDF…" and document comparison.
-Future<Uint8List?> pickPdfBytes() async {
-  final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+Future<Uint8List?> pickPdfBytes(String pdfLabel) async {
+  final file = await openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
   return file?.readAsBytes();
 }
 
 /// Picks an image and returns its bytes - used by the form image picker and
 /// the insert-image tool.
-Future<Uint8List?> pickImageBytes() async {
-  final file = await openFile(acceptedTypeGroups: const [imageTypeGroup]);
+Future<Uint8List?> pickImageBytes(String imageLabel) async {
+  final file = await openFile(acceptedTypeGroups: [imageTypeGroup(imageLabel)]);
   return file?.readAsBytes();
 }
 
@@ -248,8 +262,9 @@ PdfCustomStamp _decodeCustomStampEntry(Object? raw) {
 }
 
 /// Opens a JSON stamp bundle and returns the stamps inside it.
-Future<List<PdfCustomStamp>?> importCustomStamps() async {
-  final file = await openFile(acceptedTypeGroups: const [stampBundleTypeGroup]);
+Future<List<PdfCustomStamp>?> importCustomStamps(String stampLabel) async {
+  final file =
+      await openFile(acceptedTypeGroups: [stampBundleTypeGroup(stampLabel)]);
   if (file == null) return null;
   return decodeCustomStampBundle(utf8.decode(await file.readAsBytes()));
 }
@@ -398,13 +413,35 @@ String? containingFolderPath(String path) {
   return trimmed.substring(0, index);
 }
 
-/// Opens [path]'s containing folder in Finder / File Explorer / the Linux file
-/// manager. Returns false when there is no usable origin path or the platform
-/// refuses to launch it.
-Future<bool> openContainingFolder(String? path) async {
+/// Reveals [path] in Finder, or opens its containing folder in File Explorer /
+/// the Linux file manager. Returns false when there is no usable origin path
+/// or the platform refuses to launch it.
+///
+/// Finder needs the selected file rather than its parent directory: a
+/// sandboxed macOS app can hold a security-scoped grant for a OneDrive file
+/// without having access to the file's containing folder. [bookmark]
+/// reactivates that grant while Finder handles the reveal request.
+Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
   if (!supportsOpenContainingFolder || path == null) return false;
   final folder = containingFolderPath(path);
   if (folder == null) return false;
+  if (_isMacOSDesktop) {
+    try {
+      return await _macosFileAccessChannel.invokeMethod<bool>(
+            'revealFile',
+            {
+              'path': path,
+              if (bookmark != null && bookmark.isNotEmpty)
+                'bookmark': bookmark,
+            },
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
   return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
 }
 
@@ -453,8 +490,9 @@ Future<SaveResult> saveBytesToPath(
 Future<SaveResult> saveBytesAs(
   BuildContext context,
   Uint8List bytes,
-  String suggestedName,
-) async {
+  String suggestedName, {
+  required String pdfLabel,
+}) async {
   final name = ensurePdfName(suggestedName);
   final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
 
@@ -478,7 +516,7 @@ Future<SaveResult> saveBytesAs(
     default:
       final location = await getSaveLocation(
         suggestedName: name,
-        acceptedTypeGroups: const [pdfTypeGroup],
+        acceptedTypeGroups: [pdfTypeGroup(pdfLabel)],
       );
       if (location == null) return SaveResult.cancelled;
       // The dialog returns the path verbatim - if the user cleared or changed
@@ -496,9 +534,11 @@ Future<SaveResult> saveBytesAs(
 /// Exports user-managed custom stamps as a portable JSON bundle.
 Future<SaveResult> exportCustomStampsAs(
   BuildContext context,
-  List<PdfCustomStamp> stamps,
-) =>
-    saveJsonAs(context, encodeCustomStampBundle(stamps), 'dartpdf-stamps.json');
+  List<PdfCustomStamp> stamps, {
+  required String stampLabel,
+}) =>
+    saveJsonAs(context, encodeCustomStampBundle(stamps), 'dartpdf-stamps.json',
+        typeLabel: stampLabel);
 
 /// Save-as for a JSON document, with the same platform behaviour as
 /// [saveBytesAs]: a save dialog on desktop, a browser download on the web,
@@ -506,8 +546,9 @@ Future<SaveResult> exportCustomStampsAs(
 Future<SaveResult> saveJsonAs(
   BuildContext context,
   String json,
-  String name,
-) async {
+  String name, {
+  required String typeLabel,
+}) async {
   final bytes = Uint8List.fromList(utf8.encode(json));
   final file = XFile.fromData(
     bytes,
@@ -534,7 +575,7 @@ Future<SaveResult> saveJsonAs(
     default:
       final location = await getSaveLocation(
         suggestedName: name,
-        acceptedTypeGroups: const [stampBundleTypeGroup],
+        acceptedTypeGroups: [stampBundleTypeGroup(typeLabel)],
       );
       if (location == null) return SaveResult.cancelled;
       final path = ensureJsonExtension(location.path);
@@ -555,8 +596,9 @@ Future<SaveResult> saveImageBytesAs(
   BuildContext context,
   Uint8List bytes,
   String name,
-  String mimeType,
-) async {
+  String mimeType, {
+  required String imageLabel,
+}) async {
   final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
 
   if (kIsWeb) {
@@ -578,7 +620,7 @@ Future<SaveResult> saveImageBytesAs(
     default:
       final location = await getSaveLocation(
         suggestedName: name,
-        acceptedTypeGroups: const [imageTypeGroup],
+        acceptedTypeGroups: [imageTypeGroup(imageLabel)],
       );
       if (location == null) return SaveResult.cancelled;
       try {

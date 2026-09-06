@@ -1,0 +1,5 @@
+Yang baru di 3.3.0
+
+• Halaman yang dibuka kembali tampil seketika, dengan pemanasan latar opsional dan cache resolusi penuh yang persisten.
+• Zoom mendalam lebih tajam pada PDF hasil pindai dan berbasis gambar.
+• Geser sentuh lebih baik, kontrol radius sudut persegi panjang, dan navigasi halaman sisipan yang lebih mulus.

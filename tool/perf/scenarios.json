@@ -127,5 +127,48 @@
     "note": "app/tool/perf loop against the generated cad-138p corpus; used by perf-web.yml",
     "generate": { "pages": 138, "opsPerPage": 6000, "seed": 20260718 },
     "ciSafe": true
+  },
+  "type3-text-sweep": {
+    "suite": "vm-sweep",
+    "note": "6 A4 pages of dense two-column Type3 text (~7400 glyphs/page, 26 CharProcs: half vector bars, half TeX-pk-style 1-bit inline ImageMasks). The #535 anchor. Note: inline images make the worker wire codec DECLINE these pages, so the whole class interprets+paints on the UI thread - the decline is the dominant real-world cost, measured here at the VM layer. Corpus file checked in (gen_type3_pdf.dart, seed 20260724).",
+    "corpus": "test_corpora/dartpdf/type3-text-6p.pdf",
+    "maxPages": 0,
+    "repeat": 3,
+    "ciSafe": true
+  },
+  "type3-text-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the Type3 doc (CharProc re-execution + per-occurrence inline ImageMask decode + paint). Companion of type3-text-sweep for the raster half of #535.",
+    "corpus": "test_corpora/dartpdf/type3-text-6p.pdf",
+    "scale": 2,
+    "maxPages": 3,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "hatch-sections-sweep": {
+    "suite": "vm-sweep",
+    "note": "4 A1 sheets with ~70 tiling-pattern-hatched regions each (PatternType 1: diagonal/cross/dot + an uncolored rotated hatch; ~90k cell executions -> ~300k device commands per page under per-tile re-interpretation). The #524 record-once/replay-per-tile measurement anchor. Corpus file is checked in (gen_hatch_pdf.dart, seed 20260724).",
+    "corpus": "test_corpora/dartpdf/hatch-sections-4p.pdf",
+    "maxPages": 0,
+    "repeat": 3,
+    "ciSafe": true
+  },
+  "jbig2-scanned-sweep": {
+    "suite": "vm-sweep",
+    "note": "The scanned-book JBIG2 shape (#557): one shared /JBIG2Globals stream carrying a 900-symbol arithmetic symbol dictionary, referenced by 32 per-page JBIG2Decode images (1700x2200, ~2.7k symbol instances each). Every in-repo JBIG2 file inlines its globals into a single image, so this is the only workload that exhibits the #532 globals cache - the saving is one dictionary arithmetic-decode per page that no longer happens, and it scales with symbols x pages. Generated + pre-seeded (gen_jbig2_scanned_pdf.dart, seed 20260725) because JBIG2 arithmetic encoding needs jbig2enc, absent from CI - the pure-Dart encoder in pdf_test_fixtures stands in.",
+    "corpus": "tool/perf/cache/jbig2-scanned",
+    "maxPages": 0,
+    "repeat": 2,
+    "measures": ["open", "firstPage", "interpret", "decodeImages"],
+    "ciSafe": true
+  },
+  "jbig2-scanned-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the scanned-book JBIG2 doc (globals-shared symbol decode + text-region composition + 1-bit-to-RGBA expansion + paint). Raster half of #557; same generated corpus as jbig2-scanned-sweep.",
+    "corpus": "tool/perf/cache/jbig2-scanned",
+    "scale": 1,
+    "maxPages": 4,
+    "repeat": 2,
+    "ciSafe": true
   }
 }

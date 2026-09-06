@@ -212,7 +212,6 @@ class _PdfReflowViewState extends State<PdfReflowView>
     widget.controller?.reflowReportPage(page);
   }
 
-
   // --- PdfReflowBackend ------------------------------------------------------
 
   @override
@@ -454,7 +453,7 @@ class _ReflowPageItemState extends State<_ReflowPageItem> {
 
   void _disposeImages() {
     for (final image in _images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     _images = const {};
   }
@@ -470,10 +469,10 @@ class _ReflowPageItemState extends State<_ReflowPageItem> {
       return;
     }
     final images = await decodeImages(widget.document.cos, requests,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, deferSimpleDctSoftMasks: false);
     if (!mounted) {
       for (final image in images.values) {
-        image.dispose();
+        disposePdfDecodedImage(image);
       }
       return;
     }
@@ -486,7 +485,7 @@ class _ReflowPageItemState extends State<_ReflowPageItem> {
   /// Opens a decoded figure fullscreen. The route holds its own clone, so it
   /// is unaffected if this page scrolls out and disposes its images.
   void _openImage(ui.Image image) {
-    final owned = image.clone();
+    final owned = clonePdfDecodedImage(image);
     Navigator.of(context).push(PageRouteBuilder<void>(
       opaque: false,
       barrierColor: Colors.black,
@@ -562,7 +561,7 @@ class _ReflowPage extends StatelessWidget {
     if (!block.isListItem) return text;
     // Hang the wrapped lines under the marker's text.
     return Padding(
-      padding: const EdgeInsets.only(left: 16),
+      padding: const EdgeInsetsDirectional.only(start: 16),
       child: text,
     );
   }
@@ -660,7 +659,7 @@ class _FullscreenReflowImageState extends State<_FullscreenReflowImage> {
 
   @override
   void dispose() {
-    widget.image.dispose();
+    disposePdfDecodedImage(widget.image);
     super.dispose();
   }
 

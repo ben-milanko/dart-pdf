@@ -93,12 +93,14 @@ void main() {
       expect(
           PdfEditToolBehavior.of(PdfEditTool.measureArc).styleScopeKey,
           'measureArc');
+      // a stamped signature is ink: it carries the tool's colour and pen
+      expect(PdfEditToolBehavior.of(PdfEditTool.signature).styleScopeKey,
+          'signature');
       for (final tool in [
         PdfEditTool.select,
         PdfEditTool.content,
         PdfEditTool.form,
         PdfEditTool.redact,
-        PdfEditTool.signature,
         PdfEditTool.image,
         PdfEditTool.snapshot,
         PdfEditTool.calibrate,
@@ -111,6 +113,12 @@ void main() {
     test('scope fields drive toolUsesColor', () {
       expect(PdfEditToolBehavior.of(PdfEditTool.rectangle).usesColor, isTrue);
       expect(PdfEditToolBehavior.of(PdfEditTool.eraser).usesColor, isFalse);
+      // the signature strip offers a colour row and a stroke-width slider
+      expect(PdfEditToolBehavior.of(PdfEditTool.signature).usesColor, isTrue);
+      expect(PdfEditToolBehavior.of(PdfEditTool.signature).styleScopeFields,
+          contains('strokeWidth'));
+      expect(PdfEditToolBehavior.of(PdfEditTool.signature).styleFields.stroke,
+          isTrue);
       expect(PdfEditToolBehavior.of(PdfEditTool.rectangle).styleScopeFields,
           contains('cornerRadius'));
       expect(PdfEditToolBehavior.of(PdfEditTool.ellipse).styleScopeFields,

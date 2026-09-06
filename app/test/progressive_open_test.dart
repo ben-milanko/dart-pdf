@@ -2,6 +2,7 @@
 // first paint renders the sparse document, then the complete bytes stream in
 // behind it and the tab swaps to a full edit session. Driven on Linux so the
 // source is a plain RandomAccessFile (no macOS security-scoped channel).
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -16,6 +17,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/devtools.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
+
+import 'test_finders.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -41,7 +44,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   Future<void> pump(WidgetTester tester, Future<void> Function() action) async {
@@ -120,6 +123,109 @@ void main() {
     }
   });
 
+  testWidgets(
+      'restored tabs remain usable while another macOS cloud read is pending',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    const channel = MethodChannel('dev.milanko.dartpdf/file_access');
+    final remoteStarted = Completer<void>();
+    final releaseRemote = Completer<void>();
+    final bytes = Uint8List.fromList(buildClassicPdf());
+
+    try {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        (call) async {
+          final args = (call.arguments as Map).cast<Object?, Object?>();
+          final bookmark = args['bookmark'] as String?;
+          switch (call.method) {
+            case 'fileLength':
+              if (bookmark == 'remote-bookmark' && !releaseRemote.isCompleted) {
+                if (!remoteStarted.isCompleted) remoteStarted.complete();
+                await releaseRemote.future;
+              }
+              return bytes.length;
+            case 'readFileRange':
+              final offset = args['offset'] as int;
+              final length = args['length'] as int;
+              final end = (offset + length).clamp(0, bytes.length);
+              if (offset >= bytes.length) return Uint8List(0);
+              return Uint8List.sublistView(bytes, offset, end);
+            case 'readFile':
+              return bytes;
+          }
+          return null;
+        },
+      );
+
+      // The remote document is last, so it is the active restored tab. Both
+      // tab placeholders must appear before its first native read completes.
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.session': jsonEncode([
+          {
+            't': 'local.pdf',
+            'p': '/local.pdf',
+            'b': 'local-bookmark',
+          },
+          {
+            't': 'remote.pdf',
+            'p': '/remote.pdf',
+            'b': 'remote-bookmark',
+          },
+        ]),
+      });
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+        for (var i = 0;
+            i < 20 &&
+                (!remoteStarted.isCompleted ||
+                    tabTitle('local.pdf').evaluate().isEmpty);
+            i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      });
+      await tester.pump();
+
+      expect(remoteStarted.isCompleted, isTrue);
+      expect(tabTitle('local.pdf'), findsOneWidget);
+      expect(tabTitle('remote.pdf'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
+
+      // Switching tabs must start and finish the local read even while the
+      // remote File Provider request remains unresolved.
+      await tester.runAsync(() async {
+        await tester.tap(tabTitle('local.pdf'));
+        for (var i = 0;
+            i < 30 && find.byType(PdfEditorView).evaluate().isEmpty;
+            i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      });
+      await tester.pump();
+
+      expect(releaseRemote.isCompleted, isFalse);
+      expect(find.byType(PdfEditorView), findsOneWidget);
+
+      // Let the abandoned remote request unwind cleanly before the widget and
+      // its method channel are disposed.
+      releaseRemote.complete();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      });
+    } finally {
+      if (!releaseRemote.isCompleted) releaseRemote.complete();
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('drops a restored desktop file that has gone missing',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
@@ -138,6 +244,57 @@ void main() {
       // no tab, no error placeholder.
       expect(tabTitle('gone.pdf'), findsNothing);
       expect(find.byType(PdfEditorView), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('a missing Recent closes cleanly without exposing its path',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final missingPath = '${tempDir.path}/network/gone.pdf';
+    try {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.recents': jsonEncode([
+          {'t': 'gone.pdf', 'p': missingPath, 'o': 1000}
+        ]),
+      });
+
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      expect(find.byKey(ValueKey('recent-tile-$missingPath')), findsOneWidget);
+
+      await pump(tester, () async {
+        await tester
+            .tap(find.byKey(ValueKey('recent-tile-thumb-$missingPath')));
+      });
+
+      expect(tabTitle('gone.pdf'), findsNothing);
+      expect(find.textContaining('PathNotFoundException'), findsNothing);
+      expect(find.textContaining(missingPath), findsNothing);
+      expect(find.text('Could not reopen gone'), findsOneWidget);
+      expect(find.byKey(ValueKey('recent-tile-$missingPath')), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('a direct missing-file error is concise and recoverable',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final missingPath = '${tempDir.path}/network/direct.pdf';
+    try {
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      await pump(tester, () => openIncoming(tester, missingPath, 'direct.pdf'));
+
+      expect(find.textContaining('Could not open direct'), findsOneWidget);
+      expect(find.textContaining('No such file or directory'), findsOneWidget);
+      expect(find.textContaining('PathNotFoundException'), findsNothing);
+      expect(find.textContaining(missingPath), findsNothing);
+      expect(find.text('Open PDF in a new tab'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

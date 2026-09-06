@@ -28,6 +28,18 @@ dynamic overlayPainter(WidgetTester tester) => tester
         .first)
     .painter;
 
+/// The overlay's hover-cursor layer - the pen dot, eraser ring, count/stamp
+/// previews and rotate glyph, which read live state and repaint without a
+/// rebuild. Read through a dynamic cast (the painter class is private).
+dynamic cursorPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .firstWhere(
+        (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
+
 void main() {
   group('PdfEditingController check-marks', () {
     test('placeCheckMark drops a /Stamp /Check centered on the tap', () {
@@ -56,17 +68,32 @@ void main() {
       expect(editing.document.page(0).annotations.single.color, 0xC03030);
     });
 
-    test('placeCheckMark clamps the mark to keep it on the page', () {
+    test('placeCheckMark centers on the tap, off the page edge included', () {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
 
+      // a tap 2pt in from the corner of the 612x792 crop box: the mark
+      // centers there and hangs off the page instead of jumping inward
       expect(editing.placeCheckMark(0, 2, 2), isTrue);
       final rect = editing.document.page(0).annotations.single.rect;
-      expect(rect.left, greaterThanOrEqualTo(0));
-      expect(rect.bottom, greaterThanOrEqualTo(0));
-      expect(rect.right, lessThanOrEqualTo(612));
-      expect(rect.top, lessThanOrEqualTo(792));
+      const half = PdfEditingController.checkMarkSize / 2;
+      expect(rect.left, closeTo(2 - half, 1e-9));
+      expect(rect.bottom, closeTo(2 - half, 1e-9));
+      expect(rect.right, closeTo(2 + half, 1e-9));
+      expect(rect.top, closeTo(2 + half, 1e-9));
+    });
+
+    test('checkMarkPlacement is the rect the tap commits', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+
+      // the count tool's hover preview draws this rect; drift between it
+      // and the commit would show as the mark jumping on release
+      final preview = editing.checkMarkPlacement(0, 600, 780);
+      expect(editing.placeCheckMark(0, 600, 780), isTrue);
+      expect(editing.document.page(0).annotations.single.rect, preview);
     });
 
     test('checkMarkCount tallies marks across pages and tracks undo/redo', () {
@@ -248,7 +275,7 @@ void main() {
       await gesture.moveTo(origin + local(240, 420));
       await tester.pump();
 
-      final preview = overlayPainter(tester).countPreview;
+      final preview = cursorPainter(tester).countPreview;
       expect(preview, isNotNull);
       expect(preview.check, isTrue);
       expect(preview.text, isNull);

@@ -32,7 +32,10 @@ extension PdfPageOperations on PdfEditor {
       );
     }
     final leaves = _materializedLeaves();
-    _rebuildPageTree([for (final i in order) leaves[i]]);
+    _rebuildPageTree(
+      [for (final i in order) leaves[i]],
+      orderOnly: true,
+    );
   }
 
   /// Removes the page at [index].
@@ -120,6 +123,15 @@ extension PdfPageOperations on PdfEditor {
   /// together keep working; destinations that point at source pages left
   /// behind become null (following them would drag the whole source
   /// document along).
+  ///
+  /// Imported form fields remain fillable; colliding root field names gain
+  /// `_2`, `_3`, ... suffixes. Named destinations and outlines are imported,
+  /// with internal links resolved against the source before remapping. The
+  /// destination keeps its encryption, metadata, and /PageMode. Source
+  /// encryption is removed from imported objects and the destination's
+  /// encryption (if any) is applied on save. Open either input with its
+  /// password before calling this method. See [PdfMerger.merge] for bytes in,
+  /// bytes out merging.
   void appendPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
     if (identical(source.cos, document.cos)) {
       throw ArgumentError(
@@ -135,9 +147,11 @@ extension PdfPageOperations on PdfEditor {
     final leaves = _materializedLeaves();
     final insertAt = at ?? leaves.length;
     RangeError.checkValueInInterval(insertAt, 0, leaves.length, 'at');
-    final importer = _PageImporter(source, _updater.addObject);
+    final importer =
+        _PageImporter(source, _updater.addObject, documentData: true);
     final imported = importer.importPages(picks);
     _rebuildPageTree([...leaves]..insertAll(insertAt, imported));
+    _mergeImportedDocumentData(importer, intoEmpty: leaves.isEmpty);
   }
 
   /// Collects the current leaves in order, copying any attributes a page
@@ -177,7 +191,7 @@ extension PdfPageOperations on PdfEditor {
   }
 
   /// Rewrites the root /Pages node as a flat tree over [leaves].
-  void _rebuildPageTree(List<_Leaf> leaves) {
+  void _rebuildPageTree(List<_Leaf> leaves, {bool orderOnly = false}) {
     final cos = document.cos;
     final rootRef = _pagesRootRef();
     final root = cos.resolve(rootRef) as CosDictionary;
@@ -191,7 +205,7 @@ extension PdfPageOperations on PdfEditor {
     root['Count'] = CosInteger(leaves.length);
     _updater.markChanged(root);
     document.invalidatePageCache();
-    _markStructure();
+    _markStructure(orderOnly: orderOnly);
   }
 
   CosReference _pagesRootRef() {
@@ -286,15 +300,21 @@ class _Leaf {
 /// a /Pages node, or to a page that is not part of the import set, copies
 /// as null instead of dragging the rest of the document along.
 class _PageImporter {
-  _PageImporter(this.source, this._add);
+  _PageImporter(this.source, this._add, {this.documentData = false});
 
   final PdfDocument source;
   final CosReference Function(CosObject) _add;
   final Map<CosReference, CosObject> _mapped = {};
+  final bool documentData;
+  final Map<CosDictionary, CosDictionary> _dictionaries = Map.identity();
+  final Map<int, CosReference> _pageRefs = {};
+  final Set<CosDictionary> _formNodes = Set.identity();
+  final List<CosDictionary> _formRoots = [];
 
   List<_Leaf> importPages(List<int> indices) {
     final cos = source.cos;
     final pages = [for (final i in indices) source.page(i)];
+    if (documentData) _prepareForms(pages);
 
     // pre-register every imported page so references between them - link
     // destinations, annotation /P entries - remap instead of dropping
@@ -305,6 +325,8 @@ class _PageImporter {
       leaves.add(_Leaf(ref, dest, isNew: true));
       final srcRef = cos.referenceTo(page.dict);
       if (srcRef != null) _mapped[srcRef] = ref;
+      _dictionaries[page.dict] = dest;
+      _pageRefs[indices[leaves.length - 1]] = ref;
     }
 
     for (var i = 0; i < pages.length; i++) {
@@ -344,8 +366,10 @@ class _PageImporter {
       case CosStream stream: // direct streams are illegal, but tolerate
         return _copyStream(null, stream);
       case CosDictionary dict:
-        final out = CosDictionary();
-        dict.entries.forEach((key, item) => out[key] = copyValue(item));
+        final existing = _dictionaries[dict];
+        if (existing != null) return existing;
+        final out = _dictionaries[dict] = CosDictionary();
+        _copyDictionary(dict, out);
         return out;
       case CosArray array:
         return CosArray([for (final item in array.items) copyValue(item)]);
@@ -366,10 +390,10 @@ class _PageImporter {
       case CosStream stream:
         return _copyStream(ref, stream);
       case CosDictionary dict:
-        final out = CosDictionary();
+        final out = _dictionaries[dict] = CosDictionary();
         final outRef = _add(out);
         _mapped[ref] = outRef;
-        dict.entries.forEach((key, item) => out[key] = copyValue(item));
+        _copyDictionary(dict, out);
         return outRef;
       case CosNull():
         return CosNull.instance;
@@ -377,6 +401,90 @@ class _PageImporter {
         // an indirectly referenced scalar - inline it at the use site
         return copyValue(target);
     }
+  }
+
+  void _copyDictionary(CosDictionary dict, CosDictionary out) {
+    final cos = source.cos;
+    final action = cos.resolve(dict['S']);
+    for (final entry in dict.entries.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (documentData &&
+          (key == 'Dest' ||
+              (key == 'D' && action is CosName && action.value == 'GoTo'))) {
+        out[key] = copyDestination(value);
+      } else if (documentData && key == 'Kids' && _formNodes.contains(dict)) {
+        final kids = cos.resolve(value);
+        if (kids is CosArray) {
+          out[key] = CosArray([
+            for (final kid in kids.items)
+              if (_formNodes.contains(cos.resolve(kid))) copyValue(kid),
+          ]);
+        }
+      } else {
+        out[key] = copyValue(value);
+      }
+    }
+  }
+
+  /// Keep only field-tree branches with widgets on selected pages. Walking
+  /// from the widgets also includes orphan fields missing from /Fields.
+  void _prepareForms(List<PdfPage> pages) {
+    final roots = <CosDictionary>{};
+    final cos = source.cos;
+    // A full-document merge also carries nonvisual fields (for example,
+    // hidden calculation values). A subset only carries on-page branches.
+    if (pages.map((p) => p.dict).toSet().length == source.pageCount) {
+      void include(CosObject? value) {
+        final node = cos.resolve(value);
+        if (node is! CosDictionary || !_formNodes.add(node)) return;
+        final kids = cos.resolve(node['Kids']);
+        if (kids is CosArray) {
+          for (final kid in kids.items) {
+            include(kid);
+          }
+        }
+      }
+
+      final form = cos.resolve(source.catalog['AcroForm']);
+      final fields = form is CosDictionary ? cos.resolve(form['Fields']) : null;
+      if (fields is CosArray) {
+        for (final field in fields.items) {
+          final root = cos.resolve(field);
+          if (root is CosDictionary && roots.add(root)) {
+            _formRoots.add(root);
+            include(root);
+          }
+        }
+      }
+    }
+    for (final page in pages) {
+      for (final widget in page.annotations.whereType<PdfWidgetAnnotation>()) {
+        var node = widget.dict;
+        final seen = <CosDictionary>{};
+        while (seen.add(node)) {
+          _formNodes.add(node);
+          final parent = source.cos.resolve(node['Parent']);
+          if (parent is! CosDictionary) {
+            if (roots.add(node)) _formRoots.add(node);
+            break;
+          }
+          node = parent;
+        }
+      }
+    }
+  }
+
+  /// Resolve names in the SOURCE namespace, so the destination's same-named
+  /// bookmark can never steal a link. Page-number destinations remap too.
+  CosObject copyDestination(CosObject value) {
+    final dest = PdfDestination.parse(source, value);
+    if (dest == null) return CosNull.instance;
+    return CosArray([
+      _pageRefs[dest.pageIndex] ?? CosNull.instance,
+      CosName(dest.fit),
+      for (final p in dest.params) p == null ? CosNull.instance : CosReal(p),
+    ]);
   }
 
   /// Copies a stream, registering its reference (when indirect) before
@@ -388,13 +496,43 @@ class _PageImporter {
   CosObject _copyStream(CosReference? ref, CosStream stream) {
     final bytes = _payloadOf(stream);
     final out = CosStream(CosDictionary(), bytes);
-    final outRef = ref != null ? _mapped[ref] = _add(out) : null;
+    final outRef = _add(out);
+    if (ref != null) _mapped[ref] = outRef;
     stream.dictionary.entries.forEach((key, item) {
       if (key == 'Length') return; // recomputed below
       out.dictionary[key] = copyValue(item);
     });
+    // /Crypt belongs to the source security handler. The payload is already
+    // decrypted; retaining /Identity would exempt it from the destination's
+    // encryption, and a named source crypt filter may not exist there at all.
+    final filter = source.cos.resolve(stream.dictionary['Filter']);
+    final filters =
+        filter is CosArray ? filter.items : [if (filter is CosName) filter];
+    final parms = source.cos.resolve(stream.dictionary['DecodeParms']);
+    final kept = <int>[
+      for (var i = 0; i < filters.length; i++)
+        if (source.cos.resolve(filters[i]) != const CosName('Crypt')) i,
+    ];
+    if (filters.any((f) => source.cos.resolve(f) == const CosName('Crypt'))) {
+      if (kept.isEmpty) {
+        out.dictionary.entries.remove('Filter');
+        out.dictionary.entries.remove('DecodeParms');
+      } else {
+        out.dictionary['Filter'] = CosArray([
+          for (final i in kept) copyValue(filters[i]),
+        ]);
+        if (parms is CosArray) {
+          out.dictionary['DecodeParms'] = CosArray([
+            for (final i in kept)
+              i < parms.length ? copyValue(parms[i]) : CosNull.instance,
+          ]);
+        } else {
+          out.dictionary.entries.remove('DecodeParms');
+        }
+      }
+    }
     out.dictionary['Length'] = CosInteger(bytes.length);
-    return outRef ?? out;
+    return outRef;
   }
 
   Uint8List _payloadOf(CosStream stream) {

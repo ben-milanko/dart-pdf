@@ -239,15 +239,14 @@ class StripGenerator {
   /// Cached like [fillPath] when a [shapeCache] is attached; stroke
   /// parameters (device width, caps, joins, dashes - quantized to 1/64 px)
   /// join the content key.
-  void strokePath(
-      PdfPath path, PdfMatrix transform, PdfStroke stroke, int rgba,
+  void strokePath(PdfPath path, PdfMatrix transform, PdfStroke stroke, int rgba,
       {double tolerance = 0.25}) {
     if (path.isEmpty || _rowCount == 0) return;
     final cache = shapeCache;
     if (cache != null &&
         path.segments.length <= ShapeStripCache.maxSegments &&
-        _shapeCached(cache, path, transform, PdfFillRule.nonzero, stroke,
-            rgba, tolerance)) {
+        _shapeCached(cache, path, transform, PdfFillRule.nonzero, stroke, rgba,
+            tolerance)) {
       return;
     }
     _strokePathDirect(path, transform, stroke, rgba, tolerance);
@@ -258,8 +257,7 @@ class StripGenerator {
     final sf = transform.scaleFactor;
     var subs = flattenPath(path, transform, tolerance: tolerance);
     if (subs.isEmpty) return;
-    if (stroke.dashArray.isNotEmpty &&
-        stroke.dashArray.any((d) => d > 0)) {
+    if (stroke.dashArray.isNotEmpty && stroke.dashArray.any((d) => d > 0)) {
       subs = dashSubpaths(subs, [for (final d in stroke.dashArray) d * sf],
           stroke.dashPhase * sf);
     }
@@ -508,8 +506,8 @@ class StripGenerator {
       _shapePush(qCap);
       _shapePush(qJoin);
       _shapePush(qMiter);
-      _shapePush((stroke.dashPhase * sf * 64).round().clamp(-(1 << 26),
-          1 << 26));
+      _shapePush(
+          (stroke.dashPhase * sf * 64).round().clamp(-(1 << 26), 1 << 26));
       _shapePush(stroke.dashArray.length);
       for (final d in stroke.dashArray) {
         _shapePush((d * sf * 64).round().clamp(-(1 << 26), 1 << 26));
@@ -619,12 +617,22 @@ class StripGenerator {
     final w = maxX.ceil() - sx + 1;
     final h = maxY.ceil() - sy + 1;
     final dx = ix + sx, dy = iy + sy; // replay translate (dy multiple of 4)
+    final viewportHeight = _rowCount * 4;
+    if (dx + w <= 0 || dy + h <= 0 || dx >= _width || dy >= viewportHeight) {
+      // The cache probe already paid the transformed-bounds walk. Treat a
+      // wholly offscreen shape as handled here instead of reporting a cache
+      // bypass and walking/flattening it all over again in the direct path.
+      // This is the dominant deep-zoom CAD shape: tens of thousands of tiny
+      // strokes spread across a wide sheet, with only one viewport visible.
+      cache.viewportCulls++;
+      return true;
+    }
     if (w > ShapeStripCache.maxShapeSide ||
         h > ShapeStripCache.maxShapeSide ||
         dx < 0 ||
         dy < 0 ||
         dx + w > _width ||
-        dy + h > _rowCount * 4) {
+        dy + h > viewportHeight) {
       cache.bypasses++;
       return false;
     }
@@ -642,16 +650,16 @@ class StripGenerator {
       // 32-bit hash collision between distinct shapes: never replay - render
       // this draw from its own quantized content. The stored entry stays.
       cache.collisions++;
-      _rasterShapeContent(_shapeBuf, _shapeLen, ix.toDouble(), iy.toDouble(),
-          rgba);
+      _rasterShapeContent(
+          _shapeBuf, _shapeLen, ix.toDouble(), iy.toDouble(), rgba);
       return true;
     }
     if (!cache._secondSight(hash)) {
       // First sight renders directly - but from the same quantized content,
       // so this draw is byte-identical to the replays that follow once the
       // key recurs (cache state never shifts pixels between renders).
-      _rasterShapeContent(_shapeBuf, _shapeLen, ix.toDouble(), iy.toDouble(),
-          rgba);
+      _rasterShapeContent(
+          _shapeBuf, _shapeLen, ix.toDouble(), iy.toDouble(), rgba);
       return true;
     }
     final built = cache._build(_shapeBuf, _shapeLen, hash, sx, sy, w, h);
@@ -693,8 +701,8 @@ class StripGenerator {
   /// anchor's integer device position, the cache build passes the local
   /// frame shift. Mirrors the direct paths' semantics exactly (fill: pen
   /// survives a close; stroke: flattenPath's close-is-final rule).
-  void _rasterShapeContent(Int32List c, int len, double ox, double oy,
-      int rgba) {
+  void _rasterShapeContent(
+      Int32List c, int len, double ox, double oy, int rgba) {
     final flags = c[0];
     final tolerance = c[1] / 1024.0;
     final bx = ox + c[2] * 0.125;
@@ -738,8 +746,7 @@ class StripGenerator {
   /// [flattenPath] semantics over a content record (device-space quantized
   /// points, already transformed).
   List<FlatSubpath> _flattenShapeContent(
-      Int32List c, int start, int len, double bx, double by,
-      double tolerance) {
+      Int32List c, int start, int len, double bx, double by, double tolerance) {
     final out = <FlatSubpath>[];
     DoubleBuilder? current;
     var closed = false;
@@ -776,8 +783,7 @@ class StripGenerator {
         if (cur == null) continue;
         final d1 =
             math.max((lastX - 2 * x1 + x2).abs(), (lastY - 2 * y1 + y2).abs());
-        final d2 =
-            math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
+        final d2 = math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
         final d = math.max(d1, d2);
         final n = d <= tolerance
             ? 1
@@ -810,8 +816,8 @@ class StripGenerator {
   }
 
   /// [_flattenEdges] semantics over a content record.
-  void _edgesFromShapeContent(Int32List c, int start, int len, double bx,
-      double by, double tolerance) {
+  void _edgesFromShapeContent(
+      Int32List c, int start, int len, double bx, double by, double tolerance) {
     _subpathOpen = false;
     var p = start;
     while (p < len) {
@@ -832,10 +838,9 @@ class StripGenerator {
         final x2 = bx + c[p++] / 64.0, y2 = by + c[p++] / 64.0;
         final x3 = bx + c[p++] / 64.0, y3 = by + c[p++] / 64.0;
         if (!_subpathOpen) continue;
-        final d1 = math.max(
-            (_penX - 2 * x1 + x2).abs(), (_penY - 2 * y1 + y2).abs());
-        final d2 =
-            math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
+        final d1 =
+            math.max((_penX - 2 * x1 + x2).abs(), (_penY - 2 * y1 + y2).abs());
+        final d2 = math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
         final d = math.max(d1, d2);
         final n = d <= tolerance
             ? 1
@@ -929,8 +934,8 @@ class StripGenerator {
           final y2 = m.transformY(segment.x2, segment.y2);
           final x3 = m.transformX(segment.x3, segment.y3);
           final y3 = m.transformY(segment.x3, segment.y3);
-          final d1 = math.max((_penX - 2 * x1 + x2).abs(),
-              (_penY - 2 * y1 + y2).abs());
+          final d1 = math.max(
+              (_penX - 2 * x1 + x2).abs(), (_penY - 2 * y1 + y2).abs());
           final d2 =
               math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
           final d = math.max(d1, d2);
@@ -941,9 +946,7 @@ class StripGenerator {
           for (var i = 1; i <= n; i++) {
             final t = i / n;
             final mt = 1 - t;
-            final ba = mt * mt * mt,
-                bb = 3 * mt * mt * t,
-                bc = 3 * mt * t * t;
+            final ba = mt * mt * mt, bb = 3 * mt * mt * t, bc = 3 * mt * t * t;
             final be = t * t * t;
             final qx = ba * _penX + bb * x1 + bc * x2 + be * x3;
             final qy = ba * _penY + bb * y1 + bc * y2 + be * y3;
@@ -1114,8 +1117,7 @@ class StripGenerator {
     var nc = _nodeCount;
     if (4 * nc + 4 > _nodes.length) {
       _nodes = Float32List(_nodes.length * 2)..setRange(0, 4 * nc, _nodes);
-      _nodeNext = Int32List(_nodeNext.length * 2)
-        ..setRange(0, nc, _nodeNext);
+      _nodeNext = Int32List(_nodeNext.length * 2)..setRange(0, nc, _nodeNext);
     }
     final base = 4 * nc;
     _nodes[base] = x0;
@@ -1536,8 +1538,8 @@ class GlyphStripCache {
 /// content before replaying (a collision falls back to direct raster, never
 /// to the wrong pixels).
 class CachedShapeStrips {
-  CachedShapeStrips(this.data, this.stripCount, this.alphaTexelCount,
-      this.content);
+  CachedShapeStrips(
+      this.data, this.stripCount, this.alphaTexelCount, this.content);
 
   final Uint32List data;
   final int stripCount;
@@ -1618,6 +1620,11 @@ class ShapeStripCache {
   int misses = 0;
   int bypasses = 0;
 
+  /// Small shapes rejected by the cache probe because their padded device
+  /// bounds lie wholly outside the current viewport. These draws are complete
+  /// no-ops and do not fall through to the direct flatten/raster path.
+  int viewportCulls = 0;
+
   /// First-sight draws that rendered directly (cache-on-second-sight gate).
   int firstSights = 0;
 
@@ -1632,6 +1639,7 @@ class ShapeStripCache {
     hits = 0;
     misses = 0;
     bypasses = 0;
+    viewportCulls = 0;
     firstSights = 0;
     collisions = 0;
   }

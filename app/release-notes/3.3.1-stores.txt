@@ -1,0 +1,5 @@
+New in 3.3.1
+
+• Changing annotation properties no longer creates a duplicate on some PDFs.
+• Text colour changes preserve embedded fonts, and cloud/polygon previews keep their chosen pattern scale.
+• Multi-page reordering now gives clearer group feedback and moves the selected pages reliably.

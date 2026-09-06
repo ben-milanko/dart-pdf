@@ -4,8 +4,8 @@ Optional bundled assets for [`dart_pdf_editor`](../dart_pdf_editor): the six
 editor fonts offered by the font menu (and used as composite-text fallbacks) and
 the prebuilt **web render worker**.
 
-These assets add roughly **1.7 MB** to a build (about 1.26 MB of fonts and
-0.48 MB of worker, compressed). They live in this separate package - not in
+These assets add roughly **2 MB** to a build (fonts plus the web worker,
+compressed). They live in this separate package - not in
 `dart_pdf_editor` - so an app that only *views* PDFs never bundles them: Flutter
 includes a package's declared assets on every build target, so the only way to
 make these opt-in is to keep them out of the package every consumer depends on.
@@ -53,4 +53,4 @@ catalogue, or a native app that wants the fonts but no worker asset.
 
 The font licences are in `assets/fonts/*-LICENSE.txt`. DejaVu is a permissive
 Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are the SIL Open
-Font Licence.
+Font Licence; TeX Gyre Adventor uses the GUST Font License.

@@ -1,5 +1,8 @@
 # content-delete: drag a rectangle OR click a polygon lasso
 
+Historical implementation notes. The current implementation and validation
+are described in [the September refresh](2026-09-06-content-delete.md).
+
 Follow-up to the content-delete tool (PR #112). The tool now mirrors the
 cloud tool's hybrid gesture model: a **drag** rubber-bands a rectangle
 (existing behaviour), and a **tap** starts (and each further tap extends)

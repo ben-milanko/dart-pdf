@@ -15,6 +15,7 @@
 //
 // Conditions are evaluated in order, first match wins: native targets have
 // dart:io, web targets have dart:js_interop (and not dart:io).
+export 'pdf_cache_policy.dart';
 export 'pdf_cache_stub.dart'
     if (dart.library.io) 'pdf_cache_io.dart'
     if (dart.library.js_interop) 'pdf_cache_web.dart';

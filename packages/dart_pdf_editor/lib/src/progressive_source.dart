@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -92,7 +93,10 @@ class PdfProgressiveSourceBuilder extends StatefulWidget {
     super.key,
     required this.source,
     required this.builder,
-    this.options = const PdfSourceLoadOptions(firstPaintPages: 1),
+    this.options = const PdfSourceLoadOptions(
+      firstPaintPages: 1,
+      completeFirstPaintPageTree: false,
+    ),
     this.password = '',
     this.onProgress,
     this.onFirstPaint,
@@ -192,6 +196,17 @@ class _PdfProgressiveSourceBuilderState
     if (preview != null) {
       setState(() => _preview = preview);
       widget.onFirstPaint?.call();
+      // Give the sparse child a real build, raster, and compositor opportunity
+      // before an in-memory or localhost source can replace it and synchronously
+      // seed the full render-worker pool. One endOfFrame only gets the child
+      // into the tree; its async raster can land just after that boundary. A
+      // few frames are still a tiny delay to the background download, while
+      // ensuring page one is actually visible and responsive before the one
+      // unavoidable full-buffer hand-off occupies the UI isolate.
+      for (var frame = 0; frame < 4; frame++) {
+        await SchedulerBinding.instance.endOfFrame;
+        if (_disposed || !identical(token, _cancel)) return;
+      }
     }
 
     // Background full read: the complete, editable/persistable buffer.

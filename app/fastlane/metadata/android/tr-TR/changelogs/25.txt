@@ -1,0 +1,5 @@
+3.3.1 sürümündeki yenilikler
+
+• Özellik değişikliklerinden sonra ek açıklamaların yinelenmesi düzeltildi.
+• Metin rengi değiştirilirken gömülü yazı tipleri korunur; bulut ve çokgen önizlemeleri desen ölçeğini korur.
+• Çoklu sayfa sıralama artık daha net grup geri bildirimi verir ve daha güvenilir çalışır.

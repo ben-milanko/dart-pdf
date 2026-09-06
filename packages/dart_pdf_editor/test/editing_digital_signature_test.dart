@@ -41,13 +41,56 @@ void main() {
         ],
       ),
       throwsA(
-        isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('does not match'),
-        ),
+        isA<PdfSignatureIdentityException>()
+            .having((e) => e.message, 'message', contains('does not match'))
+            .having((e) => e.code, 'code',
+                PdfSignatureIdentityError.keyCertificateMismatch),
       ),
     );
+  });
+
+  test('identity file errors carry a machine-readable code for localization',
+      () {
+    final key = Uint8List.fromList(testSignerKeyPem.codeUnits);
+    final cert = Uint8List.fromList(testSignerCertPem.codeUnits);
+
+    void expectCode(
+      PdfSignatureIdentityError code, {
+      required Uint8List privateKey,
+      required List<Uint8List> certificates,
+      int? certificateIndex,
+    }) {
+      var matcher = isA<PdfSignatureIdentityException>()
+          .having((e) => e, 'is a FormatException', isA<FormatException>())
+          .having((e) => e.code, 'code', code);
+      if (certificateIndex != null) {
+        matcher = matcher.having(
+            (e) => e.certificateIndex, 'certificateIndex', certificateIndex);
+      }
+      expect(
+        () => PdfDigitalSignatureIdentity.fromFiles(
+            privateKey: privateKey, certificates: certificates),
+        throwsA(matcher),
+      );
+    }
+
+    // No certificate chosen at all.
+    expectCode(PdfSignatureIdentityError.noCertificateSelected,
+        privateKey: key, certificates: const []);
+    // A chosen certificate file that isn't valid X.509 (1-based index).
+    expectCode(PdfSignatureIdentityError.invalidCertificate,
+        privateKey: key,
+        certificates: [
+          Uint8List.fromList(const [1, 2, 3, 4])
+        ],
+        certificateIndex: 1);
+    // An encrypted PEM private key (unsupported).
+    expectCode(PdfSignatureIdentityError.encryptedKeyUnsupported,
+        privateKey:
+            Uint8List.fromList('-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n'
+                    '-----END ENCRYPTED PRIVATE KEY-----\n'
+                .codeUnits),
+        certificates: [cert]);
   });
 
   test('controller adds a valid PAdES signature as an undoable revision',
@@ -114,6 +157,33 @@ void main() {
     expect(rect.top, closeTo(720, 0.5));
     // a rendered appearance stream was installed (visible box)
     expect(widget['AP'], isNotNull);
+  });
+
+  test('a placed appearance invalidates every page that displays it', () async {
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final before = [
+      for (var page = 0; page < 3; page++) editing.pageRenderStamp(page),
+    ];
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [2],
+        ),
+      ),
+      isTrue,
+    );
+
+    expect(editing.lastRevisionImpact!.visualPages, {0, 2});
+    expect(editing.lastRevisionImpact!.contentPages, isEmpty);
+    expect(editing.lastRevisionImpact!.annotationPages, {0, 2});
+    expect(editing.pageRenderStamp(0), greaterThan(before[0]));
+    expect(editing.pageRenderStamp(1), before[1]);
+    expect(editing.pageRenderStamp(2), greaterThan(before[2]));
   });
 
   test('removeSignature drops the field and its apply-to-pages copies',

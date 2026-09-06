@@ -77,6 +77,9 @@ class _BarDevice implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode mode) {}
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+  @override
   void beginGroup(double alpha, {bool knockout = false}) {}
   @override
   void endGroup() {}

@@ -51,8 +51,10 @@ Factory + helpers in `file_io.dart`:
 Native (macOS runner, `MainFlutterWindow.swift`): `fileLength` and
 `readFileRange(bookmark, offset, length)` reactivate the security scope per
 call (no leaked handle/scope), so the loader pulls only the ranges it needs
-from a cloud-synced file. Deployment target is 10.15, so it uses the classic
-`FileHandle` seek/readData API (no `read(upToCount:)` availability guard).
+from a cloud-synced file. `FileRangeReader` uses `pread` so an I/O or File
+Provider failure becomes a catchable Swift error on every supported macOS
+version; the legacy `FileHandle` range APIs raise an uncatchable Objective-C
+exception for the same failure.
 
 ## 2. First paint from ranges, full bytes behind it
 

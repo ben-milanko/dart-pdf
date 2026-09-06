@@ -1,0 +1,5 @@
+Novidades na versão 3.3.1
+
+• Corrigidas anotações duplicadas após alterações de propriedades.
+• Fontes incorporadas são preservadas ao mudar a cor do texto; prévias de nuvens e polígonos mantêm a escala do padrão.
+• A reordenação de várias páginas agora tem retorno de grupo mais claro e confiável.

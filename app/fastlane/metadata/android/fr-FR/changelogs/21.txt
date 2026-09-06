@@ -1,0 +1,7 @@
+Nouveautés de la 3.1.0
+
+• Numérisez des documents papier directement en PDF ou prenez une photo avec l'appareil photo.
+• Les modifications non enregistrées sont mises en miroir puis restaurées après un plantage.
+• Nouveaux outils : hyperliens, recadrage d'images, verrouillage des annotations et raccourcis pour chaque outil.
+• Surimpression fidèle ; affichage des pages plus rapide et progressif.
+• Réduisez la taille d'un PDF sans perte lors de l'enregistrement.

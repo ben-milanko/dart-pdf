@@ -1,0 +1,261 @@
+name: Nightly Windows build
+
+# Publishes one rolling, unsigned Windows prerelease from main. The release body
+# records the last successfully published commit, so the Windows runner is only
+# started when main has moved since that build.
+on:
+  schedule:
+    # 02:20 AEST / 03:20 AEDT.
+    - cron: '20 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-windows
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: '3.47.0'
+  NIGHTLY_TAG: app-nightly
+
+jobs:
+  changes:
+    name: Check for changes on main
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.changes.outputs.should_build }}
+      head_sha: ${{ steps.changes.outputs.head_sha }}
+      previous_sha: ${{ steps.changes.outputs.previous_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare main with the last successful nightly
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          head_sha="$(git rev-parse HEAD)"
+          release_body="$(gh release view "$NIGHTLY_TAG" --json body --jq .body 2>/dev/null || true)"
+          previous_sha="$(
+            printf '%s\n' "$release_body" |
+              sed -nE 's/.*<!-- main-sha: ([0-9a-f]{40}) -->.*/\1/p' |
+              head -n 1
+          )"
+
+          should_build=true
+          if [[ "$previous_sha" == "$head_sha" ]]; then
+            should_build=false
+            echo "No changes on main since the last successful nightly ($head_sha)." \
+              >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -n "$previous_sha" ]]; then
+            echo "main moved from $previous_sha to $head_sha; starting a nightly build." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No successful nightly marker exists; starting the first build at $head_sha." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "previous_sha=$previous_sha" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Build Windows app
+    needs: changes
+    if: needs.changes.outputs.should_build == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changes.outputs.head_sha }}
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build Windows release
+        working-directory: app
+        shell: pwsh
+        run: |
+          $versionLine = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value
+          $buildName = $versionLine.Split('+')[0]
+          flutter build windows --release `
+            --build-name="$buildName" `
+            --build-number="${{ github.run_number }}" `
+            --dart-define="PDF_BUILD_COMMIT=${{ needs.changes.outputs.head_sha }}"
+          if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
+          & build/windows/x64/runner/Release/dartpdf.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
+
+      - name: Package portable build
+        working-directory: app
+        shell: pwsh
+        run: |
+          $bundle = "build/windows/x64/runner/Release"
+          Copy-Item "$env:SystemRoot\System32\msvcp140.dll",
+                    "$env:SystemRoot\System32\vcruntime140.dll",
+                    "$env:SystemRoot\System32\vcruntime140_1.dll" `
+                    -Destination $bundle -Force
+
+          $archive = "dartpdf-nightly-windows-x64.zip"
+          Compress-Archive -Path "$bundle/*" -DestinationPath $archive -Force
+
+      - name: Build Windows installer
+        working-directory: app
+        shell: pwsh
+        run: |
+          $versionLine = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value
+          $buildName = $versionLine.Split('+')[0]
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) {
+            choco install nsis -y --no-progress | Out-Null
+          }
+          ./packaging/windows/build-installer.ps1 `
+            -BundlePath build/windows/x64/runner/Release `
+            -Version $buildName `
+            -OutputPath dartpdf-nightly-windows-installer.exe
+
+      - name: Write checksums
+        working-directory: app
+        shell: pwsh
+        run: |
+          $assets = @(
+            "dartpdf-nightly-windows-installer.exe",
+            "dartpdf-nightly-windows-x64.zip"
+          )
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $asset"
+          }
+          $lines | Set-Content -Path SHA256SUMS.txt -Encoding ascii
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-windows
+          path: |
+            app/dartpdf-nightly-windows-installer.exe
+            app/dartpdf-nightly-windows-x64.zip
+            app/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish rolling GitHub prerelease
+    needs: [changes, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changes.outputs.head_sha }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: nightly-windows
+          path: artifacts
+
+      - name: Build release notes
+        id: notes
+        env:
+          HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+          PREVIOUS_SHA: ${{ needs.changes.outputs.previous_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_sha="${HEAD_SHA:0:7}"
+          built_at="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          app_version="$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' app/pubspec.yaml)"
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          notes="$RUNNER_TEMP/nightly-notes.md"
+
+          {
+            echo "Rolling Windows test build from [\`$short_sha\`]($repo_url/commit/$HEAD_SHA), built $built_at."
+            echo
+            echo "Use \`dartpdf-nightly-windows-installer.exe\` to install/update DartPDF, or download the portable ZIP and run \`dart_pdf_editor_app.exe\` from the extracted folder."
+            echo
+            echo "> [!WARNING]"
+            echo "> This CI build is unsigned, so Windows may show a SmartScreen warning. It is not a Microsoft Store build."
+            echo
+            echo "## Changes since the previous nightly"
+            echo
+
+            if [[ -n "$PREVIOUS_SHA" ]] &&
+               git merge-base --is-ancestor "$PREVIOUS_SHA" "$HEAD_SHA"; then
+              change_count="$(git rev-list --count "$PREVIOUS_SHA..$HEAD_SHA")"
+              echo "[$change_count commit(s)]($repo_url/compare/$PREVIOUS_SHA...$HEAD_SHA):"
+              echo
+              git log --max-count=50 \
+                --format="- %s ([%h]($repo_url/commit/%H))" \
+                "$PREVIOUS_SHA..$HEAD_SHA"
+              if (( change_count > 50 )); then
+                echo
+                echo "_Only the newest 50 commits are shown._"
+              fi
+            elif [[ -n "$PREVIOUS_SHA" ]]; then
+              echo "The history of \`main\` changed since the previous nightly; this build starts a new comparison point."
+            else
+              echo "Initial nightly build."
+            fi
+
+            echo
+            echo "<!-- main-sha: $HEAD_SHA -->"
+            echo "<!-- app-version: $app_version -->"
+          } > "$notes"
+
+          echo "path=$notes" >> "$GITHUB_OUTPUT"
+          echo "title=DartPDF nightly - $(date -u +%Y-%m-%d) ($short_sha)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+          NOTES_PATH: ${{ steps.notes.outputs.path }}
+          RELEASE_TITLE: ${{ steps.notes.outputs.title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Move the stable nightly tag only after the build has succeeded.
+          # The release-body SHA marker is written last, after all assets have
+          # uploaded; a partial publish is therefore retried on the next run.
+          git tag -f "$NIGHTLY_TAG" "$HEAD_SHA"
+          git push --force origin "refs/tags/$NIGHTLY_TAG:refs/tags/$NIGHTLY_TAG"
+
+          if ! gh release view "$NIGHTLY_TAG" >/dev/null 2>&1; then
+            gh release create "$NIGHTLY_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "Nightly assets are being uploaded." \
+              --prerelease \
+              --latest=false \
+              --verify-tag
+          fi
+
+          gh release upload "$NIGHTLY_TAG" \
+            artifacts/dartpdf-nightly-windows-installer.exe \
+            artifacts/dartpdf-nightly-windows-x64.zip \
+            artifacts/SHA256SUMS.txt \
+            --clobber
+
+          gh release edit "$NIGHTLY_TAG" \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$NOTES_PATH" \
+            --prerelease \
+            --verify-tag

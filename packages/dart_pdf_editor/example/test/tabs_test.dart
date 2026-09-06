@@ -23,6 +23,87 @@ void main() {
     expect(find.byType(PdfViewer), findsOneWidget);
   });
 
+  testWidgets('splitting opens every result in a tab and retains the source',
+      (tester) async {
+    await openDemo(tester);
+    final source =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    final sourceDocument = source.document;
+    await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-split-pages')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-split-ranges')), '1-2, 4');
+    await tester.tap(find.byKey(const ValueKey('pdf-split-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(closeButtons(), findsNWidgets(3));
+    final result =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    expect(result.document.pageCount, 1);
+    expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('pdf-shell-save')))
+            .onPressed,
+        isNotNull);
+    expect(source.document, same(sourceDocument));
+    expect(find.text('Feature showcase - part 2.pdf'), findsOneWidget);
+    await tester.tap(find.text('Feature showcase - part 1.pdf'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<PdfEditorView>(find.byType(PdfEditorView))
+            .controller!
+            .document
+            .pageCount,
+        2);
+  });
+
+  testWidgets('single-range export opens an editable result tab',
+      (tester) async {
+    await openDemo(tester);
+    await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-export-pages')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-page-range-from')), '2');
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-page-range-to')), '3');
+    await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+    await tester.pumpAndSettle();
+    expect(closeButtons(), findsNWidgets(2));
+    final session =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    expect(session.document.pageCount, 2);
+    expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('pdf-shell-save')))
+            .onPressed,
+        isNotNull);
+    session.removePage(0);
+    await tester.pumpAndSettle();
+    expect(session.document.pageCount, 1);
+    session.undo();
+    await tester.pumpAndSettle();
+    expect(session.document.pageCount, 2);
+  });
+
+  testWidgets('repeated exports get distinct tab and save names',
+      (tester) async {
+    await openDemo(tester);
+    final source = tester.widget<PdfEditorView>(find.byType(PdfEditorView));
+    final output = source.controller!.exportPageRange(0, 0);
+    source.onExportPages!(output);
+    await tester.pumpAndSettle();
+    source.onExportPages!(output);
+    await tester.pumpAndSettle();
+    expect(closeButtons(), findsNWidgets(3));
+    expect(find.text('Feature showcase - part 1.pdf'), findsOneWidget);
+    expect(find.text('Feature showcase - part 2.pdf'), findsOneWidget);
+  });
+
   testWidgets('tab strip is left aligned and app logo is compact',
       (tester) async {
     await openDemo(tester);
@@ -87,6 +168,26 @@ void main() {
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
     expect(find.text('Compare with another PDF…'), findsOneWidget);
+  });
+
+  testWidgets('the app menu toggles the GPU rendering devtool', (tester) async {
+    pdfDebugShowGpuRasterRoutes.value = false;
+    addTearDown(() => pdfDebugShowGpuRasterRoutes.value = false);
+    await openDemo(tester);
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    final devtool = find.byKey(
+      const ValueKey('dartpdf-gpu-route-devtool'),
+    );
+    await tester.ensureVisible(devtool);
+    await tester.pumpAndSettle();
+    await tester.tap(devtool);
+    await tester.pump();
+
+    expect(pdfDebugShowGpuRasterRoutes.value, isTrue);
+    expect(find.byKey(const ValueKey('pdf-gpu-route-overlay')), findsWidgets);
+    expect(find.text('Detail tiles: not active'), findsWidgets);
   });
 
   testWidgets('performance menu switches between Auto and fixed workers',

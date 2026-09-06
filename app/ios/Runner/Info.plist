@@ -2,8 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>FLTEnableImpeller</key>
+	<true/>
+	<key>FLTEnableFlutterGPU</key>
+	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- The image tool's "Take photo" source. iOS terminates the app if the
+	     camera is opened without this string, so it must stay for as long as
+	     lib/camera_capture.dart exists. Only the camera is used - captures are
+	     never written to the photo library, so no photo-library key is needed. -->
+	<key>NSCameraUsageDescription</key>
+	<string>DartPDF uses the camera to photograph a picture to place in your document.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -89,5 +99,7 @@
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>DartPDF uses the camera to scan documents into a PDF.</string>
 </dict>
 </plist>

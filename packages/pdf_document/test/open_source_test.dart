@@ -24,6 +24,23 @@ void main() {
     expect(doc.pageCount, 7);
   });
 
+  test('sparse preview exposes only its covered pages', () async {
+    final doc = await PdfDocument.openSource(
+      PdfBytesByteSource(buildMultiPagePdf(80)),
+      options: const PdfSourceLoadOptions(
+        firstPaintPages: 1,
+        completeFirstPaintPageTree: false,
+        headWindow: 64,
+        tailWindow: 200,
+        xrefWindow: 4096,
+      ),
+    );
+
+    expect(doc.pageCount, 1);
+    expect(doc.page(0).mediaBox.width, greaterThan(0));
+    expect(() => doc.page(1), throwsRangeError);
+  });
+
   test('reads page content through the source', () async {
     final doc =
         await PdfDocument.openSource(PdfBytesByteSource(buildClassicPdf()));
@@ -32,9 +49,24 @@ void main() {
   });
 
   test('falls back cleanly for an unknown-length source', () async {
-    final doc = await PdfDocument.openSource(_UnknownLengthSource(
-        buildMultiPagePdf(3)));
+    final doc = await PdfDocument.openSource(
+        _UnknownLengthSource(buildMultiPagePdf(3)));
     expect(doc.pageCount, 3);
+  });
+
+  test('full-download fallback does not keep the preview page-count hint',
+      () async {
+    final doc = await PdfDocument.openSource(
+      _UnknownLengthSource(buildMultiPagePdf(3)),
+      options: const PdfSourceLoadOptions(
+        firstPaintPages: 1,
+        completeFirstPaintPageTree: false,
+      ),
+    );
+
+    expect(doc.pageCount, 3,
+        reason: 'the fallback downloaded the complete page tree');
+    expect(doc.page(2).mediaBox.width, greaterThan(0));
   });
 }
 

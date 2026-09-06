@@ -12,16 +12,17 @@ editing overlay (`packages/dart_pdf_editor/lib/src/editing/editing_overlay.dart`
   vertex. Only the live edge is constrained — already-placed vertices are
   never straightened retroactively, so Shift held at the end doesn't reflow
   the whole polyline.
-- **Ink** (pen / freehand highlighter): the freehand stroke collapses to a
-  single ruler-straight segment from where it began to the pointer,
-  rubber-banding as it moves. This one is *not* 45°-constrained — "straight
-  ink" means a straight line at any angle, matching how drawing apps behave.
+- **Ink** (pen / freehand highlighter): Shift anchors a straight tail at the
+  latest sampled point, preserving any freehand prefix. The tail snaps to
+  the nearest 45° direction and rubber-bands until pointer-up, including
+  when Shift is released just before the mouse or pen. The next stroke starts
+  with a fresh constraint state.
 
 ## Implementation notes
 
-One geometry helper does the work, operating in **view space** (the gesture
-Offsets): `_straightSnap(anchor, point)` projects `point` onto the nearest 45°
-direction from `anchor`, or returns `point` unchanged when Shift is up. It's
+Snapping operates in **view space** (the gesture Offsets):
+`_snap45(anchor, point)` projects `point` onto the nearest 45° direction from
+`anchor`. `_straightSnap` returns the point unchanged when Shift is up. It's
 used by the single-segment line drag, by each poly vertex as it's placed, and
 by the live rubber-band / measurement-readout edge.
 
@@ -47,19 +48,20 @@ reset to null everywhere `_polyPoints` is cleared.
 
 ### Ink
 
-Both ink-extension paths (raw-pointer `_onPointerMove`, gesture-arena
-`_applyDragPosition`) were duplicated append-a-point blocks; they're now one
-`_extendActiveStroke(localPosition)`. While Shift is held it truncates the
-stroke to `[origin]` and appends the current point (and mirrors that on the
-parallel pressures list), so release commits a two-point line. Stroke
-prediction is display-only and extrapolates along the segment direction, so a
-straight stroke stays straight and never folds the lead into the commit.
+Both ink-extension paths use `_extendActiveStroke(localPosition)`. The first
+sample with Shift down latches `_inkShiftAnchorIndex` to the latest existing
+sample. Subsequent moves preserve the prefix and replace only the snapped
+endpoint, with matching pressure samples. Pointer completion, cancellation,
+and gesture bails clear the latch.
 
-Live shift state is read from `HardwareKeyboard.instance.isShiftPressed` at
-each pointer sample, so toggling Shift mid-gesture updates the next move
-(standard drawing-app behaviour).
+Prediction is disabled for the constrained tail so its preview ends where
+the saved line will end. `_inkStrokeParts` splits the freehand prefix and
+straight tail at their shared anchor in both preview and commit. This keeps
+Catmull-Rom smoothing from bending the tail. Both paths remain in one Ink
+annotation and one undo operation.
 
-Tests: `test/editing_straight_lines_test.dart` (line axis + diagonal snap,
-per-edge polyline snap through a double-tap finish, the per-segment guarantee
-— Shift held only for the last edge leaves the opening segment angled — and
-ink straightening).
+Tests in `test/editing_straight_lines_test.dart` cover line and polyline
+snapping, early Shift release for mouse/touch/stylus, subsequent freehand
+strokes, raw-pointer cancellation, stylus pressure, and Ctrl-wheel zoom.
+Pixel checks verify the active preview, buffered preview, and reopened PDF
+all retain a straight tail without prediction overshoot.

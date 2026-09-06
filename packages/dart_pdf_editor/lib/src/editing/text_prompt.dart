@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfFormField, PdfRect, PdfVectorSnapshot;
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 
 /// Supplies the image a tapped push-button field should be filled with
@@ -129,7 +130,7 @@ Future<String?> showPdfTextPrompt(
   bool multiline = false,
 }) {
   final field = TextEditingController(text: initial);
-  return showDialog<String>(
+  return showPdfDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(title),

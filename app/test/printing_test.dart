@@ -54,4 +54,24 @@ void main() {
     expect(sentPdf, bytes); // the document went over as vector
     expect(jobName, 'Report'); // the .pdf-stripped job name
   });
+
+  test('prepared sheets opt out of another native fit', () async {
+    const channel = MethodChannel('dev.milanko.dartpdf/native_print');
+    final messenger = binding.defaultBinaryMessenger;
+    Map? args;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      args = call.arguments as Map;
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await printPdfBytes(
+      bytes: buildMultiPagePdf(1),
+      title: 'Prepared.pdf',
+      useDocumentPageSize: true,
+    );
+    expect(args?['useDocumentPageSize'], isTrue);
+    expect(args?['pageWidth'], 612);
+    expect(args?['pageHeight'], 792);
+  });
 }

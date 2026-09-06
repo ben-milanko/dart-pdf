@@ -1,0 +1,6 @@
+Novità della versione 4.0.0
+
+- Comandi di modifica più compatti e ancorabili, con migliore navigazione tra pagine e file recenti.
+- Adatta il testo al riquadro e appiattisci le annotazioni scelte; i campi vuoti ora si appiattiscono correttamente.
+- Colori, sovrastampa, trasparenza, maschere e font più fedeli nei PDF complessi.
+- Rendering GPU e zoom profondo più rapidi, con flussi migliori per trascinare, scansionare e aprire file.

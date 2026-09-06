@@ -1,0 +1,7 @@
+4.2.0 sürümündeki yenilikler
+
+- Yavaş kaydırırken yakındaki sayfalar, boştaki grafik kapasitesi sayesinde net kalır.
+- Yeni hizalama kılavuzları ve sayfa cetvelleriyle açıklamaları tam olarak yerleştirin.
+- Ctrl veya Cmd ve fare tekerleğiyle işaretçinin çevresinde yakınlaştırın.
+- Döndürülmüş sayfalarda açıklama düzenleme ve çok satırlı vurguları seçme sorunları giderildi.
+- Seçim başlatmak yerine metin satırları arasında kaydırın.

@@ -422,6 +422,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorMenuNewDocument => 'New document…';
 
   @override
+  String get editorMenuNewWindow => 'New window';
+
+  @override
+  String get editorMoveToNewWindow => 'Move to new window';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override
@@ -434,13 +443,76 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorMenuSaveAs => 'Save as…';
 
   @override
+  String get editorMenuScanDocument => 'Scan to new document…';
+
+  @override
+  String get editorMenuInsertDocument => 'Insert document…';
+
+  @override
+  String get editorMenuInsertScan => 'Insert scan…';
+
+  @override
+  String get editorScanFailed => 'Couldn\'t scan the document.';
+
+  @override
+  String get editorInsertedScan => 'Inserted scanned pages.';
+
+  @override
   String get editorMenuSettings => 'Settings';
 
   @override
-  String get editorMenuSwitchToEdit => 'Switch to edit mode';
+  String get editorMenuSectionFile => 'File';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Switch to read-only';
+  String get editorMenuSectionDocument => 'This document';
+
+  @override
+  String get editorMenuSectionApp => 'App';
+
+  @override
+  String get editorMenuReadOnly => 'Read-only';
+
+  @override
+  String get editorMenuSearchActions => 'Search actions…';
+
+  @override
+  String get paletteHint => 'Search actions, tools and panels';
+
+  @override
+  String get paletteNoMatch => 'No command matches';
+
+  @override
+  String get paletteKeyHints => '↑↓ move · ⏎ run · esc close';
+
+  @override
+  String paletteCount(int count) {
+    return '$count commands';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count of $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Panel';
+
+  @override
+  String get paletteSourceView => 'View';
+
+  @override
+  String get paletteSourceFile => 'File';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group tool';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Needs an open document';
 
   @override
   String editorNamedAction(String name) {
@@ -484,6 +556,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorOpenRecent => 'Open Recent';
 
   @override
+  String get editorViewAllRecentFiles => 'View all recent files…';
+
+  @override
   String get editorOpenTabs => 'Open tabs';
 
   @override
@@ -513,6 +588,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorPreviewPdf => 'PDF';
+
+  @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Recovered unsaved changes in $count documents from your last session.',
+      one: 'Recovered unsaved changes from your last session.',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get editorSignatureRemoved => 'Signature removed';
@@ -557,6 +644,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorUpdateLater => 'Later';
+
+  @override
+  String get updateInstallNow => 'Update now';
+
+  @override
+  String get updateDownloadingTitle => 'Downloading update';
+
+  @override
+  String get updatePreparing => 'Preparing…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Downloading… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Restarting to finish the update…';
+
+  @override
+  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Update failed: $error';
+  }
 
   @override
   String get editorViewAllTabs => 'View all tabs';
@@ -690,6 +802,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get printDlgTitle => 'Printing';
 
   @override
+  String get printPreviewAll => 'All';
+
+  @override
+  String get printPreviewCurrent => 'Current';
+
+  @override
+  String get printPreviewFrom => 'From';
+
+  @override
+  String get printPreviewNextPage => 'Next page';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Page $page of $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Previous page';
+
+  @override
+  String get printPreviewPrint => 'Print';
+
+  @override
+  String get printPreviewRange => 'Range';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Enter a page range between 1 and $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Pages to print: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Print preview';
+
+  @override
+  String get printPreviewTo => 'To';
+
+  @override
+  String get printPreviewUnavailable => 'Preview unavailable';
+
+  @override
   String get redo => 'Redo';
 
   @override
@@ -712,6 +869,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsCheckNow => 'Check now';
+
+  @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsLanguageSystem => 'System default';
 
   @override
   String get settingsCheckingForUpdates => 'Checking for updates…';
@@ -791,6 +954,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'Nightly updates';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'Receive automatic update notifications for unsigned Windows test builds from main.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -809,8 +979,340 @@ class AppLocalizationsEn extends AppLocalizations {
   String get welcomeRecent => 'Recent';
 
   @override
+  String get welcomeSearchRecentFiles => 'Search recent files';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'No recent files match your search';
+
+  @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
+
+  @override
+  String get welcomeViewAsGrid => 'Grid view';
+
+  @override
+  String get welcomeViewAsList => 'List view';
+
+  @override
+  String settingsDefaultAppSubtitle(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web': 'Install the web app, then choose it for PDF files.',
+        'windows': 'Open Windows default apps settings for PDFs.',
+        'macos': 'Follow Finder’s “Always Open With” steps.',
+        'linux': 'Use your desktop’s default applications settings.',
+        'android': 'Choose DartPDF when opening a PDF, then tap Always.',
+        'ios': 'Use Share or Open In from Files to send PDFs here.',
+        'other': 'Configure your system’s PDF file handler.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String settingsDefaultAppInstructions(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web':
+            'Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.',
+        'windows':
+            'Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.',
+        'macos':
+            'In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.',
+        'linux':
+            'Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.',
+        'android':
+            'Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.',
+        'ios':
+            'iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.',
+        'other':
+            'Use the system settings for file handlers to associate PDF documents with DartPDF.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrChipDownloadingModel => 'Downloading OCR model…';
+
+  @override
+  String ocrChipDownloadingModelPercent(int percent) {
+    return 'Downloading model $percent%';
+  }
+
+  @override
+  String ocrChipRecognising(int page, int pageCount) {
+    return 'OCR $page/$pageCount';
+  }
+
+  @override
+  String get ocrChipFinishing => 'Finishing OCR…';
+
+  @override
+  String get fileTypePdf => 'PDF documents';
+
+  @override
+  String get fileTypeImages => 'Images';
+
+  @override
+  String get fileTypeStampBundle => 'DartPDF stamps';
+
+  @override
+  String get appSigKeyFileType => 'RSA private keys';
+
+  @override
+  String get appSigCertificateFileType => 'X.509 certificates';
+
+  @override
+  String get appSigErrorNoCertificateSelected =>
+      'Select at least one X.509 certificate.';
+
+  @override
+  String appSigErrorInvalidCertificate(int index) {
+    return 'Certificate $index is not valid X.509.';
+  }
+
+  @override
+  String get appSigErrorKeyCertificateMismatch =>
+      'The private key does not match any selected RSA certificate.';
+
+  @override
+  String get appSigErrorEncryptedKeyUnsupported =>
+      'Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.';
+
+  @override
+  String get appSigErrorKeyNotRsa =>
+      'The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.';
+
+  @override
+  String get appSigErrorNoCertificateFound =>
+      'No X.509 certificates were found.';
+
+  @override
+  String get imageSourceTakePhoto => 'Take photo';
+
+  @override
+  String get imageSourceChooseFile => 'Choose file';
+
+  @override
+  String get imageSourceCameraFailed => 'Couldn\'t take a photo';
+
+  @override
+  String get settingsCachedDocuments => 'Cached documents';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB of $limit MiB used';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Files over $limit MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Clear cached documents';
+
+  @override
+  String get settingsCacheUnavailable => 'Cache size unavailable';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Could not clear cached documents. Try again.';
+
+  @override
+  String get printOptionsPrinter => 'Printer';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.';
+
+  @override
+  String get printOptionsPages => 'Pages';
+
+  @override
+  String get printOptionsSelected => 'Selected';
+
+  @override
+  String get printOptionsPageRange => 'Pages (for example, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Add files…';
+
+  @override
+  String get printOptionsAddFailed => 'Could not add the selected files.';
+
+  @override
+  String get printOptionsGetWindow => 'Get window';
+
+  @override
+  String get printOptionsClearWindow => 'Clear window';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Drag a rectangle on this source page to choose the area to print.';
+
+  @override
+  String get printOptionsPaper => 'Paper';
+
+  @override
+  String get printOptionsPaperSize => 'Paper size';
+
+  @override
+  String get printOptionsPageSize => 'Use document page size';
+
+  @override
+  String get printOptionsOrientation => 'Orientation';
+
+  @override
+  String get printOptionsAuto => 'Auto';
+
+  @override
+  String get printOptionsPortrait => 'Portrait';
+
+  @override
+  String get printOptionsLandscape => 'Landscape';
+
+  @override
+  String get printOptionsCopies => 'Copies';
+
+  @override
+  String get printOptionsCollate => 'Collate';
+
+  @override
+  String get printOptionsReverse => 'Reverse page order';
+
+  @override
+  String get printOptionsLayout => 'Page layout';
+
+  @override
+  String get printOptionsScaling => 'Page scaling';
+
+  @override
+  String get printOptionsScaleNone => 'None (actual size)';
+
+  @override
+  String get printOptionsFitPaper => 'Fit to paper';
+
+  @override
+  String get printOptionsReducePaper => 'Reduce to paper';
+
+  @override
+  String get printOptionsFitMargins => 'Fit to margins';
+
+  @override
+  String get printOptionsReduceMargins => 'Reduce to margins';
+
+  @override
+  String get printOptionsCustomScale => 'Custom scale';
+
+  @override
+  String get printOptionsMultiple => 'Multiple pages per sheet';
+
+  @override
+  String get printOptionsScalePercent => 'Scale (%)';
+
+  @override
+  String get printOptionsMargin => 'Margins (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Pages per sheet';
+
+  @override
+  String get printOptionsPageOrder => 'Page order';
+
+  @override
+  String get printOptionsHorizontal => 'Horizontal';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Horizontal reversed';
+
+  @override
+  String get printOptionsVertical => 'Vertical';
+
+  @override
+  String get printOptionsVerticalReverse => 'Vertical reversed';
+
+  @override
+  String get printOptionsBorder => 'Print page borders';
+
+  @override
+  String get printOptionsRotation => 'Rotation (clockwise)';
+
+  @override
+  String get printOptionsNoRotation => 'None';
+
+  @override
+  String get printOptionsCenter => 'Center on paper';
+
+  @override
+  String get printOptionsOffsetX => 'Offset right (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Offset down (pt)';
+
+  @override
+  String get printOptionsContents => 'Print contents';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Document and markups';
+
+  @override
+  String get printOptionsDocumentOnly => 'Document only';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Markups only';
+
+  @override
+  String get printOptionsDimPage => 'Dim page content';
+
+  @override
+  String get printOptionsDimMarkups => 'Dim markups';
+
+  @override
+  String get printOptionsHyperlinks => 'Print visible hyperlinks';
+
+  @override
+  String get printOptionsDefaults => 'Defaults';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Enter valid numbers before printing.';
+
+  @override
+  String get printOptionsInvalidValue => 'Invalid value';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Red lines show the margins; they do not print.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Window: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Source: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Sheet: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Sheet $sheet of $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'This layout could not be prepared. Check the paper size, margins and scale.';
 }

@@ -20,17 +20,24 @@ void main() {
       a.fingerDrawsInk = false;
       a.showThumbnailSidebar = false; // non-default, so the write is real
       a.showAnnotationSidebar = true;
+      a.showAnnotationLibraryPanel = true;
+      a.annotationLibraryPanelWidth = 336;
+      a.annotationLibraryPanelDock = PdfPanelDock.left;
       a.author = 'Ben';
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
+      a.showScrollbarChapters = true;
       a.showReflowView = true;
       a.lineStartEnding = PdfLineEnding.circle;
       a.lineEndEnding = PdfLineEnding.closedArrow;
       a.searchMatchCase = true;
       a.searchWholeWord = true;
       a.searchRegex = true;
+      a.searchAnnotations = false; // non-default, so the write is real
       a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
       a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
+      a.locale = const Locale('es');
+      a.toolbarDock = PdfPanelDock.right;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -43,17 +50,48 @@ void main() {
       expect(b.fingerDrawsInk, isFalse);
       expect(b.showThumbnailSidebar, isFalse);
       expect(b.showAnnotationSidebar, isTrue);
+      expect(b.showAnnotationLibraryPanel, isTrue);
+      expect(b.annotationLibraryPanelWidth, 336);
+      expect(b.annotationLibraryPanelDock, PdfPanelDock.left);
       expect(b.author, 'Ben');
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
+      expect(b.showScrollbarChapters, isTrue);
       expect(b.showReflowView, isTrue);
       expect(b.lineStartEnding, PdfLineEnding.circle);
       expect(b.lineEndEnding, PdfLineEnding.closedArrow);
       expect(b.searchMatchCase, isTrue);
       expect(b.searchWholeWord, isTrue);
       expect(b.searchRegex, isTrue);
+      expect(b.searchAnnotations, isFalse);
       expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
+      expect(b.locale, const Locale('es'));
+      expect(b.toolbarDock, PdfPanelDock.right);
+    });
+
+    test('locale persists as a BCP-47 tag and restores script/region subtags',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      // A script+region-bearing tag exercises the tag parser both ways.
+      a.locale = const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN');
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.locale?.languageCode, 'zh');
+      expect(b.locale?.scriptCode, 'Hans');
+      expect(b.locale?.countryCode, 'CN');
+
+      // Clearing it back to "System default" removes the stored value.
+      b.locale = null;
+      await pumpEventQueue();
+      final c = PdfEditingPreferences();
+      await c.ready;
+      expect(c.locale, isNull);
     });
 
     test('noteRecentColor moves to front, dedupes, caps, and persists',
@@ -106,15 +144,20 @@ void main() {
       // the thumbnail strip is on by default since 9bbfc87
       expect(prefs.showThumbnailSidebar, isTrue);
       expect(prefs.showAnnotationSidebar, isFalse);
+      expect(prefs.showAnnotationLibraryPanel, isFalse);
+      expect(prefs.annotationLibraryPanelWidth, isNull);
+      expect(prefs.annotationLibraryPanelDock, PdfPanelDock.right);
       expect(prefs.author, isNull);
       expect(prefs.colorPickerFormat, PdfColorFormat.hex);
       expect(prefs.lineStartEnding, PdfLineEnding.none);
       expect(prefs.lineEndEnding, PdfLineEnding.none);
       expect(prefs.highlightFormFields, isTrue);
+      expect(prefs.showScrollbarChapters, isFalse);
       expect(prefs.showReflowView, isFalse);
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+      expect(prefs.searchAnnotations, isTrue); // on by default
       expect(prefs.stampDateFormat, PdfStampDateFormat.iso);
       expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });

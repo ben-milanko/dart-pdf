@@ -38,19 +38,32 @@ enum PdfPanelDock {
 /// dragged from a move handle onto a drop zone and the identity a shell maps
 /// to the panel's persisted [PdfPanelDock].
 enum PdfDockablePanel {
-  thumbnails('Pages', Icons.grid_view),
-  search('Search results', Icons.manage_search),
-  bookmarks('Bookmarks', Icons.bookmarks_outlined),
-  annotations('Annotations', Icons.list_alt),
-  properties('Properties', Icons.tune);
+  thumbnails(Icons.grid_view),
+  search(Icons.manage_search),
+  bookmarks(Icons.bookmarks_outlined),
+  annotations(Icons.list_alt),
+  properties(Icons.tune),
+  annotationLibrary(Icons.collections_bookmark_outlined);
 
-  const PdfDockablePanel(this.label, this.icon);
-
-  /// A human-readable name shown on the drag feedback chip.
-  final String label;
+  const PdfDockablePanel(this.icon);
 
   /// The panel's glyph, shown on the drag feedback chip.
   final IconData icon;
+
+  /// A localized, human-readable name shown on the drag feedback chip and
+  /// panel headers. Reuses the shell's panel names so the same words are
+  /// translated once.
+  String label(BuildContext context) {
+    final l = pdfL10n(context);
+    return switch (this) {
+      PdfDockablePanel.thumbnails => l.shellPanelPages,
+      PdfDockablePanel.search => l.shellPanelSearchResults,
+      PdfDockablePanel.bookmarks => l.shellPanelBookmarks,
+      PdfDockablePanel.annotations => l.shellPanelAnnotations,
+      PdfDockablePanel.properties => l.shellPanelProperties,
+      PdfDockablePanel.annotationLibrary => l.annotationLibraryTitle,
+    };
+  }
 }
 
 /// Whether panel row controls should be revealed by mouse hover.
@@ -184,7 +197,7 @@ class PdfPanelDragFeedback extends StatelessWidget {
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(panel.icon, size: 18, color: scheme.onPrimaryContainer),
           const SizedBox(width: 8),
-          Text(panel.label,
+          Text(panel.label(context),
               style: TextStyle(
                   color: scheme.onPrimaryContainer,
                   fontWeight: FontWeight.w500)),

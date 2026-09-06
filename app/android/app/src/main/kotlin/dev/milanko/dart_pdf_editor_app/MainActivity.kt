@@ -1,6 +1,7 @@
 package dev.milanko.dart_pdf_editor_app
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -24,8 +25,10 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 /// Forwards PDFs the OS opens in the app - a Files "open", a download tap, or a
 /// share - to the Dart `IncomingFileService` over a single method channel.
@@ -34,6 +37,7 @@ class MainActivity : FlutterActivity() {
     private val imageClipboardChannelName = "dev.milanko.dartpdf/image_clipboard"
     private val nativePrintChannelName = "dev.milanko.dartpdf/native_print"
     private val mobileFileChannelName = "dev.milanko.dartpdf/mobile_file"
+    private val memoryChannelName = "dev.milanko.dartpdf/memory"
     private var channel: MethodChannel? = null
 
     /// The file the activity was launched with, drained by `getInitialFile`.
@@ -89,7 +93,12 @@ class MainActivity : FlutterActivity() {
                         if (pdf == null) {
                             result.error("bad_args", "printPdf expects pdf bytes", null)
                         } else {
-                            result.success(printPdf(pdf, call.argument<String>("name") ?: "Document"))
+                            result.success(printPdf(
+                                pdf, call.argument<String>("name") ?: "Document",
+                                call.argument<Boolean>("useDocumentPageSize") == true,
+                                call.argument<Number>("pageWidth")?.toDouble(),
+                                call.argument<Number>("pageHeight")?.toDouble()
+                            ))
                         }
                     }
                     else -> result.notImplemented()
@@ -102,6 +111,26 @@ class MainActivity : FlutterActivity() {
         // MB. See MobileFileByteSource on the Dart side.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mobileFileChannelName)
             .setMethodCallHandler { call, result -> handleMobileFile(call, result) }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, memoryChannelName)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "snapshot") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val info = ActivityManager.MemoryInfo()
+                manager.getMemoryInfo(info)
+                result.success(
+                    mapOf(
+                        "physicalBytes" to info.totalMem,
+                        "availableBytes" to info.availMem,
+                        "processLimitBytes" to
+                            manager.memoryClass.toLong() * 1024L * 1024L,
+                        "lowMemory" to info.lowMemory,
+                    )
+                )
+            }
 
         channel = ch
         handleIntent(intent, initial = true)
@@ -146,6 +175,23 @@ class MainActivity : FlutterActivity() {
                 fileIoExecutor.execute {
                     try {
                         val bytes = readRange(Uri.parse(token), offset, length)
+                        runOnUiThread { result.success(bytes) }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            result.error("read_failed", e.message, null)
+                        }
+                    }
+                }
+            }
+            "readUri" -> {
+                val token = call.argument<String>("token")
+                if (token == null) {
+                    result.error("bad_args", "readUri expects a token", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    try {
+                        val bytes = readWhole(Uri.parse(token))
                         runOnUiThread { result.success(bytes) }
                     } catch (e: Exception) {
                         runOnUiThread {
@@ -227,6 +273,9 @@ class MainActivity : FlutterActivity() {
                 "token" to uri.toString(),
                 "name" to (displayName(uri) ?: "document.pdf"),
                 "length" to fileLength(uri),
+                // The authority identifies the DocumentsProvider without
+                // exposing the picked URI/path or its persisted access token.
+                "provider" to (uri.authority ?: "android-documents-provider"),
                 "seekable" to probeSeekable(uri),
             )
         } catch (e: Exception) {
@@ -296,15 +345,43 @@ class MainActivity : FlutterActivity() {
         return ByteArray(0)
     }
 
+    /// Reads [uri] whole through the ContentResolver, which resolves `content://`
+    /// and `file://` alike. This is the read the document scanner needs: ML Kit
+    /// hands back a Uri into its own scratch space, and which scheme it carries
+    /// depends on the Play Services build, so the Dart side can't open it by
+    /// path. Throws when the Uri can't be opened, so the caller sees the reason
+    /// instead of an empty result.
+    private fun readWhole(uri: Uri): ByteArray {
+        return contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw FileNotFoundException("Cannot open $uri")
+    }
+
     /// Hands the whole PDF to Android's print framework, which renders it.
     /// Returns false when the print service is unavailable.
-    private fun printPdf(pdf: ByteArray, name: String): Boolean {
+    private fun printPdf(
+        pdf: ByteArray, name: String, useDocumentPageSize: Boolean = false,
+        pageWidth: Double? = null, pageHeight: Double? = null
+    ): Boolean {
         val printManager =
             getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return false
+        val attributes = PrintAttributes.Builder()
+        if (useDocumentPageSize && pageWidth != null && pageHeight != null &&
+            pageWidth.isFinite() && pageHeight.isFinite() &&
+            pageWidth > 0 && pageHeight > 0) {
+            // Android expresses media in thousandths of an inch. The adapter
+            // writes the already composed PDF verbatim; these are defaults for
+            // the print service, which still negotiates supported printer media.
+            attributes.setMediaSize(PrintAttributes.MediaSize(
+                "dartpdf-sheet", "Document sheet",
+                (pageWidth * 1000 / 72).roundToInt().coerceAtLeast(1),
+                (pageHeight * 1000 / 72).roundToInt().coerceAtLeast(1)
+            ))
+            attributes.setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+        }
         printManager.print(
             name,
             PdfBytesPrintAdapter(pdf, name),
-            PrintAttributes.Builder().build()
+            attributes.build()
         )
         return true
     }

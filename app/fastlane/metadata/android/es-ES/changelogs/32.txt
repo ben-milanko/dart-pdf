@@ -1,0 +1,6 @@
+Novedades en 3.8.0
+
+- Explora los PDF recientes con vistas previas de páginas que puedes buscar.
+- Edita anotaciones fuera del borde, cambia el estilo de selecciones mixtas y elige el color y grosor de la firma.
+- Previsualiza los trabajos de impresión antes de enviarlos.
+- Desplazamiento y zoom más fluidos en planos grandes, con correcciones del cursor, ventanas emergentes y cierres.

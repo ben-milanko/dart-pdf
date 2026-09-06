@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -6,6 +8,7 @@ import 'interpreter.dart' show PdfCancellationToken, PdfCancelledException;
 import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 /// A flattened, replayable record of one [PdfDevice] call.
 ///
@@ -100,11 +103,29 @@ class PdfSetBlendModeCommand extends PdfRenderCommand {
   final PdfBlendMode mode;
 }
 
+/// [PdfDevice.setOverprint].
+class PdfSetOverprintCommand extends PdfRenderCommand {
+  const PdfSetOverprintCommand(
+      {required this.fill, required this.stroke, required this.mode});
+  final bool fill;
+  final bool stroke;
+  final int mode;
+}
+
 /// [PdfDevice.beginGroup].
 class PdfBeginGroupCommand extends PdfRenderCommand {
-  const PdfBeginGroupCommand(this.alpha, {this.knockout = false});
+  const PdfBeginGroupCommand(
+    this.alpha, {
+    this.knockout = false,
+    this.isolated = false,
+    this.bounds,
+    this.backdropColor,
+  });
   final double alpha;
   final bool knockout;
+  final bool isolated;
+  final PdfRect? bounds;
+  final PdfColor? backdropColor;
 }
 
 /// [PdfDevice.endGroup].
@@ -137,6 +158,44 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
   final double transferOffset;
 }
 
+/// A tiling-pattern (or Type3-glyph) cell recorded once and replayed at many
+/// page-space positions (#524). [cellCommands] is the cell's full device
+/// transcript at the base position; [originsX]/[originsY] are the page-space
+/// deltas of every repeat, base first at (0, 0). Devices that understand the
+/// command natively implement [PdfTiledCellSink] (a canvas backend can build
+/// one sub-picture and stamp it per origin); everything else gets the exact
+/// per-tile expansion from [replayCommands] via [TranslatingPdfDevice].
+///
+/// Keeping the cell nested instead of flattening it per tile is what shrinks
+/// a hatched sheet's transcript from O(tiles x cell) to O(cell + tiles).
+class PdfDrawTiledCellCommand extends PdfRenderCommand {
+  const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY)
+      : assert(originsX.length == originsY.length);
+  final List<PdfRenderCommand> cellCommands;
+  final Float64List originsX;
+  final Float64List originsY;
+}
+
+/// Optional capability interface for devices that can consume a
+/// [PdfDrawTiledCellCommand] natively instead of replaying its per-tile
+/// expansion. The interpreter and [replayCommands] probe for it with `is`.
+abstract interface class PdfTiledCellSink {
+  void drawTiledCell(PdfDrawTiledCellCommand command);
+}
+
+/// Optional replay capability for devices that can consume adjacent text
+/// commands as one batch.
+///
+/// The command list and half-open index range avoid allocating a temporary
+/// list for what is often hundreds of consecutive text draws. Devices must
+/// preserve painter order and may decline individual runs inside the range.
+/// Direct interpreter output still uses [PdfDevice.drawText] unchanged; this
+/// is only a retained-command replay optimization.
+abstract interface class PdfTextBatchSink {
+  void drawTextBatch(
+      List<PdfRenderCommand> commands, int start, int endExclusive);
+}
+
 /// Replays [commands] into [device], reproducing the original interpreter
 /// callbacks in order. The dispatch is total over the [PdfRenderCommand]
 /// hierarchy - adding a command without a case here is a compile error.
@@ -153,7 +212,12 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
         device.save();
       case PdfRestoreCommand():
         device.restore();
-      case PdfFillPathCommand(:final path, :final color, :final rule, :final alpha):
+      case PdfFillPathCommand(
+          :final path,
+          :final color,
+          :final rule,
+          :final alpha
+        ):
         device.fillPath(path, color, rule, alpha);
       case PdfFillPathGradientCommand(
           :final path,
@@ -174,13 +238,40 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
       case PdfClipPathCommand(:final path, :final rule):
         device.clipPath(path, rule);
       case PdfDrawTextCommand(:final run):
-        device.drawText(run);
+        if (device is PdfTextBatchSink) {
+          var batchEnd = i + 1;
+          while (batchEnd < stop && commands[batchEnd] is PdfDrawTextCommand) {
+            batchEnd++;
+          }
+          (device as PdfTextBatchSink).drawTextBatch(commands, i, batchEnd);
+          i = batchEnd - 1;
+        } else {
+          device.drawText(run);
+        }
       case PdfDrawImageCommand(:final request):
         device.drawImage(request);
       case PdfSetBlendModeCommand(:final mode):
         device.setBlendMode(mode);
-      case PdfBeginGroupCommand(:final alpha, :final knockout):
-        device.beginGroup(alpha, knockout: knockout);
+      case PdfSetOverprintCommand(:final fill, :final stroke, :final mode):
+        device.setOverprint(fill: fill, stroke: stroke, mode: mode);
+      case PdfBeginGroupCommand(
+          :final alpha,
+          :final knockout,
+          :final isolated,
+          :final bounds,
+          :final backdropColor
+        ):
+        if (device is PdfTransparencyGroupDevice) {
+          (device as PdfTransparencyGroupDevice).beginTransparencyGroup(
+            alpha,
+            knockout: knockout,
+            isolated: isolated,
+            bounds: bounds,
+            backdropColor: backdropColor,
+          );
+        } else {
+          device.beginGroup(alpha, knockout: knockout);
+        }
       case PdfEndGroupCommand():
         device.endGroup();
       case PdfBeginSoftMaskedCommand():
@@ -201,6 +292,21 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
           transferOffset: transferOffset,
           drawMask: () => replayCommands(maskCommands, device),
         );
+      case PdfDrawTiledCellCommand():
+        if (device is PdfTiledCellSink) {
+          (device as PdfTiledCellSink).drawTiledCell(command);
+        } else {
+          // Exact per-tile expansion: the base repeat replays verbatim,
+          // every other repeat through a page-space translation wrapper.
+          for (var t = 0; t < command.originsX.length; t++) {
+            final dx = command.originsX[t], dy = command.originsY[t];
+            replayCommands(
+                command.cellCommands,
+                dx == 0 && dy == 0
+                    ? device
+                    : TranslatingPdfDevice(device, dx, dy));
+          }
+        }
     }
   }
 }

@@ -1,0 +1,17 @@
+name: dart_pdf_perf_harness
+description: Minimal non-published Flutter shell for DartPDF performance tests.
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dart_pdf_editor: ^4.2.0
+  pdf_document: ^4.2.0
+
+flutter:
+  uses-material-design: true

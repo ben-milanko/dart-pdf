@@ -2,6 +2,7 @@ import 'package:pdf_document/pdf_document.dart'
     show PdfMeasurementKind, PdfRect;
 
 import 'editing_controller.dart';
+import 'editing_signature.dart';
 
 /// Which controls the style popup should show for a tool (or an annotation
 /// selection) - each context only carries the settings it can actually use,
@@ -143,8 +144,8 @@ abstract class PdfEditToolBehavior {
 
   /// The persisted-style scope key - a stable slot name for the tool's
   /// remembered style, or null for the tools that create nothing styled
-  /// (select, content, form, redact, signature, image, snapshot,
-  /// signatureBox, calibrate). See [PdfEditingController.preferences].
+  /// (select, content, form, redact, image, snapshot, signatureBox,
+  /// calibrate). See [PdfEditingController.preferences].
   String? get styleScopeKey => null;
 
   /// The style fields this tool remembers - mirrors the controls its toolbar
@@ -587,9 +588,17 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
         styleScopeFields: {'color', 'opacity'},
         styleFields:
             PdfToolStyleFields(opacity: true, font: true, boxColors: true)),
+    // A stamped signature is ink like any other: it carries the tool's
+    // colour and pen width, so the strip offers the colour row and the tune
+    // popup the stroke-width slider, and both are remembered per tool.
     const _SimpleTool(PdfEditTool.signature,
-        styleFields:
-            PdfToolStyleFields(opacity: true, font: true, boxColors: true)),
+        styleScopeKey: 'signature',
+        styleScopeFields: {'color', 'strokeWidth'},
+        styleScopeDefaults: {
+          'strokeWidth': PdfInkSignature.defaultStrokeWidth,
+        },
+        styleFields: PdfToolStyleFields(
+            stroke: true, opacity: true, font: true, boxColors: true)),
     const _SimpleTool(PdfEditTool.image,
         styleFields:
             PdfToolStyleFields(opacity: true, font: true, boxColors: true)),
@@ -599,6 +608,7 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _SimpleTool(PdfEditTool.redact),
     const _SimpleTool(PdfEditTool.snapshot),
     const _SimpleTool(PdfEditTool.signatureBox),
+    const _SimpleTool(PdfEditTool.link),
   ])
     b.tool: b,
 };

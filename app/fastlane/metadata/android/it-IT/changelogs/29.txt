@@ -1,0 +1,6 @@
+Novità nella versione 3.6.0
+
+- I pannelli delle annotazioni sono più facili da esplorare, mantengono visibile la selezione e preservano l’opacità del testo.
+- Le caselle di testo Bluebeam conservano allineamento, spaziatura e posizione del cursore.
+- Ora puoi trascinare le schede dei documenti tra più finestre.
+- Il testo sostitutivo ha spaziatura più naturale; corrette anche pagine obsolete e azioni delle cartelle cloud.

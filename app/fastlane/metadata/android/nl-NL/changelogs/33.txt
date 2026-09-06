@@ -1,0 +1,6 @@
+Nieuw in 4.0.0
+
+- Slankere, dockbare bewerkingsknoppen en betere navigatie door pagina's en recente bestanden.
+- Pas tekst automatisch in en vlak gekozen annotaties af; lege formuliervelden worden nu correct afgevlakt.
+- Nauwkeurigere kleur, overdruk, transparantie, maskers en lettertypen in veeleisende pdf's.
+- Snellere GPU-weergave en diepe zoom, plus betere sleep-, scan- en openingsflows.

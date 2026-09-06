@@ -22,7 +22,7 @@ import 'dart:math' as math;
 ///    the bound that stops image-free / vector-first buffers piling up one per
 ///    page on a long scroll (issue #283, the weight-0 unbounded-growth bug).
 ///
-/// Values that outlive their cache slot are handled by two hooks:
+/// Values that outlive their cache slot are handled by three hooks:
 ///
 ///  * [cloner] - when a value is handed out while a master stays cached (a
 ///    [ui.Image] shared by clone), [take] and [putAndClone] return
@@ -31,6 +31,9 @@ import 'dart:math' as math;
 ///  * [disposer] - run on every value the cache drops (eviction, [evict],
 ///    [clear], [dispose], or a same-key overwrite), so retained engine
 ///    resources are released deterministically.
+///  * [onEvicted] - optional diagnostics invoked only when a weight/count or
+///    coordinated process budget evicts an entry. Explicit invalidation,
+///    clearing, and same-key replacement do not count as policy evictions.
 ///
 /// Registering with [PdfCacheRegistry] (via `clearsUnderMemoryPressure: true`)
 /// wires the cache into the one coordinated memory-pressure path.
@@ -47,6 +50,7 @@ class PdfBudgetedCache<K, V> {
     int? maxEntries,
     void Function(V value)? disposer,
     V Function(V value)? cloner,
+    void Function(K key, V value)? onEvicted,
     bool rejectOversize = false,
     bool clearsUnderMemoryPressure = false,
     this.debugLabel = 'cache',
@@ -56,6 +60,7 @@ class PdfBudgetedCache<K, V> {
         _maxEntries = maxEntries == null ? null : math.max(1, maxEntries),
         _disposer = disposer,
         _cloner = cloner,
+        _onEvicted = onEvicted,
         _rejectOversize = rejectOversize,
         _clearsUnderMemoryPressure = clearsUnderMemoryPressure {
     if (_clearsUnderMemoryPressure) PdfCacheRegistry.instance.register(this);
@@ -66,6 +71,7 @@ class PdfBudgetedCache<K, V> {
   final int? _maxEntries;
   final void Function(V value)? _disposer;
   final V Function(V value)? _cloner;
+  final void Function(K key, V value)? _onEvicted;
 
   /// When set, a value whose weight alone exceeds [maxWeight] is not stored at
   /// all (rather than kept as the protected most-recently-used entry): caching
@@ -109,13 +115,26 @@ class PdfBudgetedCache<K, V> {
   /// coordinated ceiling shrinks caches *below* their individual budgets, so
   /// it needs a target other than [maxWeight].
   void trimToWeight(int target) {
+    _trimToWeight(target, protectMostRecent: true);
+  }
+
+  /// Registry-only hard trim. A process ceiling is a safety boundary, so it may
+  /// drop the final MRU master too; callers already hold independent clones and
+  /// can keep painting. Per-cache budgets continue to protect their MRU.
+  void _trimToWeightHard(int target) {
+    _trimToWeight(target, protectMostRecent: false);
+  }
+
+  void _trimToWeight(int target, {required bool protectMostRecent}) {
     if (_disposed || _weigher == null) return;
     final floor = math.max(0, target);
     while (_weight > floor) {
-      final victim = _oldestEvictable(requireWeight: true);
+      final victim = _oldestEvictable(
+        requireWeight: true,
+        protectMostRecent: protectMostRecent,
+      );
       if (victim == null) break;
-      _removeEntry(victim);
-      _evictions++;
+      _removeEntry(victim, eviction: true);
     }
   }
 
@@ -254,6 +273,30 @@ class PdfBudgetedCache<K, V> {
     }
   }
 
+  /// Re-keys retained entries without disposing their values or changing LRU
+  /// order.
+  ///
+  /// Used when an identity-preserving structural edit moves page-indexed
+  /// cache entries to new slots. [keyFor] should normally be one-to-one. If
+  /// two old keys map to one new key, the later (more recently used) entry
+  /// wins and the displaced value is disposed.
+  void remapKeys(K Function(K key) keyFor) {
+    if (_disposed || _entries.isEmpty) return;
+    final remapped = <K, _Entry<V>>{};
+    for (final entry in _entries.entries) {
+      final key = keyFor(entry.key);
+      final displaced = remapped.remove(key);
+      if (displaced != null) {
+        _weight -= displaced.weight;
+        _disposer?.call(displaced.value);
+      }
+      remapped[key] = entry.value;
+    }
+    _entries
+      ..clear()
+      ..addAll(remapped);
+  }
+
   /// Empties the cache, disposing every retained value. Counters survive - a
   /// clear is a cache operation, not a fresh measurement. Any clones already
   /// handed out are unaffected.
@@ -283,10 +326,14 @@ class PdfBudgetedCache<K, V> {
     _evictions = 0;
   }
 
-  void _removeEntry(K key) {
+  void _removeEntry(K key, {bool eviction = false}) {
     final entry = _entries.remove(key);
     if (entry == null) return;
     _weight -= entry.weight;
+    if (eviction) {
+      _evictions++;
+      _onEvicted?.call(key, entry.value);
+    }
     _disposer?.call(entry.value);
   }
 
@@ -300,8 +347,7 @@ class PdfBudgetedCache<K, V> {
       while (_weight > _maxWeight) {
         final victim = _oldestEvictable(requireWeight: true);
         if (victim == null) break;
-        _removeEntry(victim);
-        _evictions++;
+        _removeEntry(victim, eviction: true);
       }
     }
     // Count cap: evict the least-recently-used entries - weight-0 or not -
@@ -311,8 +357,7 @@ class PdfBudgetedCache<K, V> {
       while (_entries.length > maxEntries) {
         final oldest = _entries.keys.first;
         if (oldest == _protectedKey) break;
-        _removeEntry(oldest);
-        _evictions++;
+        _removeEntry(oldest, eviction: true);
       }
     }
   }
@@ -324,8 +369,11 @@ class PdfBudgetedCache<K, V> {
   /// The least-recently-used key eligible for weight eviction: the oldest whose
   /// weight is non-zero (when [requireWeight]) and that is not the protected
   /// most-recently-used entry. Null when no such entry exists.
-  K? _oldestEvictable({required bool requireWeight}) {
-    final protikey = _protectedKey;
+  K? _oldestEvictable({
+    required bool requireWeight,
+    bool protectMostRecent = true,
+  }) {
+    final protikey = protectMostRecent ? _protectedKey : null;
     for (final entry in _entries.entries) {
       if (entry.key == protikey) continue;
       if (requireWeight && entry.value.weight == 0) continue;
@@ -401,9 +449,19 @@ class PdfCacheRegistry {
   }
 
   /// Diagnostic snapshot of every live registered cache: its [PdfBudgetedCache
-  /// .debugLabel], entry count, retained weight, and weight budget (0 when the
-  /// cache is bounded by entries only). For devtools-style displays.
-  List<({String label, int length, int weight, int maxWeight})> snapshot() {
+  /// .debugLabel], entry count, retained weight, weight budget (0 when the
+  /// cache is bounded by entries only), and lifetime lookup/eviction counters.
+  /// For devtools-style displays and exported performance traces.
+  List<
+      ({
+        String label,
+        int length,
+        int weight,
+        int maxWeight,
+        int hits,
+        int misses,
+        int evictions,
+      })> snapshot() {
     _pruneDead();
     return [
       for (final ref in _caches)
@@ -413,6 +471,9 @@ class PdfCacheRegistry {
             length: cache.length,
             weight: cache.weight,
             maxWeight: cache.maxWeight,
+            hits: cache.hits,
+            misses: cache.misses,
+            evictions: cache.evictions,
           ),
     ];
   }
@@ -437,9 +498,8 @@ class PdfCacheRegistry {
   /// [maxTotalWeight] (no-op when disabled or already under). Each cache is
   /// trimmed **proportionally** - it keeps the same fraction of its weight -
   /// so one hot large cache is not wiped to protect idle small ones, and no
-  /// cross-cache LRU clock is needed. Because each cache protects its
-  /// most-recently-used entry, the result can land slightly above the ceiling;
-  /// that residue is bounded by one entry per cache.
+  /// cross-cache LRU clock is needed. Unlike a cache's own performance budget,
+  /// this process safety boundary may evict its final MRU master.
   void enforceBudget() {
     if (_maxTotalWeight <= 0 || _enforcing) return;
     final total = totalWeight;
@@ -449,7 +509,7 @@ class PdfCacheRegistry {
       for (final ref in _caches.toList()) {
         final cache = ref.target;
         if (cache == null || cache.weight == 0) continue;
-        cache.trimToWeight(cache.weight * _maxTotalWeight ~/ total);
+        cache._trimToWeightHard(cache.weight * _maxTotalWeight ~/ total);
       }
     } finally {
       _enforcing = false;
@@ -469,6 +529,35 @@ class PdfCacheRegistry {
     }
     _pruneDead();
     return freed;
+  }
+
+  /// Clears every registered cache whose diagnostic label equals [label].
+  ///
+  /// This is the targeted counterpart to [handleMemoryPressure]. Hosts use it
+  /// when a lifecycle transition makes one reconstructible cache class
+  /// expendable (for example, dropping visited-page rasters when a mobile app
+  /// backgrounds) without also throwing away decoded images and render records.
+  /// Returns the approximate weight freed.
+  int clearLabel(String label) {
+    var freed = 0;
+    for (final ref in _caches.toList()) {
+      final cache = ref.target;
+      if (cache == null || cache.debugLabel != label) continue;
+      freed += cache.weight;
+      cache.clear();
+    }
+    _pruneDead();
+    return freed;
+  }
+
+  /// Current retained weight across registered caches named [label].
+  int weightForLabel(String label) {
+    var weight = 0;
+    for (final ref in _caches) {
+      final cache = ref.target;
+      if (cache?.debugLabel == label) weight += cache!.weight;
+    }
+    return weight;
   }
 
   void _pruneDead() => _caches.removeWhere((ref) => ref.target == null);

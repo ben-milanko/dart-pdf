@@ -1,0 +1,11 @@
+New in 3.3.1
+
+FIXES
+• Changing annotation properties no longer creates a duplicate in PDFs that store annotation lists indirectly.
+• Text colour changes preserve embedded fonts.
+• Cloud and polygon live previews keep their chosen pattern scale.
+
+EDITING
+• Multi-page reordering now gives clearer group feedback and moves the selected pages reliably.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

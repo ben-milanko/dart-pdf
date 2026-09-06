@@ -1,0 +1,4 @@
+Nieuw in 3.1.1
+
+• Soepeler scrollen door grote of visueel complexe pdf’s, met minder verloren frames.
+• Paginavoorbeelden blijven zichtbaar tijdens snel scrollen en worden daarna scherp op volledig detail weergegeven.

@@ -1,0 +1,6 @@
+Có gì mới trong 4.0.0
+
+- Công cụ chỉnh sửa gọn hơn, có thể neo, cùng điều hướng trang và tệp gần đây tốt hơn.
+- Tự khớp văn bản vào hộp và làm phẳng chú thích đã chọn; trường biểu mẫu trống giờ được xử lý đúng.
+- Màu, in đè, độ trong suốt, mặt nạ mềm và phông chữ chính xác hơn trong PDF phức tạp.
+- GPU và zoom sâu nhanh hơn, cùng quy trình kéo thả, quét và mở tệp tốt hơn.
