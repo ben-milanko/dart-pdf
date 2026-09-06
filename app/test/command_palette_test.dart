@@ -65,20 +65,29 @@ void main() {
         await openWithKeyboard(tester);
 
         expect(find.byKey(const ValueKey('command-palette')), findsOneWidget);
-        // The menu's actions lead the index - including one this branch
-        // never wired by hand: Insert document joins because the menu and
-        // the palette read the same descriptors.
+
+        // Results are built lazily, and how many fit depends on the surface
+        // and on which optional rows this platform contributes (OCR, the
+        // scanner). So ask for each by name rather than trusting a row to
+        // have been built: a menu action, one the palette never wired by
+        // hand - Insert document joins because the menu and the palette read
+        // the same descriptors - and a tool from the dock's catalogue.
+        Future<void> search(String query) async {
+          await tester.enterText(
+              find.byKey(const ValueKey('command-palette-field')), query);
+          await tester.pumpAndSettle();
+        }
+
+        await search('print');
         expect(find.byKey(const ValueKey('palette-result-menu-print')),
             findsOneWidget);
+
+        await search('insert document');
         expect(
             find.byKey(const ValueKey('palette-result-menu-insert-document')),
             findsOneWidget);
 
-        // A tool from the dock's catalogue is in the same list (the rows are
-        // built lazily, so ask for it by name rather than scrolling).
-        await tester.enterText(
-            find.byKey(const ValueKey('command-palette-field')), 'rect');
-        await tester.pumpAndSettle();
+        await search('rect');
         expect(find.byKey(const ValueKey('palette-result-tool-rectangle')),
             findsOneWidget);
       } finally {
