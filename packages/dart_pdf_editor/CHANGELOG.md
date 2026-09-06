@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add complete Australian and UK English locales for editor controls, including
+  colour, centre and organisation, while the base English locale uses US spelling.
+  Localise the smart alignment guide hint.
 - Add the Erase content tool (Shift+E) to the toolbar and shared tool catalogue,
   with a compact "Erase" label and full instructions in its tooltip.
   Drag a rectangle or click polygon vertices and double-click to finish;

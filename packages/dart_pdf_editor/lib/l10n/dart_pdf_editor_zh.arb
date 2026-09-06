@@ -625,6 +625,7 @@
   "splitInvalidRanges": "请输入 1 至 {count} 之间的页码，以逗号分隔。范围必须按升序填写。",
   "splitConfirm": "拆分",
   "splitFailed": "无法拆分此 PDF。",
+  "guidesSnapHint": "吸附批注边缘和中心 • 按住 Alt 跳过",
   "tbToolContentDelete": "擦除",
   "tbTipContentDelete": "删除内容 — 拖出矩形，或点击多边形顶点并双击完成"
 }

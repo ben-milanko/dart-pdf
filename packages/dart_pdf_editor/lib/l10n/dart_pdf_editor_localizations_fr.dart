@@ -2154,6 +2154,10 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get splitFailed => 'Impossible de scinder ce PDF.';
 
   @override
+  String get guidesSnapHint =>
+      'Aligner les bords et les centres des annotations • Maintenir Alt pour ignorer';
+
+  @override
   String get tbToolContentDelete => 'Effacer';
 
   @override

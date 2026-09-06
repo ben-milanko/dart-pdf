@@ -263,7 +263,7 @@
   "@appSigUseOwnCertificate": {
     "description": "Title of the advanced section for signing with a bring-your-own key and certificate."
   },
-  "appSigUseOwnCertificateSubtitle": "For a signing certificate from your organisation",
+  "appSigUseOwnCertificateSubtitle": "For a signing certificate from your organization",
   "@appSigUseOwnCertificateSubtitle": {
     "description": "Subtitle for the advanced bring-your-own-certificate signing section."
   },
@@ -979,15 +979,15 @@
   "@ocrAlreadyRunning": {
     "description": "Toast shown when starting OCR while another OCR job is in flight."
   },
-  "ocrBrowserInitFailed": "Browser OCR failed to initialise",
+  "ocrBrowserInitFailed": "Browser OCR failed to initialize",
   "@ocrBrowserInitFailed": {
     "description": "Toast shown when the browser-local OCR bridge failed to initialize."
   },
-  "ocrCancelled": "OCR cancelled",
+  "ocrCancelled": "OCR canceled",
   "@ocrCancelled": {
     "description": "Toast shown when an OCR job is cancelled before any pages are processed."
   },
-  "ocrCancelledAfterSpans": "{count, plural, =1{OCR cancelled after 1 text span} other{OCR cancelled after {count} text spans}}",
+  "ocrCancelledAfterSpans": "{count, plural, =1{OCR canceled after 1 text span} other{OCR canceled after {count} text spans}}",
   "@ocrCancelledAfterSpans": {
     "description": "Toast shown when OCR is cancelled after adding some text spans.",
     "placeholders": {

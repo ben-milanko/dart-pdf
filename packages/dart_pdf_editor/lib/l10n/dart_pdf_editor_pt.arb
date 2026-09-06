@@ -625,6 +625,7 @@
   "splitInvalidRanges": "Use páginas de 1 a {count}, separadas por vírgulas. Os intervalos devem ser crescentes.",
   "splitConfirm": "Dividir",
   "splitFailed": "Não foi possível dividir este PDF.",
+  "guidesSnapHint": "Alinhar bordas e centros das anotações • Mantenha Alt pressionado para ignorar",
   "tbToolContentDelete": "Apagar",
   "tbTipContentDelete": "Excluir conteúdo — arraste um retângulo ou clique nos vértices do polígono e clique duas vezes para concluir"
 }

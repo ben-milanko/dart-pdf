@@ -2116,6 +2116,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get splitFailed => '이 PDF를 분할할 수 없습니다.';
 
   @override
+  String get guidesSnapHint => '주석 가장자리와 중심에 맞춤 • Alt 키를 눌러 건너뛰기';
+
+  @override
   String get tbToolContentDelete => '지우기';
 
   @override
