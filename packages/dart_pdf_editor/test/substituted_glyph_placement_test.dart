@@ -48,12 +48,15 @@ Future<List<int>> _inkColumns(PdfTextRun run) async {
 
 /// A two-character run drawn at 20pt from the page origin-ish, with the PDF
 /// claiming [offsets] for its character boundaries.
-PdfTextRun _run(String text, List<double>? offsets, double width) => PdfTextRun(
+PdfTextRun _run(String text, List<double>? offsets, double width,
+        [double letterSpacing = 0]) =>
+    PdfTextRun(
       text: text,
       transform: const PdfMatrix(20, 0, 0, 20, 20, 60),
       color: const PdfColor(0, 0, 0),
       width: width,
       charOffsets: offsets,
+      letterSpacing: letterSpacing,
       fontName: 'Helvetica',
       fontSize: 20,
     );
@@ -139,6 +142,69 @@ void main() {
       expect(columns.first, closeTo(20, 2));
       expect(gap.first, closeTo(40, 3));
       expect(gap.last, closeTo(79, 3));
+    });
+  });
+
+  testWidgets('character spacing opens a gap instead of stretching the glyph',
+      (tester) async {
+    await tester.runAsync(() async {
+      // `( 3)Tj` under a `15.137 Tc` at 9pt: how a bridging-details table
+      // reaches its column. The pen steps 2.24 em across the digit - 0.556 em
+      // of glyph plus 1.68 em of character spacing - and sizing the glyph by
+      // that step drew a digit four times too wide. The spacing is a gap to
+      // open, so the digit must come out exactly as wide as an unspaced one.
+      const tc = 15.137 / 9;
+      const space = 0.278 + tc;
+      const digit = 0.556 + tc;
+      final spaced = await _inkColumns(PdfTextRun(
+        text: ' 3',
+        transform: const PdfMatrix(20, 0, 0, 20, 20, 60),
+        color: const PdfColor(0, 0, 0),
+        width: space + digit,
+        visibleWidth: space + digit,
+        leadingSpace: space,
+        charOffsets: const [0, space, space + digit],
+        letterSpacing: tc,
+        fontName: 'Helvetica',
+        fontSize: 20,
+      ));
+      final plain = await _inkColumns(_run('3', [0, 0.556], 0.556));
+
+      expect(spaced, isNotEmpty);
+      expect(spaced.last - spaced.first, closeTo(plain.last - plain.first, 1),
+          reason: 'the spaced digit must keep its own shape');
+      // The gap is in front of it: the digit starts at the pen position the
+      // PDF gives it, 20 + 1.96 * 20.
+      expect(spaced.first, closeTo(20 + space * 20 + (plain.first - 20), 2));
+    });
+  });
+
+  testWidgets('a spaced word keeps its glyph shapes and its pen positions',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The test font is fixed-pitch and inks its full advance, so a 0.5 em Tc
+      // is a run whose pen steps 1.5 em across a 1 em glyph. Stretching the
+      // shapes to the step paints the word solid; the spacing is a gap, so the
+      // glyphs must stay 1 em wide with 0.5 em of paper between them - each
+      // still starting on the offset the PDF gives it.
+      final columns =
+          await _inkColumns(_run('AAAA', [0, 1.5, 3, 4.5, 6], 6, 0.5));
+      final blocks = <List<int>>[];
+      for (final x in columns) {
+        if (blocks.isEmpty || x > blocks.last.last + 1) {
+          blocks.add([x]);
+        } else {
+          blocks.last.add(x);
+        }
+      }
+
+      expect(blocks, hasLength(4), reason: 'one block of ink per glyph');
+      for (var i = 0; i < blocks.length; i++) {
+        expect(blocks[i].first, closeTo(20 + i * 30, 2),
+            reason: 'glyph $i starts on its own 1.5 em pen step');
+        expect(blocks[i].last - blocks[i].first, closeTo(20, 2),
+            reason: 'glyph $i keeps its own 1 em width');
+      }
     });
   });
 

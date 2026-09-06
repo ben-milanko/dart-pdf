@@ -1244,10 +1244,10 @@ class CanvasPdfDevice
     return _placeableRun(run.text) ? offsets : null;
   }
 
-  /// How far, in em, a word's own shaped advance may differ from the PDF's
-  /// before [_buildPlacedLayout] stops shaping it whole and places its
-  /// characters individually. 0.02 em is 0.24pt at 12pt - an order of
-  /// magnitude under the drift this fixes, and small enough that the
+  /// How far, in em, a character shaped inside a piece may sit from the offset
+  /// the PDF gives it before [_buildPlacedLayout] cuts the piece there and
+  /// starts the next one on its own offset. 0.02 em is 0.24pt at 12pt - an
+  /// order of magnitude under the drift this fixes, and small enough that the
   /// difference is invisible where it is tolerated.
   static const double _placementToleranceEm = 0.02;
 
@@ -1257,8 +1257,12 @@ class CanvasPdfDevice
   /// same text under different advances is a different layout.
   _TextLayout _placedLayout(PdfTextRun run, List<double> offsets) {
     final c = run.color;
+    // Tc/Tw are in the key as well as the offsets: they set the shape scale
+    // and where the pieces are cut, and two runs can share an offset table
+    // without sharing them.
     final key = '${run.text} ${run.fontName ?? ''} '
         '${c.red},${c.green},${c.blue},${run.fillAlpha} '
+        '${run.letterSpacing},${run.wordSpacing} '
         'p${_offsetsHash(offsets)}';
     // A run with nothing to scale against falls back to whole-run shaping,
     // cached under this key too so the failed attempt is not repeated.
@@ -1266,28 +1270,34 @@ class CanvasPdfDevice
         key, () => _buildPlacedLayout(run, offsets) ?? _shapeLayout(run));
   }
 
-  /// Builds the layout [_placedLayout] caches: one part per **word** - a
-  /// maximal span of non-whitespace characters - drawn at that word's own
-  /// offset, so a word can never drift from the geometry selection and search
-  /// are computed from. A word whose shaped advance disagrees with the PDF's
-  /// by more than [_placementToleranceEm] is broken down further and placed
-  /// character by character, which is what a run of prose against a mismatched
-  /// substitute needs. Whitespace lays no ink down and is positioned by the
-  /// offsets around it, so it gets no part at all.
+  /// Builds the layout [_placedLayout] caches: one part per shapeable **piece**
+  /// of a word - a maximal span the substitute can shape tight without any
+  /// character landing more than [_placementToleranceEm] from its own PDF
+  /// offset - drawn at the offset of that piece's first character, so nothing
+  /// can drift from the geometry selection and search are computed from. A word
+  /// the substitute agrees with is one piece; a run of prose against a
+  /// mismatched substitute, or one whose Tc the shaped text does not carry,
+  /// cuts as often as the tolerance demands and spends each disagreement at a
+  /// cut instead of accumulating it. Whitespace lays no ink down and is
+  /// positioned by the offsets around it, so it gets no part at all.
   ///
-  /// Words rather than characters throughout because the draw call is the
-  /// cost: a `drawParagraph` per character measured 3.7x the record pass and
-  /// 1.6x the full DPR-2 raster on a page of non-embedded prose. Shaping a
-  /// word whole also keeps its internal kerning, which the PDF's own advances
-  /// do not contradict at this tolerance.
+  /// Pieces rather than characters because the draw call is the cost: a
+  /// `drawParagraph` per character measured 3.7x the record pass and 1.6x the
+  /// full DPR-2 raster on a page of non-embedded prose. Shaping a piece whole
+  /// also keeps its internal kerning, which the PDF's own advances do not
+  /// contradict at this tolerance.
   ///
   /// The glyph *shapes* take one uniform horizontal scale, so their proportions
   /// stay even (scaling each word to its own advance would squeeze an `i` far
   /// harder than an `o`); only the origins become exact. That scale is
-  /// `Σ natural ÷ Σ PDF advance` over the ink-bearing characters alone, so
+  /// `Σ natural ÷ Σ PDF glyph width` over the ink-bearing characters alone, so
   /// neither the substitute's idea of a space (Skia's width for a lone
-  /// whitespace layout is not something to build on) nor the run's Tc/Tw
-  /// (already inside [offsets]) can skew it.
+  /// whitespace layout is not something to build on) nor the run's Tc/Tw can
+  /// skew it: the PDF's width for a glyph is its pen step less the spacing
+  /// that follows it ([PdfTextRun.glyphWidthAt]), because spacing is a gap to
+  /// open, never a shape to stretch. A `( 3)Tj` under a `15.137 Tc` - a CAD
+  /// export reaching the next table column - is a digit in a 2.24 em step, and
+  /// scaling it to that step drew it four times too wide.
   ///
   /// The caller derives `scaleX = run.width × renderSize ÷ layout.width` and
   /// paints under `scaleX / renderSize`, so reporting `run.width × k` for a
@@ -1298,12 +1308,14 @@ class CanvasPdfDevice
   _TextLayout? _buildPlacedLayout(PdfTextRun run, List<double> offsets) {
     final text = run.text;
     var natural = 0.0; // Σ natural width of the ink-bearing glyphs
-    var advance = 0.0; // Σ PDF advance of the same glyphs
+    var advance = 0.0; // Σ width the PDF gives the same glyphs, spacing off
     for (var i = 0; i < text.length;) {
       final step = _runeLengthAt(text, i);
       if (!_isTrimWhitespace(text.codeUnitAt(i))) {
+        final width = run.glyphWidthAt(i, step);
+        if (width == null) return null;
         natural += _glyphLayout(_runeAt(text, i), run).width;
-        advance += offsets[i + step] - offsets[i];
+        advance += width;
       }
       i += step;
     }
@@ -1313,6 +1325,21 @@ class CanvasPdfDevice
     final style = _styleFor(run, foreground: null, applySpacing: false);
     final parts = <_GlyphRun>[];
     double? baseline;
+
+    // Emits `[from, to)` as one part, drawn at the offset the PDF gives its
+    // first character. A single character is served from the glyph cache the
+    // measuring pass above has already filled: retaining that painter beats
+    // shaping a fresh paragraph for every character of every unique CAD label,
+    // and the retained reference keeps it alive if the glyph-cache LRU later
+    // drops its own ownership (disposing this layout releases it again).
+    void emit(int from, int to) {
+      final part = to - from == _runeLengthAt(text, from)
+          ? _glyphLayout(_runeAt(text, from), run).retain()
+          : _shapeString(text.substring(from, to), style);
+      baseline ??= part.baseline;
+      parts.add(_GlyphRun(part, offsets[from] * k));
+    }
+
     var i = 0;
     while (i < text.length) {
       if (_isTrimWhitespace(text.codeUnitAt(i))) {
@@ -1323,56 +1350,35 @@ class CanvasPdfDevice
       while (end < text.length && !_isTrimWhitespace(text.codeUnitAt(end))) {
         end += _runeLengthAt(text, end);
       }
-      if (_wordHolds(run, offsets, i, end, k)) {
-        final word = _shapeString(text.substring(i, end), style);
-        baseline ??= word.baseline;
-        parts.add(_GlyphRun(word, offsets[i] * k));
-      } else {
-        for (var j = i; j < end;) {
-          final step = _runeLengthAt(text, j);
-          // The natural-width pass above has already populated this exact
-          // glyph/style in the shared cache. Retain that painter for the
-          // placed run instead of shaping a fresh paragraph for every
-          // character of every unique CAD label. The retained reference keeps
-          // it alive if the glyph-cache LRU later evicts its own ownership;
-          // disposing this placed layout releases the borrowed reference.
-          final glyph = _glyphLayout(_runeAt(text, j), run).retain();
-          baseline ??= glyph.baseline;
-          parts.add(_GlyphRun(glyph, offsets[j] * k));
-          j += step;
+      // Cut the word into the longest pieces that can be shaped tight without
+      // any character landing more than [_placementToleranceEm] from its own
+      // PDF offset, each drawn at the offset of its first character. A word
+      // whose substitute already agrees comes out whole - one part, shaping and
+      // kerning intact - and every disagreement, whether the substitute's own
+      // drift or a Tc the shaped text does not carry, is spent at a cut instead
+      // of accumulating across the word.
+      var start = i;
+      var shaped = 0.0; // px shaped since [start]
+      for (var j = i; j < end;) {
+        if (j > start &&
+            (shaped / k - (offsets[j] - offsets[start])).abs() >
+                _placementToleranceEm) {
+          emit(start, j);
+          start = j;
+          shaped = 0;
         }
+        // The substitute's own advance stands in for where the shaped piece
+        // puts this character: cross-character kerning is unaccounted for, a
+        // fraction of the tolerance, and it can only cut a piece sooner.
+        shaped += _glyphLayout(_runeAt(text, j), run).width;
+        j += _runeLengthAt(text, j);
       }
+      emit(start, end);
       i = end;
     }
     if (parts.isEmpty) return null;
     return _TextLayout.composed(parts, run.width * k, baseline ?? 0,
         ownsParts: true);
-  }
-
-  /// Whether the word `[start, end)` of [run] can be shaped whole without any
-  /// of its characters landing more than [_placementToleranceEm] from the
-  /// offset the PDF gives it.
-  ///
-  /// Checked at *every* character boundary, not just the word's end: matching
-  /// only a total is the very defect this replaces, and a two-character word
-  /// can have an exact total with a badly placed interior. The substitute's own
-  /// per-character advances stand in for where the shaped word would put each
-  /// character, so cross-character kerning is unaccounted for - a fraction of
-  /// the tolerance, and it only ever moves a word from whole-shaped to
-  /// per-character placement, which is the safe direction.
-  bool _wordHolds(
-      PdfTextRun run, List<double> offsets, int start, int end, double k) {
-    final tolerance = _placementToleranceEm;
-    var natural = 0.0; // em, from the substitute's own advances
-    for (var i = start; i < end;) {
-      final step = _runeLengthAt(run.text, i);
-      if ((natural - (offsets[i] - offsets[start])).abs() > tolerance) {
-        return false;
-      }
-      natural += _glyphLayout(_runeAt(run.text, i), run).width / k;
-      i += step;
-    }
-    return (natural - (offsets[end] - offsets[start])).abs() <= tolerance;
   }
 
   /// One laid-out [TextPainter] for [text] in [style], owned by the caller.
