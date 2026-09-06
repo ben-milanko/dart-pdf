@@ -1260,4 +1260,193 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Cài đặt tùy chỉnh';
+
+  @override
+  String get printOptionsPrinter => 'Máy in';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Trong hộp thoại in của hệ thống tiếp theo, hãy chọn máy in, khay giấy, màu, chế độ in hai mặt và thuộc tính thiết bị. Giữ tỷ lệ ở 100% và số bản sao là 1 để sử dụng bố cục hiển thị ở đây.';
+
+  @override
+  String get printOptionsPages => 'Trang';
+
+  @override
+  String get printOptionsSelected => 'Đã chọn';
+
+  @override
+  String get printOptionsPageRange => 'Trang (ví dụ: 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Thêm tệp…';
+
+  @override
+  String get printOptionsAddFailed => 'Không thể thêm các tệp đã chọn.';
+
+  @override
+  String get printOptionsGetWindow => 'Chọn vùng';
+
+  @override
+  String get printOptionsClearWindow => 'Xóa vùng chọn';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Kéo một hình chữ nhật trên trang gốc này để chọn vùng cần in.';
+
+  @override
+  String get printOptionsPaper => 'Giấy';
+
+  @override
+  String get printOptionsPaperSize => 'Khổ giấy';
+
+  @override
+  String get printOptionsPageSize => 'Dùng kích thước trang của tài liệu';
+
+  @override
+  String get printOptionsOrientation => 'Hướng giấy';
+
+  @override
+  String get printOptionsAuto => 'Tự động';
+
+  @override
+  String get printOptionsPortrait => 'Dọc';
+
+  @override
+  String get printOptionsLandscape => 'Ngang';
+
+  @override
+  String get printOptionsCopies => 'Bản sao';
+
+  @override
+  String get printOptionsCollate => 'In từng bộ';
+
+  @override
+  String get printOptionsReverse => 'Đảo thứ tự trang';
+
+  @override
+  String get printOptionsLayout => 'Bố cục trang';
+
+  @override
+  String get printOptionsScaling => 'Co giãn trang';
+
+  @override
+  String get printOptionsScaleNone => 'Không (kích thước thực)';
+
+  @override
+  String get printOptionsFitPaper => 'Vừa khổ giấy';
+
+  @override
+  String get printOptionsReducePaper => 'Thu nhỏ cho vừa khổ giấy';
+
+  @override
+  String get printOptionsFitMargins => 'Vừa trong lề';
+
+  @override
+  String get printOptionsReduceMargins => 'Thu nhỏ cho vừa trong lề';
+
+  @override
+  String get printOptionsCustomScale => 'Tỷ lệ tùy chỉnh';
+
+  @override
+  String get printOptionsMultiple => 'Nhiều trang trên một tờ';
+
+  @override
+  String get printOptionsScalePercent => 'Tỷ lệ (%)';
+
+  @override
+  String get printOptionsMargin => 'Lề (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Số trang mỗi tờ';
+
+  @override
+  String get printOptionsPageOrder => 'Thứ tự trang';
+
+  @override
+  String get printOptionsHorizontal => 'Theo chiều ngang';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Theo chiều ngang đảo ngược';
+
+  @override
+  String get printOptionsVertical => 'Theo chiều dọc';
+
+  @override
+  String get printOptionsVerticalReverse => 'Theo chiều dọc đảo ngược';
+
+  @override
+  String get printOptionsBorder => 'In viền trang';
+
+  @override
+  String get printOptionsRotation => 'Xoay (theo chiều kim đồng hồ)';
+
+  @override
+  String get printOptionsNoRotation => 'Không';
+
+  @override
+  String get printOptionsCenter => 'Căn giữa trên giấy';
+
+  @override
+  String get printOptionsOffsetX => 'Dịch sang phải (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Dịch xuống (pt)';
+
+  @override
+  String get printOptionsContents => 'Nội dung cần in';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Tài liệu và chú thích';
+
+  @override
+  String get printOptionsDocumentOnly => 'Chỉ tài liệu';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Chỉ chú thích';
+
+  @override
+  String get printOptionsDimPage => 'Làm nhạt nội dung trang';
+
+  @override
+  String get printOptionsDimMarkups => 'Làm nhạt chú thích';
+
+  @override
+  String get printOptionsHyperlinks => 'In siêu liên kết hiển thị';
+
+  @override
+  String get printOptionsDefaults => 'Mặc định';
+
+  @override
+  String get printOptionsInvalidNumber => 'Nhập số hợp lệ trước khi in.';
+
+  @override
+  String get printOptionsInvalidValue => 'Giá trị không hợp lệ';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Các đường màu đỏ thể hiện lề và sẽ không được in.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Vùng: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Trang gốc: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Tờ: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Tờ $sheet / $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Không thể chuẩn bị bố cục này. Hãy kiểm tra khổ giấy, lề và tỷ lệ.';
 }

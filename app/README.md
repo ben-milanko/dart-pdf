@@ -77,7 +77,13 @@ AppImage and portable tarball builds remain available from
   platform share/download flows write elsewhere. The save flow can also
   losslessly compress the PDF.
 - **Print** the open document (⌘P / Ctrl+P, or the DartPDF menu) through the OS
-  print dialog on every platform, including browser print on the web.
+  print dialog on every platform, including browser print on the web. The
+  preview offers all/current/selected/custom pages, paper size and orientation,
+  scaling and rotation, multiple pages per sheet, copies and collation,
+  document/markup choices, dimming, and a rectangular print area. Add PDFs to
+  the same job with **Add files**. These settings prepare a separate print
+  document; the open files stay unchanged. Printer selection, duplex and
+  device properties remain in the system dialog.
 - Discard prompts on tab-close and app-quit; reopening a document restores its
   scroll position and zoom.
 - Desktop releases can update in place: **Update now** downloads and applies

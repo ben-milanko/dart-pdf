@@ -324,5 +324,104 @@
   "reduceSizeFonts": "الخطوط المضمنة",
   "reduceSizeImages": "الصور",
   "reduceSizeDuplicates": "الكائنات المكررة",
-  "reduceSizeCustom": "إعدادات مخصصة"
+  "reduceSizeCustom": "إعدادات مخصصة",
+  "printOptionsPrinter": "الطابعة",
+  "printOptionsNativePrinter": "اختر الطابعة ودرج الورق والألوان والطباعة على الوجهين وخصائص الجهاز في مربع حوار الطباعة الخاص بالنظام الذي سيظهر بعد ذلك. اترك المقياس عند 100% وعدد النسخ عند 1 لاستخدام التخطيط المعروض هنا.",
+  "printOptionsPages": "الصفحات",
+  "printOptionsSelected": "المحددة",
+  "printOptionsPageRange": "الصفحات (مثلاً: 1, 3-5)",
+  "printOptionsAddFiles": "إضافة ملفات…",
+  "printOptionsAddFailed": "تعذرت إضافة الملفات المحددة.",
+  "printOptionsGetWindow": "تحديد منطقة",
+  "printOptionsClearWindow": "مسح المنطقة",
+  "printOptionsWindowHint": "اسحب لرسم مستطيل على هذه الصفحة الأصلية لتحديد المنطقة المراد طباعتها.",
+  "printOptionsPaper": "الورق",
+  "printOptionsPaperSize": "حجم الورق",
+  "printOptionsPageSize": "استخدام حجم صفحة المستند",
+  "printOptionsOrientation": "الاتجاه",
+  "printOptionsAuto": "تلقائي",
+  "printOptionsPortrait": "عمودي",
+  "printOptionsLandscape": "أفقي",
+  "printOptionsCopies": "النسخ",
+  "printOptionsCollate": "ترتيب النسخ",
+  "printOptionsReverse": "عكس ترتيب الصفحات",
+  "printOptionsLayout": "تخطيط الصفحة",
+  "printOptionsScaling": "تحجيم الصفحة",
+  "printOptionsScaleNone": "بدون (الحجم الفعلي)",
+  "printOptionsFitPaper": "ملاءمة للورق",
+  "printOptionsReducePaper": "تصغير لملاءمة الورق",
+  "printOptionsFitMargins": "ملاءمة للهوامش",
+  "printOptionsReduceMargins": "تصغير لملاءمة الهوامش",
+  "printOptionsCustomScale": "مقياس مخصص",
+  "printOptionsMultiple": "عدة صفحات لكل ورقة",
+  "printOptionsScalePercent": "المقياس (%)",
+  "printOptionsMargin": "الهوامش (نقطة)",
+  "printOptionsPagesPerSheet": "الصفحات لكل ورقة",
+  "printOptionsPageOrder": "ترتيب الصفحات",
+  "printOptionsHorizontal": "أفقي",
+  "printOptionsHorizontalReverse": "أفقي معكوس",
+  "printOptionsVertical": "عمودي",
+  "printOptionsVerticalReverse": "عمودي معكوس",
+  "printOptionsBorder": "طباعة حدود الصفحات",
+  "printOptionsRotation": "التدوير (باتجاه عقارب الساعة)",
+  "printOptionsNoRotation": "بدون",
+  "printOptionsCenter": "توسيط على الورق",
+  "printOptionsOffsetX": "إزاحة لليمين (نقطة)",
+  "printOptionsOffsetY": "إزاحة للأسفل (نقطة)",
+  "printOptionsContents": "المحتوى المراد طباعته",
+  "printOptionsDocumentAndMarkups": "المستند والتعليقات التوضيحية",
+  "printOptionsDocumentOnly": "المستند فقط",
+  "printOptionsMarkupsOnly": "التعليقات التوضيحية فقط",
+  "printOptionsDimPage": "تخفيف لون محتوى الصفحة",
+  "printOptionsDimMarkups": "تخفيف لون التعليقات التوضيحية",
+  "printOptionsHyperlinks": "طباعة الارتباطات التشعبية المرئية",
+  "printOptionsDefaults": "الإعدادات الافتراضية",
+  "printOptionsInvalidNumber": "أدخل أرقامًا صالحة قبل الطباعة.",
+  "printOptionsInvalidValue": "قيمة غير صالحة",
+  "printOptionsMarginGuide": "تُظهر الخطوط الحمراء الهوامش، ولا تتم طباعتها.",
+  "printOptionsAreaSize": "المنطقة: {width} × {height} نقطة",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "الأصل: {width} × {height} نقطة",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "الورقة: {width} × {height} نقطة",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "الورقة {sheet} من {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "تعذر إعداد هذا التخطيط. تحقق من حجم الورق والهوامش والمقياس."
 }

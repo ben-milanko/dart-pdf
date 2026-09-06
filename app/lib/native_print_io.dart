@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 /// The platform channel every native runner registers (see
 /// `windows/runner/native_print.cpp`, the macOS/iOS Swift handlers, the Android
 /// handler, and the Linux runner).
-const MethodChannel _channel = MethodChannel('dev.milanko.dartpdf/native_print');
+const MethodChannel _channel =
+    MethodChannel('dev.milanko.dartpdf/native_print');
 
 /// Prints the PDF [pdfBytes] through the running platform's own print system,
 /// without any bundled PDF engine.
@@ -36,18 +37,39 @@ const MethodChannel _channel = MethodChannel('dev.milanko.dartpdf/native_print')
 /// [onProgress] is called `(rendered, total)` after each page on both the
 /// vector-page and raster desktop paths (the whole-PDF `printPdf` path has
 /// nothing to render, so it never reports progress). [channel] is a test seam.
+/// [useDocumentPageSize] marks sheets already composed by the print-options
+/// dialog, so native runners preserve their physical size and placement.
 Future<void> printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
   MethodChannel channel = _channel,
   void Function(int rendered, int total)? onProgress,
+  bool useDocumentPageSize = false,
 }) async {
+  // Prepared jobs are ordinary PDFs. Tell PDF-native runners the first sheet's
+  // dimensions without making Android parse or rasterise another copy. Desktop
+  // vector streams carry each sheet's dimensions, including mixed-size jobs.
+  PdfDocument? preparedDocument;
+  final sheetOptions = <String, dynamic>{};
+  if (useDocumentPageSize) {
+    preparedDocument = PdfDocument.open(pdfBytes);
+    sheetOptions['useDocumentPageSize'] = true;
+    if (preparedDocument.pageCount > 0) {
+      final page = preparedDocument.page(0);
+      final sideways = page.rotation == 90 || page.rotation == 270;
+      sheetOptions['pageWidth'] =
+          sideways ? page.cropBox.height : page.cropBox.width;
+      sheetOptions['pageHeight'] =
+          sideways ? page.cropBox.width : page.cropBox.height;
+    }
+  }
   // 1. Native vector printing. A MissingPluginException means this platform
   //    has no `printPdf` (Windows/Linux) - fall through to the desktop path.
   try {
     await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
       'name': name,
       'pdf': pdfBytes,
+      ...sheetOptions,
     });
     return; // printed as vector (or the user cancelled) - done
   } on MissingPluginException {
@@ -58,10 +80,10 @@ Future<void> printDocumentPages(
   //      no native printer at all, and propagates to the caller. The runner
   //      reports whether it can replay our vector op stream; when it can we
   //      print vector, otherwise we rasterise. One job either way.
-  final document = PdfDocument.open(pdfBytes);
+  final document = preparedDocument ?? PdfDocument.open(pdfBytes);
   final info = await channel.invokeMapMethod<String, dynamic>(
     'beginJob',
-    <String, dynamic>{'name': name},
+    <String, dynamic>{'name': name, ...sheetOptions},
   );
   final vector = info?['vector'] == true;
   final dpi = _resolveDpi(info);

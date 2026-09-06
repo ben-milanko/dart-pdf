@@ -324,5 +324,104 @@
   "reduceSizeFonts": "एम्बेड किए गए फ़ॉन्ट",
   "reduceSizeImages": "छवियाँ",
   "reduceSizeDuplicates": "डुप्लिकेट ऑब्जेक्ट",
-  "reduceSizeCustom": "कस्टम सेटिंग"
+  "reduceSizeCustom": "कस्टम सेटिंग",
+  "printOptionsPrinter": "प्रिंटर",
+  "printOptionsNativePrinter": "अगले सिस्टम प्रिंट संवाद में प्रिंटर, पेपर ट्रे, रंग, दोतरफ़ा प्रिंटिंग और डिवाइस के गुण चुनें। यहाँ दिखाए गए लेआउट का उपयोग करने के लिए स्केल 100% और प्रतियों की संख्या 1 ही रखें।",
+  "printOptionsPages": "पृष्ठ",
+  "printOptionsSelected": "चुने गए",
+  "printOptionsPageRange": "पृष्ठ (उदाहरण के लिए, 1, 3-5)",
+  "printOptionsAddFiles": "फ़ाइलें जोड़ें…",
+  "printOptionsAddFailed": "चुनी गई फ़ाइलें जोड़ी नहीं जा सकीं।",
+  "printOptionsGetWindow": "क्षेत्र चुनें",
+  "printOptionsClearWindow": "क्षेत्र हटाएँ",
+  "printOptionsWindowHint": "प्रिंट करने का क्षेत्र चुनने के लिए इस मूल पृष्ठ पर खींचकर एक आयत बनाएँ।",
+  "printOptionsPaper": "कागज़",
+  "printOptionsPaperSize": "कागज़ का आकार",
+  "printOptionsPageSize": "दस्तावेज़ के पृष्ठ का आकार उपयोग करें",
+  "printOptionsOrientation": "ओरिएंटेशन",
+  "printOptionsAuto": "अपने आप",
+  "printOptionsPortrait": "पोर्ट्रेट",
+  "printOptionsLandscape": "लैंडस्केप",
+  "printOptionsCopies": "प्रतियाँ",
+  "printOptionsCollate": "प्रतियाँ क्रम में रखें",
+  "printOptionsReverse": "पृष्ठों का क्रम उलटें",
+  "printOptionsLayout": "पृष्ठ लेआउट",
+  "printOptionsScaling": "पृष्ठ का स्केल",
+  "printOptionsScaleNone": "कोई नहीं (वास्तविक आकार)",
+  "printOptionsFitPaper": "कागज़ के अनुसार फ़िट करें",
+  "printOptionsReducePaper": "कागज़ में फ़िट करने के लिए छोटा करें",
+  "printOptionsFitMargins": "मार्जिन के भीतर फ़िट करें",
+  "printOptionsReduceMargins": "मार्जिन में फ़िट करने के लिए छोटा करें",
+  "printOptionsCustomScale": "कस्टम स्केल",
+  "printOptionsMultiple": "प्रति शीट कई पृष्ठ",
+  "printOptionsScalePercent": "स्केल (%)",
+  "printOptionsMargin": "मार्जिन (पॉइंट)",
+  "printOptionsPagesPerSheet": "प्रति शीट पृष्ठ",
+  "printOptionsPageOrder": "पृष्ठों का क्रम",
+  "printOptionsHorizontal": "क्षैतिज",
+  "printOptionsHorizontalReverse": "उलटा क्षैतिज क्रम",
+  "printOptionsVertical": "लंबवत",
+  "printOptionsVerticalReverse": "उलटा लंबवत क्रम",
+  "printOptionsBorder": "पृष्ठों के बॉर्डर प्रिंट करें",
+  "printOptionsRotation": "घुमाव (घड़ी की दिशा में)",
+  "printOptionsNoRotation": "कोई नहीं",
+  "printOptionsCenter": "कागज़ के बीच में रखें",
+  "printOptionsOffsetX": "दाईं ओर खिसकाएँ (पॉइंट)",
+  "printOptionsOffsetY": "नीचे खिसकाएँ (पॉइंट)",
+  "printOptionsContents": "प्रिंट सामग्री",
+  "printOptionsDocumentAndMarkups": "दस्तावेज़ और टिप्पणियाँ",
+  "printOptionsDocumentOnly": "केवल दस्तावेज़",
+  "printOptionsMarkupsOnly": "केवल टिप्पणियाँ",
+  "printOptionsDimPage": "पृष्ठ की सामग्री हल्की करें",
+  "printOptionsDimMarkups": "टिप्पणियाँ हल्की करें",
+  "printOptionsHyperlinks": "दिखाई देने वाले हाइपरलिंक प्रिंट करें",
+  "printOptionsDefaults": "डिफ़ॉल्ट",
+  "printOptionsInvalidNumber": "प्रिंट करने से पहले मान्य संख्याएँ दर्ज करें।",
+  "printOptionsInvalidValue": "अमान्य मान",
+  "printOptionsMarginGuide": "लाल रेखाएँ मार्जिन दिखाती हैं; वे प्रिंट नहीं होंगी।",
+  "printOptionsAreaSize": "क्षेत्र: {width} × {height} पॉइंट",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "मूल: {width} × {height} पॉइंट",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "शीट: {width} × {height} पॉइंट",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "शीट {sheet} / {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "यह लेआउट तैयार नहीं किया जा सका। कागज़ का आकार, मार्जिन और स्केल जाँचें।"
 }

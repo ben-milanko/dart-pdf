@@ -324,5 +324,104 @@
   "reduceSizeFonts": "Font tertanam",
   "reduceSizeImages": "Gambar",
   "reduceSizeDuplicates": "Objek duplikat",
-  "reduceSizeCustom": "Pengaturan khusus"
+  "reduceSizeCustom": "Pengaturan khusus",
+  "printOptionsPrinter": "Printer",
+  "printOptionsNativePrinter": "Pilih printer, baki kertas, warna, pencetakan dua sisi, dan properti perangkat pada dialog cetak sistem berikutnya. Biarkan skala pada 100% dan jumlah salinan pada 1 untuk menggunakan tata letak yang ditampilkan di sini.",
+  "printOptionsPages": "Halaman",
+  "printOptionsSelected": "Terpilih",
+  "printOptionsPageRange": "Halaman (misalnya, 1, 3-5)",
+  "printOptionsAddFiles": "Tambahkan file…",
+  "printOptionsAddFailed": "Tidak dapat menambahkan file yang dipilih.",
+  "printOptionsGetWindow": "Pilih area",
+  "printOptionsClearWindow": "Hapus area",
+  "printOptionsWindowHint": "Seret untuk menggambar persegi panjang pada halaman sumber ini guna memilih area yang akan dicetak.",
+  "printOptionsPaper": "Kertas",
+  "printOptionsPaperSize": "Ukuran kertas",
+  "printOptionsPageSize": "Gunakan ukuran halaman dokumen",
+  "printOptionsOrientation": "Orientasi",
+  "printOptionsAuto": "Otomatis",
+  "printOptionsPortrait": "Potret",
+  "printOptionsLandscape": "Lanskap",
+  "printOptionsCopies": "Salinan",
+  "printOptionsCollate": "Susun per set",
+  "printOptionsReverse": "Balik urutan halaman",
+  "printOptionsLayout": "Tata letak halaman",
+  "printOptionsScaling": "Penskalaan halaman",
+  "printOptionsScaleNone": "Tidak ada (ukuran sebenarnya)",
+  "printOptionsFitPaper": "Sesuaikan ke kertas",
+  "printOptionsReducePaper": "Perkecil agar muat di kertas",
+  "printOptionsFitMargins": "Sesuaikan ke margin",
+  "printOptionsReduceMargins": "Perkecil agar muat dalam margin",
+  "printOptionsCustomScale": "Skala khusus",
+  "printOptionsMultiple": "Beberapa halaman per lembar",
+  "printOptionsScalePercent": "Skala (%)",
+  "printOptionsMargin": "Margin (pt)",
+  "printOptionsPagesPerSheet": "Halaman per lembar",
+  "printOptionsPageOrder": "Urutan halaman",
+  "printOptionsHorizontal": "Horizontal",
+  "printOptionsHorizontalReverse": "Horizontal terbalik",
+  "printOptionsVertical": "Vertikal",
+  "printOptionsVerticalReverse": "Vertikal terbalik",
+  "printOptionsBorder": "Cetak bingkai halaman",
+  "printOptionsRotation": "Rotasi (searah jarum jam)",
+  "printOptionsNoRotation": "Tidak ada",
+  "printOptionsCenter": "Posisikan di tengah kertas",
+  "printOptionsOffsetX": "Geser ke kanan (pt)",
+  "printOptionsOffsetY": "Geser ke bawah (pt)",
+  "printOptionsContents": "Konten yang dicetak",
+  "printOptionsDocumentAndMarkups": "Dokumen dan anotasi",
+  "printOptionsDocumentOnly": "Hanya dokumen",
+  "printOptionsMarkupsOnly": "Hanya anotasi",
+  "printOptionsDimPage": "Redupkan konten halaman",
+  "printOptionsDimMarkups": "Redupkan anotasi",
+  "printOptionsHyperlinks": "Cetak hyperlink yang terlihat",
+  "printOptionsDefaults": "Default",
+  "printOptionsInvalidNumber": "Masukkan angka yang valid sebelum mencetak.",
+  "printOptionsInvalidValue": "Nilai tidak valid",
+  "printOptionsMarginGuide": "Garis merah menunjukkan margin dan tidak ikut dicetak.",
+  "printOptionsAreaSize": "Area: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Sumber: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Lembar: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Lembar {sheet} dari {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "Tata letak ini tidak dapat disiapkan. Periksa ukuran kertas, margin, dan skala."
 }

@@ -1274,4 +1274,196 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Impostazioni personalizzate';
+
+  @override
+  String get printOptionsPrinter => 'Stampante';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Scegli la stampante, il vassoio carta, il colore, la stampa fronte-retro e le proprietà del dispositivo nella successiva finestra di stampa del sistema. Mantieni la scala al 100% e il numero di copie a 1 per usare l’impaginazione mostrata qui.';
+
+  @override
+  String get printOptionsPages => 'Pagine';
+
+  @override
+  String get printOptionsSelected => 'Selezionate';
+
+  @override
+  String get printOptionsPageRange => 'Pagine (ad esempio, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Aggiungi file…';
+
+  @override
+  String get printOptionsAddFailed =>
+      'Impossibile aggiungere i file selezionati.';
+
+  @override
+  String get printOptionsGetWindow => 'Seleziona area';
+
+  @override
+  String get printOptionsClearWindow => 'Azzera area';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Traccia un rettangolo su questa pagina originale per scegliere l’area da stampare.';
+
+  @override
+  String get printOptionsPaper => 'Carta';
+
+  @override
+  String get printOptionsPaperSize => 'Formato carta';
+
+  @override
+  String get printOptionsPageSize => 'Usa il formato pagina del documento';
+
+  @override
+  String get printOptionsOrientation => 'Orientamento';
+
+  @override
+  String get printOptionsAuto => 'Automatico';
+
+  @override
+  String get printOptionsPortrait => 'Verticale';
+
+  @override
+  String get printOptionsLandscape => 'Orizzontale';
+
+  @override
+  String get printOptionsCopies => 'Copie';
+
+  @override
+  String get printOptionsCollate => 'Fascicola';
+
+  @override
+  String get printOptionsReverse => 'Inverti l’ordine delle pagine';
+
+  @override
+  String get printOptionsLayout => 'Impaginazione';
+
+  @override
+  String get printOptionsScaling => 'Ridimensionamento pagina';
+
+  @override
+  String get printOptionsScaleNone => 'Nessuno (dimensioni effettive)';
+
+  @override
+  String get printOptionsFitPaper => 'Adatta alla carta';
+
+  @override
+  String get printOptionsReducePaper => 'Riduci al formato carta';
+
+  @override
+  String get printOptionsFitMargins => 'Adatta entro i margini';
+
+  @override
+  String get printOptionsReduceMargins => 'Riduci entro i margini';
+
+  @override
+  String get printOptionsCustomScale => 'Scala personalizzata';
+
+  @override
+  String get printOptionsMultiple => 'Più pagine per foglio';
+
+  @override
+  String get printOptionsScalePercent => 'Scala (%)';
+
+  @override
+  String get printOptionsMargin => 'Margini (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Pagine per foglio';
+
+  @override
+  String get printOptionsPageOrder => 'Ordine delle pagine';
+
+  @override
+  String get printOptionsHorizontal => 'Orizzontale';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Orizzontale inverso';
+
+  @override
+  String get printOptionsVertical => 'Verticale';
+
+  @override
+  String get printOptionsVerticalReverse => 'Verticale inverso';
+
+  @override
+  String get printOptionsBorder => 'Stampa i bordi delle pagine';
+
+  @override
+  String get printOptionsRotation => 'Rotazione (senso orario)';
+
+  @override
+  String get printOptionsNoRotation => 'Nessuna';
+
+  @override
+  String get printOptionsCenter => 'Centra sulla carta';
+
+  @override
+  String get printOptionsOffsetX => 'Spostamento a destra (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Spostamento in basso (pt)';
+
+  @override
+  String get printOptionsContents => 'Contenuto da stampare';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Documento e annotazioni';
+
+  @override
+  String get printOptionsDocumentOnly => 'Solo documento';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Solo annotazioni';
+
+  @override
+  String get printOptionsDimPage => 'Attenua il contenuto della pagina';
+
+  @override
+  String get printOptionsDimMarkups => 'Attenua le annotazioni';
+
+  @override
+  String get printOptionsHyperlinks =>
+      'Stampa i collegamenti ipertestuali visibili';
+
+  @override
+  String get printOptionsDefaults => 'Predefiniti';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Inserisci numeri validi prima di stampare.';
+
+  @override
+  String get printOptionsInvalidValue => 'Valore non valido';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Le linee rosse indicano i margini e non vengono stampate.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Area: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Originale: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Foglio: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Foglio $sheet di $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Impossibile preparare questa impaginazione. Controlla il formato carta, i margini e la scala.';
 }

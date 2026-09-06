@@ -1282,4 +1282,193 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'إعدادات مخصصة';
+
+  @override
+  String get printOptionsPrinter => 'الطابعة';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'اختر الطابعة ودرج الورق والألوان والطباعة على الوجهين وخصائص الجهاز في مربع حوار الطباعة الخاص بالنظام الذي سيظهر بعد ذلك. اترك المقياس عند 100% وعدد النسخ عند 1 لاستخدام التخطيط المعروض هنا.';
+
+  @override
+  String get printOptionsPages => 'الصفحات';
+
+  @override
+  String get printOptionsSelected => 'المحددة';
+
+  @override
+  String get printOptionsPageRange => 'الصفحات (مثلاً: 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'إضافة ملفات…';
+
+  @override
+  String get printOptionsAddFailed => 'تعذرت إضافة الملفات المحددة.';
+
+  @override
+  String get printOptionsGetWindow => 'تحديد منطقة';
+
+  @override
+  String get printOptionsClearWindow => 'مسح المنطقة';
+
+  @override
+  String get printOptionsWindowHint =>
+      'اسحب لرسم مستطيل على هذه الصفحة الأصلية لتحديد المنطقة المراد طباعتها.';
+
+  @override
+  String get printOptionsPaper => 'الورق';
+
+  @override
+  String get printOptionsPaperSize => 'حجم الورق';
+
+  @override
+  String get printOptionsPageSize => 'استخدام حجم صفحة المستند';
+
+  @override
+  String get printOptionsOrientation => 'الاتجاه';
+
+  @override
+  String get printOptionsAuto => 'تلقائي';
+
+  @override
+  String get printOptionsPortrait => 'عمودي';
+
+  @override
+  String get printOptionsLandscape => 'أفقي';
+
+  @override
+  String get printOptionsCopies => 'النسخ';
+
+  @override
+  String get printOptionsCollate => 'ترتيب النسخ';
+
+  @override
+  String get printOptionsReverse => 'عكس ترتيب الصفحات';
+
+  @override
+  String get printOptionsLayout => 'تخطيط الصفحة';
+
+  @override
+  String get printOptionsScaling => 'تحجيم الصفحة';
+
+  @override
+  String get printOptionsScaleNone => 'بدون (الحجم الفعلي)';
+
+  @override
+  String get printOptionsFitPaper => 'ملاءمة للورق';
+
+  @override
+  String get printOptionsReducePaper => 'تصغير لملاءمة الورق';
+
+  @override
+  String get printOptionsFitMargins => 'ملاءمة للهوامش';
+
+  @override
+  String get printOptionsReduceMargins => 'تصغير لملاءمة الهوامش';
+
+  @override
+  String get printOptionsCustomScale => 'مقياس مخصص';
+
+  @override
+  String get printOptionsMultiple => 'عدة صفحات لكل ورقة';
+
+  @override
+  String get printOptionsScalePercent => 'المقياس (%)';
+
+  @override
+  String get printOptionsMargin => 'الهوامش (نقطة)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'الصفحات لكل ورقة';
+
+  @override
+  String get printOptionsPageOrder => 'ترتيب الصفحات';
+
+  @override
+  String get printOptionsHorizontal => 'أفقي';
+
+  @override
+  String get printOptionsHorizontalReverse => 'أفقي معكوس';
+
+  @override
+  String get printOptionsVertical => 'عمودي';
+
+  @override
+  String get printOptionsVerticalReverse => 'عمودي معكوس';
+
+  @override
+  String get printOptionsBorder => 'طباعة حدود الصفحات';
+
+  @override
+  String get printOptionsRotation => 'التدوير (باتجاه عقارب الساعة)';
+
+  @override
+  String get printOptionsNoRotation => 'بدون';
+
+  @override
+  String get printOptionsCenter => 'توسيط على الورق';
+
+  @override
+  String get printOptionsOffsetX => 'إزاحة لليمين (نقطة)';
+
+  @override
+  String get printOptionsOffsetY => 'إزاحة للأسفل (نقطة)';
+
+  @override
+  String get printOptionsContents => 'المحتوى المراد طباعته';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'المستند والتعليقات التوضيحية';
+
+  @override
+  String get printOptionsDocumentOnly => 'المستند فقط';
+
+  @override
+  String get printOptionsMarkupsOnly => 'التعليقات التوضيحية فقط';
+
+  @override
+  String get printOptionsDimPage => 'تخفيف لون محتوى الصفحة';
+
+  @override
+  String get printOptionsDimMarkups => 'تخفيف لون التعليقات التوضيحية';
+
+  @override
+  String get printOptionsHyperlinks => 'طباعة الارتباطات التشعبية المرئية';
+
+  @override
+  String get printOptionsDefaults => 'الإعدادات الافتراضية';
+
+  @override
+  String get printOptionsInvalidNumber => 'أدخل أرقامًا صالحة قبل الطباعة.';
+
+  @override
+  String get printOptionsInvalidValue => 'قيمة غير صالحة';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'تُظهر الخطوط الحمراء الهوامش، ولا تتم طباعتها.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'المنطقة: $width × $height نقطة';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'الأصل: $width × $height نقطة';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'الورقة: $width × $height نقطة';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'الورقة $sheet من $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'تعذر إعداد هذا التخطيط. تحقق من حجم الورق والهوامش والمقياس.';
 }

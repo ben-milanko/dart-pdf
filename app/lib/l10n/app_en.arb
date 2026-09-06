@@ -604,7 +604,9 @@
     "description": "App menu item (mobile/tablet) to scan pages with the device camera into a new document."
   },
   "editorMenuInsertDocument": "Insert document…",
-  "@editorMenuInsertDocument": {"description": "Menu action to pick a PDF and insert its pages after the current page in the open document."},
+  "@editorMenuInsertDocument": {
+    "description": "Menu action to pick a PDF and insert its pages after the current page in the open document."
+  },
   "editorMenuInsertScan": "Insert scan…",
   "@editorMenuInsertScan": {
     "description": "App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document."
@@ -1472,8 +1474,8 @@
     "description": "Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera."
   },
   "imageSourceCameraFailed": "Couldn't take a photo",
-  "@imageSourceCameraFailed":   {
-      "description": "Toast shown when the camera cannot be opened - no camera on the device, or access refused."
+  "@imageSourceCameraFailed": {
+    "description": "Toast shown when the camera cannot be opened - no camera on the device, or access refused."
   },
   "settingsCachedDocuments": "Cached documents",
   "settingsCacheUsage": "{used} MiB of {limit} MiB used",
@@ -1682,5 +1684,273 @@
   "reduceSizeCustom": "Custom settings",
   "@reduceSizeCustom": {
     "description": "Preset label shown after any individual compression setting is changed."
+  },
+  "printOptionsPrinter": "Printer",
+  "@printOptionsPrinter": {
+    "description": "Print settings dialog: Printer"
+  },
+  "printOptionsNativePrinter": "Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.",
+  "@printOptionsNativePrinter": {
+    "description": "Print settings dialog: Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here."
+  },
+  "printOptionsPages": "Pages",
+  "@printOptionsPages": {
+    "description": "Print settings dialog: Pages"
+  },
+  "printOptionsSelected": "Selected",
+  "@printOptionsSelected": {
+    "description": "Print settings dialog: Selected"
+  },
+  "printOptionsPageRange": "Pages (for example, 1, 3-5)",
+  "@printOptionsPageRange": {
+    "description": "Print settings dialog: Pages (for example, 1, 3-5)"
+  },
+  "printOptionsAddFiles": "Add files…",
+  "@printOptionsAddFiles": {
+    "description": "Print settings dialog: Add files…"
+  },
+  "printOptionsAddFailed": "Could not add the selected files.",
+  "@printOptionsAddFailed": {
+    "description": "Print settings dialog: Could not add the selected files."
+  },
+  "printOptionsGetWindow": "Get window",
+  "@printOptionsGetWindow": {
+    "description": "Print settings dialog: Get window"
+  },
+  "printOptionsClearWindow": "Clear window",
+  "@printOptionsClearWindow": {
+    "description": "Print settings dialog: Clear window"
+  },
+  "printOptionsWindowHint": "Drag a rectangle on this source page to choose the area to print.",
+  "@printOptionsWindowHint": {
+    "description": "Print settings dialog: Drag a rectangle on this source page to choose the area to print."
+  },
+  "printOptionsPaper": "Paper",
+  "@printOptionsPaper": {
+    "description": "Print settings dialog: Paper"
+  },
+  "printOptionsPaperSize": "Paper size",
+  "@printOptionsPaperSize": {
+    "description": "Print settings dialog: Paper size"
+  },
+  "printOptionsPageSize": "Use document page size",
+  "@printOptionsPageSize": {
+    "description": "Print settings dialog: Use document page size"
+  },
+  "printOptionsOrientation": "Orientation",
+  "@printOptionsOrientation": {
+    "description": "Print settings dialog: Orientation"
+  },
+  "printOptionsAuto": "Auto",
+  "@printOptionsAuto": {
+    "description": "Print settings dialog: Auto"
+  },
+  "printOptionsPortrait": "Portrait",
+  "@printOptionsPortrait": {
+    "description": "Print settings dialog: Portrait"
+  },
+  "printOptionsLandscape": "Landscape",
+  "@printOptionsLandscape": {
+    "description": "Print settings dialog: Landscape"
+  },
+  "printOptionsCopies": "Copies",
+  "@printOptionsCopies": {
+    "description": "Print settings dialog: Copies"
+  },
+  "printOptionsCollate": "Collate",
+  "@printOptionsCollate": {
+    "description": "Print settings dialog: Collate"
+  },
+  "printOptionsReverse": "Reverse page order",
+  "@printOptionsReverse": {
+    "description": "Print settings dialog: Reverse page order"
+  },
+  "printOptionsLayout": "Page layout",
+  "@printOptionsLayout": {
+    "description": "Print settings dialog: Page layout"
+  },
+  "printOptionsScaling": "Page scaling",
+  "@printOptionsScaling": {
+    "description": "Print settings dialog: Page scaling"
+  },
+  "printOptionsScaleNone": "None (actual size)",
+  "@printOptionsScaleNone": {
+    "description": "Print settings dialog: None (actual size)"
+  },
+  "printOptionsFitPaper": "Fit to paper",
+  "@printOptionsFitPaper": {
+    "description": "Print settings dialog: Fit to paper"
+  },
+  "printOptionsReducePaper": "Reduce to paper",
+  "@printOptionsReducePaper": {
+    "description": "Print settings dialog: Reduce to paper"
+  },
+  "printOptionsFitMargins": "Fit to margins",
+  "@printOptionsFitMargins": {
+    "description": "Print settings dialog: Fit to margins"
+  },
+  "printOptionsReduceMargins": "Reduce to margins",
+  "@printOptionsReduceMargins": {
+    "description": "Print settings dialog: Reduce to margins"
+  },
+  "printOptionsCustomScale": "Custom scale",
+  "@printOptionsCustomScale": {
+    "description": "Print settings dialog: Custom scale"
+  },
+  "printOptionsMultiple": "Multiple pages per sheet",
+  "@printOptionsMultiple": {
+    "description": "Print settings dialog: Multiple pages per sheet"
+  },
+  "printOptionsScalePercent": "Scale (%)",
+  "@printOptionsScalePercent": {
+    "description": "Print settings dialog: Scale (%)"
+  },
+  "printOptionsMargin": "Margins (pt)",
+  "@printOptionsMargin": {
+    "description": "Print settings dialog: Margins (pt)"
+  },
+  "printOptionsPagesPerSheet": "Pages per sheet",
+  "@printOptionsPagesPerSheet": {
+    "description": "Print settings dialog: Pages per sheet"
+  },
+  "printOptionsPageOrder": "Page order",
+  "@printOptionsPageOrder": {
+    "description": "Print settings dialog: Page order"
+  },
+  "printOptionsHorizontal": "Horizontal",
+  "@printOptionsHorizontal": {
+    "description": "Print settings dialog: Horizontal"
+  },
+  "printOptionsHorizontalReverse": "Horizontal reversed",
+  "@printOptionsHorizontalReverse": {
+    "description": "Print settings dialog: Horizontal reversed"
+  },
+  "printOptionsVertical": "Vertical",
+  "@printOptionsVertical": {
+    "description": "Print settings dialog: Vertical"
+  },
+  "printOptionsVerticalReverse": "Vertical reversed",
+  "@printOptionsVerticalReverse": {
+    "description": "Print settings dialog: Vertical reversed"
+  },
+  "printOptionsBorder": "Print page borders",
+  "@printOptionsBorder": {
+    "description": "Print settings dialog: Print page borders"
+  },
+  "printOptionsRotation": "Rotation (clockwise)",
+  "@printOptionsRotation": {
+    "description": "Print settings dialog: Rotation (clockwise)"
+  },
+  "printOptionsNoRotation": "None",
+  "@printOptionsNoRotation": {
+    "description": "Print settings dialog: None"
+  },
+  "printOptionsCenter": "Center on paper",
+  "@printOptionsCenter": {
+    "description": "Print settings dialog: Center on paper"
+  },
+  "printOptionsOffsetX": "Offset right (pt)",
+  "@printOptionsOffsetX": {
+    "description": "Print settings dialog: Offset right (pt)"
+  },
+  "printOptionsOffsetY": "Offset down (pt)",
+  "@printOptionsOffsetY": {
+    "description": "Print settings dialog: Offset down (pt)"
+  },
+  "printOptionsContents": "Print contents",
+  "@printOptionsContents": {
+    "description": "Print settings dialog: Print contents"
+  },
+  "printOptionsDocumentAndMarkups": "Document and markups",
+  "@printOptionsDocumentAndMarkups": {
+    "description": "Print settings dialog: Document and markups"
+  },
+  "printOptionsDocumentOnly": "Document only",
+  "@printOptionsDocumentOnly": {
+    "description": "Print settings dialog: Document only"
+  },
+  "printOptionsMarkupsOnly": "Markups only",
+  "@printOptionsMarkupsOnly": {
+    "description": "Print settings dialog: Markups only"
+  },
+  "printOptionsDimPage": "Dim page content",
+  "@printOptionsDimPage": {
+    "description": "Print settings dialog: Dim page content"
+  },
+  "printOptionsDimMarkups": "Dim markups",
+  "@printOptionsDimMarkups": {
+    "description": "Print settings dialog: Dim markups"
+  },
+  "printOptionsHyperlinks": "Print visible hyperlinks",
+  "@printOptionsHyperlinks": {
+    "description": "Print settings dialog: Print visible hyperlinks"
+  },
+  "printOptionsDefaults": "Defaults",
+  "@printOptionsDefaults": {
+    "description": "Print settings dialog: Defaults"
+  },
+  "printOptionsInvalidNumber": "Enter valid numbers before printing.",
+  "@printOptionsInvalidNumber": {
+    "description": "Print settings dialog: Enter valid numbers before printing."
+  },
+  "printOptionsInvalidValue": "Invalid value",
+  "@printOptionsInvalidValue": {
+    "description": "Print settings dialog: Invalid value"
+  },
+  "printOptionsMarginGuide": "Red lines show the margins; they do not print.",
+  "@printOptionsMarginGuide": {
+    "description": "Print settings dialog: Red lines show the margins; they do not print."
+  },
+  "printOptionsAreaSize": "Window: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Source: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Sheet: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Sheet {sheet} of {total}",
+  "@printOptionsSheetOf": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "This layout could not be prepared. Check the paper size, margins and scale.",
+  "@printOptionsInvalidLayout": {
+    "description": "Print settings validation when the sheet cannot be composed."
   }
 }
