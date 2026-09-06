@@ -2081,21 +2081,42 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
             ),
           ),
-        if (PdfKeyboardAvailability.of(context) &&
-            toolShortcuts != null &&
-            onToolShortcutsChanged != null)
-          PopupMenuItem(
-            key: const ValueKey('pdf-shell-shortcuts'),
-            value: _ViewOption.shortcuts,
-            child: ListTile(
-              leading: const Icon(Icons.keyboard_outlined),
-              title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
+        if (toolShortcuts != null && onToolShortcutsChanged != null)
+          const _KeyboardShortcutMenuItem(),
       ],
     );
   }
+}
+
+// PopupMenuButton builds its entries only when opening. Read availability
+// inside the mounted entry so an open tablet menu also tracks keyboard changes.
+class _KeyboardShortcutMenuItem extends PopupMenuEntry<_ViewOption> {
+  const _KeyboardShortcutMenuItem();
+
+  @override
+  double get height => kMinInteractiveDimension;
+
+  @override
+  bool represents(_ViewOption? value) => value == _ViewOption.shortcuts;
+
+  @override
+  State<_KeyboardShortcutMenuItem> createState() =>
+      _KeyboardShortcutMenuItemState();
+}
+
+class _KeyboardShortcutMenuItemState extends State<_KeyboardShortcutMenuItem> {
+  @override
+  Widget build(BuildContext context) => PdfKeyboardAvailability.of(context)
+      ? PopupMenuItem<_ViewOption>(
+          key: const ValueKey('pdf-shell-shortcuts'),
+          value: _ViewOption.shortcuts,
+          child: ListTile(
+            leading: const Icon(Icons.keyboard_outlined),
+            title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
+            contentPadding: EdgeInsets.zero,
+          ),
+        )
+      : const SizedBox.shrink();
 }
 
 /// One item in the shell's grouped panel switch.

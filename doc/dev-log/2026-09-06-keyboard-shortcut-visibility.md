@@ -23,8 +23,11 @@ updates. Command-palette key labels and navigation hints disappear, while
 disabled-action explanations remain. Undo/redo/save use their existing
 localized plain labels; tool tooltips omit their key suffixes. Shortcut
 configuration is hidden from Settings without changing any bindings.
+The tablet popup reads availability inside a mounted menu entry because
+`PopupMenuButton.itemBuilder` runs only when opening. This keeps an open
+Settings popup current on both disconnect and reconnect, without an empty row.
 
-Validation: 8 keyboard regressions cover Android/iOS connection changes,
+Validation: 9 keyboard regressions cover Android/iOS connection changes,
 software-keyboard exclusion, foreground refresh, stale query replies,
 missing bridges, live menus/Settings/tooltips, and functioning commands with
 hidden hints. The existing app menu/palette/save regressions (18) and shell/

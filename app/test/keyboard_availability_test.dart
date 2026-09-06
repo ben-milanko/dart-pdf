@@ -173,4 +173,25 @@ void main() {
     expect(find.byKey(const ValueKey('command-palette')), findsOneWidget);
     expect(find.text('Ctrl+N'), findsNothing);
   });
+
+  testWidgets('open tablet Settings updates when the keyboard disconnects',
+      (tester) async {
+    connected = true;
+    tester.view.physicalSize = const Size(1000, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(root(PdfEditorView(bytes: buildClassicPdf())));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')));
+    await tester.pumpAndSettle();
+    expect(find.text('Keyboard shortcuts…'), findsOneWidget);
+    await notify(tester, false);
+    expect(find.text('Keyboard shortcuts…'), findsNothing);
+    expect(find.text('Show annotations'), findsOneWidget);
+    await notify(tester, true);
+    expect(find.text('Keyboard shortcuts…'), findsOneWidget);
+    await tester.tap(find.text('Keyboard shortcuts…'));
+    await tester.pumpAndSettle();
+    expect(find.text('Keyboard shortcuts'), findsOneWidget);
+  });
 }
