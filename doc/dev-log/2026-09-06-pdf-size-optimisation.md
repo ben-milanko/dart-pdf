@@ -8,13 +8,21 @@ TrueType/CFF font subsetting. Independent options control each pass. Screen,
 eBook and Print presets opt into image processing at 72/150/300 DPI with JPEG
 qualities 60/75/90. Output is never larger than the source.
 
-The app menu's **Reduce file size…** opens settings, runs an isolated worker on
-native platforms, reports savings by category, and saves a separate copy with
+The app menu's **Reduce file size…** opens settings, runs a dedicated worker on
+native platforms and the web, reports savings by category, and saves a separate copy with
 the existing save/download/share flow. Pending ink and inline text are included;
-the current tab, dirty state and undo history are preserved. All 20 app locales
-include the new strings. Web builds run the same pure-Dart API, but Flutter's
-web `compute` still executes on the browser event loop; a dedicated worker is
-a future responsiveness improvement for large files.
+the current tab, dirty state and undo history are preserved. All app locales
+include the new strings; Australian and UK English use **Optimise** and the
+corresponding regional spelling throughout the dialog.
+
+`PdfCompressionTask` uses a dedicated native isolate or browser Web Worker.
+The existing compiled worker asset accepts a versioned compression handshake
+and transfers PDF buffers separately from the report metadata. The caller's
+bytes stay intact. Cancel, back, or dialog disposal terminate that job without
+affecting viewer workers. Worker loading failures are reported; there is no
+main-thread fallback. Chrome and native regression tests count event-loop
+heartbeats only after the worker acknowledges starting a nontrivial job, and
+check cancellation, retry, report parity, and source-byte ownership.
 
 Preservation rules:
 

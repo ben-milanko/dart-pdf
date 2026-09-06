@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/compression_worker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -14,21 +15,15 @@ typedef PdfCompressionRunner = Future<PdfCompressionResult> Function(
   PdfCompressionOptions options,
 );
 
-/// Runs the pure-Dart optimizer away from the UI isolate on native platforms.
-/// Flutter's web compute implementation runs on the browser's event loop.
+/// Runs optimisation off the UI thread on native platforms and the web.
 Future<PdfCompressionResult> reducePdfBytes(
   Uint8List bytes,
   PdfCompressionOptions options,
 ) =>
-    compute(_optimize, (bytes, options), debugLabel: 'Reduce PDF file size');
-
-PdfCompressionResult _optimize(
-  (Uint8List, PdfCompressionOptions) request,
-) =>
-    PdfCompressor.optimize(PdfDocument.open(request.$1), options: request.$2);
+    PdfCompressionTask.start(bytes, options: options).result;
 
 /// Optimizes a fixed revision and offers a separate save dialog for its copy.
-/// Closing/cancelling discards any outstanding worker result. Neither a run
+/// Closing/cancelling stops the worker. Neither a run
 /// nor saving its result replaces the open document or its undo history.
 Future<void> showReduceFileSizeDialog(
   BuildContext context, {
@@ -40,7 +35,7 @@ Future<void> showReduceFileSizeDialog(
     Uint8List bytes,
     String suggestedName,
   ) saveCopy,
-  PdfCompressionRunner runner = reducePdfBytes,
+  PdfCompressionRunner? runner,
 }) =>
     showPdfDialog<void>(
       context: context,
@@ -74,7 +69,7 @@ class _ReduceFileSizeDialog extends StatefulWidget {
   final Uint8List bytes;
   final String title;
   final bool hasSignatures;
-  final PdfCompressionRunner runner;
+  final PdfCompressionRunner? runner;
   final Future<SaveResult> Function(BuildContext, Uint8List, String) saveCopy;
 
   @override
@@ -95,6 +90,24 @@ class _ReduceFileSizeDialogState extends State<_ReduceFileSizeDialog> {
   bool _saving = false;
   PdfCompressionResult? _result;
   String? _error;
+  PdfCompressionTask? _task;
+  bool _closing = false;
+
+  void _cancelWork() {
+    _closing = true;
+    _task?.cancel();
+  }
+
+  void _close() {
+    _cancelWork();
+    Navigator.of(context).pop();
+  }
+
+  @override
+  void dispose() {
+    _cancelWork();
+    super.dispose();
+  }
 
   void _setPreset(PdfCompressionPreset preset) {
     final options = preset.options;
@@ -117,29 +130,36 @@ class _ReduceFileSizeDialogState extends State<_ReduceFileSizeDialog> {
       _error = null;
     });
     try {
-      // Give the dialog one frame to show progress before compute starts,
-      // including on web where compute shares the browser event loop.
+      // Paint progress before copying the source buffer into its worker.
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-      final result = await widget.runner(
-        widget.bytes,
-        PdfCompressionOptions(
-          recompressStreams: _recompress,
-          removeUnusedResources: _unused,
-          deduplicate: _deduplicate,
-          subsetFonts: _subsetFonts,
-          targetDpi: _dpi,
-          jpegQuality: _quality,
-          allowInvalidateSignatures: _allowInvalidateSignatures,
-        ),
+      if (!mounted || _closing) return;
+      final options = PdfCompressionOptions(
+        recompressStreams: _recompress,
+        removeUnusedResources: _unused,
+        deduplicate: _deduplicate,
+        subsetFonts: _subsetFonts,
+        targetDpi: _dpi,
+        jpegQuality: _quality,
+        allowInvalidateSignatures: _allowInvalidateSignatures,
       );
-      if (!mounted) return;
+      final runner = widget.runner;
+      final Future<PdfCompressionResult> pending;
+      if (runner != null) {
+        pending = runner(widget.bytes, options);
+      } else {
+        final task =
+            _task = PdfCompressionTask.start(widget.bytes, options: options);
+        pending = task.result;
+      }
+      final result = await pending;
+      if (!mounted || _closing) return;
       setState(() => _result = result);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || _closing) return;
       setState(() => _error = l10n.reduceSizeFailed(error.toString()));
     } finally {
-      if (mounted) setState(() => _running = false);
+      _task = null;
+      if (mounted && !_closing) setState(() => _running = false);
     }
   }
 
@@ -176,6 +196,9 @@ class _ReduceFileSizeDialogState extends State<_ReduceFileSizeDialog> {
     final result = _result;
     return PopScope(
       canPop: !_saving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _cancelWork();
+      },
       child: AlertDialog(
         key: const ValueKey('reduce-size-dialog'),
         title: Text(l10n.reduceSizeTitle),
@@ -215,7 +238,7 @@ class _ReduceFileSizeDialogState extends State<_ReduceFileSizeDialog> {
         actions: [
           TextButton(
             key: const ValueKey('reduce-size-cancel'),
-            onPressed: _saving ? null : () => Navigator.of(context).pop(),
+            onPressed: _saving ? null : _close,
             child: Text(result == null ? l10n.cancel : l10n.close),
           ),
           if (result != null) ...[

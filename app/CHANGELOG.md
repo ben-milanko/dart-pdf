@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep the browser responsive during PDF optimisation with a dedicated worker;
+  Cancel stops the job immediately. Use **Optimise** throughout the Australian
+  and UK English dialog, retaining **Optimize** for US English.
 - Section the app menu: a **Search actions… (⌘K)** row on top, then File, This
   document and App under quiet headers, ordered by how often each entry is
   reached. A header is only drawn over two rows or more, so with nothing open

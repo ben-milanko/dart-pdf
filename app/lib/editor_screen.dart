@@ -2568,7 +2568,7 @@ class _EditorScreenState extends State<EditorScreen>
       bytes: bytes,
       title: tab.title,
       hasSignatures: PdfSignature.of(session.document).isNotEmpty,
-      runner: widget.compressDocument ?? reducePdfBytes,
+      runner: widget.compressDocument,
       saveCopy: widget.saveDocumentAs ??
           (ctx, bytes, name) =>
               saveBytesAs(ctx, bytes, name, pdfLabel: appL10n(ctx).fileTypePdf),

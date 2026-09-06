@@ -114,6 +114,8 @@ abstract class AppLocalizations {
     Locale('ar'),
     Locale('de'),
     Locale('en'),
+    Locale('en', 'AU'),
+    Locale('en', 'GB'),
     Locale('es'),
     Locale('fr'),
     Locale('hi'),
@@ -2128,6 +2130,20 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
         switch (locale.scriptCode) {
           case 'Hant':
             return AppLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
+  // Lookup logic when language+country codes are specified.
+  switch (locale.languageCode) {
+    case 'en':
+      {
+        switch (locale.countryCode) {
+          case 'AU':
+            return AppLocalizationsEnAu();
+          case 'GB':
+            return AppLocalizationsEnGb();
         }
         break;
       }

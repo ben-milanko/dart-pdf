@@ -208,6 +208,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('cancel before the next frame never starts optimisation',
+      (tester) async {
+    var runs = 0;
+    await _openDialog(tester, runner: (bytes, _) async {
+      runs++;
+      return _result(bytes);
+    });
+    await tester.tap(find.byKey(const ValueKey('reduce-size-run')));
+    // Dismiss before endOfFrame resumes _run. The route is still mounted
+    // during its reverse transition, so a mounted-only guard is insufficient.
+    await tester.tap(find.byKey(const ValueKey('reduce-size-cancel')));
+    await tester.pumpAndSettle();
+    expect(runs, 0);
+    expect(find.byKey(const ValueKey('reduce-size-dialog')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a result arriving during dismissal stays discarded',
+      (tester) async {
+    final pending = Completer<PdfCompressionResult>();
+    await _openDialog(tester, runner: (_, __) => pending.future);
+    await _tap(tester, 'reduce-size-run');
+    await tester.tap(find.byKey(const ValueKey('reduce-size-cancel')));
+    pending.complete(_result(buildClassicPdf()));
+    await tester.pump();
+    // The closing dialog remains in the tree until its animation completes.
+    expect(find.byKey(const ValueKey('reduce-size-report')), findsNothing);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('worker errors leave the settings available for a retry',
       (tester) async {
     var runs = 0;

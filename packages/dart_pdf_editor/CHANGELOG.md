@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `PdfCompressionTask` in `compression_worker.dart`: cancellable PDF
+  optimisation in native isolates and dedicated browser workers, with exact
+  savings reports and no main-thread fallback when a worker fails.
 - Expose the toolbar's tool catalogue: `pdfToolGroups`, `pdfToolCatalog()`,
   `PdfToolGroup`/`PdfToolEntry`, and `pdfEditToolLabel`/`pdfEditToolTooltip`/
   `pdfMarkupLabel`/`pdfMarkupTooltip`. The dock now reads the same list a host
