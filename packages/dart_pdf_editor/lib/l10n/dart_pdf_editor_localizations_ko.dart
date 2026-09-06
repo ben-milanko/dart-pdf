@@ -2116,7 +2116,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get splitFailed => '이 PDF를 분할할 수 없습니다.';
 
   @override
-  String get tbToolContentDelete => '콘텐츠 삭제';
+  String get tbToolContentDelete => '지우기';
 
   @override
   String get tbTipContentDelete =>

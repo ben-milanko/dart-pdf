@@ -625,6 +625,6 @@
   "splitInvalidRanges": "1~{count}페이지를 쉼표로 구분하세요. 범위는 오름차순이어야 합니다.",
   "splitConfirm": "분할",
   "splitFailed": "이 PDF를 분할할 수 없습니다.",
-  "tbToolContentDelete": "콘텐츠 삭제",
+  "tbToolContentDelete": "지우기",
   "tbTipContentDelete": "콘텐츠 삭제 — 사각형을 드래그하거나 다각형의 꼭짓점을 클릭한 후 두 번 클릭하여 완료"
 }

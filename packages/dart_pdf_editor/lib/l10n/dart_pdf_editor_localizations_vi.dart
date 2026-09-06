@@ -2133,7 +2133,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get splitFailed => 'Không thể tách PDF này.';
 
   @override
-  String get tbToolContentDelete => 'Xóa nội dung';
+  String get tbToolContentDelete => 'Xóa';
 
   @override
   String get tbTipContentDelete =>

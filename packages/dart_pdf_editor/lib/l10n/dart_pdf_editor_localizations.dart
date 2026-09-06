@@ -3887,7 +3887,7 @@ abstract class DartPdfEditorLocalizations {
   /// No description provided for @tbToolContentDelete.
   ///
   /// In en, this message translates to:
-  /// **'Delete content'**
+  /// **'Erase'**
   String get tbToolContentDelete;
 
   /// No description provided for @tbTipContentDelete.

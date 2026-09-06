@@ -1,7 +1,9 @@
 # Content deletion (#112)
 
 The Delete content tool is in the shared Edit catalogue (toolbar, mobile
-picker and command palette), with localized labels and Shift+E. Drag a
+picker and command palette), with the compact label "Erase" and Shift+E.
+Localized labels are short; the tooltip keeps the full operation and gesture
+description. Drag a
 rectangle, or click polygon vertices and double-click to close a lasso.
 The orange preview uses the same even-odd fill rule as polygon hit testing.
 Switching tools clears an unfinished lasso. Each completed deletion is one

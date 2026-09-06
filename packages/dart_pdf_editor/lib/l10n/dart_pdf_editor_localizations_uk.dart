@@ -2181,7 +2181,7 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get splitFailed => 'Не вдалося розділити цей PDF.';
 
   @override
-  String get tbToolContentDelete => 'Видалити вміст';
+  String get tbToolContentDelete => 'Стерти';
 
   @override
   String get tbTipContentDelete =>

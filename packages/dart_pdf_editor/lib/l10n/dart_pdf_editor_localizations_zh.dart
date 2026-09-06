@@ -2107,7 +2107,7 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get splitFailed => '无法拆分此 PDF。';
 
   @override
-  String get tbToolContentDelete => '删除内容';
+  String get tbToolContentDelete => '擦除';
 
   @override
   String get tbTipContentDelete => '删除内容 — 拖出矩形，或点击多边形顶点并双击完成';
@@ -4216,7 +4216,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get splitFailed => '無法分割此 PDF。';
 
   @override
-  String get tbToolContentDelete => '刪除內容';
+  String get tbToolContentDelete => '擦除';
 
   @override
   String get tbTipContentDelete => '刪除內容 — 拖曳矩形，或點擊多邊形頂點並按兩下完成';

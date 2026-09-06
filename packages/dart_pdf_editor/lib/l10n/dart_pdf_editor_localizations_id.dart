@@ -2142,7 +2142,7 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get splitFailed => 'PDF ini tidak dapat dipisahkan.';
 
   @override
-  String get tbToolContentDelete => 'Hapus konten';
+  String get tbToolContentDelete => 'Hapus';
 
   @override
   String get tbTipContentDelete =>

@@ -625,6 +625,6 @@
   "splitInvalidRanges": "Gunakan halaman 1–{count}, dipisahkan koma. Rentang harus berurutan naik.",
   "splitConfirm": "Pisahkan",
   "splitFailed": "PDF ini tidak dapat dipisahkan.",
-  "tbToolContentDelete": "Hapus konten",
+  "tbToolContentDelete": "Hapus",
   "tbTipContentDelete": "Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai"
 }

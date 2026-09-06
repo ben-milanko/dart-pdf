@@ -625,6 +625,6 @@
   "splitInvalidRanges": "استخدم الصفحات من 1 إلى {count}، مفصولة بفواصل. يجب أن تكون النطاقات تصاعدية.",
   "splitConfirm": "تقسيم",
   "splitFailed": "تعذر تقسيم ملف PDF هذا.",
-  "tbToolContentDelete": "حذف المحتوى",
+  "tbToolContentDelete": "محو",
   "tbTipContentDelete": "حذف المحتوى — اسحب مستطيلاً، أو انقر رؤوس المضلع وانقر مرتين للإنهاء"
 }

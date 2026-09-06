@@ -2137,7 +2137,7 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get splitFailed => 'यह PDF विभाजित नहीं किया जा सका।';
 
   @override
-  String get tbToolContentDelete => 'सामग्री हटाएँ';
+  String get tbToolContentDelete => 'मिटाएँ';
 
   @override
   String get tbTipContentDelete =>

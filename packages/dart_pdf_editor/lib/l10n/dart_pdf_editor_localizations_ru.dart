@@ -2180,7 +2180,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get splitFailed => 'Не удалось разделить этот PDF.';
 
   @override
-  String get tbToolContentDelete => 'Удалить содержимое';
+  String get tbToolContentDelete => 'Стереть';
 
   @override
   String get tbTipContentDelete =>

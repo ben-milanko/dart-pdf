@@ -2154,7 +2154,7 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get splitFailed => 'Impossible de scinder ce PDF.';
 
   @override
-  String get tbToolContentDelete => 'Supprimer du contenu';
+  String get tbToolContentDelete => 'Effacer';
 
   @override
   String get tbTipContentDelete =>

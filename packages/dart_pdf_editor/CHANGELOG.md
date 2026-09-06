@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Add the Delete content tool (Shift+E) to the toolbar and shared tool catalogue.
+- Add the Erase content tool (Shift+E) to the toolbar and shared tool catalogue,
+  with a compact "Erase" label and full instructions in its tooltip.
   Drag a rectangle or click polygon vertices and double-click to finish;
   crossing graphics are clipped at the boundary and text is sliced by glyph.
   Deletion is undoable and leaves annotations unchanged.

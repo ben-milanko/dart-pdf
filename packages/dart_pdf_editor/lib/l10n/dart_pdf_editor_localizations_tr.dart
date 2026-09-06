@@ -2138,7 +2138,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get splitFailed => 'Bu PDF bölünemedi.';
 
   @override
-  String get tbToolContentDelete => 'İçeriği sil';
+  String get tbToolContentDelete => 'Sil';
 
   @override
   String get tbTipContentDelete =>

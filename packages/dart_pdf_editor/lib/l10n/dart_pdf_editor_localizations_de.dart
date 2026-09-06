@@ -2146,7 +2146,7 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get splitFailed => 'Diese PDF-Datei konnte nicht aufgeteilt werden.';
 
   @override
-  String get tbToolContentDelete => 'Inhalt löschen';
+  String get tbToolContentDelete => 'Löschen';
 
   @override
   String get tbTipContentDelete =>
