@@ -63,6 +63,26 @@ void main() {
     expect(store.isEmpty, isTrue);
   });
 
+  test('rename preserves cached identity, availability and ordering', () async {
+    final store = RecentsStore();
+    addTearDown(store.dispose);
+    await store.add(title: 'old.pdf', cachePath: 'cached', bookmark: 'access');
+    await store.add(title: 'newest.pdf', path: '/newest.pdf');
+    await store.updateCachedAvailability({'cached'}, {});
+    final openedAt = store.items.last.openedAt;
+    await store.rename('cached', 'renamed.pdf');
+
+    final restored = RecentsStore();
+    addTearDown(restored.dispose);
+    await restored.load();
+    expect(restored.items.map((entry) => entry.title),
+        ['newest.pdf', 'renamed.pdf']);
+    expect(restored.items.last.id, 'cached');
+    expect(restored.items.last.cacheAvailable, isFalse);
+    expect(restored.items.last.bookmark, 'access');
+    expect(restored.items.last.openedAt, openedAt);
+  });
+
   test('eviction preserves identity, order and a usable original path',
       () async {
     final store = RecentsStore();
