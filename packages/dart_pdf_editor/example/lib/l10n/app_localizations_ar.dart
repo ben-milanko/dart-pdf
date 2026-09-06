@@ -451,4 +451,9 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => 'الخطوط';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - الجزء $part.pdf';
+  }
 }

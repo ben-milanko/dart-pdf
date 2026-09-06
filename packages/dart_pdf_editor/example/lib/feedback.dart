@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show PdfDialogSubmit, showPdfDialog;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -37,8 +40,7 @@ Uri buildFeedbackUri(
   // Grow the attached report from the tail until the encoded URL would exceed
   // the budget, then keep the largest prefix that fits.
   String withReport(String value) => base
-      .replace(queryParameters: {...params, 'diagnostics': value})
-      .toString();
+      .replace(queryParameters: {...params, 'diagnostics': value}).toString();
 
   var attached = report;
   if (withReport(attached).length > maxUrlLength) {
@@ -74,7 +76,7 @@ Future<void> showFeedbackDialog(
   AppLog? log,
 }) {
   final appLog = log ?? AppLog.instance;
-  return showDialog<void>(
+  return showPdfDialog<void>(
     context: context,
     builder: (context) => _FeedbackDialog(
       log: appLog,
@@ -202,11 +204,12 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
           icon: const Icon(Icons.copy_outlined),
           label: Text(appL10n(context).feedbackCopyDiagnostics),
         ),
-        FilledButton.icon(
+        PdfDialogSubmit(
+            child: FilledButton.icon(
           onPressed: _open,
           icon: const Icon(Icons.open_in_new),
           label: Text(appL10n(context).feedbackOpenForm),
-        ),
+        )),
       ],
     );
   }

@@ -1,32 +1,47 @@
-# Audit-derived Storeflight configuration. DartPDF is not currently enrolled
-# in Shorebird; replace the Microsoft product ID before release.
+# DartPDF production release configuration. Shorebird is not enabled.
 schema: 1
 
 app:
-  # Copy this file to the dart-pdf repository root as storeflight.yaml.
   root: app
   version_file: pubspec.yaml
-  require_clean_git: true
+  require_clean_git: tracked
   isolate_worktree: true
+  # A worktree of the release commit cannot inherit files that are git-ignored
+  # because they are secret. Without key.properties Gradle silently debug-signs
+  # and Play rejects the upload. The tracked root .fvmrc already travels with
+  # the checkout; worktree_include accepts only paths inside app.root.
+  worktree_include:
+    - android/key.properties
+    - android/app/upload-keystore.jks
+    - .secrets
   metadata: fastlane/metadata
   release_notes: release-notes
   metadata_checks:
     - path: release-notes/{version}-stores.txt
       contains: "{version}"
+      max_characters: 500
     - path: release-notes/{version}-appstore.txt
       contains: "{version}"
     - path: fastlane/metadata/ios/*/release_notes.txt
       contains: "{version}"
       minimum_matches: 20
+      max_characters: 4000
     - path: fastlane/metadata/android/*/changelogs/{build_number}.txt
       contains: "{version}"
       minimum_matches: 20
+      max_characters: 500
+      seed_from: release-notes/{version}-stores.txt
 
 build:
   provider: flutter
   options:
     macos:
-      installer_identity: "3rd Party Mac Developer Installer: Railway Engineering Solutions Pty Ltd (N5K9GK8B27)"
+      # Storeflight archives with xcodebuild and exports with these options,
+      # which mints the installer certificate; no pre-existing identity needed.
+      export_method: app-store-connect
+      team_id: N5K9GK8B27
+    android:
+      expected_signer: "CN=DartPDF, O=Railway Engineering Solutions Pty Ltd"
   providers:
     windows:
       command:
@@ -87,9 +102,9 @@ profiles:
         submit_for_review: true
         release_after_approval: manual
         credentials:
-          key_id: env:ASC_API_KEY_ID
-          issuer_id: env:ASC_API_ISSUER_ID
-          private_key: env:ASC_API_KEY_P8
+          key_id: [keychain:trax-asc-key-id, env:ASC_API_KEY_ID]
+          issuer_id: [keychain:trax-asc-issuer-id, env:ASC_API_ISSUER_ID]
+          private_key: [file:~/.appstoreconnect/private_keys/AuthKey_TRZ8JH3T68.p8, env:ASC_API_KEY_P8]
       google_play:
         package: dev.milanko.dartpdf
         track: production
@@ -98,7 +113,7 @@ profiles:
         on_existing_review: error
         managed_publishing: true
         credentials:
-          service_account: env:PLAY_STORE_SERVICE_ACCOUNT_JSON
+          service_account: [file:app/.secrets/google-play-service-account.json, env:PLAY_STORE_SERVICE_ACCOUNT_JSON]
       microsoft_store:
         product_id: 9N071VSV6RGK
         submit_for_review: true
@@ -114,7 +129,7 @@ profiles:
         publish: true
         stop_after_store_acceptance: true
         verify:
-          command: [tool/storeflight/verify-snap-install.sh, "{version}"]
+          command: [../tool/storeflight/verify-snap-install.sh, "{version}"]
           contains: "{version}"
         credentials:
           store_credentials: env:SNAPCRAFT_STORE_CREDENTIALS
@@ -132,6 +147,9 @@ profiles:
       pub_dev:
         mode: github_tags
         tag: "{package}-v{version}"
+        # publish-pub.yml refuses a tag that is not an ancestor of `deploy`,
+        # so check that before creating ten public tags.
+        branch: deploy
         packages:
           - {name: pdf_cos, path: ../packages/pdf_cos}
           - {name: pdf_test_fixtures, path: ../packages/pdf_test_fixtures, depends_on: [pdf_cos]}
@@ -159,7 +177,7 @@ profiles:
           grep -F '"{version}"'
         status_command: [curl, --fail, --silent, https://dartpdf-flatpak.web.app/version.json]
         verify:
-          command: [tool/storeflight/verify-flatpak-install.sh, "{version}"]
+          command: [../tool/storeflight/verify-flatpak-install.sh, "{version}"]
           contains: "{version}"
       web:
         deploy_command: [firebase, deploy, --config, firebase.json, --only, hosting:dartpdf-app]

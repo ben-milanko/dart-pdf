@@ -236,16 +236,19 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
     this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
+    this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
@@ -329,16 +332,19 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
     this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
+    this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
@@ -499,6 +505,11 @@ class PdfEditorView extends StatefulWidget {
   /// hands the bytes here). When null the action is hidden.
   final void Function(Uint8List bytes)? onExportPages;
 
+  /// Receives all standalone PDFs from the thumbnail menu's "Split PDF…"
+  /// action in one call, in range order. The host saves or opens each result.
+  /// When null, the action is hidden. Does not modify the editing session.
+  final void Function(List<Uint8List> documents)? onSplitPages;
+
   /// Lets a PDF dragged in from outside the app be dropped at a chosen
   /// position in the page thumbnails (strip or full-area grid) instead of
   /// only being appended: the panels paint an insertion marker where the
@@ -520,6 +531,9 @@ class PdfEditorView extends StatefulWidget {
   /// See [PdfViewer.annotationMenuBuilder].
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
 
+  /// See [PdfViewer.textMenuBuilder].
+  final PdfTextMenuBuilder? textMenuBuilder;
+
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
 
@@ -540,6 +554,10 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.systemImagePasteProvider].
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies an external PDF for vector paste before the in-app clipboard.
+  /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
+  final PdfSystemPdfPasteProvider? systemPdfPasteProvider;
 
   /// See [PdfViewer.systemTextPasteProvider].
   final PdfSystemTextPasteProvider? systemTextPasteProvider;
@@ -787,17 +805,20 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
+        onSplitPages: complete ? widget.onSplitPages : null,
         thumbnailDropController:
             complete ? widget.thumbnailDropController : null,
         onAction: widget.onAction,
         onAnnotationTap: widget.onAnnotationTap,
         pageOverlayBuilder: widget.pageOverlayBuilder,
         annotationMenuBuilder: widget.annotationMenuBuilder,
+        textMenuBuilder: widget.textMenuBuilder,
         contextMenuEnabled: widget.contextMenuEnabled,
         showSelectionChip: widget.showSelectionChip,
         onContextMenuRequested: widget.onContextMenuRequested,
         formImagePicker: widget.formImagePicker,
         imagePicker: widget.imagePicker,
+        systemPdfPasteProvider: widget.systemPdfPasteProvider,
         systemImagePasteProvider: widget.systemImagePasteProvider,
         systemTextPasteProvider: widget.systemTextPasteProvider,
         onExportSelectedContentImage: widget.onExportSelectedContentImage,
@@ -972,6 +993,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                onSplitPages: widget.onSplitPages,
                 // dropping a PDF between two tiles inserts it there; a
                 // read-only shell takes no structural page edits
                 fileDropController: features.pageEditing
@@ -1063,6 +1085,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                onSplitPages: widget.onSplitPages,
                 fileDropController: features.pageEditing
                     ? widget.thumbnailDropController
                     : null,
@@ -1495,6 +1518,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (features.reflowView) reflowControl,
                   for (final item in panelItems)
                     PdfShellControlItem(
+                      group: PdfShellControlGroup.panels,
                       key: item.key,
                       icon: item.icon,
                       label: item.tooltip,
@@ -1503,6 +1527,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     ),
                   if (widget.onSave != null && widget.showSaveButton)
                     PdfShellControlItem(
+                      group: PdfShellControlGroup.actions,
                       key: const ValueKey('pdf-shell-save'),
                       icon: widget.saveButtonIcon,
                       label: widget.saveButtonLabel ?? pdfL10n(context).save,
@@ -1532,11 +1557,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         onAnnotationTap: widget.onAnnotationTap,
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
+                        textMenuBuilder: widget.textMenuBuilder,
                         contextMenuEnabled: widget.contextMenuEnabled,
                         showSelectionChip: widget.showSelectionChip,
                         onContextMenuRequested: widget.onContextMenuRequested,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
+                        systemPdfPasteProvider: widget.systemPdfPasteProvider,
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
                         systemTextPasteProvider: widget.systemTextPasteProvider,

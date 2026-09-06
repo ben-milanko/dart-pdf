@@ -119,5 +119,6 @@
   "undo": "Hoàn tác",
   "exFileTypePdf": "Tài liệu PDF",
   "exFileTypeImages": "Hình ảnh",
-  "exFileTypeFonts": "Phông chữ"
+  "exFileTypeFonts": "Phông chữ",
+  "exExtractedTitle": "{title} - phần {part}.pdf"
 }

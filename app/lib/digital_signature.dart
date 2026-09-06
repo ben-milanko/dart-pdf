@@ -958,7 +958,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).cancel),
         ),
-        FilledButton.icon(
+        PdfDialogSubmit(
+            child: FilledButton.icon(
           key: const ValueKey('digital-signature-sign'),
           onPressed:
               (canSign && !_submitting) ? () => unawaited(_submit()) : null,
@@ -972,7 +973,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
           label: Text(_submitting
               ? appL10n(context).appSigRefreshingSignIn
               : appL10n(context).appSigSign),
-        ),
+        )),
       ],
     );
   }

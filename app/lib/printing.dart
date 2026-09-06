@@ -17,24 +17,31 @@ typedef PdfPrinter = Future<void> Function({
 /// Where a platform can print a PDF natively (iOS, macOS, Android, web), the
 /// document's own vector content is handed straight to the OS print system -
 /// crisp, selectable, and fast. Windows and Linux have no native PDF-print
-/// API, so there each page is rendered by our own engine and streamed as a
-/// raster. Either way there is no third-party PDF engine: this replaces the
+/// API, so our engine streams vector drawing operations to the runner, with
+/// a raster fallback for older runners. There is no third-party PDF engine:
+/// this replaces the
 /// `printing` plugin, whose desktop backend spooled through a bundled PDFium
 /// that crashed on some of the broken-but-renderable files this engine opens.
 /// See [printDocumentPages].
 ///
-/// [onProgress] is called `(rendered, total)` as each page is rendered on the
-/// raster path, so the caller can show progress (the vector path renders
-/// nothing here and completes at once).
+/// [onProgress] is called `(rendered, total)` as each desktop page is prepared.
+/// Whole-PDF backends leave rendering and progress to the platform.
+///
+/// [useDocumentPageSize] preserves sheets already laid out by the app's print
+/// options: native desktop backends print points at their physical size rather
+/// than fitting the finished sheet again. Mobile and browser print services
+/// retain final control over the printer's supported media.
 Future<void> printPdfBytes({
   required Uint8List bytes,
   required String title,
   void Function(int rendered, int total)? onProgress,
+  bool useDocumentPageSize = false,
 }) async {
   await printDocumentPages(
     bytes,
     name: printJobName(title),
     onProgress: onProgress,
+    useDocumentPageSize: useDocumentPageSize,
   );
 }
 
@@ -58,8 +65,8 @@ String printJobName(String title) {
 /// answers a preview request with "This app doesn't support print preview" -
 /// the legacy print API (`PrintDlgEx`, which the runner drives) gives Windows
 /// no document content to render there, so no application calling it can fill
-/// that pane. DartPDF previews the job itself where this is false; see
-/// `showPrintPreviewDialog`.
+/// that pane. The app's print-options preview now opens on every platform,
+/// independently of whether this additional native preview is available.
 ///
 /// [platform] is a test seam; it defaults to the running platform.
 bool platformProvidesPrintPreview({TargetPlatform? platform}) {

@@ -140,6 +140,236 @@ extension PdfContentEditing on PdfEditor {
     );
   }
 
+  /// Erases the portions of bounded graphics inside [rect] and text glyphs
+  /// whose centres fall inside it. Surviving glyphs keep their original
+  /// positions, including kerning and text spacing. Glyph widths come from
+  /// the font; glyph heights are approximate, as in [PdfPageElements].
+  /// Composite glyph slicing supports Identity-H. Other composite encodings
+  /// and text that establishes a clipping path are left alone.
+  /// Graphics crossing the boundary retain their vector appearance under
+  /// a clipping path; graphics entirely inside the region are removed.
+  /// Annotations and unbounded elements are untouched. Returns the number
+  /// of affected elements. Handles must come from the current page revision.
+  int deleteElementsInRect(PdfPageElements elements, PdfRect rect) {
+    if (rect.width <= 0 ||
+        rect.height <= 0 ||
+        ![rect.left, rect.bottom, rect.right, rect.top]
+            .every((v) => v.isFinite)) {
+      return 0;
+    }
+    return _deleteElementsInRegion(
+      elements,
+      [
+        (rect.left, rect.bottom),
+        (rect.right, rect.bottom),
+        (rect.right, rect.top),
+        (rect.left, rect.top)
+      ],
+      (bounds) =>
+          rect.left <= bounds.left &&
+          rect.bottom <= bounds.bottom &&
+          rect.right >= bounds.right &&
+          rect.top >= bounds.top,
+      (bounds) =>
+          bounds.right > rect.left &&
+          bounds.left < rect.right &&
+          bounds.top > rect.bottom &&
+          bounds.bottom < rect.top,
+      (x, y) =>
+          x > rect.left && x < rect.right && y > rect.bottom && y < rect.top,
+    );
+  }
+
+  /// The closed polygon counterpart of [deleteElementsInRect], using an
+  /// even-odd fill rule. Concave regions can remove several separate spans
+  /// of a text run; glyphs outside the region always survive. Fewer than
+  /// three non-collinear vertices is a no-op.
+  int deleteElementsInPolygon(
+      PdfPageElements elements, List<(double, double)> polygon) {
+    if (polygon.length < 3 ||
+        polygon.any((p) => !p.$1.isFinite || !p.$2.isFinite)) {
+      return 0;
+    }
+    final a = polygon.first;
+    final b = polygon.firstWhere((p) => p != a, orElse: () => a);
+    if (!polygon.any((p) =>
+        ((b.$1 - a.$1) * (p.$2 - a.$2) - (b.$2 - a.$2) * (p.$1 - a.$1)).abs() >
+        1e-9)) {
+      return 0;
+    }
+    return _deleteElementsInRegion(
+      elements,
+      polygon,
+      (bounds) => _polygonContainsRect(polygon, bounds),
+      (bounds) => _polygonHitsRect(polygon, bounds),
+      (x, y) => _pointInPolygon(x, y, polygon),
+    );
+  }
+
+  int _deleteElementsInRegion(
+    PdfPageElements elements,
+    List<(double, double)> region,
+    bool Function(PdfRect bounds) containsBounds,
+    bool Function(PdfRect bounds) hitsBounds,
+    bool Function(double x, double y) hitsGlyph,
+  ) {
+    final replacements = <int, String>{};
+    var changed = 0;
+    for (final element in elements.elements) {
+      if (element.kind == PdfElementKind.text) {
+        final glyphs = element.textGlyphs;
+        if (glyphs.isEmpty || element.textPlacement?.fontSize == 0) continue;
+        // Test glyphs directly: TJ may backtrack, so the run's start/end
+        // bounding box need not enclose every glyph.
+        final removed = [
+          for (final g in glyphs) hitsGlyph(g.center.$1, g.center.$2)
+        ];
+        if (!removed.contains(true)) continue;
+        replacements[element.start] = _regionTextReplacement(
+            elements.operations[element.start], glyphs, removed);
+        changed++;
+      }
+    }
+    changed += _RegionGraphicsClipper(document.page(elements.pageIndex),
+            elements, region, hitsBounds, containsBounds, replacements)
+        .rewrite();
+    if (changed == 0) return 0;
+    _setContent(
+        elements.pageIndex,
+        document.page(elements.pageIndex),
+        elements.serialize(
+            drop: replacements.keys.toSet(), replacements: replacements));
+    return changed;
+  }
+
+  static String _regionTextReplacement(
+      ContentOperation op, List<PdfContentGlyph> glyphs, List<bool> removed) {
+    final output = <CosObject>[];
+    var glyphIndex = 0;
+    void show(CosString string) {
+      final bytes = string.bytes;
+      var start = 0;
+      var offset = 0;
+      while (offset < bytes.length && glyphIndex < glyphs.length) {
+        final glyph = glyphs[glyphIndex];
+        if (removed[glyphIndex]) {
+          if (start < offset) {
+            output.add(CosString(Uint8List.sublistView(bytes, start, offset),
+                isHex: string.isHex));
+          }
+          // Keep the advance even at the end of the run: a following Tj
+          // still depends on the text matrix left by this operation.
+          output.add(CosReal(-glyph.advance));
+          start = offset + glyph.byteLength;
+        }
+        offset += glyph.byteLength;
+        glyphIndex++;
+      }
+      if (start < bytes.length) {
+        output.add(CosString(Uint8List.sublistView(bytes, start),
+            isHex: string.isHex));
+      }
+    }
+
+    if (op.operator == 'TJ') {
+      for (final item in (op.operands.first as CosArray).items) {
+        if (item is CosString) {
+          show(item);
+        } else {
+          output.add(item); // original kerning survives verbatim
+        }
+      }
+    } else {
+      show(op.operands[op.operator == '"' ? 2 : 0] as CosString);
+    }
+    final sideEffects = op.operator == '"'
+        ? '${ContentWriter.fmt(_num(op.operands[0]))} Tw '
+            '${ContentWriter.fmt(_num(op.operands[1]))} Tc T*\n'
+        : op.operator == "'"
+            ? 'T*\n'
+            : '';
+    return '$sideEffects${latin1.decode(CosSerializer.serialize(CosArray(output)))} TJ';
+  }
+
+  /// Even-odd ray cast: is (x, y) inside the closed [polygon]?
+  static bool _pointInPolygon(double x, double y, List<(double, double)> poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      final (xi, yi) = poly[i];
+      final (xj, yj) = poly[j];
+      if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  /// Does the closed [poly] overlap the axis-aligned [r]? True when a polygon
+  /// vertex sits in the rect, a rect corner sits in the polygon, or any pair
+  /// of their edges cross.
+  static bool _polygonHitsRect(List<(double, double)> poly, PdfRect r) {
+    for (final (px, py) in poly) {
+      if (px >= r.left && px <= r.right && py >= r.bottom && py <= r.top) {
+        return true;
+      }
+    }
+    final corners = <(double, double)>[
+      (r.left, r.bottom),
+      (r.right, r.bottom),
+      (r.right, r.top),
+      (r.left, r.top),
+    ];
+    for (final (cx, cy) in corners) {
+      if (_pointInPolygon(cx, cy, poly)) return true;
+    }
+    for (var i = 0; i < poly.length; i++) {
+      final a = poly[i];
+      final b = poly[(i + 1) % poly.length];
+      for (var j = 0; j < corners.length; j++) {
+        if (_segmentsCross(a, b, corners[j], corners[(j + 1) % 4])) return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _polygonContainsRect(List<(double, double)> polygon, PdfRect r) {
+    final corners = [
+      (r.left, r.bottom),
+      (r.right, r.bottom),
+      (r.right, r.top),
+      (r.left, r.top)
+    ];
+    if (!corners.every((p) => _pointInPolygon(p.$1, p.$2, polygon))) {
+      return false;
+    }
+    // A concave notch (or an even-odd hole) can enter the box while all four
+    // corners remain inside. Only drop a drawing if no boundary enters it.
+    for (var i = 0; i < polygon.length; i++) {
+      final a = polygon[i], b = polygon[(i + 1) % polygon.length];
+      if (a.$1 > r.left && a.$1 < r.right && a.$2 > r.bottom && a.$2 < r.top) {
+        return false;
+      }
+      for (var j = 0; j < 4; j++) {
+        if (_segmentsCross(a, b, corners[j], corners[(j + 1) % 4])) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /// Do open segments a-b and c-d properly cross?
+  static bool _segmentsCross((double, double) a, (double, double) b,
+      (double, double) c, (double, double) d) {
+    double cross((double, double) o, (double, double) p, (double, double) q) =>
+        (p.$1 - o.$1) * (q.$2 - o.$2) - (p.$2 - o.$2) * (q.$1 - o.$1);
+    final d1 = cross(c, d, a);
+    final d2 = cross(c, d, b);
+    final d3 = cross(a, b, c);
+    final d4 = cross(a, b, d);
+    return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0);
+  }
+
   /// Tier 2b - element repositioning. Shifts the [ids] listed in [elements]
   /// (a snapshot from [PdfPageElements.of]) by [dx], [dy] **page points**
   /// and rewrites the page's content stream. Returns how many elements
@@ -187,7 +417,11 @@ extension PdfContentEditing on PdfEditor {
       if (delta == null) continue;
       if (element.kind == PdfElementKind.text) {
         final placement = element.textPlacement;
-        if (placement == null || placement.fontSize <= 0) continue;
+        if (placement == null ||
+            placement.fontSize <= 0 ||
+            placement.horizontalScale == 0) {
+          continue;
+        }
         // `'` and `"` perform their own `T*` after this `Tm`, so they are
         // seeded with the matrix the operator *enters* on and left to do the
         // line move; everything else is seeded with the run's own matrix, so
@@ -206,7 +440,8 @@ extension PdfContentEditing on PdfEditor {
             StringBuffer('${_matrixOperands(placement.lineMatrix)} Tm');
         final advance = placement.advance + _lineAdvance(placement);
         if (advance.abs() > 1e-9) {
-          final kern = -1000 * advance / placement.fontSize;
+          final kern =
+              -1000 * advance / placement.fontSize / placement.horizontalScale;
           restore.write(' [ ${ContentWriter.fmt(kern)} ] TJ');
         }
         after[element.start] = restore.toString();
@@ -320,7 +555,9 @@ extension PdfContentEditing on PdfEditor {
     if (element.ctm.inverted() == null) return false;
     if (element.kind == PdfElementKind.text) {
       final placement = element.textPlacement;
-      return placement != null && placement.fontSize > 0;
+      return placement != null &&
+          placement.fontSize > 0 &&
+          placement.horizontalScale != 0;
     }
     return !_establishesClip(elements, element);
   }
@@ -1246,8 +1483,7 @@ class _SimpleRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(
-          List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
@@ -1333,8 +1569,7 @@ class _StyledRunCodec extends RunCodec {
   }
 
   @override
-  List<ContentOperation> assemble(
-          List<ContentOperation> run, List<Emit> out) =>
+  List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: (g, buffer) => buffer.add(g),
           makeString: (buffer) => CosString(Uint8List.fromList(buffer)));

@@ -440,4 +440,9 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => 'Phông chữ';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - phần $part.pdf';
+  }
 }

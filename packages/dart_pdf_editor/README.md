@@ -277,6 +277,46 @@ are byte prefixes of one buffer.
   remote apply is a non-crossable undo checkpoint; later local edits remain
   undoable without removing the remote state.
 
+## Splitting and exporting pages
+
+Provide `onSplitPages` to enable **Split PDF…** in the thumbnail sidebar/grid's
+page-actions menu. Enter `1-3, 7, 10-12` to create three separate PDFs; the host
+receives the complete batch in range order. `onExportPages` enables the existing
+single-range export and exporting a thumbnail selection into one PDF.
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  onSplitPages: (documents) {
+    for (final output in documents) {
+      // Save/share output, upload it, or open it in another editor tab.
+    }
+  },
+  onExportPages: (output) {
+    // Handle a single extracted PDF.
+  },
+)
+```
+
+For custom chrome, use `showPdfSplitDialog`, then
+`controller.exportPageRanges(ranges)`. The controller also provides
+`exportPages(indices)`, `exportPageRange(start, end)`, and `exportSelectedPages()`.
+Programmatic ranges are zero-based and inclusive; dialog page numbers start at
+1. Exports leave the source, selection, and undo history unchanged.
+
+The [example app](example/lib/main.dart) opens each split result in its own
+editable tab and opens single-file exports in a new tab too. Use the normal Save
+action on a result tab to save, download, or share that PDF.
+
+Extraction deep-copies page annotations and reachable resources, remaps links
+between retained pages in each output, and retains the document information
+dictionary. It omits document-level outlines/bookmarks, the AcroForm field list,
+and named destinations; copied widgets are not registered in an output AcroForm.
+Resources can remain shared within one output; separate outputs own their copies.
+Encrypted sources produce **unencrypted outputs**. See the
+[core splitting API](../pdf_document/README.md#splitting-and-extracting-pages)
+for the bytes-only `PdfSplitter` facade and full extraction semantics.
+
 ## Composing your own UI
 
 `PdfEditorView` and `PdfReader` are assembled from public parts:
@@ -443,3 +483,32 @@ CCITT/JBIG2/JPEG 2000 images, and lenient parsing of broken real-world
 files, with conformance pinned against the Ghent Output Suite and the
 PDF.js test corpus. Checked-in PDF.js visual comparisons are available at
 [`../../test_corpora/pdfjs/_renders/README.md`](../../test_corpora/pdfjs/_renders/README.md).
+
+### Vector snapshot interchange
+
+The Snapshot tool shares detached vectors between editing controllers by
+default through `PdfSnapshotClipboard.instance`. A captured `PdfSnapshot`
+provides `pngBytes` for image consumers and `pdfBytes` for PDF clipboard
+consumers. `PdfVectorSnapshot.toPdfBytes()` exports one page sized to the
+capture; `fromPdfBytes()` imports the first page of an interchange PDF.
+
+Desktop hosts can provide `PdfViewer.systemPdfPasteProvider` (also available
+on `PdfEditorView`) to read a PDF for keyboard or context-menu Paste:
+
+```dart
+systemPdfPasteProvider: (context) async {
+  final data = await myClipboard.readPdf();
+  return data == null ? null : PdfClipboardPdf(
+    data.bytes,
+    changeToken: data.clipboardRevision,
+  );
+},
+```
+
+Return null for snapshots written by your own process so local paste retains
+its shared resources and position cascade. The optional `changeToken` should
+change whenever the OS clipboard is replaced: once an external revision is
+pasted, subsequent local annotation copies take precedence until it changes.
+The app includes native PDF/PNG transport on macOS, Windows, and Linux;
+mobile and web use the PNG fallback. Direct imports can use
+`editing.pasteSnapshotBytes(pdfBytes, pageIndex, at: (x, y))`.

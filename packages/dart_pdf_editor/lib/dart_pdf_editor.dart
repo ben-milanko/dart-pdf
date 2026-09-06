@@ -4,6 +4,8 @@ library;
 export 'package:pdf_document/pdf_document.dart'
     show
         PdfDocument,
+        PdfPageRange,
+        PdfSplitter,
         PdfAnnotationSnapshot,
         PdfStampTemplate,
         PdfStampTemplateComponent,
@@ -48,6 +50,7 @@ export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnail_drop.dart';
 export 'src/editing/editing_thumbnails.dart';
+export 'src/editing/editing_tool_catalog.dart';
 export 'src/editing/editing_toolbar.dart';
 export 'src/editing/line_style.dart';
 export 'src/editing/stroke_prediction.dart';
@@ -79,6 +82,7 @@ export 'src/page_number_field.dart';
 export 'src/page_render_session.dart';
 export 'src/perf_log.dart';
 export 'src/page_range_dialog.dart';
+export 'src/split_dialog.dart';
 export 'src/pdf_editor_view.dart';
 export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';
@@ -104,6 +108,7 @@ export 'src/search_panel.dart';
 export 'src/search_field_style.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';
+export 'src/keyboard_availability.dart';
 export 'src/tile_layer.dart';
 export 'src/tile_raster_backend.dart';
 export 'src/tile_store.dart';

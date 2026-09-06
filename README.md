@@ -57,6 +57,34 @@ shows PDF.js baselines, Dart renders, and diffs side by side, and the
 shows every print-conformance page we rasterize (our own renders, which
 are the baselines - so no diff column).
 
+## Merge PDFs
+
+```dart
+import 'package:pdf_document/pdf_document.dart';
+
+final mergedBytes = PdfMerger.merge([firstPdfBytes, secondPdfBytes]);
+```
+
+The bytes-only API runs on desktop, mobile, and web. It preserves the first
+PDF's encryption and viewing settings, imports form fields and bookmarks, and
+remaps named links. See [merge options and collision rules](packages/pdf_document/README.md#merge-pdfs).
+
+In DartPDF, choose **Insert document…** from the app menu to insert a PDF after
+the current page. Dropping PDFs on the thumbnail strip inserts at the marked
+position; dropping on the document offers **Insert pages** to append them.
+Each inserted file is one undo step and uses the existing save/recovery session.
+
+## Reduce file size
+
+In DartPDF, choose **Reduce file size…** from the app menu. Start with
+**Lossless**, or choose **Screen**, **eBook**, or **Print** to trade image
+resolution for a smaller file. Advanced settings control individual passes,
+target DPI, and JPEG quality. Review the before/after sizes and category
+breakdown, then **Save copy** using the platform's save/download/share flow.
+
+The library exposes the same optimiser through `PdfCompressor.optimize` and
+`PdfEditor.compress`. See [compression options and supported content](packages/pdf_document/README.md#reduce-file-size).
+
 ## Performance
 
 **The default viewer has not reached PDFium interaction parity yet.** The most
@@ -197,6 +225,28 @@ once, caches it in app support storage, then runs offline. `pdf_ocr_vlm` is the
 simplest web/server path: point it at a CORS-enabled OCR service. Both write the
 same invisible text layer, so scanned pages become selectable, searchable, and
 copyable without changing how the PDF looks.
+
+## Splitting PDFs
+
+`pdf_document` can generate multiple standalone PDFs directly from bytes:
+
+```dart
+final parts = PdfSplitter.splitExpression(bytes, '1-3, 7, 10-12');
+// Three outputs: pages 1–3, page 7, and pages 10–12.
+final firstThree = PdfSplitter.splitRange(bytes, 0, 2); // zero-based, inclusive
+```
+
+`PdfEditorView(onSplitPages: ...)` adds a validated **Split PDF…** dialog to the
+thumbnail page-actions menu. The example opens each result in a new editable tab.
+Existing single-range and thumbnail-selection exports remain available.
+
+Page annotations/resources and document information are retained; bookmarks,
+the document-level AcroForm field list, and named destinations are omitted.
+Links between pages retained in one output are remapped. Copied widgets are not
+registered in an AcroForm. Resources remain shared within an output where
+possible; each output owns its copies. Encrypted sources yield **unencrypted
+outputs**. See the [splitting guide](packages/pdf_document/README.md#splitting-and-extracting-pages)
+for indexing, password handling, validation, and extraction semantics.
 
 ## Roadmap
 

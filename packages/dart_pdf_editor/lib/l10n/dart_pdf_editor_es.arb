@@ -618,5 +618,14 @@
   "annotationLibraryCustomStamps": "Sellos personalizados…",
   "signatureLibraryManage": "Administrar firmas",
   "signatureLibraryRenameTitle": "Cambiar nombre de la firma",
-  "signatureLibraryEmpty": "No hay firmas guardadas."
+  "signatureLibraryEmpty": "No hay firmas guardadas.",
+  "splitTitle": "Dividir PDF…",
+  "splitHelp": "Introduce intervalos de páginas separados por comas. Cada intervalo crea un PDF independiente.",
+  "splitRanges": "Intervalos de páginas",
+  "splitInvalidRanges": "Usa páginas de 1 a {count}, separadas por comas. Los intervalos deben ser ascendentes.",
+  "splitConfirm": "Dividir",
+  "splitFailed": "No se pudo dividir este PDF.",
+  "guidesSnapHint": "Ajustar bordes y centros de anotaciones • Mantén Alt para omitir",
+  "tbToolContentDelete": "Borrar",
+  "tbTipContentDelete": "Eliminar contenido: arrastra un rectángulo o haz clic en los vértices del polígono y doble clic para terminar"
 }

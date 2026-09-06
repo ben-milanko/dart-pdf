@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'cached_documents_settings.dart';
 import 'l10n/app_l10n.dart';
 import 'l10n/app_localizations.dart';
 import 'language_names.dart';
+import 'pdf_cache.dart';
 import 'recents.dart';
 import 'update.dart';
 import 'update_install_flow.dart';
@@ -50,26 +52,32 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
 Future<void> _showDefaultAppSetup(BuildContext context) {
   return showPdfDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(appL10n(context).settingsSetUpAsDefault),
-      content: Text(_defaultAppInstructions(context)),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(appL10n(context).close),
-        ),
-        if (_canOpenDefaultAppsSettings)
-          FilledButton.icon(
-            key: const ValueKey('default-app-open-settings'),
-            icon: const Icon(Icons.open_in_new),
-            label: Text(appL10n(context).settingsOpenSettings),
-            onPressed: () {
-              Navigator.of(context).pop();
-              _openDefaultAppsSettings(context);
-            },
+    builder: (context) {
+      final closeButton = TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: Text(appL10n(context).close),
+      );
+      return AlertDialog(
+        title: Text(appL10n(context).settingsSetUpAsDefault),
+        content: Text(_defaultAppInstructions(context)),
+        actions: [
+          if (_canOpenDefaultAppsSettings) closeButton,
+          PdfDialogSubmit(
+            child: _canOpenDefaultAppsSettings
+                ? FilledButton.icon(
+                    key: const ValueKey('default-app-open-settings'),
+                    icon: const Icon(Icons.open_in_new),
+                    label: Text(appL10n(context).settingsOpenSettings),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _openDefaultAppsSettings(context);
+                    },
+                  )
+                : closeButton,
           ),
-      ],
-    ),
+        ],
+      );
+    },
   );
 }
 
@@ -232,6 +240,10 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                       .settingsRecentCount(widget.recents.items.length),
                   style: theme.textTheme.bodySmall,
                 ),
+                if (canManageCachedPdfs) ...[
+                  const Divider(height: 32),
+                  CachedDocumentsSettings(recents: widget.recents),
+                ],
                 const Divider(height: 32),
                 Text(appL10n(context).settingsSystem,
                     style: theme.textTheme.titleSmall),
@@ -284,7 +296,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   key: const ValueKey('settings-licenses'),
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.article_outlined),
-                  title: const Text('Open source licenses'),
+                  title: Text(MaterialLocalizations.of(context)
+                      .viewLicensesButtonLabel),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showLicensePage(
                     context: context,
@@ -298,10 +311,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        PdfDialogSubmit(
+            child: TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).close),
-        ),
+        )),
       ],
     );
   }

@@ -2,6 +2,8 @@
 // vector where the OS can (printPdf), else by rasterising each page and
 // streaming it (beginJob/printPage/endJob) on Windows/Linux. The real channel
 // needs a runner, so here we mock it and assert both paths.
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -41,6 +43,55 @@ void main() {
     expect(beginJobs, 0); // never rasterised
   });
 
+  test('legacy PDF jobs leave native paper selection unchanged', () async {
+    Map? sent;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      sent = call.arguments as Map;
+      return true;
+    });
+    final pdf = buildMultiPagePdf(1);
+    await printDocumentPages(pdf, name: 'Legacy');
+    expect(sent, {'name': 'Legacy', 'pdf': pdf});
+  });
+
+  testWidgets('prepared sheets preserve physical dimensions on both channels',
+      (tester) async {
+    await tester.runAsync(() async {
+      final requests = <String, Map>{};
+      Uint8List? stream;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            requests[call.method] = call.arguments as Map;
+            throw MissingPluginException('streaming native runner');
+          case 'beginJob':
+            requests[call.method] = call.arguments as Map;
+            return {'vector': true};
+          case 'printPageVector':
+            stream = (call.arguments as Map)['page'] as Uint8List;
+            return true;
+          case 'endJob':
+            return true;
+        }
+        return null;
+      });
+
+      await printDocumentPages(buildMultiPagePdf(1),
+          name: 'Prepared', useDocumentPageSize: true);
+
+      for (final method in ['printPdf', 'beginJob']) {
+        expect(requests[method]?['useDocumentPageSize'], isTrue);
+        expect(requests[method]?['pageWidth'], 612);
+        expect(requests[method]?['pageHeight'], 792);
+      }
+      // The per-page native path receives the same physical dimensions that
+      // seed the PDF-native print dialog, in the vector stream's f32 header.
+      final header = ByteData.sublistView(stream!);
+      expect(header.getFloat32(4, Endian.little), 612);
+      expect(header.getFloat32(8, Endian.little), 792);
+    });
+  });
+
   test('a cancelled vector dialog completes without rasterising', () async {
     var beginJobs = 0;
     messenger.setMockMethodCallHandler(channel, (call) async {
@@ -54,8 +105,8 @@ void main() {
       return null;
     });
 
-    await printDocumentPages(
-        Uint8List.fromList('%PDF-1.7'.codeUnits), name: 'Report');
+    await printDocumentPages(Uint8List.fromList('%PDF-1.7'.codeUnits),
+        name: 'Report');
     expect(beginJobs, 0);
   });
 
@@ -83,7 +134,8 @@ void main() {
       });
 
       final progress = <(int, int)>[];
-      await printDocumentPages(buildMultiPagePdf(2), name: 'Report',
+      await printDocumentPages(buildMultiPagePdf(2),
+          name: 'Report',
           onProgress: (rendered, total) => progress.add((rendered, total)));
 
       expect(streams, hasLength(2));
@@ -118,7 +170,8 @@ void main() {
       });
 
       final progress = <(int, int)>[];
-      await printDocumentPages(buildMultiPagePdf(2), name: 'Report',
+      await printDocumentPages(buildMultiPagePdf(2),
+          name: 'Report',
           onProgress: (rendered, total) => progress.add((rendered, total)));
 
       expect(images, hasLength(2));

@@ -2123,4 +2123,36 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Keine gespeicherten Unterschriften.';
+
+  @override
+  String get splitTitle => 'PDF aufteilen…';
+
+  @override
+  String get splitHelp =>
+      'Seitenbereiche durch Kommas trennen. Jeder Bereich wird zu einer eigenen PDF-Datei.';
+
+  @override
+  String get splitRanges => 'Seitenbereiche';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Seiten von 1 bis $count durch Kommas trennen. Bereiche müssen aufsteigend sein.';
+  }
+
+  @override
+  String get splitConfirm => 'Aufteilen';
+
+  @override
+  String get splitFailed => 'Diese PDF-Datei konnte nicht aufgeteilt werden.';
+
+  @override
+  String get guidesSnapHint =>
+      'Anmerkungskanten und Mittelpunkte einrasten • Zum Umgehen Alt gedrückt halten';
+
+  @override
+  String get tbToolContentDelete => 'Löschen';
+
+  @override
+  String get tbTipContentDelete =>
+      'Inhalt löschen – Rechteck ziehen oder Polygonecken anklicken und mit Doppelklick abschließen';
 }

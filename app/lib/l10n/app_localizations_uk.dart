@@ -450,6 +450,9 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorMenuScanDocument => 'Сканувати в новий документ…';
 
   @override
+  String get editorMenuInsertDocument => 'Вставити документ…';
+
+  @override
   String get editorMenuInsertScan => 'Вставити скан…';
 
   @override
@@ -462,10 +465,58 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorMenuSettings => 'Налаштування';
 
   @override
-  String get editorMenuSwitchToEdit => 'Перейти в режим редагування';
+  String get editorMenuSectionFile => 'Файл';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Перейти в режим лише для читання';
+  String get editorMenuSectionDocument => 'Цей документ';
+
+  @override
+  String get editorMenuSectionApp => 'Застосунок';
+
+  @override
+  String get editorMenuReadOnly => 'Лише читання';
+
+  @override
+  String get editorMenuSearchActions => 'Пошук дій…';
+
+  @override
+  String get paletteHint => 'Пошук дій, інструментів і панелей';
+
+  @override
+  String get paletteNoMatch => 'Команд не знайдено';
+
+  @override
+  String get paletteKeyHints => '↑↓ вибір · ⏎ виконати · esc закрити';
+
+  @override
+  String paletteCount(int count) {
+    return 'Команд: $count';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count з $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Меню';
+
+  @override
+  String get paletteSourcePanel => 'Панель';
+
+  @override
+  String get paletteSourceView => 'Вигляд';
+
+  @override
+  String get paletteSourceFile => 'Файл';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Інструмент «$group»';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Потрібен відкритий документ';
 
   @override
   String editorNamedAction(String name) {
@@ -1073,4 +1124,352 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Не вдалося зробити знімок';
+
+  @override
+  String get settingsCachedDocuments => 'Кешовані документи';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Використано $used МіБ із $limit МіБ';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Файли понад $limit МіБ не кешуються. Очищення зберігає список нещодавніх файлів, відкриті документи та незбережені зміни; для відкриття кешованих файлів їх потрібно вибрати знову.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Очистити кеш документів';
+
+  @override
+  String get settingsCacheUnavailable => 'Розмір кешу недоступний';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Не вдалося очистити кеш документів. Спробуйте ще раз.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Зменшити розмір файлу…';
+
+  @override
+  String get reduceSizeTitle => 'Зменшити розмір файлу';
+
+  @override
+  String get reduceSizeDescription =>
+      'Оптимізуйте поточний документ, перегляньте економію та збережіть меншу копію.';
+
+  @override
+  String get reduceSizePreset => 'Набір налаштувань';
+
+  @override
+  String get reduceSizeLossless => 'Без втрат — зберегти якість зображень';
+
+  @override
+  String get reduceSizeScreen => 'Екран — 72 DPI, якість JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, якість JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'Друк — 300 DPI, якість JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Роздільна здатність і якість зображень не змінюються.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Зображення з вищою за цільову роздільною здатністю можна зменшити та закодувати в JPEG. Дрібні деталі можуть втратитися; текст і векторна графіка залишаться чіткими.';
+
+  @override
+  String get reduceSizeAdvanced => 'Додаткові налаштування';
+
+  @override
+  String get reduceSizeRecompress => 'Повторно стиснути потоки';
+
+  @override
+  String get reduceSizeUnusedResources => 'Видалити невикористані ресурси';
+
+  @override
+  String get reduceSizeDeduplicate => 'Об’єднати дубльовані об’єкти';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Залишити в шрифтах лише використані гліфи';
+
+  @override
+  String get reduceSizeDpi => 'Цільова роздільна здатність зображень';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Зберегти оригінальні зображення (без втрат)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Якість JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Перезапис цього підписаного PDF зробить цифрові підписи у збереженій копії недійсними.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Дозволити анулювання підписів у цій копії';
+
+  @override
+  String get reduceSizeEncrypted => 'Зашифровані PDF неможливо оптимізувати.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Дочекайтеся завершення завантаження документа перед зменшенням його розміру.';
+
+  @override
+  String get reduceSizeRun => 'Оптимізувати';
+
+  @override
+  String get reduceSizeRunning => 'Оптимізація документа…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Не вдалося оптимізувати PDF: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Не вдалося зберегти копію: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Зберегти копію…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Змінити налаштування';
+
+  @override
+  String get reduceSizeBefore => 'Початковий розмір';
+
+  @override
+  String get reduceSizeAfter => 'Оптимізований розмір';
+
+  @override
+  String get reduceSizeSavings => 'Заощаджено місця';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Документ уже компактний із цими налаштуваннями. Початкові дані збережено.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Байтів заощаджено на кожному етапі оптимізації:';
+
+  @override
+  String get reduceSizeStructure => 'Структура документа';
+
+  @override
+  String get reduceSizeResources => 'Невикористані ресурси';
+
+  @override
+  String get reduceSizeFonts => 'Вбудовані шрифти';
+
+  @override
+  String get reduceSizeImages => 'Зображення';
+
+  @override
+  String get reduceSizeDuplicates => 'Дубльовані об’єкти';
+
+  @override
+  String get reduceSizeCustom => 'Власні налаштування';
+
+  @override
+  String get printOptionsPrinter => 'Принтер';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'У наступному системному діалозі друку виберіть принтер, лоток для паперу, колір, двосторонній друк і властивості пристрою. Залиште масштаб 100% і кількість копій 1, щоб використати показаний тут макет.';
+
+  @override
+  String get printOptionsPages => 'Сторінки';
+
+  @override
+  String get printOptionsSelected => 'Вибрані';
+
+  @override
+  String get printOptionsPageRange => 'Сторінки (наприклад, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Додати файли…';
+
+  @override
+  String get printOptionsAddFailed => 'Не вдалося додати вибрані файли.';
+
+  @override
+  String get printOptionsGetWindow => 'Вибрати область';
+
+  @override
+  String get printOptionsClearWindow => 'Скинути область';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Виділіть прямокутник на цій вихідній сторінці, щоб вибрати область для друку.';
+
+  @override
+  String get printOptionsPaper => 'Папір';
+
+  @override
+  String get printOptionsPaperSize => 'Розмір паперу';
+
+  @override
+  String get printOptionsPageSize =>
+      'Використовувати розмір сторінки документа';
+
+  @override
+  String get printOptionsOrientation => 'Орієнтація';
+
+  @override
+  String get printOptionsAuto => 'Автоматично';
+
+  @override
+  String get printOptionsPortrait => 'Книжкова';
+
+  @override
+  String get printOptionsLandscape => 'Альбомна';
+
+  @override
+  String get printOptionsCopies => 'Копії';
+
+  @override
+  String get printOptionsCollate => 'Сортувати за копіями';
+
+  @override
+  String get printOptionsReverse => 'Зворотний порядок сторінок';
+
+  @override
+  String get printOptionsLayout => 'Макет сторінки';
+
+  @override
+  String get printOptionsScaling => 'Масштабування сторінки';
+
+  @override
+  String get printOptionsScaleNone => 'Без масштабування (фактичний розмір)';
+
+  @override
+  String get printOptionsFitPaper => 'Підігнати до розміру паперу';
+
+  @override
+  String get printOptionsReducePaper => 'Зменшити до розміру паперу';
+
+  @override
+  String get printOptionsFitMargins => 'Підігнати до полів';
+
+  @override
+  String get printOptionsReduceMargins => 'Зменшити до полів';
+
+  @override
+  String get printOptionsCustomScale => 'Власний масштаб';
+
+  @override
+  String get printOptionsMultiple => 'Кілька сторінок на аркуші';
+
+  @override
+  String get printOptionsScalePercent => 'Масштаб (%)';
+
+  @override
+  String get printOptionsMargin => 'Поля (пт)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Сторінок на аркуші';
+
+  @override
+  String get printOptionsPageOrder => 'Порядок сторінок';
+
+  @override
+  String get printOptionsHorizontal => 'Горизонтально';
+
+  @override
+  String get printOptionsHorizontalReverse =>
+      'Горизонтально у зворотному порядку';
+
+  @override
+  String get printOptionsVertical => 'Вертикально';
+
+  @override
+  String get printOptionsVerticalReverse => 'Вертикально у зворотному порядку';
+
+  @override
+  String get printOptionsBorder => 'Друкувати рамки сторінок';
+
+  @override
+  String get printOptionsRotation => 'Поворот (за годинниковою стрілкою)';
+
+  @override
+  String get printOptionsNoRotation => 'Немає';
+
+  @override
+  String get printOptionsCenter => 'По центру аркуша';
+
+  @override
+  String get printOptionsOffsetX => 'Зсув праворуч (пт)';
+
+  @override
+  String get printOptionsOffsetY => 'Зсув униз (пт)';
+
+  @override
+  String get printOptionsContents => 'Вміст для друку';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Документ і анотації';
+
+  @override
+  String get printOptionsDocumentOnly => 'Лише документ';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Лише анотації';
+
+  @override
+  String get printOptionsDimPage => 'Освітлити вміст сторінки';
+
+  @override
+  String get printOptionsDimMarkups => 'Освітлити анотації';
+
+  @override
+  String get printOptionsHyperlinks => 'Друкувати видимі гіперпосилання';
+
+  @override
+  String get printOptionsDefaults => 'Типові налаштування';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Перед друком введіть допустимі числа.';
+
+  @override
+  String get printOptionsInvalidValue => 'Недопустиме значення';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Червоні лінії показують поля й не друкуються.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Область: $width × $height пт';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Джерело: $width × $height пт';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Аркуш: $width × $height пт';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Аркуш $sheet із $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Не вдалося підготувати цей макет. Перевірте розмір паперу, поля та масштаб.';
 }

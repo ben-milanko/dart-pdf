@@ -1,7 +1,49 @@
 # Changelog
 
+## 4.3.0
+
+- Add `PdfKeyboardAvailability` so hosts can hide shortcut hints and shortcut
+  settings when a physical keyboard is unavailable. Shortcut bindings stay active.
+- Group mobile Controls into View and Panels sections in both shells, keeping
+  Settings and Reflow with view controls and allowing the sheet to scroll.
+- Add `PdfDialogSubmit` to mark a `showPdfDialog` primary button for Enter and
+  numpad Enter submission. Wire the stock editing dialogs to it, preserving
+  validation, IME composition, Shift+Enter, and keyboard-focused buttons.
+- Expose snapshot PDF bytes, `pasteSnapshotBytes`, and `systemPdfPasteProvider`
+  on the viewer and editor shell. External PDFs paste as editable vector stamps
+  through keyboard and context-menu Paste, with image/text fallback.
+- Add complete Australian and UK English locales for editor controls, including
+  colour, centre and organisation, while the base English locale uses US spelling.
+  Localise the smart alignment guide hint.
+- Add the Erase content tool (Shift+E) to the toolbar and shared tool catalogue,
+  with a compact "Erase" label and full instructions in its tooltip.
+  Drag a rectangle or click polygon vertices and double-click to finish;
+  crossing graphics are clipped at the boundary and text is sliced by glyph.
+  Deletion is undoable and leaves annotations unchanged.
+- Add `PdfCompressionTask` in `compression_worker.dart`: cancellable PDF
+  optimisation in native isolates and dedicated browser workers, with exact
+  savings reports and no main-thread fallback when a worker fails.
+- Expose the toolbar's tool catalogue: `pdfToolGroups`, `pdfToolCatalog()`,
+  `PdfToolGroup`/`PdfToolEntry`, and `pdfEditToolLabel`/`pdfEditToolTooltip`/
+  `pdfMarkupLabel`/`pdfMarkupTooltip`. The dock now reads the same list a host
+  can enumerate, so a command palette or shortcut sheet stays in step with the
+  tools the toolbar actually shows.
+- Add `PdfEditingController.exportPageRanges`, `showPdfSplitDialog`, and the
+  `onSplitPages` host callback on the editor shell and both thumbnail layouts.
+  The Split PDF action accepts comma-separated ranges and generates one PDF
+  per range in a single batch. The example opens extracted results in new tabs.
+- Preserve sparse-buffer ranges across native and web render workers, pooled
+  and urgent workers, and overprint retries, including edit/undo/redo updates.
+
 ## 4.2.0
 
+- Add `textMenuBuilder`, the text-selection counterpart to
+  `annotationMenuBuilder`: hosts append their own entries to the right-click
+  text menu (below a divider, after the stock markup/Copy/Select all) on
+  `PdfViewer`, `PdfEditorView`, and `PdfReader`, in reader mode as well as
+  with an editing session. Also expose `PdfViewerController.selectAllTextOn`
+  so a host that takes the whole menu over with `onContextMenuRequested` can
+  rebuild Select all.
 - Sharpen pages directionally during sustained slow scrolling with a bounded
   accelerated look-ahead, and warm pages ahead of the scroll direction, while
   preserving fast-scroll preemption and strict worker, raster-cache, and

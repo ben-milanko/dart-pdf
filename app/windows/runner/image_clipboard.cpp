@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 
 #include <cstring>
+#include <utility>
 
 using Microsoft::WRL::ComPtr;
 
@@ -14,6 +15,18 @@ namespace {
 
 // The registered clipboard format name browsers and Office use to exchange
 // lossless PNG images. Registered once; the returned id is stable per session.
+DWORD local_snapshot_sequence = 0;
+
+UINT PdfClipboardFormat() {
+  static const UINT format = ::RegisterClipboardFormatW(L"application/pdf");
+  return format;
+}
+
+UINT AdobePdfClipboardFormat() {
+  static const UINT format = ::RegisterClipboardFormatW(L"Portable Document Format");
+  return format;
+}
+
 UINT PngClipboardFormat() {
   static const UINT format = ::RegisterClipboardFormatW(L"PNG");
   return format;
@@ -200,7 +213,8 @@ class ClipboardGuard {
 
 }  // namespace
 
-bool CopyPngToClipboard(HWND owner, const std::vector<uint8_t>& png) {
+static bool CopyImageAndPdf(HWND owner, const std::vector<uint8_t>& png,
+                            const std::vector<uint8_t>* pdf) {
   ComPtr<IWICImagingFactory> factory = CreateWicFactory();
   UINT width = 0;
   UINT height = 0;
@@ -230,6 +244,18 @@ bool CopyPngToClipboard(HWND owner, const std::vector<uint8_t>& png) {
   // whatever it rejects. Success of either format means a paste will work, so
   // only report failure when both were rejected.
   int placed = 0;
+  if (pdf != nullptr) {
+    for (UINT format : {PdfClipboardFormat(), AdobePdfClipboardFormat()}) {
+      HGLOBAL raw_pdf = CopyToGlobal(*pdf);
+      if (raw_pdf != nullptr) {
+        if (format != 0 && ::SetClipboardData(format, raw_pdf) != nullptr) {
+          placed++;
+        } else {
+          ::GlobalFree(raw_pdf);
+        }
+      }
+    }
+  }
   if (::SetClipboardData(CF_DIBV5, dib) != nullptr) {
     placed++;
   } else {
@@ -241,6 +267,44 @@ bool CopyPngToClipboard(HWND owner, const std::vector<uint8_t>& png) {
     ::GlobalFree(raw_png);
   }
   return placed > 0;
+}
+
+bool CopyPngToClipboard(HWND owner, const std::vector<uint8_t>& png) {
+  return CopyImageAndPdf(owner, png, nullptr);
+}
+
+bool CopySnapshotToClipboard(HWND owner, const std::vector<uint8_t>& pdf,
+                             const std::vector<uint8_t>& png) {
+  if (pdf.empty()) return false;
+  const bool copied = CopyImageAndPdf(owner, png, &pdf);
+  // Read after CloseClipboard: every window/engine shares this owner stamp.
+  local_snapshot_sequence = copied ? ::GetClipboardSequenceNumber() : 0;
+  return copied;
+}
+
+void MarkLocalClipboardCopy() {
+  local_snapshot_sequence = ::GetClipboardSequenceNumber();
+}
+
+std::optional<ClipboardPdf> ReadExternalPdfFromClipboard(HWND owner) {
+  ClipboardGuard clipboard(owner);
+  if (!clipboard.open()) return std::nullopt;
+  if (local_snapshot_sequence != 0 &&
+      local_snapshot_sequence == ::GetClipboardSequenceNumber()) {
+    return std::nullopt;
+  }
+  for (UINT format : {PdfClipboardFormat(), AdobePdfClipboardFormat()}) {
+    HANDLE handle = ::GetClipboardData(format);
+    if (handle == nullptr) continue;
+    const SIZE_T size = ::GlobalSize(handle);
+    void* data = ::GlobalLock(handle);
+    if (data == nullptr) continue;
+    std::vector<uint8_t> pdf(static_cast<uint8_t*>(data),
+                             static_cast<uint8_t*>(data) + size);
+    ::GlobalUnlock(handle);
+    if (!pdf.empty()) return ClipboardPdf{std::move(pdf), ::GetClipboardSequenceNumber()};
+  }
+  return std::nullopt;
 }
 
 std::optional<std::vector<uint8_t>> ReadImageFromClipboard(HWND owner) {

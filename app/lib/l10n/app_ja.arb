@@ -113,12 +113,27 @@
   "editorMenuPrint": "印刷…",
   "editorMenuSaveAs": "名前を付けて保存…",
   "editorMenuScanDocument": "新しいドキュメントにスキャン…",
+  "editorMenuInsertDocument": "ドキュメントを挿入…",
   "editorMenuInsertScan": "スキャンを挿入…",
   "editorScanFailed": "ドキュメントをスキャンできませんでした。",
   "editorInsertedScan": "スキャンしたページを挿入しました。",
   "editorMenuSettings": "設定",
-  "editorMenuSwitchToEdit": "編集モードに切り替え",
-  "editorMenuSwitchToReadOnly": "読み取り専用に切り替え",
+  "editorMenuSectionFile": "ファイル",
+  "editorMenuSectionDocument": "このドキュメント",
+  "editorMenuSectionApp": "アプリ",
+  "editorMenuReadOnly": "読み取り専用",
+  "editorMenuSearchActions": "操作を検索…",
+  "paletteHint": "操作・ツール・パネルを検索",
+  "paletteNoMatch": "一致するコマンドがありません",
+  "paletteKeyHints": "↑↓ 移動 · ⏎ 実行 · esc 閉じる",
+  "paletteCount": "{count} 件のコマンド",
+  "paletteCountFiltered": "{total} 件中 {count} 件",
+  "paletteSourceMenu": "メニュー",
+  "paletteSourcePanel": "パネル",
+  "paletteSourceView": "表示",
+  "paletteSourceFile": "ファイル",
+  "paletteSourceTool": "{group}ツール",
+  "paletteNeedsDocument": "ドキュメントを開いてください",
   "editorNamedAction": "名前付きアクション: {name}",
   "editorNoRecentFiles": "最近使用したファイルはありません",
   "editorOcrTitle": "{title} (OCR)",
@@ -264,5 +279,149 @@
   "updateFailed": "更新に失敗しました: {error}",
   "imageSourceTakePhoto": "写真を撮る",
   "imageSourceChooseFile": "ファイルを選択",
-  "imageSourceCameraFailed": "写真を撮影できませんでした"
+  "imageSourceCameraFailed": "写真を撮影できませんでした",
+  "settingsCachedDocuments": "キャッシュされたドキュメント",
+  "settingsCacheUsage": "{limit} MiB 中 {used} MiB 使用",
+  "settingsCacheExplanation": "{limit} MiB を超えるファイルはキャッシュされません。削除しても最近使ったファイルの一覧、開いているドキュメント、未保存の変更は保持されます。キャッシュされたファイルを再度開くには、ファイルを選び直す必要があります。",
+  "settingsClearCachedDocuments": "ドキュメントのキャッシュを削除",
+  "settingsCacheUnavailable": "キャッシュサイズを取得できません",
+  "settingsCacheClearFailed": "ドキュメントのキャッシュを削除できませんでした。再試行してください。",
+  "editorMenuReduceFileSize": "ファイルサイズを縮小…",
+  "reduceSizeTitle": "ファイルサイズを縮小",
+  "reduceSizeDescription": "現在の文書を最適化し、削減量を確認してから、小さいコピーを保存します。",
+  "reduceSizePreset": "プリセット",
+  "reduceSizeLossless": "可逆 — 画質を維持",
+  "reduceSizeScreen": "画面 — 72 DPI、JPEG品質60",
+  "reduceSizeEbook": "電子書籍 — 150 DPI、JPEG品質75",
+  "reduceSizePrinter": "印刷 — 300 DPI、JPEG品質90",
+  "reduceSizeLosslessHint": "画像の解像度と品質は変わりません。",
+  "reduceSizeLossyHint": "指定の解像度を超える画像は縮小され、JPEGに変換される場合があります。細部が失われることがありますが、テキストとベクター画像は鮮明なままです。",
+  "reduceSizeAdvanced": "詳細設定",
+  "reduceSizeRecompress": "ストリームを再圧縮",
+  "reduceSizeUnusedResources": "未使用のリソースを削除",
+  "reduceSizeDeduplicate": "重複するオブジェクトを統合",
+  "reduceSizeSubsetFonts": "埋め込みフォントを使用文字に限定",
+  "reduceSizeDpi": "画像の目標解像度",
+  "reduceSizeKeepImages": "元の画像を保持（可逆）",
+  "reduceSizeJpegQuality": "JPEG品質: {quality}",
+  "reduceSizeSignaturesNotice": "この署名済みPDFを書き直すと、保存したコピーの電子署名が無効になります。",
+  "reduceSizeInvalidateSignatures": "このコピーの署名を無効にすることを許可",
+  "reduceSizeEncrypted": "暗号化されたPDFは最適化できません。",
+  "reduceSizeIncomplete": "文書の読み込みが完了してからサイズを縮小してください。",
+  "reduceSizeRun": "最適化",
+  "reduceSizeRunning": "文書を最適化中…",
+  "reduceSizeFailed": "このPDFを最適化できませんでした: {error}",
+  "reduceSizeSaveFailed": "コピーを保存できませんでした: {error}",
+  "reduceSizeSaveCopy": "コピーを保存…",
+  "reduceSizeChangeSettings": "設定を変更",
+  "reduceSizeBefore": "元のサイズ",
+  "reduceSizeAfter": "最適化後のサイズ",
+  "reduceSizeSavings": "削減量",
+  "reduceSizeNoSavings": "この設定では文書はすでに十分小さくなっています。元のデータを保持しました。",
+  "reduceSizeReportHint": "最適化の各段階で削減したバイト数:",
+  "reduceSizeStructure": "文書構造",
+  "reduceSizeResources": "未使用のリソース",
+  "reduceSizeFonts": "埋め込みフォント",
+  "reduceSizeImages": "画像",
+  "reduceSizeDuplicates": "重複するオブジェクト",
+  "reduceSizeCustom": "カスタム設定",
+  "printOptionsPrinter": "プリンター",
+  "printOptionsNativePrinter": "次に表示されるシステムの印刷ダイアログで、プリンター、給紙トレイ、カラー、両面印刷、プリンターのプロパティを選択します。ここに表示されているレイアウトを使用するには、倍率を100%、部数を1のままにしてください。",
+  "printOptionsPages": "ページ",
+  "printOptionsSelected": "選択したページ",
+  "printOptionsPageRange": "ページ（例: 1, 3-5）",
+  "printOptionsAddFiles": "ファイルを追加…",
+  "printOptionsAddFailed": "選択したファイルを追加できませんでした。",
+  "printOptionsGetWindow": "範囲を選択",
+  "printOptionsClearWindow": "範囲を解除",
+  "printOptionsWindowHint": "元のページ上でドラッグして長方形を描き、印刷する範囲を選択してください。",
+  "printOptionsPaper": "用紙",
+  "printOptionsPaperSize": "用紙サイズ",
+  "printOptionsPageSize": "文書のページサイズを使用",
+  "printOptionsOrientation": "用紙の向き",
+  "printOptionsAuto": "自動",
+  "printOptionsPortrait": "縦",
+  "printOptionsLandscape": "横",
+  "printOptionsCopies": "部数",
+  "printOptionsCollate": "部単位で印刷",
+  "printOptionsReverse": "ページの順序を逆にする",
+  "printOptionsLayout": "ページレイアウト",
+  "printOptionsScaling": "ページの拡大・縮小",
+  "printOptionsScaleNone": "なし（実際のサイズ）",
+  "printOptionsFitPaper": "用紙に合わせる",
+  "printOptionsReducePaper": "用紙に収まるよう縮小",
+  "printOptionsFitMargins": "余白内に合わせる",
+  "printOptionsReduceMargins": "余白内に収まるよう縮小",
+  "printOptionsCustomScale": "倍率を指定",
+  "printOptionsMultiple": "1枚に複数ページを印刷",
+  "printOptionsScalePercent": "倍率（%）",
+  "printOptionsMargin": "余白（pt）",
+  "printOptionsPagesPerSheet": "1枚あたりのページ数",
+  "printOptionsPageOrder": "ページの順序",
+  "printOptionsHorizontal": "横方向",
+  "printOptionsHorizontalReverse": "横方向（右から左）",
+  "printOptionsVertical": "縦方向",
+  "printOptionsVerticalReverse": "縦方向（列を右から左）",
+  "printOptionsBorder": "ページの枠線を印刷",
+  "printOptionsRotation": "回転（時計回り）",
+  "printOptionsNoRotation": "なし",
+  "printOptionsCenter": "用紙の中央に配置",
+  "printOptionsOffsetX": "右への移動量（pt）",
+  "printOptionsOffsetY": "下への移動量（pt）",
+  "printOptionsContents": "印刷する内容",
+  "printOptionsDocumentAndMarkups": "文書と注釈",
+  "printOptionsDocumentOnly": "文書のみ",
+  "printOptionsMarkupsOnly": "注釈のみ",
+  "printOptionsDimPage": "ページの内容を薄く印刷",
+  "printOptionsDimMarkups": "注釈を薄く印刷",
+  "printOptionsHyperlinks": "表示されているハイパーリンクを印刷",
+  "printOptionsDefaults": "既定値に戻す",
+  "printOptionsInvalidNumber": "印刷する前に有効な数値を入力してください。",
+  "printOptionsInvalidValue": "無効な値です",
+  "printOptionsMarginGuide": "赤い線は余白を示しています。印刷はされません。",
+  "printOptionsAreaSize": "範囲: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "元のページ: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "用紙: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "{total}枚中{sheet}枚目",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "このレイアウトを準備できませんでした。用紙サイズ、余白、倍率を確認してください。"
 }

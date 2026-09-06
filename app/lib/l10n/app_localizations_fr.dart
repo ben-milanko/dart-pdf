@@ -451,6 +451,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorMenuScanDocument => 'Numériser vers un nouveau document…';
 
   @override
+  String get editorMenuInsertDocument => 'Insérer un document…';
+
+  @override
   String get editorMenuInsertScan => 'Insérer une numérisation…';
 
   @override
@@ -463,10 +466,58 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorMenuSettings => 'Paramètres';
 
   @override
-  String get editorMenuSwitchToEdit => 'Passer en mode édition';
+  String get editorMenuSectionFile => 'Fichier';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Passer en lecture seule';
+  String get editorMenuSectionDocument => 'Ce document';
+
+  @override
+  String get editorMenuSectionApp => 'Application';
+
+  @override
+  String get editorMenuReadOnly => 'Lecture seule';
+
+  @override
+  String get editorMenuSearchActions => 'Rechercher des actions…';
+
+  @override
+  String get paletteHint => 'Rechercher actions, outils et panneaux';
+
+  @override
+  String get paletteNoMatch => 'Aucune commande ne correspond';
+
+  @override
+  String get paletteKeyHints => '↑↓ naviguer · ⏎ exécuter · échap fermer';
+
+  @override
+  String paletteCount(int count) {
+    return '$count commandes';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count sur $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Panneau';
+
+  @override
+  String get paletteSourceView => 'Affichage';
+
+  @override
+  String get paletteSourceFile => 'Fichier';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Outil $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Nécessite un document ouvert';
 
   @override
   String editorNamedAction(String name) {
@@ -1069,4 +1120,354 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Impossible de prendre une photo';
+
+  @override
+  String get settingsCachedDocuments => 'Documents en cache';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB utilisés sur $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Les fichiers de plus de $limit MiB ne sont pas mis en cache. La suppression conserve les fichiers récents, les documents ouverts et les modifications non enregistrées ; les fichiers en cache devront être sélectionnés à nouveau pour les rouvrir.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Effacer les documents en cache';
+
+  @override
+  String get settingsCacheUnavailable => 'Taille du cache indisponible';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Impossible d’effacer les documents en cache. Réessayez.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Réduire la taille du fichier…';
+
+  @override
+  String get reduceSizeTitle => 'Réduire la taille du fichier';
+
+  @override
+  String get reduceSizeDescription =>
+      'Optimisez le document actuel, examinez le gain, puis enregistrez une copie plus petite.';
+
+  @override
+  String get reduceSizePreset => 'Préréglage';
+
+  @override
+  String get reduceSizeLossless =>
+      'Sans perte — préserver la qualité des images';
+
+  @override
+  String get reduceSizeScreen => 'Écran — 72 PPP, qualité JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 PPP, qualité JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'Impression — 300 PPP, qualité JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'La résolution et la qualité des images restent identiques.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Les images dépassant la résolution cible peuvent être réduites et encodées en JPEG. Les détails fins peuvent être perdus ; le texte et les graphiques vectoriels restent nets.';
+
+  @override
+  String get reduceSizeAdvanced => 'Paramètres avancés';
+
+  @override
+  String get reduceSizeRecompress => 'Recompresser les flux';
+
+  @override
+  String get reduceSizeUnusedResources =>
+      'Supprimer les ressources inutilisées';
+
+  @override
+  String get reduceSizeDeduplicate => 'Fusionner les objets en double';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Réduire les polices intégrées aux glyphes utilisés';
+
+  @override
+  String get reduceSizeDpi => 'Résolution cible des images';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Conserver les images originales (sans perte)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Qualité JPEG : $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Réécrire ce PDF signé invalide ses signatures numériques dans la copie enregistrée.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Autoriser l’invalidation des signatures dans cette copie';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'Les PDF chiffrés ne peuvent pas être optimisés.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Attendez la fin du chargement du document avant de réduire sa taille.';
+
+  @override
+  String get reduceSizeRun => 'Optimiser';
+
+  @override
+  String get reduceSizeRunning => 'Optimisation du document…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Impossible d’optimiser ce PDF : $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Impossible d’enregistrer la copie : $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Enregistrer une copie…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Modifier les paramètres';
+
+  @override
+  String get reduceSizeBefore => 'Taille originale';
+
+  @override
+  String get reduceSizeAfter => 'Taille optimisée';
+
+  @override
+  String get reduceSizeSavings => 'Espace économisé';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Ce document est déjà compact avec ces paramètres. Les données originales ont été conservées.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Octets économisés à chaque étape d’optimisation :';
+
+  @override
+  String get reduceSizeStructure => 'Structure du document';
+
+  @override
+  String get reduceSizeResources => 'Ressources inutilisées';
+
+  @override
+  String get reduceSizeFonts => 'Polices intégrées';
+
+  @override
+  String get reduceSizeImages => 'Images';
+
+  @override
+  String get reduceSizeDuplicates => 'Objets en double';
+
+  @override
+  String get reduceSizeCustom => 'Paramètres personnalisés';
+
+  @override
+  String get printOptionsPrinter => 'Imprimante';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Choisissez l’imprimante, le bac à papier, la couleur, le recto verso et les propriétés du périphérique dans la boîte de dialogue d’impression du système qui s’ouvrira ensuite. Conservez une échelle de 100 % et une seule copie pour utiliser la mise en page affichée ici.';
+
+  @override
+  String get printOptionsPages => 'Pages';
+
+  @override
+  String get printOptionsSelected => 'Sélectionnées';
+
+  @override
+  String get printOptionsPageRange => 'Pages (par exemple, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Ajouter des fichiers…';
+
+  @override
+  String get printOptionsAddFailed =>
+      'Impossible d’ajouter les fichiers sélectionnés.';
+
+  @override
+  String get printOptionsGetWindow => 'Définir la zone';
+
+  @override
+  String get printOptionsClearWindow => 'Effacer la zone';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Tracez un rectangle sur cette page d’origine pour choisir la zone à imprimer.';
+
+  @override
+  String get printOptionsPaper => 'Papier';
+
+  @override
+  String get printOptionsPaperSize => 'Format du papier';
+
+  @override
+  String get printOptionsPageSize => 'Utiliser le format de page du document';
+
+  @override
+  String get printOptionsOrientation => 'Orientation';
+
+  @override
+  String get printOptionsAuto => 'Automatique';
+
+  @override
+  String get printOptionsPortrait => 'Portrait';
+
+  @override
+  String get printOptionsLandscape => 'Paysage';
+
+  @override
+  String get printOptionsCopies => 'Copies';
+
+  @override
+  String get printOptionsCollate => 'Assembler';
+
+  @override
+  String get printOptionsReverse => 'Inverser l’ordre des pages';
+
+  @override
+  String get printOptionsLayout => 'Mise en page';
+
+  @override
+  String get printOptionsScaling => 'Mise à l’échelle';
+
+  @override
+  String get printOptionsScaleNone => 'Aucune (taille réelle)';
+
+  @override
+  String get printOptionsFitPaper => 'Ajuster au papier';
+
+  @override
+  String get printOptionsReducePaper => 'Réduire au format du papier';
+
+  @override
+  String get printOptionsFitMargins => 'Ajuster aux marges';
+
+  @override
+  String get printOptionsReduceMargins => 'Réduire aux marges';
+
+  @override
+  String get printOptionsCustomScale => 'Échelle personnalisée';
+
+  @override
+  String get printOptionsMultiple => 'Plusieurs pages par feuille';
+
+  @override
+  String get printOptionsScalePercent => 'Échelle (%)';
+
+  @override
+  String get printOptionsMargin => 'Marges (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Pages par feuille';
+
+  @override
+  String get printOptionsPageOrder => 'Ordre des pages';
+
+  @override
+  String get printOptionsHorizontal => 'Horizontal';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Horizontal inversé';
+
+  @override
+  String get printOptionsVertical => 'Vertical';
+
+  @override
+  String get printOptionsVerticalReverse => 'Vertical inversé';
+
+  @override
+  String get printOptionsBorder => 'Imprimer les bordures de page';
+
+  @override
+  String get printOptionsRotation => 'Rotation (sens horaire)';
+
+  @override
+  String get printOptionsNoRotation => 'Aucune';
+
+  @override
+  String get printOptionsCenter => 'Centrer sur le papier';
+
+  @override
+  String get printOptionsOffsetX => 'Décalage vers la droite (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Décalage vers le bas (pt)';
+
+  @override
+  String get printOptionsContents => 'Contenu à imprimer';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Document et annotations';
+
+  @override
+  String get printOptionsDocumentOnly => 'Document uniquement';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Annotations uniquement';
+
+  @override
+  String get printOptionsDimPage => 'Atténuer le contenu de la page';
+
+  @override
+  String get printOptionsDimMarkups => 'Atténuer les annotations';
+
+  @override
+  String get printOptionsHyperlinks => 'Imprimer les hyperliens visibles';
+
+  @override
+  String get printOptionsDefaults => 'Valeurs par défaut';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Saisissez des nombres valides avant d’imprimer.';
+
+  @override
+  String get printOptionsInvalidValue => 'Valeur non valide';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Les lignes rouges indiquent les marges et ne sont pas imprimées.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Zone : $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Original : $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Feuille : $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Feuille $sheet sur $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Impossible de préparer cette mise en page. Vérifiez le format du papier, les marges et l’échelle.';
 }

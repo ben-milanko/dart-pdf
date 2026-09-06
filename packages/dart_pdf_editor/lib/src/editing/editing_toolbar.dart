@@ -24,6 +24,7 @@ import 'editing_annotation_library.dart';
 import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
+import 'editing_tool_catalog.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
 import 'editing_form_style.dart';
@@ -39,6 +40,7 @@ import 'editing_tool_behavior.dart';
 import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
+import '../keyboard_availability.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
 typedef PdfEditingToolbarWidgetBuilder = Widget Function(
@@ -77,8 +79,7 @@ Future<void> showPdfEditingGuidesDialog(
                   key: const ValueKey('pdf-smart-alignment-guides'),
                   secondary: const Icon(Icons.align_horizontal_center),
                   title: const Text('Smart alignment guides'),
-                  subtitle: const Text(
-                      'Snap annotation edges and centres • Hold Alt to bypass'),
+                  subtitle: Text(pdfL10n(context).guidesSnapHint),
                   value: preferences.smartAlignmentGuides,
                   onChanged: (value) =>
                       preferences.smartAlignmentGuides = value,
@@ -113,7 +114,9 @@ Future<void> showPdfEditingGuidesDialog(
                   key: const ValueKey('pdf-grid-snap'),
                   secondary: const Icon(Icons.grid_4x4),
                   title: const Text('Snap to grid'),
-                  subtitle: const Text('Hold Alt to bypass snapping'),
+                  subtitle: PdfKeyboardAvailability.of(context)
+                      ? const Text('Hold Alt to bypass snapping')
+                      : null,
                   value: preferences.snapToGrid,
                   onChanged: (value) => preferences.snapToGrid = value,
                 ),
@@ -155,11 +158,12 @@ Future<void> showPdfEditingGuidesDialog(
         ),
       ),
       actions: [
-        TextButton(
+        PdfDialogSubmit(
+            child: TextButton(
           key: const ValueKey('pdf-guides-done'),
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).done),
-        ),
+        )),
       ],
     ),
   );
@@ -381,45 +385,13 @@ class PdfEditingToolbar extends StatefulWidget {
 
 /// One entry in a tool group - either an armable [PdfEditTool] or an armable
 /// text-markup tool ([PdfMarkupKind]).
-class _GroupTool {
-  const _GroupTool.tool(this.tool, this.icon) : markup = null;
-  const _GroupTool.markup(this.markup, this.icon) : tool = null;
-
-  final PdfEditTool? tool;
-  final PdfMarkupKind? markup;
-  final IconData icon;
-}
+/// The dock's group/entry model and the group table itself live in
+/// [editing_tool_catalog.dart] so a command palette (or any other host
+/// surface) enumerates exactly the tools this dock shows.
+typedef _GroupTool = PdfToolEntry;
+typedef _ToolGroup = PdfToolGroup;
 
 typedef _ToolChoice = ({PdfEditTool? tool, PdfMarkupKind? markup});
-
-/// A dock group: a labelled chip that raises a contextual strip of
-/// [tools]. [defaultTool] is armed when the group opens, when arming it
-/// is side-effect-free (shapes → rectangle, draw → ink); groups whose
-/// first tool has a prerequisite (Measure needs a scale, Insert's
-/// signature needs a drawing) leave it null and wait for an explicit tap.
-class _ToolGroup {
-  const _ToolGroup(this.id, this.icon, this.tools, {this.defaultTool});
-
-  final String id;
-  final IconData icon;
-  final List<_GroupTool> tools;
-  final PdfEditTool? defaultTool;
-
-  /// The localized group name (the stable [id] is the translation key).
-  String label(BuildContext context) {
-    final l = pdfL10n(context);
-    return switch (id) {
-      'select' => l.tbGroupSelect,
-      'markup' => l.tbGroupMarkup,
-      'draw' => l.tbGroupDraw,
-      'shapes' => l.tbGroupShapes,
-      'insert' => l.tbGroupInsert,
-      'measure' => l.tbGroupMeasure,
-      'edit' => l.tbGroupEdit,
-      _ => id,
-    };
-  }
-}
 
 enum _SelectedFormOverflowAction {
   edit,
@@ -528,158 +500,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 _ => false,
               }));
 
-  /// The seven dock groups, in order. Filtered by [PdfEditingToolbar.tools]
-  /// and [PdfEditingToolbar.showMarkup] before display.
-  static const _groups = <_ToolGroup>[
-    _ToolGroup(
-        'select',
-        Icons.near_me,
-        [
-          _GroupTool.tool(PdfEditTool.select, Icons.near_me),
-        ],
-        defaultTool: PdfEditTool.select),
-    _ToolGroup('markup', Icons.edit_note, [
-      _GroupTool.markup(PdfMarkupKind.highlight, Icons.border_color),
-      _GroupTool.markup(PdfMarkupKind.underline, Icons.format_underlined),
-      _GroupTool.markup(PdfMarkupKind.strikeOut, Icons.format_strikethrough),
-      _GroupTool.markup(PdfMarkupKind.squiggly, Icons.gesture),
-    ]),
-    _ToolGroup(
-        'draw',
-        Icons.draw,
-        [
-          _GroupTool.tool(PdfEditTool.ink, Icons.draw),
-          _GroupTool.tool(PdfEditTool.highlight, Icons.border_color),
-          _GroupTool.tool(PdfEditTool.eraser, Icons.auto_fix_normal),
-        ],
-        defaultTool: PdfEditTool.ink),
-    _ToolGroup(
-        'shapes',
-        Icons.rectangle_outlined,
-        [
-          _GroupTool.tool(PdfEditTool.rectangle, Icons.rectangle_outlined),
-          _GroupTool.tool(PdfEditTool.ellipse, Icons.circle_outlined),
-          _GroupTool.tool(PdfEditTool.line, Icons.horizontal_rule),
-          _GroupTool.tool(PdfEditTool.arrow, Icons.arrow_right_alt),
-          _GroupTool.tool(PdfEditTool.polyline, Icons.timeline),
-          _GroupTool.tool(PdfEditTool.polygon, Icons.change_history),
-          _GroupTool.tool(PdfEditTool.cloudPolygon, Icons.cloud_outlined),
-        ],
-        defaultTool: PdfEditTool.rectangle),
-    _ToolGroup(
-        'insert',
-        Icons.text_fields,
-        [
-          _GroupTool.tool(PdfEditTool.freeText, Icons.text_fields),
-          _GroupTool.tool(PdfEditTool.callout, Icons.chat_bubble_outline),
-          _GroupTool.tool(PdfEditTool.note, Icons.sticky_note_2_outlined),
-          _GroupTool.tool(PdfEditTool.stamp, Icons.approval),
-          _GroupTool.tool(PdfEditTool.count, Icons.task_alt),
-          _GroupTool.tool(PdfEditTool.image, Icons.image_outlined),
-          _GroupTool.tool(PdfEditTool.signature, Icons.history_edu),
-          _GroupTool.tool(PdfEditTool.signatureBox, Icons.draw_outlined),
-        ],
-        defaultTool: PdfEditTool.freeText),
-    _ToolGroup('measure', Icons.straighten, [
-      _GroupTool.tool(PdfEditTool.measureDistance, Icons.straighten),
-      _GroupTool.tool(PdfEditTool.measurePerimeter, Icons.timeline),
-      _GroupTool.tool(PdfEditTool.measureArea, Icons.crop_din),
-      _GroupTool.tool(PdfEditTool.measureVolume, Icons.view_in_ar),
-      _GroupTool.tool(PdfEditTool.measureSlope, Icons.trending_up),
-      _GroupTool.tool(PdfEditTool.measureAngle, Icons.architecture),
-      _GroupTool.tool(PdfEditTool.measureArc, Icons.gesture),
-    ]),
-    _ToolGroup('edit', Icons.design_services, [
-      _GroupTool.tool(PdfEditTool.content, Icons.format_shapes),
-      _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined),
-      _GroupTool.tool(PdfEditTool.link, Icons.link),
-      _GroupTool.tool(PdfEditTool.redact, Icons.gradient),
-      _GroupTool.tool(PdfEditTool.snapshot, Icons.crop),
-    ]),
-  ];
+  /// The seven dock groups, in order - the shared catalogue. Filtered by
+  /// [PdfEditingToolbar.tools] and [PdfEditingToolbar.showMarkup] before
+  /// display.
+  static const _groups = pdfToolGroups;
 
   /// The bare, localized name of a tool - shown on labelled buttons, the
-  /// mobile tool tiles, and the active-tool caption. The enum is the key.
-  String _toolName(BuildContext context, PdfEditTool tool) {
-    final l = pdfL10n(context);
-    return switch (tool) {
-      PdfEditTool.select => l.tbNameSelect,
-      PdfEditTool.ink => l.tbNameDraw,
-      PdfEditTool.highlight => l.tbNameHighlight,
-      PdfEditTool.eraser => l.tbNameEraser,
-      PdfEditTool.rectangle => l.tbNameRectangle,
-      PdfEditTool.ellipse => l.tbNameEllipse,
-      PdfEditTool.line => l.tbNameLine,
-      PdfEditTool.arrow => l.tbNameArrow,
-      PdfEditTool.polyline => l.tbNamePolyline,
-      PdfEditTool.polygon => l.tbNamePolygon,
-      PdfEditTool.cloudPolygon => l.tbNameCloudPolygon,
-      PdfEditTool.measureDistance => l.tbNameMeasureDistance,
-      PdfEditTool.measurePerimeter => l.tbNameMeasurePerimeter,
-      PdfEditTool.measureArea => l.tbNameMeasureArea,
-      PdfEditTool.measureVolume => l.tbNameMeasureVolume,
-      PdfEditTool.measureSlope => l.tbNameMeasureSlope,
-      PdfEditTool.measureAngle => l.tbNameMeasureAngle,
-      PdfEditTool.measureArc => l.tbNameMeasureArc,
-      PdfEditTool.calibrate => l.measCalibrate,
-      PdfEditTool.freeText => l.tbNameTextBox,
-      PdfEditTool.callout => l.tbNameCallout,
-      PdfEditTool.note => l.tbNameNote,
-      PdfEditTool.stamp => l.tbNameStamp,
-      PdfEditTool.count => l.tbNameCount,
-      PdfEditTool.signature => l.tbNameSignature,
-      PdfEditTool.image => l.tbNameImage,
-      PdfEditTool.content => l.tbToolContent,
-      PdfEditTool.form => l.tbToolForm,
-      PdfEditTool.link => l.toolLink,
-      PdfEditTool.redact => l.tbToolRedact,
-      PdfEditTool.snapshot => l.tbToolSnapshot,
-      PdfEditTool.signatureBox => l.tbNameDigitalSignature,
-    };
-  }
-
-  /// The full tooltip for a tool. Tools whose tip is just their name fall
-  /// through to [_toolName]; the rest carry a fuller how-to hint.
-  String _toolTip(BuildContext context, PdfEditTool tool) {
-    final l = pdfL10n(context);
-    return switch (tool) {
-      PdfEditTool.highlight => l.tbTipHighlightDraw,
-      PdfEditTool.callout => l.tbTipCallout,
-      PdfEditTool.count => l.tbTipCount,
-      PdfEditTool.image => l.tbTipImage,
-      PdfEditTool.signature => l.tbTipSignature,
-      PdfEditTool.signatureBox => l.tbTipDigitalSignature,
-      PdfEditTool.measureAngle => l.tbTipMeasureAngle,
-      PdfEditTool.measureArc => l.tbTipMeasureArc,
-      PdfEditTool.content => l.tbTipContent,
-      PdfEditTool.form => l.tbTipForm,
-      PdfEditTool.redact => l.tbTipRedact,
-      PdfEditTool.snapshot => l.tbTipSnapshot,
-      _ => _toolName(context, tool),
-    };
-  }
+  /// mobile tool tiles, and the active-tool caption.
+  String _toolName(BuildContext context, PdfEditTool tool) =>
+      pdfEditToolLabel(context, tool);
 
   /// The bare, localized name of a text-markup tool (for mobile tiles).
-  String _markupName(BuildContext context, PdfMarkupKind markup) {
-    final l = pdfL10n(context);
-    return switch (markup) {
-      PdfMarkupKind.highlight => l.tbMarkupHighlight,
-      PdfMarkupKind.underline => l.tbMarkupUnderline,
-      PdfMarkupKind.strikeOut => l.tbMarkupStrikeOut,
-      PdfMarkupKind.squiggly => l.tbMarkupSquiggly,
-    };
-  }
+  String _markupName(BuildContext context, PdfMarkupKind markup) =>
+      pdfMarkupLabel(context, markup);
 
   /// The full tooltip for a text-markup tool.
-  String _markupTip(BuildContext context, PdfMarkupKind markup) {
-    final l = pdfL10n(context);
-    return switch (markup) {
-      PdfMarkupKind.highlight => l.tbMarkupHighlightTip,
-      PdfMarkupKind.underline => l.tbMarkupUnderlineTip,
-      PdfMarkupKind.strikeOut => l.tbMarkupStrikeOutTip,
-      PdfMarkupKind.squiggly => l.tbMarkupSquigglyTip,
-    };
-  }
+  String _markupTip(BuildContext context, PdfMarkupKind markup) =>
+      pdfMarkupTooltip(context, markup);
 
   bool _shows(PdfEditTool tool) => widget.tools?.contains(tool) ?? true;
 
@@ -1505,11 +1342,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(pdfL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('pdf-redaction-confirm-apply'),
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(pdfL10n(context).apply),
-          ),
+          )),
         ],
       ),
     );
@@ -1718,13 +1556,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         IconButton(
           key: const ValueKey('pdf-undo'),
           icon: const Icon(Icons.undo),
-          tooltip: pdfL10n(context).tbUndoShortcut,
+          tooltip: PdfKeyboardAvailability.of(context)
+              ? pdfL10n(context).tbUndoShortcut
+              : pdfL10n(context).undo,
           onPressed: controller.canUndo ? controller.undo : null,
         ),
         IconButton(
           key: const ValueKey('pdf-redo'),
           icon: const Icon(Icons.redo),
-          tooltip: pdfL10n(context).tbRedoShortcut,
+          tooltip: PdfKeyboardAvailability.of(context)
+              ? pdfL10n(context).tbRedoShortcut
+              : pdfL10n(context).redo,
           onPressed: controller.canRedo ? controller.redo : null,
         ),
         _DockDivider(axis: axis),
@@ -1757,7 +1599,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         _DockDivider(axis: axis),
         IconButton(
           icon: const Icon(Icons.save_alt),
-          tooltip: pdfL10n(context).tbSaveShortcut,
+          tooltip: PdfKeyboardAvailability.of(context)
+              ? pdfL10n(context).tbSaveShortcut
+              : pdfL10n(context).save,
           // disabled while the document matches what was opened - there's
           // nothing to write until an edit bumps the revision cursor
           onPressed: controller.isModified
@@ -2713,14 +2557,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             IconButton(
               key: const ValueKey('pdf-undo'),
               icon: const Icon(Icons.undo),
-              tooltip: pdfL10n(context).tbUndoShortcut,
+              tooltip: PdfKeyboardAvailability.of(context)
+                  ? pdfL10n(context).tbUndoShortcut
+                  : pdfL10n(context).undo,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
               key: const ValueKey('pdf-redo'),
               icon: const Icon(Icons.redo),
-              tooltip: pdfL10n(context).tbRedoShortcut,
+              tooltip: PdfKeyboardAvailability.of(context)
+                  ? pdfL10n(context).tbRedoShortcut
+                  : pdfL10n(context).redo,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canRedo ? controller.redo : null,
             ),
@@ -3233,9 +3081,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final markup = entry.markup;
     if (markup != null) return _markupTip(context, markup);
     final tool = entry.tool!;
-    final tip = _toolTip(context, tool);
-    final key = pdfEditToolShortcutLabel(tool, shortcuts: widget.toolShortcuts);
-    return key == null ? tip : '$tip ($key)';
+    return pdfEditToolTooltipWithShortcut(context, tool,
+        shortcuts: widget.toolShortcuts);
   }
 
   /// The settings block under the sheet's tool grid - reuses the same

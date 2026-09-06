@@ -113,12 +113,27 @@
   "editorMenuPrint": "인쇄…",
   "editorMenuSaveAs": "다른 이름으로 저장…",
   "editorMenuScanDocument": "새 문서로 스캔…",
+  "editorMenuInsertDocument": "문서 삽입…",
   "editorMenuInsertScan": "스캔 삽입…",
   "editorScanFailed": "문서를 스캔할 수 없습니다.",
   "editorInsertedScan": "스캔한 페이지를 삽입했습니다.",
   "editorMenuSettings": "설정",
-  "editorMenuSwitchToEdit": "편집 모드로 전환",
-  "editorMenuSwitchToReadOnly": "읽기 전용으로 전환",
+  "editorMenuSectionFile": "파일",
+  "editorMenuSectionDocument": "이 문서",
+  "editorMenuSectionApp": "앱",
+  "editorMenuReadOnly": "읽기 전용",
+  "editorMenuSearchActions": "작업 검색…",
+  "paletteHint": "작업, 도구, 패널 검색",
+  "paletteNoMatch": "일치하는 명령이 없습니다",
+  "paletteKeyHints": "↑↓ 이동 · ⏎ 실행 · esc 닫기",
+  "paletteCount": "명령 {count}개",
+  "paletteCountFiltered": "{total}개 중 {count}개",
+  "paletteSourceMenu": "메뉴",
+  "paletteSourcePanel": "패널",
+  "paletteSourceView": "보기",
+  "paletteSourceFile": "파일",
+  "paletteSourceTool": "{group} 도구",
+  "paletteNeedsDocument": "열린 문서가 필요합니다",
   "editorNamedAction": "명명된 작업: {name}",
   "editorNoRecentFiles": "최근 파일 없음",
   "editorOcrTitle": "{title} (OCR)",
@@ -264,5 +279,149 @@
   "updateFailed": "업데이트 실패: {error}",
   "imageSourceTakePhoto": "사진 촬영",
   "imageSourceChooseFile": "파일 선택",
-  "imageSourceCameraFailed": "사진을 촬영하지 못했습니다"
+  "imageSourceCameraFailed": "사진을 촬영하지 못했습니다",
+  "settingsCachedDocuments": "캐시된 문서",
+  "settingsCacheUsage": "{limit} MiB 중 {used} MiB 사용",
+  "settingsCacheExplanation": "{limit} MiB를 초과하는 파일은 캐시되지 않습니다. 삭제해도 최근 파일 목록, 열린 문서 및 저장하지 않은 변경 사항은 유지됩니다. 캐시된 파일을 다시 열려면 파일을 다시 선택해야 합니다.",
+  "settingsClearCachedDocuments": "캐시된 문서 삭제",
+  "settingsCacheUnavailable": "캐시 크기를 확인할 수 없음",
+  "settingsCacheClearFailed": "캐시된 문서를 삭제하지 못했습니다. 다시 시도하세요.",
+  "editorMenuReduceFileSize": "파일 크기 줄이기…",
+  "reduceSizeTitle": "파일 크기 줄이기",
+  "reduceSizeDescription": "현재 문서를 최적화하고 절약된 용량을 확인한 후 더 작은 사본을 저장합니다.",
+  "reduceSizePreset": "사전 설정",
+  "reduceSizeLossless": "무손실 — 이미지 품질 유지",
+  "reduceSizeScreen": "화면 — 72 DPI, JPEG 품질 60",
+  "reduceSizeEbook": "전자책 — 150 DPI, JPEG 품질 75",
+  "reduceSizePrinter": "인쇄 — 300 DPI, JPEG 품질 90",
+  "reduceSizeLosslessHint": "이미지 해상도와 품질이 유지됩니다.",
+  "reduceSizeLossyHint": "목표 해상도보다 큰 이미지는 축소되어 JPEG로 인코딩될 수 있습니다. 미세한 이미지 세부 사항은 손실될 수 있지만 텍스트와 벡터 그래픽은 선명하게 유지됩니다.",
+  "reduceSizeAdvanced": "고급 설정",
+  "reduceSizeRecompress": "스트림 다시 압축",
+  "reduceSizeUnusedResources": "사용하지 않는 리소스 제거",
+  "reduceSizeDeduplicate": "중복 객체 병합",
+  "reduceSizeSubsetFonts": "내장 글꼴을 사용된 글리프로 축소",
+  "reduceSizeDpi": "이미지 목표 해상도",
+  "reduceSizeKeepImages": "원본 이미지 유지(무손실)",
+  "reduceSizeJpegQuality": "JPEG 품질: {quality}",
+  "reduceSizeSignaturesNotice": "이 서명된 PDF를 다시 작성하면 저장된 사본의 디지털 서명이 무효화됩니다.",
+  "reduceSizeInvalidateSignatures": "이 사본의 서명 무효화 허용",
+  "reduceSizeEncrypted": "암호화된 PDF는 최적화할 수 없습니다.",
+  "reduceSizeIncomplete": "크기를 줄이기 전에 문서 로딩이 완료될 때까지 기다리세요.",
+  "reduceSizeRun": "최적화",
+  "reduceSizeRunning": "문서 최적화 중…",
+  "reduceSizeFailed": "이 PDF를 최적화할 수 없습니다: {error}",
+  "reduceSizeSaveFailed": "사본을 저장할 수 없습니다: {error}",
+  "reduceSizeSaveCopy": "사본 저장…",
+  "reduceSizeChangeSettings": "설정 변경",
+  "reduceSizeBefore": "원본 크기",
+  "reduceSizeAfter": "최적화된 크기",
+  "reduceSizeSavings": "절약된 공간",
+  "reduceSizeNoSavings": "이 문서는 현재 설정으로 이미 충분히 작습니다. 원본 데이터가 유지되었습니다.",
+  "reduceSizeReportHint": "각 최적화 단계에서 절약된 바이트:",
+  "reduceSizeStructure": "문서 구조",
+  "reduceSizeResources": "사용하지 않는 리소스",
+  "reduceSizeFonts": "내장 글꼴",
+  "reduceSizeImages": "이미지",
+  "reduceSizeDuplicates": "중복 객체",
+  "reduceSizeCustom": "사용자 지정 설정",
+  "printOptionsPrinter": "프린터",
+  "printOptionsNativePrinter": "다음에 표시되는 시스템 인쇄 대화상자에서 프린터, 용지함, 컬러, 양면 인쇄 및 장치 속성을 선택하세요. 여기에 표시된 레이아웃을 사용하려면 배율은 100%, 부수는 1로 유지하세요.",
+  "printOptionsPages": "페이지",
+  "printOptionsSelected": "선택한 페이지",
+  "printOptionsPageRange": "페이지(예: 1, 3-5)",
+  "printOptionsAddFiles": "파일 추가…",
+  "printOptionsAddFailed": "선택한 파일을 추가할 수 없습니다.",
+  "printOptionsGetWindow": "영역 선택",
+  "printOptionsClearWindow": "영역 해제",
+  "printOptionsWindowHint": "원본 페이지에서 사각형을 드래그하여 인쇄할 영역을 선택하세요.",
+  "printOptionsPaper": "용지",
+  "printOptionsPaperSize": "용지 크기",
+  "printOptionsPageSize": "문서 페이지 크기 사용",
+  "printOptionsOrientation": "용지 방향",
+  "printOptionsAuto": "자동",
+  "printOptionsPortrait": "세로",
+  "printOptionsLandscape": "가로",
+  "printOptionsCopies": "부수",
+  "printOptionsCollate": "한 부씩 인쇄",
+  "printOptionsReverse": "페이지 역순으로 인쇄",
+  "printOptionsLayout": "페이지 레이아웃",
+  "printOptionsScaling": "페이지 배율",
+  "printOptionsScaleNone": "없음(실제 크기)",
+  "printOptionsFitPaper": "용지에 맞춤",
+  "printOptionsReducePaper": "용지에 맞게 축소",
+  "printOptionsFitMargins": "여백 안에 맞춤",
+  "printOptionsReduceMargins": "여백 안에 맞게 축소",
+  "printOptionsCustomScale": "사용자 지정 배율",
+  "printOptionsMultiple": "한 장에 여러 페이지",
+  "printOptionsScalePercent": "배율(%)",
+  "printOptionsMargin": "여백(pt)",
+  "printOptionsPagesPerSheet": "한 장에 인쇄할 페이지 수",
+  "printOptionsPageOrder": "페이지 순서",
+  "printOptionsHorizontal": "가로",
+  "printOptionsHorizontalReverse": "가로 역순",
+  "printOptionsVertical": "세로",
+  "printOptionsVerticalReverse": "세로(열은 오른쪽부터)",
+  "printOptionsBorder": "페이지 테두리 인쇄",
+  "printOptionsRotation": "회전(시계 방향)",
+  "printOptionsNoRotation": "없음",
+  "printOptionsCenter": "용지 가운데 배치",
+  "printOptionsOffsetX": "오른쪽으로 이동(pt)",
+  "printOptionsOffsetY": "아래로 이동(pt)",
+  "printOptionsContents": "인쇄할 내용",
+  "printOptionsDocumentAndMarkups": "문서 및 주석",
+  "printOptionsDocumentOnly": "문서만",
+  "printOptionsMarkupsOnly": "주석만",
+  "printOptionsDimPage": "페이지 내용을 연하게 인쇄",
+  "printOptionsDimMarkups": "주석을 연하게 인쇄",
+  "printOptionsHyperlinks": "표시된 하이퍼링크 인쇄",
+  "printOptionsDefaults": "기본값",
+  "printOptionsInvalidNumber": "인쇄하기 전에 올바른 숫자를 입력하세요.",
+  "printOptionsInvalidValue": "잘못된 값",
+  "printOptionsMarginGuide": "빨간색 선은 여백을 나타내며 인쇄되지 않습니다.",
+  "printOptionsAreaSize": "영역: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "원본: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "용지: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "{total}장 중 {sheet}장",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "이 레이아웃을 준비할 수 없습니다. 용지 크기, 여백 및 배율을 확인하세요."
 }

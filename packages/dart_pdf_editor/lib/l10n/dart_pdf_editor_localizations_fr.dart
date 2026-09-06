@@ -2131,4 +2131,36 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Aucune signature enregistrée.';
+
+  @override
+  String get splitTitle => 'Scinder le PDF…';
+
+  @override
+  String get splitHelp =>
+      'Saisissez des plages de pages séparées par des virgules. Chaque plage crée un PDF distinct.';
+
+  @override
+  String get splitRanges => 'Plages de pages';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Utilisez les pages de 1 à $count, séparées par des virgules. Les plages doivent être croissantes.';
+  }
+
+  @override
+  String get splitConfirm => 'Scinder';
+
+  @override
+  String get splitFailed => 'Impossible de scinder ce PDF.';
+
+  @override
+  String get guidesSnapHint =>
+      'Aligner les bords et les centres des annotations • Maintenir Alt pour ignorer';
+
+  @override
+  String get tbToolContentDelete => 'Effacer';
+
+  @override
+  String get tbTipContentDelete =>
+      'Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer';
 }

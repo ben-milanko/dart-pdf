@@ -113,12 +113,27 @@
   "editorMenuPrint": "Cetak…",
   "editorMenuSaveAs": "Simpan sebagai…",
   "editorMenuScanDocument": "Pindai ke dokumen baru…",
+  "editorMenuInsertDocument": "Sisipkan dokumen…",
   "editorMenuInsertScan": "Sisipkan pindaian…",
   "editorScanFailed": "Tidak dapat memindai dokumen.",
   "editorInsertedScan": "Halaman pindaian disisipkan.",
   "editorMenuSettings": "Pengaturan",
-  "editorMenuSwitchToEdit": "Beralih ke mode edit",
-  "editorMenuSwitchToReadOnly": "Beralih ke hanya-baca",
+  "editorMenuSectionFile": "Berkas",
+  "editorMenuSectionDocument": "Dokumen ini",
+  "editorMenuSectionApp": "Aplikasi",
+  "editorMenuReadOnly": "Hanya-baca",
+  "editorMenuSearchActions": "Cari tindakan…",
+  "paletteHint": "Cari tindakan, alat, dan panel",
+  "paletteNoMatch": "Tidak ada perintah yang cocok",
+  "paletteKeyHints": "↑↓ pindah · ⏎ jalankan · esc tutup",
+  "paletteCount": "{count} perintah",
+  "paletteCountFiltered": "{count} dari {total}",
+  "paletteSourceMenu": "Menu",
+  "paletteSourcePanel": "Panel",
+  "paletteSourceView": "Tampilan",
+  "paletteSourceFile": "Berkas",
+  "paletteSourceTool": "Alat {group}",
+  "paletteNeedsDocument": "Perlu dokumen yang terbuka",
   "editorNamedAction": "Tindakan bernama: {name}",
   "editorNoRecentFiles": "Tidak ada berkas terkini",
   "editorOcrTitle": "{title} (OCR)",
@@ -264,5 +279,149 @@
   "updateFailed": "Pembaruan gagal: {error}",
   "imageSourceTakePhoto": "Ambil foto",
   "imageSourceChooseFile": "Pilih berkas",
-  "imageSourceCameraFailed": "Tidak dapat mengambil foto"
+  "imageSourceCameraFailed": "Tidak dapat mengambil foto",
+  "settingsCachedDocuments": "Dokumen dalam cache",
+  "settingsCacheUsage": "{used} MiB dari {limit} MiB digunakan",
+  "settingsCacheExplanation": "File di atas {limit} MiB tidak disimpan dalam cache. Menghapus cache tetap menyimpan daftar terbaru, dokumen terbuka, dan perubahan yang belum disimpan; file dalam cache harus dipilih lagi untuk dibuka kembali.",
+  "settingsClearCachedDocuments": "Hapus dokumen dalam cache",
+  "settingsCacheUnavailable": "Ukuran cache tidak tersedia",
+  "settingsCacheClearFailed": "Tidak dapat menghapus dokumen dalam cache. Coba lagi.",
+  "editorMenuReduceFileSize": "Kurangi ukuran file…",
+  "reduceSizeTitle": "Kurangi ukuran file",
+  "reduceSizeDescription": "Optimalkan dokumen saat ini, tinjau penghematannya, lalu simpan salinan yang lebih kecil.",
+  "reduceSizePreset": "Prasetel",
+  "reduceSizeLossless": "Tanpa kehilangan — pertahankan kualitas gambar",
+  "reduceSizeScreen": "Layar — 72 DPI, kualitas JPEG 60",
+  "reduceSizeEbook": "eBook — 150 DPI, kualitas JPEG 75",
+  "reduceSizePrinter": "Cetak — 300 DPI, kualitas JPEG 90",
+  "reduceSizeLosslessHint": "Resolusi dan kualitas gambar tetap sama.",
+  "reduceSizeLossyHint": "Gambar di atas resolusi target dapat diperkecil dan dikodekan sebagai JPEG. Detail halus dapat hilang; teks dan grafis vektor tetap tajam.",
+  "reduceSizeAdvanced": "Pengaturan lanjutan",
+  "reduceSizeRecompress": "Kompresi ulang aliran data",
+  "reduceSizeUnusedResources": "Hapus sumber daya yang tidak digunakan",
+  "reduceSizeDeduplicate": "Gabungkan objek duplikat",
+  "reduceSizeSubsetFonts": "Batasi font tertanam ke glif yang digunakan",
+  "reduceSizeDpi": "Resolusi target gambar",
+  "reduceSizeKeepImages": "Pertahankan gambar asli (tanpa kehilangan)",
+  "reduceSizeJpegQuality": "Kualitas JPEG: {quality}",
+  "reduceSizeSignaturesNotice": "Menulis ulang PDF bertanda tangan ini membatalkan tanda tangan digital pada salinan yang disimpan.",
+  "reduceSizeInvalidateSignatures": "Izinkan pembatalan tanda tangan pada salinan ini",
+  "reduceSizeEncrypted": "PDF terenkripsi tidak dapat dioptimalkan.",
+  "reduceSizeIncomplete": "Tunggu hingga dokumen selesai dimuat sebelum mengurangi ukurannya.",
+  "reduceSizeRun": "Optimalkan",
+  "reduceSizeRunning": "Mengoptimalkan dokumen…",
+  "reduceSizeFailed": "Tidak dapat mengoptimalkan PDF ini: {error}",
+  "reduceSizeSaveFailed": "Tidak dapat menyimpan salinan: {error}",
+  "reduceSizeSaveCopy": "Simpan salinan…",
+  "reduceSizeChangeSettings": "Ubah pengaturan",
+  "reduceSizeBefore": "Ukuran asli",
+  "reduceSizeAfter": "Ukuran setelah optimalisasi",
+  "reduceSizeSavings": "Ruang yang dihemat",
+  "reduceSizeNoSavings": "Dokumen ini sudah ringkas dengan pengaturan ini. Data asli dipertahankan.",
+  "reduceSizeReportHint": "Byte yang dihemat pada setiap tahap optimalisasi:",
+  "reduceSizeStructure": "Struktur dokumen",
+  "reduceSizeResources": "Sumber daya tidak digunakan",
+  "reduceSizeFonts": "Font tertanam",
+  "reduceSizeImages": "Gambar",
+  "reduceSizeDuplicates": "Objek duplikat",
+  "reduceSizeCustom": "Pengaturan khusus",
+  "printOptionsPrinter": "Printer",
+  "printOptionsNativePrinter": "Pilih printer, baki kertas, warna, pencetakan dua sisi, dan properti perangkat pada dialog cetak sistem berikutnya. Biarkan skala pada 100% dan jumlah salinan pada 1 untuk menggunakan tata letak yang ditampilkan di sini.",
+  "printOptionsPages": "Halaman",
+  "printOptionsSelected": "Terpilih",
+  "printOptionsPageRange": "Halaman (misalnya, 1, 3-5)",
+  "printOptionsAddFiles": "Tambahkan file…",
+  "printOptionsAddFailed": "Tidak dapat menambahkan file yang dipilih.",
+  "printOptionsGetWindow": "Pilih area",
+  "printOptionsClearWindow": "Hapus area",
+  "printOptionsWindowHint": "Seret untuk menggambar persegi panjang pada halaman sumber ini guna memilih area yang akan dicetak.",
+  "printOptionsPaper": "Kertas",
+  "printOptionsPaperSize": "Ukuran kertas",
+  "printOptionsPageSize": "Gunakan ukuran halaman dokumen",
+  "printOptionsOrientation": "Orientasi",
+  "printOptionsAuto": "Otomatis",
+  "printOptionsPortrait": "Potret",
+  "printOptionsLandscape": "Lanskap",
+  "printOptionsCopies": "Salinan",
+  "printOptionsCollate": "Susun per set",
+  "printOptionsReverse": "Balik urutan halaman",
+  "printOptionsLayout": "Tata letak halaman",
+  "printOptionsScaling": "Penskalaan halaman",
+  "printOptionsScaleNone": "Tidak ada (ukuran sebenarnya)",
+  "printOptionsFitPaper": "Sesuaikan ke kertas",
+  "printOptionsReducePaper": "Perkecil agar muat di kertas",
+  "printOptionsFitMargins": "Sesuaikan ke margin",
+  "printOptionsReduceMargins": "Perkecil agar muat dalam margin",
+  "printOptionsCustomScale": "Skala khusus",
+  "printOptionsMultiple": "Beberapa halaman per lembar",
+  "printOptionsScalePercent": "Skala (%)",
+  "printOptionsMargin": "Margin (pt)",
+  "printOptionsPagesPerSheet": "Halaman per lembar",
+  "printOptionsPageOrder": "Urutan halaman",
+  "printOptionsHorizontal": "Horizontal",
+  "printOptionsHorizontalReverse": "Horizontal terbalik",
+  "printOptionsVertical": "Vertikal",
+  "printOptionsVerticalReverse": "Vertikal terbalik",
+  "printOptionsBorder": "Cetak bingkai halaman",
+  "printOptionsRotation": "Rotasi (searah jarum jam)",
+  "printOptionsNoRotation": "Tidak ada",
+  "printOptionsCenter": "Posisikan di tengah kertas",
+  "printOptionsOffsetX": "Geser ke kanan (pt)",
+  "printOptionsOffsetY": "Geser ke bawah (pt)",
+  "printOptionsContents": "Konten yang dicetak",
+  "printOptionsDocumentAndMarkups": "Dokumen dan anotasi",
+  "printOptionsDocumentOnly": "Hanya dokumen",
+  "printOptionsMarkupsOnly": "Hanya anotasi",
+  "printOptionsDimPage": "Redupkan konten halaman",
+  "printOptionsDimMarkups": "Redupkan anotasi",
+  "printOptionsHyperlinks": "Cetak hyperlink yang terlihat",
+  "printOptionsDefaults": "Default",
+  "printOptionsInvalidNumber": "Masukkan angka yang valid sebelum mencetak.",
+  "printOptionsInvalidValue": "Nilai tidak valid",
+  "printOptionsMarginGuide": "Garis merah menunjukkan margin dan tidak ikut dicetak.",
+  "printOptionsAreaSize": "Area: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Sumber: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Lembar: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Lembar {sheet} dari {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "Tata letak ini tidak dapat disiapkan. Periksa ukuran kertas, margin, dan skala."
 }

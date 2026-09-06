@@ -13,10 +13,14 @@ import 'package:web/web.dart' as web;
 ///
 /// [name] titles the print job. [onProgress] is unused on the web (there is
 /// nothing to render here); it exists to match the native signature.
+/// [useDocumentPageSize] marks an already composed PDF. Its page dimensions
+/// remain intact, but browsers own the final paper size and scaling controls;
+/// browser scripts cannot force those print-dialog preferences.
 Future<void> printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
   void Function(int rendered, int total)? onProgress,
+  bool useDocumentPageSize = false,
 }) async {
   final blob = web.Blob(
     <JSUint8Array>[pdfBytes.toJS].toJS,

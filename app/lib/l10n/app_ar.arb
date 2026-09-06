@@ -113,12 +113,27 @@
   "editorMenuPrint": "طباعة…",
   "editorMenuSaveAs": "حفظ باسم…",
   "editorMenuScanDocument": "مسح إلى مستند جديد…",
+  "editorMenuInsertDocument": "إدراج مستند…",
   "editorMenuInsertScan": "إدراج مسح ضوئي…",
   "editorScanFailed": "تعذّر مسح المستند.",
   "editorInsertedScan": "تمت إضافة الصفحات الممسوحة ضوئيًا.",
   "editorMenuSettings": "الإعدادات",
-  "editorMenuSwitchToEdit": "التبديل إلى وضع التحرير",
-  "editorMenuSwitchToReadOnly": "التبديل إلى وضع القراءة فقط",
+  "editorMenuSectionFile": "ملف",
+  "editorMenuSectionDocument": "هذا المستند",
+  "editorMenuSectionApp": "التطبيق",
+  "editorMenuReadOnly": "للقراءة فقط",
+  "editorMenuSearchActions": "بحث عن الإجراءات…",
+  "paletteHint": "ابحث في الإجراءات والأدوات واللوحات",
+  "paletteNoMatch": "لا يوجد أمر مطابق",
+  "paletteKeyHints": "↑↓ تنقل · ⏎ تنفيذ · esc إغلاق",
+  "paletteCount": "{count} أمر",
+  "paletteCountFiltered": "{count} من {total}",
+  "paletteSourceMenu": "القائمة",
+  "paletteSourcePanel": "لوحة",
+  "paletteSourceView": "عرض",
+  "paletteSourceFile": "ملف",
+  "paletteSourceTool": "أداة {group}",
+  "paletteNeedsDocument": "يتطلب مستندًا مفتوحًا",
   "editorNamedAction": "إجراء مُسمّى: {name}",
   "editorNoRecentFiles": "لا توجد ملفات أخيرة",
   "editorOcrTitle": "{title} (OCR)",
@@ -264,5 +279,149 @@
   "updateFailed": "فشل التحديث: {error}",
   "imageSourceTakePhoto": "التقاط صورة",
   "imageSourceChooseFile": "اختيار ملف",
-  "imageSourceCameraFailed": "تعذّر التقاط صورة"
+  "imageSourceCameraFailed": "تعذّر التقاط صورة",
+  "settingsCachedDocuments": "المستندات المخزنة مؤقتًا",
+  "settingsCacheUsage": "تم استخدام {used} MiB من {limit} MiB",
+  "settingsCacheExplanation": "لا تُخزّن الملفات التي تتجاوز {limit} MiB مؤقتًا. يحتفظ المسح بقائمة الملفات الأخيرة والمستندات المفتوحة والتغييرات غير المحفوظة؛ يجب اختيار الملفات المخزنة مؤقتًا مجددًا لإعادة فتحها.",
+  "settingsClearCachedDocuments": "مسح المستندات المخزنة مؤقتًا",
+  "settingsCacheUnavailable": "حجم التخزين المؤقت غير متاح",
+  "settingsCacheClearFailed": "تعذر مسح المستندات المخزنة مؤقتًا. حاول مجددًا.",
+  "editorMenuReduceFileSize": "تقليل حجم الملف…",
+  "reduceSizeTitle": "تقليل حجم الملف",
+  "reduceSizeDescription": "حسّن المستند الحالي، وراجع المساحة الموفرة، ثم احفظ نسخة أصغر.",
+  "reduceSizePreset": "إعداد مسبق",
+  "reduceSizeLossless": "دون فقدان — الحفاظ على جودة الصور",
+  "reduceSizeScreen": "الشاشة — 72 DPI، جودة JPEG ‏60",
+  "reduceSizeEbook": "كتاب إلكتروني — 150 DPI، جودة JPEG ‏75",
+  "reduceSizePrinter": "الطباعة — 300 DPI، جودة JPEG ‏90",
+  "reduceSizeLosslessHint": "تبقى دقة الصور وجودتها كما هي.",
+  "reduceSizeLossyHint": "قد تُصغّر الصور التي تتجاوز الدقة المستهدفة وتُرمّز بصيغة JPEG. قد تُفقد التفاصيل الدقيقة؛ بينما يبقى النص والرسومات المتجهة واضحة.",
+  "reduceSizeAdvanced": "إعدادات متقدمة",
+  "reduceSizeRecompress": "إعادة ضغط تدفقات البيانات",
+  "reduceSizeUnusedResources": "إزالة الموارد غير المستخدمة",
+  "reduceSizeDeduplicate": "دمج الكائنات المكررة",
+  "reduceSizeSubsetFonts": "تقليص الخطوط المضمنة إلى المحارف المستخدمة",
+  "reduceSizeDpi": "الدقة المستهدفة للصور",
+  "reduceSizeKeepImages": "الاحتفاظ بالصور الأصلية (دون فقدان)",
+  "reduceSizeJpegQuality": "جودة JPEG: ‏{quality}",
+  "reduceSizeSignaturesNotice": "إعادة كتابة ملف PDF الموقّع هذا تُبطل توقيعاته الرقمية في النسخة المحفوظة.",
+  "reduceSizeInvalidateSignatures": "السماح بإبطال التوقيعات في هذه النسخة",
+  "reduceSizeEncrypted": "لا يمكن تحسين ملفات PDF المشفرة.",
+  "reduceSizeIncomplete": "انتظر حتى يكتمل تحميل المستند قبل تقليل حجمه.",
+  "reduceSizeRun": "تحسين",
+  "reduceSizeRunning": "جارٍ تحسين المستند…",
+  "reduceSizeFailed": "تعذر تحسين ملف PDF هذا: {error}",
+  "reduceSizeSaveFailed": "تعذر حفظ النسخة: {error}",
+  "reduceSizeSaveCopy": "حفظ نسخة…",
+  "reduceSizeChangeSettings": "تغيير الإعدادات",
+  "reduceSizeBefore": "الحجم الأصلي",
+  "reduceSizeAfter": "الحجم بعد التحسين",
+  "reduceSizeSavings": "المساحة الموفرة",
+  "reduceSizeNoSavings": "هذا المستند مضغوط بالفعل بهذه الإعدادات. تم الاحتفاظ بالبيانات الأصلية.",
+  "reduceSizeReportHint": "البايتات الموفرة في كل خطوة تحسين:",
+  "reduceSizeStructure": "بنية المستند",
+  "reduceSizeResources": "الموارد غير المستخدمة",
+  "reduceSizeFonts": "الخطوط المضمنة",
+  "reduceSizeImages": "الصور",
+  "reduceSizeDuplicates": "الكائنات المكررة",
+  "reduceSizeCustom": "إعدادات مخصصة",
+  "printOptionsPrinter": "الطابعة",
+  "printOptionsNativePrinter": "اختر الطابعة ودرج الورق والألوان والطباعة على الوجهين وخصائص الجهاز في مربع حوار الطباعة الخاص بالنظام الذي سيظهر بعد ذلك. اترك المقياس عند 100% وعدد النسخ عند 1 لاستخدام التخطيط المعروض هنا.",
+  "printOptionsPages": "الصفحات",
+  "printOptionsSelected": "المحددة",
+  "printOptionsPageRange": "الصفحات (مثلاً: 1, 3-5)",
+  "printOptionsAddFiles": "إضافة ملفات…",
+  "printOptionsAddFailed": "تعذرت إضافة الملفات المحددة.",
+  "printOptionsGetWindow": "تحديد منطقة",
+  "printOptionsClearWindow": "مسح المنطقة",
+  "printOptionsWindowHint": "اسحب لرسم مستطيل على هذه الصفحة الأصلية لتحديد المنطقة المراد طباعتها.",
+  "printOptionsPaper": "الورق",
+  "printOptionsPaperSize": "حجم الورق",
+  "printOptionsPageSize": "استخدام حجم صفحة المستند",
+  "printOptionsOrientation": "الاتجاه",
+  "printOptionsAuto": "تلقائي",
+  "printOptionsPortrait": "عمودي",
+  "printOptionsLandscape": "أفقي",
+  "printOptionsCopies": "النسخ",
+  "printOptionsCollate": "ترتيب النسخ",
+  "printOptionsReverse": "عكس ترتيب الصفحات",
+  "printOptionsLayout": "تخطيط الصفحة",
+  "printOptionsScaling": "تحجيم الصفحة",
+  "printOptionsScaleNone": "بدون (الحجم الفعلي)",
+  "printOptionsFitPaper": "ملاءمة للورق",
+  "printOptionsReducePaper": "تصغير لملاءمة الورق",
+  "printOptionsFitMargins": "ملاءمة للهوامش",
+  "printOptionsReduceMargins": "تصغير لملاءمة الهوامش",
+  "printOptionsCustomScale": "مقياس مخصص",
+  "printOptionsMultiple": "عدة صفحات لكل ورقة",
+  "printOptionsScalePercent": "المقياس (%)",
+  "printOptionsMargin": "الهوامش (نقطة)",
+  "printOptionsPagesPerSheet": "الصفحات لكل ورقة",
+  "printOptionsPageOrder": "ترتيب الصفحات",
+  "printOptionsHorizontal": "أفقي",
+  "printOptionsHorizontalReverse": "أفقي معكوس",
+  "printOptionsVertical": "عمودي",
+  "printOptionsVerticalReverse": "عمودي معكوس",
+  "printOptionsBorder": "طباعة حدود الصفحات",
+  "printOptionsRotation": "التدوير (باتجاه عقارب الساعة)",
+  "printOptionsNoRotation": "بدون",
+  "printOptionsCenter": "توسيط على الورق",
+  "printOptionsOffsetX": "إزاحة لليمين (نقطة)",
+  "printOptionsOffsetY": "إزاحة للأسفل (نقطة)",
+  "printOptionsContents": "المحتوى المراد طباعته",
+  "printOptionsDocumentAndMarkups": "المستند والتعليقات التوضيحية",
+  "printOptionsDocumentOnly": "المستند فقط",
+  "printOptionsMarkupsOnly": "التعليقات التوضيحية فقط",
+  "printOptionsDimPage": "تخفيف لون محتوى الصفحة",
+  "printOptionsDimMarkups": "تخفيف لون التعليقات التوضيحية",
+  "printOptionsHyperlinks": "طباعة الارتباطات التشعبية المرئية",
+  "printOptionsDefaults": "الإعدادات الافتراضية",
+  "printOptionsInvalidNumber": "أدخل أرقامًا صالحة قبل الطباعة.",
+  "printOptionsInvalidValue": "قيمة غير صالحة",
+  "printOptionsMarginGuide": "تُظهر الخطوط الحمراء الهوامش، ولا تتم طباعتها.",
+  "printOptionsAreaSize": "المنطقة: {width} × {height} نقطة",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "الأصل: {width} × {height} نقطة",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "الورقة: {width} × {height} نقطة",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "الورقة {sheet} من {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "تعذر إعداد هذا التخطيط. تحقق من حجم الورق والهوامش والمقياس."
 }

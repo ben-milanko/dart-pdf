@@ -618,5 +618,14 @@
   "annotationLibraryCustomStamps": "Tampons personnalisés…",
   "signatureLibraryManage": "Gérer les signatures",
   "signatureLibraryRenameTitle": "Renommer la signature",
-  "signatureLibraryEmpty": "Aucune signature enregistrée."
+  "signatureLibraryEmpty": "Aucune signature enregistrée.",
+  "splitTitle": "Scinder le PDF…",
+  "splitHelp": "Saisissez des plages de pages séparées par des virgules. Chaque plage crée un PDF distinct.",
+  "splitRanges": "Plages de pages",
+  "splitInvalidRanges": "Utilisez les pages de 1 à {count}, séparées par des virgules. Les plages doivent être croissantes.",
+  "splitConfirm": "Scinder",
+  "splitFailed": "Impossible de scinder ce PDF.",
+  "guidesSnapHint": "Aligner les bords et les centres des annotations • Maintenir Alt pour ignorer",
+  "tbToolContentDelete": "Effacer",
+  "tbTipContentDelete": "Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer"
 }

@@ -461,6 +461,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorMenuScanDocument => 'مسح إلى مستند جديد…';
 
   @override
+  String get editorMenuInsertDocument => 'إدراج مستند…';
+
+  @override
   String get editorMenuInsertScan => 'إدراج مسح ضوئي…';
 
   @override
@@ -473,10 +476,58 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorMenuSettings => 'الإعدادات';
 
   @override
-  String get editorMenuSwitchToEdit => 'التبديل إلى وضع التحرير';
+  String get editorMenuSectionFile => 'ملف';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'التبديل إلى وضع القراءة فقط';
+  String get editorMenuSectionDocument => 'هذا المستند';
+
+  @override
+  String get editorMenuSectionApp => 'التطبيق';
+
+  @override
+  String get editorMenuReadOnly => 'للقراءة فقط';
+
+  @override
+  String get editorMenuSearchActions => 'بحث عن الإجراءات…';
+
+  @override
+  String get paletteHint => 'ابحث في الإجراءات والأدوات واللوحات';
+
+  @override
+  String get paletteNoMatch => 'لا يوجد أمر مطابق';
+
+  @override
+  String get paletteKeyHints => '↑↓ تنقل · ⏎ تنفيذ · esc إغلاق';
+
+  @override
+  String paletteCount(int count) {
+    return '$count أمر';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count من $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'القائمة';
+
+  @override
+  String get paletteSourcePanel => 'لوحة';
+
+  @override
+  String get paletteSourceView => 'عرض';
+
+  @override
+  String get paletteSourceFile => 'ملف';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'أداة $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'يتطلب مستندًا مفتوحًا';
 
   @override
   String editorNamedAction(String name) {
@@ -1078,4 +1129,346 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'تعذّر التقاط صورة';
+
+  @override
+  String get settingsCachedDocuments => 'المستندات المخزنة مؤقتًا';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'تم استخدام $used MiB من $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'لا تُخزّن الملفات التي تتجاوز $limit MiB مؤقتًا. يحتفظ المسح بقائمة الملفات الأخيرة والمستندات المفتوحة والتغييرات غير المحفوظة؛ يجب اختيار الملفات المخزنة مؤقتًا مجددًا لإعادة فتحها.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'مسح المستندات المخزنة مؤقتًا';
+
+  @override
+  String get settingsCacheUnavailable => 'حجم التخزين المؤقت غير متاح';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'تعذر مسح المستندات المخزنة مؤقتًا. حاول مجددًا.';
+
+  @override
+  String get editorMenuReduceFileSize => 'تقليل حجم الملف…';
+
+  @override
+  String get reduceSizeTitle => 'تقليل حجم الملف';
+
+  @override
+  String get reduceSizeDescription =>
+      'حسّن المستند الحالي، وراجع المساحة الموفرة، ثم احفظ نسخة أصغر.';
+
+  @override
+  String get reduceSizePreset => 'إعداد مسبق';
+
+  @override
+  String get reduceSizeLossless => 'دون فقدان — الحفاظ على جودة الصور';
+
+  @override
+  String get reduceSizeScreen => 'الشاشة — 72 DPI، جودة JPEG ‏60';
+
+  @override
+  String get reduceSizeEbook => 'كتاب إلكتروني — 150 DPI، جودة JPEG ‏75';
+
+  @override
+  String get reduceSizePrinter => 'الطباعة — 300 DPI، جودة JPEG ‏90';
+
+  @override
+  String get reduceSizeLosslessHint => 'تبقى دقة الصور وجودتها كما هي.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'قد تُصغّر الصور التي تتجاوز الدقة المستهدفة وتُرمّز بصيغة JPEG. قد تُفقد التفاصيل الدقيقة؛ بينما يبقى النص والرسومات المتجهة واضحة.';
+
+  @override
+  String get reduceSizeAdvanced => 'إعدادات متقدمة';
+
+  @override
+  String get reduceSizeRecompress => 'إعادة ضغط تدفقات البيانات';
+
+  @override
+  String get reduceSizeUnusedResources => 'إزالة الموارد غير المستخدمة';
+
+  @override
+  String get reduceSizeDeduplicate => 'دمج الكائنات المكررة';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'تقليص الخطوط المضمنة إلى المحارف المستخدمة';
+
+  @override
+  String get reduceSizeDpi => 'الدقة المستهدفة للصور';
+
+  @override
+  String get reduceSizeKeepImages => 'الاحتفاظ بالصور الأصلية (دون فقدان)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'جودة JPEG: ‏$quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'إعادة كتابة ملف PDF الموقّع هذا تُبطل توقيعاته الرقمية في النسخة المحفوظة.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'السماح بإبطال التوقيعات في هذه النسخة';
+
+  @override
+  String get reduceSizeEncrypted => 'لا يمكن تحسين ملفات PDF المشفرة.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'انتظر حتى يكتمل تحميل المستند قبل تقليل حجمه.';
+
+  @override
+  String get reduceSizeRun => 'تحسين';
+
+  @override
+  String get reduceSizeRunning => 'جارٍ تحسين المستند…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'تعذر تحسين ملف PDF هذا: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'تعذر حفظ النسخة: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'حفظ نسخة…';
+
+  @override
+  String get reduceSizeChangeSettings => 'تغيير الإعدادات';
+
+  @override
+  String get reduceSizeBefore => 'الحجم الأصلي';
+
+  @override
+  String get reduceSizeAfter => 'الحجم بعد التحسين';
+
+  @override
+  String get reduceSizeSavings => 'المساحة الموفرة';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'هذا المستند مضغوط بالفعل بهذه الإعدادات. تم الاحتفاظ بالبيانات الأصلية.';
+
+  @override
+  String get reduceSizeReportHint => 'البايتات الموفرة في كل خطوة تحسين:';
+
+  @override
+  String get reduceSizeStructure => 'بنية المستند';
+
+  @override
+  String get reduceSizeResources => 'الموارد غير المستخدمة';
+
+  @override
+  String get reduceSizeFonts => 'الخطوط المضمنة';
+
+  @override
+  String get reduceSizeImages => 'الصور';
+
+  @override
+  String get reduceSizeDuplicates => 'الكائنات المكررة';
+
+  @override
+  String get reduceSizeCustom => 'إعدادات مخصصة';
+
+  @override
+  String get printOptionsPrinter => 'الطابعة';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'اختر الطابعة ودرج الورق والألوان والطباعة على الوجهين وخصائص الجهاز في مربع حوار الطباعة الخاص بالنظام الذي سيظهر بعد ذلك. اترك المقياس عند 100% وعدد النسخ عند 1 لاستخدام التخطيط المعروض هنا.';
+
+  @override
+  String get printOptionsPages => 'الصفحات';
+
+  @override
+  String get printOptionsSelected => 'المحددة';
+
+  @override
+  String get printOptionsPageRange => 'الصفحات (مثلاً: 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'إضافة ملفات…';
+
+  @override
+  String get printOptionsAddFailed => 'تعذرت إضافة الملفات المحددة.';
+
+  @override
+  String get printOptionsGetWindow => 'تحديد منطقة';
+
+  @override
+  String get printOptionsClearWindow => 'مسح المنطقة';
+
+  @override
+  String get printOptionsWindowHint =>
+      'اسحب لرسم مستطيل على هذه الصفحة الأصلية لتحديد المنطقة المراد طباعتها.';
+
+  @override
+  String get printOptionsPaper => 'الورق';
+
+  @override
+  String get printOptionsPaperSize => 'حجم الورق';
+
+  @override
+  String get printOptionsPageSize => 'استخدام حجم صفحة المستند';
+
+  @override
+  String get printOptionsOrientation => 'الاتجاه';
+
+  @override
+  String get printOptionsAuto => 'تلقائي';
+
+  @override
+  String get printOptionsPortrait => 'عمودي';
+
+  @override
+  String get printOptionsLandscape => 'أفقي';
+
+  @override
+  String get printOptionsCopies => 'النسخ';
+
+  @override
+  String get printOptionsCollate => 'ترتيب النسخ';
+
+  @override
+  String get printOptionsReverse => 'عكس ترتيب الصفحات';
+
+  @override
+  String get printOptionsLayout => 'تخطيط الصفحة';
+
+  @override
+  String get printOptionsScaling => 'تحجيم الصفحة';
+
+  @override
+  String get printOptionsScaleNone => 'بدون (الحجم الفعلي)';
+
+  @override
+  String get printOptionsFitPaper => 'ملاءمة للورق';
+
+  @override
+  String get printOptionsReducePaper => 'تصغير لملاءمة الورق';
+
+  @override
+  String get printOptionsFitMargins => 'ملاءمة للهوامش';
+
+  @override
+  String get printOptionsReduceMargins => 'تصغير لملاءمة الهوامش';
+
+  @override
+  String get printOptionsCustomScale => 'مقياس مخصص';
+
+  @override
+  String get printOptionsMultiple => 'عدة صفحات لكل ورقة';
+
+  @override
+  String get printOptionsScalePercent => 'المقياس (%)';
+
+  @override
+  String get printOptionsMargin => 'الهوامش (نقطة)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'الصفحات لكل ورقة';
+
+  @override
+  String get printOptionsPageOrder => 'ترتيب الصفحات';
+
+  @override
+  String get printOptionsHorizontal => 'أفقي';
+
+  @override
+  String get printOptionsHorizontalReverse => 'أفقي معكوس';
+
+  @override
+  String get printOptionsVertical => 'عمودي';
+
+  @override
+  String get printOptionsVerticalReverse => 'عمودي معكوس';
+
+  @override
+  String get printOptionsBorder => 'طباعة حدود الصفحات';
+
+  @override
+  String get printOptionsRotation => 'التدوير (باتجاه عقارب الساعة)';
+
+  @override
+  String get printOptionsNoRotation => 'بدون';
+
+  @override
+  String get printOptionsCenter => 'توسيط على الورق';
+
+  @override
+  String get printOptionsOffsetX => 'إزاحة لليمين (نقطة)';
+
+  @override
+  String get printOptionsOffsetY => 'إزاحة للأسفل (نقطة)';
+
+  @override
+  String get printOptionsContents => 'المحتوى المراد طباعته';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'المستند والتعليقات التوضيحية';
+
+  @override
+  String get printOptionsDocumentOnly => 'المستند فقط';
+
+  @override
+  String get printOptionsMarkupsOnly => 'التعليقات التوضيحية فقط';
+
+  @override
+  String get printOptionsDimPage => 'تخفيف لون محتوى الصفحة';
+
+  @override
+  String get printOptionsDimMarkups => 'تخفيف لون التعليقات التوضيحية';
+
+  @override
+  String get printOptionsHyperlinks => 'طباعة الارتباطات التشعبية المرئية';
+
+  @override
+  String get printOptionsDefaults => 'الإعدادات الافتراضية';
+
+  @override
+  String get printOptionsInvalidNumber => 'أدخل أرقامًا صالحة قبل الطباعة.';
+
+  @override
+  String get printOptionsInvalidValue => 'قيمة غير صالحة';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'تُظهر الخطوط الحمراء الهوامش، ولا تتم طباعتها.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'المنطقة: $width × $height نقطة';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'الأصل: $width × $height نقطة';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'الورقة: $width × $height نقطة';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'الورقة $sheet من $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'تعذر إعداد هذا التخطيط. تحقق من حجم الورق والهوامش والمقياس.';
 }

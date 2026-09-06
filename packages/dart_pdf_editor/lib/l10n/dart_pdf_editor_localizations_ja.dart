@@ -2093,4 +2093,34 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => '保存済みの署名はありません。';
+
+  @override
+  String get splitTitle => 'PDFを分割…';
+
+  @override
+  String get splitHelp => 'ページ範囲をカンマで区切って入力してください。範囲ごとに別のPDFを作成します。';
+
+  @override
+  String get splitRanges => 'ページ範囲';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return '1～$countページをカンマで区切って指定してください。範囲は昇順で指定してください。';
+  }
+
+  @override
+  String get splitConfirm => '分割';
+
+  @override
+  String get splitFailed => 'このPDFを分割できませんでした。';
+
+  @override
+  String get guidesSnapHint => '注釈の端と中心にスナップ • Alt キーを押して無効化';
+
+  @override
+  String get tbToolContentDelete => '消去';
+
+  @override
+  String get tbTipContentDelete =>
+      'コンテンツを削除 — ドラッグで長方形を描くか、多角形の頂点をクリックし、ダブルクリックで完了';
 }

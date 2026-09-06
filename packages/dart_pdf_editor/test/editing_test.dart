@@ -470,6 +470,44 @@ void main() {
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
     });
 
+    test('deleteElementsInRect removes bounded content in a region', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(70, 715, 160, 750)), 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+
+      editing.undo();
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(78, 725, 85, 740)), 1);
+      expect(editing.elementsOn(0).elements.single.text, 'age 1',
+          reason: 'a partial hit snaps to the nearest character');
+
+      editing.undo();
+      expect(editing.deleteElementsInRect(0, const PdfRect(300, 300, 360, 360)),
+          0);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+    });
+
+    test('content regions leave annotations and missed revisions alone', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addNote(0, 80, 725, 'keep me');
+      final before = editing.revisionId;
+      expect(editing.deleteElementsInRect(0, const PdfRect(0, 0, 20, 20)), 0);
+      expect(
+          editing.deleteElementsInPolygon(
+              0, const [(0, 0), (20, 0), (20, 20), (0, 20)]),
+          0);
+      expect(editing.revisionId, before);
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(60, 700, 180, 760)), 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+      expect(editing.document.page(0).annotations.single.contents, 'keep me');
+      editing.undo();
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+      expect(editing.document.page(0).annotations.single.contents, 'keep me');
+    });
+
     test('replaceSelectedElementText leaves identical runs elsewhere alone',
         () {
       // the same words drawn twice, as a header and a footer would be
@@ -1301,6 +1339,54 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the Edit group arms the content-delete tool', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final toolbarScrollables = find.descendant(
+          of: find.byType(PdfEditingToolbar),
+          matching: find.byType(Scrollable));
+      final dockScrollable = toolbarScrollables.last;
+      final stripScrollable = toolbarScrollables.first;
+      final editChip = find.byKey(const ValueKey('pdf-group-edit'));
+      await tester.scrollUntilVisible(editChip, 80, scrollable: dockScrollable);
+      await tester.tap(editChip);
+      await settle(tester);
+      final contentDeleteButton =
+          find.byTooltip('Delete content — drag a rectangle, or click polygon '
+              'vertices and double-click to finish (⇧E)');
+      await tester.scrollUntilVisible(contentDeleteButton, 80,
+          scrollable: stripScrollable);
+      await tester.tap(contentDeleteButton);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.contentDelete);
+      // re-tapping the active tool drops back to Select
+      await tester.tap(contentDeleteButton);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.select);
+      await settle(tester);
+    });
+
     testWidgets('the Draw group exposes a freehand highlight tool',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -1395,6 +1481,81 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.delete);
       await settle(tester);
       expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool drags a region to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      final from = view(60, 755);
+      final to = view(180, 705);
+      final gesture = await tester.startGesture(from);
+      await gesture.moveTo(Offset.lerp(from, to, 0.5)!);
+      await tester.pump();
+      final painter = editingOverlayPainter(tester);
+      expect(painter.tool, PdfEditTool.contentDelete);
+      expect(painter.dragRect, isNotNull);
+
+      await gesture.moveTo(to);
+      await gesture.up();
+      await settle(tester);
+      expect(editing.elementsOn(0).elements, isEmpty);
+      editing.undo();
+      await settle(tester);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+      editing.redo();
+      await settle(tester);
+      expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool lassos a polygon to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      // tap a quad around the page content, then double-tap to close it
+      await tester.tapAt(view(60, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 755));
+      await tester.pump(const Duration(milliseconds: 400));
+      // one vertex short of a closed region: nothing removed yet
+      expect(editing.elementsOn(0).elements, isNotEmpty);
+      final painter = editingOverlayPainter(tester);
+      expect(painter.tool, PdfEditTool.contentDelete);
+      expect(painter.dragPath, isNotNull);
+
+      await tester.tapAt(view(60, 755));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(60, 755));
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+      expect(editing.elementsOn(0).elements, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('changing tools discards an unfinished content lasso',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+      await tester.tapAt(view(60, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editingOverlayPainter(tester).dragPath, isNotNull);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+      expect(editingOverlayPainter(tester).dragPath, isNull);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+      expect(editingOverlayPainter(tester).dragPath, isNull);
+      expect(editing.isModified, isFalse);
+      await settle(tester);
     });
 
     testWidgets('the sidebar lists, selects, and deletes annotations',

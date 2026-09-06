@@ -13,6 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
+import '../split_dialog.dart';
 import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
 import '../popup_position.dart';
@@ -86,6 +87,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.onClose,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
     this.fileDropController,
     this.renderWorker,
     this.rasterCache,
@@ -136,8 +138,8 @@ class PdfThumbnailSidebar extends StatefulWidget {
   final double minWidth;
   final double maxWidth;
 
-  /// Whether the strip scrolls the current page's tile into view when
-  /// the viewer's page changes.
+  /// Whether the strip scrolls the current page's tile into view when it
+  /// opens, following is enabled, or the viewer's page changes.
   final bool followsViewer;
 
   /// Whether pages can be reordered (drag) and deleted (footer button)
@@ -166,6 +168,10 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// When given, an "Export pages…" entry appears in the page-actions
   /// footer menu.
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Receives one standalone PDF per range from "Split PDF…". When null,
+  /// that action is hidden. Outputs follow the user's range order.
+  final void Function(List<Uint8List> documents)? onSplitPages;
 
   /// Lets a PDF dragged in from outside the app (the desktop, a browser
   /// download) be dropped *between two tiles* - the strip paints an
@@ -427,6 +433,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // tiles that just came into view
     _scroll.addListener(_onScroll);
     _attachDrop(widget.fileDropController);
+    _revealCurrentAfterLayout();
   }
 
   @override
@@ -440,6 +447,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       old.viewerController.removeListener(_onViewerChanged);
       widget.viewerController.addListener(_onViewerChanged);
       _lastCurrent = widget.viewerController.currentPage;
+    }
+    if (!identical(old.viewerController, widget.viewerController) ||
+        !identical(old.controller, widget.controller) ||
+        (!old.followsViewer && widget.followsViewer)) {
+      _revealCurrentAfterLayout();
     }
     if (!identical(old.controller.preferences, _preferences)) {
       old.controller.preferences.removeListener(_onPreferences);
@@ -525,6 +537,18 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // viewer just moved to even before the reveal scroll settles
     _cache.focus = current;
     if (widget.followsViewer) _revealPage(current);
+  }
+
+  /// A newly mounted strip may restore an old scroll offset from PageStorage,
+  /// while the viewer is already on another page. No current-page change will
+  /// arrive to reveal it, so synchronize once the strip has laid out. Read the
+  /// current controller in the callback in case navigation happened meanwhile.
+  void _revealCurrentAfterLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.followsViewer) {
+        _revealPage(widget.viewerController.currentPage);
+      }
+    });
   }
 
   /// Renders one page's thumbnail straight into the shared cache - the idle
@@ -736,6 +760,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                     final rtl = Directionality.of(context) == TextDirection.rtl;
                     final showPageActions = widget.onPickPdfToInsert != null ||
                         widget.onExportPages != null ||
+                        widget.onSplitPages != null ||
                         (widget.allowPageEditing &&
                             controller.hasPageClipboard);
                     final moveHandle = geometry.moveHandle(
@@ -781,6 +806,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                             onPickPdfToInsert:
                                                 widget.onPickPdfToInsert,
                                             onExportPages: widget.onExportPages,
+                                            onSplitPages: widget.onSplitPages,
                                           ),
                                       ],
                                     ),
@@ -837,6 +863,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                                   widget.onPickPdfToInsert,
                                               onExportPages:
                                                   widget.onExportPages,
+                                              onSplitPages: widget.onSplitPages,
                                             )
                                           : const SizedBox.shrink(),
                                     ),
@@ -1211,7 +1238,7 @@ PdfThumbnailDropEdge? _tileDropEdge(
   return null;
 }
 
-enum _PageAction { paste, insert, export }
+enum _PageAction { paste, insert, export, split }
 
 const _densePopupMenuHeight = 34.0;
 
@@ -1233,6 +1260,7 @@ class _PageActionsButton extends StatelessWidget {
     required this.allowPageEditing,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
   });
 
   final PdfEditingController controller;
@@ -1243,6 +1271,10 @@ class _PageActionsButton extends StatelessWidget {
   final bool allowPageEditing;
   final Future<Uint8List?> Function()? onPickPdfToInsert;
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Receives one standalone PDF per range from "Split PDF…". When null,
+  /// that action is hidden. Outputs follow the user's range order.
+  final void Function(List<Uint8List> documents)? onSplitPages;
 
   void _paste() {
     // paste the shared clipboard's pages after the current page, then
@@ -1293,6 +1325,31 @@ class _PageActionsButton extends StatelessWidget {
     onExport(controller.exportPageRange(range.start, range.end));
   }
 
+  Future<void> _split(BuildContext context) async {
+    final onSplit = onSplitPages;
+    if (onSplit == null) return;
+    final document = controller.document;
+    final ranges = await showPdfSplitDialog(
+      context,
+      pageCount: document.pageCount,
+    );
+    if (ranges == null ||
+        !context.mounted ||
+        !identical(controller.document, document)) {
+      return;
+    }
+    late final List<Uint8List> outputs;
+    try {
+      outputs = controller.exportPageRanges(ranges);
+    } catch (_) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(pdfL10n(context).splitFailed),
+      ));
+      return;
+    }
+    onSplit(outputs);
+  }
+
   @override
   Widget build(BuildContext context) {
     final canPaste = allowPageEditing && controller.hasPageClipboard;
@@ -1311,6 +1368,8 @@ class _PageActionsButton extends StatelessWidget {
             _insert(context);
           case _PageAction.export:
             _export(context);
+          case _PageAction.split:
+            _split(context);
         }
       },
       itemBuilder: (context) => [
@@ -1331,6 +1390,14 @@ class _PageActionsButton extends StatelessWidget {
             value: _PageAction.insert,
             height: _densePopupMenuHeight,
             child: Text(pdfL10n(context).thumbInsertPdf,
+                style: _densePopupTextStyle(context)),
+          ),
+        if (onSplitPages != null)
+          PopupMenuItem(
+            key: const ValueKey('pdf-thumbnail-split-pages'),
+            value: _PageAction.split,
+            height: _densePopupMenuHeight,
+            child: Text(pdfL10n(context).splitTitle,
                 style: _densePopupTextStyle(context)),
           ),
         if (canExport)
@@ -1380,6 +1447,7 @@ class PdfThumbnailView extends StatefulWidget {
     this.allowPageEditing = true,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.onSplitPages,
     this.fileDropController,
     this.onOpenPage,
     this.renderWorker,
@@ -1419,6 +1487,10 @@ class PdfThumbnailView extends StatefulWidget {
   /// Receives the bytes of an exported page range; null hides the
   /// "Export pages…" page-action and the selection bar's export.
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Receives one standalone PDF per range from "Split PDF…". When null,
+  /// that action is hidden. Outputs follow the user's range order.
+  final void Function(List<Uint8List> documents)? onSplitPages;
 
   /// Lets a PDF dragged in from outside the app be dropped between two
   /// tiles, at the marked position in the page order. The host drives the
@@ -1816,6 +1888,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                           ),
                           if (widget.onPickPdfToInsert != null ||
                               widget.onExportPages != null ||
+                              widget.onSplitPages != null ||
                               (widget.allowPageEditing &&
                                   controller.hasPageClipboard))
                             _PageActionsButton(
@@ -1824,6 +1897,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                               allowPageEditing: widget.allowPageEditing,
                               onPickPdfToInsert: widget.onPickPdfToInsert,
                               onExportPages: widget.onExportPages,
+                              onSplitPages: widget.onSplitPages,
                             ),
                         ]),
                       ),

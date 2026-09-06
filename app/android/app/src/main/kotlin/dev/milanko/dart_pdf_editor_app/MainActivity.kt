@@ -6,8 +6,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.hardware.input.InputManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.print.PageRange
@@ -19,6 +23,7 @@ import android.provider.OpenableColumns
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
+import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -28,16 +33,19 @@ import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 /// Forwards PDFs the OS opens in the app - a Files "open", a download tap, or a
 /// share - to the Dart `IncomingFileService` over a single method channel.
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private val channelName = "dev.milanko.dartpdf/incoming"
     private val imageClipboardChannelName = "dev.milanko.dartpdf/image_clipboard"
     private val nativePrintChannelName = "dev.milanko.dartpdf/native_print"
     private val mobileFileChannelName = "dev.milanko.dartpdf/mobile_file"
     private val memoryChannelName = "dev.milanko.dartpdf/memory"
     private var channel: MethodChannel? = null
+    private var keyboardChannel: MethodChannel? = null
+    private var keyboardInputManager: InputManager? = null
 
     /// The file the activity was launched with, drained by `getInitialFile`.
     private var pending: Map<String, Any>? = null
@@ -53,6 +61,19 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        keyboardChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, "dev.milanko.dartpdf/keyboard"
+        ).also { keyboard ->
+            keyboard.setMethodCallHandler { call, result ->
+                if (call.method == "isConnected") {
+                    result.success(hasPhysicalKeyboard())
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
+        keyboardInputManager = (getSystemService(Context.INPUT_SERVICE) as InputManager)
+            .also { it.registerInputDeviceListener(this, Handler(Looper.getMainLooper())) }
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         ch.setMethodCallHandler { call, result ->
             if (call.method == "getInitialFile") {
@@ -92,7 +113,12 @@ class MainActivity : FlutterActivity() {
                         if (pdf == null) {
                             result.error("bad_args", "printPdf expects pdf bytes", null)
                         } else {
-                            result.success(printPdf(pdf, call.argument<String>("name") ?: "Document"))
+                            result.success(printPdf(
+                                pdf, call.argument<String>("name") ?: "Document",
+                                call.argument<Boolean>("useDocumentPageSize") == true,
+                                call.argument<Number>("pageWidth")?.toDouble(),
+                                call.argument<Number>("pageHeight")?.toDouble()
+                            ))
                         }
                     }
                     else -> result.notImplemented()
@@ -128,6 +154,30 @@ class MainActivity : FlutterActivity() {
 
         channel = ch
         handleIntent(intent, initial = true)
+    }
+
+    private fun hasPhysicalKeyboard(): Boolean = InputDevice.getDeviceIds().any { id ->
+        val device = InputDevice.getDevice(id)
+        // Volume buttons, remotes, and the virtual keyboard are not typing keyboards.
+        device != null && !device.isVirtual &&
+            (Build.VERSION.SDK_INT < 27 || device.isEnabled) &&
+            device.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
+    }
+
+    private fun notifyKeyboardChanged() {
+        keyboardChannel?.invokeMethod("changed", hasPhysicalKeyboard())
+    }
+
+    override fun onInputDeviceAdded(deviceId: Int) = notifyKeyboardChanged()
+    override fun onInputDeviceRemoved(deviceId: Int) = notifyKeyboardChanged()
+    override fun onInputDeviceChanged(deviceId: Int) = notifyKeyboardChanged()
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        keyboardInputManager?.unregisterInputDeviceListener(this)
+        keyboardInputManager = null
+        keyboardChannel?.setMethodCallHandler(null)
+        keyboardChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun handleMobileFile(
@@ -352,13 +402,30 @@ class MainActivity : FlutterActivity() {
 
     /// Hands the whole PDF to Android's print framework, which renders it.
     /// Returns false when the print service is unavailable.
-    private fun printPdf(pdf: ByteArray, name: String): Boolean {
+    private fun printPdf(
+        pdf: ByteArray, name: String, useDocumentPageSize: Boolean = false,
+        pageWidth: Double? = null, pageHeight: Double? = null
+    ): Boolean {
         val printManager =
             getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return false
+        val attributes = PrintAttributes.Builder()
+        if (useDocumentPageSize && pageWidth != null && pageHeight != null &&
+            pageWidth.isFinite() && pageHeight.isFinite() &&
+            pageWidth > 0 && pageHeight > 0) {
+            // Android expresses media in thousandths of an inch. The adapter
+            // writes the already composed PDF verbatim; these are defaults for
+            // the print service, which still negotiates supported printer media.
+            attributes.setMediaSize(PrintAttributes.MediaSize(
+                "dartpdf-sheet", "Document sheet",
+                (pageWidth * 1000 / 72).roundToInt().coerceAtLeast(1),
+                (pageHeight * 1000 / 72).roundToInt().coerceAtLeast(1)
+            ))
+            attributes.setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+        }
         printManager.print(
             name,
             PdfBytesPrintAdapter(pdf, name),
-            PrintAttributes.Builder().build()
+            attributes.build()
         )
         return true
     }

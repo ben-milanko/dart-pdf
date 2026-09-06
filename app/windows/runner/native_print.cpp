@@ -120,14 +120,73 @@ struct StreamReader {
   }
 };
 
-// The points->pixels transform: uniform fit scale plus centring offset.
+// The points->pixels transform. Prepared sheets use each physical axis's DPI
+// and the paper origin; legacy jobs fit and centre in the printable rectangle.
 struct DeviceTransform {
   double scale;
+  double scale_y;
   double off_x;
   double off_y;
   LONG X(double x) const { return static_cast<LONG>(std::lround(x * scale + off_x)); }
-  LONG Y(double y) const { return static_cast<LONG>(std::lround(y * scale + off_y)); }
+  LONG Y(double y) const { return static_cast<LONG>(std::lround(y * scale_y + off_y)); }
 };
+
+bool VectorPageSize(const std::vector<uint8_t>& stream,
+                    double* width, double* height) {
+  if (stream.size() < 12) return false;
+  StreamReader r{stream.data(), stream.data() + stream.size()};
+  if (r.U8() != 'V' || r.U8() != 'P' || r.U8() != 'R' || r.U8() != 1) {
+    return false;
+  }
+  *width = r.F32();
+  *height = r.F32();
+  return r.ok && std::isfinite(*width) && std::isfinite(*height) &&
+         *width > 0 && *height > 0;
+}
+
+// DEVMODE stores media dimensions in tenths of a millimetre, before applying
+// orientation. Preserve the driver-private tail, printer and duplex settings.
+bool SetPreparedSheet(DEVMODEW* mode, double width, double height) {
+  const double short_side = std::min(width, height) * 254.0 / 72.0;
+  const double long_side = std::max(width, height) * 254.0 / 72.0;
+  if (mode == nullptr || mode->dmSize < sizeof(DEVMODEW) ||
+      !std::isfinite(short_side) || !std::isfinite(long_side) ||
+      short_side < 1 || long_side > std::numeric_limits<short>::max()) {
+    return false;
+  }
+  mode->dmFields &= ~(DM_FORMNAME | DM_PAPERSIZE | DM_PAPERWIDTH | DM_PAPERLENGTH);
+  mode->dmFields |= DM_PAPERSIZE | DM_ORIENTATION | DM_SCALE | DM_COPIES |
+                    DM_COLLATE | DM_NUP;
+  mode->dmPaperSize = 0;
+  mode->dmPaperWidth = static_cast<short>(std::lround(short_side));
+  mode->dmPaperLength = static_cast<short>(std::lround(long_side));
+  // Use a standard tray media code when possible. Some drivers accept A4 but
+  // reject an identically sized custom form; non-standard/plotter sheets still
+  // use the explicit dimension fields (A0/A1 have no Win32 paper constants).
+  struct Paper { short code; int width; int height; };
+  constexpr Paper papers[] = {
+      {DMPAPER_A2, 4200, 5940}, {DMPAPER_A3, 2970, 4200},
+      {DMPAPER_A4, 2100, 2970}, {DMPAPER_A5, 1480, 2100},
+      {DMPAPER_A6, 1050, 1480}, {DMPAPER_LETTER, 2159, 2794},
+      {DMPAPER_LEGAL, 2159, 3556}, {DMPAPER_TABLOID, 2794, 4318},
+  };
+  for (const auto& paper : papers) {
+    if (std::abs(short_side - paper.width) < 1 &&
+        std::abs(long_side - paper.height) < 1) {
+      mode->dmPaperSize = paper.code;
+      break;
+    }
+  }
+  if (mode->dmPaperSize == 0) {
+    mode->dmFields |= DM_PAPERWIDTH | DM_PAPERLENGTH;
+  }
+  mode->dmOrientation = width > height ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT;
+  mode->dmScale = 100;
+  mode->dmCopies = 1;
+  mode->dmCollate = DMCOLLATE_FALSE;
+  mode->dmNup = DMNUP_ONEUP;
+  return true;
+}
 
 COLORREF ReadRgb(StreamReader* r, uint8_t* alpha) {
   uint8_t red = r->U8();
@@ -282,7 +341,7 @@ void ReplayText(StreamReader* r, HDC hdc, const DeviceTransform& t) {
   const double a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5];
   const double em_height = std::hypot(c, d);
   const double angle = std::atan2(b, a);  // radians, GDI counts anti-clockwise
-  int height_px = static_cast<int>(std::lround(em_height * t.scale));
+  int height_px = static_cast<int>(std::lround(em_height * t.scale_y));
   if (height_px < 1) height_px = 1;
 
   int wide_len = ::MultiByteToWideChar(CP_UTF8, 0, utf8, utf8_len, nullptr, 0);
@@ -375,7 +434,9 @@ void ReplayImage(StreamReader* r, HDC hdc, const DeviceTransform& t) {
 // Replays one page's op stream onto |hdc| between StartPage/EndPage. Returns
 // false only when the page could not be started or ended (a decode error in
 // the middle still runs EndPage to keep the DC sane).
-bool RenderVectorPage(HDC hdc, const std::vector<uint8_t>& stream) {
+bool RenderVectorPage(HDC hdc, const std::vector<uint8_t>& stream,
+                      bool use_document_page_size) {
+  if (stream.size() < 12) return false;
   StreamReader r{stream.data(), stream.data() + stream.size()};
   // Header: magic 'V' 'P' 'R' 1, then f32 page width/height in points.
   if (r.U8() != 'V' || r.U8() != 'P' || r.U8() != 'R' || r.U8() != 1) {
@@ -383,7 +444,8 @@ bool RenderVectorPage(HDC hdc, const std::vector<uint8_t>& stream) {
   }
   const double page_w = r.F32();
   const double page_h = r.F32();
-  if (!r.ok || page_w <= 0 || page_h <= 0) return false;
+  if (!r.ok || !std::isfinite(page_w) || !std::isfinite(page_h) ||
+      page_w <= 0 || page_h <= 0) return false;
 
   const int res_x = ::GetDeviceCaps(hdc, HORZRES);
   const int res_y = ::GetDeviceCaps(hdc, VERTRES);
@@ -394,9 +456,12 @@ bool RenderVectorPage(HDC hdc, const std::vector<uint8_t>& stream) {
   const double page_px_h = page_h / 72.0 * dpi_y;
   const double fit = std::min(res_x / page_px_w, res_y / page_px_h);
   DeviceTransform t;
-  t.scale = dpi_x / 72.0 * fit;  // points -> pixels (isotropic; dpi_x≈dpi_y)
-  t.off_x = (res_x - page_px_w * fit) / 2.0;
-  t.off_y = (res_y - page_px_h * fit) / 2.0;
+  t.scale = dpi_x / 72.0 * (use_document_page_size ? 1.0 : fit);
+  t.scale_y = use_document_page_size ? dpi_y / 72.0 : t.scale;
+  t.off_x = use_document_page_size ? -::GetDeviceCaps(hdc, PHYSICALOFFSETX)
+                                    : (res_x - page_px_w * fit) / 2.0;
+  t.off_y = use_document_page_size ? -::GetDeviceCaps(hdc, PHYSICALOFFSETY)
+                                    : (res_y - page_px_h * fit) / 2.0;
 
   if (::StartPage(hdc) <= 0) return false;
   ::SetGraphicsMode(hdc, GM_ADVANCED);
@@ -510,9 +575,11 @@ bool BlitPage(HDC hdc, UINT width, UINT height,
 
 }  // namespace
 
-void NativePrinter::Begin(const std::wstring& document_name) {
+void NativePrinter::Begin(const std::wstring& document_name,
+                           bool use_document_page_size) {
   doc_name_ = document_name;
   pages_.clear();
+  use_document_page_size_ = use_document_page_size;
 }
 
 bool NativePrinter::AddPage(const std::vector<uint8_t>& image) {
@@ -532,6 +599,8 @@ bool NativePrinter::End(HWND owner) {
   pages.swap(pages_);
   std::wstring name = doc_name_;
   doc_name_.clear();
+  const bool prepared = use_document_page_size_;
+  use_document_page_size_ = false;
   if (pages.empty()) return false;
 
   PRINTDLGEXW pd = {};
@@ -542,6 +611,31 @@ bool NativePrinter::End(HWND owner) {
   pd.nStartPage = START_PAGE_GENERAL;
   pd.hDevMode = LoadPrintBlock(kDevModeValue);
   pd.hDevNames = LoadPrintBlock(kDevNamesValue);
+  pd.nCopies = 1;
+  if (prepared) {
+    // Without a saved printer, fetch the system default's DEVMODE so the
+    // dialog starts on the prepared paper size on the very first print too.
+    if (pd.hDevMode == nullptr) {
+      FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
+      pd.hDevNames = nullptr;
+      PRINTDLGW defaults = {};
+      defaults.lStructSize = sizeof(defaults);
+      defaults.Flags = PD_RETURNDEFAULT;
+      if (::PrintDlgW(&defaults)) {
+        pd.hDevMode = defaults.hDevMode;
+        pd.hDevNames = defaults.hDevNames;
+      } else {
+        FreePrintDialogBlocks(defaults.hDevMode, defaults.hDevNames);
+      }
+    }
+    double width = 0, height = 0;
+    if (pd.hDevMode != nullptr && pages.front().is_vector &&
+        VectorPageSize(pages.front().bytes, &width, &height)) {
+      auto* mode = static_cast<DEVMODEW*>(::GlobalLock(pd.hDevMode));
+      SetPreparedSheet(mode, width, height);
+      if (mode != nullptr) ::GlobalUnlock(pd.hDevMode);
+    }
+  }
   // Use the extended Windows print UI rather than the legacy PrintDlg. Besides
   // being the preview-capable system surface on current Windows releases, it
   // distinguishes Print from Apply and Cancel. Persist Apply too: changing a
@@ -558,13 +652,52 @@ bool NativePrinter::End(HWND owner) {
     FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
     return false;
   }
+  // Keep the full selected driver's DEVMODE for per-page media changes. Its
+  // private trailing bytes are required by many printer drivers.
+  std::vector<uint8_t> selected_mode;
+  if (prepared && pd.hDevMode != nullptr) {
+    const auto* mode = static_cast<const DEVMODEW*>(::GlobalLock(pd.hDevMode));
+    const SIZE_T available = ::GlobalSize(pd.hDevMode);
+    if (mode != nullptr && available >= sizeof(DEVMODEW) &&
+        mode->dmSize >= sizeof(DEVMODEW) &&
+        static_cast<SIZE_T>(mode->dmSize) + mode->dmDriverExtra <= available) {
+      const auto* bytes = reinterpret_cast<const uint8_t*>(mode);
+      selected_mode.assign(bytes, bytes + mode->dmSize + mode->dmDriverExtra);
+    }
+    if (mode != nullptr) ::GlobalUnlock(pd.hDevMode);
+  }
   FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
   HDC hdc = pd.hDC;
   if (hdc == nullptr) return false;
+  if (prepared && selected_mode.empty()) {
+    ::DeleteDC(hdc);
+    return false;
+  }
+  double configured_width = 0, configured_height = 0;
+  if (prepared && pages.front().is_vector) {
+    auto* mode = reinterpret_cast<DEVMODEW*>(selected_mode.data());
+    if (!VectorPageSize(pages.front().bytes, &configured_width, &configured_height) ||
+        !SetPreparedSheet(mode, configured_width, configured_height)) {
+      ::DeleteDC(hdc);
+      return false;
+    }
+    // Apply copies=1 before StartDoc, since some drivers capture the job's
+    // copy count there rather than on the first StartPage.
+    const HDC updated = ::ResetDCW(hdc, mode);
+    if (updated == nullptr) {
+      ::DeleteDC(hdc);
+      return false;
+    }
+    hdc = updated;
+  }
 
   DOCINFOW di = {};
   di.cbSize = sizeof(di);
   di.lpszDocName = name.empty() ? L"Document" : name.c_str();
+  // PrintDlgEx reports the checkbox through Flags; a printer DC alone does
+  // not carry it into StartDoc. FILE: asks Windows for the output filename
+  // using its localized system prompt, then writes the selected driver's data.
+  di.lpszOutput = (pd.Flags & PD_PRINTTOFILE) != 0 ? L"FILE:" : nullptr;
   if (::StartDocW(hdc, &di) <= 0) {
     ::DeleteDC(hdc);
     return false;
@@ -573,7 +706,28 @@ bool NativePrinter::End(HWND owner) {
   bool ok = true;
   for (const auto& page : pages) {
     if (page.is_vector) {
-      if (!RenderVectorPage(hdc, page.bytes)) ok = false;
+      if (prepared) {
+        double width = 0, height = 0;
+        auto* mode = reinterpret_cast<DEVMODEW*>(selected_mode.data());
+        if (!VectorPageSize(page.bytes, &width, &height) ||
+            !SetPreparedSheet(mode, width, height)) {
+          ok = false;
+          break;
+        }
+        if (width != configured_width || height != configured_height) {
+          // ResetDC is legal between pages and may replace the handle. Never
+          // continue on failure using the preceding sheet's media size.
+          const HDC updated = ::ResetDCW(hdc, mode);
+          if (updated == nullptr) {
+            ok = false;
+            break;
+          }
+          hdc = updated;
+          configured_width = width;
+          configured_height = height;
+        }
+      }
+      if (!RenderVectorPage(hdc, page.bytes, prepared)) ok = false;
       continue;
     }
     UINT w = 0;
@@ -594,4 +748,5 @@ bool NativePrinter::End(HWND owner) {
 void NativePrinter::Cancel() {
   doc_name_.clear();
   pages_.clear();
+  use_document_page_size_ = false;
 }

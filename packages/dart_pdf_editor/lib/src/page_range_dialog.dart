@@ -132,11 +132,12 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           key: const ValueKey('pdf-page-range-confirm'),
           onPressed: _submit,
           child: Text(widget.confirmLabel),
-        ),
+        )),
       ],
     );
   }

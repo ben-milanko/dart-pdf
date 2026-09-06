@@ -113,12 +113,27 @@
   "editorMenuPrint": "Stampa…",
   "editorMenuSaveAs": "Salva con nome…",
   "editorMenuScanDocument": "Scansiona in un nuovo documento…",
+  "editorMenuInsertDocument": "Inserisci documento…",
   "editorMenuInsertScan": "Inserisci scansione…",
   "editorScanFailed": "Impossibile scansionare il documento.",
   "editorInsertedScan": "Pagine scansionate inserite.",
   "editorMenuSettings": "Impostazioni",
-  "editorMenuSwitchToEdit": "Passa alla modalità di modifica",
-  "editorMenuSwitchToReadOnly": "Passa a sola lettura",
+  "editorMenuSectionFile": "File",
+  "editorMenuSectionDocument": "Questo documento",
+  "editorMenuSectionApp": "App",
+  "editorMenuReadOnly": "Sola lettura",
+  "editorMenuSearchActions": "Cerca azioni…",
+  "paletteHint": "Cerca azioni, strumenti e pannelli",
+  "paletteNoMatch": "Nessun comando corrispondente",
+  "paletteKeyHints": "↑↓ sposta · ⏎ esegui · esc chiudi",
+  "paletteCount": "{count} comandi",
+  "paletteCountFiltered": "{count} di {total}",
+  "paletteSourceMenu": "Menu",
+  "paletteSourcePanel": "Pannello",
+  "paletteSourceView": "Vista",
+  "paletteSourceFile": "File",
+  "paletteSourceTool": "Strumento {group}",
+  "paletteNeedsDocument": "Richiede un documento aperto",
   "editorNamedAction": "Azione denominata: {name}",
   "editorNoRecentFiles": "Nessun file recente",
   "editorOcrTitle": "{title} (OCR)",
@@ -264,5 +279,149 @@
   "updateFailed": "Aggiornamento non riuscito: {error}",
   "imageSourceTakePhoto": "Scatta foto",
   "imageSourceChooseFile": "Scegli file",
-  "imageSourceCameraFailed": "Impossibile scattare la foto"
+  "imageSourceCameraFailed": "Impossibile scattare la foto",
+  "settingsCachedDocuments": "Documenti nella cache",
+  "settingsCacheUsage": "{used} MiB utilizzati su {limit} MiB",
+  "settingsCacheExplanation": "I file oltre {limit} MiB non vengono memorizzati nella cache. La pulizia conserva i recenti, i documenti aperti e le modifiche non salvate; per riaprire i file nella cache dovrai selezionarli di nuovo.",
+  "settingsClearCachedDocuments": "Svuota la cache dei documenti",
+  "settingsCacheUnavailable": "Dimensione della cache non disponibile",
+  "settingsCacheClearFailed": "Impossibile svuotare la cache dei documenti. Riprova.",
+  "editorMenuReduceFileSize": "Riduci dimensioni file…",
+  "reduceSizeTitle": "Riduci dimensioni file",
+  "reduceSizeDescription": "Ottimizza il documento attuale, verifica il risparmio e salva una copia più piccola.",
+  "reduceSizePreset": "Preimpostazione",
+  "reduceSizeLossless": "Senza perdita — conserva la qualità delle immagini",
+  "reduceSizeScreen": "Schermo — 72 DPI, qualità JPEG 60",
+  "reduceSizeEbook": "eBook — 150 DPI, qualità JPEG 75",
+  "reduceSizePrinter": "Stampa — 300 DPI, qualità JPEG 90",
+  "reduceSizeLosslessHint": "La risoluzione e la qualità delle immagini restano invariate.",
+  "reduceSizeLossyHint": "Le immagini oltre la risoluzione prevista possono essere ridotte e codificate in JPEG. I dettagli fini possono andare persi; testo e grafica vettoriale restano nitidi.",
+  "reduceSizeAdvanced": "Impostazioni avanzate",
+  "reduceSizeRecompress": "Ricomprimi flussi",
+  "reduceSizeUnusedResources": "Rimuovi risorse inutilizzate",
+  "reduceSizeDeduplicate": "Unisci oggetti duplicati",
+  "reduceSizeSubsetFonts": "Riduci i font incorporati ai glifi usati",
+  "reduceSizeDpi": "Risoluzione delle immagini",
+  "reduceSizeKeepImages": "Conserva immagini originali (senza perdita)",
+  "reduceSizeJpegQuality": "Qualità JPEG: {quality}",
+  "reduceSizeSignaturesNotice": "La riscrittura di questo PDF firmato invalida le firme digitali nella copia salvata.",
+  "reduceSizeInvalidateSignatures": "Consenti di invalidare le firme in questa copia",
+  "reduceSizeEncrypted": "I PDF crittografati non possono essere ottimizzati.",
+  "reduceSizeIncomplete": "Attendi il caricamento completo del documento prima di ridurne le dimensioni.",
+  "reduceSizeRun": "Ottimizza",
+  "reduceSizeRunning": "Ottimizzazione del documento…",
+  "reduceSizeFailed": "Impossibile ottimizzare questo PDF: {error}",
+  "reduceSizeSaveFailed": "Impossibile salvare la copia: {error}",
+  "reduceSizeSaveCopy": "Salva copia…",
+  "reduceSizeChangeSettings": "Modifica impostazioni",
+  "reduceSizeBefore": "Dimensioni originali",
+  "reduceSizeAfter": "Dimensioni ottimizzate",
+  "reduceSizeSavings": "Spazio risparmiato",
+  "reduceSizeNoSavings": "Questo documento è già compatto con queste impostazioni. Sono stati conservati i dati originali.",
+  "reduceSizeReportHint": "Byte risparmiati in ogni fase di ottimizzazione:",
+  "reduceSizeStructure": "Struttura del documento",
+  "reduceSizeResources": "Risorse inutilizzate",
+  "reduceSizeFonts": "Font incorporati",
+  "reduceSizeImages": "Immagini",
+  "reduceSizeDuplicates": "Oggetti duplicati",
+  "reduceSizeCustom": "Impostazioni personalizzate",
+  "printOptionsPrinter": "Stampante",
+  "printOptionsNativePrinter": "Scegli la stampante, il vassoio carta, il colore, la stampa fronte-retro e le proprietà del dispositivo nella successiva finestra di stampa del sistema. Mantieni la scala al 100% e il numero di copie a 1 per usare l’impaginazione mostrata qui.",
+  "printOptionsPages": "Pagine",
+  "printOptionsSelected": "Selezionate",
+  "printOptionsPageRange": "Pagine (ad esempio, 1, 3-5)",
+  "printOptionsAddFiles": "Aggiungi file…",
+  "printOptionsAddFailed": "Impossibile aggiungere i file selezionati.",
+  "printOptionsGetWindow": "Seleziona area",
+  "printOptionsClearWindow": "Azzera area",
+  "printOptionsWindowHint": "Traccia un rettangolo su questa pagina originale per scegliere l’area da stampare.",
+  "printOptionsPaper": "Carta",
+  "printOptionsPaperSize": "Formato carta",
+  "printOptionsPageSize": "Usa il formato pagina del documento",
+  "printOptionsOrientation": "Orientamento",
+  "printOptionsAuto": "Automatico",
+  "printOptionsPortrait": "Verticale",
+  "printOptionsLandscape": "Orizzontale",
+  "printOptionsCopies": "Copie",
+  "printOptionsCollate": "Fascicola",
+  "printOptionsReverse": "Inverti l’ordine delle pagine",
+  "printOptionsLayout": "Impaginazione",
+  "printOptionsScaling": "Ridimensionamento pagina",
+  "printOptionsScaleNone": "Nessuno (dimensioni effettive)",
+  "printOptionsFitPaper": "Adatta alla carta",
+  "printOptionsReducePaper": "Riduci al formato carta",
+  "printOptionsFitMargins": "Adatta entro i margini",
+  "printOptionsReduceMargins": "Riduci entro i margini",
+  "printOptionsCustomScale": "Scala personalizzata",
+  "printOptionsMultiple": "Più pagine per foglio",
+  "printOptionsScalePercent": "Scala (%)",
+  "printOptionsMargin": "Margini (pt)",
+  "printOptionsPagesPerSheet": "Pagine per foglio",
+  "printOptionsPageOrder": "Ordine delle pagine",
+  "printOptionsHorizontal": "Orizzontale",
+  "printOptionsHorizontalReverse": "Orizzontale inverso",
+  "printOptionsVertical": "Verticale",
+  "printOptionsVerticalReverse": "Verticale inverso",
+  "printOptionsBorder": "Stampa i bordi delle pagine",
+  "printOptionsRotation": "Rotazione (senso orario)",
+  "printOptionsNoRotation": "Nessuna",
+  "printOptionsCenter": "Centra sulla carta",
+  "printOptionsOffsetX": "Spostamento a destra (pt)",
+  "printOptionsOffsetY": "Spostamento in basso (pt)",
+  "printOptionsContents": "Contenuto da stampare",
+  "printOptionsDocumentAndMarkups": "Documento e annotazioni",
+  "printOptionsDocumentOnly": "Solo documento",
+  "printOptionsMarkupsOnly": "Solo annotazioni",
+  "printOptionsDimPage": "Attenua il contenuto della pagina",
+  "printOptionsDimMarkups": "Attenua le annotazioni",
+  "printOptionsHyperlinks": "Stampa i collegamenti ipertestuali visibili",
+  "printOptionsDefaults": "Predefiniti",
+  "printOptionsInvalidNumber": "Inserisci numeri validi prima di stampare.",
+  "printOptionsInvalidValue": "Valore non valido",
+  "printOptionsMarginGuide": "Le linee rosse indicano i margini e non vengono stampate.",
+  "printOptionsAreaSize": "Area: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Originale: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Foglio: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Foglio {sheet} di {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "Impossibile preparare questa impaginazione. Controlla il formato carta, i margini e la scala."
 }

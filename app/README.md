@@ -29,6 +29,18 @@ AppImage and portable tarball builds remain available from
 - Open PDFs from the picker, the OS ("open with" / share), drag-and-drop
   (desktop + web), recent files, or a launch argument. Recent documents can
   be browsed as a page-thumbnail grid.
+- Merge PDFs with **Insert document…** in the app menu (after the current page),
+  or drop them on the thumbnail strip to choose an insertion point. Each file
+  inserts as one undo step, stays in the original tab, and is covered by recovery.
+- Use **Reduce file size…** in the app menu, choose a preset or adjust the
+  individual passes under **Advanced settings**, then **Optimise** to review
+  the size savings. **Save copy…** writes a separate PDF and preserves the open
+  session and undo history. Lossless is the default; screen, eBook, and print
+  presets opt into image downsampling and JPEG quality changes. Encrypted PDFs
+  are refused; signed PDFs require consent to invalidate signatures in the
+  rewritten copy. Optimisation runs in a background isolate on native platforms
+  and a dedicated Web Worker in the browser; **Cancel** stops the job. Australian
+  and UK English use **Optimise**, while US English uses **Optimize**.
 - On mobile, scan straight to a new PDF or insert a scan into the current
   document, and capture a page or placed image with the camera.
 - The full editing UI from the SDK: annotations, ink, shapes, free text,
@@ -65,7 +77,13 @@ AppImage and portable tarball builds remain available from
   platform share/download flows write elsewhere. The save flow can also
   losslessly compress the PDF.
 - **Print** the open document (⌘P / Ctrl+P, or the DartPDF menu) through the OS
-  print dialog on every platform, including browser print on the web.
+  print dialog on every platform, including browser print on the web. The
+  preview offers all/current/selected/custom pages, paper size and orientation,
+  scaling and rotation, multiple pages per sheet, copies and collation,
+  document/markup choices, dimming, and a rectangular print area. Add PDFs to
+  the same job with **Add files**. These settings prepare a separate print
+  document; the open files stay unchanged. Printer selection, duplex and
+  device properties remain in the system dialog.
 - Discard prompts on tab-close and app-quit; reopening a document restores its
   scroll position and zoom.
 - Desktop releases can update in place: **Update now** downloads and applies
@@ -95,6 +113,17 @@ Dart enables Flutter's matching framework feature before binding
 initialization. This applies to debug, release, and Store builds, so dialogs
 and regular windows cannot end up on incompatible engine modes. See
 [the implementation notes](../doc/dev-log/2026-08-14-flutter-347-multi-window.md).
+
+Web Recent documents use disposable IndexedDB snapshots with a **256 MiB total
+budget** and a **64 MiB per-file limit**. Opening or reopening a cached document
+refreshes its recency; older snapshots are evicted as needed. New snapshots are
+skipped when they would consume the last 10% of the browser's estimated origin
+quota. If the estimate is unavailable, the app's own limits still apply.
+Settings → **Cached documents** shows the stored PDF size and offers **Clear
+cached documents**. Evicted or cleared documents stay in Recents and need to be
+picked again. Clearing leaves open documents and unsaved-change recovery intact.
+Existing caches are brought under the limits on startup. These limits currently
+apply to the web snapshot store; native snapshot storage is unchanged.
 
 On web, `dart_pdf_editor` uses its bundled page-render worker asset
 automatically. If the browser cannot load it, rendering falls back to the main
@@ -156,3 +185,20 @@ native OS-integration paths still want on-device confirmation:
 
 \* In-place save is desktop-only today; mobile/web fall back to share/download
 (see RELEASING.md and the save notes in the source).
+
+## Snapshot clipboard
+
+Drag with Snapshot to copy a region. Desktop clipboard items contain a
+single-page vector PDF plus a PNG fallback. Paste with Ctrl/Cmd+V or the
+page context menu; PDFs copied by another application import as movable,
+resizable Stamp annotations. Cross-tab copies use the shared in-app vector
+clipboard. macOS, Windows, and Linux support PDF data; web and mobile keep
+PNG transport. A receiving application must accept PDF clipboard data to
+retain vectors; Bluebeam's private vector format has not been validated.
+
+The macOS transport has a native test using a private pasteboard:
+
+```sh
+swiftc macos/Runner/SnapshotClipboard.swift tool/test_snapshot_clipboard.swift -o /tmp/test_snapshot_clipboard
+/tmp/test_snapshot_clipboard
+```

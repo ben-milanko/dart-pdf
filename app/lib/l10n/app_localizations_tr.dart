@@ -447,6 +447,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorMenuScanDocument => 'Yeni belgeye tara…';
 
   @override
+  String get editorMenuInsertDocument => 'Belge ekle…';
+
+  @override
   String get editorMenuInsertScan => 'Tarama ekle…';
 
   @override
@@ -459,10 +462,58 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorMenuSettings => 'Ayarlar';
 
   @override
-  String get editorMenuSwitchToEdit => 'Düzenleme moduna geç';
+  String get editorMenuSectionFile => 'Dosya';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Salt okunura geç';
+  String get editorMenuSectionDocument => 'Bu belge';
+
+  @override
+  String get editorMenuSectionApp => 'Uygulama';
+
+  @override
+  String get editorMenuReadOnly => 'Salt okunur';
+
+  @override
+  String get editorMenuSearchActions => 'Eylem ara…';
+
+  @override
+  String get paletteHint => 'Eylem, araç ve panel ara';
+
+  @override
+  String get paletteNoMatch => 'Eşleşen komut yok';
+
+  @override
+  String get paletteKeyHints => '↑↓ gez · ⏎ çalıştır · esc kapat';
+
+  @override
+  String paletteCount(int count) {
+    return '$count komut';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count / $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menü';
+
+  @override
+  String get paletteSourcePanel => 'Panel';
+
+  @override
+  String get paletteSourceView => 'Görünüm';
+
+  @override
+  String get paletteSourceFile => 'Dosya';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group aracı';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Açık bir belge gerekir';
 
   @override
   String editorNamedAction(String name) {
@@ -1053,4 +1104,350 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Fotoğraf çekilemedi';
+
+  @override
+  String get settingsCachedDocuments => 'Önbelleğe alınan belgeler';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB alanın $used MiB kadarı kullanılıyor';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB üzerindeki dosyalar önbelleğe alınmaz. Temizleme, son dosyalar listesini, açık belgeleri ve kaydedilmemiş değişiklikleri korur; önbellekteki dosyaları yeniden açmak için tekrar seçmeniz gerekir.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Önbellekteki belgeleri temizle';
+
+  @override
+  String get settingsCacheUnavailable => 'Önbellek boyutu kullanılamıyor';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Önbellekteki belgeler temizlenemedi. Tekrar deneyin.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Dosya boyutunu küçült…';
+
+  @override
+  String get reduceSizeTitle => 'Dosya boyutunu küçült';
+
+  @override
+  String get reduceSizeDescription =>
+      'Geçerli belgeyi optimize edin, tasarrufu inceleyin ve daha küçük bir kopya kaydedin.';
+
+  @override
+  String get reduceSizePreset => 'Ön ayar';
+
+  @override
+  String get reduceSizeLossless => 'Kayıpsız — görüntü kalitesini koru';
+
+  @override
+  String get reduceSizeScreen => 'Ekran — 72 DPI, JPEG kalitesi 60';
+
+  @override
+  String get reduceSizeEbook => 'e-Kitap — 150 DPI, JPEG kalitesi 75';
+
+  @override
+  String get reduceSizePrinter => 'Yazdırma — 300 DPI, JPEG kalitesi 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Görüntü çözünürlüğü ve kalitesi aynı kalır.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Hedef çözünürlüğün üzerindeki görüntüler küçültülüp JPEG olarak kodlanabilir. İnce ayrıntılar kaybolabilir; metin ve vektör grafikler keskin kalır.';
+
+  @override
+  String get reduceSizeAdvanced => 'Gelişmiş ayarlar';
+
+  @override
+  String get reduceSizeRecompress => 'Akışları yeniden sıkıştır';
+
+  @override
+  String get reduceSizeUnusedResources => 'Kullanılmayan kaynakları kaldır';
+
+  @override
+  String get reduceSizeDeduplicate => 'Yinelenen nesneleri birleştir';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Gömülü yazı tiplerini kullanılan gliflerle sınırla';
+
+  @override
+  String get reduceSizeDpi => 'Görüntü hedef çözünürlüğü';
+
+  @override
+  String get reduceSizeKeepImages => 'Özgün görüntüleri koru (kayıpsız)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG kalitesi: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Bu imzalı PDF’nin yeniden yazılması, kaydedilen kopyadaki dijital imzaları geçersiz kılar.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Bu kopyadaki imzaların geçersiz kılınmasına izin ver';
+
+  @override
+  String get reduceSizeEncrypted => 'Şifrelenmiş PDF’ler optimize edilemez.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Boyutunu küçültmeden önce belgenin yüklenmesinin bitmesini bekleyin.';
+
+  @override
+  String get reduceSizeRun => 'Optimize et';
+
+  @override
+  String get reduceSizeRunning => 'Belge optimize ediliyor…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Bu PDF optimize edilemedi: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Kopya kaydedilemedi: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Kopyayı kaydet…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Ayarları değiştir';
+
+  @override
+  String get reduceSizeBefore => 'Özgün boyut';
+
+  @override
+  String get reduceSizeAfter => 'Optimize edilmiş boyut';
+
+  @override
+  String get reduceSizeSavings => 'Kazanılan alan';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Bu belge, bu ayarlarla zaten küçüktür. Özgün veriler korundu.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Her optimizasyon adımında kazanılan bayt:';
+
+  @override
+  String get reduceSizeStructure => 'Belge yapısı';
+
+  @override
+  String get reduceSizeResources => 'Kullanılmayan kaynaklar';
+
+  @override
+  String get reduceSizeFonts => 'Gömülü yazı tipleri';
+
+  @override
+  String get reduceSizeImages => 'Görüntüler';
+
+  @override
+  String get reduceSizeDuplicates => 'Yinelenen nesneler';
+
+  @override
+  String get reduceSizeCustom => 'Özel ayarlar';
+
+  @override
+  String get printOptionsPrinter => 'Yazıcı';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Bir sonraki sistem yazdırma iletişim kutusunda yazıcıyı, kağıt tepsisini, rengi, çift taraflı yazdırmayı ve aygıt özelliklerini seçin. Burada gösterilen düzeni kullanmak için ölçeği %100 ve kopya sayısını 1 olarak bırakın.';
+
+  @override
+  String get printOptionsPages => 'Sayfalar';
+
+  @override
+  String get printOptionsSelected => 'Seçili';
+
+  @override
+  String get printOptionsPageRange => 'Sayfalar (örneğin 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Dosya ekle…';
+
+  @override
+  String get printOptionsAddFailed => 'Seçilen dosyalar eklenemedi.';
+
+  @override
+  String get printOptionsGetWindow => 'Alan seç';
+
+  @override
+  String get printOptionsClearWindow => 'Alanı temizle';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Yazdırılacak alanı seçmek için bu kaynak sayfa üzerinde bir dikdörtgen sürükleyin.';
+
+  @override
+  String get printOptionsPaper => 'Kağıt';
+
+  @override
+  String get printOptionsPaperSize => 'Kağıt boyutu';
+
+  @override
+  String get printOptionsPageSize => 'Belgenin sayfa boyutunu kullan';
+
+  @override
+  String get printOptionsOrientation => 'Yönlendirme';
+
+  @override
+  String get printOptionsAuto => 'Otomatik';
+
+  @override
+  String get printOptionsPortrait => 'Dikey';
+
+  @override
+  String get printOptionsLandscape => 'Yatay';
+
+  @override
+  String get printOptionsCopies => 'Kopya';
+
+  @override
+  String get printOptionsCollate => 'Harmanla';
+
+  @override
+  String get printOptionsReverse => 'Sayfa sırasını ters çevir';
+
+  @override
+  String get printOptionsLayout => 'Sayfa düzeni';
+
+  @override
+  String get printOptionsScaling => 'Sayfa ölçeklendirme';
+
+  @override
+  String get printOptionsScaleNone => 'Yok (gerçek boyut)';
+
+  @override
+  String get printOptionsFitPaper => 'Kağıda sığdır';
+
+  @override
+  String get printOptionsReducePaper => 'Kağıda sığacak kadar küçült';
+
+  @override
+  String get printOptionsFitMargins => 'Kenar boşluklarına sığdır';
+
+  @override
+  String get printOptionsReduceMargins =>
+      'Kenar boşluklarına sığacak kadar küçült';
+
+  @override
+  String get printOptionsCustomScale => 'Özel ölçek';
+
+  @override
+  String get printOptionsMultiple => 'Yaprak başına birden çok sayfa';
+
+  @override
+  String get printOptionsScalePercent => 'Ölçek (%)';
+
+  @override
+  String get printOptionsMargin => 'Kenar boşlukları (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Yaprak başına sayfa';
+
+  @override
+  String get printOptionsPageOrder => 'Sayfa sırası';
+
+  @override
+  String get printOptionsHorizontal => 'Yatay';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Ters yatay';
+
+  @override
+  String get printOptionsVertical => 'Dikey';
+
+  @override
+  String get printOptionsVerticalReverse => 'Ters dikey';
+
+  @override
+  String get printOptionsBorder => 'Sayfa kenarlıklarını yazdır';
+
+  @override
+  String get printOptionsRotation => 'Döndürme (saat yönünde)';
+
+  @override
+  String get printOptionsNoRotation => 'Yok';
+
+  @override
+  String get printOptionsCenter => 'Kağıtta ortala';
+
+  @override
+  String get printOptionsOffsetX => 'Sağa kaydırma (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Aşağı kaydırma (pt)';
+
+  @override
+  String get printOptionsContents => 'Yazdırılacak içerik';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Belge ve açıklamalar';
+
+  @override
+  String get printOptionsDocumentOnly => 'Yalnızca belge';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Yalnızca açıklamalar';
+
+  @override
+  String get printOptionsDimPage => 'Sayfa içeriğini soluklaştır';
+
+  @override
+  String get printOptionsDimMarkups => 'Açıklamaları soluklaştır';
+
+  @override
+  String get printOptionsHyperlinks => 'Görünür köprüleri yazdır';
+
+  @override
+  String get printOptionsDefaults => 'Varsayılanlar';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Yazdırmadan önce geçerli sayılar girin.';
+
+  @override
+  String get printOptionsInvalidValue => 'Geçersiz değer';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Kırmızı çizgiler kenar boşluklarını gösterir; yazdırılmazlar.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Alan: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Kaynak: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Yaprak: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Yaprak $sheet / $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Bu düzen hazırlanamadı. Kağıt boyutunu, kenar boşluklarını ve ölçeği kontrol edin.';
 }

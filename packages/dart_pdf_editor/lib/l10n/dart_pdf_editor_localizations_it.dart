@@ -2122,4 +2122,36 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Nessuna firma salvata.';
+
+  @override
+  String get splitTitle => 'Dividi PDF…';
+
+  @override
+  String get splitHelp =>
+      'Inserisci intervalli di pagine separati da virgole. Ogni intervallo crea un PDF separato.';
+
+  @override
+  String get splitRanges => 'Intervalli di pagine';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Usa pagine da 1 a $count, separate da virgole. Gli intervalli devono essere crescenti.';
+  }
+
+  @override
+  String get splitConfirm => 'Dividi';
+
+  @override
+  String get splitFailed => 'Impossibile dividere questo PDF.';
+
+  @override
+  String get guidesSnapHint =>
+      'Aggancia bordi e centri delle annotazioni • Tieni premuto Alt per ignorare';
+
+  @override
+  String get tbToolContentDelete => 'Cancella';
+
+  @override
+  String get tbTipContentDelete =>
+      'Elimina contenuto: trascina un rettangolo oppure fai clic sui vertici del poligono e doppio clic per terminare';
 }

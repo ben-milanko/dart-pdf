@@ -560,10 +560,11 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         title: Text(title),
         content: SizedBox(width: 420, child: Text(text)),
         actions: [
-          TextButton(
+          PdfDialogSubmit(
+              child: TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Close'),
-          ),
+          )),
         ],
       ),
     );

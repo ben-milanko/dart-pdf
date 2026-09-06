@@ -2119,4 +2119,36 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Geen opgeslagen handtekeningen.';
+
+  @override
+  String get splitTitle => 'PDF splitsen…';
+
+  @override
+  String get splitHelp =>
+      'Voer paginabereiken in, gescheiden door komma’s. Elk bereik wordt een afzonderlijke PDF.';
+
+  @override
+  String get splitRanges => 'Paginabereiken';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Gebruik pagina’s 1–$count, gescheiden door komma’s. Bereiken moeten oplopend zijn.';
+  }
+
+  @override
+  String get splitConfirm => 'Splitsen';
+
+  @override
+  String get splitFailed => 'Deze PDF kon niet worden gesplitst.';
+
+  @override
+  String get guidesSnapHint =>
+      'Randen en middelpunten van annotaties uitlijnen • Houd Alt ingedrukt om over te slaan';
+
+  @override
+  String get tbToolContentDelete => 'Wissen';
+
+  @override
+  String get tbTipContentDelete =>
+      'Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden';
 }

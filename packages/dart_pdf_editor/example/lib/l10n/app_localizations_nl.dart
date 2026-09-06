@@ -443,4 +443,9 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => 'Lettertypen';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - deel $part.pdf';
+  }
 }

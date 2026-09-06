@@ -439,6 +439,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorMenuScanDocument => '新しいドキュメントにスキャン…';
 
   @override
+  String get editorMenuInsertDocument => 'ドキュメントを挿入…';
+
+  @override
   String get editorMenuInsertScan => 'スキャンを挿入…';
 
   @override
@@ -451,10 +454,58 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorMenuSettings => '設定';
 
   @override
-  String get editorMenuSwitchToEdit => '編集モードに切り替え';
+  String get editorMenuSectionFile => 'ファイル';
 
   @override
-  String get editorMenuSwitchToReadOnly => '読み取り専用に切り替え';
+  String get editorMenuSectionDocument => 'このドキュメント';
+
+  @override
+  String get editorMenuSectionApp => 'アプリ';
+
+  @override
+  String get editorMenuReadOnly => '読み取り専用';
+
+  @override
+  String get editorMenuSearchActions => '操作を検索…';
+
+  @override
+  String get paletteHint => '操作・ツール・パネルを検索';
+
+  @override
+  String get paletteNoMatch => '一致するコマンドがありません';
+
+  @override
+  String get paletteKeyHints => '↑↓ 移動 · ⏎ 実行 · esc 閉じる';
+
+  @override
+  String paletteCount(int count) {
+    return '$count 件のコマンド';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total 件中 $count 件';
+  }
+
+  @override
+  String get paletteSourceMenu => 'メニュー';
+
+  @override
+  String get paletteSourcePanel => 'パネル';
+
+  @override
+  String get paletteSourceView => '表示';
+
+  @override
+  String get paletteSourceFile => 'ファイル';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$groupツール';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'ドキュメントを開いてください';
 
   @override
   String editorNamedAction(String name) {
@@ -1034,4 +1085,338 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => '写真を撮影できませんでした';
+
+  @override
+  String get settingsCachedDocuments => 'キャッシュされたドキュメント';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB 中 $used MiB 使用';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB を超えるファイルはキャッシュされません。削除しても最近使ったファイルの一覧、開いているドキュメント、未保存の変更は保持されます。キャッシュされたファイルを再度開くには、ファイルを選び直す必要があります。';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'ドキュメントのキャッシュを削除';
+
+  @override
+  String get settingsCacheUnavailable => 'キャッシュサイズを取得できません';
+
+  @override
+  String get settingsCacheClearFailed => 'ドキュメントのキャッシュを削除できませんでした。再試行してください。';
+
+  @override
+  String get editorMenuReduceFileSize => 'ファイルサイズを縮小…';
+
+  @override
+  String get reduceSizeTitle => 'ファイルサイズを縮小';
+
+  @override
+  String get reduceSizeDescription => '現在の文書を最適化し、削減量を確認してから、小さいコピーを保存します。';
+
+  @override
+  String get reduceSizePreset => 'プリセット';
+
+  @override
+  String get reduceSizeLossless => '可逆 — 画質を維持';
+
+  @override
+  String get reduceSizeScreen => '画面 — 72 DPI、JPEG品質60';
+
+  @override
+  String get reduceSizeEbook => '電子書籍 — 150 DPI、JPEG品質75';
+
+  @override
+  String get reduceSizePrinter => '印刷 — 300 DPI、JPEG品質90';
+
+  @override
+  String get reduceSizeLosslessHint => '画像の解像度と品質は変わりません。';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '指定の解像度を超える画像は縮小され、JPEGに変換される場合があります。細部が失われることがありますが、テキストとベクター画像は鮮明なままです。';
+
+  @override
+  String get reduceSizeAdvanced => '詳細設定';
+
+  @override
+  String get reduceSizeRecompress => 'ストリームを再圧縮';
+
+  @override
+  String get reduceSizeUnusedResources => '未使用のリソースを削除';
+
+  @override
+  String get reduceSizeDeduplicate => '重複するオブジェクトを統合';
+
+  @override
+  String get reduceSizeSubsetFonts => '埋め込みフォントを使用文字に限定';
+
+  @override
+  String get reduceSizeDpi => '画像の目標解像度';
+
+  @override
+  String get reduceSizeKeepImages => '元の画像を保持（可逆）';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG品質: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'この署名済みPDFを書き直すと、保存したコピーの電子署名が無効になります。';
+
+  @override
+  String get reduceSizeInvalidateSignatures => 'このコピーの署名を無効にすることを許可';
+
+  @override
+  String get reduceSizeEncrypted => '暗号化されたPDFは最適化できません。';
+
+  @override
+  String get reduceSizeIncomplete => '文書の読み込みが完了してからサイズを縮小してください。';
+
+  @override
+  String get reduceSizeRun => '最適化';
+
+  @override
+  String get reduceSizeRunning => '文書を最適化中…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'このPDFを最適化できませんでした: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'コピーを保存できませんでした: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'コピーを保存…';
+
+  @override
+  String get reduceSizeChangeSettings => '設定を変更';
+
+  @override
+  String get reduceSizeBefore => '元のサイズ';
+
+  @override
+  String get reduceSizeAfter => '最適化後のサイズ';
+
+  @override
+  String get reduceSizeSavings => '削減量';
+
+  @override
+  String get reduceSizeNoSavings => 'この設定では文書はすでに十分小さくなっています。元のデータを保持しました。';
+
+  @override
+  String get reduceSizeReportHint => '最適化の各段階で削減したバイト数:';
+
+  @override
+  String get reduceSizeStructure => '文書構造';
+
+  @override
+  String get reduceSizeResources => '未使用のリソース';
+
+  @override
+  String get reduceSizeFonts => '埋め込みフォント';
+
+  @override
+  String get reduceSizeImages => '画像';
+
+  @override
+  String get reduceSizeDuplicates => '重複するオブジェクト';
+
+  @override
+  String get reduceSizeCustom => 'カスタム設定';
+
+  @override
+  String get printOptionsPrinter => 'プリンター';
+
+  @override
+  String get printOptionsNativePrinter =>
+      '次に表示されるシステムの印刷ダイアログで、プリンター、給紙トレイ、カラー、両面印刷、プリンターのプロパティを選択します。ここに表示されているレイアウトを使用するには、倍率を100%、部数を1のままにしてください。';
+
+  @override
+  String get printOptionsPages => 'ページ';
+
+  @override
+  String get printOptionsSelected => '選択したページ';
+
+  @override
+  String get printOptionsPageRange => 'ページ（例: 1, 3-5）';
+
+  @override
+  String get printOptionsAddFiles => 'ファイルを追加…';
+
+  @override
+  String get printOptionsAddFailed => '選択したファイルを追加できませんでした。';
+
+  @override
+  String get printOptionsGetWindow => '範囲を選択';
+
+  @override
+  String get printOptionsClearWindow => '範囲を解除';
+
+  @override
+  String get printOptionsWindowHint => '元のページ上でドラッグして長方形を描き、印刷する範囲を選択してください。';
+
+  @override
+  String get printOptionsPaper => '用紙';
+
+  @override
+  String get printOptionsPaperSize => '用紙サイズ';
+
+  @override
+  String get printOptionsPageSize => '文書のページサイズを使用';
+
+  @override
+  String get printOptionsOrientation => '用紙の向き';
+
+  @override
+  String get printOptionsAuto => '自動';
+
+  @override
+  String get printOptionsPortrait => '縦';
+
+  @override
+  String get printOptionsLandscape => '横';
+
+  @override
+  String get printOptionsCopies => '部数';
+
+  @override
+  String get printOptionsCollate => '部単位で印刷';
+
+  @override
+  String get printOptionsReverse => 'ページの順序を逆にする';
+
+  @override
+  String get printOptionsLayout => 'ページレイアウト';
+
+  @override
+  String get printOptionsScaling => 'ページの拡大・縮小';
+
+  @override
+  String get printOptionsScaleNone => 'なし（実際のサイズ）';
+
+  @override
+  String get printOptionsFitPaper => '用紙に合わせる';
+
+  @override
+  String get printOptionsReducePaper => '用紙に収まるよう縮小';
+
+  @override
+  String get printOptionsFitMargins => '余白内に合わせる';
+
+  @override
+  String get printOptionsReduceMargins => '余白内に収まるよう縮小';
+
+  @override
+  String get printOptionsCustomScale => '倍率を指定';
+
+  @override
+  String get printOptionsMultiple => '1枚に複数ページを印刷';
+
+  @override
+  String get printOptionsScalePercent => '倍率（%）';
+
+  @override
+  String get printOptionsMargin => '余白（pt）';
+
+  @override
+  String get printOptionsPagesPerSheet => '1枚あたりのページ数';
+
+  @override
+  String get printOptionsPageOrder => 'ページの順序';
+
+  @override
+  String get printOptionsHorizontal => '横方向';
+
+  @override
+  String get printOptionsHorizontalReverse => '横方向（右から左）';
+
+  @override
+  String get printOptionsVertical => '縦方向';
+
+  @override
+  String get printOptionsVerticalReverse => '縦方向（列を右から左）';
+
+  @override
+  String get printOptionsBorder => 'ページの枠線を印刷';
+
+  @override
+  String get printOptionsRotation => '回転（時計回り）';
+
+  @override
+  String get printOptionsNoRotation => 'なし';
+
+  @override
+  String get printOptionsCenter => '用紙の中央に配置';
+
+  @override
+  String get printOptionsOffsetX => '右への移動量（pt）';
+
+  @override
+  String get printOptionsOffsetY => '下への移動量（pt）';
+
+  @override
+  String get printOptionsContents => '印刷する内容';
+
+  @override
+  String get printOptionsDocumentAndMarkups => '文書と注釈';
+
+  @override
+  String get printOptionsDocumentOnly => '文書のみ';
+
+  @override
+  String get printOptionsMarkupsOnly => '注釈のみ';
+
+  @override
+  String get printOptionsDimPage => 'ページの内容を薄く印刷';
+
+  @override
+  String get printOptionsDimMarkups => '注釈を薄く印刷';
+
+  @override
+  String get printOptionsHyperlinks => '表示されているハイパーリンクを印刷';
+
+  @override
+  String get printOptionsDefaults => '既定値に戻す';
+
+  @override
+  String get printOptionsInvalidNumber => '印刷する前に有効な数値を入力してください。';
+
+  @override
+  String get printOptionsInvalidValue => '無効な値です';
+
+  @override
+  String get printOptionsMarginGuide => '赤い線は余白を示しています。印刷はされません。';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return '範囲: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return '元のページ: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return '用紙: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return '$total枚中$sheet枚目';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'このレイアウトを準備できませんでした。用紙サイズ、余白、倍率を確認してください。';
 }

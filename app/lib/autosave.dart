@@ -69,12 +69,12 @@ class AutosaveController {
         recovered.add(RecoveredDocument(record: record, bytes: bytes));
       }
     } catch (e) {
-      AppDevTools.instance
-          .addLog('unsaved-changes recovery failed: $e', level: DevLogLevel.error);
+      AppDevTools.instance.addLog('unsaved-changes recovery failed: $e',
+          level: DevLogLevel.error);
     }
     if (recovered.isNotEmpty) {
-      AppDevTools.instance
-          .addLog('recovered ${recovered.length} document(s) with unsaved changes');
+      AppDevTools.instance.addLog(
+          'recovered ${recovered.length} document(s) with unsaved changes');
     }
     return recovered;
   }
@@ -149,6 +149,9 @@ class AutosaveController {
     mirror.written = null;
     await _delete(mirror.id);
   }
+
+  /// Renaming changes recovery metadata without notifying the PDF controller.
+  void noteMetadataChanged(DocumentTab tab) => _onChanged(tab);
 
   /// Writes every pending mirror now, without waiting out the debounce. Called
   /// when the app is backgrounded - on mobile and the web that may be the last
@@ -273,8 +276,8 @@ class AutosaveController {
       await store.write(record, bytes);
       mirror.written = record;
     } catch (e) {
-      AppDevTools.instance
-          .addLog('unsaved-changes mirror failed: $e', level: DevLogLevel.error);
+      AppDevTools.instance.addLog('unsaved-changes mirror failed: $e',
+          level: DevLogLevel.error);
     } finally {
       mirror.writing = false;
     }

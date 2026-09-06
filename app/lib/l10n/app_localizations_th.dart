@@ -444,6 +444,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuScanDocument => 'สแกนเป็นเอกสารใหม่…';
 
   @override
+  String get editorMenuInsertDocument => 'แทรกเอกสาร…';
+
+  @override
   String get editorMenuInsertScan => 'แทรกสแกน…';
 
   @override
@@ -456,10 +459,58 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuSettings => 'การตั้งค่า';
 
   @override
-  String get editorMenuSwitchToEdit => 'สลับเป็นโหมดแก้ไข';
+  String get editorMenuSectionFile => 'ไฟล์';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'สลับเป็นอ่านอย่างเดียว';
+  String get editorMenuSectionDocument => 'เอกสารนี้';
+
+  @override
+  String get editorMenuSectionApp => 'แอป';
+
+  @override
+  String get editorMenuReadOnly => 'อ่านอย่างเดียว';
+
+  @override
+  String get editorMenuSearchActions => 'ค้นหาคำสั่ง…';
+
+  @override
+  String get paletteHint => 'ค้นหาคำสั่ง เครื่องมือ และแผง';
+
+  @override
+  String get paletteNoMatch => 'ไม่พบคำสั่งที่ตรงกัน';
+
+  @override
+  String get paletteKeyHints => '↑↓ เลื่อน · ⏎ เรียกใช้ · esc ปิด';
+
+  @override
+  String paletteCount(int count) {
+    return '$count คำสั่ง';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count จาก $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'เมนู';
+
+  @override
+  String get paletteSourcePanel => 'แผง';
+
+  @override
+  String get paletteSourceView => 'มุมมอง';
+
+  @override
+  String get paletteSourceFile => 'ไฟล์';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'เครื่องมือ$group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'ต้องเปิดเอกสารก่อน';
 
   @override
   String editorNamedAction(String name) {
@@ -1047,4 +1098,345 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'ถ่ายภาพไม่สำเร็จ';
+
+  @override
+  String get settingsCachedDocuments => 'เอกสารที่แคชไว้';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'ใช้ไป $used MiB จาก $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'ไฟล์ที่ใหญ่กว่า $limit MiB จะไม่ถูกแคช การล้างจะเก็บรายการล่าสุด เอกสารที่เปิดอยู่ และการเปลี่ยนแปลงที่ยังไม่ได้บันทึกไว้ โดยต้องเลือกไฟล์ที่เคยแคชอีกครั้งเพื่อเปิดใหม่';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'ล้างเอกสารที่แคชไว้';
+
+  @override
+  String get settingsCacheUnavailable => 'ไม่สามารถดูขนาดแคชได้';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'ไม่สามารถล้างเอกสารที่แคชไว้ได้ โปรดลองอีกครั้ง';
+
+  @override
+  String get editorMenuReduceFileSize => 'ลดขนาดไฟล์…';
+
+  @override
+  String get reduceSizeTitle => 'ลดขนาดไฟล์';
+
+  @override
+  String get reduceSizeDescription =>
+      'ปรับเอกสารปัจจุบันให้เหมาะสม ตรวจสอบพื้นที่ที่ประหยัดได้ แล้วบันทึกสำเนาที่เล็กลง';
+
+  @override
+  String get reduceSizePreset => 'ค่าที่ตั้งไว้';
+
+  @override
+  String get reduceSizeLossless => 'ไม่สูญเสียข้อมูล — คงคุณภาพภาพ';
+
+  @override
+  String get reduceSizeScreen => 'หน้าจอ — 72 DPI, คุณภาพ JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'อีบุ๊ก — 150 DPI, คุณภาพ JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'พิมพ์ — 300 DPI, คุณภาพ JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint => 'ความละเอียดและคุณภาพของภาพยังคงเดิม';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'ภาพที่มีความละเอียดสูงกว่าเป้าหมายอาจถูกย่อและเข้ารหัสเป็น JPEG รายละเอียดเล็กน้อยอาจสูญหาย แต่ข้อความและกราฟิกเวกเตอร์ยังคงคมชัด';
+
+  @override
+  String get reduceSizeAdvanced => 'การตั้งค่าขั้นสูง';
+
+  @override
+  String get reduceSizeRecompress => 'บีบอัดสตรีมข้อมูลอีกครั้ง';
+
+  @override
+  String get reduceSizeUnusedResources => 'ลบทรัพยากรที่ไม่ได้ใช้';
+
+  @override
+  String get reduceSizeDeduplicate => 'รวมวัตถุที่ซ้ำกัน';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'ลดฟอนต์ที่ฝังไว้ให้เหลือเฉพาะอักขระที่ใช้';
+
+  @override
+  String get reduceSizeDpi => 'ความละเอียดเป้าหมายของภาพ';
+
+  @override
+  String get reduceSizeKeepImages => 'เก็บภาพต้นฉบับ (ไม่สูญเสียข้อมูล)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'คุณภาพ JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'การเขียน PDF ที่ลงนามแล้วนี้ใหม่จะทำให้ลายเซ็นดิจิทัลในสำเนาที่บันทึกใช้ไม่ได้';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'อนุญาตให้ลายเซ็นในสำเนานี้ใช้ไม่ได้';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'ไม่สามารถปรับ PDF ที่เข้ารหัสให้เหมาะสมได้';
+
+  @override
+  String get reduceSizeIncomplete => 'รอให้โหลดเอกสารเสร็จก่อนลดขนาด';
+
+  @override
+  String get reduceSizeRun => 'ปรับให้เหมาะสม';
+
+  @override
+  String get reduceSizeRunning => 'กำลังปรับเอกสารให้เหมาะสม…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'ไม่สามารถปรับ PDF นี้ให้เหมาะสมได้: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'ไม่สามารถบันทึกสำเนาได้: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'บันทึกสำเนา…';
+
+  @override
+  String get reduceSizeChangeSettings => 'เปลี่ยนการตั้งค่า';
+
+  @override
+  String get reduceSizeBefore => 'ขนาดต้นฉบับ';
+
+  @override
+  String get reduceSizeAfter => 'ขนาดหลังปรับ';
+
+  @override
+  String get reduceSizeSavings => 'พื้นที่ที่ประหยัดได้';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'เอกสารนี้มีขนาดเล็กอยู่แล้วด้วยการตั้งค่าเหล่านี้ ระบบเก็บข้อมูลต้นฉบับไว้';
+
+  @override
+  String get reduceSizeReportHint => 'จำนวนไบต์ที่ประหยัดได้ในแต่ละขั้นตอน:';
+
+  @override
+  String get reduceSizeStructure => 'โครงสร้างเอกสาร';
+
+  @override
+  String get reduceSizeResources => 'ทรัพยากรที่ไม่ได้ใช้';
+
+  @override
+  String get reduceSizeFonts => 'ฟอนต์ที่ฝังไว้';
+
+  @override
+  String get reduceSizeImages => 'ภาพ';
+
+  @override
+  String get reduceSizeDuplicates => 'วัตถุที่ซ้ำกัน';
+
+  @override
+  String get reduceSizeCustom => 'การตั้งค่าแบบกำหนดเอง';
+
+  @override
+  String get printOptionsPrinter => 'เครื่องพิมพ์';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'เลือกเครื่องพิมพ์ ถาดกระดาษ สี การพิมพ์สองหน้า และคุณสมบัติอุปกรณ์ในกล่องโต้ตอบการพิมพ์ของระบบที่จะแสดงถัดไป คงมาตราส่วนไว้ที่ 100% และจำนวนสำเนาไว้ที่ 1 เพื่อใช้เค้าโครงที่แสดงที่นี่';
+
+  @override
+  String get printOptionsPages => 'หน้า';
+
+  @override
+  String get printOptionsSelected => 'ที่เลือก';
+
+  @override
+  String get printOptionsPageRange => 'หน้า (ตัวอย่างเช่น 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'เพิ่มไฟล์…';
+
+  @override
+  String get printOptionsAddFailed => 'ไม่สามารถเพิ่มไฟล์ที่เลือกได้';
+
+  @override
+  String get printOptionsGetWindow => 'เลือกพื้นที่';
+
+  @override
+  String get printOptionsClearWindow => 'ล้างพื้นที่';
+
+  @override
+  String get printOptionsWindowHint =>
+      'ลากกรอบสี่เหลี่ยมบนหน้าต้นฉบับนี้เพื่อเลือกพื้นที่ที่จะพิมพ์';
+
+  @override
+  String get printOptionsPaper => 'กระดาษ';
+
+  @override
+  String get printOptionsPaperSize => 'ขนาดกระดาษ';
+
+  @override
+  String get printOptionsPageSize => 'ใช้ขนาดหน้าของเอกสาร';
+
+  @override
+  String get printOptionsOrientation => 'การวางแนว';
+
+  @override
+  String get printOptionsAuto => 'อัตโนมัติ';
+
+  @override
+  String get printOptionsPortrait => 'แนวตั้ง';
+
+  @override
+  String get printOptionsLandscape => 'แนวนอน';
+
+  @override
+  String get printOptionsCopies => 'สำเนา';
+
+  @override
+  String get printOptionsCollate => 'เรียงชุดสำเนา';
+
+  @override
+  String get printOptionsReverse => 'ย้อนลำดับหน้า';
+
+  @override
+  String get printOptionsLayout => 'เค้าโครงหน้า';
+
+  @override
+  String get printOptionsScaling => 'การปรับขนาดหน้า';
+
+  @override
+  String get printOptionsScaleNone => 'ไม่ปรับ (ขนาดจริง)';
+
+  @override
+  String get printOptionsFitPaper => 'ปรับให้พอดีกระดาษ';
+
+  @override
+  String get printOptionsReducePaper => 'ย่อให้พอดีกระดาษ';
+
+  @override
+  String get printOptionsFitMargins => 'ปรับให้พอดีภายในระยะขอบ';
+
+  @override
+  String get printOptionsReduceMargins => 'ย่อให้พอดีภายในระยะขอบ';
+
+  @override
+  String get printOptionsCustomScale => 'มาตราส่วนกำหนดเอง';
+
+  @override
+  String get printOptionsMultiple => 'หลายหน้าต่อแผ่น';
+
+  @override
+  String get printOptionsScalePercent => 'มาตราส่วน (%)';
+
+  @override
+  String get printOptionsMargin => 'ระยะขอบ (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'จำนวนหน้าต่อแผ่น';
+
+  @override
+  String get printOptionsPageOrder => 'ลำดับหน้า';
+
+  @override
+  String get printOptionsHorizontal => 'แนวนอน';
+
+  @override
+  String get printOptionsHorizontalReverse => 'แนวนอนย้อนลำดับ';
+
+  @override
+  String get printOptionsVertical => 'แนวตั้ง';
+
+  @override
+  String get printOptionsVerticalReverse => 'แนวตั้งย้อนลำดับ';
+
+  @override
+  String get printOptionsBorder => 'พิมพ์กรอบหน้า';
+
+  @override
+  String get printOptionsRotation => 'การหมุน (ตามเข็มนาฬิกา)';
+
+  @override
+  String get printOptionsNoRotation => 'ไม่หมุน';
+
+  @override
+  String get printOptionsCenter => 'จัดกึ่งกลางกระดาษ';
+
+  @override
+  String get printOptionsOffsetX => 'เลื่อนไปทางขวา (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'เลื่อนลง (pt)';
+
+  @override
+  String get printOptionsContents => 'เนื้อหาที่จะพิมพ์';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'เอกสารและคำอธิบายประกอบ';
+
+  @override
+  String get printOptionsDocumentOnly => 'เฉพาะเอกสาร';
+
+  @override
+  String get printOptionsMarkupsOnly => 'เฉพาะคำอธิบายประกอบ';
+
+  @override
+  String get printOptionsDimPage => 'พิมพ์เนื้อหาหน้าให้จางลง';
+
+  @override
+  String get printOptionsDimMarkups => 'พิมพ์คำอธิบายประกอบให้จางลง';
+
+  @override
+  String get printOptionsHyperlinks => 'พิมพ์ไฮเปอร์ลิงก์ที่มองเห็น';
+
+  @override
+  String get printOptionsDefaults => 'ค่าเริ่มต้น';
+
+  @override
+  String get printOptionsInvalidNumber => 'ป้อนตัวเลขที่ถูกต้องก่อนพิมพ์';
+
+  @override
+  String get printOptionsInvalidValue => 'ค่าไม่ถูกต้อง';
+
+  @override
+  String get printOptionsMarginGuide => 'เส้นสีแดงแสดงระยะขอบและจะไม่ถูกพิมพ์';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'พื้นที่: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'ต้นฉบับ: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'แผ่น: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'แผ่นที่ $sheet จาก $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'ไม่สามารถเตรียมเค้าโครงนี้ได้ โปรดตรวจสอบขนาดกระดาษ ระยะขอบ และมาตราส่วน';
 }

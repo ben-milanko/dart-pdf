@@ -114,6 +114,8 @@ abstract class AppLocalizations {
     Locale('ar'),
     Locale('de'),
     Locale('en'),
+    Locale('en', 'AU'),
+    Locale('en', 'GB'),
     Locale('es'),
     Locale('fr'),
     Locale('hi'),
@@ -562,7 +564,7 @@ abstract class AppLocalizations {
   /// OCR progress message naming the page being recognised and the total.
   ///
   /// In en, this message translates to:
-  /// **'Recognising page {current} of {count}…'**
+  /// **'Recognizing page {current} of {count}…'**
   String exRecognisingPage(int current, int count);
 
   /// Label for the resolution selector in the export dialog.
@@ -852,6 +854,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Fonts'**
   String get exFileTypeFonts;
+
+  /// Tab and suggested file name for extracted PDF pages.
+  ///
+  /// In en, this message translates to:
+  /// **'{title} - part {part}.pdf'**
+  String exExtractedTitle(String title, int part);
 }
 
 class _AppLocalizationsDelegate
@@ -898,6 +906,20 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
         switch (locale.scriptCode) {
           case 'Hant':
             return AppLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
+  // Lookup logic when language+country codes are specified.
+  switch (locale.languageCode) {
+    case 'en':
+      {
+        switch (locale.countryCode) {
+          case 'AU':
+            return AppLocalizationsEnAu();
+          case 'GB':
+            return AppLocalizationsEnGb();
         }
         break;
       }

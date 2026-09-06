@@ -618,5 +618,14 @@
   "annotationLibraryCustomStamps": "ตราประทับแบบกำหนดเอง…",
   "signatureLibraryManage": "จัดการลายเซ็น",
   "signatureLibraryRenameTitle": "เปลี่ยนชื่อลายเซ็น",
-  "signatureLibraryEmpty": "ไม่มีลายเซ็นที่บันทึกไว้"
+  "signatureLibraryEmpty": "ไม่มีลายเซ็นที่บันทึกไว้",
+  "splitTitle": "แยก PDF…",
+  "splitHelp": "ป้อนช่วงหน้าโดยคั่นด้วยจุลภาค แต่ละช่วงจะสร้าง PDF แยกกัน",
+  "splitRanges": "ช่วงหน้า",
+  "splitInvalidRanges": "ใช้หน้า 1–{count} โดยคั่นด้วยจุลภาค ช่วงหน้าต้องเรียงจากน้อยไปมาก",
+  "splitConfirm": "แยก",
+  "splitFailed": "ไม่สามารถแยก PDF นี้ได้",
+  "guidesSnapHint": "จัดแนวขอบและจุดกึ่งกลางของคำอธิบายประกอบ • กด Alt ค้างไว้เพื่อข้าม",
+  "tbToolContentDelete": "ลบ",
+  "tbTipContentDelete": "ลบเนื้อหา — ลากสี่เหลี่ยม หรือคลิกจุดยอดของรูปหลายเหลี่ยมแล้วดับเบิลคลิกเพื่อเสร็จสิ้น"
 }

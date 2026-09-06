@@ -207,6 +207,13 @@ enum PdfEditTool {
   /// images are inserted as movable image stamps.
   content,
 
+  /// Delete page content inside a region, like Bluebeam's
+  /// content erase/delete tool. A drag rubber-bands a rectangle; a tap starts
+  /// (and each further tap extends) a free-form polygon lasso, finished by a
+  /// double-tap. This edits the page's content stream directly and ignores
+  /// annotations.
+  contentDelete,
+
   /// Interactive forms: tap a field widget to fill it (text fields open
   /// an inline editor, check boxes and radio buttons toggle, choice
   /// fields offer their options), drag on empty page area to add a new
@@ -4054,6 +4061,11 @@ class PdfEditingController extends ChangeNotifier {
   Uint8List exportPageRange(int start, int end) =>
       _document.extractPageRange(start, end);
 
+  /// Exports one standalone PDF per zero-based inclusive range, without an
+  /// edit or undo entry. See [PdfSplitter] for the extraction semantics.
+  List<Uint8List> exportPageRanges(List<PdfPageRange> ranges) =>
+      _document.extractPageRanges(ranges);
+
   // ---------------------------------------------------------------------
   // page selection (the thumbnail strip's multi-select)
 
@@ -5811,6 +5823,34 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Whether [pasteSnapshot] has a captured region to paste.
   bool get hasSnapshotClipboard => snapshotClipboard.isNotEmpty;
+
+  Uint8List? _importedSnapshotBytes;
+  PdfVectorSnapshot? _importedSnapshot;
+
+  /// Imports the first page of [pdfBytes] as a vector snapshot and pastes it.
+  /// The page's crop box and rotation determine the natural paste size.
+  /// Invalid bytes or a missing target page leave both clipboards unchanged.
+  /// A successful import becomes the shared snapshot for repeat pastes.
+  bool pasteSnapshotBytes(Uint8List pdfBytes, int pageIndex,
+      {(double, double)? at}) {
+    if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    if (identical(snapshotClipboard.snapshot, _importedSnapshot) &&
+        _importedSnapshot != null &&
+        listEquals(pdfBytes, _importedSnapshotBytes)) {
+      return pasteSnapshot(pageIndex, at: at);
+    }
+    final PdfVectorSnapshot snapshot;
+    try {
+      snapshot = PdfVectorSnapshot.fromPdfBytes(pdfBytes);
+    } catch (_) {
+      return false;
+    }
+    _importedSnapshotBytes = Uint8List.fromList(pdfBytes);
+    _importedSnapshot = snapshot;
+    snapshotClipboard.set(snapshot);
+    annotationClipboard.clear();
+    return pasteSnapshot(pageIndex, at: at);
+  }
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot - the page graphics under the region, copied inline,
@@ -7966,6 +8006,34 @@ class PdfEditingController extends ChangeNotifier {
     if (_selectedElement == null) return;
     _selectedElement = null;
     notifyListeners();
+  }
+
+  /// Erases bounded page graphics inside [rect], clipping crossing vectors
+  /// and images at the boundary. Text glyphs are deleted when their centres
+  /// fall inside it.
+  /// Unbounded elements are left alone because there is no reliable hit box
+  /// for a region delete. Returns the number of elements affected.
+  int deleteElementsInRect(int pageIndex, PdfRect rect) {
+    final elements = elementsOn(pageIndex);
+    var count = 0;
+    apply((e) => count = e.deleteElementsInRect(elements, rect),
+        pages: [pageIndex]);
+    return count;
+  }
+
+  /// Erases bounded page graphics inside the closed [polygon] (page space),
+  /// like [deleteElementsInRect]. Graphics
+  /// crossing its boundary retain their outside portions.
+  /// Text runs are sliced to the glyphs whose centres land inside it. Returns
+  /// the number of elements affected; a degenerate polygon is a no-op.
+  int deleteElementsInPolygon(int pageIndex, List<(double, double)> polygon) {
+    if (polygon.length < 3) return 0;
+    final elements = elementsOn(pageIndex);
+    var count = 0;
+    // A no-op edit leaves the editor unchanged, so apply() adds no revision.
+    apply((e) => count = e.deleteElementsInPolygon(elements, polygon),
+        pages: [pageIndex]);
+    return count;
   }
 
   /// Deletes the selected content element from its page's content stream.

@@ -1,5 +1,43 @@
 # Changelog
 
+## 4.3.0
+
+- Split PDFs into separate documents, erase page content with rectangle or polygon
+  selections, and exchange vector snapshots through the desktop clipboard.
+- Print with page ranges, scaling, multiple pages per sheet, and booklet layouts.
+
+- Hide shortcut hints and shortcut settings on Android and iOS when no physical
+  keyboard is connected, updating menus and tooltips as keyboards attach or detach.
+- Separate panel buttons from Settings and Reflow in the mobile Controls menu.
+- Rename a PDF on Android and iOS by tapping its title (the active tab on
+  tablets). Keep the new name in Recent files, session recovery, and sharing.
+- Fix Android document scanning failing before the camera opens in release
+  builds. Preserve ML Kit's reflection constructors during code shrinking and
+  check the packaged APK before publishing release artifacts.
+- Submit dialogs with Enter or numpad Enter; use Shift+Enter for multiline text.
+  Keep validation, disabled actions, and keyboard-focused Cancel buttons intact.
+- Apply US and UK/Australian English spellings consistently across app dialogs,
+  editor controls and OCR messages, with CI checks for regional bundle drift.
+- Keep the browser responsive during PDF optimisation with a dedicated worker;
+  Cancel stops the job immediately. Use **Optimise** throughout the Australian
+  and UK English dialog, retaining **Optimize** for US English.
+- Section the app menu: a **Search actions… (⌘K)** row on top, then File, This
+  document and App under quiet headers, ordered by how often each entry is
+  reached. A header is only drawn over two rows or more, so with nothing open
+  the menu keeps a bare divider. **Switch to read-only** becomes a **Read-only**
+  switch that shows the current mode instead of a verb that rewrites its label.
+- Add an app-wide **command palette** (⌘K / Ctrl+K, from anywhere, or the
+  menu's first row): one index over the menu's actions, the 35 editing tools,
+  the panels, the view options and the recent files. Every result names the
+  surface it came from and its shortcut, and commands that need an open
+  document stay listed - dimmed, with the reason - rather than disappearing.
+- Add **Reduce file size…** with lossless, screen, eBook, and print presets,
+  independent optimization settings, a savings report, and **Save copy…**.
+  Lossy image changes are opt-in; the open document and undo history stay intact.
+- Add **Insert document…** to the app menu: insert a PDF after the current page
+  as one undo step, with the existing tab identity and session recovery.
+- Preserve imported form fields, bookmarks, and named links when inserting PDFs.
+
 ## 4.2.0
 
 - Keep nearby pages sharp during slow scrolling and warm pages ahead of the

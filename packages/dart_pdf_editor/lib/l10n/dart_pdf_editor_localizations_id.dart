@@ -2119,4 +2119,36 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Tidak ada tanda tangan tersimpan.';
+
+  @override
+  String get splitTitle => 'Pisahkan PDF…';
+
+  @override
+  String get splitHelp =>
+      'Masukkan rentang halaman yang dipisahkan koma. Setiap rentang menghasilkan PDF terpisah.';
+
+  @override
+  String get splitRanges => 'Rentang halaman';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Gunakan halaman 1–$count, dipisahkan koma. Rentang harus berurutan naik.';
+  }
+
+  @override
+  String get splitConfirm => 'Pisahkan';
+
+  @override
+  String get splitFailed => 'PDF ini tidak dapat dipisahkan.';
+
+  @override
+  String get guidesSnapHint =>
+      'Jepret tepi dan pusat anotasi • Tahan Alt untuk melewati';
+
+  @override
+  String get tbToolContentDelete => 'Hapus';
+
+  @override
+  String get tbTipContentDelete =>
+      'Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai';
 }

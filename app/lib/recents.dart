@@ -12,6 +12,7 @@ class RecentFile {
     required this.title,
     this.path,
     this.cachePath,
+    this.cacheAvailable = true,
     this.bookmark,
     required this.openedAt,
   });
@@ -30,6 +31,9 @@ class RecentFile {
   /// saves still go through save-as.
   final String? cachePath;
 
+  /// Evicted snapshots retain their identity/title in Recents, but need a pick.
+  final bool cacheAvailable;
+
   /// macOS security-scoped bookmark for [path], when available.
   final String? bookmark;
 
@@ -45,7 +49,9 @@ class RecentFile {
   /// otherwise the private snapshot. Null when neither is available (web).
   String? get readPath {
     if (path != null && path!.isNotEmpty) return path;
-    if (cachePath != null && cachePath!.isNotEmpty) return cachePath;
+    if (cacheAvailable && cachePath != null && cachePath!.isNotEmpty) {
+      return cachePath;
+    }
     return null;
   }
 
@@ -56,6 +62,7 @@ class RecentFile {
         't': title,
         if (path != null) 'p': path,
         if (cachePath != null) 'c': cachePath,
+        if (!cacheAvailable) 'a': false,
         if (bookmark != null) 'b': bookmark,
         'o': openedAt,
       };
@@ -64,6 +71,7 @@ class RecentFile {
         title: (j['t'] as String?) ?? 'Untitled',
         path: j['p'] as String?,
         cachePath: j['c'] as String?,
+        cacheAvailable: j['a'] != false,
         bookmark: j['b'] as String?,
         openedAt: (j['o'] as num?)?.toInt() ?? 0,
       );
@@ -79,6 +87,13 @@ class RecentsStore extends ChangeNotifier {
 
   final List<RecentFile> _items = [];
   bool _loaded = false;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   List<RecentFile> get items => List.unmodifiable(_items);
   bool get isEmpty => _items.isEmpty;
@@ -134,8 +149,50 @@ class RecentsStore extends ChangeNotifier {
     await _persist();
   }
 
+  /// Updates a document's display/share name, preserving its source and order.
+  Future<void> rename(String id, String title) async {
+    final index = _items.indexWhere((entry) => entry.id == id);
+    if (index < 0 || _items[index].title == title) return;
+    final entry = _items[index];
+    _items[index] = RecentFile(
+      title: title,
+      path: entry.path,
+      cachePath: entry.cachePath,
+      cacheAvailable: entry.cacheAvailable,
+      bookmark: entry.bookmark,
+      openedAt: entry.openedAt,
+    );
+    notifyListeners();
+    await _persist();
+  }
+
   Future<void> clear() async {
     _items.clear();
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Reconciles only the keys inspected by the caller, so a concurrent add
+  /// isn't marked missing using an older inventory. Keeps ordering/identity.
+  Future<void> updateCachedAvailability(
+      Set<String> checked, Set<String> available) async {
+    if (_disposed) return;
+    var changed = false;
+    for (var i = 0; i < _items.length; i++) {
+      final entry = _items[i];
+      if (!checked.contains(entry.cachePath)) continue;
+      final exists = available.contains(entry.cachePath);
+      if (entry.cacheAvailable == exists) continue;
+      _items[i] = RecentFile(
+          title: entry.title,
+          path: entry.path,
+          cachePath: entry.cachePath,
+          cacheAvailable: exists,
+          bookmark: entry.bookmark,
+          openedAt: entry.openedAt);
+      changed = true;
+    }
+    if (!changed) return;
     notifyListeners();
     await _persist();
   }

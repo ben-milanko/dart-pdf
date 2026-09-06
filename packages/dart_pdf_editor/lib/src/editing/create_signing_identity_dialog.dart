@@ -173,7 +173,8 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   child: Text(pdfL10n(context).cancel),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
+                PdfDialogSubmit(
+                    child: FilledButton(
                   onPressed: _busy ? null : _create,
                   child: _busy
                       ? const SizedBox(
@@ -182,7 +183,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(pdfL10n(context).signIdCreate),
-                ),
+                )),
               ],
             ),
           ],

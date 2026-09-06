@@ -618,5 +618,14 @@
   "annotationLibraryCustomStamps": "Niestandardowe stemple…",
   "signatureLibraryManage": "Zarządzaj podpisami",
   "signatureLibraryRenameTitle": "Zmień nazwę podpisu",
-  "signatureLibraryEmpty": "Brak zapisanych podpisów."
+  "signatureLibraryEmpty": "Brak zapisanych podpisów.",
+  "splitTitle": "Podziel PDF…",
+  "splitHelp": "Wpisz zakresy stron oddzielone przecinkami. Każdy zakres tworzy osobny plik PDF.",
+  "splitRanges": "Zakresy stron",
+  "splitInvalidRanges": "Użyj stron od 1 do {count}, oddzielonych przecinkami. Zakresy muszą być rosnące.",
+  "splitConfirm": "Podziel",
+  "splitFailed": "Nie udało się podzielić tego pliku PDF.",
+  "guidesSnapHint": "Przyciągaj krawędzie i środki adnotacji • Przytrzymaj Alt, aby pominąć",
+  "tbToolContentDelete": "Wymaż",
+  "tbTipContentDelete": "Usuń zawartość — przeciągnij prostokąt lub klikaj wierzchołki wielokąta i kliknij dwukrotnie, aby zakończyć"
 }

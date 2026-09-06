@@ -114,6 +114,8 @@ abstract class AppLocalizations {
     Locale('ar'),
     Locale('de'),
     Locale('en'),
+    Locale('en', 'AU'),
+    Locale('en', 'GB'),
     Locale('es'),
     Locale('fr'),
     Locale('hi'),
@@ -442,7 +444,7 @@ abstract class AppLocalizations {
   /// Subtitle for the advanced bring-your-own-certificate signing section.
   ///
   /// In en, this message translates to:
-  /// **'For a signing certificate from your organisation'**
+  /// **'For a signing certificate from your organization'**
   String get appSigUseOwnCertificateSubtitle;
 
   /// Fallback title for an identity from a certificate that has no signer name.
@@ -811,6 +813,12 @@ abstract class AppLocalizations {
   /// **'Scan to new document…'**
   String get editorMenuScanDocument;
 
+  /// Menu action to pick a PDF and insert its pages after the current page in the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert document…'**
+  String get editorMenuInsertDocument;
+
   /// App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document.
   ///
   /// In en, this message translates to:
@@ -835,17 +843,101 @@ abstract class AppLocalizations {
   /// **'Settings'**
   String get editorMenuSettings;
 
-  /// App menu item to leave read-only mode and allow editing.
+  /// Section header in the app menu over the create/open actions.
   ///
   /// In en, this message translates to:
-  /// **'Switch to edit mode'**
-  String get editorMenuSwitchToEdit;
+  /// **'File'**
+  String get editorMenuSectionFile;
 
-  /// App menu item to switch the app into read-only mode.
+  /// Section header in the app menu over actions on the open document.
   ///
   /// In en, this message translates to:
-  /// **'Switch to read-only'**
-  String get editorMenuSwitchToReadOnly;
+  /// **'This document'**
+  String get editorMenuSectionDocument;
+
+  /// Section header in the app menu over app-level entries.
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get editorMenuSectionApp;
+
+  /// Label of the read-only switch row in the app menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only'**
+  String get editorMenuReadOnly;
+
+  /// App menu row that opens the command palette.
+  ///
+  /// In en, this message translates to:
+  /// **'Search actions…'**
+  String get editorMenuSearchActions;
+
+  /// Placeholder in the command palette search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search actions, tools and panels'**
+  String get paletteHint;
+
+  /// Shown when no command matches what was typed.
+  ///
+  /// In en, this message translates to:
+  /// **'No command matches'**
+  String get paletteNoMatch;
+
+  /// Keyboard hints in the palette footer. Keep the key glyphs.
+  ///
+  /// In en, this message translates to:
+  /// **'↑↓ move · ⏎ run · esc close'**
+  String get paletteKeyHints;
+
+  /// How many commands the palette indexes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} commands'**
+  String paletteCount(int count);
+
+  /// How many commands match, out of the whole index.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {total}'**
+  String paletteCountFiltered(int count, int total);
+
+  /// Palette result label: the command lives in the app menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get paletteSourceMenu;
+
+  /// Palette result label: the command shows or hides a panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Panel'**
+  String get paletteSourcePanel;
+
+  /// Palette result label: the command is a view option.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get paletteSourceView;
+
+  /// Palette result label: the command opens a recent file.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get paletteSourceFile;
+
+  /// Palette result label for an editing tool, e.g. "Shapes tool".
+  ///
+  /// In en, this message translates to:
+  /// **'{group} tool'**
+  String paletteSourceTool(String group);
+
+  /// Why a palette command is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs an open document'**
+  String get paletteNeedsDocument;
 
   /// Toast reporting a PDF named action that the viewer does not navigate.
   ///
@@ -1156,19 +1248,19 @@ abstract class AppLocalizations {
   /// Toast shown when the browser-local OCR bridge failed to initialize.
   ///
   /// In en, this message translates to:
-  /// **'Browser OCR failed to initialise'**
+  /// **'Browser OCR failed to initialize'**
   String get ocrBrowserInitFailed;
 
   /// Toast shown when an OCR job is cancelled before any pages are processed.
   ///
   /// In en, this message translates to:
-  /// **'OCR cancelled'**
+  /// **'OCR canceled'**
   String get ocrCancelled;
 
   /// Toast shown when OCR is cancelled after adding some text spans.
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{OCR cancelled after 1 text span} other{OCR cancelled after {count} text spans}}'**
+  /// **'{count, plural, =1{OCR canceled after 1 text span} other{OCR canceled after {count} text spans}}'**
   String ocrCancelledAfterSpans(int count);
 
   /// Button that confirms downloading the OCR model.
@@ -1722,6 +1814,630 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t take a photo'**
   String get imageSourceCameraFailed;
+
+  /// Opened PDF snapshot cache settings: settingsCachedDocuments
+  ///
+  /// In en, this message translates to:
+  /// **'Cached documents'**
+  String get settingsCachedDocuments;
+
+  /// Opened PDF snapshot cache settings: settingsCacheUsage
+  ///
+  /// In en, this message translates to:
+  /// **'{used} MiB of {limit} MiB used'**
+  String settingsCacheUsage(String used, String limit);
+
+  /// Opened PDF snapshot cache settings: settingsCacheExplanation
+  ///
+  /// In en, this message translates to:
+  /// **'Files over {limit} MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.'**
+  String settingsCacheExplanation(String limit);
+
+  /// Opened PDF snapshot cache settings: settingsClearCachedDocuments
+  ///
+  /// In en, this message translates to:
+  /// **'Clear cached documents'**
+  String get settingsClearCachedDocuments;
+
+  /// Opened PDF snapshot cache settings: settingsCacheUnavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Cache size unavailable'**
+  String get settingsCacheUnavailable;
+
+  /// Opened PDF snapshot cache settings: settingsCacheClearFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not clear cached documents. Try again.'**
+  String get settingsCacheClearFailed;
+
+  /// App menu action that opens the PDF optimization tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce file size…'**
+  String get editorMenuReduceFileSize;
+
+  /// Title of the PDF optimization dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce file size'**
+  String get reduceSizeTitle;
+
+  /// Explanation of the optimization and save-copy workflow.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimize the current document, review the savings, then save a smaller copy.'**
+  String get reduceSizeDescription;
+
+  /// Label for the compression preset picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset'**
+  String get reduceSizePreset;
+
+  /// Default preset that preserves image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Lossless — preserve image quality'**
+  String get reduceSizeLossless;
+
+  /// Low-resolution compression preset, describes its image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen — 72 DPI, JPEG quality 60'**
+  String get reduceSizeScreen;
+
+  /// Medium-resolution compression preset, describes its image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'eBook — 150 DPI, JPEG quality 75'**
+  String get reduceSizeEbook;
+
+  /// High-resolution compression preset, describes its image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Print — 300 DPI, JPEG quality 90'**
+  String get reduceSizePrinter;
+
+  /// Description shown when lossy image processing is disabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Image resolution and quality stay the same.'**
+  String get reduceSizeLosslessHint;
+
+  /// Describes the quality tradeoff when image downsampling is enabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Images above the target resolution may be reduced and JPEG-encoded. Fine image detail can be lost; text and vector graphics stay sharp.'**
+  String get reduceSizeLossyHint;
+
+  /// Expansion title for individual optimization settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced settings'**
+  String get reduceSizeAdvanced;
+
+  /// Option to apply lossless compression to PDF streams.
+  ///
+  /// In en, this message translates to:
+  /// **'Recompress streams'**
+  String get reduceSizeRecompress;
+
+  /// Option to remove resources that page content does not use.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove unused resources'**
+  String get reduceSizeUnusedResources;
+
+  /// Option to share identical PDF objects.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge duplicate objects'**
+  String get reduceSizeDeduplicate;
+
+  /// Option to remove unused embedded font glyphs when supported.
+  ///
+  /// In en, this message translates to:
+  /// **'Subset embedded fonts'**
+  String get reduceSizeSubsetFonts;
+
+  /// Label for image target DPI control.
+  ///
+  /// In en, this message translates to:
+  /// **'Image target resolution'**
+  String get reduceSizeDpi;
+
+  /// Image resolution choice that disables lossy processing.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep original images (lossless)'**
+  String get reduceSizeKeepImages;
+
+  /// Image encoder quality, from 10 to 100.
+  ///
+  /// In en, this message translates to:
+  /// **'JPEG quality: {quality}'**
+  String reduceSizeJpegQuality(int quality);
+
+  /// Warning shown only for a document containing digital signatures.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewriting this signed PDF invalidates its digital signatures in the saved copy.'**
+  String get reduceSizeSignaturesNotice;
+
+  /// Explicit consent checkbox required before optimizing a signed file.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow invalidating signatures in this copy'**
+  String get reduceSizeInvalidateSignatures;
+
+  /// Message shown when the optimization action is used on an encrypted PDF.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted PDFs cannot be optimized.'**
+  String get reduceSizeEncrypted;
+
+  /// Message shown when a progressive source has not fully loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Wait for the document to finish loading before reducing its size.'**
+  String get reduceSizeIncomplete;
+
+  /// Button that runs the selected optimizations.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimize'**
+  String get reduceSizeRun;
+
+  /// Indeterminate progress status while the compression worker is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimizing document…'**
+  String get reduceSizeRunning;
+
+  /// An error returned by the PDF optimizer.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not optimize this PDF: {error}'**
+  String reduceSizeFailed(String error);
+
+  /// An error raised while saving an optimized copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the copy: {error}'**
+  String reduceSizeSaveFailed(String error);
+
+  /// Opens the save dialog for the optimized PDF.
+  ///
+  /// In en, this message translates to:
+  /// **'Save copy…'**
+  String get reduceSizeSaveCopy;
+
+  /// Returns from the optimization report to its settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Change settings'**
+  String get reduceSizeChangeSettings;
+
+  /// Original file size in the optimization report.
+  ///
+  /// In en, this message translates to:
+  /// **'Original size'**
+  String get reduceSizeBefore;
+
+  /// Resulting file size in the optimization report.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimized size'**
+  String get reduceSizeAfter;
+
+  /// Bytes and percentage saved by optimization.
+  ///
+  /// In en, this message translates to:
+  /// **'Space saved'**
+  String get reduceSizeSavings;
+
+  /// Explains a result that could not reduce the file size.
+  ///
+  /// In en, this message translates to:
+  /// **'This document is already compact with these settings. The original bytes were kept.'**
+  String get reduceSizeNoSavings;
+
+  /// Labels the sequential contribution of each compression category.
+  ///
+  /// In en, this message translates to:
+  /// **'Bytes saved by each optimization step:'**
+  String get reduceSizeReportHint;
+
+  /// Report category for compaction and stream compression.
+  ///
+  /// In en, this message translates to:
+  /// **'Document structure'**
+  String get reduceSizeStructure;
+
+  /// Report category for unused-resource removal.
+  ///
+  /// In en, this message translates to:
+  /// **'Unused resources'**
+  String get reduceSizeResources;
+
+  /// Report category for font subsetting.
+  ///
+  /// In en, this message translates to:
+  /// **'Embedded fonts'**
+  String get reduceSizeFonts;
+
+  /// Report category for image processing.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get reduceSizeImages;
+
+  /// Report category for identical-object sharing.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate objects'**
+  String get reduceSizeDuplicates;
+
+  /// Preset label shown after any individual compression setting is changed.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom settings'**
+  String get reduceSizeCustom;
+
+  /// Print settings dialog: Printer
+  ///
+  /// In en, this message translates to:
+  /// **'Printer'**
+  String get printOptionsPrinter;
+
+  /// Print settings dialog: Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.'**
+  String get printOptionsNativePrinter;
+
+  /// Print settings dialog: Pages
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get printOptionsPages;
+
+  /// Print settings dialog: Selected
+  ///
+  /// In en, this message translates to:
+  /// **'Selected'**
+  String get printOptionsSelected;
+
+  /// Print settings dialog: Pages (for example, 1, 3-5)
+  ///
+  /// In en, this message translates to:
+  /// **'Pages (for example, 1, 3-5)'**
+  String get printOptionsPageRange;
+
+  /// Print settings dialog: Add files…
+  ///
+  /// In en, this message translates to:
+  /// **'Add files…'**
+  String get printOptionsAddFiles;
+
+  /// Print settings dialog: Could not add the selected files.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not add the selected files.'**
+  String get printOptionsAddFailed;
+
+  /// Print settings dialog: Get window
+  ///
+  /// In en, this message translates to:
+  /// **'Get window'**
+  String get printOptionsGetWindow;
+
+  /// Print settings dialog: Clear window
+  ///
+  /// In en, this message translates to:
+  /// **'Clear window'**
+  String get printOptionsClearWindow;
+
+  /// Print settings dialog: Drag a rectangle on this source page to choose the area to print.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag a rectangle on this source page to choose the area to print.'**
+  String get printOptionsWindowHint;
+
+  /// Print settings dialog: Paper
+  ///
+  /// In en, this message translates to:
+  /// **'Paper'**
+  String get printOptionsPaper;
+
+  /// Print settings dialog: Paper size
+  ///
+  /// In en, this message translates to:
+  /// **'Paper size'**
+  String get printOptionsPaperSize;
+
+  /// Print settings dialog: Use document page size
+  ///
+  /// In en, this message translates to:
+  /// **'Use document page size'**
+  String get printOptionsPageSize;
+
+  /// Print settings dialog: Orientation
+  ///
+  /// In en, this message translates to:
+  /// **'Orientation'**
+  String get printOptionsOrientation;
+
+  /// Print settings dialog: Auto
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get printOptionsAuto;
+
+  /// Print settings dialog: Portrait
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get printOptionsPortrait;
+
+  /// Print settings dialog: Landscape
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get printOptionsLandscape;
+
+  /// Print settings dialog: Copies
+  ///
+  /// In en, this message translates to:
+  /// **'Copies'**
+  String get printOptionsCopies;
+
+  /// Print settings dialog: Collate
+  ///
+  /// In en, this message translates to:
+  /// **'Collate'**
+  String get printOptionsCollate;
+
+  /// Print settings dialog: Reverse page order
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse page order'**
+  String get printOptionsReverse;
+
+  /// Print settings dialog: Page layout
+  ///
+  /// In en, this message translates to:
+  /// **'Page layout'**
+  String get printOptionsLayout;
+
+  /// Print settings dialog: Page scaling
+  ///
+  /// In en, this message translates to:
+  /// **'Page scaling'**
+  String get printOptionsScaling;
+
+  /// Print settings dialog: None (actual size)
+  ///
+  /// In en, this message translates to:
+  /// **'None (actual size)'**
+  String get printOptionsScaleNone;
+
+  /// Print settings dialog: Fit to paper
+  ///
+  /// In en, this message translates to:
+  /// **'Fit to paper'**
+  String get printOptionsFitPaper;
+
+  /// Print settings dialog: Reduce to paper
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce to paper'**
+  String get printOptionsReducePaper;
+
+  /// Print settings dialog: Fit to margins
+  ///
+  /// In en, this message translates to:
+  /// **'Fit to margins'**
+  String get printOptionsFitMargins;
+
+  /// Print settings dialog: Reduce to margins
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce to margins'**
+  String get printOptionsReduceMargins;
+
+  /// Print settings dialog: Custom scale
+  ///
+  /// In en, this message translates to:
+  /// **'Custom scale'**
+  String get printOptionsCustomScale;
+
+  /// Print settings dialog: Multiple pages per sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Multiple pages per sheet'**
+  String get printOptionsMultiple;
+
+  /// Print settings dialog: Scale (%)
+  ///
+  /// In en, this message translates to:
+  /// **'Scale (%)'**
+  String get printOptionsScalePercent;
+
+  /// Print settings dialog: Margins (pt)
+  ///
+  /// In en, this message translates to:
+  /// **'Margins (pt)'**
+  String get printOptionsMargin;
+
+  /// Print settings dialog: Pages per sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Pages per sheet'**
+  String get printOptionsPagesPerSheet;
+
+  /// Print settings dialog: Page order
+  ///
+  /// In en, this message translates to:
+  /// **'Page order'**
+  String get printOptionsPageOrder;
+
+  /// Print settings dialog: Horizontal
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal'**
+  String get printOptionsHorizontal;
+
+  /// Print settings dialog: Horizontal reversed
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal reversed'**
+  String get printOptionsHorizontalReverse;
+
+  /// Print settings dialog: Vertical
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical'**
+  String get printOptionsVertical;
+
+  /// Print settings dialog: Vertical reversed
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical reversed'**
+  String get printOptionsVerticalReverse;
+
+  /// Print settings dialog: Print page borders
+  ///
+  /// In en, this message translates to:
+  /// **'Print page borders'**
+  String get printOptionsBorder;
+
+  /// Print settings dialog: Rotation (clockwise)
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation (clockwise)'**
+  String get printOptionsRotation;
+
+  /// Print settings dialog: None
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get printOptionsNoRotation;
+
+  /// Print settings dialog: Center on paper
+  ///
+  /// In en, this message translates to:
+  /// **'Center on paper'**
+  String get printOptionsCenter;
+
+  /// Print settings dialog: Offset right (pt)
+  ///
+  /// In en, this message translates to:
+  /// **'Offset right (pt)'**
+  String get printOptionsOffsetX;
+
+  /// Print settings dialog: Offset down (pt)
+  ///
+  /// In en, this message translates to:
+  /// **'Offset down (pt)'**
+  String get printOptionsOffsetY;
+
+  /// Print settings dialog: Print contents
+  ///
+  /// In en, this message translates to:
+  /// **'Print contents'**
+  String get printOptionsContents;
+
+  /// Print settings dialog: Document and markups
+  ///
+  /// In en, this message translates to:
+  /// **'Document and markups'**
+  String get printOptionsDocumentAndMarkups;
+
+  /// Print settings dialog: Document only
+  ///
+  /// In en, this message translates to:
+  /// **'Document only'**
+  String get printOptionsDocumentOnly;
+
+  /// Print settings dialog: Markups only
+  ///
+  /// In en, this message translates to:
+  /// **'Markups only'**
+  String get printOptionsMarkupsOnly;
+
+  /// Print settings dialog: Dim page content
+  ///
+  /// In en, this message translates to:
+  /// **'Dim page content'**
+  String get printOptionsDimPage;
+
+  /// Print settings dialog: Dim markups
+  ///
+  /// In en, this message translates to:
+  /// **'Dim markups'**
+  String get printOptionsDimMarkups;
+
+  /// Print settings dialog: Print visible hyperlinks
+  ///
+  /// In en, this message translates to:
+  /// **'Print visible hyperlinks'**
+  String get printOptionsHyperlinks;
+
+  /// Print settings dialog: Defaults
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults'**
+  String get printOptionsDefaults;
+
+  /// Print settings dialog: Enter valid numbers before printing.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter valid numbers before printing.'**
+  String get printOptionsInvalidNumber;
+
+  /// Print settings dialog: Invalid value
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid value'**
+  String get printOptionsInvalidValue;
+
+  /// Print settings dialog: Red lines show the margins; they do not print.
+  ///
+  /// In en, this message translates to:
+  /// **'Red lines show the margins; they do not print.'**
+  String get printOptionsMarginGuide;
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Window: {width} × {height} pt'**
+  String printOptionsAreaSize(String width, String height);
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Source: {width} × {height} pt'**
+  String printOptionsSourceSize(String width, String height);
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Sheet: {width} × {height} pt'**
+  String printOptionsSheetSize(String width, String height);
+
+  /// Print settings preview label.
+  ///
+  /// In en, this message translates to:
+  /// **'Sheet {sheet} of {total}'**
+  String printOptionsSheetOf(int sheet, int total);
+
+  /// Print settings validation when the sheet cannot be composed.
+  ///
+  /// In en, this message translates to:
+  /// **'This layout could not be prepared. Check the paper size, margins and scale.'**
+  String get printOptionsInvalidLayout;
 }
 
 class _AppLocalizationsDelegate
@@ -1768,6 +2484,20 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
         switch (locale.scriptCode) {
           case 'Hant':
             return AppLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
+  // Lookup logic when language+country codes are specified.
+  switch (locale.languageCode) {
+    case 'en':
+      {
+        switch (locale.countryCode) {
+          case 'AU':
+            return AppLocalizationsEnAu();
+          case 'GB':
+            return AppLocalizationsEnGb();
         }
         break;
       }

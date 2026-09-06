@@ -60,6 +60,10 @@ export 'annotation_tap.dart'
 
 const double _defaultMaxZoom = 24;
 
+// Clipboard revisions are shared across viewer windows just like the snapshot
+// holder. Weak keys keep private clipboard lifetimes independent of this cache.
+final _pastedSystemPdfCopies = Expando<Object>('pasted system PDF copy');
+
 /// How the viewer reconciled its page presentation across a document change.
 enum PdfPageReconciliationMode {
   /// Only pages named by the edit impact were re-wrapped.
@@ -685,6 +689,17 @@ class PdfViewerController extends ChangeNotifier {
   List<PdfRect> selectionRectsOn(int pageIndex) =>
       _state?._selectionRectsOn(pageIndex) ?? const [];
 
+  /// Selects the whole text of [pageIndex] - what Cmd/Ctrl+A and the text
+  /// menu's Select all do. A page out of range, or with no extractable
+  /// text, leaves the selection as it was.
+  void selectAllTextOn(int pageIndex) {
+    final state = _state;
+    if (state == null || pageIndex < 0 || pageIndex >= state._pages.length) {
+      return;
+    }
+    state._selectAllTextOn(pageIndex);
+  }
+
   void _setSelection(String text) {
     if (text == _selectedText) return;
     _selectedText = text;
@@ -1287,12 +1302,14 @@ class PdfViewer extends StatefulWidget {
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
+    this.textMenuBuilder,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.fontPicker,
     this.imagePicker,
+    this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
     this.systemTextPasteProvider,
     this.onSnapshot,
@@ -1555,6 +1572,17 @@ class PdfViewer extends StatefulWidget {
   /// there is no context menu.
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
 
+  /// Adds the app's own entries to the text-selection context menu (the
+  /// desktop right-click menu over page text - markup, Copy and Select
+  /// all come stock). Called when the menu opens, with the selection it
+  /// acts on; the custom entries appear below a divider.
+  ///
+  /// Unlike [annotationMenuBuilder] this works without [editing] too: a
+  /// plain reader gets the same hook, with a null controller in the
+  /// request. Custom entries alone are enough to open the menu, so an
+  /// action that doesn't need text still reaches a page that has none.
+  final PdfTextMenuBuilder? textMenuBuilder;
+
   /// Whether right-click (desktop) and long-press (touch/stylus) open a
   /// context menu. When false, selection, link taps, and pan/zoom still run
   /// normally; only the popup menus are suppressed. Defaults to true.
@@ -1621,6 +1649,10 @@ class PdfViewer extends StatefulWidget {
   /// no pointer location is known. When null or when it returns null, paste
   /// falls back to plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies an external PDF for vector paste before the in-app clipboard.
+  /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
+  final PdfSystemPdfPasteProvider? systemPdfPasteProvider;
 
   /// Supplies plain text for ⌘V/Ctrl+V when neither the in-app clipboard nor
   /// [systemImagePasteProvider] produced content. Used in preference to
@@ -6402,7 +6434,11 @@ class _PdfViewerState extends State<PdfViewer>
         final hit = editing.selectableAnnotationAt(page, x, y);
         // an annotation, or empty page area with something to paste,
         // gets the annotation menu
-        if (hit != null || editing.hasAnnotationClipboard) {
+        if (hit != null ||
+            editing.hasAnnotationClipboard ||
+            editing.hasSnapshotClipboard ||
+            (widget.systemPdfPasteProvider != null &&
+                editing.lockedAnnotationAt(page, x, y) == null)) {
           if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
             editing.selectAnnotationAt(page, x, y);
           }
@@ -6423,6 +6459,9 @@ class _PdfViewerState extends State<PdfViewer>
             pageIndex: page,
             customActions: widget.annotationMenuBuilder,
             pagePoint: (x, y),
+            onPaste: widget.systemPdfPasteProvider == null
+                ? null
+                : () => _onPaste(pageIndex: page, at: (x, y)),
           );
           return;
         }
@@ -6478,7 +6517,8 @@ class _PdfViewerState extends State<PdfViewer>
     }
     // reading mode, or nothing under the click in editing mode: the text
     // menu, mirroring the touch selection chip for mouse users
-    await _showTextMenu(details.globalPosition, details.localPosition, page);
+    await _showTextMenu(
+        details.globalPosition, details.localPosition, page, (x, y));
   }
 
   /// Selects the word under [local] unless the click landed inside the
@@ -6497,56 +6537,78 @@ class _PdfViewerState extends State<PdfViewer>
   /// chip for desktop users, who otherwise have only ⌘C. A right-click that
   /// lands outside the current selection first selects the word under
   /// the cursor, like a desktop reader, so Copy has something to act on;
-  /// a click inside the selection keeps it. With no selectable word and
-  /// no page text the menu does not open.
-  Future<void> _showTextMenu(
-      Offset globalPosition, Offset local, int page) async {
+  /// a click inside the selection keeps it. With no selectable word, no
+  /// page text, and nothing from [PdfViewer.textMenuBuilder], the menu
+  /// does not open.
+  Future<void> _showTextMenu(Offset globalPosition, Offset local, int page,
+      (double, double) pagePoint) async {
     _prepareTextSelectionAt(local);
     final hasSelection = _selRange != null;
     final hasText = _pageText(page).text.isNotEmpty;
-    if (!hasSelection && !hasText) return;
     final editing = widget.editing;
+    // The host's entries are built from the selection as it stands now,
+    // and that snapshot is what the picked entry is handed - the menu
+    // closing must not change what an action was offered for.
+    final builder = widget.textMenuBuilder;
+    PdfTextMenuRequest? request;
+    var custom = const <PdfTextMenuItem>[];
+    if (builder != null) {
+      request = PdfTextMenuRequest(
+        controller: editing,
+        pageIndex: page,
+        selectedText: _controller.selectedText,
+        selectionPages: _controller.selectionPages,
+        quadsByPage: {
+          for (final p in _controller.selectionPages) p: _selectionRectsOn(p),
+        },
+        pagePoint: pagePoint,
+      );
+      custom = builder(context, request);
+    }
+    // Host entries can stand alone: an action that doesn't need text still
+    // reaches a page with none, where every stock entry would be disabled.
+    if (!hasSelection && !hasText && custom.isEmpty) return;
     final canEdit =
         editing != null && widget.textSelectionEditing && hasSelection;
     final canMarkup =
         editing != null && widget.textSelectionMarkup && hasSelection;
-    final picked = await showMenu<_TextMenuAction>(
+    final picked = await showMenu<Object>(
       context: context,
       position: pdfPopupPosition(context, globalPosition),
       items: [
         if (canEdit)
-          PopupMenuItem<_TextMenuAction>(
+          PopupMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-edit'),
             value: _TextMenuAction.edit,
             child: _textMenuRow(
                 Icons.edit, pdfL10n(context).viewerEditTextStyle, true),
           ),
         if (canMarkup) ...[
-          PopupMenuItem<_TextMenuAction>(
+          PopupMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-highlight'),
             value: _TextMenuAction.highlight,
             child: _textMenuRow(Icons.border_color,
                 pdfL10n(context).viewerMarkupHighlight, true),
           ),
-          PopupMenuItem<_TextMenuAction>(
+          PopupMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-underline'),
             value: _TextMenuAction.underline,
             child: _textMenuRow(Icons.format_underlined,
                 pdfL10n(context).viewerMarkupUnderline, true),
           ),
-          PopupMenuItem<_TextMenuAction>(
+          PopupMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-strikeout'),
             value: _TextMenuAction.strikeOut,
             child: _textMenuRow(Icons.format_strikethrough,
                 pdfL10n(context).viewerMarkupStrikeOut, true),
           ),
-          PopupMenuItem<_TextMenuAction>(
+          PopupMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-squiggly'),
             value: _TextMenuAction.squiggly,
             child: _textMenuRow(
                 Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
           ),
-          PopupMenuItem<_TextMenuAction>(
+          PopupMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-link'),
             value: _TextMenuAction.addLink,
             child: _textMenuRow(
@@ -6554,22 +6616,39 @@ class _PdfViewerState extends State<PdfViewer>
           ),
         ],
         if (canEdit || canMarkup) const PopupMenuDivider(),
-        PopupMenuItem<_TextMenuAction>(
+        PopupMenuItem<Object>(
           key: const ValueKey('pdf-text-menu-copy'),
           value: _TextMenuAction.copy,
           enabled: hasSelection,
           child: _textMenuRow(Icons.copy, pdfL10n(context).copy, hasSelection),
         ),
-        PopupMenuItem<_TextMenuAction>(
+        PopupMenuItem<Object>(
           key: const ValueKey('pdf-text-menu-select-all'),
           value: _TextMenuAction.selectAll,
           enabled: hasText,
           child: _textMenuRow(
               Icons.select_all, pdfL10n(context).viewerSelectAll, hasText),
         ),
+        // the host's entries ride in their own group below a divider,
+        // exactly like the annotation menu's
+        if (custom.isNotEmpty) ...[
+          const PopupMenuDivider(),
+          for (final item in custom)
+            PopupMenuItem<Object>(
+              key: item.key,
+              value: item,
+              enabled: item.enabled,
+              child: _textMenuRow(item.icon, item.label, item.enabled),
+            ),
+        ],
       ],
     );
-    switch (picked) {
+    if (picked is PdfTextMenuItem) {
+      // request is non-null whenever a custom entry exists
+      await picked.onSelected(request!);
+      return;
+    }
+    switch (picked as _TextMenuAction?) {
       case _TextMenuAction.edit:
         await _editTextSelection();
       case _TextMenuAction.highlight:
@@ -6731,14 +6810,16 @@ class _PdfViewerState extends State<PdfViewer>
     ));
   }
 
-  Widget _textMenuRow(IconData icon, String label, bool enabled) => Row(
+  Widget _textMenuRow(IconData? icon, String label, bool enabled) => Row(
         children: [
-          Builder(
-            builder: (context) => Icon(icon,
-                size: 18,
-                color: enabled ? null : Theme.of(context).disabledColor),
-          ),
-          const SizedBox(width: 10),
+          if (icon != null) ...[
+            Builder(
+              builder: (context) => Icon(icon,
+                  size: 18,
+                  color: enabled ? null : Theme.of(context).disabledColor),
+            ),
+            const SizedBox(width: 10),
+          ],
           Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
         ],
       );
@@ -6767,6 +6848,9 @@ class _PdfViewerState extends State<PdfViewer>
       pageIndex: pageIndex,
       customActions: widget.annotationMenuBuilder,
       pagePoint: pagePoint,
+      onPaste: widget.systemPdfPasteProvider == null
+          ? null
+          : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
     );
   }
 
@@ -6958,29 +7042,64 @@ class _PdfViewerState extends State<PdfViewer>
   /// With no pointer seen yet (touch / keyboard-only) annotation paste
   /// falls back to the current page's cascade; text paste lands in the
   /// current page's center.
-  void _onPaste() {
+  bool _readingPaste = false;
+
+  void _onPaste({int? pageIndex, (double, double)? at}) {
     final editing = widget.editing;
-    if (editing == null) return;
-    // a captured snapshot pastes back as vector graphics; otherwise the
-    // annotation clipboard (the most recent copy wins, mirroring the
-    // controller's clipboards)
-    final snapshot = editing.hasSnapshotClipboard;
-    if (!snapshot && !editing.hasAnnotationClipboard) {
-      unawaited(_pasteSystemClipboard(editing));
+    if (editing == null || _readingPaste) return;
+    final local = _lastPointerLocal;
+    final point =
+        pageIndex == null && local != null ? _pagePointAt(local) : null;
+    final page = pageIndex ?? point?.$1 ?? _controller.currentPage;
+    at ??= point == null ? null : (point.$2, point.$3);
+    if (widget.systemPdfPasteProvider == null) {
+      _pasteLocalClipboard(editing, page, at);
       return;
     }
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (snapshot) {
-      if (point != null) {
-        editing.pasteSnapshot(point.$1, at: (point.$2, point.$3));
-      } else {
-        editing.pasteSnapshot(_controller.currentPage);
+    unawaited(_pasteWithExternalPdf(editing, page, at));
+  }
+
+  Future<void> _pasteWithExternalPdf(
+      PdfEditingController editing, int page, (double, double)? at) async {
+    _readingPaste = true;
+    final revision = editing.revisionId;
+    try {
+      PdfClipboardPdf? pdf;
+      try {
+        pdf = await widget.systemPdfPasteProvider!(context);
+      } catch (_) {
+        // Missing support or denied clipboard access keeps local paste usable.
       }
-    } else if (point != null) {
-      editing.pasteAnnotations(point.$1, at: (point.$2, point.$3));
+      if (!mounted ||
+          widget.editing != editing ||
+          editing.revisionId != revision) {
+        return;
+      }
+      final token = pdf?.changeToken;
+      final alreadyPasted = token != null &&
+          _pastedSystemPdfCopies[editing.snapshotClipboard] == token;
+      if (pdf != null &&
+          !alreadyPasted &&
+          editing.pasteSnapshotBytes(pdf.bytes, page, at: at)) {
+        if (token != null) {
+          _pastedSystemPdfCopies[editing.snapshotClipboard] = token;
+        }
+        return;
+      }
+      _pasteLocalClipboard(editing, page, at);
+    } finally {
+      _readingPaste = false;
+    }
+  }
+
+  void _pasteLocalClipboard(
+      PdfEditingController editing, int page, (double, double)? at) {
+    if (editing.hasSnapshotClipboard) {
+      editing.pasteSnapshot(page, at: at);
+    } else if (editing.hasAnnotationClipboard) {
+      editing.pasteAnnotations(page, at: at);
     } else {
-      editing.pasteAnnotations(_controller.currentPage);
+      unawaited(_pasteSystemClipboard(editing));
     }
   }
 
@@ -7534,7 +7653,12 @@ class _PdfViewerState extends State<PdfViewer>
       }
       final hit = editing.selectableAnnotationAt(page, x, y);
       // nothing to act on: not a menu gesture at all
-      if (hit == null && !editing.hasAnnotationClipboard) return false;
+      if (hit == null &&
+          !editing.hasAnnotationClipboard &&
+          !editing.hasSnapshotClipboard &&
+          widget.systemPdfPasteProvider == null) {
+        return false;
+      }
       // select first, so the host sees the same context the stock menu
       // would have had - and so a press with no listening host still
       // leaves the selection the stock path would have made
@@ -7559,7 +7683,9 @@ class _PdfViewerState extends State<PdfViewer>
       if (!editing.isAnnotationSelected(page, hit.$1)) {
         editing.selectAnnotationAt(page, x, y);
       }
-    } else if (!editing.hasAnnotationClipboard) {
+    } else if (!editing.hasAnnotationClipboard &&
+        !editing.hasSnapshotClipboard &&
+        widget.systemPdfPasteProvider == null) {
       return false;
     }
     HapticFeedback.selectionClick();

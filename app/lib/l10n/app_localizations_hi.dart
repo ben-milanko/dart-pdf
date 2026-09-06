@@ -446,6 +446,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorMenuScanDocument => 'नए दस्तावेज़ में स्कैन करें…';
 
   @override
+  String get editorMenuInsertDocument => 'दस्तावेज़ डालें…';
+
+  @override
   String get editorMenuInsertScan => 'स्कैन डालें…';
 
   @override
@@ -458,10 +461,58 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorMenuSettings => 'सेटिंग्स';
 
   @override
-  String get editorMenuSwitchToEdit => 'संपादन मोड में जाएँ';
+  String get editorMenuSectionFile => 'फ़ाइल';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'केवल-पढ़ने में जाएँ';
+  String get editorMenuSectionDocument => 'यह दस्तावेज़';
+
+  @override
+  String get editorMenuSectionApp => 'ऐप';
+
+  @override
+  String get editorMenuReadOnly => 'केवल पढ़ने योग्य';
+
+  @override
+  String get editorMenuSearchActions => 'क्रियाएँ खोजें…';
+
+  @override
+  String get paletteHint => 'क्रियाएँ, टूल और पैनल खोजें';
+
+  @override
+  String get paletteNoMatch => 'कोई कमांड मेल नहीं खाता';
+
+  @override
+  String get paletteKeyHints => '↑↓ चुनें · ⏎ चलाएँ · esc बंद करें';
+
+  @override
+  String paletteCount(int count) {
+    return '$count कमांड';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total में से $count';
+  }
+
+  @override
+  String get paletteSourceMenu => 'मेन्यू';
+
+  @override
+  String get paletteSourcePanel => 'पैनल';
+
+  @override
+  String get paletteSourceView => 'व्यू';
+
+  @override
+  String get paletteSourceFile => 'फ़ाइल';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group टूल';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'खुला दस्तावेज़ आवश्यक';
 
   @override
   String editorNamedAction(String name) {
@@ -1053,4 +1104,350 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'फ़ोटो नहीं ली जा सकी';
+
+  @override
+  String get settingsCachedDocuments => 'कैश किए गए दस्तावेज़';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB में से $used MiB उपयोग में';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB से बड़ी फ़ाइलें कैश नहीं की जातीं। साफ़ करने पर हाल की फ़ाइलों की सूची, खुले दस्तावेज़ और बिना सहेजे बदलाव बने रहते हैं; कैश की गई फ़ाइलों को फिर से खोलने के लिए दोबारा चुनना होगा।';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'कैश किए गए दस्तावेज़ साफ़ करें';
+
+  @override
+  String get settingsCacheUnavailable => 'कैश का आकार उपलब्ध नहीं है';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'कैश किए गए दस्तावेज़ साफ़ नहीं किए जा सके। फिर से कोशिश करें।';
+
+  @override
+  String get editorMenuReduceFileSize => 'फ़ाइल का आकार घटाएँ…';
+
+  @override
+  String get reduceSizeTitle => 'फ़ाइल का आकार घटाएँ';
+
+  @override
+  String get reduceSizeDescription =>
+      'वर्तमान दस्तावेज़ को अनुकूलित करें, बचत की समीक्षा करें और फिर छोटी कॉपी सहेजें।';
+
+  @override
+  String get reduceSizePreset => 'प्रीसेट';
+
+  @override
+  String get reduceSizeLossless => 'दोषरहित — छवि की गुणवत्ता बनाए रखें';
+
+  @override
+  String get reduceSizeScreen => 'स्क्रीन — 72 DPI, JPEG गुणवत्ता 60';
+
+  @override
+  String get reduceSizeEbook => 'ई-बुक — 150 DPI, JPEG गुणवत्ता 75';
+
+  @override
+  String get reduceSizePrinter => 'प्रिंट — 300 DPI, JPEG गुणवत्ता 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'छवि का रिज़ॉल्यूशन और गुणवत्ता समान रहते हैं।';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'लक्षित रिज़ॉल्यूशन से बड़ी छवियाँ छोटी करके JPEG में बदली जा सकती हैं। बारीक विवरण खो सकते हैं; टेक्स्ट और वेक्टर ग्राफ़िक्स स्पष्ट रहते हैं।';
+
+  @override
+  String get reduceSizeAdvanced => 'उन्नत सेटिंग';
+
+  @override
+  String get reduceSizeRecompress => 'डेटा स्ट्रीम फिर से संपीड़ित करें';
+
+  @override
+  String get reduceSizeUnusedResources => 'अप्रयुक्त संसाधन हटाएँ';
+
+  @override
+  String get reduceSizeDeduplicate => 'डुप्लिकेट ऑब्जेक्ट मर्ज करें';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'एम्बेड किए गए फ़ॉन्ट को प्रयुक्त ग्लिफ़ तक सीमित करें';
+
+  @override
+  String get reduceSizeDpi => 'छवि का लक्षित रिज़ॉल्यूशन';
+
+  @override
+  String get reduceSizeKeepImages => 'मूल छवियाँ रखें (दोषरहित)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG गुणवत्ता: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'इस हस्ताक्षरित PDF को फिर से लिखने से सहेजी गई कॉपी के डिजिटल हस्ताक्षर अमान्य हो जाते हैं।';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'इस कॉपी के हस्ताक्षर अमान्य करने की अनुमति दें';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'एन्क्रिप्ट किए गए PDF अनुकूलित नहीं किए जा सकते।';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'आकार घटाने से पहले दस्तावेज़ के पूरी तरह लोड होने की प्रतीक्षा करें।';
+
+  @override
+  String get reduceSizeRun => 'अनुकूलित करें';
+
+  @override
+  String get reduceSizeRunning => 'दस्तावेज़ अनुकूलित हो रहा है…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'यह PDF अनुकूलित नहीं किया जा सका: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'कॉपी सहेजी नहीं जा सकी: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'कॉपी सहेजें…';
+
+  @override
+  String get reduceSizeChangeSettings => 'सेटिंग बदलें';
+
+  @override
+  String get reduceSizeBefore => 'मूल आकार';
+
+  @override
+  String get reduceSizeAfter => 'अनुकूलित आकार';
+
+  @override
+  String get reduceSizeSavings => 'बची हुई जगह';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'इन सेटिंग के साथ यह दस्तावेज़ पहले से छोटा है। मूल डेटा रखा गया है।';
+
+  @override
+  String get reduceSizeReportHint => 'अनुकूलन के प्रत्येक चरण में बचे बाइट:';
+
+  @override
+  String get reduceSizeStructure => 'दस्तावेज़ संरचना';
+
+  @override
+  String get reduceSizeResources => 'अप्रयुक्त संसाधन';
+
+  @override
+  String get reduceSizeFonts => 'एम्बेड किए गए फ़ॉन्ट';
+
+  @override
+  String get reduceSizeImages => 'छवियाँ';
+
+  @override
+  String get reduceSizeDuplicates => 'डुप्लिकेट ऑब्जेक्ट';
+
+  @override
+  String get reduceSizeCustom => 'कस्टम सेटिंग';
+
+  @override
+  String get printOptionsPrinter => 'प्रिंटर';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'अगले सिस्टम प्रिंट संवाद में प्रिंटर, पेपर ट्रे, रंग, दोतरफ़ा प्रिंटिंग और डिवाइस के गुण चुनें। यहाँ दिखाए गए लेआउट का उपयोग करने के लिए स्केल 100% और प्रतियों की संख्या 1 ही रखें।';
+
+  @override
+  String get printOptionsPages => 'पृष्ठ';
+
+  @override
+  String get printOptionsSelected => 'चुने गए';
+
+  @override
+  String get printOptionsPageRange => 'पृष्ठ (उदाहरण के लिए, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'फ़ाइलें जोड़ें…';
+
+  @override
+  String get printOptionsAddFailed => 'चुनी गई फ़ाइलें जोड़ी नहीं जा सकीं।';
+
+  @override
+  String get printOptionsGetWindow => 'क्षेत्र चुनें';
+
+  @override
+  String get printOptionsClearWindow => 'क्षेत्र हटाएँ';
+
+  @override
+  String get printOptionsWindowHint =>
+      'प्रिंट करने का क्षेत्र चुनने के लिए इस मूल पृष्ठ पर खींचकर एक आयत बनाएँ।';
+
+  @override
+  String get printOptionsPaper => 'कागज़';
+
+  @override
+  String get printOptionsPaperSize => 'कागज़ का आकार';
+
+  @override
+  String get printOptionsPageSize => 'दस्तावेज़ के पृष्ठ का आकार उपयोग करें';
+
+  @override
+  String get printOptionsOrientation => 'ओरिएंटेशन';
+
+  @override
+  String get printOptionsAuto => 'अपने आप';
+
+  @override
+  String get printOptionsPortrait => 'पोर्ट्रेट';
+
+  @override
+  String get printOptionsLandscape => 'लैंडस्केप';
+
+  @override
+  String get printOptionsCopies => 'प्रतियाँ';
+
+  @override
+  String get printOptionsCollate => 'प्रतियाँ क्रम में रखें';
+
+  @override
+  String get printOptionsReverse => 'पृष्ठों का क्रम उलटें';
+
+  @override
+  String get printOptionsLayout => 'पृष्ठ लेआउट';
+
+  @override
+  String get printOptionsScaling => 'पृष्ठ का स्केल';
+
+  @override
+  String get printOptionsScaleNone => 'कोई नहीं (वास्तविक आकार)';
+
+  @override
+  String get printOptionsFitPaper => 'कागज़ के अनुसार फ़िट करें';
+
+  @override
+  String get printOptionsReducePaper => 'कागज़ में फ़िट करने के लिए छोटा करें';
+
+  @override
+  String get printOptionsFitMargins => 'मार्जिन के भीतर फ़िट करें';
+
+  @override
+  String get printOptionsReduceMargins =>
+      'मार्जिन में फ़िट करने के लिए छोटा करें';
+
+  @override
+  String get printOptionsCustomScale => 'कस्टम स्केल';
+
+  @override
+  String get printOptionsMultiple => 'प्रति शीट कई पृष्ठ';
+
+  @override
+  String get printOptionsScalePercent => 'स्केल (%)';
+
+  @override
+  String get printOptionsMargin => 'मार्जिन (पॉइंट)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'प्रति शीट पृष्ठ';
+
+  @override
+  String get printOptionsPageOrder => 'पृष्ठों का क्रम';
+
+  @override
+  String get printOptionsHorizontal => 'क्षैतिज';
+
+  @override
+  String get printOptionsHorizontalReverse => 'उलटा क्षैतिज क्रम';
+
+  @override
+  String get printOptionsVertical => 'लंबवत';
+
+  @override
+  String get printOptionsVerticalReverse => 'उलटा लंबवत क्रम';
+
+  @override
+  String get printOptionsBorder => 'पृष्ठों के बॉर्डर प्रिंट करें';
+
+  @override
+  String get printOptionsRotation => 'घुमाव (घड़ी की दिशा में)';
+
+  @override
+  String get printOptionsNoRotation => 'कोई नहीं';
+
+  @override
+  String get printOptionsCenter => 'कागज़ के बीच में रखें';
+
+  @override
+  String get printOptionsOffsetX => 'दाईं ओर खिसकाएँ (पॉइंट)';
+
+  @override
+  String get printOptionsOffsetY => 'नीचे खिसकाएँ (पॉइंट)';
+
+  @override
+  String get printOptionsContents => 'प्रिंट सामग्री';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'दस्तावेज़ और टिप्पणियाँ';
+
+  @override
+  String get printOptionsDocumentOnly => 'केवल दस्तावेज़';
+
+  @override
+  String get printOptionsMarkupsOnly => 'केवल टिप्पणियाँ';
+
+  @override
+  String get printOptionsDimPage => 'पृष्ठ की सामग्री हल्की करें';
+
+  @override
+  String get printOptionsDimMarkups => 'टिप्पणियाँ हल्की करें';
+
+  @override
+  String get printOptionsHyperlinks => 'दिखाई देने वाले हाइपरलिंक प्रिंट करें';
+
+  @override
+  String get printOptionsDefaults => 'डिफ़ॉल्ट';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'प्रिंट करने से पहले मान्य संख्याएँ दर्ज करें।';
+
+  @override
+  String get printOptionsInvalidValue => 'अमान्य मान';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'लाल रेखाएँ मार्जिन दिखाती हैं; वे प्रिंट नहीं होंगी।';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'क्षेत्र: $width × $height पॉइंट';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'मूल: $width × $height पॉइंट';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'शीट: $width × $height पॉइंट';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'शीट $sheet / $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'यह लेआउट तैयार नहीं किया जा सका। कागज़ का आकार, मार्जिन और स्केल जाँचें।';
 }

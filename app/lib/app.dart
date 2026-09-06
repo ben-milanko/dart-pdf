@@ -10,6 +10,7 @@ import 'devtools.dart';
 import 'document_tab.dart';
 import 'editor_screen.dart';
 import 'keyless_signing.dart';
+import 'keyboard_availability.dart';
 import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
@@ -213,6 +214,7 @@ class _DartPdfWindow extends StatelessWidget {
       ]),
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
+        builder: (context, child) => KeyboardAvailability(child: child!),
         localizationsDelegates: const [
           ...AppLocalizations.localizationsDelegates,
           DartPdfEditorLocalizations.delegate,

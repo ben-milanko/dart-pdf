@@ -456,4 +456,9 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get exFileTypeFonts => 'Шрифти';
+
+  @override
+  String exExtractedTitle(String title, int part) {
+    return '$title - частина $part.pdf';
+  }
 }

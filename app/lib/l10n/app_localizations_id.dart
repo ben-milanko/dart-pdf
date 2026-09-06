@@ -450,6 +450,9 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorMenuScanDocument => 'Pindai ke dokumen baru…';
 
   @override
+  String get editorMenuInsertDocument => 'Sisipkan dokumen…';
+
+  @override
   String get editorMenuInsertScan => 'Sisipkan pindaian…';
 
   @override
@@ -462,10 +465,58 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorMenuSettings => 'Pengaturan';
 
   @override
-  String get editorMenuSwitchToEdit => 'Beralih ke mode edit';
+  String get editorMenuSectionFile => 'Berkas';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Beralih ke hanya-baca';
+  String get editorMenuSectionDocument => 'Dokumen ini';
+
+  @override
+  String get editorMenuSectionApp => 'Aplikasi';
+
+  @override
+  String get editorMenuReadOnly => 'Hanya-baca';
+
+  @override
+  String get editorMenuSearchActions => 'Cari tindakan…';
+
+  @override
+  String get paletteHint => 'Cari tindakan, alat, dan panel';
+
+  @override
+  String get paletteNoMatch => 'Tidak ada perintah yang cocok';
+
+  @override
+  String get paletteKeyHints => '↑↓ pindah · ⏎ jalankan · esc tutup';
+
+  @override
+  String paletteCount(int count) {
+    return '$count perintah';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count dari $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Panel';
+
+  @override
+  String get paletteSourceView => 'Tampilan';
+
+  @override
+  String get paletteSourceFile => 'Berkas';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Alat $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Perlu dokumen yang terbuka';
 
   @override
   String editorNamedAction(String name) {
@@ -1057,4 +1108,353 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Tidak dapat mengambil foto';
+
+  @override
+  String get settingsCachedDocuments => 'Dokumen dalam cache';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$used MiB dari $limit MiB digunakan';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'File di atas $limit MiB tidak disimpan dalam cache. Menghapus cache tetap menyimpan daftar terbaru, dokumen terbuka, dan perubahan yang belum disimpan; file dalam cache harus dipilih lagi untuk dibuka kembali.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Hapus dokumen dalam cache';
+
+  @override
+  String get settingsCacheUnavailable => 'Ukuran cache tidak tersedia';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Tidak dapat menghapus dokumen dalam cache. Coba lagi.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Kurangi ukuran file…';
+
+  @override
+  String get reduceSizeTitle => 'Kurangi ukuran file';
+
+  @override
+  String get reduceSizeDescription =>
+      'Optimalkan dokumen saat ini, tinjau penghematannya, lalu simpan salinan yang lebih kecil.';
+
+  @override
+  String get reduceSizePreset => 'Prasetel';
+
+  @override
+  String get reduceSizeLossless =>
+      'Tanpa kehilangan — pertahankan kualitas gambar';
+
+  @override
+  String get reduceSizeScreen => 'Layar — 72 DPI, kualitas JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, kualitas JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'Cetak — 300 DPI, kualitas JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Resolusi dan kualitas gambar tetap sama.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Gambar di atas resolusi target dapat diperkecil dan dikodekan sebagai JPEG. Detail halus dapat hilang; teks dan grafis vektor tetap tajam.';
+
+  @override
+  String get reduceSizeAdvanced => 'Pengaturan lanjutan';
+
+  @override
+  String get reduceSizeRecompress => 'Kompresi ulang aliran data';
+
+  @override
+  String get reduceSizeUnusedResources =>
+      'Hapus sumber daya yang tidak digunakan';
+
+  @override
+  String get reduceSizeDeduplicate => 'Gabungkan objek duplikat';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Batasi font tertanam ke glif yang digunakan';
+
+  @override
+  String get reduceSizeDpi => 'Resolusi target gambar';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Pertahankan gambar asli (tanpa kehilangan)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Kualitas JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Menulis ulang PDF bertanda tangan ini membatalkan tanda tangan digital pada salinan yang disimpan.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Izinkan pembatalan tanda tangan pada salinan ini';
+
+  @override
+  String get reduceSizeEncrypted => 'PDF terenkripsi tidak dapat dioptimalkan.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Tunggu hingga dokumen selesai dimuat sebelum mengurangi ukurannya.';
+
+  @override
+  String get reduceSizeRun => 'Optimalkan';
+
+  @override
+  String get reduceSizeRunning => 'Mengoptimalkan dokumen…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Tidak dapat mengoptimalkan PDF ini: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Tidak dapat menyimpan salinan: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Simpan salinan…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Ubah pengaturan';
+
+  @override
+  String get reduceSizeBefore => 'Ukuran asli';
+
+  @override
+  String get reduceSizeAfter => 'Ukuran setelah optimalisasi';
+
+  @override
+  String get reduceSizeSavings => 'Ruang yang dihemat';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Dokumen ini sudah ringkas dengan pengaturan ini. Data asli dipertahankan.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Byte yang dihemat pada setiap tahap optimalisasi:';
+
+  @override
+  String get reduceSizeStructure => 'Struktur dokumen';
+
+  @override
+  String get reduceSizeResources => 'Sumber daya tidak digunakan';
+
+  @override
+  String get reduceSizeFonts => 'Font tertanam';
+
+  @override
+  String get reduceSizeImages => 'Gambar';
+
+  @override
+  String get reduceSizeDuplicates => 'Objek duplikat';
+
+  @override
+  String get reduceSizeCustom => 'Pengaturan khusus';
+
+  @override
+  String get printOptionsPrinter => 'Printer';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Pilih printer, baki kertas, warna, pencetakan dua sisi, dan properti perangkat pada dialog cetak sistem berikutnya. Biarkan skala pada 100% dan jumlah salinan pada 1 untuk menggunakan tata letak yang ditampilkan di sini.';
+
+  @override
+  String get printOptionsPages => 'Halaman';
+
+  @override
+  String get printOptionsSelected => 'Terpilih';
+
+  @override
+  String get printOptionsPageRange => 'Halaman (misalnya, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Tambahkan file…';
+
+  @override
+  String get printOptionsAddFailed =>
+      'Tidak dapat menambahkan file yang dipilih.';
+
+  @override
+  String get printOptionsGetWindow => 'Pilih area';
+
+  @override
+  String get printOptionsClearWindow => 'Hapus area';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Seret untuk menggambar persegi panjang pada halaman sumber ini guna memilih area yang akan dicetak.';
+
+  @override
+  String get printOptionsPaper => 'Kertas';
+
+  @override
+  String get printOptionsPaperSize => 'Ukuran kertas';
+
+  @override
+  String get printOptionsPageSize => 'Gunakan ukuran halaman dokumen';
+
+  @override
+  String get printOptionsOrientation => 'Orientasi';
+
+  @override
+  String get printOptionsAuto => 'Otomatis';
+
+  @override
+  String get printOptionsPortrait => 'Potret';
+
+  @override
+  String get printOptionsLandscape => 'Lanskap';
+
+  @override
+  String get printOptionsCopies => 'Salinan';
+
+  @override
+  String get printOptionsCollate => 'Susun per set';
+
+  @override
+  String get printOptionsReverse => 'Balik urutan halaman';
+
+  @override
+  String get printOptionsLayout => 'Tata letak halaman';
+
+  @override
+  String get printOptionsScaling => 'Penskalaan halaman';
+
+  @override
+  String get printOptionsScaleNone => 'Tidak ada (ukuran sebenarnya)';
+
+  @override
+  String get printOptionsFitPaper => 'Sesuaikan ke kertas';
+
+  @override
+  String get printOptionsReducePaper => 'Perkecil agar muat di kertas';
+
+  @override
+  String get printOptionsFitMargins => 'Sesuaikan ke margin';
+
+  @override
+  String get printOptionsReduceMargins => 'Perkecil agar muat dalam margin';
+
+  @override
+  String get printOptionsCustomScale => 'Skala khusus';
+
+  @override
+  String get printOptionsMultiple => 'Beberapa halaman per lembar';
+
+  @override
+  String get printOptionsScalePercent => 'Skala (%)';
+
+  @override
+  String get printOptionsMargin => 'Margin (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Halaman per lembar';
+
+  @override
+  String get printOptionsPageOrder => 'Urutan halaman';
+
+  @override
+  String get printOptionsHorizontal => 'Horizontal';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Horizontal terbalik';
+
+  @override
+  String get printOptionsVertical => 'Vertikal';
+
+  @override
+  String get printOptionsVerticalReverse => 'Vertikal terbalik';
+
+  @override
+  String get printOptionsBorder => 'Cetak bingkai halaman';
+
+  @override
+  String get printOptionsRotation => 'Rotasi (searah jarum jam)';
+
+  @override
+  String get printOptionsNoRotation => 'Tidak ada';
+
+  @override
+  String get printOptionsCenter => 'Posisikan di tengah kertas';
+
+  @override
+  String get printOptionsOffsetX => 'Geser ke kanan (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Geser ke bawah (pt)';
+
+  @override
+  String get printOptionsContents => 'Konten yang dicetak';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Dokumen dan anotasi';
+
+  @override
+  String get printOptionsDocumentOnly => 'Hanya dokumen';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Hanya anotasi';
+
+  @override
+  String get printOptionsDimPage => 'Redupkan konten halaman';
+
+  @override
+  String get printOptionsDimMarkups => 'Redupkan anotasi';
+
+  @override
+  String get printOptionsHyperlinks => 'Cetak hyperlink yang terlihat';
+
+  @override
+  String get printOptionsDefaults => 'Default';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Masukkan angka yang valid sebelum mencetak.';
+
+  @override
+  String get printOptionsInvalidValue => 'Nilai tidak valid';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Garis merah menunjukkan margin dan tidak ikut dicetak.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Area: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Sumber: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Lembar: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Lembar $sheet dari $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Tata letak ini tidak dapat disiapkan. Periksa ukuran kertas, margin, dan skala.';
 }

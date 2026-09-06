@@ -119,5 +119,6 @@
   "undo": "Отменить",
   "exFileTypePdf": "Документы PDF",
   "exFileTypeImages": "Изображения",
-  "exFileTypeFonts": "Шрифты"
+  "exFileTypeFonts": "Шрифты",
+  "exExtractedTitle": "{title} - часть {part}.pdf"
 }

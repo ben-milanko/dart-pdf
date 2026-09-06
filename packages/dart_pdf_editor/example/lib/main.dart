@@ -403,7 +403,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
             page: viewer.selectionRectsOn(page),
         };
 
-        final noteText = await showDialog<String>(
+        final noteText = await showPdfDialog<String>(
           context: context,
           builder: (ctx) {
             final field = TextEditingController();
@@ -423,10 +423,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Cancel'),
                 ),
-                TextButton(
+                PdfDialogSubmit(
+                    child: TextButton(
                   onPressed: () => Navigator.pop(ctx, field.text),
                   child: const Text('Save'),
-                ),
+                )),
               ],
             );
           },
@@ -935,13 +936,30 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   /// Opens [bytes] in a brand-new tab and makes it the active one.
-  void _openBytes(Uint8List bytes, String title, {bool isDemo = false}) {
+  void _openBytes(Uint8List bytes, String title,
+      {bool isDemo = false, bool isExtracted = false}) {
     _addTab(_DocumentTab.document(
       title: title,
       bytes: bytes,
       preferences: _prefs,
       isDemo: isDemo,
+      isExtracted: isExtracted,
     ));
+  }
+
+  void _openExtracted(List<Uint8List> outputs, String sourceTitle) {
+    final l10n = appL10n(context);
+    final stem =
+        sourceTitle.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
+    final titles = {for (final tab in _tabs) tab.title};
+    var part = 1;
+    for (final output in outputs) {
+      var title = l10n.exExtractedTitle(stem, part++);
+      while (!titles.add(title)) {
+        title = l10n.exExtractedTitle(stem, part++);
+      }
+      _openBytes(output, title, isExtracted: true);
+    }
   }
 
   /// Adds a tab that just reports an open failure.
@@ -1196,7 +1214,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   /// Prompts for a URL to open, prefilled with a known CORS-enabled sample.
   /// Returns null when cancelled.
-  Future<String?> _promptForUrl() => showDialog<String>(
+  Future<String?> _promptForUrl() => showPdfDialog<String>(
         context: context,
         builder: (context) =>
             const _OpenUrlDialog(initial: _sampleRemotePdfUrl),
@@ -1479,7 +1497,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Future<(PdfRasterFormat, double)?> _showImageExportDialog() {
     var format = PdfRasterFormat.png;
     var dpi = 150.0;
-    return showDialog<(PdfRasterFormat, double)>(
+    return showPdfDialog<(PdfRasterFormat, double)>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -1520,10 +1538,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
               onPressed: () => Navigator.of(context).pop(),
               child: Text(appL10n(context).cancel),
             ),
-            FilledButton(
+            PdfDialogSubmit(
+                child: FilledButton(
               onPressed: () => Navigator.of(context).pop((format, dpi)),
               child: Text(appL10n(context).exExport),
-            ),
+            )),
           ],
         ),
       ),
@@ -1545,7 +1564,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
     // Supply / confirm the OCR service credentials.
     final l10n = appL10n(context);
-    final settings = await showDialog<_OcrSettings>(
+    final settings = await showPdfDialog<_OcrSettings>(
       context: context,
       builder: (_) => _OcrSettingsDialog(
         endpoint: _ocrEndpoint,
@@ -1564,7 +1583,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
     final progress = ValueNotifier<String>(l10n.exPreparing);
     if (!mounted) return;
-    unawaited(showDialog<void>(
+    unawaited(showPdfDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _OcrProgressDialog(progress: progress),
@@ -1752,9 +1771,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,
                                 onSave: (saved) => unawaited(_saveAs(saved)),
+                                alwaysAllowSave: tab.isExtracted,
                                 onPickPdfToInsert: _pickPdfBytes,
                                 onExportPages: (bytes) =>
-                                    unawaited(_saveAs(bytes)),
+                                    _openExtracted([bytes], tab.title),
+                                onSplitPages: (outputs) =>
+                                    _openExtracted(outputs, tab.title),
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
@@ -1987,6 +2009,7 @@ class _DocumentTab {
       : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         error = null,
         compareBefore = null,
         compareAfter = null,
@@ -1997,6 +2020,7 @@ class _DocumentTab {
     required Uint8List bytes,
     required PdfEditingPreferences preferences,
     this.isDemo = false,
+    this.isExtracted = false,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
         error = null,
@@ -2009,6 +2033,7 @@ class _DocumentTab {
       : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         compareBefore = null,
         compareAfter = null,
         loadingProgress = null,
@@ -2023,6 +2048,7 @@ class _DocumentTab {
   })  : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         error = null,
         compareBefore = before,
         compareAfter = after,
@@ -2032,6 +2058,8 @@ class _DocumentTab {
   final String title;
   final String? error;
   final bool isDemo;
+  // A new extraction has no saved file yet, even without any edits.
+  final bool isExtracted;
   final bool isLoading;
 
   /// Download progress (0..1) for a remote-load ([_openFromUrl]) loading tab,
@@ -2113,11 +2141,12 @@ class _OpenUrlDialogState extends State<_OpenUrlDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           key: const ValueKey('open-url-confirm'),
           onPressed: _submit,
           child: Text(appL10n(context).exOpen),
-        ),
+        )),
       ],
     );
   }
@@ -2235,7 +2264,8 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).cancel),
         ),
-        FilledButton.icon(
+        PdfDialogSubmit(
+            child: FilledButton.icon(
           key: const ValueKey('ocr-run'),
           icon: const Icon(Icons.document_scanner_outlined),
           label: Text(appL10n(context).exRunOcr),
@@ -2249,7 +2279,7 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
               apiKey: key.isEmpty ? null : key,
             ));
           },
-        ),
+        )),
       ],
     );
   }

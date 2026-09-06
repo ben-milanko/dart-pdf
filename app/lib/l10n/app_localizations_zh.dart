@@ -436,6 +436,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuScanDocument => '扫描为新文档…';
 
   @override
+  String get editorMenuInsertDocument => '插入文档…';
+
+  @override
   String get editorMenuInsertScan => '插入扫描件…';
 
   @override
@@ -448,10 +451,58 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuSettings => '设置';
 
   @override
-  String get editorMenuSwitchToEdit => '切换到编辑模式';
+  String get editorMenuSectionFile => '文件';
 
   @override
-  String get editorMenuSwitchToReadOnly => '切换到只读';
+  String get editorMenuSectionDocument => '此文档';
+
+  @override
+  String get editorMenuSectionApp => '应用';
+
+  @override
+  String get editorMenuReadOnly => '只读';
+
+  @override
+  String get editorMenuSearchActions => '搜索操作…';
+
+  @override
+  String get paletteHint => '搜索操作、工具和面板';
+
+  @override
+  String get paletteNoMatch => '没有匹配的命令';
+
+  @override
+  String get paletteKeyHints => '↑↓ 移动 · ⏎ 执行 · esc 关闭';
+
+  @override
+  String paletteCount(int count) {
+    return '$count 个命令';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total 个中的 $count 个';
+  }
+
+  @override
+  String get paletteSourceMenu => '菜单';
+
+  @override
+  String get paletteSourcePanel => '面板';
+
+  @override
+  String get paletteSourceView => '视图';
+
+  @override
+  String get paletteSourceFile => '文件';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group工具';
+  }
+
+  @override
+  String get paletteNeedsDocument => '需要打开文档';
 
   @override
   String editorNamedAction(String name) {
@@ -1027,6 +1078,338 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => '无法拍照';
+
+  @override
+  String get settingsCachedDocuments => '缓存的文档';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '已使用 $used MiB，共 $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '超过 $limit MiB 的文件不会缓存。清除后会保留最近文件列表、打开的文档和未保存的更改；要重新打开缓存的文件，需要再次选择文件。';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => '清除缓存的文档';
+
+  @override
+  String get settingsCacheUnavailable => '无法获取缓存大小';
+
+  @override
+  String get settingsCacheClearFailed => '无法清除缓存的文档。请重试。';
+
+  @override
+  String get editorMenuReduceFileSize => '减小文件大小…';
+
+  @override
+  String get reduceSizeTitle => '减小文件大小';
+
+  @override
+  String get reduceSizeDescription => '优化当前文档，查看节省的空间，然后保存较小的副本。';
+
+  @override
+  String get reduceSizePreset => '预设';
+
+  @override
+  String get reduceSizeLossless => '无损 — 保持图像质量';
+
+  @override
+  String get reduceSizeScreen => '屏幕 — 72 DPI，JPEG 质量 60';
+
+  @override
+  String get reduceSizeEbook => '电子书 — 150 DPI，JPEG 质量 75';
+
+  @override
+  String get reduceSizePrinter => '打印 — 300 DPI，JPEG 质量 90';
+
+  @override
+  String get reduceSizeLosslessHint => '图像分辨率和质量保持不变。';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '超过目标分辨率的图像可能会被缩小并编码为 JPEG。图像的细节可能会丢失；文字和矢量图形仍保持清晰。';
+
+  @override
+  String get reduceSizeAdvanced => '高级设置';
+
+  @override
+  String get reduceSizeRecompress => '重新压缩数据流';
+
+  @override
+  String get reduceSizeUnusedResources => '删除未使用的资源';
+
+  @override
+  String get reduceSizeDeduplicate => '合并重复对象';
+
+  @override
+  String get reduceSizeSubsetFonts => '将嵌入字体缩减为已使用的字形';
+
+  @override
+  String get reduceSizeDpi => '图像目标分辨率';
+
+  @override
+  String get reduceSizeKeepImages => '保留原始图像（无损）';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG 质量：$quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice => '重写此已签名的 PDF 会使保存副本中的数字签名失效。';
+
+  @override
+  String get reduceSizeInvalidateSignatures => '允许使此副本中的签名失效';
+
+  @override
+  String get reduceSizeEncrypted => '无法优化加密的 PDF。';
+
+  @override
+  String get reduceSizeIncomplete => '请等待文档加载完成后再减小其大小。';
+
+  @override
+  String get reduceSizeRun => '优化';
+
+  @override
+  String get reduceSizeRunning => '正在优化文档…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return '无法优化此 PDF：$error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return '无法保存副本：$error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => '保存副本…';
+
+  @override
+  String get reduceSizeChangeSettings => '更改设置';
+
+  @override
+  String get reduceSizeBefore => '原始大小';
+
+  @override
+  String get reduceSizeAfter => '优化后大小';
+
+  @override
+  String get reduceSizeSavings => '节省空间';
+
+  @override
+  String get reduceSizeNoSavings => '此文档在这些设置下已足够小。已保留原始数据。';
+
+  @override
+  String get reduceSizeReportHint => '各优化步骤节省的字节数：';
+
+  @override
+  String get reduceSizeStructure => '文档结构';
+
+  @override
+  String get reduceSizeResources => '未使用的资源';
+
+  @override
+  String get reduceSizeFonts => '嵌入字体';
+
+  @override
+  String get reduceSizeImages => '图像';
+
+  @override
+  String get reduceSizeDuplicates => '重复对象';
+
+  @override
+  String get reduceSizeCustom => '自定义设置';
+
+  @override
+  String get printOptionsPrinter => '打印机';
+
+  @override
+  String get printOptionsNativePrinter =>
+      '在接下来的系统打印对话框中选择打印机、纸盒、颜色、双面打印及设备属性。请将缩放比例保持为 100%，份数保持为 1，以使用此处显示的布局。';
+
+  @override
+  String get printOptionsPages => '页面';
+
+  @override
+  String get printOptionsSelected => '所选页面';
+
+  @override
+  String get printOptionsPageRange => '页码（例如 1, 3-5）';
+
+  @override
+  String get printOptionsAddFiles => '添加文件…';
+
+  @override
+  String get printOptionsAddFailed => '无法添加所选文件。';
+
+  @override
+  String get printOptionsGetWindow => '选择区域';
+
+  @override
+  String get printOptionsClearWindow => '清除区域';
+
+  @override
+  String get printOptionsWindowHint => '在此源页面上拖出一个矩形，选择要打印的区域。';
+
+  @override
+  String get printOptionsPaper => '纸张';
+
+  @override
+  String get printOptionsPaperSize => '纸张大小';
+
+  @override
+  String get printOptionsPageSize => '使用文档页面大小';
+
+  @override
+  String get printOptionsOrientation => '方向';
+
+  @override
+  String get printOptionsAuto => '自动';
+
+  @override
+  String get printOptionsPortrait => '纵向';
+
+  @override
+  String get printOptionsLandscape => '横向';
+
+  @override
+  String get printOptionsCopies => '份数';
+
+  @override
+  String get printOptionsCollate => '逐份打印';
+
+  @override
+  String get printOptionsReverse => '反向页序';
+
+  @override
+  String get printOptionsLayout => '页面布局';
+
+  @override
+  String get printOptionsScaling => '页面缩放';
+
+  @override
+  String get printOptionsScaleNone => '无（实际大小）';
+
+  @override
+  String get printOptionsFitPaper => '适合纸张';
+
+  @override
+  String get printOptionsReducePaper => '缩小至纸张大小';
+
+  @override
+  String get printOptionsFitMargins => '适合页边距';
+
+  @override
+  String get printOptionsReduceMargins => '缩小至页边距内';
+
+  @override
+  String get printOptionsCustomScale => '自定义缩放';
+
+  @override
+  String get printOptionsMultiple => '每张纸打印多页';
+
+  @override
+  String get printOptionsScalePercent => '缩放比例（%）';
+
+  @override
+  String get printOptionsMargin => '页边距（磅）';
+
+  @override
+  String get printOptionsPagesPerSheet => '每张纸的页数';
+
+  @override
+  String get printOptionsPageOrder => '页面顺序';
+
+  @override
+  String get printOptionsHorizontal => '水平';
+
+  @override
+  String get printOptionsHorizontalReverse => '水平反向';
+
+  @override
+  String get printOptionsVertical => '垂直';
+
+  @override
+  String get printOptionsVerticalReverse => '垂直反向';
+
+  @override
+  String get printOptionsBorder => '打印页面边框';
+
+  @override
+  String get printOptionsRotation => '旋转（顺时针）';
+
+  @override
+  String get printOptionsNoRotation => '无';
+
+  @override
+  String get printOptionsCenter => '在纸张上居中';
+
+  @override
+  String get printOptionsOffsetX => '向右偏移（磅）';
+
+  @override
+  String get printOptionsOffsetY => '向下偏移（磅）';
+
+  @override
+  String get printOptionsContents => '打印内容';
+
+  @override
+  String get printOptionsDocumentAndMarkups => '文档和批注';
+
+  @override
+  String get printOptionsDocumentOnly => '仅文档';
+
+  @override
+  String get printOptionsMarkupsOnly => '仅批注';
+
+  @override
+  String get printOptionsDimPage => '淡化页面内容';
+
+  @override
+  String get printOptionsDimMarkups => '淡化批注';
+
+  @override
+  String get printOptionsHyperlinks => '打印可见超链接';
+
+  @override
+  String get printOptionsDefaults => '默认设置';
+
+  @override
+  String get printOptionsInvalidNumber => '请在打印前输入有效数字。';
+
+  @override
+  String get printOptionsInvalidValue => '无效值';
+
+  @override
+  String get printOptionsMarginGuide => '红线表示页边距，不会打印。';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return '区域：$width × $height 磅';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return '源页面：$width × $height 磅';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return '纸张：$width × $height 磅';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return '第 $sheet 张，共 $total 张';
+  }
+
+  @override
+  String get printOptionsInvalidLayout => '无法生成此布局。请检查纸张大小、页边距和缩放比例。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -1461,6 +1844,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get editorMenuScanDocument => '掃描為新文件…';
 
   @override
+  String get editorMenuInsertDocument => '插入文件…';
+
+  @override
   String get editorMenuInsertScan => '插入掃描件…';
 
   @override
@@ -1473,10 +1859,58 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get editorMenuSettings => '設定';
 
   @override
-  String get editorMenuSwitchToEdit => '切換至編輯模式';
+  String get editorMenuSectionFile => '檔案';
 
   @override
-  String get editorMenuSwitchToReadOnly => '切換至唯讀';
+  String get editorMenuSectionDocument => '此文件';
+
+  @override
+  String get editorMenuSectionApp => '應用程式';
+
+  @override
+  String get editorMenuReadOnly => '唯讀';
+
+  @override
+  String get editorMenuSearchActions => '搜尋操作…';
+
+  @override
+  String get paletteHint => '搜尋操作、工具和面板';
+
+  @override
+  String get paletteNoMatch => '沒有相符的命令';
+
+  @override
+  String get paletteKeyHints => '↑↓ 移動 · ⏎ 執行 · esc 關閉';
+
+  @override
+  String paletteCount(int count) {
+    return '$count 個命令';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total 個中的 $count 個';
+  }
+
+  @override
+  String get paletteSourceMenu => '選單';
+
+  @override
+  String get paletteSourcePanel => '面板';
+
+  @override
+  String get paletteSourceView => '檢視';
+
+  @override
+  String get paletteSourceFile => '檔案';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group工具';
+  }
+
+  @override
+  String get paletteNeedsDocument => '需要開啟文件';
 
   @override
   String editorNamedAction(String name) {
@@ -2053,4 +2487,336 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get imageSourceCameraFailed => '無法拍照';
+
+  @override
+  String get settingsCachedDocuments => '快取的文件';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '已使用 $used MiB，共 $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '超過 $limit MiB 的檔案不會快取。清除後會保留最近使用的檔案清單、開啟的文件和未儲存的變更；若要重新開啟快取的檔案，需再次選取檔案。';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => '清除快取的文件';
+
+  @override
+  String get settingsCacheUnavailable => '無法取得快取大小';
+
+  @override
+  String get settingsCacheClearFailed => '無法清除快取的文件。請重試。';
+
+  @override
+  String get editorMenuReduceFileSize => '縮小檔案大小…';
+
+  @override
+  String get reduceSizeTitle => '縮小檔案大小';
+
+  @override
+  String get reduceSizeDescription => '最佳化目前文件，查看節省的空間，再儲存較小的副本。';
+
+  @override
+  String get reduceSizePreset => '預設';
+
+  @override
+  String get reduceSizeLossless => '無損 — 保持影像品質';
+
+  @override
+  String get reduceSizeScreen => '螢幕 — 72 DPI，JPEG 品質 60';
+
+  @override
+  String get reduceSizeEbook => '電子書 — 150 DPI，JPEG 品質 75';
+
+  @override
+  String get reduceSizePrinter => '列印 — 300 DPI，JPEG 品質 90';
+
+  @override
+  String get reduceSizeLosslessHint => '影像解析度和品質維持不變。';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '超過目標解析度的影像可能會被縮小並編碼為 JPEG。影像細節可能會遺失；文字和向量圖形仍維持清晰。';
+
+  @override
+  String get reduceSizeAdvanced => '進階設定';
+
+  @override
+  String get reduceSizeRecompress => '重新壓縮資料流';
+
+  @override
+  String get reduceSizeUnusedResources => '移除未使用的資源';
+
+  @override
+  String get reduceSizeDeduplicate => '合併重複物件';
+
+  @override
+  String get reduceSizeSubsetFonts => '將嵌入字型縮減為已使用的字形';
+
+  @override
+  String get reduceSizeDpi => '影像目標解析度';
+
+  @override
+  String get reduceSizeKeepImages => '保留原始影像（無損）';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG 品質：$quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice => '重寫此已簽署的 PDF 會使儲存副本中的數位簽章失效。';
+
+  @override
+  String get reduceSizeInvalidateSignatures => '允許使此副本中的簽章失效';
+
+  @override
+  String get reduceSizeEncrypted => '無法最佳化加密的 PDF。';
+
+  @override
+  String get reduceSizeIncomplete => '請等待文件載入完成後再縮小其大小。';
+
+  @override
+  String get reduceSizeRun => '最佳化';
+
+  @override
+  String get reduceSizeRunning => '正在最佳化文件…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return '無法最佳化此 PDF：$error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return '無法儲存副本：$error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => '儲存副本…';
+
+  @override
+  String get reduceSizeChangeSettings => '變更設定';
+
+  @override
+  String get reduceSizeBefore => '原始大小';
+
+  @override
+  String get reduceSizeAfter => '最佳化後大小';
+
+  @override
+  String get reduceSizeSavings => '節省空間';
+
+  @override
+  String get reduceSizeNoSavings => '此文件在這些設定下已足夠小。已保留原始資料。';
+
+  @override
+  String get reduceSizeReportHint => '各最佳化步驟節省的位元組數：';
+
+  @override
+  String get reduceSizeStructure => '文件結構';
+
+  @override
+  String get reduceSizeResources => '未使用的資源';
+
+  @override
+  String get reduceSizeFonts => '嵌入字型';
+
+  @override
+  String get reduceSizeImages => '影像';
+
+  @override
+  String get reduceSizeDuplicates => '重複物件';
+
+  @override
+  String get reduceSizeCustom => '自訂設定';
+
+  @override
+  String get printOptionsPrinter => '印表機';
+
+  @override
+  String get printOptionsNativePrinter =>
+      '在接下來的系統列印對話方塊中選擇印表機、紙匣、色彩、雙面列印及裝置屬性。請將縮放比例維持在 100%，份數維持為 1，以使用此處顯示的版面配置。';
+
+  @override
+  String get printOptionsPages => '頁面';
+
+  @override
+  String get printOptionsSelected => '所選頁面';
+
+  @override
+  String get printOptionsPageRange => '頁碼（例如 1, 3-5）';
+
+  @override
+  String get printOptionsAddFiles => '新增檔案…';
+
+  @override
+  String get printOptionsAddFailed => '無法新增所選檔案。';
+
+  @override
+  String get printOptionsGetWindow => '選取區域';
+
+  @override
+  String get printOptionsClearWindow => '清除區域';
+
+  @override
+  String get printOptionsWindowHint => '在此來源頁面上拖曳出一個矩形，選取要列印的區域。';
+
+  @override
+  String get printOptionsPaper => '紙張';
+
+  @override
+  String get printOptionsPaperSize => '紙張大小';
+
+  @override
+  String get printOptionsPageSize => '使用文件頁面大小';
+
+  @override
+  String get printOptionsOrientation => '方向';
+
+  @override
+  String get printOptionsAuto => '自動';
+
+  @override
+  String get printOptionsPortrait => '直向';
+
+  @override
+  String get printOptionsLandscape => '橫向';
+
+  @override
+  String get printOptionsCopies => '份數';
+
+  @override
+  String get printOptionsCollate => '逐份列印';
+
+  @override
+  String get printOptionsReverse => '反向頁序';
+
+  @override
+  String get printOptionsLayout => '頁面配置';
+
+  @override
+  String get printOptionsScaling => '頁面縮放';
+
+  @override
+  String get printOptionsScaleNone => '無（實際大小）';
+
+  @override
+  String get printOptionsFitPaper => '符合紙張大小';
+
+  @override
+  String get printOptionsReducePaper => '縮小至紙張大小';
+
+  @override
+  String get printOptionsFitMargins => '符合邊界';
+
+  @override
+  String get printOptionsReduceMargins => '縮小至邊界內';
+
+  @override
+  String get printOptionsCustomScale => '自訂縮放';
+
+  @override
+  String get printOptionsMultiple => '每張紙列印多頁';
+
+  @override
+  String get printOptionsScalePercent => '縮放比例（%）';
+
+  @override
+  String get printOptionsMargin => '邊界（點）';
+
+  @override
+  String get printOptionsPagesPerSheet => '每張紙的頁數';
+
+  @override
+  String get printOptionsPageOrder => '頁面順序';
+
+  @override
+  String get printOptionsHorizontal => '水平';
+
+  @override
+  String get printOptionsHorizontalReverse => '水平反向';
+
+  @override
+  String get printOptionsVertical => '垂直';
+
+  @override
+  String get printOptionsVerticalReverse => '垂直反向';
+
+  @override
+  String get printOptionsBorder => '列印頁面框線';
+
+  @override
+  String get printOptionsRotation => '旋轉（順時針）';
+
+  @override
+  String get printOptionsNoRotation => '無';
+
+  @override
+  String get printOptionsCenter => '在紙張上置中';
+
+  @override
+  String get printOptionsOffsetX => '向右位移（點）';
+
+  @override
+  String get printOptionsOffsetY => '向下位移（點）';
+
+  @override
+  String get printOptionsContents => '列印內容';
+
+  @override
+  String get printOptionsDocumentAndMarkups => '文件與註解';
+
+  @override
+  String get printOptionsDocumentOnly => '僅文件';
+
+  @override
+  String get printOptionsMarkupsOnly => '僅註解';
+
+  @override
+  String get printOptionsDimPage => '淡化頁面內容';
+
+  @override
+  String get printOptionsDimMarkups => '淡化註解';
+
+  @override
+  String get printOptionsHyperlinks => '列印可見的超連結';
+
+  @override
+  String get printOptionsDefaults => '預設值';
+
+  @override
+  String get printOptionsInvalidNumber => '請在列印前輸入有效數字。';
+
+  @override
+  String get printOptionsInvalidValue => '無效值';
+
+  @override
+  String get printOptionsMarginGuide => '紅線表示邊界，不會列印。';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return '區域：$width × $height 點';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return '來源：$width × $height 點';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return '紙張：$width × $height 點';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return '第 $sheet 張，共 $total 張';
+  }
+
+  @override
+  String get printOptionsInvalidLayout => '無法產生此版面配置。請檢查紙張大小、邊界和縮放比例。';
 }

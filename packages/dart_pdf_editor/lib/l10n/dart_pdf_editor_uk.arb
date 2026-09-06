@@ -618,5 +618,14 @@
   "annotationLibraryCustomStamps": "Користувацькі штампи…",
   "signatureLibraryManage": "Керувати підписами",
   "signatureLibraryRenameTitle": "Перейменувати підпис",
-  "signatureLibraryEmpty": "Немає збережених підписів."
+  "signatureLibraryEmpty": "Немає збережених підписів.",
+  "splitTitle": "Розділити PDF…",
+  "splitHelp": "Введіть діапазони сторінок через кому. Для кожного діапазону буде створено окремий PDF.",
+  "splitRanges": "Діапазони сторінок",
+  "splitInvalidRanges": "Укажіть сторінки від 1 до {count} через кому. Діапазони мають бути за зростанням.",
+  "splitConfirm": "Розділити",
+  "splitFailed": "Не вдалося розділити цей PDF.",
+  "guidesSnapHint": "Прив’язка до країв і центрів анотацій • Утримуйте Alt, щоб пропустити",
+  "tbToolContentDelete": "Стерти",
+  "tbTipContentDelete": "Видалити вміст — намалюйте прямокутник або натисніть вершини багатокутника й завершіть подвійним клацанням"
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.3.0
+
+- Recompress Flate streams losslessly in `CosCompactor`, retaining predictor
+  data and parameters. Preserve cyclic indirect arrays and PDF 2.0 headers.
+- Add opt-in exact real serialization to the serializer/builder and enable it
+  for compaction, avoiding outline changes from rounded font matrices.
+- Refuse compaction of incomplete progressive sources.
+- Expose immutable populated-range snapshots for transferring sparse buffers,
+  and retain their metadata when reopening or appending a revision.
+
 ## 4.2.0
 
 - Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public COS

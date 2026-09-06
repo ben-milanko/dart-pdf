@@ -2157,4 +2157,36 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get signatureLibraryEmpty => 'Нет сохранённых подписей.';
+
+  @override
+  String get splitTitle => 'Разделить PDF…';
+
+  @override
+  String get splitHelp =>
+      'Введите диапазоны страниц через запятую. Для каждого диапазона будет создан отдельный PDF.';
+
+  @override
+  String get splitRanges => 'Диапазоны страниц';
+
+  @override
+  String splitInvalidRanges(int count) {
+    return 'Укажите страницы от 1 до $count через запятую. Диапазоны должны идти по возрастанию.';
+  }
+
+  @override
+  String get splitConfirm => 'Разделить';
+
+  @override
+  String get splitFailed => 'Не удалось разделить этот PDF.';
+
+  @override
+  String get guidesSnapHint =>
+      'Привязка к краям и центрам аннотаций • Удерживайте Alt для обхода';
+
+  @override
+  String get tbToolContentDelete => 'Стереть';
+
+  @override
+  String get tbTipContentDelete =>
+      'Удалить содержимое — нарисуйте прямоугольник или нажмите на вершины многоугольника и завершите двойным щелчком';
 }

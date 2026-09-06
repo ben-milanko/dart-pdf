@@ -18,6 +18,8 @@ String languageDisplayName(Locale locale) {
 // names.
 const Map<String, String> _autonyms = {
   'en': 'English',
+  'en-AU': 'English (Australia)',
+  'en-GB': 'English (United Kingdom)',
   'es': 'Español',
   'de': 'Deutsch',
   'fr': 'Français',

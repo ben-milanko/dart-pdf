@@ -263,7 +263,7 @@
   "@appSigUseOwnCertificate": {
     "description": "Title of the advanced section for signing with a bring-your-own key and certificate."
   },
-  "appSigUseOwnCertificateSubtitle": "For a signing certificate from your organisation",
+  "appSigUseOwnCertificateSubtitle": "For a signing certificate from your organization",
   "@appSigUseOwnCertificateSubtitle": {
     "description": "Subtitle for the advanced bring-your-own-certificate signing section."
   },
@@ -603,6 +603,10 @@
   "@editorMenuScanDocument": {
     "description": "App menu item (mobile/tablet) to scan pages with the device camera into a new document."
   },
+  "editorMenuInsertDocument": "Insert document…",
+  "@editorMenuInsertDocument": {
+    "description": "Menu action to pick a PDF and insert its pages after the current page in the open document."
+  },
   "editorMenuInsertScan": "Insert scan…",
   "@editorMenuInsertScan": {
     "description": "App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document."
@@ -619,13 +623,87 @@
   "@editorMenuSettings": {
     "description": "App menu item to open the settings screen."
   },
-  "editorMenuSwitchToEdit": "Switch to edit mode",
-  "@editorMenuSwitchToEdit": {
-    "description": "App menu item to leave read-only mode and allow editing."
+  "editorMenuSectionFile": "File",
+  "@editorMenuSectionFile": {
+    "description": "Section header in the app menu over the create/open actions."
   },
-  "editorMenuSwitchToReadOnly": "Switch to read-only",
-  "@editorMenuSwitchToReadOnly": {
-    "description": "App menu item to switch the app into read-only mode."
+  "editorMenuSectionDocument": "This document",
+  "@editorMenuSectionDocument": {
+    "description": "Section header in the app menu over actions on the open document."
+  },
+  "editorMenuSectionApp": "App",
+  "@editorMenuSectionApp": {
+    "description": "Section header in the app menu over app-level entries."
+  },
+  "editorMenuReadOnly": "Read-only",
+  "@editorMenuReadOnly": {
+    "description": "Label of the read-only switch row in the app menu."
+  },
+  "editorMenuSearchActions": "Search actions…",
+  "@editorMenuSearchActions": {
+    "description": "App menu row that opens the command palette."
+  },
+  "paletteHint": "Search actions, tools and panels",
+  "@paletteHint": {
+    "description": "Placeholder in the command palette search field."
+  },
+  "paletteNoMatch": "No command matches",
+  "@paletteNoMatch": {
+    "description": "Shown when no command matches what was typed."
+  },
+  "paletteKeyHints": "↑↓ move · ⏎ run · esc close",
+  "@paletteKeyHints": {
+    "description": "Keyboard hints in the palette footer. Keep the key glyphs."
+  },
+  "paletteCount": "{count} commands",
+  "@paletteCount": {
+    "description": "How many commands the palette indexes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "paletteCountFiltered": "{count} of {total}",
+  "@paletteCountFiltered": {
+    "description": "How many commands match, out of the whole index.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "paletteSourceMenu": "Menu",
+  "@paletteSourceMenu": {
+    "description": "Palette result label: the command lives in the app menu."
+  },
+  "paletteSourcePanel": "Panel",
+  "@paletteSourcePanel": {
+    "description": "Palette result label: the command shows or hides a panel."
+  },
+  "paletteSourceView": "View",
+  "@paletteSourceView": {
+    "description": "Palette result label: the command is a view option."
+  },
+  "paletteSourceFile": "File",
+  "@paletteSourceFile": {
+    "description": "Palette result label: the command opens a recent file."
+  },
+  "paletteSourceTool": "{group} tool",
+  "@paletteSourceTool": {
+    "description": "Palette result label for an editing tool, e.g. \"Shapes tool\".",
+    "placeholders": {
+      "group": {
+        "type": "String"
+      }
+    }
+  },
+  "paletteNeedsDocument": "Needs an open document",
+  "@paletteNeedsDocument": {
+    "description": "Why a palette command is unavailable."
   },
   "editorNamedAction": "Named action: {name}",
   "@editorNamedAction": {
@@ -901,15 +979,15 @@
   "@ocrAlreadyRunning": {
     "description": "Toast shown when starting OCR while another OCR job is in flight."
   },
-  "ocrBrowserInitFailed": "Browser OCR failed to initialise",
+  "ocrBrowserInitFailed": "Browser OCR failed to initialize",
   "@ocrBrowserInitFailed": {
     "description": "Toast shown when the browser-local OCR bridge failed to initialize."
   },
-  "ocrCancelled": "OCR cancelled",
+  "ocrCancelled": "OCR canceled",
   "@ocrCancelled": {
     "description": "Toast shown when an OCR job is cancelled before any pages are processed."
   },
-  "ocrCancelledAfterSpans": "{count, plural, =1{OCR cancelled after 1 text span} other{OCR cancelled after {count} text spans}}",
+  "ocrCancelledAfterSpans": "{count, plural, =1{OCR canceled after 1 text span} other{OCR canceled after {count} text spans}}",
   "@ocrCancelledAfterSpans": {
     "description": "Toast shown when OCR is cancelled after adding some text spans.",
     "placeholders": {
@@ -1292,111 +1370,587 @@
     "description": "Tooltip on the toggle that shows recent documents as a list."
   },
   "settingsDefaultAppSubtitle": "{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}",
-  "@settingsDefaultAppSubtitle":   {
-      "description": "One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.",
-      "placeholders": {
-          "platform": {
-              "type": "String"
-          }
+  "@settingsDefaultAppSubtitle": {
+    "description": "One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.",
+    "placeholders": {
+      "platform": {
+        "type": "String"
       }
+    }
   },
   "settingsDefaultAppInstructions": "{platform, select, web{Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.} windows{Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.} macos{In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.} linux{Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.} android{Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.} ios{iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.} other{Use the system settings for file handlers to associate PDF documents with DartPDF.}}",
-  "@settingsDefaultAppInstructions":   {
-      "description": "Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.",
-      "placeholders": {
-          "platform": {
-              "type": "String"
-          }
+  "@settingsDefaultAppInstructions": {
+    "description": "Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.",
+    "placeholders": {
+      "platform": {
+        "type": "String"
       }
+    }
   },
   "ocrChipDownloadingModel": "Downloading OCR model…",
-  "@ocrChipDownloadingModel":   {
-      "description": "OCR progress chip while the recognition model downloads (size unknown)."
+  "@ocrChipDownloadingModel": {
+    "description": "OCR progress chip while the recognition model downloads (size unknown)."
   },
   "ocrChipDownloadingModelPercent": "Downloading model {percent}%",
-  "@ocrChipDownloadingModelPercent":   {
-      "description": "OCR progress chip while the recognition model downloads, with percent.",
-      "placeholders": {
-          "percent": {
-              "type": "int"
-          }
+  "@ocrChipDownloadingModelPercent": {
+    "description": "OCR progress chip while the recognition model downloads, with percent.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
       }
+    }
   },
   "ocrChipRecognising": "OCR {page}/{pageCount}",
-  "@ocrChipRecognising":   {
-      "description": "OCR progress chip while recognizing text, showing page of total.",
-      "placeholders": {
-          "page": {
-              "type": "int"
-          },
-          "pageCount": {
-              "type": "int"
-          }
+  "@ocrChipRecognising": {
+    "description": "OCR progress chip while recognizing text, showing page of total.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "pageCount": {
+        "type": "int"
       }
+    }
   },
   "ocrChipFinishing": "Finishing OCR…",
-  "@ocrChipFinishing":   {
-      "description": "OCR progress chip while assembling the recognized PDF after the last page."
+  "@ocrChipFinishing": {
+    "description": "OCR progress chip while assembling the recognized PDF after the last page."
   },
   "fileTypePdf": "PDF documents",
-  "@fileTypePdf":   {
-      "description": "File-picker filter label for PDF files."
+  "@fileTypePdf": {
+    "description": "File-picker filter label for PDF files."
   },
   "fileTypeImages": "Images",
-  "@fileTypeImages":   {
-      "description": "File-picker filter label for PNG/JPEG image files."
+  "@fileTypeImages": {
+    "description": "File-picker filter label for PNG/JPEG image files."
   },
   "fileTypeStampBundle": "DartPDF stamps",
-  "@fileTypeStampBundle":   {
-      "description": "File-picker filter label for exported custom-stamp JSON bundles."
+  "@fileTypeStampBundle": {
+    "description": "File-picker filter label for exported custom-stamp JSON bundles."
   },
   "appSigKeyFileType": "RSA private keys",
-  "@appSigKeyFileType":   {
-      "description": "File-picker filter label when choosing a private key to sign with."
+  "@appSigKeyFileType": {
+    "description": "File-picker filter label when choosing a private key to sign with."
   },
   "appSigCertificateFileType": "X.509 certificates",
-  "@appSigCertificateFileType":   {
-      "description": "File-picker filter label when choosing signing certificates."
+  "@appSigCertificateFileType": {
+    "description": "File-picker filter label when choosing signing certificates."
   },
   "appSigErrorNoCertificateSelected": "Select at least one X.509 certificate.",
-  "@appSigErrorNoCertificateSelected":   {
-      "description": "Signing error: the user picked a key but no certificate."
+  "@appSigErrorNoCertificateSelected": {
+    "description": "Signing error: the user picked a key but no certificate."
   },
   "appSigErrorInvalidCertificate": "Certificate {index} is not valid X.509.",
-  "@appSigErrorInvalidCertificate":   {
-      "description": "Signing error: a chosen certificate file could not be parsed as X.509.",
-      "placeholders": {
-          "index": {
-              "type": "int"
-          }
+  "@appSigErrorInvalidCertificate": {
+    "description": "Signing error: a chosen certificate file could not be parsed as X.509.",
+    "placeholders": {
+      "index": {
+        "type": "int"
       }
+    }
   },
   "appSigErrorKeyCertificateMismatch": "The private key does not match any selected RSA certificate.",
-  "@appSigErrorKeyCertificateMismatch":   {
-      "description": "Signing error: the key pairs with none of the chosen certificates."
+  "@appSigErrorKeyCertificateMismatch": {
+    "description": "Signing error: the key pairs with none of the chosen certificates."
   },
   "appSigErrorEncryptedKeyUnsupported": "Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.",
-  "@appSigErrorEncryptedKeyUnsupported":   {
-      "description": "Signing error: the chosen private key is an encrypted PEM."
+  "@appSigErrorEncryptedKeyUnsupported": {
+    "description": "Signing error: the chosen private key is an encrypted PEM."
   },
   "appSigErrorKeyNotRsa": "The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.",
-  "@appSigErrorKeyNotRsa":   {
-      "description": "Signing error: the chosen private key could not be read as RSA."
+  "@appSigErrorKeyNotRsa": {
+    "description": "Signing error: the chosen private key could not be read as RSA."
   },
   "appSigErrorNoCertificateFound": "No X.509 certificates were found.",
-  "@appSigErrorNoCertificateFound":   {
-      "description": "Signing error: the chosen files contained no X.509 certificate."
+  "@appSigErrorNoCertificateFound": {
+    "description": "Signing error: the chosen files contained no X.509 certificate."
   },
   "imageSourceTakePhoto": "Take photo",
-  "@imageSourceTakePhoto":   {
-      "description": "Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera."
+  "@imageSourceTakePhoto": {
+    "description": "Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera."
   },
   "imageSourceChooseFile": "Choose file",
-  "@imageSourceChooseFile":   {
-      "description": "Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera."
+  "@imageSourceChooseFile": {
+    "description": "Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera."
   },
   "imageSourceCameraFailed": "Couldn't take a photo",
-  "@imageSourceCameraFailed":   {
-      "description": "Toast shown when the camera cannot be opened - no camera on the device, or access refused."
+  "@imageSourceCameraFailed": {
+    "description": "Toast shown when the camera cannot be opened - no camera on the device, or access refused."
+  },
+  "settingsCachedDocuments": "Cached documents",
+  "settingsCacheUsage": "{used} MiB of {limit} MiB used",
+  "settingsCacheExplanation": "Files over {limit} MiB are not cached. Clearing keeps your Recent list, open documents and unsaved changes; cached files must be picked again to reopen.",
+  "settingsClearCachedDocuments": "Clear cached documents",
+  "settingsCacheUnavailable": "Cache size unavailable",
+  "settingsCacheClearFailed": "Could not clear cached documents. Try again.",
+  "@settingsCachedDocuments": {
+    "description": "Opened PDF snapshot cache settings: settingsCachedDocuments"
+  },
+  "@settingsCacheUsage": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheUsage",
+    "placeholders": {
+      "used": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "@settingsCacheExplanation": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheExplanation",
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "@settingsClearCachedDocuments": {
+    "description": "Opened PDF snapshot cache settings: settingsClearCachedDocuments"
+  },
+  "@settingsCacheUnavailable": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheUnavailable"
+  },
+  "@settingsCacheClearFailed": {
+    "description": "Opened PDF snapshot cache settings: settingsCacheClearFailed"
+  },
+  "editorMenuReduceFileSize": "Reduce file size…",
+  "@editorMenuReduceFileSize": {
+    "description": "App menu action that opens the PDF optimization tool."
+  },
+  "reduceSizeTitle": "Reduce file size",
+  "@reduceSizeTitle": {
+    "description": "Title of the PDF optimization dialog."
+  },
+  "reduceSizeDescription": "Optimize the current document, review the savings, then save a smaller copy.",
+  "@reduceSizeDescription": {
+    "description": "Explanation of the optimization and save-copy workflow."
+  },
+  "reduceSizePreset": "Preset",
+  "@reduceSizePreset": {
+    "description": "Label for the compression preset picker."
+  },
+  "reduceSizeLossless": "Lossless — preserve image quality",
+  "@reduceSizeLossless": {
+    "description": "Default preset that preserves image quality."
+  },
+  "reduceSizeScreen": "Screen — 72 DPI, JPEG quality 60",
+  "@reduceSizeScreen": {
+    "description": "Low-resolution compression preset, describes its image quality."
+  },
+  "reduceSizeEbook": "eBook — 150 DPI, JPEG quality 75",
+  "@reduceSizeEbook": {
+    "description": "Medium-resolution compression preset, describes its image quality."
+  },
+  "reduceSizePrinter": "Print — 300 DPI, JPEG quality 90",
+  "@reduceSizePrinter": {
+    "description": "High-resolution compression preset, describes its image quality."
+  },
+  "reduceSizeLosslessHint": "Image resolution and quality stay the same.",
+  "@reduceSizeLosslessHint": {
+    "description": "Description shown when lossy image processing is disabled."
+  },
+  "reduceSizeLossyHint": "Images above the target resolution may be reduced and JPEG-encoded. Fine image detail can be lost; text and vector graphics stay sharp.",
+  "@reduceSizeLossyHint": {
+    "description": "Describes the quality tradeoff when image downsampling is enabled."
+  },
+  "reduceSizeAdvanced": "Advanced settings",
+  "@reduceSizeAdvanced": {
+    "description": "Expansion title for individual optimization settings."
+  },
+  "reduceSizeRecompress": "Recompress streams",
+  "@reduceSizeRecompress": {
+    "description": "Option to apply lossless compression to PDF streams."
+  },
+  "reduceSizeUnusedResources": "Remove unused resources",
+  "@reduceSizeUnusedResources": {
+    "description": "Option to remove resources that page content does not use."
+  },
+  "reduceSizeDeduplicate": "Merge duplicate objects",
+  "@reduceSizeDeduplicate": {
+    "description": "Option to share identical PDF objects."
+  },
+  "reduceSizeSubsetFonts": "Subset embedded fonts",
+  "@reduceSizeSubsetFonts": {
+    "description": "Option to remove unused embedded font glyphs when supported."
+  },
+  "reduceSizeDpi": "Image target resolution",
+  "@reduceSizeDpi": {
+    "description": "Label for image target DPI control."
+  },
+  "reduceSizeKeepImages": "Keep original images (lossless)",
+  "@reduceSizeKeepImages": {
+    "description": "Image resolution choice that disables lossy processing."
+  },
+  "reduceSizeJpegQuality": "JPEG quality: {quality}",
+  "@reduceSizeJpegQuality": {
+    "description": "Image encoder quality, from 10 to 100.",
+    "placeholders": {
+      "quality": {
+        "type": "int"
+      }
+    }
+  },
+  "reduceSizeSignaturesNotice": "Rewriting this signed PDF invalidates its digital signatures in the saved copy.",
+  "@reduceSizeSignaturesNotice": {
+    "description": "Warning shown only for a document containing digital signatures."
+  },
+  "reduceSizeInvalidateSignatures": "Allow invalidating signatures in this copy",
+  "@reduceSizeInvalidateSignatures": {
+    "description": "Explicit consent checkbox required before optimizing a signed file."
+  },
+  "reduceSizeEncrypted": "Encrypted PDFs cannot be optimized.",
+  "@reduceSizeEncrypted": {
+    "description": "Message shown when the optimization action is used on an encrypted PDF."
+  },
+  "reduceSizeIncomplete": "Wait for the document to finish loading before reducing its size.",
+  "@reduceSizeIncomplete": {
+    "description": "Message shown when a progressive source has not fully loaded."
+  },
+  "reduceSizeRun": "Optimize",
+  "@reduceSizeRun": {
+    "description": "Button that runs the selected optimizations."
+  },
+  "reduceSizeRunning": "Optimizing document…",
+  "@reduceSizeRunning": {
+    "description": "Indeterminate progress status while the compression worker is running."
+  },
+  "reduceSizeFailed": "Could not optimize this PDF: {error}",
+  "@reduceSizeFailed": {
+    "description": "An error returned by the PDF optimizer.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "reduceSizeSaveFailed": "Could not save the copy: {error}",
+  "@reduceSizeSaveFailed": {
+    "description": "An error raised while saving an optimized copy.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "reduceSizeSaveCopy": "Save copy…",
+  "@reduceSizeSaveCopy": {
+    "description": "Opens the save dialog for the optimized PDF."
+  },
+  "reduceSizeChangeSettings": "Change settings",
+  "@reduceSizeChangeSettings": {
+    "description": "Returns from the optimization report to its settings."
+  },
+  "reduceSizeBefore": "Original size",
+  "@reduceSizeBefore": {
+    "description": "Original file size in the optimization report."
+  },
+  "reduceSizeAfter": "Optimized size",
+  "@reduceSizeAfter": {
+    "description": "Resulting file size in the optimization report."
+  },
+  "reduceSizeSavings": "Space saved",
+  "@reduceSizeSavings": {
+    "description": "Bytes and percentage saved by optimization."
+  },
+  "reduceSizeNoSavings": "This document is already compact with these settings. The original bytes were kept.",
+  "@reduceSizeNoSavings": {
+    "description": "Explains a result that could not reduce the file size."
+  },
+  "reduceSizeReportHint": "Bytes saved by each optimization step:",
+  "@reduceSizeReportHint": {
+    "description": "Labels the sequential contribution of each compression category."
+  },
+  "reduceSizeStructure": "Document structure",
+  "@reduceSizeStructure": {
+    "description": "Report category for compaction and stream compression."
+  },
+  "reduceSizeResources": "Unused resources",
+  "@reduceSizeResources": {
+    "description": "Report category for unused-resource removal."
+  },
+  "reduceSizeFonts": "Embedded fonts",
+  "@reduceSizeFonts": {
+    "description": "Report category for font subsetting."
+  },
+  "reduceSizeImages": "Images",
+  "@reduceSizeImages": {
+    "description": "Report category for image processing."
+  },
+  "reduceSizeDuplicates": "Duplicate objects",
+  "@reduceSizeDuplicates": {
+    "description": "Report category for identical-object sharing."
+  },
+  "reduceSizeCustom": "Custom settings",
+  "@reduceSizeCustom": {
+    "description": "Preset label shown after any individual compression setting is changed."
+  },
+  "printOptionsPrinter": "Printer",
+  "@printOptionsPrinter": {
+    "description": "Print settings dialog: Printer"
+  },
+  "printOptionsNativePrinter": "Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.",
+  "@printOptionsNativePrinter": {
+    "description": "Print settings dialog: Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here."
+  },
+  "printOptionsPages": "Pages",
+  "@printOptionsPages": {
+    "description": "Print settings dialog: Pages"
+  },
+  "printOptionsSelected": "Selected",
+  "@printOptionsSelected": {
+    "description": "Print settings dialog: Selected"
+  },
+  "printOptionsPageRange": "Pages (for example, 1, 3-5)",
+  "@printOptionsPageRange": {
+    "description": "Print settings dialog: Pages (for example, 1, 3-5)"
+  },
+  "printOptionsAddFiles": "Add files…",
+  "@printOptionsAddFiles": {
+    "description": "Print settings dialog: Add files…"
+  },
+  "printOptionsAddFailed": "Could not add the selected files.",
+  "@printOptionsAddFailed": {
+    "description": "Print settings dialog: Could not add the selected files."
+  },
+  "printOptionsGetWindow": "Get window",
+  "@printOptionsGetWindow": {
+    "description": "Print settings dialog: Get window"
+  },
+  "printOptionsClearWindow": "Clear window",
+  "@printOptionsClearWindow": {
+    "description": "Print settings dialog: Clear window"
+  },
+  "printOptionsWindowHint": "Drag a rectangle on this source page to choose the area to print.",
+  "@printOptionsWindowHint": {
+    "description": "Print settings dialog: Drag a rectangle on this source page to choose the area to print."
+  },
+  "printOptionsPaper": "Paper",
+  "@printOptionsPaper": {
+    "description": "Print settings dialog: Paper"
+  },
+  "printOptionsPaperSize": "Paper size",
+  "@printOptionsPaperSize": {
+    "description": "Print settings dialog: Paper size"
+  },
+  "printOptionsPageSize": "Use document page size",
+  "@printOptionsPageSize": {
+    "description": "Print settings dialog: Use document page size"
+  },
+  "printOptionsOrientation": "Orientation",
+  "@printOptionsOrientation": {
+    "description": "Print settings dialog: Orientation"
+  },
+  "printOptionsAuto": "Auto",
+  "@printOptionsAuto": {
+    "description": "Print settings dialog: Auto"
+  },
+  "printOptionsPortrait": "Portrait",
+  "@printOptionsPortrait": {
+    "description": "Print settings dialog: Portrait"
+  },
+  "printOptionsLandscape": "Landscape",
+  "@printOptionsLandscape": {
+    "description": "Print settings dialog: Landscape"
+  },
+  "printOptionsCopies": "Copies",
+  "@printOptionsCopies": {
+    "description": "Print settings dialog: Copies"
+  },
+  "printOptionsCollate": "Collate",
+  "@printOptionsCollate": {
+    "description": "Print settings dialog: Collate"
+  },
+  "printOptionsReverse": "Reverse page order",
+  "@printOptionsReverse": {
+    "description": "Print settings dialog: Reverse page order"
+  },
+  "printOptionsLayout": "Page layout",
+  "@printOptionsLayout": {
+    "description": "Print settings dialog: Page layout"
+  },
+  "printOptionsScaling": "Page scaling",
+  "@printOptionsScaling": {
+    "description": "Print settings dialog: Page scaling"
+  },
+  "printOptionsScaleNone": "None (actual size)",
+  "@printOptionsScaleNone": {
+    "description": "Print settings dialog: None (actual size)"
+  },
+  "printOptionsFitPaper": "Fit to paper",
+  "@printOptionsFitPaper": {
+    "description": "Print settings dialog: Fit to paper"
+  },
+  "printOptionsReducePaper": "Reduce to paper",
+  "@printOptionsReducePaper": {
+    "description": "Print settings dialog: Reduce to paper"
+  },
+  "printOptionsFitMargins": "Fit to margins",
+  "@printOptionsFitMargins": {
+    "description": "Print settings dialog: Fit to margins"
+  },
+  "printOptionsReduceMargins": "Reduce to margins",
+  "@printOptionsReduceMargins": {
+    "description": "Print settings dialog: Reduce to margins"
+  },
+  "printOptionsCustomScale": "Custom scale",
+  "@printOptionsCustomScale": {
+    "description": "Print settings dialog: Custom scale"
+  },
+  "printOptionsMultiple": "Multiple pages per sheet",
+  "@printOptionsMultiple": {
+    "description": "Print settings dialog: Multiple pages per sheet"
+  },
+  "printOptionsScalePercent": "Scale (%)",
+  "@printOptionsScalePercent": {
+    "description": "Print settings dialog: Scale (%)"
+  },
+  "printOptionsMargin": "Margins (pt)",
+  "@printOptionsMargin": {
+    "description": "Print settings dialog: Margins (pt)"
+  },
+  "printOptionsPagesPerSheet": "Pages per sheet",
+  "@printOptionsPagesPerSheet": {
+    "description": "Print settings dialog: Pages per sheet"
+  },
+  "printOptionsPageOrder": "Page order",
+  "@printOptionsPageOrder": {
+    "description": "Print settings dialog: Page order"
+  },
+  "printOptionsHorizontal": "Horizontal",
+  "@printOptionsHorizontal": {
+    "description": "Print settings dialog: Horizontal"
+  },
+  "printOptionsHorizontalReverse": "Horizontal reversed",
+  "@printOptionsHorizontalReverse": {
+    "description": "Print settings dialog: Horizontal reversed"
+  },
+  "printOptionsVertical": "Vertical",
+  "@printOptionsVertical": {
+    "description": "Print settings dialog: Vertical"
+  },
+  "printOptionsVerticalReverse": "Vertical reversed",
+  "@printOptionsVerticalReverse": {
+    "description": "Print settings dialog: Vertical reversed"
+  },
+  "printOptionsBorder": "Print page borders",
+  "@printOptionsBorder": {
+    "description": "Print settings dialog: Print page borders"
+  },
+  "printOptionsRotation": "Rotation (clockwise)",
+  "@printOptionsRotation": {
+    "description": "Print settings dialog: Rotation (clockwise)"
+  },
+  "printOptionsNoRotation": "None",
+  "@printOptionsNoRotation": {
+    "description": "Print settings dialog: None"
+  },
+  "printOptionsCenter": "Center on paper",
+  "@printOptionsCenter": {
+    "description": "Print settings dialog: Center on paper"
+  },
+  "printOptionsOffsetX": "Offset right (pt)",
+  "@printOptionsOffsetX": {
+    "description": "Print settings dialog: Offset right (pt)"
+  },
+  "printOptionsOffsetY": "Offset down (pt)",
+  "@printOptionsOffsetY": {
+    "description": "Print settings dialog: Offset down (pt)"
+  },
+  "printOptionsContents": "Print contents",
+  "@printOptionsContents": {
+    "description": "Print settings dialog: Print contents"
+  },
+  "printOptionsDocumentAndMarkups": "Document and markups",
+  "@printOptionsDocumentAndMarkups": {
+    "description": "Print settings dialog: Document and markups"
+  },
+  "printOptionsDocumentOnly": "Document only",
+  "@printOptionsDocumentOnly": {
+    "description": "Print settings dialog: Document only"
+  },
+  "printOptionsMarkupsOnly": "Markups only",
+  "@printOptionsMarkupsOnly": {
+    "description": "Print settings dialog: Markups only"
+  },
+  "printOptionsDimPage": "Dim page content",
+  "@printOptionsDimPage": {
+    "description": "Print settings dialog: Dim page content"
+  },
+  "printOptionsDimMarkups": "Dim markups",
+  "@printOptionsDimMarkups": {
+    "description": "Print settings dialog: Dim markups"
+  },
+  "printOptionsHyperlinks": "Print visible hyperlinks",
+  "@printOptionsHyperlinks": {
+    "description": "Print settings dialog: Print visible hyperlinks"
+  },
+  "printOptionsDefaults": "Defaults",
+  "@printOptionsDefaults": {
+    "description": "Print settings dialog: Defaults"
+  },
+  "printOptionsInvalidNumber": "Enter valid numbers before printing.",
+  "@printOptionsInvalidNumber": {
+    "description": "Print settings dialog: Enter valid numbers before printing."
+  },
+  "printOptionsInvalidValue": "Invalid value",
+  "@printOptionsInvalidValue": {
+    "description": "Print settings dialog: Invalid value"
+  },
+  "printOptionsMarginGuide": "Red lines show the margins; they do not print.",
+  "@printOptionsMarginGuide": {
+    "description": "Print settings dialog: Red lines show the margins; they do not print."
+  },
+  "printOptionsAreaSize": "Window: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Source: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Sheet: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Sheet {sheet} of {total}",
+  "@printOptionsSheetOf": {
+    "description": "Print settings preview label.",
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "This layout could not be prepared. Check the paper size, margins and scale.",
+  "@printOptionsInvalidLayout": {
+    "description": "Print settings validation when the sheet cannot be composed."
   }
 }

@@ -125,6 +125,8 @@ jobs:
             --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
           flutter build appbundle --release \
             --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Verify scanner survives release shrinking
+        run: python3 tool/check_android_scanner.py app/build/app/outputs/flutter-apk/app-release.apk
       - uses: actions/upload-artifact@v7
         with:
           name: android

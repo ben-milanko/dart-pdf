@@ -444,6 +444,9 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorMenuScanDocument => 'Quét thành tài liệu mới…';
 
   @override
+  String get editorMenuInsertDocument => 'Chèn tài liệu…';
+
+  @override
   String get editorMenuInsertScan => 'Chèn bản quét…';
 
   @override
@@ -456,10 +459,58 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorMenuSettings => 'Cài đặt';
 
   @override
-  String get editorMenuSwitchToEdit => 'Chuyển sang chế độ chỉnh sửa';
+  String get editorMenuSectionFile => 'Tệp';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Chuyển sang chỉ đọc';
+  String get editorMenuSectionDocument => 'Tài liệu này';
+
+  @override
+  String get editorMenuSectionApp => 'Ứng dụng';
+
+  @override
+  String get editorMenuReadOnly => 'Chỉ đọc';
+
+  @override
+  String get editorMenuSearchActions => 'Tìm hành động…';
+
+  @override
+  String get paletteHint => 'Tìm hành động, công cụ và bảng';
+
+  @override
+  String get paletteNoMatch => 'Không có lệnh phù hợp';
+
+  @override
+  String get paletteKeyHints => '↑↓ di chuyển · ⏎ chạy · esc đóng';
+
+  @override
+  String paletteCount(int count) {
+    return '$count lệnh';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count trên $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Bảng';
+
+  @override
+  String get paletteSourceView => 'Xem';
+
+  @override
+  String get paletteSourceFile => 'Tệp';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Công cụ $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Cần mở một tài liệu';
 
   @override
   String editorNamedAction(String name) {
@@ -1054,4 +1105,348 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get imageSourceCameraFailed => 'Không thể chụp ảnh';
+
+  @override
+  String get settingsCachedDocuments => 'Tài liệu đã lưu vào bộ nhớ đệm';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Đã dùng $used MiB trên $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Tệp lớn hơn $limit MiB không được lưu vào bộ nhớ đệm. Việc xóa vẫn giữ danh sách gần đây, tài liệu đang mở và thay đổi chưa lưu; bạn cần chọn lại tệp đã lưu trong bộ nhớ đệm để mở lại.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Xóa tài liệu trong bộ nhớ đệm';
+
+  @override
+  String get settingsCacheUnavailable =>
+      'Không có thông tin kích thước bộ nhớ đệm';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Không thể xóa tài liệu trong bộ nhớ đệm. Hãy thử lại.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Giảm kích thước tệp…';
+
+  @override
+  String get reduceSizeTitle => 'Giảm kích thước tệp';
+
+  @override
+  String get reduceSizeDescription =>
+      'Tối ưu hóa tài liệu hiện tại, xem dung lượng tiết kiệm rồi lưu một bản sao nhỏ hơn.';
+
+  @override
+  String get reduceSizePreset => 'Thiết lập sẵn';
+
+  @override
+  String get reduceSizeLossless => 'Không mất dữ liệu — giữ chất lượng ảnh';
+
+  @override
+  String get reduceSizeScreen => 'Màn hình — 72 DPI, chất lượng JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'Sách điện tử — 150 DPI, chất lượng JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'In — 300 DPI, chất lượng JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Độ phân giải và chất lượng ảnh không thay đổi.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Ảnh có độ phân giải cao hơn mục tiêu có thể được thu nhỏ và mã hóa JPEG. Chi tiết nhỏ có thể bị mất; văn bản và đồ họa vector vẫn sắc nét.';
+
+  @override
+  String get reduceSizeAdvanced => 'Cài đặt nâng cao';
+
+  @override
+  String get reduceSizeRecompress => 'Nén lại luồng dữ liệu';
+
+  @override
+  String get reduceSizeUnusedResources => 'Xóa tài nguyên không dùng';
+
+  @override
+  String get reduceSizeDeduplicate => 'Gộp các đối tượng trùng lặp';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Thu gọn phông chữ nhúng còn các glyph được dùng';
+
+  @override
+  String get reduceSizeDpi => 'Độ phân giải mục tiêu của ảnh';
+
+  @override
+  String get reduceSizeKeepImages => 'Giữ ảnh gốc (không mất dữ liệu)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Chất lượng JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Việc viết lại PDF đã ký này sẽ làm mất hiệu lực chữ ký số trong bản sao được lưu.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Cho phép làm mất hiệu lực chữ ký trong bản sao này';
+
+  @override
+  String get reduceSizeEncrypted => 'Không thể tối ưu hóa PDF đã mã hóa.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Hãy đợi tài liệu tải xong trước khi giảm kích thước.';
+
+  @override
+  String get reduceSizeRun => 'Tối ưu hóa';
+
+  @override
+  String get reduceSizeRunning => 'Đang tối ưu hóa tài liệu…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Không thể tối ưu hóa PDF này: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Không thể lưu bản sao: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Lưu bản sao…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Đổi cài đặt';
+
+  @override
+  String get reduceSizeBefore => 'Kích thước ban đầu';
+
+  @override
+  String get reduceSizeAfter => 'Kích thước đã tối ưu';
+
+  @override
+  String get reduceSizeSavings => 'Dung lượng tiết kiệm';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Tài liệu này đã gọn với các cài đặt này. Dữ liệu gốc được giữ nguyên.';
+
+  @override
+  String get reduceSizeReportHint => 'Số byte tiết kiệm ở mỗi bước tối ưu hóa:';
+
+  @override
+  String get reduceSizeStructure => 'Cấu trúc tài liệu';
+
+  @override
+  String get reduceSizeResources => 'Tài nguyên không dùng';
+
+  @override
+  String get reduceSizeFonts => 'Phông chữ nhúng';
+
+  @override
+  String get reduceSizeImages => 'Ảnh';
+
+  @override
+  String get reduceSizeDuplicates => 'Đối tượng trùng lặp';
+
+  @override
+  String get reduceSizeCustom => 'Cài đặt tùy chỉnh';
+
+  @override
+  String get printOptionsPrinter => 'Máy in';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Trong hộp thoại in của hệ thống tiếp theo, hãy chọn máy in, khay giấy, màu, chế độ in hai mặt và thuộc tính thiết bị. Giữ tỷ lệ ở 100% và số bản sao là 1 để sử dụng bố cục hiển thị ở đây.';
+
+  @override
+  String get printOptionsPages => 'Trang';
+
+  @override
+  String get printOptionsSelected => 'Đã chọn';
+
+  @override
+  String get printOptionsPageRange => 'Trang (ví dụ: 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Thêm tệp…';
+
+  @override
+  String get printOptionsAddFailed => 'Không thể thêm các tệp đã chọn.';
+
+  @override
+  String get printOptionsGetWindow => 'Chọn vùng';
+
+  @override
+  String get printOptionsClearWindow => 'Xóa vùng chọn';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Kéo một hình chữ nhật trên trang gốc này để chọn vùng cần in.';
+
+  @override
+  String get printOptionsPaper => 'Giấy';
+
+  @override
+  String get printOptionsPaperSize => 'Khổ giấy';
+
+  @override
+  String get printOptionsPageSize => 'Dùng kích thước trang của tài liệu';
+
+  @override
+  String get printOptionsOrientation => 'Hướng giấy';
+
+  @override
+  String get printOptionsAuto => 'Tự động';
+
+  @override
+  String get printOptionsPortrait => 'Dọc';
+
+  @override
+  String get printOptionsLandscape => 'Ngang';
+
+  @override
+  String get printOptionsCopies => 'Bản sao';
+
+  @override
+  String get printOptionsCollate => 'In từng bộ';
+
+  @override
+  String get printOptionsReverse => 'Đảo thứ tự trang';
+
+  @override
+  String get printOptionsLayout => 'Bố cục trang';
+
+  @override
+  String get printOptionsScaling => 'Co giãn trang';
+
+  @override
+  String get printOptionsScaleNone => 'Không (kích thước thực)';
+
+  @override
+  String get printOptionsFitPaper => 'Vừa khổ giấy';
+
+  @override
+  String get printOptionsReducePaper => 'Thu nhỏ cho vừa khổ giấy';
+
+  @override
+  String get printOptionsFitMargins => 'Vừa trong lề';
+
+  @override
+  String get printOptionsReduceMargins => 'Thu nhỏ cho vừa trong lề';
+
+  @override
+  String get printOptionsCustomScale => 'Tỷ lệ tùy chỉnh';
+
+  @override
+  String get printOptionsMultiple => 'Nhiều trang trên một tờ';
+
+  @override
+  String get printOptionsScalePercent => 'Tỷ lệ (%)';
+
+  @override
+  String get printOptionsMargin => 'Lề (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Số trang mỗi tờ';
+
+  @override
+  String get printOptionsPageOrder => 'Thứ tự trang';
+
+  @override
+  String get printOptionsHorizontal => 'Theo chiều ngang';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Theo chiều ngang đảo ngược';
+
+  @override
+  String get printOptionsVertical => 'Theo chiều dọc';
+
+  @override
+  String get printOptionsVerticalReverse => 'Theo chiều dọc đảo ngược';
+
+  @override
+  String get printOptionsBorder => 'In viền trang';
+
+  @override
+  String get printOptionsRotation => 'Xoay (theo chiều kim đồng hồ)';
+
+  @override
+  String get printOptionsNoRotation => 'Không';
+
+  @override
+  String get printOptionsCenter => 'Căn giữa trên giấy';
+
+  @override
+  String get printOptionsOffsetX => 'Dịch sang phải (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Dịch xuống (pt)';
+
+  @override
+  String get printOptionsContents => 'Nội dung cần in';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Tài liệu và chú thích';
+
+  @override
+  String get printOptionsDocumentOnly => 'Chỉ tài liệu';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Chỉ chú thích';
+
+  @override
+  String get printOptionsDimPage => 'Làm nhạt nội dung trang';
+
+  @override
+  String get printOptionsDimMarkups => 'Làm nhạt chú thích';
+
+  @override
+  String get printOptionsHyperlinks => 'In siêu liên kết hiển thị';
+
+  @override
+  String get printOptionsDefaults => 'Mặc định';
+
+  @override
+  String get printOptionsInvalidNumber => 'Nhập số hợp lệ trước khi in.';
+
+  @override
+  String get printOptionsInvalidValue => 'Giá trị không hợp lệ';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Các đường màu đỏ thể hiện lề và sẽ không được in.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Vùng: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Trang gốc: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Tờ: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Tờ $sheet / $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Không thể chuẩn bị bố cục này. Hãy kiểm tra khổ giấy, lề và tỷ lệ.';
 }
