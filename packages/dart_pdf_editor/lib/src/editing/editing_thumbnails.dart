@@ -138,8 +138,8 @@ class PdfThumbnailSidebar extends StatefulWidget {
   final double minWidth;
   final double maxWidth;
 
-  /// Whether the strip scrolls the current page's tile into view when
-  /// the viewer's page changes.
+  /// Whether the strip scrolls the current page's tile into view when it
+  /// opens, following is enabled, or the viewer's page changes.
   final bool followsViewer;
 
   /// Whether pages can be reordered (drag) and deleted (footer button)
@@ -433,6 +433,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // tiles that just came into view
     _scroll.addListener(_onScroll);
     _attachDrop(widget.fileDropController);
+    _revealCurrentAfterLayout();
   }
 
   @override
@@ -446,6 +447,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       old.viewerController.removeListener(_onViewerChanged);
       widget.viewerController.addListener(_onViewerChanged);
       _lastCurrent = widget.viewerController.currentPage;
+    }
+    if (!identical(old.viewerController, widget.viewerController) ||
+        !identical(old.controller, widget.controller) ||
+        (!old.followsViewer && widget.followsViewer)) {
+      _revealCurrentAfterLayout();
     }
     if (!identical(old.controller.preferences, _preferences)) {
       old.controller.preferences.removeListener(_onPreferences);
@@ -531,6 +537,18 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // viewer just moved to even before the reveal scroll settles
     _cache.focus = current;
     if (widget.followsViewer) _revealPage(current);
+  }
+
+  /// A newly mounted strip may restore an old scroll offset from PageStorage,
+  /// while the viewer is already on another page. No current-page change will
+  /// arrive to reveal it, so synchronize once the strip has laid out. Read the
+  /// current controller in the callback in case navigation happened meanwhile.
+  void _revealCurrentAfterLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.followsViewer) {
+        _revealPage(widget.viewerController.currentPage);
+      }
+    });
   }
 
   /// Renders one page's thumbnail straight into the shared cache - the idle
