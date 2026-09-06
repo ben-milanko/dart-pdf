@@ -1,0 +1,30 @@
+name: dart_pdf_cli
+description: Pure-Dart command line and MCP tools for inspecting PDF documents.
+version: 0.1.5
+repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_cli
+issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+topics:
+  - pdf
+  - cli
+  - mcp
+  - automation
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+
+executables:
+  dartpdf: dartpdf
+
+dependencies:
+  args: ^2.7.0
+  mcp_dart: ^2.4.1
+  path: ^1.9.0
+  pdf_cos: ^4.2.0
+  pdf_document: ^4.2.0
+  pdf_graphics: ^4.2.0
+
+dev_dependencies:
+  lints: ^6.1.0
+  pdf_test_fixtures: '>=1.4.0 <5.0.0'
+  test: ^1.25.0

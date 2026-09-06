@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -5,7 +6,10 @@ import 'package:pdf_viewer_example/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  Future<void> openDemo(WidgetTester tester) async {
+  Future<void> openDemo(
+    WidgetTester tester, {
+    PdfIdentityStore? identityStore,
+  }) async {
     // the mock store is process-global: start every test from defaults
     SharedPreferences.setMockInitialValues({});
     // These exercise the desktop dock. At the default 800px test width the
@@ -14,8 +18,16 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const ViewerApp());
-    await tester.pump();
+    await tester.pumpWidget(ViewerApp(identityStore: identityStore));
+    // use-deferred-loading makes the localizations delegate load
+    // asynchronously, so the app subtree - and the post-frame demo open -
+    // only appear after the deferred unit resolves over several frames.
+    // pumpAndSettle can't be used (the open demo runs a periodic clock timer
+    // that never settles), so pump a bounded number of frames until the demo
+    // viewer is up.
+    for (var i = 0; i < 20 && find.byType(PdfViewer).evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   /// Demo pages are 612×792pt and the viewer opens fit-page, so the
@@ -41,7 +53,8 @@ void main() {
           (widget) =>
               widget is Tooltip &&
               (widget.message == label ||
-                  (widget.message?.startsWith('$label (') ?? false)),
+                  (widget.message?.startsWith('$label (') ?? false) ||
+                  (widget.message?.startsWith('$label -') ?? false)),
         );
 
     final group = switch (tooltip) {
@@ -49,6 +62,7 @@ void main() {
       'Draw' => 'draw',
       'Rectangle' => 'shapes',
       'Note' => 'insert',
+      'Digital signature' => 'insert',
       _ => null,
     };
     if (group != null) {
@@ -214,5 +228,39 @@ void main() {
     // committed: the select tool finds the stroke
     await selectAt(tester, start + const Offset(30, 0));
     expect(find.byTooltip('Delete annotation'), findsOneWidget);
+  });
+
+  testWidgets('digital signature creates an identity and signs the PDF',
+      (tester) async {
+    final identities = InMemoryIdentityStore();
+    await openDemo(tester, identityStore: identities);
+    await tapToolbar(tester, 'Digital signature');
+
+    final start = onPage(tester, 0.25, 0.3);
+    final gesture = await tester.startGesture(
+      start,
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveBy(const Offset(30, 20));
+    await tester.pump();
+    await gesture.moveBy(const Offset(160, 55));
+    await gesture.up();
+    await tester.pump();
+
+    expect(find.text('Create signing identity'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField).first, 'Example Signer');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
+    expect(viewer.editing!.signatures, hasLength(1));
+    final validation = viewer.editing!.signatures.single.validate();
+    expect(validation.intact, isTrue);
+    expect(validation.coversWholeDocument, isTrue);
+    expect(await identities.ids(), ['Example Signer']);
+
+    // The demo runs a periodic clock, so explicitly unmount it rather than
+    // leaving that timer for the test binding's invariant check.
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

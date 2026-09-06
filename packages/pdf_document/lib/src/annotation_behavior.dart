@@ -143,10 +143,21 @@ class PdfAnnotationBehavior {
         'Underline' ||
         'StrikeOut' ||
         'Squiggly' ||
+        'FreeText' ||
         'Stamp' =>
           true,
         _ => false,
       };
+
+  /// Whether a stroke/tint colour control applies. False for image stamps -
+  /// a pasted picture has no colour a /C would tint, so the swatch is hidden
+  /// while opacity stays editable.
+  bool get supportsColor => canRestyle && !isImageStamp;
+
+  /// Whether this /Stamp is a placed raster picture (see
+  /// [PdfAnnotation.isImageStamp]) rather than a drawn text or template
+  /// stamp, so the restyle path re-bakes only its alpha over the same image.
+  bool get isImageStamp => annotation.isImageStamp;
 
   late final PdfFreeTextStyle? _freeTextStyle =
       subtype == 'FreeText' ? annotation.freeTextStyle : null;
@@ -171,9 +182,8 @@ class PdfAnnotationBehavior {
     if (res is! CosDictionary) return false;
     final fonts = cos.resolve(res['Font']);
     if (fonts is! CosDictionary) return false;
-    final name = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
-        .firstMatch(annotation.defaultAppearance ?? '')
-        ?.group(1);
+    final name =
+        _daTfRe.firstMatch(annotation.defaultAppearance ?? '')?.group(1);
     final dict = name != null ? cos.resolve(fonts[name]) : null;
     if (dict is! CosDictionary) return false;
     final sub = cos.resolve(dict['Subtype']);
@@ -201,8 +211,8 @@ class PdfAnnotationBehavior {
         (annotation.vertices?.length ?? 0) >= 2,
     'Polygon' => annotation.normalAppearance != null &&
         (annotation.vertices?.length ?? 0) >= 3,
-    'FreeText' =>
-      annotation.normalAppearance != null && standardTextFont != null,
+    'FreeText' => annotation.normalAppearance != null &&
+        (standardTextFont != null || hasEmbeddedTextFont),
     'Ink' => annotation.inkList?.isNotEmpty ?? false,
     'Highlight' ||
     'Underline' ||
@@ -210,8 +220,10 @@ class PdfAnnotationBehavior {
     'Squiggly' =>
       markupQuads != null,
     'Text' => annotation.normalAppearance != null,
+    // A text check-mark stamp restyles by redrawing from its /Contents; an
+    // image stamp restyles by re-baking its alpha over the same picture.
     'Stamp' => annotation.normalAppearance != null &&
-        (annotation.contents?.isNotEmpty ?? false),
+        ((annotation.contents?.isNotEmpty ?? false) || isImageStamp),
     _ => false,
   };
 

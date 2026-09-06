@@ -1,0 +1,168 @@
+name: Release Windows Store
+
+# Builds the Microsoft Store MSIX and pushes it into the Partner Center
+# submission for DartPDF. Entirely CLI-driven: `dart run msix:create --store`
+# for the package, the Microsoft Store Developer CLI for the upload.
+#
+# Safe by default. A tag push uploads a **draft** submission - nothing reaches
+# the public Store until a human reviews it in Partner Center, mirroring how
+# release-app.yml creates a *draft* GitHub Release. Committing to certification
+# is an explicit workflow_dispatch choice.
+#
+# The job no-ops (it does not fail) when the Partner Center secrets are not
+# configured, so it cannot block a release before the account exists. Setup is
+# documented in app/packaging/msstore/README.md.
+
+on:
+  push:
+    tags: ['app-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name, e.g. 3.0.0 (defaults to app/pubspec.yaml)'
+        required: false
+      commit:
+        description: 'Commit the submission to Store certification (otherwise leave it a draft)'
+        type: boolean
+        default: false
+      rollout_percentage:
+        description: 'Package rollout percentage 0-100 (only with commit; blank = no staged rollout)'
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.47.0'
+  DOTNET_VERSION: '9.0.x'
+
+jobs:
+  store:
+    runs-on: windows-latest
+    env:
+      # Repository VARIABLES, not secrets: these four are public by
+      # construction - the first three are embedded in the shipped MSIX manifest
+      # and the Store ID is in the app's public Store URL. Masking them would
+      # only make these logs harder to read for no security gain.
+      MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+      MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+      MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
+      MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+      # Real secrets. The certificate PFX and its password are credentials; the
+      # tenant, client and seller IDs are identifiers, kept masked as defence in
+      # depth so leaked certificate material is not accompanied by everything
+      # needed to use it.
+      MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+      MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+      MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}
+      MSSTORE_CERTIFICATE_PASSWORD: ${{ secrets.MSSTORE_CERTIFICATE_PASSWORD }}
+      MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+    steps:
+      # Skip rather than fail when the account isn't wired up yet: an unset
+      # variable or secret must not turn every `app-v*` tag red. The notice
+      # separates the two so it's obvious where each missing value belongs.
+      - name: Gate on configured Partner Center credentials
+        id: gate
+        shell: bash
+        run: |
+          missing_vars=
+          for name in MSSTORE_IDENTITY_NAME MSSTORE_PUBLISHER \
+                      MSSTORE_PUBLISHER_DISPLAY_NAME MSSTORE_PRODUCT_ID; do
+            if [ -z "${!name}" ]; then missing_vars="$missing_vars $name"; fi
+          done
+          missing_secrets=
+          for name in MSSTORE_TENANT_ID MSSTORE_CLIENT_ID \
+                      MSSTORE_CERTIFICATE_BASE64 \
+                      MSSTORE_CERTIFICATE_PASSWORD MSSTORE_SELLER_ID; do
+            if [ -z "${!name}" ]; then missing_secrets="$missing_secrets $name"; fi
+          done
+          if [ -n "$missing_vars$missing_secrets" ]; then
+            note="Microsoft Store publishing is not configured - skipping."
+            if [ -n "$missing_vars" ]; then
+              note="$note Missing repository variables:$missing_vars."
+            fi
+            if [ -n "$missing_secrets" ]; then
+              note="$note Missing repository secrets:$missing_secrets."
+            fi
+            echo "::notice::$note See app/packaging/msstore/README.md."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Resolve version
+        if: steps.gate.outputs.enabled == 'true'
+        id: v
+        shell: bash
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [[ "$REF" == app-v* ]]; then
+            V="${REF#app-v}"
+          else
+            V="${{ github.event.inputs.version }}"
+          fi
+          if [ -z "$V" ]; then
+            # build-msix.ps1 falls back to the pubspec version itself.
+            echo "version=" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$V" >> "$GITHUB_OUTPUT"
+          fi
+
+      # msstore.exe is framework-dependent (net9.0), so the runtime must be
+      # present before publish-msix.ps1 runs it.
+      - uses: actions/setup-dotnet@v6
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: subosito/flutter-action@v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+        if: steps.gate.outputs.enabled == 'true'
+
+      - name: Build Store MSIX
+        if: steps.gate.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          # Not $args - that is a PowerShell automatic variable.
+          $buildArgs = @{ BuildNumber = '${{ github.run_number }}' }
+          if ('${{ steps.v.outputs.version }}') {
+            $buildArgs['Version'] = '${{ steps.v.outputs.version }}'
+          }
+          ./app/packaging/msstore/build-msix.ps1 @buildArgs
+
+      # Keep the package even when the upload is skipped or fails, so a bad
+      # submission can be diagnosed from the artifact.
+      - uses: actions/upload-artifact@v7
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          name: windows-store-msix
+          path: app/build/windows/msstore/*.msix
+
+      - name: Publish to Microsoft Store
+        if: steps.gate.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $msix = (Get-ChildItem app/build/windows/msstore -Filter *.msix |
+            Select-Object -First 1).FullName
+          if (-not $msix) { throw 'No .msix to publish' }
+
+          $params = @{ MsixPath = $msix }
+          # Only a manual run may commit; a tag push always leaves a draft.
+          if ('${{ github.event.inputs.commit }}' -eq 'true') {
+            $params['Commit'] = $true
+            if ('${{ github.event.inputs.rollout_percentage }}') {
+              $params['RolloutPercentage'] = [int]'${{ github.event.inputs.rollout_percentage }}'
+            }
+          }
+          ./app/packaging/msstore/publish-msix.ps1 @params

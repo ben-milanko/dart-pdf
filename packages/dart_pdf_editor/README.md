@@ -1,6 +1,6 @@
-![dart-pdf, pure-Dart PDF renderer & editor for Flutter](https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/banner.png)
+![dart-pdf, an open-source Flutter PDF editor and pure-Dart renderer](https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/banner.png)
 
-# dart_pdf_editor
+# Flutter PDF editor: dart_pdf_editor
 
 [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor)
 [![pub points](https://img.shields.io/pub/points/dart_pdf_editor)](https://pub.dev/packages/dart_pdf_editor/score)
@@ -8,9 +8,9 @@
 [![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg?flag=dart_pdf_editor)](https://codecov.io/gh/ben-milanko/dart-pdf)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
 
-A Flutter PDF viewer and editor rendered natively in Dart, with no
-platform views or native PDF libraries. The same code runs on iOS,
-Android, macOS, Windows, Linux, and the web.
+`dart_pdf_editor` is a complete, open-source Flutter PDF editor and viewer
+rendered natively in Dart, with no platform views or native PDF libraries. The
+same code runs on iOS, Android, macOS, Windows, Linux, and the web.
 
 ![The example app: PdfEditorView showing the feature showcase document](https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/dart_pdf_editor_example.jpg)
 
@@ -74,32 +74,119 @@ PdfEditorView(
 )
 ```
 
+The stock editor's Settings popup includes cursor-guide and grid controls.
+Custom chrome can configure the same persisted preferences directly (grid
+units are PDF points):
+
+```dart
+editing.preferences
+  ..showVerticalCursorGuide = true
+  ..showHorizontalCursorGuide = true
+  ..showSnapGrid = true
+  ..snapToGrid = true
+  ..gridSpacing = 10;
+```
+
+The visible grid and snapping are independent. Grid snapping covers annotation
+placement, movement, resizing, and line or polygon vertices. Hold Alt during a
+gesture for a temporary off-grid edit.
+
 Try the [live demo](https://dart-pdf-demo.web.app) of the example app
 on Flutter web, with a built-in feature showcase document.
+
+The [Flutter PDF editor overview](https://dart-pdf.com/flutter-pdf-editor)
+covers the architecture, supported editing features, package layout, and
+measured performance.
+
+For a complete first integration, follow
+[How to add PDF editing to a Flutter app](https://dart-pdf.com/guides/add-pdf-editing-to-flutter).
 
 Built on the pure-Dart
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): `pdf_cos`
 (file syntax) ← `pdf_document` (document semantics + editing) ←
 `pdf_graphics` (interpreter + fonts) ← `dart_pdf_editor` (Flutter widgets).
 
+## Optional bundled assets
+
+The editor's six bundled fonts and its web render worker (~1.8 MB package
+download) ship in a separate opt-in package,
+[`dart_pdf_editor_assets`](../dart_pdf_editor_assets), rather than in
+`dart_pdf_editor` itself. Flutter bundles a package's declared assets on every
+build target, so keeping them out of the always-depended-on package is the only
+way to let a viewer-only app avoid downloading and installing them.
+
+To get the historical full-featured editor, add the package and register it once
+at startup, before opening a viewer:
+
+```sh
+flutter pub add dart_pdf_editor dart_pdf_editor_assets
+```
+
+```dart
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
+
+void main() {
+  registerBundledEditorAssets(); // bundled fonts + web worker
+  runApp(const MyApp());
+}
+```
+
+Pick the tier that fits your build:
+
+| Tier | Depend on | Register | Bundled fonts + web worker |
+| --- | --- | --- | --- |
+| Viewer / editor, size-minimal | `dart_pdf_editor` | – | not shipped |
+| + Off-main-thread web rendering | both | `registerBundledEditorAssets(fonts: false)` | worker only |
+| Full editor, app-provided fonts | `dart_pdf_editor` | assign `pdfBundledFonts` yourself | your fonts |
+| Full editor (historical default) | both | `registerBundledEditorAssets()` | both |
+
+What each optional group powers - everything else works without them:
+
+| Capability | Needs |
+| --- | --- |
+| Font menu's "bundled" group (DejaVu, Fira Sans, Spectral, Lobster) | bundled fonts |
+| Fallback glyphs when editing composite (/Type0) text a subset font can't draw | bundled fonts (DejaVu trio) |
+| Off-main-thread page rendering on **web** | web worker |
+
+Missing assets degrade gracefully: the font menu simply drops the bundled group
+(base-14, document, platform and custom fonts still work), composite-text
+fallback is skipped, and web rendering falls back to the main thread. An app can
+also supply its own catalogue - set `pdfBundledFonts` to your own
+`PdfBundledFont`s (each backed by an asset key or a `loadBytes` byte loader).
+
 ## Performance
 
-Pure Dart, and fast: on a real-world corpus (49 files / 255 pages of
-CAD drawings, scans, reports, and forms) the parse + content-stream
-**interpreter is ~1.9× faster than PDFium**: **13.3 ms/page vs 24.9 ms/page**
-at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization is 52.0 ms/page (2.08× PDFium); that remaining gap is image
-decoding and GPU raster, not the interpreter.
+**The default viewer has not reached PDFium interaction parity yet.** The most
+recent real-document checkpoint (23 August 2026, commit `1b887e9f`) used five
+interleaved DartPDF/PDFium runs in Chrome 151 on an M1 Pro, a 1400×1000
+viewport, and the default JS/CanvasKit web build. The input was a locally
+supplied 62-page, 24.1 MB illustrated PDF; the journey opened it, jumped to
+pages 3 and 47, zoomed to 1.72×, and drove matched wheel gestures. Lower
+ratios are better.
 
-| engine | ms/page | vs PDFium |
-|---|---|---|
-| dart-pdf interpret (pure Dart) | **13.3** | **1.87× faster** |
-| PDFium (open + rasterize) | 24.9 | 1.00× |
-| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
+| user-visible metric | DartPDF p50 / p95 | PDFium p50 / p95 | ratio p50 / p95 |
+|---|---:|---:|---:|
+| open to stable visual | 918 / 974 ms | 1493 / 1520 ms | **0.61× / 0.64×** |
+| page first visual change | 18 / 24 ms | 11 / 16 ms | 1.72× / 1.54× |
+| page stable visual | 297 / 381 ms | 130 / 134 ms | **2.29× / 2.84×** |
+| zoom stable visual | 22 / 31 ms | 11 / 13 ms | **1.97× / 2.35×** |
+| wheel journey | 315 / 433 ms | 912 / 1123 ms | 0.34× / 0.39× |
+| wheel rAF interval p95 | 42 ms | 10 ms | **4.09×** |
+| peak browser RSS p50 | 1827 MiB | 1850 MiB | 0.99× |
 
-Numbers and methodology are in
+The wheel journey completes sooner, but its worse rAF tail means it is not yet
+as smooth; total duration alone would be a misleading win. Open and memory are
+inside the current provisional budgets, while stable navigation, zoom, and
+scroll cadence are not. These numbers describe desktop web only and are not a
+native-desktop or mobile parity claim. See the
+[full methodology and historical checkpoints](https://github.com/ben-milanko/dart-pdf/blob/main/doc/benchmarks/pdfium-parity.md).
+
+The offline corpus benchmark remains useful as a subsystem diagnostic, not as
+evidence of viewer latency: over the 52-file / 268-page common subset at scale
+2, pure-Dart interpretation takes 12.1 ms/page, PDFium rasterization takes
+31.9 ms/page, and the complete Flutter raster plus readback takes 61.6 ms/page.
+Reproducible offline harnesses and file-by-file diffs live in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
-The harnesses diff dart-pdf against PDFium file by file.
 
 The drop-in shells use adaptive performance tuning by default. Auto selects a
 platform-, core-, and document-aware worker count, then adjusts safe preview
@@ -116,6 +203,16 @@ debugPrint('${performance.diagnostics}');
 performance.mode = const PdfPerformanceMode.fixed(workerCount: 2);
 ```
 
+Deep zoom uses a 512 px, byte-budgeted LoD tile pyramid with coarse-tile
+fallback and visible-first scheduling. Hosts can give `PdfRasterCache` a
+separate persistent `tiles` store; disk reads race live rasterization and disk
+writes start only after the fresh tile is displayable, so persistence never
+extends first paint. For supported native targets, the optional
+[`dart_pdf_editor_flutter_gpu`](https://pub.dev/packages/dart_pdf_editor_flutter_gpu)
+companion compiles a conservative subset of a retained page scene once, reuses
+scene-spanning image textures, and replays tiles through Impeller. Unsupported
+pages and all web builds keep the Canvas backend automatically.
+
 ## Viewing
 
 - Zooming/panning viewer with fit-page and fit-width modes, deep-zoom
@@ -125,8 +222,13 @@ performance.mode = const PdfPerformanceMode.fixed(workerCount: 2);
   low-res previews (filled in by a background prerender) instead of
   blank paper, and full rendering resumes the moment scrolling
   settles.
+- Progressive rendering records pages in a default worker, streams partial
+  records as they are produced, and reveals complex pages top-down.
 - Text selection (mouse, and touch with selection handles), full-text
-  search with a results panel, link navigation, outlines.
+  search with page-text and annotation-content results, link navigation,
+  outlines.
+- Faithful print-oriented overprint and spot-color rendering, including
+  colorants sampled from images.
 - Theming via `PdfViewerTheme`, dark mode, arbitrary page colors, and a
   hide-all-annotations toggle.
 
@@ -138,7 +240,12 @@ are byte prefixes of one buffer.
 - Annotation tools: highlight/underline/strikeout/squiggly, ink with
   stylus pressure and spline smoothing, shapes, free text with in-place
   editing, notes, stamps (including custom saved stamps), and a saved
-  ink signature.
+  ink signature. The hyperlink tool authors URI and in-document links, and
+  placed images and raster snapshots can be cropped interactively.
+- A stamp on the page saves back into the stamp collection from its
+  right-click menu (`Save to stamps`), so a design that arrived in a
+  document is reusable. Stamps this editor placed carry their vector
+  design, so they come back with their `{{date}}`-style fields still live.
 - Certificate-backed digital signatures: load an in-memory RSA private key
   and X.509 chain, then add a validated PAdES B-B signature as an undoable
   document revision. This is separate from the drawn ink-signature tool.
@@ -149,6 +256,8 @@ are byte prefixes of one buffer.
   rotate with live appearance previews, plus a slicing circle eraser,
   copy/cut/paste, z-order, restyling, and a context menu with
   host-extensible entries (right-click, or long-press on touch).
+- Lock/unlock annotations with Acrobat/Bluebeam-compatible PDF flags and
+  assign custom keyboard shortcuts to every editing tool.
 - Forms: fill text/checkbox/radio/choice fields in place, set button
   images, and administer fields (add, rename, retype, delete, flatten).
   Fields are highlighted with a translucent wash by default
@@ -168,6 +277,46 @@ are byte prefixes of one buffer.
   remote apply is a non-crossable undo checkpoint; later local edits remain
   undoable without removing the remote state.
 
+## Splitting and exporting pages
+
+Provide `onSplitPages` to enable **Split PDF…** in the thumbnail sidebar/grid's
+page-actions menu. Enter `1-3, 7, 10-12` to create three separate PDFs; the host
+receives the complete batch in range order. `onExportPages` enables the existing
+single-range export and exporting a thumbnail selection into one PDF.
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  onSplitPages: (documents) {
+    for (final output in documents) {
+      // Save/share output, upload it, or open it in another editor tab.
+    }
+  },
+  onExportPages: (output) {
+    // Handle a single extracted PDF.
+  },
+)
+```
+
+For custom chrome, use `showPdfSplitDialog`, then
+`controller.exportPageRanges(ranges)`. The controller also provides
+`exportPages(indices)`, `exportPageRange(start, end)`, and `exportSelectedPages()`.
+Programmatic ranges are zero-based and inclusive; dialog page numbers start at
+1. Exports leave the source, selection, and undo history unchanged.
+
+The [example app](example/lib/main.dart) opens each split result in its own
+editable tab and opens single-file exports in a new tab too. Use the normal Save
+action on a result tab to save, download, or share that PDF.
+
+Extraction deep-copies page annotations and reachable resources, remaps links
+between retained pages in each output, and retains the document information
+dictionary. It omits document-level outlines/bookmarks, the AcroForm field list,
+and named destinations; copied widgets are not registered in an output AcroForm.
+Resources can remain shared within one output; separate outputs own their copies.
+Encrypted sources produce **unencrypted outputs**. See the
+[core splitting API](../pdf_document/README.md#splitting-and-extracting-pages)
+for the bytes-only `PdfSplitter` facade and full extraction semantics.
+
 ## Composing your own UI
 
 `PdfEditorView` and `PdfReader` are assembled from public parts:
@@ -181,23 +330,21 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 // Just the viewer
 PdfViewer(document: PdfDocument.open(bytes));
 
-// Your own editor layout
+// Your own editor layout. The controller owns the document revisions, and
+// the viewer reads the current one from it and follows its edits itself -
+// no need to pass `document` or rebuild the viewer as revisions land.
 final editing = PdfEditingController(bytes);
 final viewer = PdfViewerController();
 
-ListenableBuilder(
-  listenable: editing,
-  builder: (context, _) => Column(children: [
-    Expanded(
-      child: PdfViewer(
-        document: editing.document, // rebuild with each revision
-        controller: viewer,
-        editing: editing,
-      ),
+Column(children: [
+  Expanded(
+    child: PdfViewer(
+      controller: viewer,
+      editing: editing,
     ),
-    PdfEditingToolbar(controller: editing, viewerController: viewer),
-  ]),
-);
+  ),
+  PdfEditingToolbar(controller: editing, viewerController: viewer),
+]);
 
 // Saving
 final Uint8List saved = editing.bytes;
@@ -301,10 +448,14 @@ same, but text selection, search, copy, and extraction work. Pass
 
 ## Web rendering
 
-On the web, `PdfReader`/`PdfEditorView` use a bundled **Web Worker** package
-asset by default, so page interpretation and image decode can run off the
-browser main thread without app setup. If the worker cannot be loaded, rendering
-degrades to the main thread.
+On the web, `PdfReader`/`PdfEditorView` can run page interpretation and image
+decode off the browser main thread in a **Web Worker**. The worker script ships
+in the optional [`dart_pdf_editor_assets`](../dart_pdf_editor_assets) package;
+depend on it and call `registerBundledEditorAssets()` once at startup to enable
+off-main-thread rendering with no further setup (see
+[Optional bundled assets](#optional-bundled-assets)). Without it, web rendering
+runs on the main thread. If the worker URL is set but the script cannot be
+loaded, rendering degrades to the main thread too.
 
 Apps that want to self-host the worker under their own URL can build a custom
 bundle from the app root and override the URL before opening a viewer:
@@ -332,3 +483,32 @@ CCITT/JBIG2/JPEG 2000 images, and lenient parsing of broken real-world
 files, with conformance pinned against the Ghent Output Suite and the
 PDF.js test corpus. Checked-in PDF.js visual comparisons are available at
 [`../../test_corpora/pdfjs/_renders/README.md`](../../test_corpora/pdfjs/_renders/README.md).
+
+### Vector snapshot interchange
+
+The Snapshot tool shares detached vectors between editing controllers by
+default through `PdfSnapshotClipboard.instance`. A captured `PdfSnapshot`
+provides `pngBytes` for image consumers and `pdfBytes` for PDF clipboard
+consumers. `PdfVectorSnapshot.toPdfBytes()` exports one page sized to the
+capture; `fromPdfBytes()` imports the first page of an interchange PDF.
+
+Desktop hosts can provide `PdfViewer.systemPdfPasteProvider` (also available
+on `PdfEditorView`) to read a PDF for keyboard or context-menu Paste:
+
+```dart
+systemPdfPasteProvider: (context) async {
+  final data = await myClipboard.readPdf();
+  return data == null ? null : PdfClipboardPdf(
+    data.bytes,
+    changeToken: data.clipboardRevision,
+  );
+},
+```
+
+Return null for snapshots written by your own process so local paste retains
+its shared resources and position cascade. The optional `changeToken` should
+change whenever the OS clipboard is replaced: once an external revision is
+pasted, subsequent local annotation copies take precedence until it changes.
+The app includes native PDF/PNG transport on macOS, Windows, and Linux;
+mobile and web use the PNG fallback. Direct imports can use
+`editing.pasteSnapshotBytes(pdfBytes, pageIndex, at: (x, y))`.

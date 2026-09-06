@@ -1,0 +1,5 @@
+Novità nella versione 3.2.0
+
+• Visualizzazione più rapida e stabile con cache delle pagine adattata alla memoria e meno rendering duplicati.
+• Migliore compatibilità con FreeText e richiami, oltre a una selezione più precisa delle annotazioni su più righe.
+• Risolte pause di caricamento, ritardi nel ripristino delle sessioni remote e zoom Ctrl/Cmd+rotella dopo il disegno vincolato.

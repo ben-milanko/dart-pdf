@@ -1,0 +1,6 @@
+Nowości w wersji 3.6.0
+
+- Panele adnotacji są łatwiejsze w nawigacji, zachowują widoczny wybór i krycie pól tekstowych.
+- Pola tekstowe Bluebeam zachowują wyrównanie, odstępy i położenie kursora.
+- Karty dokumentów można teraz przeciągać między wieloma oknami.
+- Tekst zastępczy ma naturalniejsze odstępy; naprawiono też nieaktualne strony i działania folderów chmurowych.

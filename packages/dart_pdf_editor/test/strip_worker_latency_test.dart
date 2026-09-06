@@ -42,7 +42,6 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/strips.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/raster.dart' as raster show decodeStripPlanMicros;
 
 import 'render_smoke_test.dart' show loadSystemFonts;
@@ -50,7 +49,7 @@ import 'render_smoke_test.dart' show loadSystemFonts;
 const zoomSequence = [1.0, 1.5, 2.4, 1.2, 3.0];
 const targetWidth = 2382.0;
 const targetHeight = 1684.0;
-const _maxPixels = 1 << 24;
+const _maxPixels = PdfPageRasterGeometry.maxPixels;
 const _maxDimension = 8192.0;
 
 const _defaultFiles = [
@@ -96,8 +95,7 @@ class _PathSample {
   double get meanRaster => _mean(rasterMs);
   double get meanReadback => _mean(readbackMs);
   double get meanUiBlock => _mean(uiBlockMs);
-  double get meanTotal =>
-      meanPlanWait + meanBuild + meanRaster + meanReadback;
+  double get meanTotal => meanPlanWait + meanBuild + meanRaster + meanReadback;
 }
 
 Future<(ui.Image, double, double)> _timeRaster(
@@ -124,8 +122,7 @@ void main() {
       ? _defaultFiles
       : filesEnv.split(',').map((s) => s.trim()).toList();
 
-  testWidgets('strip settle latency: local bin vs worker plan',
-      (tester) async {
+  testWidgets('strip settle latency: local bin vs worker plan', (tester) async {
     final dir = Directory(corpusDir);
     if (!dir.existsSync()) {
       markTestSkipped('corpus directory not found at $corpusDir '
@@ -172,8 +169,8 @@ void main() {
         final scene =
             await PdfRetainedScene.fromCommands(page, commands, plan: plan);
         final label = '${name.split('/').last}#$pageIndex';
-        final overCeiling = scene.commands.length >
-            PdfPageView.retainedZoomReplayMaxCommands;
+        final overCeiling =
+            scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands;
         // ignore: avoid_print
         print('strip-worker-latency: $label commands=${scene.commands.length}'
             ' stripRouted=$overCeiling'
@@ -191,8 +188,7 @@ void main() {
               final image = await scene.rasterize(pixelRatio: ratio);
               final total = sw.elapsedMicroseconds / 1000.0;
               await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-              final readback =
-                  sw.elapsedMicroseconds / 1000.0 - total;
+              final readback = sw.elapsedMicroseconds / 1000.0 - total;
               image.dispose();
               if (pass > 0) {
                 s.add(
@@ -261,8 +257,7 @@ void main() {
                 deviceHeight: geometry.height,
                 pixelRatio: ratio);
             final planWait = t.elapsedMicroseconds / 1000.0;
-            expect(stripPlan, isNotNull,
-                reason: '$label must bin off-thread');
+            expect(stripPlan, isNotNull, reason: '$label must bin off-thread');
             t = Stopwatch()..start();
             final plannedPicture = await scene.replayStrips(
                 pixelRatio: ratio, stripPlan: stripPlan);

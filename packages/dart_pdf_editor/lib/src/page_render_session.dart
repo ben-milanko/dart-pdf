@@ -98,8 +98,9 @@ class PdfPageRenderSession {
             old.pageColor != next.pageColor ||
             old.showAnnotations != next.showAnnotations;
     final visualChanged = contentChanged || nonContentVisualChanged;
-    final viewportChanged = old.scale != next.scale ||
-        old.settleGeneration != next.settleGeneration;
+    final scaleChanged = old.scale != next.scale;
+    final viewportChanged =
+        scaleChanged || old.settleGeneration != next.settleGeneration;
     final pageSlotChanged = old.pageIndex != next.pageIndex;
     final schedule = blanked || visualChanged || viewportChanged;
 
@@ -108,8 +109,23 @@ class PdfPageRenderSession {
     // already-current page state. It does invalidate in-flight results so a
     // worker response cannot be accepted into the recycled slot.
     if (schedule || pageSlotChanged) {
-      invalidateFull();
+      // The DETAIL patch tracks the viewport, so every settle supersedes it.
       invalidateDetail();
+      // The full-page raster does not. It depends on content, display settings
+      // and resolution - none of which a settle at unchanged scale touches - so
+      // invalidating it here threw away completed, correct pixels: a raster
+      // that finished a few milliseconds after a settle bump was disposed
+      // unpainted and the page rasterized again from scratch. That is the
+      // duplicate the 2026-07-29 trace shows as `base-full page=0 ratio=1.4
+      // 1715x1213` at n=59, n=61 and n=63 inside one second, ~8MB and a full
+      // GPU readback apiece, with only the last one surviving to paint.
+      //
+      // A settle still SCHEDULES a render (scheduleRender below) - the detail
+      // patch needs one, and _renderNow re-rasters if the resolution really did
+      // move. It just no longer cancels work that was about to land.
+      if (blanked || visualChanged || scaleChanged || pageSlotChanged) {
+        invalidateFull();
+      }
     }
     if (!schedule) return PdfPageRenderTransition.none;
 
@@ -126,6 +142,14 @@ class PdfPageRenderSession {
 
   int beginFull() => ++_fullGeneration;
   void invalidateFull() => _fullGeneration++;
+
+  /// The current full-render generation *without* claiming it.
+  ///
+  /// A speculative async lookup (the persistent raster tier's disk read) needs
+  /// a token to prove nothing superseded it while it waited, but must not
+  /// invalidate the in-flight render it may well lose the race to. Pair with
+  /// [acceptsFull].
+  int get fullGeneration => _fullGeneration;
 
   int beginDetail() => ++_detailGeneration;
   void invalidateDetail() => _detailGeneration++;
@@ -149,27 +173,44 @@ class PdfPageRenderSession {
     return true;
   }
 
+  /// Whether a scroll is currently holding renders back.
+  ///
+  /// [motion] is the pass's [PdfRenderMotionClass]; work the current motion
+  /// permits is not paused by it.
   bool paused({
     required PdfPageRenderScheduler? scheduler,
     required ValueListenable<bool>? hold,
-  }) =>
-      scheduler?.holding ?? (hold?.value ?? false);
+    PdfRenderMotionClass motion = PdfRenderMotionClass.held,
+  }) {
+    if (scheduler != null) return !scheduler.motionPermits(motion);
+    // The bare hold cannot tell a live gesture from the quiet window that
+    // follows it, so only work that is free under any motion passes.
+    return motion != PdfRenderMotionClass.free && (hold?.value ?? false);
+  }
 
   /// Routes a render through the shared scheduler, or through the standalone
   /// widget's hold fallback when no scheduler adapter is supplied.
+  ///
+  /// [motion] forwards the caller's verdict on when this pass may run relative
+  /// to the viewer's motion - see [PdfRenderMotionClass]. The bare hold
+  /// fallback (no scheduler) honours the `free` class too, so a viewer built
+  /// on the plain [ValueListenable] hold still renders those through a hold.
   Future<void> request({
     required Object owner,
     required bool hasPicture,
     required PdfPageRenderScheduler? scheduler,
     required ValueListenable<bool>? hold,
     required Future<void> Function() render,
+    PdfRenderMotionClass motion = PdfRenderMotionClass.held,
   }) async {
     if (_disposed) return;
     if (scheduler != null) {
-      scheduler.request(owner, _intent.pageIndex, render);
+      scheduler.request(owner, _intent.pageIndex, render, motion: motion);
       return;
     }
-    if (!hasPicture && (hold?.value ?? false)) {
+    if (!hasPicture &&
+        motion != PdfRenderMotionClass.free &&
+        (hold?.value ?? false)) {
       _holdPending = true;
       return;
     }

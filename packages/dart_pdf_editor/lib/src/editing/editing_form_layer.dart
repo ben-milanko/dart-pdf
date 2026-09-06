@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import '../annotation_tap.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
+import 'editing_text_menu.dart';
 import 'text_prompt.dart';
 
 TextDirection _flutterTextDirection(String text) =>
@@ -97,7 +99,8 @@ class FormFieldLabelLayer extends StatelessWidget {
 /// coexists with plain reading and annotation selection but yields the
 /// whole page to the drawing/authoring tools. Tap targets cover only the
 /// field rects, leaving the rest of the page transparent so scrolling,
-/// link taps, and text selection are untouched.
+/// link taps, and text selection are untouched. A signed signature field is
+/// a selection target too, exposing its confirmed remove action.
 class FormInteractionLayer extends StatefulWidget {
   const FormInteractionLayer({
     super.key,
@@ -158,7 +161,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _afterRect;
   PdfStandardFont _afterFont = PdfStandardFont.helvetica;
   double _afterSize = 12;
-  PdfDocument? _afterDocument;
+  int? _afterRevisionId;
 
   @override
   void dispose() {
@@ -228,15 +231,15 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final font = _editFont;
     final size = _editSize;
     _closeEditor();
-    final before = _controller.document;
+    final before = _controller.revisionId;
     _controller.setFormFieldText(name, value);
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     setState(() {
       _afterValue = value;
       _afterRect = rect;
       _afterFont = font;
       _afterSize = size;
-      _afterDocument = _controller.document;
+      _afterRevisionId = _controller.revisionId;
     });
   }
 
@@ -261,6 +264,17 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   Future<void> _onFieldTap(
       PdfFormField field, int widgetIndex, Rect viewRect) async {
+    if (field.type == PdfFieldType.signature) {
+      if (_isSigned(field)) {
+        final pageRect = widget.geometry.toPageRect(viewRect);
+        _controller.selectFormWidgetAt(
+          widget.pageIndex,
+          (pageRect.left + pageRect.right) / 2,
+          (pageRect.bottom + pageRect.top) / 2,
+        );
+      }
+      return;
+    }
     if (field.isReadOnly) return;
     switch (field.type) {
       case PdfFieldType.text:
@@ -317,6 +331,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   }
 
   MouseCursor _cursorFor(PdfFormField field) {
+    if (field.type == PdfFieldType.signature && _isSigned(field)) {
+      return SystemMouseCursors.click;
+    }
     if (field.isReadOnly) return SystemMouseCursors.basic;
     return switch (field.type) {
       PdfFieldType.text => SystemMouseCursors.text,
@@ -328,6 +345,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   }
 
   bool _interactive(PdfFormField field) {
+    if (field.type == PdfFieldType.signature) return _isSigned(field);
     if (field.isReadOnly) return false;
     return switch (field.type) {
       PdfFieldType.text ||
@@ -342,16 +360,18 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     };
   }
 
+  bool _isSigned(PdfFormField field) =>
+      _controller.signatureByFieldName.containsKey(field.name);
+
   @override
   Widget build(BuildContext context) {
     // the afterimage has served once the committed revision's raster is
     // on screen, or is stale once the document moved past it
-    if (_afterDocument != null &&
-        (widget.rasterCurrent ||
-            !identical(_afterDocument, _controller.document))) {
+    if (_afterRevisionId != null &&
+        (widget.rasterCurrent || _afterRevisionId != _controller.revisionId)) {
       _afterValue = null;
       _afterRect = null;
-      _afterDocument = null;
+      _afterRevisionId = null;
     }
 
     final geometry = widget.geometry;
@@ -388,6 +408,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       child: MouseRegion(
         cursor: _cursorFor(field),
         child: GestureDetector(
+          key: ValueKey(
+            'pdf-form-field-${widget.pageIndex}-${field.name}-$widgetIndex',
+          ),
           behavior: HitTestBehavior.opaque,
           onTapUp: (details) {
             final pageViewPosition = rect.topLeft + details.localPosition;
@@ -426,42 +449,67 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           bindings: {
             const SingleActivator(LogicalKeyboardKey.escape): _cancelText,
           },
-          child: TextField(
-            key: const ValueKey('pdf-form-text-editor'),
-            controller: _text,
-            focusNode: _focus,
-            autofocus: true,
-            // single-line fields commit on Enter, not a newline
-            maxLines: _editMultiline ? null : 1,
-            expands: _editMultiline,
-            onSubmitted: (_) => _commitText(),
-            // tapping off the field commits it - the viewer suppresses its
-            // own focus steal while editing, so the field keeps focus
-            // until this fires
-            onTapOutside: (_) => _commitText(),
-            textDirection: _flutterTextDirection(_text.text),
-            textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
-                ? TextAlign.right
-                : TextAlign.left,
-            textAlignVertical: _editMultiline
-                ? TextAlignVertical.top
-                : TextAlignVertical.center,
-            cursorColor: const Color(0xFF000000),
-            cursorWidth: 2 * chromeScale,
-            style: TextStyle(
-              color: const Color(0xFF000000),
-              fontSize: _editSize * scale,
-              height: 1.2,
-              fontFamily: _uiFamily(_editFont),
-              fontWeight:
-                  _editFont.isBold ? FontWeight.bold : FontWeight.normal,
-              fontStyle:
-                  _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
-            ),
-            decoration: InputDecoration(
-              isCollapsed: true,
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.all(2 * scale),
+          // the same zoom-space caret treatment the free-text editor gets:
+          // Apple's device-pixel nudge cancelled, and the caret gutter
+          // handed back below so right-aligned (RTL) values stay put
+          child: pdfZoomAwareCaret(
+            context,
+            chromeScale: chromeScale,
+            child: TextField(
+              key: const ValueKey('pdf-form-text-editor'),
+              controller: _text,
+              focusNode: _focus,
+              autofocus: true,
+              // single-line fields commit on Enter, not a newline
+              maxLines: _editMultiline ? null : 1,
+              expands: _editMultiline,
+              onSubmitted: (_) => _commitText(),
+              // tapping off the field commits it - the viewer suppresses its
+              // own focus steal while editing, so the field keeps focus
+              // until this fires
+              onTapOutside: (_) => _commitText(),
+              // the zoom transform would otherwise scale AND displace the
+              // long-press selection menu off-screen
+              contextMenuBuilder: (context, editableTextState) =>
+                  pdfPlacedTextSelectionMenu(
+                editableTextState,
+                AdaptiveTextSelectionToolbar.editableText(
+                    editableTextState: editableTextState),
+              ),
+              textDirection: _flutterTextDirection(_text.text),
+              textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
+                  ? TextAlign.right
+                  : TextAlign.left,
+              textAlignVertical: _editMultiline
+                  ? TextAlignVertical.top
+                  : TextAlignVertical.center,
+              cursorColor: const Color(0xFF000000),
+              cursorWidth: 2 * chromeScale,
+              cursorHeight: pdfZoomAwareCursorHeight(
+                context,
+                lineHeight: _editSize * scale * 1.2,
+                chromeScale: chromeScale,
+              ),
+              style: TextStyle(
+                color: const Color(0xFF000000),
+                fontSize: _editSize * scale,
+                height: 1.2,
+                fontFamily: _uiFamily(_editFont),
+                fontWeight:
+                    _editFont.isBold ? FontWeight.bold : FontWeight.normal,
+                fontStyle:
+                    _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
+              ),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.fromLTRB(
+                  2 * scale,
+                  2 * scale,
+                  math.max(0.0, 2 * scale - pdfCaretGutter(chromeScale)),
+                  2 * scale,
+                ),
+              ),
             ),
           ),
         ),

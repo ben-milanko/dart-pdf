@@ -1,0 +1,7 @@
+Neu in 4.2.0
+
+- Nahe Seiten bleiben beim langsamen Blättern scharf, dank freier Grafikleistung.
+- Anmerkungen exakt platzieren mit neuen Ausrichtungslinien und Seitenlinealen.
+- Mit Strg oder Cmd und dem Mausrad um den Zeiger herum zoomen.
+- Anmerkungen auf gedrehten Seiten bearbeiten und mehrzeilige Hervorhebungen auswählen korrigiert.
+- Zwischen Textzeilen schwenken, statt eine Auswahl zu beginnen.

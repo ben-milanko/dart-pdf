@@ -54,12 +54,16 @@ Uint8List _ownerEntry(String owner, String user, int revision, int n) {
 }
 
 /// Algorithm 2: the file key from the user password.
-Uint8List _fileKey(String user, Uint8List o, int revision, int n) {
+Uint8List _fileKey(String user, Uint8List o, int revision, int n,
+    {bool encryptMetadata = true}) {
   final input = [
     ..._padded(user),
     ...o,
     _p & 0xFF, (_p >> 8) & 0xFF, (_p >> 16) & 0xFF, (_p >> 24) & 0xFF,
     ..._fileId,
+    // Algorithm 2 step (f): revision 4+ folds in 0xFFFFFFFF when metadata
+    // is left unencrypted.
+    if (revision >= 4 && !encryptMetadata) ...[0xFF, 0xFF, 0xFF, 0xFF],
   ];
   var hash = md5.convert(input).bytes;
   if (revision >= 3) {
@@ -134,10 +138,15 @@ Uint8List _hash2B(List<int> password, List<int> salt, List<int> extra) {
 /// - 3 - RC4 128-bit (V2)
 /// - 4 - AES-128 via the /AESV2 crypt filter (V4)
 /// - 6 - AES-256 via /AESV3 (V5, ISO 32000-2)
+///
+/// [encryptMetadata] false emits `/EncryptMetadata false` and folds the
+/// Algorithm 2 step (f) `0xFFFFFFFF` into the key; only honoured for
+/// revision 4 (the classic key derivation that considers the flag).
 Uint8List buildEncryptedPdf({
   int revision = 3,
   String userPassword = '',
   String ownerPassword = 'owner',
+  bool encryptMetadata = true,
 }) {
   const title = 'Secret Title';
   const content = 'BT /F1 24 Tf 72 720 Td (Hello, world!) Tj ET';
@@ -177,13 +186,15 @@ Uint8List buildEncryptedPdf({
   } else {
     final n = revision == 2 ? 5 : 16;
     final o = _ownerEntry(ownerPassword, userPassword, revision, n);
-    fileKey = _fileKey(userPassword, o, revision, n);
+    fileKey =
+        _fileKey(userPassword, o, revision, n, encryptMetadata: encryptMetadata);
     final u = _userEntry(fileKey, revision);
     final common = '/Filter /Standard /P $_p /O ${_hex(o)} /U ${_hex(u)}';
+    final metadataEntry = encryptMetadata ? '' : ' /EncryptMetadata false';
     encryptDict = switch (revision) {
       2 => '<< $common /V 1 /R 2 >>',
       3 => '<< $common /V 2 /R 3 /Length 128 >>',
-      _ => '<< $common /V 4 /R 4 /Length 128 '
+      _ => '<< $common /V 4 /R 4 /Length 128$metadataEntry '
           '/CF << /StdCF << /CFM /AESV2 /Length 16 >> >> '
           '/StmF /StdCF /StrF /StdCF >>',
     };

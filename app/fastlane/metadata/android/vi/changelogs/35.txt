@@ -1,0 +1,7 @@
+Có gì mới trong 4.2.0
+
+- Các trang lân cận vẫn sắc nét khi cuộn chậm, nhờ tận dụng năng lực đồ họa còn trống.
+- Đặt chú thích chính xác với đường gióng căn chỉnh và thước trang mới.
+- Thu phóng quanh con trỏ bằng Ctrl hoặc Cmd và bánh xe chuột.
+- Sửa lỗi chỉnh sửa chú thích trên trang đã xoay và chọn phần tô sáng nhiều dòng.
+- Kéo xem giữa các dòng văn bản thay vì bắt đầu vùng chọn.

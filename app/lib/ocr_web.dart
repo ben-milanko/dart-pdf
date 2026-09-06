@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'l10n/app_l10n.dart';
 import 'ocr_status.dart';
 import 'ocr_tiling.dart';
 
@@ -52,16 +53,17 @@ class OnDeviceOcr {
     required void Function(String message) onToast,
     required void Function(Uint8List result) onComplete,
   }) async {
+    final l10n = appL10n(context);
     if (isBusy) {
-      onToast('OCR is already running - wait for it to finish or cancel it');
+      onToast(l10n.ocrAlreadyRunning);
       return;
     }
     if (!_hasBridge) {
-      onToast('Browser OCR failed to initialise');
+      onToast(l10n.ocrBrowserInitFailed);
       return;
     }
 
-    final approved = await showDialog<bool>(
+    final approved = await showPdfDialog<bool>(
       context: context,
       builder: (_) => const _WebOcrConfirmDialog(),
     );
@@ -73,7 +75,7 @@ class OnDeviceOcr {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
       await engine.warmUp();
       if (_cancelled) {
-        onToast('OCR cancelled');
+        onToast(l10n.ocrCancelled);
         return;
       }
 
@@ -92,17 +94,15 @@ class OnDeviceOcr {
         await Future<void>.delayed(Duration.zero);
       }
       if (_cancelled) {
-        onToast('OCR cancelled after $spans text spans');
+        onToast(l10n.ocrCancelledAfterSpans(spans));
         return;
       }
       status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
       final result = editor.save();
-      onToast(spans == 0
-          ? 'OCR found no text on these pages'
-          : 'OCR added $spans text spans - the page text is now selectable');
+      onToast(l10n.ocrResult(spans));
       onComplete(result);
     } catch (e) {
-      onToast('OCR failed: $e');
+      onToast(l10n.ocrFailed(e.toString()));
     } finally {
       status.value = null;
     }
@@ -201,24 +201,20 @@ class _WebOcrConfirmDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       key: const ValueKey('ocr-web-settings'),
-      title: const Text('Run AI OCR in this browser?'),
+      title: Text(appL10n(context).ocrWebPromptTitle),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
-        child: Text(
-          'Web OCR downloads a Florence-2 vision-language model and runs it '
-          'locally with WebGPU/WASM through Transformers.js. The PDF pages stay '
-          'in this browser; only model files are fetched on first use.',
-        ),
+        child: Text(appL10n(context).ocrWebPromptBody),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(appL10n(context).cancel),
         ),
         FilledButton(
           key: const ValueKey('ocr-web-start'),
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Start OCR'),
+          child: Text(appL10n(context).ocrWebStart),
         ),
       ],
     );

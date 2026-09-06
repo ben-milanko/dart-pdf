@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/editing_color_pick.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -117,7 +118,7 @@ void main() {
 
     test('ink pressures are buffered and committed with the annotation', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..strokeWidth = 4
+        ..preferences.strokeWidth = 4
         ..addInkStroke(0, [(100, 100), (150, 130), (200, 100)],
             pressures: [0.0, 0.5, 1.0])
         ..addInkStroke(0, [(120, 90), (140, 95)]);
@@ -151,6 +152,28 @@ void main() {
       expect(editing.isPickingColor, isFalse);
       // the sample is adopted opaque - annotation alpha is [opacity]'s job
       expect(editing.color, const Color(0xFF00A040));
+    });
+
+    test('pickColorFromPage hands the sample back instead of adopting it', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      final before = editing.color;
+
+      final pick = editing.pickColorFromPage();
+      expect(editing.isPickingColor, isTrue);
+      editing.finishColorPick(const Color(0x8000A040));
+      expect(editing.isPickingColor, isFalse);
+      expect(editing.color, before,
+          reason: 'a dialog asked for the colour; the tool keeps its own');
+      expect(pick, completion(const Color(0xFF00A040)));
+    });
+
+    test('a cancelled pickColorFromPage resolves null', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      final pick = editing.pickColorFromPage();
+      editing.cancelColorPick();
+      expect(pick, completion(isNull));
     });
 
     test('discardInk throws the buffer away without a revision', () {
@@ -278,7 +301,7 @@ void main() {
 
     test('opacity is baked into new annotation appearances', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..opacity = 0.5
+        ..preferences.opacity = 0.5
         ..addRectangle(0, const PdfRect(100, 100, 200, 150));
       final written = String.fromCharCodes(editing.bytes);
       expect(written, contains('/ExtGState'));
@@ -447,6 +470,63 @@ void main() {
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
     });
 
+    test('deleteElementsInRect removes bounded content in a region', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(70, 715, 160, 750)), 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+
+      editing.undo();
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(78, 725, 85, 740)), 1);
+      expect(editing.elementsOn(0).elements.single.text, 'age 1',
+          reason: 'a partial hit snaps to the nearest character');
+
+      editing.undo();
+      expect(editing.deleteElementsInRect(0, const PdfRect(300, 300, 360, 360)),
+          0);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+    });
+
+    test('content regions leave annotations and missed revisions alone', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addNote(0, 80, 725, 'keep me');
+      final before = editing.revisionId;
+      expect(editing.deleteElementsInRect(0, const PdfRect(0, 0, 20, 20)), 0);
+      expect(
+          editing.deleteElementsInPolygon(
+              0, const [(0, 0), (20, 0), (20, 20), (0, 20)]),
+          0);
+      expect(editing.revisionId, before);
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(60, 700, 180, 760)), 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+      expect(editing.document.page(0).annotations.single.contents, 'keep me');
+      editing.undo();
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+      expect(editing.document.page(0).annotations.single.contents, 'keep me');
+    });
+
+    test('replaceSelectedElementText leaves identical runs elsewhere alone',
+        () {
+      // the same words drawn twice, as a header and a footer would be
+      final editing = PdfEditingController(buildTextLinesPdf(const [
+        'Date: 05/08/2026',
+        'Revision: B',
+        'Date: 05/08/2026',
+      ]));
+      editing.selectElementAt(0, 60, 674); // the second "Date:" line
+      final selected = editing.selectedElement;
+      expect(selected?.text, 'Date: 05/08/2026');
+
+      expect(editing.replaceSelectedElementText('Date: 26/05/2026'), 1);
+      expect(
+        [for (final e in editing.elementsOn(0).elements) e.text],
+        const ['Date: 05/08/2026', 'Revision: B', 'Date: 26/05/2026'],
+      );
+    });
+
     test('arming a non-content tool clears the element selection', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..tool = PdfEditTool.content;
@@ -496,6 +576,41 @@ void main() {
       expect(editing.document.pageCount, 1,
           reason: 'the last page cannot be removed');
       expect(editing.document.page(0).annotations.single.subtype, 'Square');
+    });
+
+    test('documentAnnotationColors collects annotation stroke/fill colours',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      expect(editing.documentAnnotationColors(), isEmpty);
+
+      editing
+        ..color = const Color(0xFF1E88E5)
+        ..addInkStroke(0, [(100, 100), (150, 130)])
+        ..finishInk();
+      editing
+        ..color = const Color(0xFFE53935)
+        ..addInkStroke(1, [(100, 100), (150, 130)])
+        ..finishInk();
+      // a second blue stroke makes blue the most-frequent colour
+      editing
+        ..color = const Color(0xFF1E88E5)
+        ..addInkStroke(0, [(120, 90), (140, 95)])
+        ..finishInk();
+
+      final colors = editing.documentAnnotationColors();
+      expect(colors, [const Color(0xFF1E88E5), const Color(0xFFE53935)],
+          reason: 'most-frequent first, deduplicated by RGB');
+    });
+
+    test('documentAnnotationColors respects the limit', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      for (var i = 0; i < 5; i++) {
+        editing
+          ..color = Color(0xFF000000 | (i * 0x102030))
+          ..addInkStroke(0, [(100.0 + i, 100), (150, 130)])
+          ..finishInk();
+      }
+      expect(editing.documentAnnotationColors(limit: 3), hasLength(3));
     });
   });
 
@@ -559,6 +674,30 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('a shape dragged past the page edge keeps its off-page bounds',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.rectangle;
+      await tester.pump();
+
+      // start on the page and drag out past its left edge: the annotation
+      // keeps the bounds that were drawn - the renderer's page clip is what
+      // trims it, not the authoring
+      await drag(tester, view(60, 700), view(-40, 640));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Square');
+      expect(annotation.rect.left, lessThan(0));
+      expect(annotation.rect.right, closeTo(60, 2));
+
+      // and it survives the save: nothing downstream normalizes /Rect back
+      // onto the page
+      final reopened = PdfDocument.open(editing.bytes);
+      expect(reopened.page(0).annotations.single.rect.left,
+          closeTo(annotation.rect.left, 1e-6));
+      await settle(tester);
+    });
+
     testWidgets('dragging with the cloud polygon tool adds a cloudy Polygon',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -574,6 +713,25 @@ void main() {
       expect(annotation.vertices!.first.$1, closeTo(100, 1));
       expect(annotation.vertices!.first.$2, closeTo(600, 1));
       expect(editing.document.page(1).annotations, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('cloud drag preview uses the configured pattern scale',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..tool = PdfEditTool.cloudPolygon
+        ..preferences.lineScale = 2.5;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(100, 700));
+      await gesture.moveTo(view(250, 600));
+      await tester.pump();
+
+      final dynamic painter = editingOverlayPainter(tester);
+      expect(painter.lineScale, 2.5,
+          reason: 'the rubber-band cloud must size its scallops like /BE /I');
+      await gesture.up();
       await settle(tester);
     });
 
@@ -758,7 +916,7 @@ void main() {
       final (editing, _) = await pumpEditor(tester);
       editing.tool = PdfEditTool.ink;
       await tester.pump();
-      expect(editing.fingerDrawsInk, isTrue);
+      expect(editing.preferences.fingerDrawsInk, isTrue);
 
       // TestGesture can't carry pressure, so dispatch the Apple Pencil
       // contact as raw events: pressure rising over the stroke
@@ -777,7 +935,7 @@ void main() {
       ));
       await tester.pump();
       // the first stylus contact turns palm rejection on
-      expect(editing.fingerDrawsInk, isFalse);
+      expect(editing.preferences.fingerDrawsInk, isFalse);
       binding.handlePointerEvent(PointerMoveEvent(
         pointer: pointer,
         kind: PointerDeviceKind.stylus,
@@ -868,6 +1026,92 @@ void main() {
       expect(editing.color, const Color(0xFF00A040));
       expect(find.text('#00A040'), findsNothing,
           reason: 'the chip leaves with the eyedropper');
+      await settle(tester);
+    });
+
+    testWidgets('the eyedropper samples a page other than the first',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester, pages: 3);
+      editing.apply((e) => e.addSquare(
+            1,
+            const PdfRect(200, 500, 400, 700),
+            strokeColor: null,
+            fillColor: 0x00A040,
+          ));
+      await tester.pump();
+      // don't await: the returned future completes only as frames pump
+      unawaited(viewer.jumpToPage(1));
+      await settle(tester);
+      expect(viewer.currentPage, 1);
+
+      editing.startColorPick();
+      await tester.pump();
+      await tester.tapAt(view(300, 600));
+      await settle(tester);
+      await tester.runAsync(() async {
+        for (var i = 0; i < 40 && editing.isPickingColor; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      });
+      await tester.pump();
+
+      expect(editing.isPickingColor, isFalse);
+      expect(editing.color, const Color(0xFF00A040),
+          reason: 'every page samples, not just the one the tool armed over');
+      await settle(tester);
+    });
+
+    testWidgets('a touch drag scrolls while the eyedropper is armed',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester, pages: 5);
+      editing.startColorPick();
+      await tester.pump();
+
+      final touch = await tester.startGesture(view(300, 600),
+          kind: PointerDeviceKind.touch);
+      for (var i = 0; i < 24; i++) {
+        await touch.moveBy(const Offset(0, -100));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await touch.up();
+      await settle(tester);
+
+      // the eyedropper has no drag of its own: the document must still
+      // scroll under it, or the tool can only ever reach the page it was
+      // armed over
+      expect(viewer.currentPage, greaterThan(0));
+      expect(editing.isPickingColor, isTrue,
+          reason: 'the lift that ends a scroll is not a sample');
+      await settle(tester);
+    });
+
+    testWidgets('the eyedropper chip keeps its size when the page is zoomed',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.startColorPick();
+      await tester.pump();
+
+      final chip = find.byKey(const ValueKey('pdf-eyedropper-chip'));
+      final mouse =
+          await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 9);
+      await mouse.addPointer(location: view(300, 600));
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(view(300, 601));
+      await tester.pump();
+      expect(chip, findsOne);
+      final unzoomed = tester.getRect(chip).size;
+
+      viewer.setZoom(4);
+      await settle(tester);
+      await mouse.moveTo(view(300, 602));
+      await tester.pump();
+      expect(chip, findsOne);
+      final zoomed = tester.getRect(chip).size;
+
+      // the chip lives inside the viewer's zoom transform; it counter-scales
+      // so the swatch stays readable instead of becoming a billboard
+      expect(zoomed.width, closeTo(unzoomed.width, 1));
+      expect(zoomed.height, closeTo(unzoomed.height, 1));
       await settle(tester);
     });
 
@@ -1002,6 +1246,21 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('escape clears an armed text-markup tool', (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      await tester.tapAt(view(400, 400));
+      await tester.pump();
+      editing.markupTool = PdfMarkupKind.squiggly;
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(editing.markupTool, isNull);
+      expect(editing.tool, isNull);
+      await settle(tester);
+    });
+
     testWidgets('escape commits fresh ink instead of discarding it',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -1063,12 +1322,12 @@ void main() {
       await tester.tap(find.byTooltip('Ellipse (O)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ellipse);
-      await tester.tap(find.byTooltip('Cloud polygon'));
+      await tester.tap(find.byTooltip('Cloud polygon (⇧D)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.cloudPolygon);
       // re-tapping the active tool drops back to Select (not a no-tool
       // limbo) so you can immediately select and move things
-      await tester.tap(find.byTooltip('Cloud polygon'));
+      await tester.tap(find.byTooltip('Cloud polygon (⇧D)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
 
@@ -1077,6 +1336,54 @@ void main() {
       await tester.tap(find.byTooltip('Undo (⌘Z)'));
       await tester.pump();
       expect(editing.document.page(0).annotations, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('the Edit group arms the content-delete tool', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final toolbarScrollables = find.descendant(
+          of: find.byType(PdfEditingToolbar),
+          matching: find.byType(Scrollable));
+      final dockScrollable = toolbarScrollables.last;
+      final stripScrollable = toolbarScrollables.first;
+      final editChip = find.byKey(const ValueKey('pdf-group-edit'));
+      await tester.scrollUntilVisible(editChip, 80, scrollable: dockScrollable);
+      await tester.tap(editChip);
+      await settle(tester);
+      final contentDeleteButton =
+          find.byTooltip('Delete content — drag a rectangle, or click polygon '
+              'vertices and double-click to finish (⇧E)');
+      await tester.scrollUntilVisible(contentDeleteButton, 80,
+          scrollable: stripScrollable);
+      await tester.tap(contentDeleteButton);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.contentDelete);
+      // re-tapping the active tool drops back to Select
+      await tester.tap(contentDeleteButton);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.select);
       await settle(tester);
     });
 
@@ -1114,27 +1421,27 @@ void main() {
       final highlightButton = tester.widget<IconButton>(
           find.widgetWithIcon(IconButton, Icons.border_color));
       expect(highlightButton.onPressed, isNotNull);
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(viewer.hasSelection, isFalse);
       expect(editing.color, const Color(0xFFFFD100));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
 
       await tester.tap(find.widgetWithIcon(IconButton, Icons.draw));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFFE53935));
-      expect(editing.strokeWidth, 2);
-      expect(editing.opacity, 1);
+      expect(editing.preferences.strokeWidth, 2);
+      expect(editing.preferences.opacity, 1);
 
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFFFFD100));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
 
       final gesture = await tester.startGesture(view(80, 720),
           kind: PointerDeviceKind.mouse);
@@ -1174,6 +1481,81 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.delete);
       await settle(tester);
       expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool drags a region to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      final from = view(60, 755);
+      final to = view(180, 705);
+      final gesture = await tester.startGesture(from);
+      await gesture.moveTo(Offset.lerp(from, to, 0.5)!);
+      await tester.pump();
+      final painter = editingOverlayPainter(tester);
+      expect(painter.tool, PdfEditTool.contentDelete);
+      expect(painter.dragRect, isNotNull);
+
+      await gesture.moveTo(to);
+      await gesture.up();
+      await settle(tester);
+      expect(editing.elementsOn(0).elements, isEmpty);
+      editing.undo();
+      await settle(tester);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+      editing.redo();
+      await settle(tester);
+      expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool lassos a polygon to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      // tap a quad around the page content, then double-tap to close it
+      await tester.tapAt(view(60, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 755));
+      await tester.pump(const Duration(milliseconds: 400));
+      // one vertex short of a closed region: nothing removed yet
+      expect(editing.elementsOn(0).elements, isNotEmpty);
+      final painter = editingOverlayPainter(tester);
+      expect(painter.tool, PdfEditTool.contentDelete);
+      expect(painter.dragPath, isNotNull);
+
+      await tester.tapAt(view(60, 755));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(60, 755));
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+      expect(editing.elementsOn(0).elements, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('changing tools discards an unfinished content lasso',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+      await tester.tapAt(view(60, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editingOverlayPainter(tester).dragPath, isNotNull);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+      expect(editingOverlayPainter(tester).dragPath, isNull);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+      expect(editingOverlayPainter(tester).dragPath, isNull);
+      expect(editing.isModified, isFalse);
+      await settle(tester);
     });
 
     testWidgets('the sidebar lists, selects, and deletes annotations',
@@ -1298,25 +1680,68 @@ void main() {
       // scope to the popup's sliders - the strip also has an inline opacity
       final menuSliders = find.descendant(
           of: find.byType(MenuAnchor), matching: find.byType(Slider));
-      // the shapes popup carries stroke width, opacity, and the pattern
-      // scale (font is irrelevant to a rectangle, so it's not shown)
-      expect(menuSliders, findsNWidgets(3));
+      // the shapes popup carries stroke width, corner radius, opacity, and
+      // the pattern scale (font is irrelevant to a rectangle, so it's not
+      // shown; corner radius is rectangle-only)
+      expect(menuSliders, findsNWidgets(4));
 
-      // sliders are laid out stroke width, opacity, pattern scale
+      // sliders are laid out stroke width, corner radius, opacity,
+      // pattern scale
       await tester.drag(menuSliders.at(0), const Offset(200, 0));
       await tester.pump();
-      expect(editing.strokeWidth, greaterThan(2));
+      expect(editing.preferences.strokeWidth, greaterThan(2));
 
-      await tester.drag(menuSliders.at(1), const Offset(-200, 0));
+      await tester.drag(menuSliders.at(1), const Offset(200, 0));
       await tester.pump();
-      expect(editing.opacity, lessThan(1));
+      expect(editing.preferences.cornerRadius, greaterThan(0));
+
+      await tester.drag(menuSliders.at(2), const Offset(-200, 0));
+      await tester.pump();
+      expect(editing.preferences.opacity, lessThan(1));
 
       // the pattern scale is independent of the pen width
-      final beforeStroke = editing.strokeWidth;
-      await tester.drag(menuSliders.at(2), const Offset(200, 0));
+      final beforeStroke = editing.preferences.strokeWidth;
+      await tester.drag(menuSliders.at(3), const Offset(200, 0));
       await tester.pump();
-      expect(editing.lineScale, greaterThan(1));
-      expect(editing.strokeWidth, beforeStroke);
+      expect(editing.preferences.lineScale, greaterThan(1));
+      expect(editing.preferences.strokeWidth, beforeStroke);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('the style menu rounds a selected rectangle in place',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing
+        ..addRectangle(0, const PdfRect(100, 100, 300, 200))
+        ..selectAnnotation(0, 0);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      // the selection strip carries the tune button for the selected shape
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      final radius = find.byKey(const ValueKey('pdf-corner-radius'));
+      expect(radius, findsOneWidget);
+      await tester.drag(
+          find.descendant(of: radius, matching: find.byType(Slider)),
+          const Offset(200, 0));
+      await tester.pump();
+
+      // dragging restyled the selection, not just the creation default
+      expect(editing.document.page(0).annotations.single.cornerRadius,
+          greaterThan(0));
+      expect(editing.selectedCornerRadius, greaterThan(0));
       await tester.pumpAndSettle();
     });
 
@@ -1544,6 +1969,184 @@ void main() {
       expect(calls.changed, isEmpty);
       await enterChannel(tester, 0, '12');
       expect(calls.changed.last, const Color(0xFF0C3935));
+    });
+
+    testWidgets('the palette grid shows and a swatch tap drives onChanged',
+        (tester) async {
+      Color? last;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PdfColorPicker(
+              color: const Color(0xFFE53935),
+              onChanged: (color) => last = color,
+            ),
+          ),
+        ),
+      ));
+
+      // the fixed palette always shows; recents/document grids do not
+      // unless supplied
+      expect(find.byKey(const ValueKey('pdf-color-grid-palette')), findsOne);
+      expect(find.byKey(const ValueKey('pdf-color-grid-recent')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-color-grid-document')), findsNothing);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-color-swatch-palette-1E88E5')));
+      expect(last, const Color(0xFF1E88E5));
+    });
+
+    testWidgets('recent and document grids show their swatches and select',
+        (tester) async {
+      Color? last;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PdfColorPicker(
+              color: const Color(0xFFE53935),
+              onChanged: (color) => last = color,
+              recentColors: const [Color(0xFF112233)],
+              documentColors: const [Color(0xFF445566), Color(0xFF778899)],
+            ),
+          ),
+        ),
+      ));
+
+      expect(find.byKey(const ValueKey('pdf-color-grid-recent')), findsOne);
+      expect(find.byKey(const ValueKey('pdf-color-grid-document')), findsOne);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-color-swatch-recent-112233')));
+      expect(last, const Color(0xFF112233));
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-color-swatch-document-778899')));
+      expect(last, const Color(0xFF778899));
+    });
+
+    testWidgets('the eyedropper button shows only when the host offers it',
+        (tester) async {
+      var picks = 0;
+      Widget picker({VoidCallback? onPickFromPage}) => MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: PdfColorPicker(
+                  color: const Color(0xFFE53935),
+                  onChanged: (_) {},
+                  onPickFromPage: onPickFromPage,
+                ),
+              ),
+            ),
+          );
+      const key = ValueKey('pdf-color-eyedropper');
+
+      await tester.pumpWidget(picker());
+      expect(find.byKey(key), findsNothing);
+
+      await tester.pumpWidget(picker(onPickFromPage: () => picks++));
+      expect(find.byKey(key), findsOne);
+      await tester.tap(find.byKey(key));
+      expect(picks, 1);
+    });
+
+    testWidgets('pick-from-page closes the dialog and reopens on the sample',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      Color? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await pickEditingColor(context, editing,
+                    initial: const Color(0xFFE53935));
+              },
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('go'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsOne);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-color-eyedropper')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsNothing,
+          reason: 'the dialog covers the page it would sample');
+      expect(editing.isPickingColor, isTrue);
+
+      editing.finishColorPick(const Color(0xFF1E88E5));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsOne,
+          reason: 'the picker comes back on the sampled colour');
+      expect(find.text('1E88E5'), findsOne);
+
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(result, const Color(0xFF1E88E5));
+      expect(editing.preferences.recentColors.first, const Color(0xFF1E88E5));
+    });
+
+    testWidgets('cancelling the page sample ends the whole choice',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      var done = false;
+      Color? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await pickEditingColor(context, editing,
+                    initial: const Color(0xFFE53935));
+                done = true;
+              },
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('go'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-color-eyedropper')));
+      await tester.pumpAndSettle();
+
+      editing.cancelColorPick();
+      await tester.pumpAndSettle();
+      expect(done, isTrue);
+      expect(result, isNull);
+      expect(find.byType(PdfColorPicker), findsNothing);
+    });
+
+    testWidgets('a grid deduplicates repeated colours by RGB', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PdfColorPicker(
+              color: const Color(0xFFE53935),
+              onChanged: (_) {},
+              swatches: const [],
+              recentColors: const [
+                Color(0xFF112233),
+                Color(0xFF112233),
+                Color(0xFFABCDEF),
+              ],
+            ),
+          ),
+        ),
+      ));
+
+      // the duplicate collapses to a single swatch under one key
+      expect(find.byKey(const ValueKey('pdf-color-swatch-recent-112233')),
+          findsOne);
+      expect(find.byKey(const ValueKey('pdf-color-swatch-recent-ABCDEF')),
+          findsOne);
     });
   });
 }

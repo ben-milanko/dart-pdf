@@ -1,0 +1,7 @@
+New in 2.1.0
+
+• Reflow reading view: read a document as flowing text, with lazy scrolling, a saved position and a figure viewer.
+• Faster opening and rendering, especially on large or image-heavy files, and lower memory use on very wide drawings.
+• Crisper hairlines, so fine linework stays legible when zoomed out.
+• Better colour on gradients and on indexed images.
+• Symbol and ZapfDingbats characters render instead of boxes.

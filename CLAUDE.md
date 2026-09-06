@@ -2,14 +2,51 @@
 
 Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 `packages/`). Flutter is managed with **fvm** (see `.fvmrc`); use
-`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.44.4/bin/`.
+`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.47.0/bin/`.
 
 ## Commands
 
 - `fvm flutter pub get` (at repo root - resolves every workspace package)
+- `fvm dart tool/format.dart <files...>` (format changed files; do not invoke
+  `dart format` directly because a fresh worktree has no package config yet)
 - `fvm dart analyze` (at root)
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`
+
+## Performance tooling
+
+`tool/perf.sh` is the front door (sweep/render/web/compare-pdfium/gate/dce/
+diff/report). The zero-overhead instrumentation core is `PdfPerf`
+(`package:pdf_cos/perf.dart`, NOT exported from pdf_cos.dart): enum-indexed
+phases/counters, off by default (one branch when compiled in;
+`--dart-define=PDF_PERF=false` tree-shakes it — CI-verified by
+`tool/check_perf_dce.sh`). `PdfPerfLog.enabled = true` lights up the whole
+stack. Never allocate a Stopwatch in lib/ code - use
+`PdfPerf.begin()/end()`. Results use the envelope schema
+(`tool/perf/SCHEMA.md`); scenarios in `tool/perf/scenarios.json`; perf
+budget targets in `tool/perf/targets.json`. Per-PR CI runs the
+deterministic counter gate (`tool/perf.sh gate`, baseline
+`tool/perf/baselines/counters.json` — re-baseline deliberately with
+`--update-baseline`) and `perf_gate_test.dart`/`render_trace_gate_test.dart`.
+Nightly trends + dashboard live on the orphan `perf-data` branch
+(perf-nightly.yml). A/B a change: `tool/perf.sh diff <ref> [scenario]`.
+NEVER edit sources or run builds while a sweep/loop is measuring. See
+doc/dev-log/2026-07-18-perf-tooling-suite.md.
+
+**For any change that could affect performance** (interpreter, render
+pipeline, font/text, image decode, worker offload, editing/annotation,
+search, memory), measure it — don't eyeball it. Use the real-Chrome
+harness: `tool/perf.sh web <scenario>` for a single run and
+`tool/perf.sh webdiff <ref> <scenario>` for a one-command A/B vs a git
+ref (per-metric median deltas, gated on a threshold). Scenarios (scroll/
+open/search/edit) live in `app/tool/perf/scenarios.json`; add one for the
+workload your change touches if none fits (harness method + JSON entry —
+no driver change, see `app/tool/perf/README.md`). VM-layer changes still
+A/B through `tool/perf.sh diff`; the web harness catches dart2js-only and
+render/memory effects the NullDevice VM sweep can't. Image-codec changes do
+have a VM window: a scenario can opt into the `decodeImages` measure
+(`"measures"` in scenarios.json), which times `decodePdfImagePixels` over
+every image the pages draw and reports `decodeMs`.
 
 ## Layering rules (strict)
 
@@ -46,11 +83,36 @@ visual galleries, PDF.js pixel compare), invoke the `corpus-tests` skill
 See README.md. The pipeline through the viewer is done: interpreter, font
 engine, Flutter rendering, text selection/search, annotation appearance
 rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
-encrypt-on-write re-encrypts changed objects on save - `_encryptedCopy`
-in updater.dart; signing encrypted files stays refused). Annotation authoring is in:
+encrypt-on-write re-encrypts changed objects on save -
+`StandardSecurityHandler.encryptObjectGraph` (the graph walk + exempt
+policy live on the handler, shared with the loader's `decryptObjectGraph`);
+signing encrypted files stays refused). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
-them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
+them into page content. A template stamp records its design - unresolved,
+so `{{date}}` stays live - as private metadata (`DartPdfStampTemplate` →
+`PdfAnnotation.stampTemplate`, skipped past
+`maxStampTemplateMetadataBytes`), which is how the editor's right-click
+"Save to stamps" (`customStampOf` / `saveSelectedAsCustomStamp`) puts a
+placed stamp back into the collection; see
+doc/dev-log/2026-08-06-save-stamp-from-page.md. Annotation geometry is
+**not confined to the crop box**: a point the user picked is authoritative,
+so placements, drags, resizes and paste-at-a-point commit off the page edge
+and the renderer's page clip trims them. The only tethered placement is the
+point-less paste cascade (`PdfEditingController._tetherShift` /
+`pageTether`, which keeps 24pt on the paper so repeats can't march copies
+out of sight); auto-sizing still caps a stamp/image/signature at 90% of the
+page, which is a size rule, not a boundary one. The off-page half is
+grabbable too: `PdfEditingReach` (`editing_reach.dart`, wrapped immediately
+outside the item's `FractionallySizedBox` - the outermost box that would
+refuse a margin position) routes those presses into the page at its nearest
+inside point, which is sound because hit testing only picks the target while
+`PointerEvent.localPosition` still comes from the true position. It claims
+only presses on the selection (`selectionGrabAt` + `_selectionGrabMargin`),
+never the whole margin - the canvas stays the touch-scroll gesture's, and
+`_touchPanEnabledAt` draws the same line. Starting a *new* annotation still
+has to happen on the page. See
+doc/dev-log/2026-08-20-annotations-past-the-page-edge.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
@@ -74,28 +136,81 @@ reports `padesLevel`, `timestamp`, and offline `embeddedRevocation` from the
 encrypted files is still refused. Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`; LTV CA/leaf/TSA + revocation
 fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`.
+One-tap self-signed identities are in: `EcPrivateKey.generate` + RFC 6979
+`ecdsaSign` + `buildSelfSignedCertificate` (pdf_cos - P-256 keygen and an
+X.509 v3 builder, KAT'd against RFC 6979 vectors) feed
+`PdfSigningIdentity.generate` (`signing_identity.dart`, with `toPem`/
+`fromPem` persistence) and `PdfEditor.saveSelfSigned` /
+`saveSignedEcdsa` / `saveSelfSignedPades` (ECDSA CMS via
+`cmsSignDetachedEcdsa`). A self-signed cert reads as "signed, validity
+unknown" outside our own `PdfTrustStore`; pair with a default TSA
+(`PdfDefaultTimestampAuthority`) B-T for trusted time. Org-CA mode is in:
+`buildCaCertificate` + `issueCertificate` (pdf_cos) feed
+`PdfSigningIdentity.generateCa` + `ca.issue(...)` - members chain to a
+shared CA and validate via `PdfTrustStore.trusting([caDer])`. Flutter key
+storage + the "Create signing identity" UI are in dart_pdf_editor
+(`PdfIdentityStore`/`InMemoryIdentityStore`/`SecureIdentityStore` on
+flutter_secure_storage; `CreateSigningIdentityForm` /
+`showCreateSigningIdentityDialog`). Sigstore/Fulcio keyless (Tier 3) is in
+`fulcio.dart` (pdf_document): `fulcioSigningIdentity({oidcToken, transport})`
+mints an ephemeral P-256 key, proves possession (`fulcioProofOfPossession` =
+ECDSA over `sha256(subject)`), POSTs the Fulcio v2 `signingCert` request
+(`buildFulcioSigningRequest` + `parseFulcioCertificateChain`, transport
+injected like the TSA - `PdfFulcioTransport`/`PdfFulcioAuthority`) and wraps
+the short-lived chain in a `PdfSigningIdentity` to sign B-T. `pdf_cos` gained
+`ecSubjectPublicKeyInfo` + `pemEncode`; in-process fake Fulcio in
+`pdf_test_fixtures` (`test_fulcio.dart`, verifies the proof, issues from a test
+CA). The tiers (self-signed, org CA, timestamps, keyless, Actalis import) are
+written up in `doc/signing-identities.md`. #322 is complete. Keyless is wired
+into the app's Digitally sign dialog and **on by default off-web**:
+`app/lib/keyless_signing.dart` (`fulcioHttpTransport`, DigiCert
+`defaultTimestampClient`, `keylessSigningIdentity`) +
+`PdfEditingController.addKeylessSignature` (B-T). Sign-in uses Sigstore's
+**public** OAuth broker (`oidc_signin.dart`/`oidc_pkce.dart` - Dex at
+oauth2.sigstore.dev, client `sigstore`, PKCE + loopback, like cosign), so no
+OAuth registration is needed; `EditorScreen.oidcTokenProvider` is the injected
+seam (`app.dart` wires it off-web; null hides the option, or pass your own for a
+custom IdP). Loopback needs `dart:io`, so web gets a stub via conditional
+import.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
-enumeration with approximate bounds, stream rewriting), and
+enumeration with approximate bounds, stream rewriting),
+`PdfEditor.moveElements` (repositioning: the drawing is left byte-identical
+and only the space it draws in shifts, so scale/rotation/skew survive -
+paths/images/forms/inline images/shadings get bracketed with `q`/`cm`...`Q`,
+a text run gets a `Tm` in front and a restoring `Tm` (plus a kern-only `TJ`
+replaying its advance) behind so the rest of the line and every later
+`Td`/`T*` hold; `translationUnder` is the `ctm x T x ctm-1` conversion.
+Refused for a path that also clips and for size-0 text. Element ids survive
+a move - the splices are transform operators, and a kern-only `TJ` is no
+longer listed as an element), and
 `PdfEditor.replaceText` (matches across a line's shown
 strings and consecutive Tj/TJ runs, with width-compensated re-measurement
 from the font's /Widths so following text holds position; composite
 /Type0 runs are handled too for the Identity-H/CIDFontType2/Identity-
-CIDToGIDMap shape - `content_editor_type0.dart`'s `_Type0Editing` reads
-existing text from /ToUnicode, re-encodes replacements through the
-embedded font's own cmap so any glyph the program carries can be typed,
-and merges new glyphs' advances + Unicode into the descendant /W and
-/ToUnicode; when the document font can't draw a character - a subsetted
+CIDToGIDMap shape - the composite font model is `Type0Font`
+(`type0_font.dart`): `Type0Font.decode` (lenient, for extraction) and
+`Type0Font.forEditing` (strict eligibility gate as its construction
+contract) both read text from /ToUnicode + widths from /W in one place;
+editing re-encodes replacements through the embedded font's own cmap so
+any glyph the program carries can be typed, and merges new glyphs'
+advances + Unicode into the descendant /W and /ToUnicode via
+`commitFontDict`. `content_editor_type0.dart`'s `_Type0RunEditor` is the
+thin editor-side wiring (fallback page-resource allocation, updater
+marking). When the document font can't draw a character - a subsetted
 font dropped it - `replaceText(fallbackFonts:)` embeds a style-matched
 bundled fallback as a new page /Font resource and emits that replacement
 between Tf switches (the editor passes the DejaVu trio via
 `loadFallbackFonts()`); within-line only - CFF/non-Identity Type0 still
-out) - all
-in `content_editor.dart`/`content_elements.dart`; shared Type0 metric
-parsing (/ToUnicode + /W) is in `type0_metrics.dart`, and
-`PdfPageElements` decodes Type0 runs through it so `element.text` is real
-Unicode (what the content-edit UI shows and passes as `find`). The
-content-stream tokenizer (`ContentStreamParser`) now lives in pdf_cos.
+out) - all in `content_editor.dart`/`content_elements.dart`. The
+flatten→match→splice→kern→coalesce run-rewrite engine is shared:
+`TextRunRewriter` + `RunCodec` (`content_run_rewriter.dart`, a
+document-free standalone lib so the kern/coalescing math is unit-testable
+against a fake codec), with simple / styled / Type0 / Type0-fallback
+codecs. `PdfPageElements` decodes Type0 runs through `Type0Font` so
+`element.text` is real Unicode (what the content-edit UI shows and passes
+as `find`). The content-stream tokenizer (`ContentStreamParser`) now
+lives in pdf_cos.
 Paragraph-level reflow is in: `PdfEditor.reflowText` (`content_reflow.dart`)
 re-wraps a whole detected paragraph when the replacement changes its line
 count and cascades the following lines through the content stream's own
@@ -110,8 +225,8 @@ page lookup with full-walk fallback, gradient /Extend semantics, JPEG
 (selection, highlights, overlays, and hit-testing are rotation-aware;
 the geometry mirrors the renderer's canvas transform).
 The big-gap batch landed next, all KAT-validated against reference
-codecs: encrypt-on-write (updater `_encryptedCopy`; signing encrypted
-files still refused), trust-store chain validation
+codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`;
+signing encrypted files still refused), trust-store chain validation
 (`verifyCertificateChain` in pdf_cos cms.dart, `PdfTrustStore` +
 `validate(trustStore:)` in pdf_document), mesh shadings 4-7
 (`PdfMeshParser`/`PdfMesh`, device `fillMesh`, drawVertices in
@@ -125,8 +240,24 @@ gray TRC, matrix/TRC, mft1/mft2/mAB LUTs, validated vs littleCMS;
 wired into sc/scn and image decoding). RSASSA-PSS verification is in
 (`rsaVerifyPss` in pdf_cos rsa.dart - MGF1 + EMSA-PSS with salt-length
 recovery, KAT vs OpenSSL; PSS-params parsing and dispatch in cms.dart's
-`cmsVerify` and `X509Certificate.isSignedBy`). Remaining gaps:
-JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
+`cmsVerify` and `X509Certificate.isSignedBy`). Overprint (/OP, /op, /OPM;
+§8.6.7) is faithful and subtractive: state parses into the graphics state,
+and the interpreter resolves the composite in a real CMYK/spot **colorant
+buffer** before any device sees it (`PdfOverprintCompositor` +
+`PdfColorants`/`PdfInkColorants` + `raster/colorant_raster.dart`, all pure
+Dart in pdf_graphics, so VM/worker/web and the canvas/strip devices agree by
+construction). `PdfColorSpace.inkColorants` is the colorant reading
+(DeviceGray/DeviceCMYK → process, Separation/DeviceN → the colorants they
+name, everything else null); the buffer is built only for a page whose
+ExtGStates declare `/OP` or `/op`, and `PdfInterpreter.debugResolveOverprint`
+is the kill switch. A resolved draw reaches the device with its overprint
+flag **cleared**; where the buffer declines (images, shadings, groups,
+translucent paint, ICC/RGB colour) `CanvasPdfDevice`'s `darken` stand-in
+still applies. GWG030 is pixel-enforced with all 12 patches uniform - see
+doc/dev-log/2026-07-25-overprint-colorant-buffer.md. Remaining gaps: image
+overprint (decoded pixels carry no colorant reading, so GWG031 and the image
+halves of GWG190/191/192 stay tolerated Ghent deviations); JPX subsampling +
+PCRL/CPRL, rendering intents/BPC in ICC.
 The decoded-image cache budget (`PdfImageCache.maxBytes`, settable) is
 platform-aware: `pdfDefaultImageCacheBytes()` in performance_policy.dart -
 desktop 256 MB, mobile/web 128 MB, 64 MB on a <=2 GB browser device
@@ -136,6 +267,89 @@ guessed - see doc/dev-log/2026-07-16-image-cache-budget.md and
 `test/benchmark_image_cache_budget_test.dart`; re-run it before changing
 them. `didHaveMemoryPressure` on the viewer clears the image + preview
 caches.
+An optional **persistent tier for exact full-resolution page rasters** is in
+(`PdfRasterCache(fullRasters:)`, host opt-in): a separate `PdfDiskCache` with
+its own namespace and byte budget, so page rasters can never evict the small
+preview/thumbnail tier. Keyed by document + `fullRasterVersion` + page +
+content revision + physical WxH + rotation + paper colour + annotations, with
+a `PRAS` header so corruption is a miss. Stores are queued clones drained
+behind `PdfPagePreviewCache.deferBackgroundIo` (the viewer wires it to the
+motion hold); loads run in `_render()` between the in-memory restore and the
+scheduled render, and are admitted through `PdfPageRasterCachePolicy` (an
+oversize hit still paints the page, it just isn't retained). Unbound for
+editing sessions, exactly like previews and the text cache. Counters live on
+`PdfRasterCacheStats` + `PdfDiskCache.debugStats`; codec trade-offs in
+`test/benchmark_full_raster_disk_test.dart` and
+doc/dev-log/2026-07-29-persistent-full-raster-disk-tier.md.
+Exact page rasters live in `PdfPagePreviewCache`'s second LRU, keyed by
+`(page, PdfPageRasterSignature)` - index + physical size + paper colour +
+annotation visibility + rotation, with the revision checked by `PdfPage`
+identity - and bounded by `PdfPageRasterCachePolicy` (max two geometries per
+page). `PdfPageRasterWarmPolicy` (`raster_warm.dart`, **disabled by default**)
+lets the viewer fill that cache in genuine idle time via
+`PdfPagePreviewCache.warmFullRaster` + the viewer's `_warmFullRasters` loop,
+gated on `_rasterWarmIdle` (no scroll/zoom/edit/armed tool/deep zoom/queued
+render). Warm and on-screen render must price a page identically, so the
+ratio/dimension math lives once in `PdfPageRasterGeometry` (renderer.dart) -
+never re-derive it. Diagnostics: `PdfViewerController.pageRasterWarmStats`,
+`test/benchmark_raster_warm_test.dart`, and the web harness's `warm` scenarios
+(`warm-plan-off`/`warm-plan-document`, run as a pair). The app's Auto memory
+mode reserves a floor for the page cache **only while a warm policy is active**
+(`pdfWarmPageRasterFloorBytes` / `pdfWarmPageRasterEntryFloorBytes` in
+app/lib/adaptive_memory.dart, carved from the live-raster budget down to 16 MB,
+yielding to 0 when the envelope has genuinely collapsed) - without it the live
+floor takes the whole envelope on web and warming is inert. The entry limit is
+the real gate there, not the total: `pageBytes ~/ 8` admits nothing over 8 MB
+under a 64 MB budget, and a letter page at DPR 2 is ~10 MB. See
+doc/dev-log/2026-07-29-idle-full-raster-warm-614.md and
+doc/dev-log/2026-07-31-warm-auto-memory-floor-614.md.
+Ordinary pages render **through** a scroll rather than waiting it out. Two
+halves: a page on screen with nothing of its own to paint asks for its render
+on every rebuild (guarded by `PdfPageRenderScheduler.isQueued`) - nothing in
+the render intent changes as a page scrolls in, so before this only the
+end-of-scroll settle bump queued it, which was the whole "scroll two pages,
+wait half a second"; and a request may declare itself `motionSafe` to
+`PdfPageRenderScheduler` and re-declare it at `paceUiWork` once the record's
+size is known
+(`PdfPageView.motionSafeRenders`/`motionSafeMaxCommands`/
+`motionSafeMaxImagePixels`; the verdict is a live worker + page-level
+XObjects declaring <=1 MP up front, then <=4000 commands and <=1 MP of
+actual image draws when the buffer lands, revoked the moment a pass falls
+through to a local walk). Ask an image how big it is (/Width x /Height,
+`PdfPageRenderer.imageDrawPixels`) rather than treating "has an image" as
+"expensive": the first cut of this gate refused any page with an /XObject
+and so switched itself off across every ordinary report with a letterhead
+mark (`test_corpora/dartpdf/letterhead-report-40p.pdf`, scenario
+`wheel-letterhead`, is that class). A cached retained scene is likewise
+adopted when it is sharp at the *current* zoom, not only when it carries the
+2x `focusedImageDecodeHeadroom` a fresh render aims for - the headroom
+arrives as a soft-to-sharp refinement behind the painted page.
+While a scroll is in flight grants stay near the destination (`motionSafeHoldRadius`) so a fling does not record every page
+it passes. Retention pairs with it: the retained-scene LRU is governed by an
+honest byte price (`PdfPagePreviewCache.priceRetainedScene` floors an entry
+at the raster it stands in for - the engine's picture estimate under-reports
+a text page ~18x) against `pdfDefaultRetainedSceneBytes`. Measure this area with the web
+harness's `wheel` scenarios (`tool/perf.sh web wheel-text`) - a continuous
+scroll sampled every frame, which is the journey a reader actually makes -
+and the `read` ones (`read-text`) for page-to-page navigation. The two are
+gated by different things; `read` alone hid the scrolling problem entirely.
+See doc/dev-log/2026-08-19-motion-safe-renders.md and
+doc/dev-log/2026-08-19-motion-lane-image-budget.md.
+Crash recovery for unsaved edits is in (app): while a document is dirty its
+bytes are mirrored outside the process, so a crash/OOM kill/closed browser
+tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a
+tab from its first edit until it is saved, closed, or undone back to the
+baseline, debouncing writes; `UnsavedChangesStore`
+(`unsaved_changes.dart`, backends picked by conditional export in
+`unsaved_changes_store.dart` - private files on native, IndexedDB chunks on
+web via the shared `idb_web.dart`, nothing in the stub). Because revisions
+are byte prefixes of one buffer, a mirror pass **appends only the tail**;
+bytes are written first and the `UnsavedRecord` (carrying the committed
+`length`) second, so a crash mid-append recovers the previous whole
+revision. `EditorScreen._recoverUnsavedChanges` runs before session restore
+and reopens each record as a still-dirty tab pointed at its original save
+destination (the undo stack does not survive). See
+doc/dev-log/2026-07-26-unsaved-changes-crash-recovery.md.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
 owns the edit session - every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;
@@ -145,9 +359,13 @@ free text/note/stamp; select + move + resize via
 arrays - appearances regenerate for shapes/free text, stretch per
 §12.5.5 otherwise; see the batch-3 session-1 block), binds undo/redo/delete/escape
 shortcuts, and preserves the viewport across same-geometry document
-swaps. `PdfEditingToolbar` is the stock chrome. The host must rebuild
-the viewer with `editing.document` whenever the controller notifies
-(asserted in debug builds); the example app shows the wiring.
+swaps. `PdfEditingToolbar` is the stock chrome. `PdfViewer(editing:)`
+(and `formController:`) reads the current revision from the controller
+and subscribes to it itself, so the host neither passes `document` nor
+rebuilds the viewer as revisions land - `document` is only the
+no-controller reader path (`_revisionController`/`_document`/
+`_onRevisionControllerChanged` in pdf_viewer.dart). The example app
+shows the wiring.
 On top of that: style controls (controller carries strokeWidth/opacity/
 fontSize; the toolbar's tune button opens a slider popup), an
 annotation sidebar (`PdfAnnotationSidebar` - lists by page, tap selects
@@ -160,7 +378,27 @@ per revision in the controller - orange selection chrome; delete via
 action (`pdf-reflow-element-text`) re-wraps the selected line's whole
 paragraph, toasting a fallback hint when the shape isn't reflowable;
 element ids die with every revision, so any edit clears the element
-selection).
+selection). Page content also **moves**: a drag on the selected element (or
+on any element, grabbing it in the same gesture) repositions it via
+`moveSelectedElement`, and the arrow keys nudge it - `nudgeSelected` falls
+through to the element when no annotation is selected. The drag floats the
+artwork as **two** page pictures, not one clipped picture (a bounding box is
+not the drawing - clipping one carries whatever overlaps it):
+`PdfPageElements.operationsRetaining(keep)` filters the one parse two ways -
+the page *without* the element (`_ensureElementLift`'s clean, fills the hole
+it leaves) and the element *alone* on transparent paper
+(`PdfPageRenderPlan(paper: false)` + `renderPictureWithPlan(operations:)`),
+which is what travels. Dropping a text run replaces it with the advance it
+owed, so nothing after it in the text object slides. The same pair is held
+past the commit (`_holdElementAfterimage`) and painted **unclipped** over the
+whole page until the new raster lands - a content edit *drops* the page's
+cached raster (`_previews.rebind(changed:)` + `_rasteredPages.removeAll`),
+unlike an annotation edit, so without it the page blanks while it re-renders;
+`elementLiftSettled` is which of the two modes the painter is in. A
+move is the one element edit that keeps its selection, because `moveElements`
+preserves element ids. See
+doc/dev-log/2026-08-27-reposition-page-content.md and
+doc/dev-log/2026-08-27-content-drag-preview-fidelity.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder
@@ -183,6 +421,15 @@ size slider (`thumbnailViewTileWidth` pref), custom drag reorder
 onActivatePage`). `PdfEditorView` overlays it over the live viewer as a
 view mode (`showThumbnailView`, toggled from View options alongside
 reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
+Both panels take an external PDF **dropped between two tiles**:
+`PdfThumbnailDropController` (editing_thumbnail_drop.dart) is the seam -
+panels register a global-position→slot resolver and paint the insertion
+marker, the host (which owns the platform drag stream) drives
+`dragOver`/`indexAt`/`endDrag` and inserts at the returned index.
+`PdfEditorView(thumbnailDropController:)` forwards it; the app wires it
+to its `desktop_drop` `DropTarget`, so a positioned drop skips the
+open-or-insert dialog. See
+doc/dev-log/2026-08-06-thumbnail-file-drop-position.md.
 
 ## Development session log
 

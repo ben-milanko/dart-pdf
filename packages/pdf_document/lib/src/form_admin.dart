@@ -130,7 +130,11 @@ extension PdfFormAdmin on PdfEditor {
         }
       }
     }
-    _markVisual(unknownPage ? null : pages);
+    // Removing a field also rewrites every page's /Annots array. Report that
+    // lane explicitly so viewers discard cached widget rectangles and hit
+    // targets, rather than retaining the interactive highlight over the new
+    // page revision.
+    _markAnnotations(unknownPage ? null : pages);
   }
 
   static bool _isFieldWidget(
@@ -186,12 +190,20 @@ extension PdfFormAdmin on PdfEditor {
 
   /// Flattens the interactive form: paints every widget's current
   /// appearance into its page's content, then removes all fields and
-  /// their widgets. Fields without a paintable appearance simply
-  /// disappear. Broken structures - widgets without pages, unparseable
-  /// rectangles, corrupt appearance streams - are skipped, never fatal.
+  /// their widgets. Missing appearances are generated first, so empty
+  /// fields retain their background and border after flattening. Broken
+  /// structures - widgets without pages, unparseable rectangles, corrupt
+  /// appearance streams - are skipped, never fatal.
   void flattenForm() {
     final form = acroForm;
     if (form == null) return;
+    for (final field in form.fields) {
+      try {
+        _prepareFieldForFlatten(field);
+      } catch (_) {
+        // a malformed field must not stop the rest of the form
+      }
+    }
     for (var i = 0; i < document.pageCount; i++) {
       try {
         _flattenAnnotations(
@@ -207,6 +219,68 @@ extension PdfFormAdmin on PdfEditor {
       try {
         removeField(field);
       } catch (_) {}
+    }
+  }
+
+  /// Materializes normal appearances that a viewer would otherwise have to
+  /// synthesize from the field value and widget characteristics. In
+  /// particular, untouched empty text fields commonly have no /AP at all.
+  void _prepareFieldForFlatten(PdfFormField field) {
+    final missing = <int>[];
+    final widgets = field.widgets;
+    for (var i = 0; i < widgets.length; i++) {
+      final annotation = PdfAnnotation.fromDict(document, widgets[i]);
+      if (field.widgetPageIndex(i) >= 0 &&
+          !annotation.isHidden &&
+          !annotation.isNoView &&
+          annotation.normalAppearance == null) {
+        missing.add(i);
+      }
+    }
+    if (missing.isEmpty) return;
+
+    switch (field.type) {
+      case PdfFieldType.text:
+        _regenerateVariableText(field, field.value ?? '');
+      case PdfFieldType.comboBox:
+      case PdfFieldType.listBox:
+        _regenerateVariableText(field, _choiceDisplay(field));
+      case PdfFieldType.checkBox:
+      case PdfFieldType.radioGroup:
+        _ensureButtonAppearances(field);
+        final state = field.value ?? 'Off';
+        for (final i in missing) {
+          final widget = widgets[i];
+          final states = _widgetStates(widget);
+          widget['AS'] = CosName(states.contains(state) ? state : 'Off');
+        }
+      case PdfFieldType.pushButton:
+      case PdfFieldType.signature:
+      case PdfFieldType.unknown:
+        for (final i in missing) {
+          final widget = widgets[i];
+          final rect = pdfRectFrom(document.cos, widget['Rect']);
+          if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
+          final rotation = _prepareWidgetRotation(field, i, widget);
+          final visual = PdfFormFilling._orientedWidgetRect(
+            rect.width,
+            rect.height,
+            rotation,
+          );
+          final writer = ContentWriter();
+          PdfFormFilling._beginWidgetOrientation(
+            writer,
+            rect.width,
+            rect.height,
+            rotation,
+          );
+          _paintWidgetDecorations(writer, widget, visual);
+          PdfFormFilling._endWidgetOrientation(writer, rotation);
+          _setNormalAppearance(
+            widget,
+            _widgetForm(rect.width, rect.height, writer),
+          );
+        }
     }
   }
 

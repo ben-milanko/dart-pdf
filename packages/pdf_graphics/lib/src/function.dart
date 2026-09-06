@@ -13,13 +13,30 @@ abstract class PdfFunction {
   List<double> evaluate(double x);
 
   /// Multi-input evaluation, for function-based (type 1) shadings whose
-  /// functions map (x, y). Only the calculator (type 4) genuinely
-  /// consumes more than one input; the others fall back to the first.
+  /// functions map (x, y) and for multi-colorant DeviceN/Separation tint
+  /// transforms. Sampled (type 0) and calculator (type 4) functions
+  /// genuinely consume more than one input; the others fall back to the
+  /// first.
   List<double> evaluateAt(List<double> inputs) =>
       evaluate(inputs.isEmpty ? 0.0 : inputs[0]);
 
   static PdfFunction? parse(CosDocument cos, CosObject? object) {
     final resolved = cos.resolve(object);
+    if (resolved is CosNull) return null;
+    // Doc-level parse cache (#534): functions are re-parsed per selection
+    // (tint transforms, shadings, /TR transfers) and a type-0 parse decodes
+    // its whole sample stream. Parsed functions are immutable; identity
+    // keying makes invalidation free (edits build new COS objects).
+    final hit = _parsed[resolved];
+    if (hit != null) return hit;
+    final function = _parse(cos, resolved);
+    if (function != null) _parsed[resolved] = function;
+    return function;
+  }
+
+  static final Expando<PdfFunction> _parsed = Expando();
+
+  static PdfFunction? _parse(CosDocument cos, CosObject resolved) {
     if (resolved is CosArray) {
       // one single-output function per color component
       final parts = <PdfFunction>[];
@@ -88,14 +105,13 @@ abstract class PdfFunction {
         final encode = _numbers(cos, dict['Encode']);
         final decode = _numbers(cos, dict['Decode']);
         return _SampledFunction(
-          x0,
-          x1,
+          domain.isNotEmpty ? domain : [x0, x1],
+          [for (final s in size) s.toInt()],
           data,
-          size[0].toInt(),
           bits,
           range,
-          encode.isEmpty ? [0, size[0] - 1] : encode,
-          decode.isEmpty ? range : decode,
+          encode,
+          decode,
         );
       case 4:
         if (resolved is! CosStream) return null;
@@ -200,47 +216,103 @@ class _StitchingFunction extends PdfFunction {
   }
 }
 
+/// Type 0: a sampled function (§7.10.2). The sample grid has one axis per
+/// input dimension (the first dimension varies fastest in the byte stream);
+/// values in between grid points are multilinearly interpolated across the
+/// 2^m surrounding samples. DeviceN/Separation tint transforms with more
+/// than one colorant land here, so multi-input evaluation is required, not
+/// just the single-input shading path.
 class _SampledFunction extends PdfFunction {
-  const _SampledFunction(this.x0, this.x1, this.data, this.sampleCount,
-      this.bitsPerSample, this.range, this.encode, this.decode);
+  const _SampledFunction(this.domain, this.size, this.data, this.bitsPerSample,
+      this.range, this.encode, this.decode);
 
-  final double x0, x1;
+  final List<double> domain;
+  final List<int> size;
   final Uint8List data;
-  final int sampleCount;
   final int bitsPerSample;
   final List<double> range;
   final List<double> encode;
   final List<double> decode;
 
+  int get _inputs => size.length;
   int get _outputs => range.length ~/ 2;
 
   @override
-  List<double> evaluate(double x) {
-    if (sampleCount <= 0 || _outputs == 0) return const [0];
-    final t = (x.clamp(x0, x1) - x0) / (x1 == x0 ? 1 : x1 - x0);
-    final e0 = encode.isNotEmpty ? encode[0] : 0.0;
-    final e1 = encode.length > 1 ? encode[1] : sampleCount - 1.0;
-    final position = (e0 + t * (e1 - e0)).clamp(0.0, sampleCount - 1.0);
-    final i0 = position.floor();
-    final i1 = math.min(i0 + 1, sampleCount - 1);
-    final frac = position - i0;
-    final max = (1 << bitsPerSample) - 1;
-    return [
-      for (var output = 0; output < _outputs; output++)
-        _decodeValue(
-            _sampleAt(i0 * _outputs + output) / max * (1 - frac) +
-                _sampleAt(i1 * _outputs + output) / max * frac,
-            output),
-    ];
+  List<double> evaluate(double x) => evaluateAt([x]);
+
+  @override
+  List<double> evaluateAt(List<double> inputs) {
+    final m = _inputs;
+    final n = _outputs;
+    if (m == 0 || n == 0) return const [0];
+
+    // Encode each input into sample-grid coordinates, split into an integer
+    // lower corner and a fractional weight per dimension.
+    final lower = List<int>.filled(m, 0);
+    final frac = List<double>.filled(m, 0);
+    for (var i = 0; i < m; i++) {
+      final sizeI = size[i];
+      if (sizeI <= 0) return [for (var j = 0; j < n; j++) _decodeValue(0, j)];
+      final d0 = i * 2 < domain.length ? domain[i * 2] : 0.0;
+      final d1 = i * 2 + 1 < domain.length ? domain[i * 2 + 1] : 1.0;
+      final e0 = i * 2 < encode.length ? encode[i * 2] : 0.0;
+      final e1 = i * 2 + 1 < encode.length ? encode[i * 2 + 1] : sizeI - 1.0;
+      final x = (i < inputs.length ? inputs[i] : d0)
+          .clamp(math.min(d0, d1), math.max(d0, d1));
+      final t = d1 == d0 ? 0.0 : (x - d0) / (d1 - d0);
+      final position = (e0 + t * (e1 - e0)).clamp(0.0, sizeI - 1.0);
+      lower[i] = position.floor();
+      frac[i] = position - lower[i];
+    }
+
+    // Strides into the flat sample array; dimension 0 varies fastest.
+    final stride = List<int>.filled(m, 1);
+    for (var i = 1; i < m; i++) {
+      stride[i] = stride[i - 1] * size[i - 1];
+    }
+
+    final max = math.max(1, (1 << bitsPerSample) - 1);
+    final accum = List<double>.filled(n, 0);
+    final corners = 1 << m;
+    for (var corner = 0; corner < corners; corner++) {
+      var weight = 1.0;
+      var offset = 0;
+      for (var i = 0; i < m; i++) {
+        final upper = (corner >> i) & 1 == 1;
+        weight *= upper ? frac[i] : 1 - frac[i];
+        final coord = upper ? math.min(lower[i] + 1, size[i] - 1) : lower[i];
+        offset += coord * stride[i];
+      }
+      if (weight == 0) continue;
+      for (var j = 0; j < n; j++) {
+        accum[j] += weight * _sampleAt(offset * n + j) / max;
+      }
+    }
+
+    return [for (var j = 0; j < n; j++) _decodeValue(accum[j], j)];
   }
 
   double _decodeValue(double normalized, int output) {
-    final d0 = output * 2 < decode.length ? decode[output * 2] : 0.0;
-    final d1 = output * 2 + 1 < decode.length ? decode[output * 2 + 1] : 1.0;
-    return d0 + normalized * (d1 - d0);
+    final src = decode.isNotEmpty ? decode : range;
+    final d0 = output * 2 < src.length ? src[output * 2] : 0.0;
+    final d1 = output * 2 + 1 < src.length ? src[output * 2 + 1] : 1.0;
+    final value = d0 + normalized * (d1 - d0);
+    final r0 = range[output * 2], r1 = range[output * 2 + 1];
+    return value.clamp(math.min(r0, r1), math.max(r0, r1));
   }
 
   double _sampleAt(int sampleIndex) {
+    // 8- and 16-bit samples - the overwhelmingly common encodings for tint
+    // transforms and shading functions - are byte-aligned direct reads
+    // (#534); odd widths keep the exact bit loop.
+    if (bitsPerSample == 8) {
+      return sampleIndex < data.length ? data[sampleIndex].toDouble() : 0;
+    }
+    if (bitsPerSample == 16) {
+      final byte = sampleIndex * 2;
+      if (byte + 1 >= data.length) return 0;
+      return ((data[byte] << 8) | data[byte + 1]).toDouble();
+    }
     final bitOffset = sampleIndex * bitsPerSample;
     var value = 0;
     for (var i = 0; i < bitsPerSample; i++) {

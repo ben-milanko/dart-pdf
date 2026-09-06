@@ -1,0 +1,228 @@
+// printDocumentPages prints a PDF through the platform runner: natively as
+// vector where the OS can (printPdf), else by rasterising each page and
+// streaming it (beginJob/printPage/endJob) on Windows/Linux. The real channel
+// needs a runner, so here we mock it and assert both paths.
+import 'dart:typed_data';
+
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+import 'package:dart_pdf_editor_app/native_print_io.dart';
+
+void main() {
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('dev.milanko.dartpdf/native_print');
+  final messenger = binding.defaultBinaryMessenger;
+
+  tearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+  test('prints the PDF as vector via printPdf when supported', () async {
+    Uint8List? sentPdf;
+    String? name;
+    var beginJobs = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'printPdf':
+          final args = call.arguments as Map;
+          sentPdf = args['pdf'] as Uint8List;
+          name = args['name'] as String?;
+          return true;
+        case 'beginJob':
+          beginJobs += 1;
+          return {'dpi': 72};
+      }
+      return null;
+    });
+
+    final pdf = Uint8List.fromList('%PDF-1.7 vector'.codeUnits);
+    await printDocumentPages(pdf, name: 'Report');
+
+    expect(sentPdf, pdf); // the whole document went over verbatim
+    expect(name, 'Report');
+    expect(beginJobs, 0); // never rasterised
+  });
+
+  test('legacy PDF jobs leave native paper selection unchanged', () async {
+    Map? sent;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      sent = call.arguments as Map;
+      return true;
+    });
+    final pdf = buildMultiPagePdf(1);
+    await printDocumentPages(pdf, name: 'Legacy');
+    expect(sent, {'name': 'Legacy', 'pdf': pdf});
+  });
+
+  testWidgets('prepared sheets preserve physical dimensions on both channels',
+      (tester) async {
+    await tester.runAsync(() async {
+      final requests = <String, Map>{};
+      Uint8List? stream;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            requests[call.method] = call.arguments as Map;
+            throw MissingPluginException('streaming native runner');
+          case 'beginJob':
+            requests[call.method] = call.arguments as Map;
+            return {'vector': true};
+          case 'printPageVector':
+            stream = (call.arguments as Map)['page'] as Uint8List;
+            return true;
+          case 'endJob':
+            return true;
+        }
+        return null;
+      });
+
+      await printDocumentPages(buildMultiPagePdf(1),
+          name: 'Prepared', useDocumentPageSize: true);
+
+      for (final method in ['printPdf', 'beginJob']) {
+        expect(requests[method]?['useDocumentPageSize'], isTrue);
+        expect(requests[method]?['pageWidth'], 612);
+        expect(requests[method]?['pageHeight'], 792);
+      }
+      // The per-page native path receives the same physical dimensions that
+      // seed the PDF-native print dialog, in the vector stream's f32 header.
+      final header = ByteData.sublistView(stream!);
+      expect(header.getFloat32(4, Endian.little), 612);
+      expect(header.getFloat32(8, Endian.little), 792);
+    });
+  });
+
+  test('a cancelled vector dialog completes without rasterising', () async {
+    var beginJobs = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'printPdf':
+          return false; // user cancelled the native print dialog
+        case 'beginJob':
+          beginJobs += 1;
+          return {'dpi': 72};
+      }
+      return null;
+    });
+
+    await printDocumentPages(Uint8List.fromList('%PDF-1.7'.codeUnits),
+        name: 'Report');
+    expect(beginJobs, 0);
+  });
+
+  testWidgets('prints vector op streams when the runner reports vector support',
+      (tester) async {
+    await tester.runAsync(() async {
+      var ends = 0;
+      final streams = <Uint8List>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            throw MissingPluginException('no printPdf on this platform');
+          case 'beginJob':
+            return {'dpi': 300, 'vector': true};
+          case 'printPageVector':
+            streams.add((call.arguments as Map)['page'] as Uint8List);
+            return true;
+          case 'printPage':
+            fail('must not rasterise when the runner supports vector');
+          case 'endJob':
+            ends += 1;
+            return true;
+        }
+        return null;
+      });
+
+      final progress = <(int, int)>[];
+      await printDocumentPages(buildMultiPagePdf(2),
+          name: 'Report',
+          onProgress: (rendered, total) => progress.add((rendered, total)));
+
+      expect(streams, hasLength(2));
+      for (final stream in streams) {
+        // The vector-print magic header: 'V' 'P' 'R' 1.
+        expect(stream.sublist(0, 4), [0x56, 0x50, 0x52, 0x01]);
+      }
+      expect(ends, 1);
+      expect(progress, [(1, 2), (2, 2)]);
+    });
+  });
+
+  testWidgets('falls back to rasterising when printPdf is unimplemented',
+      (tester) async {
+    await tester.runAsync(() async {
+      var ends = 0;
+      final images = <Uint8List>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            throw MissingPluginException('no printPdf on this platform');
+          case 'beginJob':
+            return {'dpi': 72};
+          case 'printPage':
+            images.add((call.arguments as Map)['image'] as Uint8List);
+            return true;
+          case 'endJob':
+            ends += 1;
+            return true;
+        }
+        return null;
+      });
+
+      final progress = <(int, int)>[];
+      await printDocumentPages(buildMultiPagePdf(2),
+          name: 'Report',
+          onProgress: (rendered, total) => progress.add((rendered, total)));
+
+      expect(images, hasLength(2));
+      for (final image in images) {
+        expect(image[0], 0xFF); // JPEG SOI
+        expect(image[1], 0xD8);
+      }
+      expect(ends, 1);
+      expect(progress, [(1, 2), (2, 2)]);
+    });
+  });
+
+  testWidgets('propagates MissingPluginException when there is no printer',
+      (tester) async {
+    await tester.runAsync(() async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        // Neither native PDF printing nor rasterising is available.
+        throw MissingPluginException('no native printer');
+      });
+
+      await expectLater(
+        printDocumentPages(buildMultiPagePdf(1), name: 'Report'),
+        throwsA(isA<MissingPluginException>()),
+      );
+    });
+  });
+
+  testWidgets('aborts and throws when the printer rejects a rastered page',
+      (tester) async {
+    await tester.runAsync(() async {
+      var cancels = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            throw MissingPluginException('no printPdf');
+          case 'beginJob':
+            return {'dpi': 72};
+          case 'printPage':
+            return false; // rejected
+          case 'cancelJob':
+            cancels += 1;
+            return null;
+        }
+        return null;
+      });
+
+      await expectLater(
+        printDocumentPages(buildMultiPagePdf(1), name: 'Report'),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(cancels, 1);
+    });
+  });
+}

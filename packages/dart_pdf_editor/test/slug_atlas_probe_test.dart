@@ -8,13 +8,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
-// ignore: implementation_imports
-import 'package:pdf_graphics/src/fonts/truetype.dart';
 
 void main() {
   test('atlas walk matches glyphCoverageAA', () {
     final font = TrueTypeFont.parse(
-        File('assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
+        File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
     final outline = font.outlineForGlyph(font.gidForUnicode(0x67))!; // g
     final quads = outlineToQuads(outline);
     final bands = buildBands(quads, bandCount: 8);

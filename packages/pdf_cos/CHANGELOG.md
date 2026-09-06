@@ -1,5 +1,163 @@
 # Changelog
 
+## Unreleased
+
+- Recompress Flate streams losslessly in `CosCompactor`, retaining predictor
+  data and parameters. Preserve cyclic indirect arrays and PDF 2.0 headers.
+- Add opt-in exact real serialization to the serializer/builder and enable it
+  for compaction, avoiding outline changes from rounded font matrices.
+- Refuse compaction of incomplete progressive sources.
+- Expose immutable populated-range snapshots for transferring sparse buffers,
+  and retain their metadata when reopening or appending a revision.
+
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public COS
+  object model, filter, or parsing changes since 4.1.0.
+
+## 4.1.0
+
+- Treat holes in sparse progressive byte sources as cache misses tied to the
+  source buffer, avoiding invalid scan recovery and stale reads while remote
+  PDFs are still arriving.
+- Update `archive` to 4.2.0.
+
+## 4.0.0
+
+- Decode TIFF Predictor 2 streams with 16-bit samples, preserving carries
+  between bytes and restoring high-bit-depth images correctly.
+- Lockstep major release for the dart-pdf 4.0.0 package suite. The `pdf_cos`
+  public API remains source-compatible with 3.8.0.
+
+## 3.8.0
+
+- Add the public monotonic `CosDocument.revision`, incremented after every
+  successful incremental update so higher layers can invalidate derived
+  caches without comparing object identity.
+
+## 3.7.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.7.0. No
+  public `pdf_cos` API changes since 3.6.0.
+
+## 3.6.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.6.0. No
+  public `pdf_cos` API changes since 3.5.1.
+
+## 3.5.1
+
+- Decode JBIG2 refined text symbols, including refinement deltas, offsets, and
+  shared arithmetic contexts, so scanned MRC text layers render correctly.
+
+## 3.5.0
+
+- Add `PdfSourceLoadOptions.completeFirstPaintPageTree`. Progressive preview
+  callers can stop the initial page-tree walk after `firstPaintPages`, avoiding
+  one range request per leaf before page one can paint; the default remains the
+  correctness-first complete walk for existing callers.
+- Reduce allocation and cache pressure in byte sources, the lexer, and content
+  parsing while retaining the parser's lenient handling of malformed PDFs.
+
+## 3.4.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.4.0. No
+  public `pdf_cos` API changes since 3.3.1.
+
+## 3.3.1
+
+- Lockstep patch release to align the dart-pdf package suite at 3.3.1. No
+  public `pdf_cos` API changes since 3.3.0.
+
+## 3.3.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.3.0. No
+  public `pdf_cos` API changes since 3.2.0.
+
+## 3.2.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.2.0. No
+  public `pdf_cos` API changes since 3.1.1.
+
+## 3.1.1
+
+- Lockstep patch release to align the dart-pdf package suite at 3.1.1. No
+  public `pdf_cos` API changes since 3.1.0.
+
+## 3.1.0
+
+- Lossless structural compaction: new `CosCompactor`/`CosCompactionResult`
+  rewrite a document's reachable object graph, packing non-stream objects
+  into compressed object streams behind a PDF 1.5 xref stream and
+  re-deflating streams stored uncompressed (kept only when smaller).
+  `CosDocumentBuilder` gains an `objectStreams:` mode (W [1 4 2]). The
+  user-facing entry point is `PdfEditor.compress()` in `pdf_document` (#368).
+- JPX (JPEG 2000) resolution-level skip: decode at a reduced `cp_reduce`
+  level when an image is displayed far below its native size, instead of
+  decoding full resolution and downscaling (#525).
+- Cache decoded JBIG2 globals dictionaries across images on the same page -
+  scanned books with shared `/JBIG2Globals` decode once, not per image (#532).
+- Int-key the loaded-object cache so warm resolves allocate nothing (#522),
+  and drop the double copy of every inflated stream (#533).
+
+## 3.0.0
+
+Lockstep major release: a breaking change in `dart_pdf_editor` moves the whole
+suite to 3.0.0. `pdf_cos`'s own public API is unchanged.
+
+- Cache decoded stream bytes on `CosDocument` so a stream inflated once (xref
+  reconstruction, content parsing, image extraction) is not re-decoded on the
+  next access (#392).
+- Perf micro-batch: chunked message-digest hashing, an in-place JPX inverse
+  DWT, and predictor/lexer/regex fast-path fixes (#407).
+
+## 2.1.0
+
+- Append incremental saves to the existing bytes instead of rebuilding the
+  whole file: `CosUpdater.saveTail()` returns only the new tail (the appended
+  objects, xref, and trailer), so an incremental revision costs the size of
+  the change rather than the size of the document. Save cost no longer scales
+  with the base file - a guard test pins that a 2.78x larger base does not
+  make a same-sized edit 2.78x more expensive (#413).
+- Memoise the per-object decryption key so a page's streams and strings derive
+  it once per object rather than once per access, cutting repeated MD5/AES key
+  derivation on encrypted documents (#400).
+
+- Speed up CCITT G3/G4 decoding by ~4x on dense scanned pages: a monotonic
+  cursor for the 2-D reference-row scan (was O(transitions^2) per row),
+  peek-once prefix tables for run and mode codes, byte-run span fills, and
+  a byte-at-a-time bit reader. The JBIG2 MMR path, which reuses the same
+  decoder, gains a byte-at-a-time bitmap unpack. Output is byte-identical
+  on well-formed, malformed, and truncated input, locked by golden digests
+  captured from the previous implementation (#398).
+
+## 2.0.0
+
+- Major version bump for the 2.0.0 package suite. A breaking API change in
+  `dart_pdf_editor` moves every package to 2.0.0 in lockstep; the COS object
+  model, syntax, and (de)serialization API is source-compatible with 1.4.7.
+- Add an asynchronous byte-source API (`PdfByteSource`) for progressive PDF
+  loading: the reader pulls ranged slices on demand instead of requiring the
+  whole file up front, so remote and large local files can paint their first
+  page before the full download or read completes (#328, #359).
+- Decode PDF text strings as PDFDocEncoding rather than Latin-1, so document
+  metadata and outline titles that use PDFDocEncoding-specific code points
+  round-trip correctly (#347).
+- Add the crypto primitives behind one-tap and keyless signing identities:
+  P-256 `EcPrivateKey.generate`, deterministic RFC 6979 `ecdsaSign`, the X.509
+  v3 builders `buildSelfSignedCertificate` / `buildCaCertificate` /
+  `issueCertificate`, and `ecSubjectPublicKeyInfo` / `pemEncode` for
+  Sigstore/Fulcio (#322, #337, #355).
+- Internal refactors with no public API change: extract `CosXrefReader` from
+  `CosDocument`, move the encryption object-graph walk behind the security
+  handler, share file-tail framing between the builder and updater, and dedupe
+  ObjStm header parsing between recovery and the stream decoder.
+
+## 1.4.7
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.7. No COS API
+  changes since 1.4.6.
+
 ## 1.4.6
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.6. No COS API

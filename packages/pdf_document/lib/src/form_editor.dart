@@ -192,16 +192,8 @@ extension PdfFormFilling on PdfEditor {
   static void _beginWidgetOrientation(
       ContentWriter writer, double w, double h, int rotation) {
     if (rotation == 0) return;
-    final cx = w / 2, cy = h / 2;
     writer.save();
-    switch (rotation) {
-      case 90:
-        writer.concatMatrix(0, 1, -1, 0, cx + cy, cy - cx);
-      case 180:
-        writer.concatMatrix(-1, 0, 0, -1, 2 * cx, 2 * cy);
-      case 270:
-        writer.concatMatrix(0, -1, 1, 0, cx - cy, cx + cy);
-    }
+    writePdfCounterRotation(writer, w / 2, h / 2, rotation);
   }
 
   static void _endWidgetOrientation(ContentWriter writer, int rotation) {
@@ -470,6 +462,10 @@ extension PdfFormFilling on PdfEditor {
     // its program so the appearance can encode and measure with it. A
     // base-14 /DR entry stays on the simple byte path. Text past Latin-1 is
     // only sanitized for the simple fonts - an embedded font can show it.
+    // /Widths resolved once for this regeneration. The auto-size loop
+    // re-measures the same text up to ~16 times while shrinking, and each
+    // measure used to `cos.resolve` one array entry PER CHARACTER (#406).
+    final fontWidths = fontDict == null ? null : _fieldWidthMetrics(fontDict);
     final embedded = fontDict == null
         ? null
         : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
@@ -488,26 +484,40 @@ extension PdfFormFilling on PdfEditor {
 
       double measure(String s, double size) => embedded != null
           ? embedded.measure(s, size)
-          : _measureFieldText(fontDict, s, size);
+          : _measureFieldText(fontDict, s, size, widths: fontWidths);
 
       final multiline = field.isMultiline;
+      // Line boxes are laid out and clipped in the field's own /Widths (or the
+      // base-14 fallback); the shared builder consumes it through [PdfTextFont]
+      // for the resource name and ascent while measurement stays on [measure].
+      final font = embedded ??
+          _DaFieldFont(
+            da.fontName,
+            PdfStandardFont.fromName(da.fontName).ascent,
+            measure,
+          );
+      const lineFactor = 1.15;
       var size = da.fontSize;
       List<String> lines;
+      List<String> wrap(double s) =>
+          pdfWrapText(text, visual.width - 2 * pad, (c) => measure(c, s));
       if (multiline) {
         if (size == 0) {
           // auto-size: shrink until the wrapped block fits the height
           size = 12;
           while (size > 4) {
-            lines = _wrapWith(measure, text, size, visual.width - 2 * pad);
-            if (lines.length * size * 1.15 <= visual.height - 2 * pad) break;
+            lines = wrap(size);
+            if (lines.length * size * lineFactor <= visual.height - 2 * pad) {
+              break;
+            }
             size -= 0.5;
           }
         }
-        lines = _wrapWith(measure, text, size, visual.width - 2 * pad);
+        lines = wrap(size);
       } else {
         final single = text.replaceAll('\n', ' ');
         if (size == 0) {
-          size = (visual.height - 2 * pad) / 1.15;
+          size = (visual.height - 2 * pad) / lineFactor;
           final width = measure(single, size);
           if (width > visual.width - 2 * pad && width > 0) {
             size *= (visual.width - 2 * pad) / width;
@@ -520,59 +530,48 @@ extension PdfFormFilling on PdfEditor {
       final resolvedDirection = field.quadding == 2
           ? PdfTextDirection.rtl
           : textDirection.resolve(rawText);
+      final align = switch (field.quadding) {
+        1 => PdfTextAlign.center,
+        2 => PdfTextAlign.right,
+        _ => resolvedDirection == PdfTextDirection.rtl
+            ? PdfTextAlign.right
+            : PdfTextAlign.left,
+      };
       final writer = ContentWriter()..raw('/Tx BMC');
       _beginWidgetOrientation(writer, w, h, rotation);
       writer.save();
       _paintWidgetDecorations(writer, widget, visual);
+      // The clip is inset a point from the box (not the text padding), so it is
+      // emitted here and the shared builder runs with its own clip disabled.
       writer
         ..rect(visual.left + 1, visual.bottom + 1, visual.width - 2,
             visual.height - 2)
-        ..clip()
-        ..beginText();
-      if (da.colorOps.isNotEmpty) writer.raw(da.colorOps);
-      writer.font(da.fontName, size);
-
-      // first baseline: vertically centered for one line, top-anchored
-      // for multiline (Helvetica-class ascent is 0.718 em)
-      final ascent = size * 0.718;
-      var prevX = 0.0;
-      var prevY = 0.0;
-      final firstY = multiline
-          ? visual.top - pad - ascent
-          : visual.bottom +
-              ((visual.height - ascent) / 2 < pad
-                  ? pad
-                  : (visual.height - ascent) / 2);
-      for (var i = 0; i < lines.length; i++) {
-        final lineWidth = measure(lines[i], size);
-        final x = switch (field.quadding) {
-          1 => visual.left +
-              ((visual.width - lineWidth) / 2 < pad
-                  ? pad
-                  : (visual.width - lineWidth) / 2),
-          2 => visual.right - pad - lineWidth < visual.left + pad
-              ? visual.left + pad
-              : visual.right - pad - lineWidth,
-          _ when resolvedDirection == PdfTextDirection.rtl =>
-            visual.right - pad - lineWidth < visual.left + pad
-                ? visual.left + pad
-                : visual.right - pad - lineWidth,
-          _ => visual.left + pad,
-        };
-        final y = firstY - i * size * 1.15;
-        final renderedText = pdfVisualText(lines[i], resolvedDirection);
-        writer.textAt(x - prevX, y - prevY);
-        if (embedded != null) {
-          writer.showGlyphHex(embedded.encodeHex(renderedText));
-        } else {
-          writer.showText(renderedText);
-        }
-        prevX = x;
-        prevY = y;
-      }
-      writer
-        ..endText()
-        ..restore();
+        ..clip();
+      writePdfTextBox(
+        writer,
+        visual,
+        lines,
+        font: font,
+        fontSize: size,
+        align: align,
+        padding: pad,
+        lineHeight: size * lineFactor,
+        vAlign:
+            multiline ? PdfTextBoxVAlign.top : PdfTextBoxVAlign.centerLine,
+        clip: false,
+        clampAlign: true,
+        measureLine: (s) => measure(s, size),
+        writeColor: (w) => w.raw(da.colorOps),
+        emitLine: (w, line) {
+          final rendered = pdfVisualText(line, resolvedDirection);
+          if (embedded != null) {
+            w.showGlyphHex(embedded.encodeHex(rendered));
+          } else {
+            w.showText(rendered);
+          }
+        },
+      );
+      writer.restore();
       _endWidgetOrientation(writer, rotation);
       writer.raw('EMC');
 
@@ -682,8 +681,10 @@ extension PdfFormFilling on PdfEditor {
   }
 
   /// Installs [form] as the widget's /AP /N, preserving other /AP entries
-  /// (down/rollover appearances) when present.
-  void _setNormalAppearance(CosDictionary widget, CosStream form) {
+  /// (down/rollover appearances) when present. Returns the form's reference
+  /// so callers can reuse the one appearance stream (e.g. repeating a
+  /// signature box on several pages).
+  CosReference _setNormalAppearance(CosDictionary widget, CosStream form) {
     final ref = _updater.addObject(form);
     final ap = document.cos.resolve(widget['AP']);
     if (ap is CosDictionary) {
@@ -691,6 +692,7 @@ extension PdfFormFilling on PdfEditor {
     } else {
       widget['AP'] = CosDictionary({'N': ref});
     }
+    return ref;
   }
 
   // ---------------------------------------------------------------------
@@ -748,22 +750,39 @@ extension PdfFormFilling on PdfEditor {
 
   /// Text width in user units: explicit /Widths when the font has them,
   /// otherwise Helvetica metrics (the dominant /DR font family).
-  double _measureFieldText(CosDictionary? font, String text, double size) {
+  /// A font's /FirstChar plus its /Widths flattened to plain doubles, or null
+  /// when the font carries no usable metrics.
+  (int, List<double>)? _fieldWidthMetrics(CosDictionary font) {
+    final cos = document.cos;
+    final widths = cos.resolve(font['Widths']);
+    final first = cos.resolve(font['FirstChar']);
+    if (widths is! CosArray || first is! CosInteger) return null;
+    return (
+      first.value,
+      <double>[
+        for (final item in widths.items)
+          switch (cos.resolve(item)) {
+            CosInteger(:final value) => value.toDouble(),
+            CosReal(:final value) => value,
+            // Matches the per-character fallback this replaces: a missing or
+            // non-numeric entry measures as 500.
+            _ => 500.0,
+          },
+      ],
+    );
+  }
+
+  double _measureFieldText(CosDictionary? font, String text, double size,
+      {(int, List<double>)? widths}) {
     final cos = document.cos;
     if (font != null) {
-      final widths = cos.resolve(font['Widths']);
-      final first = cos.resolve(font['FirstChar']);
-      if (widths is CosArray && first is CosInteger) {
+      final metrics = widths ?? _fieldWidthMetrics(font);
+      if (metrics != null) {
+        final (first, table) = metrics;
         var total = 0.0;
         for (final code in text.codeUnits) {
-          final index = code - first.value;
-          double? width;
-          if (index >= 0 && index < widths.length) {
-            final n = cos.resolve(widths[index]);
-            if (n is CosInteger) width = n.value.toDouble();
-            if (n is CosReal) width = n.value;
-          }
-          total += width ?? 500;
+          final index = code - first;
+          total += index >= 0 && index < table.length ? table[index] : 500;
         }
         return total * size / 1000;
       }
@@ -773,31 +792,6 @@ extension PdfFormFilling on PdfEditor {
       }
     }
     return measureHelvetica(text, size);
-  }
-
-  /// Greedy word wrap using [measure]; a single overlong word overflows
-  /// (and is clipped by the appearance).
-  List<String> _wrapWith(
-    double Function(String, double) measure,
-    String text,
-    double fontSize,
-    double maxWidth,
-  ) {
-    final lines = <String>[];
-    for (final paragraph in text.split('\n')) {
-      var line = '';
-      for (final word in paragraph.split(' ')) {
-        final candidate = line.isEmpty ? word : '$line $word';
-        if (line.isNotEmpty && measure(candidate, fontSize) > maxWidth) {
-          lines.add(line);
-          line = word;
-        } else {
-          line = candidate;
-        }
-      }
-      lines.add(line);
-    }
-    return lines;
   }
 
   // ---------------------------------------------------------------------
@@ -868,4 +862,24 @@ extension PdfFormFilling on PdfEditor {
       _updater.markChanged(document.catalog);
     }
   }
+}
+
+/// Adapts a variable-text field's /DA font to [PdfTextFont] for the shared
+/// text-box builder. The [resourceName] and [ascent] drive the appearance's
+/// /Font selection and baseline; measurement stays on the field's own /Widths
+/// (or the base-14 fallback) through the [_measure] closure so wrapping and
+/// alignment match exactly what the simple-font path drew before.
+class _DaFieldFont implements PdfTextFont {
+  _DaFieldFont(this.resourceName, this.ascent, this._measure);
+
+  @override
+  final String resourceName;
+
+  @override
+  final int ascent;
+
+  final double Function(String text, double fontSize) _measure;
+
+  @override
+  double measure(String text, double fontSize) => _measure(text, fontSize);
 }

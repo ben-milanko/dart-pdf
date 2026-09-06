@@ -1,0 +1,19 @@
+pkgbase = dartpdf-bin
+	pkgdesc = Edit, annotate, sign, and fill in PDFs - a private, local PDF editor (prebuilt binary)
+	pkgver = 4.0.0
+	pkgrel = 1
+	url = https://dart-pdf.com
+	arch = x86_64
+	license = Apache-2.0
+	depends = gtk3
+	depends = libsecret
+	optdepends = org.freedesktop.secrets: store digital-signing identities in a keyring
+	provides = dartpdf
+	conflicts = dartpdf
+	options = !strip
+	source = dartpdf-4.0.0.tar.gz::https://github.com/ben-milanko/dart-pdf/releases/download/app-v4.0.0/dartpdf-linux-x64.tar.gz
+	source = LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v4.0.0/LICENSE
+	sha256sums = a76ef546a97a03c4aee3b063652394d13b69cc33aa10dd9711fe08d0e7711cb8
+	sha256sums = cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
+pkgname = dartpdf-bin

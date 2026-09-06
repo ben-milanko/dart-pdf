@@ -15,12 +15,36 @@ ReleaseInfo _release(String tag) => ReleaseInfo(
       assets: const {},
     );
 
+ReleaseInfo _nightlyRelease({
+  String commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+}) =>
+    ReleaseInfo(
+      version: const AppVersion(1, 3, 0),
+      tagName: dartPdfNightlyTag,
+      name: 'DartPDF nightly',
+      notes: '',
+      htmlUrl: 'https://example.test/nightly',
+      assets: const {
+        'dartpdf-nightly-windows-installer.exe':
+            'https://example.test/nightly.exe',
+      },
+      isNightly: true,
+      commitSha: commit,
+    );
+
 UpdateService _fakeService({
   required String current,
   required List<ReleaseInfo> releases,
+  String currentBuildCommit = 'unknown',
+  // Update checks are a desktop-only feature (mobile updates through the app
+  // stores), and widget tests default to the Android target platform, so pin a
+  // desktop platform to exercise the update UI.
+  TargetPlatform platform = TargetPlatform.macOS,
 }) =>
     UpdateService(
       currentVersion: current,
+      currentBuildCommit: currentBuildCommit,
+      platform: platform,
       fetcher: () async => releases,
     );
 
@@ -50,10 +74,11 @@ void main() {
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('settings-check-updates')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('settings-check-updates')), findsOneWidget);
 
-    await tester.ensureVisible(
-        find.byKey(const ValueKey('settings-check-updates')));
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('settings-check-updates')));
     await tester.tap(find.byKey(const ValueKey('settings-check-updates')));
     await tester.pumpAndSettle();
 
@@ -68,8 +93,7 @@ void main() {
     expect(find.textContaining('1.3.0'), findsWidgets);
   });
 
-  testWidgets('Settings says up to date when nothing is newer',
-      (tester) async {
+  testWidgets('Settings says up to date when nothing is newer', (tester) async {
     final updates =
         _fakeService(current: '1.3.0', releases: [_release('app-v1.3.0')]);
     addTearDown(updates.dispose);
@@ -84,8 +108,8 @@ void main() {
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(
-        find.byKey(const ValueKey('settings-check-updates')));
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('settings-check-updates')));
     await tester.tap(find.byKey(const ValueKey('settings-check-updates')));
     await tester.pumpAndSettle();
 
@@ -93,6 +117,78 @@ void main() {
     expect(
       find.byKey(const ValueKey('settings-download-update')),
       findsNothing,
+    );
+  });
+
+  testWidgets('Windows Settings can opt into nightly update notifications',
+      (tester) async {
+    final updates = _fakeService(
+      current: '1.3.0',
+      currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      releases: [_nightlyRelease()],
+      platform: TargetPlatform.windows,
+    );
+    addTearDown(updates.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(prefs: prefs, updateService: updates),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    final toggle = find.byKey(const ValueKey('settings-nightly-updates'));
+    expect(toggle, findsOneWidget);
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(updates.nightlyUpdates, isTrue);
+    expect(updates.status, UpdateStatus.updateAvailable);
+    expect(
+      find.byKey(const ValueKey('settings-update-available')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('nightly (aaaaaaa)'), findsWidgets);
+
+    final store = await SharedPreferences.getInstance();
+    expect(
+      store.getBool('dart_pdf_editor_app.update.nightly'),
+      isTrue,
+    );
+  });
+
+  testWidgets('nightly opt-in participates in the startup update banner',
+      (tester) async {
+    final updates = _fakeService(
+      current: '1.3.0',
+      currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      releases: [_nightlyRelease()],
+      platform: TargetPlatform.windows,
+    );
+    addTearDown(updates.dispose);
+    await updates.setNightlyUpdates(true);
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        updateService: updates,
+        autoCheckUpdates: true,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('update-available-banner')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('nightly (aaaaaaa)'), findsOneWidget);
+    expect(
+      updates.downloadAssetName,
+      'dartpdf-nightly-windows-installer.exe',
     );
   });
 
@@ -149,4 +245,55 @@ void main() {
       findsNothing,
     );
   });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('no startup banner on ${platform.name} (updates via the store)',
+        (tester) async {
+      final updates = _fakeService(
+        current: '1.2.0',
+        releases: [_release('app-v1.3.0')],
+        platform: platform,
+      );
+      addTearDown(updates.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          updateService: updates,
+          autoCheckUpdates: true,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('update-available-banner')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('Settings hides the Updates section on ${platform.name}',
+        (tester) async {
+      final updates = _fakeService(
+        current: '1.2.0',
+        releases: [_release('app-v1.3.0')],
+        platform: platform,
+      );
+      addTearDown(updates.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(prefs: prefs, updateService: updates),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('settings-check-updates')),
+        findsNothing,
+      );
+    });
+  }
 }

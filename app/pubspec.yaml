@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 1.4.6+16
+version: 4.2.0+35
 
 environment:
   sdk: ^3.5.0
@@ -14,38 +14,73 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Localized message formatting (ICU plurals/select, DateFormat/NumberFormat)
+  # and the generated AppLocalizations bundle. Pinned to the version
+  # flutter_localizations resolves against Flutter 3.47.0.
+  intl: ^0.20.2
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^1.4.6
-  pdf_document: ^1.4.6
+  dart_pdf_editor: ^4.2.0
+  # Optional Impeller-backed renderer for the existing deep-zoom tile store.
+  # Its web export is an inert capability stub and Canvas remains the fallback.
+  dart_pdf_editor_flutter_gpu: ^0.3.1
+  # The optional editor fonts + web render worker; registered at startup so the
+  # app keeps the full-featured editor. A viewer-only app would omit this.
+  dart_pdf_editor_assets: ^4.2.0
+  pdf_document: ^4.2.0
+  pdf_cos: ^4.2.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^1.4.6
+  pdf_ocr_ondevice: ^4.2.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
-  share_plus: ^13.2.0
+  # Depended on directly, not just through file_selector: DartPDF swaps in its
+  # own Windows dialog implementation (lib/windows_file_dialogs.dart) because
+  # the plugin needs a Flutter view the multi-window runner never creates.
+  file_selector_platform_interface: ^2.7.0
+  share_plus: ^13.3.0
   url_launcher: ^6.3.0
-  # Hands a finished PDF to the OS print dialog (iOS, Android, macOS, Windows,
-  # Linux, and the web). The engine here only renders pages, so the document
-  # bytes are printed verbatim - no re-layout.
-  printing: ^5.13.0
+  # Printing has no third-party PDF engine. Where the OS can print a PDF
+  # natively (iOS/macOS via CoreGraphics, Android via PrintManager, the browser
+  # on web) the document's own vector content is handed straight over - crisp
+  # and selectable. Windows and Linux have no native PDF-print API, so there we
+  # render each page with our own engine and stream a raster. This drops the
+  # `printing` plugin, whose desktop backend crashed on some of our
+  # broken-but-renderable inputs via its bundled PDFium (see lib/printing.dart,
+  # lib/native_print*.dart, and the per-platform runners).
   shared_preferences: ^2.3.0
+  # On-device document scanner (phones/tablets only): Google ML Kit's Document
+  # Scanner on Android, VisionKit on iOS. Powers "Scan to new document" and
+  # "Insert scan"; captured pages are stitched into a PDF by our own
+  # PdfImageDocument. Guarded behind a mobile-only conditional import
+  # (doc_scan.dart) so desktop/web builds don't reference it.
+  flutter_doc_scanner: ^0.0.21
   # Snapshots mobile picks into the app's private store so Recent entries and
   # the last session can be reopened without a fresh pick (see pdf_cache.dart).
   path_provider: ^2.1.6
   # Content-addresses those snapshots so reopening the same PDF reuses one file.
   crypto: ^3.0.0
-  desktop_drop: ^0.7.0
+  desktop_drop: ^0.8.0
   # Polls GitHub Releases for a newer build (in-app update checker). Works on
   # the web build too, though the updater skips the check there.
   http: ^1.2.0
   # Reads the version stamped into the build artifact (derived from the
   # pubspec version above), so the About box can't drift from the release.
-  package_info_plus: ^10.2.0
+  package_info_plus: ^10.2.1
   web: ^1.1.1
+  # The camera source for the image tool on phones and tablets - the OS file
+  # picker cannot offer one (see lib/image_source_picker.dart). Needs
+  # NSCameraUsageDescription in ios/Runner/Info.plist.
+  image_picker: ^1.2.3
+  # Re-encodes a camera capture whose EXIF says it is rotated: PDF embeds JPEG
+  # bytes verbatim and has no orientation tag, so the rotation has to be baked
+  # into the pixels (lib/camera_capture.dart).
+  image: ^4.9.2
 
 dev_dependencies:
   flutter_test:
@@ -53,21 +88,59 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Builds the Microsoft Store MSIX from the `flutter build windows` output
+  # (`dart run msix:create --store`). Windows-only at run time; it is a
+  # dev-dependency so `msix_config` below travels with the app.
+  msix: ^3.16.8
   # Only used by tool/screenshots_main.dart (not by lib/) to borrow the
   # example's feature-showcase document for marketing screenshots.
   pdf_viewer_example:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^1.4.6
+  pdf_test_fixtures: ^4.2.0
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^1.4.6
-  file_selector_platform_interface: ^2.7.0
+  pdf_graphics: ^4.2.0
+  # Points the crash-recovery store at a temp directory so its append/truncate
+  # behaviour can be tested against a real filesystem (see
+  # test/unsaved_changes_store_io_test.dart).
+  path_provider_platform_interface: ^2.1.3
+  # Lets the widget tests stand in for the camera the way they already stand in
+  # for the file picker.
+  image_picker_platform_interface: ^2.11.1
+
+# Microsoft Store MSIX packaging. Only the account-neutral settings live here;
+# the three Partner Center identity values (identity_name, publisher,
+# publisher_display_name) are passed on the command line by
+# packaging/msstore/build-msix.ps1 so this file carries no placeholder identity
+# that would silently build a package the Store rejects.
+#
+# `store: true` makes msix skip signing - the Store re-signs submissions with
+# the publisher's own certificate, so a locally-signed package is rejected.
+msix_config:
+  display_name: DartPDF
+  # 1024x1024 source; msix derives the whole tile/logo matrix from it.
+  logo_path: ../doc/icon-1024.png
+  # The MSIX manifest is how Windows learns about the association at install
+  # time (see RELEASING.md "File associations"); the NSIS installer does the
+  # equivalent through the registry.
+  file_extension: .pdf
+  # Update checks, and the TSA/OCSP/Fulcio calls made when signing.
+  capabilities: internetClient
+  architecture: x64
+  output_name: dartpdf-windows-store
+  store: true
+  # The workflow runs `flutter build windows` itself so it can pass
+  # --build-name/--build-number like every other job in release-app.yml.
+  build_windows: false
 
 flutter:
   uses-material-design: true
+  # Generate the AppLocalizations bundle from lib/l10n (see l10n.yaml). The
+  # generated Dart is checked in so builds/CI need no extra codegen step.
+  generate: true
   assets:
     - web/favicon.png
     - web/icons/Icon-512.png

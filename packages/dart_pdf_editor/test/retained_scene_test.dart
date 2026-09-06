@@ -9,7 +9,6 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -67,6 +66,156 @@ void main() {
 
       scene.dispose();
       picture.dispose();
+    });
+  });
+
+  testWidgets('retained scene exposes its already-decoded images',
+      (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final scene = await PdfRetainedScene.record(page);
+      addTearDown(scene.dispose);
+      final imageCommand =
+          scene.commands.whereType<PdfDrawImageCommand>().first;
+      final image = scene.imageFor(imageCommand.request);
+      expect(image, isNotNull);
+      expect(image!.width, greaterThan(0));
+      expect(image.height, greaterThan(0));
+    });
+  });
+
+  testWidgets(
+      'cached local scene can recover portable pixels for accelerated upload',
+      (tester) async {
+    await tester.runAsync(() async {
+      PdfImageCache.instance.clear();
+      addTearDown(PdfImageCache.instance.clear);
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final warm = await PdfRetainedScene.record(page);
+      warm.dispose();
+
+      final scene = await PdfRetainedScene.record(
+        page,
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final request =
+          scene.commands.whereType<PdfDrawImageCommand>().first.request;
+
+      expect(request.decoded, isNotNull);
+      expect(request.decoded!.width, scene.imageFor(request)!.width);
+      expect(request.decoded!.height, scene.imageFor(request)!.height);
+
+      scene.releaseDecodedImagePixels();
+      expect(request.decoded, isNull);
+      expect(scene.imageFor(request), isNotNull,
+          reason: 'Canvas replay keeps the engine image after CPU release');
+    });
+  });
+
+  testWidgets('local retained scenes can be re-recorded for overprint retry',
+      (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final source = await PdfRetainedScene.record(
+        page,
+        maxImagePixelRatio: 1.5,
+        imageDecodeHeadroom: 1,
+      );
+      final retryFuture = source.rerecordWithOverprintMaxDimension(768);
+      expect(retryFuture, isNotNull);
+      final retry = await retryFuture!;
+      expect(retry.page, same(source.page));
+      expect(retry.plan, same(source.plan));
+      expect(retry.commands.length, source.commands.length);
+
+      final imported = await PdfRetainedScene.fromCommands(
+        page,
+        source.commands,
+        includeImages: false,
+      );
+      final completeImported = await PdfRetainedScene.fromCommands(
+        page,
+        source.commands,
+        allowOverprintRerecord: true,
+      );
+      final filtered = await PdfRetainedScene.record(
+        page,
+        skipAnnotation: (_) => false,
+      );
+      expect(imported.rerecordWithOverprintMaxDimension(768), isNull);
+      final importedRetryFuture =
+          completeImported.rerecordWithOverprintMaxDimension(768);
+      expect(importedRetryFuture, isNotNull);
+      final importedRetry = await importedRetryFuture!;
+      expect(filtered.rerecordWithOverprintMaxDimension(768), isNull);
+
+      filtered.dispose();
+      importedRetry.dispose();
+      completeImported.dispose();
+      imported.dispose();
+      retry.dispose();
+      source.dispose();
+    });
+  });
+
+  testWidgets('retained scene releases uploaded worker RGBA', (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final source = await PdfRetainedScene.record(page);
+      final original = source.commands.whereType<PdfDrawImageCommand>().first;
+      final request = PdfImageRequest(
+        stream: original.request.stream,
+        transform: original.request.transform,
+        alpha: original.request.alpha,
+        isStencil: original.request.isStencil,
+        stencilColor: original.request.stencilColor,
+        isInline: original.request.isInline,
+        sourceReference: original.request.sourceReference,
+        decoded: PdfDecodedPixels(Uint8List.fromList([255, 0, 0, 255]), 1, 1),
+      );
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [PdfDrawImageCommand(request)],
+      );
+      addTearDown(source.dispose);
+      addTearDown(scene.dispose);
+
+      expect(request.decoded, isNull,
+          reason: 'the engine image now owns the uploaded pixels');
+      expect(request.decodedWidth, 1);
+      expect(request.decodedHeight, 1);
+      final image = scene.imageFor(request);
+      expect(image, isNotNull);
+      expect(image!.width, 1);
+      expect(image.height, 1);
+    });
+  });
+
+  testWidgets('disposing an uncompiled GPU scene releases worker RGBA',
+      (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final source = await PdfRetainedScene.record(page);
+      addTearDown(source.dispose);
+      final original = source.commands.whereType<PdfDrawImageCommand>().first;
+      final request = PdfImageRequest(
+        stream: original.request.stream,
+        transform: original.request.transform,
+        decoded: PdfDecodedPixels(Uint8List.fromList([255, 0, 0, 255]), 1, 1),
+      );
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [PdfDrawImageCommand(request)],
+        retainDecodedPixels: true,
+      );
+
+      expect(request.decoded, isNotNull,
+          reason: 'the direct-upload backend still owns the worker payload');
+      scene.dispose();
+      expect(request.decoded, isNull,
+          reason: 'an evicted speculative scene may never compile a GPU '
+              'session, so disposal must close the ownership path');
     });
   });
 
@@ -145,6 +294,11 @@ void main() {
       expect(scene.debugRegionReplayUnitCount, 3,
           reason: 'the clipped-away and far-right paints are not indexed');
       expect(scene.debugRegionReplayEstimatedBytes, lessThan(512));
+      final selected = scene.selectRegion(region)!;
+      expect(selected.map((unit) => unit.commandIndex), [2, 6]);
+      expect(selected.first.clips?.command, same(commands[1]));
+      expect(selected.first.blendMode, PdfBlendMode.normal);
+      expect(selected.last.blendMode, PdfBlendMode.multiply);
       scene.dispose();
       expect(scene.debugHasRegionReplayIndex, isFalse,
           reason: 'disposing the scene releases retained index metadata');
@@ -155,8 +309,11 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       final previousMax = PdfRetainedScene.spatialRegionReplayMaxCommands;
-      addTearDown(
-          () => PdfRetainedScene.spatialRegionReplayMaxCommands = previousMax);
+      final previousGridMax = PdfRetainedScene.spatialGridReplayMaxCommands;
+      addTearDown(() {
+        PdfRetainedScene.spatialRegionReplayMaxCommands = previousMax;
+        PdfRetainedScene.spatialGridReplayMaxCommands = previousGridMax;
+      });
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final grouped = await PdfRetainedScene.fromCommands(
         page,
@@ -181,25 +338,25 @@ void main() {
       expect(grouped.debugLastRegionReplayWasSelective, isFalse);
       expect(grouped.debugRegionReplaySupported, isFalse);
 
+      // Over BOTH ceilings (linear and grid): genuine full-replay fallback.
       PdfRetainedScene.spatialRegionReplayMaxCommands = 1;
-      final bounded = await PdfRetainedScene.fromCommands(
-        page,
-        [
-          PdfFillPathCommand(
-            _rectPath(20, 650, 100, 740),
-            const PdfColor(1, 0, 0),
-            PdfFillRule.nonzero,
-            1,
-          ),
-          PdfFillPathCommand(
-            _rectPath(420, 650, 500, 740),
-            const PdfColor(0, 0, 1),
-            PdfFillRule.nonzero,
-            1,
-          ),
-        ],
-        includeImages: false,
-      );
+      PdfRetainedScene.spatialGridReplayMaxCommands = 1;
+      final commands = [
+        PdfFillPathCommand(
+          _rectPath(20, 650, 100, 740),
+          const PdfColor(1, 0, 0),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rectPath(420, 650, 500, 740),
+          const PdfColor(0, 0, 1),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ];
+      final bounded = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: false);
       addTearDown(bounded.dispose);
       final boundedImage = await bounded.rasterizeRegion(
         const Rect.fromLTWH(0, 0, 220, 220),
@@ -208,6 +365,20 @@ void main() {
       boundedImage.dispose();
       expect(bounded.debugLastRegionReplayWasSelective, isFalse);
       expect(bounded.debugRegionReplaySupported, isFalse);
+
+      // Over the linear ceiling but UNDER the grid ceiling: escalates to the
+      // grid spatial index rather than full-replaying the transcript.
+      PdfRetainedScene.spatialGridReplayMaxCommands = 1000;
+      final escalated = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: false);
+      addTearDown(escalated.dispose);
+      final escalatedImage = await escalated.rasterizeRegion(
+        const Rect.fromLTWH(0, 0, 220, 220),
+        pixelRatio: 2,
+      );
+      escalatedImage.dispose();
+      expect(escalated.debugRegionReplaySupported, isTrue);
+      expect(escalated.debugLastRegionReplayWasSelective, isTrue);
     });
   });
 }

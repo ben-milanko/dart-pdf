@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
@@ -52,10 +51,24 @@ void main() {
   testWidgets('comparison view lists changes and toggles mode', (tester) async {
     final before = _textPdf('the quick brown fox');
     final after = _textPdf('the quick red fox');
+    const rasterPolicy = PdfPageRasterCachePolicy(
+      maxBytes: 256 * 1024 * 1024,
+      maxEntryBytes: 64 * 1024 * 1024,
+    );
+    const lodPolicy = PdfPagePreviewLodPolicy(
+      intermediateLongestSides: [360, 720],
+    );
+    final tileBackend = _TestTileBackend();
 
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-        body: PdfComparisonView(before: before, after: after),
+        body: PdfComparisonView(
+          before: before,
+          after: after,
+          pagePreviewLodPolicy: lodPolicy,
+          pageRasterCachePolicy: rasterPolicy,
+          tileRasterBackend: tileBackend,
+        ),
       ),
     ));
     // build() runs after the first frame and notifies the navigator.
@@ -65,6 +78,24 @@ void main() {
     // Both panes mount in side-by-side mode.
     expect(find.byKey(const ValueKey('pdf-compare-before')), findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-compare-after')), findsOneWidget);
+    expect(
+      tester
+          .widgetList<PdfViewer>(find.byType(PdfViewer))
+          .map((viewer) => viewer.pageRasterCachePolicy),
+      everyElement(rasterPolicy),
+    );
+    expect(
+      tester
+          .widgetList<PdfViewer>(find.byType(PdfViewer))
+          .map((viewer) => viewer.pagePreviewLodPolicy),
+      everyElement(lodPolicy),
+    );
+    expect(
+      tester
+          .widgetList<PdfViewer>(find.byType(PdfViewer))
+          .map((viewer) => viewer.tileRasterBackend),
+      everyElement(same(tileBackend)),
+    );
 
     // The navigator lists the replaced text.
     expect(find.byKey(const ValueKey('pdf-diff-change-0')), findsOneWidget);
@@ -74,7 +105,26 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('pdf-compare-overlay')), findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-compare-before')), findsNothing);
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).pageRasterCachePolicy,
+      rasterPolicy,
+    );
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).pagePreviewLodPolicy,
+      lodPolicy,
+    );
+    expect(tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+        same(tileBackend));
   });
+}
+
+class _TestTileBackend extends PdfTileRasterBackend {
+  @override
+  String get debugLabel => 'comparison-test';
+
+  @override
+  PdfTileRasterSession createSession(PdfRetainedScene scene) =>
+      const PdfCanvasTileRasterBackend().createSession(scene);
 }
 
 /// A one-page 612×792 PDF drawing [text] at 72,720 in 18pt Helvetica.

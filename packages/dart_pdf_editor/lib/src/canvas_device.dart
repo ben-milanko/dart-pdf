@@ -1,12 +1,39 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'budgeted_cache.dart';
+import 'font_substitution.dart';
 import 'image_decoder.dart';
+import 'perf_log.dart';
+
+const _redToAlpha = <double>[
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+];
 
 /// Paints interpreter callbacks onto a Flutter [Canvas].
 ///
@@ -15,10 +42,52 @@ import 'image_decoder.dart';
 /// fonts, horizontally scaled to the PDF's own metrics, until the font
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
-class CanvasPdfDevice implements PdfDevice {
-  CanvasPdfDevice(this.canvas, {this.images = const {}});
+class CanvasPdfDevice
+    implements
+        PdfDevice,
+        PdfTiledCellSink,
+        PdfTextBatchSink,
+        PdfTransparencyGroupDevice {
+  CanvasPdfDevice(this.canvas, {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
+
+  /// Device pixels per page unit at the scale this device is painting for.
+  ///
+  /// Only used to floor stroke widths at one device pixel (see
+  /// [strokeWidthFor]). 1 is the identity assumption for a picture recorded
+  /// without a known target scale.
+  ///
+  /// 0 (or any non-positive value) turns the floor off, which is what a
+  /// picture that is deliberately replayed at *several* scales wants when its
+  /// widths are meaningful page-space measurements rather than "as thin as the
+  /// device can draw" - the annotation appearance picture (#660).
+  final double pixelRatio;
+
+  /// Stroke width to paint, never thinner than one device pixel.
+  ///
+  /// Skia paints a stroke narrower than a pixel as a one-pixel line with its
+  /// **alpha scaled down** by the sub-pixel width, rather than as a true
+  /// sub-pixel band. Faithful to Skia, but not to the page: CAD and schematic
+  /// producers emit 0.06 pt / 0.12 pt lines meaning "hairline", and those came
+  /// out at ~6% and ~12% opacity - the pale, washed-out linework this floor
+  /// fixes. Reference viewers paint them as solid one-pixel lines.
+  ///
+  /// A width of 0 arrives here unchanged from the interpreter and is floored
+  /// the same way, which is PDF 32000-1 8.4.3.2's "thinnest line that can be
+  /// rendered at device resolution: 1 device pixel" - and, unlike the old
+  /// user-space resolution, it stays one pixel at every zoom.
+  @visibleForTesting
+  double strokeWidthFor(double width) {
+    if (pixelRatio <= 0) return width;
+    // 0 is Skia's hairline: exactly one device pixel at *any* canvas
+    // transform, at full alpha. That matters because a recorded picture is
+    // replayed at several ratios (base raster, deep-zoom detail patch,
+    // retained scene), so a page-space floor baked at record time would be
+    // right for one of them and too thick for the rest. A hairline is correct
+    // for all of them.
+    return width * pixelRatio < 1 ? 0 : width;
+  }
 
   /// Decoded images keyed by [pdfImageKey] — stream identity for XObjects,
   /// value identity for inline images.
@@ -27,8 +96,74 @@ class CanvasPdfDevice implements PdfDevice {
   /// Process-wide cache of laid-out substituted-text painters. Shaping is the
   /// dominant paint-pass cost and the same runs recur across pages and
   /// re-renders, so this is shared by every render (like the decoded-image
-  /// cache). Clear it under memory pressure with [clearTextLayoutCache].
-  static final _textCache = _TextLayoutCache();
+  /// cache). Keyed by (text, font, colour); bounded by entry count, evicting
+  /// the least-recently-used layout and disposing its painter. Registered with
+  /// [PdfCacheRegistry] so a memory-pressure signal reaches it too (it used to
+  /// be deaf to pressure); [clearTextLayoutCache] drops it on demand.
+  static final PdfBudgetedCache<String, _TextLayout> _textCache =
+      PdfBudgetedCache<String, _TextLayout>(
+    maxEntries: 2048,
+    disposer: (layout) => layout.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'text-layout',
+  );
+
+  /// Per-character layout cache backing [perGlyphSubstitutedText] (#454): a
+  /// single laid-out [TextPainter] per (character, font, colour). A run of
+  /// unique labels shares the same handful of digits/letters, so this hits
+  /// near-100% where the run cache misses every time. Small (an alphabet, not a
+  /// corpus of runs), so its bound is generous and it rarely evicts - which also
+  /// keeps the transient composed runs that reference it safe.
+  static final PdfBudgetedCache<String, _TextLayout> _glyphCache =
+      PdfBudgetedCache<String, _TextLayout>(
+    maxEntries: 4096,
+    disposer: (layout) => layout.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'glyph-layout',
+  );
+
+  /// Compose substituted-font runs from cached per-character layouts instead of
+  /// shaping the whole run (#454). Unique labels (which miss the run cache and
+  /// re-shape every time - the replay-bound CAD pathology) then reuse
+  /// per-character shaping and drop toward the warm-cache floor. Restricted to
+  /// pure-fill runs whose text has no kernable adjacency (see [_composableRun]);
+  /// everything else keeps whole-run shaping. On by default: a real-Chrome probe
+  /// across Helvetica/Arial/Courier put the composed-vs-whole-run pixel diff at
+  /// 0% for every run this gate admits (kerning-pair uppercase words, the only
+  /// divergent case, are excluded), so the speed-up carries no fidelity cost.
+  static bool perGlyphSubstitutedText = true;
+
+  /// Place substituted glyphs at the PDF's own per-character pen offsets
+  /// ([PdfTextRun.charOffsets]) instead of letting the substitute distribute
+  /// them (#649).
+  ///
+  /// The uniform horizontal scale that makes a substituted run's total advance
+  /// match the PDF pins the run's two endpoints and nothing in between, so
+  /// interior glyphs land wherever the substitute's own advances put them -
+  /// measured at up to 4.4pt of drift on a 77-character 12pt Helvetica line,
+  /// zero at both ends and worst mid-run. Everything geometric (selection
+  /// bands, search highlights, markup placed over a selection, content-element
+  /// hit boxes) derives from the PDF's advances, so all of it reads as offset
+  /// against the drawn glyphs by that much.
+  ///
+  /// Placing each character at its own offset makes the interior correct by
+  /// construction. It drops the substitute's cross-character kerning, which is
+  /// the point: a PDF expresses its kerning as TJ adjustments, those are
+  /// already in the offsets, and the substitute's own kerning is error.
+  static bool exactSubstitutedGlyphPlacement = true;
+
+  /// Coalesces adjacent embedded-outline text fills into one canvas path.
+  ///
+  /// A PDF frequently emits one text-show operator per short label. On the web
+  /// that otherwise becomes hundreds of Dart-to-CanvasKit `drawPath` calls;
+  /// same-colour opaque srcOver fills are order-independent and can share one
+  /// path without changing their page-space geometry. This remains opt-in:
+  /// Skia can rasterize a large combined path a few edge pixels differently
+  /// from separate paths even when their bounds do not overlap. The retained
+  /// replay layer must remain pixel-identical to direct interpretation by
+  /// default; benchmarks can enable this while evaluating a stricter gate.
+  @visibleForTesting
+  static bool batchEmbeddedTextOutlines = false;
 
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
@@ -37,11 +172,38 @@ class CanvasPdfDevice implements PdfDevice {
 
   /// Drops every cached text layout (memory pressure / tests). The
   /// decoded-image cache ([PdfImageCache]) is separate.
-  static void clearTextLayoutCache() => _textCache.clear();
+  static void clearTextLayoutCache() {
+    _textCache.clear();
+    _glyphCache.clear();
+  }
 
   /// Number of cached text layouts — test hook.
   @visibleForTesting
   static int get debugTextLayoutCacheLength => _textCache.length;
+
+  /// Number of cached per-character glyph layouts — test hook (#454).
+  @visibleForTesting
+  static int get debugGlyphLayoutCacheLength => _glyphCache.length;
+
+  /// Within-replay substituted-text shaping split (#454). [debugTextShapeUs] is
+  /// the time spent in cache-miss `TextPainter` layout — the "shaping" the
+  /// replay-bound CAD pages are made of — and [debugTextShapeMiss]/
+  /// [debugTextShapeHit] are the run-cache miss/hit counts (unique labels miss,
+  /// which is the whole problem). Only written while [PdfPerfLog.enabled]; the
+  /// replay caller resets before a replay and reads after. Static because the
+  /// device is constructed fresh per replay.
+  static int debugTextShapeUs = 0;
+  static int debugTextShapeMiss = 0;
+  static int debugTextShapeHit = 0;
+  static int debugTextPainterBuilds = 0;
+
+  /// Zeroes the shaping accumulators before a measured replay.
+  static void debugResetTextShape() {
+    debugTextShapeUs = 0;
+    debugTextShapeMiss = 0;
+    debugTextShapeHit = 0;
+    debugTextPainterBuilds = 0;
+  }
 
   /// Ordered fallbacks used for normal substituted text — test hook.
   @visibleForTesting
@@ -52,6 +214,17 @@ class CanvasPdfDevice implements PdfDevice {
   static bool debugReuseSolidPaints = true;
   @visibleForTesting
   static bool debugDrawSimpleLines = true;
+
+  /// Overprint fallback-compositing kill switch (the A/B baseline is "off").
+  /// Off, [setOverprint] still records the state but fills/strokes composite
+  /// normally, exactly as before overprint was consumed.
+  ///
+  /// This governs only the RGB stand-in below. Faithful overprint is resolved
+  /// upstream in the interpreter's colorant buffer (issue #502), which hands
+  /// this device an already-composited colour with the overprint flag cleared;
+  /// `PdfInterpreter.debugResolveOverprint` is that path's switch.
+  @visibleForTesting
+  static bool debugOverprintCompositing = true;
 
   BlendMode _blend = BlendMode.srcOver;
 
@@ -75,6 +248,9 @@ class CanvasPdfDevice implements PdfDevice {
   /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
   /// top entry tracks the group directly enclosing the next paint call.
   final _knockout = <bool>[];
+  final _groupLayerCounts = <int>[];
+  final _groupBackdrops = <PdfColor?>[];
+  final _softMaskBlends = <BlendMode>[];
 
   /// True when the next paint call is a top-level element of a knockout
   /// group, so it must replace rather than blend over the group result.
@@ -123,6 +299,112 @@ class CanvasPdfDevice implements PdfDevice {
     };
   }
 
+  bool _fillOverprint = false;
+  bool _strokeOverprint = false;
+
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    // [mode] (OPM 0/1) only distinguishes which DeviceCMYK components are
+    // written, which is a colorant-space question: it is acted on by
+    // PdfOverprintCompositor upstream and cannot be acted on here, so it is
+    // intentionally not stored. Empirically (issue #502) no fixed RGB blend
+    // that keys off OPM beats darken-always in this device: gating OPM-0 to a
+    // knockout fixes the "over CMYK" patches but reintroduces the fail-marker
+    // on the "over spot" patches (a separation colorant must survive the
+    // knockout), and vice-versa. See
+    // doc/dev-log/2026-07-23-overprint-rgb-ceiling.md.
+    _fillOverprint = fill;
+    _strokeOverprint = stroke;
+  }
+
+  /// Overprint (§8.6.7) is a subtractive colorant operation this RGB canvas
+  /// cannot reproduce exactly, so it is normally resolved before reaching here:
+  /// the interpreter's colorant buffer composites the draw in ink space and
+  /// delivers the resulting colour with the flag cleared (issue #502).
+  ///
+  /// The flag only survives to this device when the buffer declined - the
+  /// backdrop was an image, a gradient, a transparency group, or a colour space
+  /// with no colorant reading. Then the historical stand-in applies: the fill
+  /// composites with [BlendMode.darken] (per-channel min), which over a
+  /// coloured backdrop preserves the darker colorant channels and clips the
+  /// lighter ones, and over white is a no-op, so pages that set overprint
+  /// defensively over the page background are unaffected. An explicit blend
+  /// mode (/BM) or a knockout group takes precedence.
+  BlendMode get _fillElementBlend {
+    if (_knockoutActive) return BlendMode.src;
+    if (debugOverprintCompositing &&
+        _fillOverprint &&
+        _blend == BlendMode.srcOver) {
+      return BlendMode.darken;
+    }
+    return _blend;
+  }
+
+  /// Stroking (/OP) counterpart of [_fillElementBlend].
+  BlendMode get _strokeElementBlend {
+    if (_knockoutActive) return BlendMode.src;
+    if (debugOverprintCompositing &&
+        _strokeOverprint &&
+        _blend == BlendMode.srcOver) {
+      return BlendMode.darken;
+    }
+    return _blend;
+  }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    // Record the cell once as a sub-picture and stamp it per origin -
+    // PDFium's DrawPatternBitmap shape, on Skia's terms. Only when plain
+    // srcOver compositing is in effect: an active blend mode, knockout
+    // group, or overprint approximation must apply per paint primitive,
+    // which drawPicture cannot express - those (rare) states take the exact
+    // per-tile expansion instead.
+    if (_blend != BlendMode.srcOver ||
+        _knockoutActive ||
+        _fillOverprint ||
+        _strokeOverprint) {
+      for (var t = 0; t < command.originsX.length; t++) {
+        final dx = command.originsX[t], dy = command.originsY[t];
+        replayCommands(command.cellCommands,
+            dx == 0 && dy == 0 ? this : TranslatingPdfDevice(this, dx, dy));
+      }
+      return;
+    }
+    // The retained transcript replays this same command object every frame
+    // (and at every zoom bucket), so the sub-picture is cached against the
+    // command's identity: recorded once for its lifetime, GC'd with it.
+    // A picture is vector - stamping it is resolution-independent, so one
+    // recording serves every scale. (Cells with decoded images resolve them
+    // from this device's [images] at record time; the transcript cache
+    // replaces image-bearing commands wholesale on re-decode, so the cached
+    // picture can never hold a stale image.)
+    var picture = _tiledCellPictures[command.cellCommands];
+    if (picture == null) {
+      final recorder = ui.PictureRecorder();
+      final cell = CanvasPdfDevice(Canvas(recorder),
+          images: images, pixelRatio: pixelRatio);
+      replayCommands(command.cellCommands, cell);
+      picture = recorder.endRecording();
+      _tiledCellPictures[command.cellCommands] = picture;
+    }
+    for (var t = 0; t < command.originsX.length; t++) {
+      canvas.save();
+      canvas.translate(command.originsX[t], command.originsY[t]);
+      canvas.drawPicture(picture);
+      canvas.restore();
+    }
+  }
+
+  /// Cell sub-pictures keyed by the *cell command list* (not the command):
+  /// Type3 glyph stamping (#535) emits one single-origin command per glyph
+  /// occurrence, all sharing one recorded cell - keying by the list gives
+  /// every occurrence the same picture. An [Expando] so a picture lives
+  /// exactly as long as the transcript retaining the list does - transcripts
+  /// are already budgeted by the retained-record caches, and a cell picture
+  /// (a handful of ops) is negligible next to its command list.
+  static final Expando<ui.Picture> _tiledCellPictures = Expando();
+
   @override
   void beginGroup(double alpha, {bool knockout = false}) {
     canvas.saveLayer(
@@ -133,17 +415,92 @@ class CanvasPdfDevice implements PdfDevice {
         ..blendMode = _blend,
     );
     _knockout.add(knockout);
+    _groupLayerCounts.add(1);
+    _groupBackdrops.add(null);
+  }
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {
+    final rect = bounds == null
+        ? null
+        : Rect.fromLTRB(
+            math.min(bounds.left, bounds.right),
+            math.min(bounds.bottom, bounds.top),
+            math.max(bounds.left, bounds.right),
+            math.max(bounds.bottom, bounds.top),
+          );
+    // A top-level object of a knockout group always composites against that
+    // group's initial backdrop, not against siblings already accumulated.
+    final inherited = _knockoutActive && _groupBackdrops.isNotEmpty
+        ? _groupBackdrops.last
+        : backdropColor;
+    final seed = isolated ? null : inherited;
+    if (seed != null && rect != null) {
+      // saveLayer's bounds are only an allocation hint in Skia; BlendMode.src
+      // would otherwise replace the page with transparent pixels outside the
+      // group's BBox when the layer is restored. Clip before opening it so the
+      // replacement is confined to the form's actual group bounds.
+      canvas.clipRect(rect);
+      // Outer replacement layer: it will carry an already-backdrop-composited
+      // non-isolated result, so replace rather than blend it a second time.
+      canvas.saveLayer(rect, Paint()..blendMode = BlendMode.src);
+      canvas.drawRect(
+          rect,
+          Paint()
+            ..color = Color.from(
+                alpha: 1, red: seed.red, green: seed.green, blue: seed.blue));
+      // Inner source layer: the group's current blend and alpha apply to its
+      // composite as one object against the seeded initial backdrop.
+      canvas.saveLayer(
+        rect,
+        Paint()
+          ..color =
+              Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
+          ..blendMode = _blend,
+      );
+      _groupLayerCounts.add(2);
+    } else {
+      canvas.saveLayer(
+        rect,
+        Paint()
+          ..color =
+              Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
+          ..blendMode = _blend,
+      );
+      _groupLayerCounts.add(1);
+    }
+    _knockout.add(knockout);
+    _groupBackdrops.add(seed);
   }
 
   @override
   void endGroup() {
     _knockout.removeLast();
-    canvas.restore();
+    _groupBackdrops.removeLast();
+    final layers = _groupLayerCounts.removeLast();
+    for (var i = 0; i < layers; i++) {
+      canvas.restore();
+    }
   }
 
   @override
   void beginSoftMasked() {
-    canvas.saveLayer(null, Paint());
+    // A soft mask modifies the source object's shape/opacity before that
+    // object is composited with the backdrop (§11.6.5). Applying the object's
+    // blend mode to primitives drawn into this initially-transparent layer is
+    // observably different: Multiply can disappear and Screen can become an
+    // unmasked white source. Capture the source normally, then apply its blend
+    // mode when the completed masked source is restored onto the backdrop.
+    final compositeBlend = _blend;
+    canvas.saveLayer(null, Paint()..blendMode = compositeBlend);
+    _softMaskBlends.add(compositeBlend);
+    _blend = BlendMode.srcOver;
     // The mask group's content composites as one element of any enclosing
     // knockout group, through this layer — not element by element.
     _knockout.add(false);
@@ -179,6 +536,13 @@ class CanvasPdfDevice implements PdfDevice {
       double backdropLuminance = 0,
       double transferScale = 1,
       double transferOffset = 0}) {
+    // A soft-mask's transparency-group form starts with a fresh graphics
+    // state (§11.6.5.2), so its first paint is Normal even when the captured
+    // source ended in Multiply/Screen. The interpreter's mask closure carries
+    // only state changes made *inside* that fresh form; without this reset it
+    // inherited the source layer's last blend and could turn a white
+    // luminosity mask black against the /BC backdrop (GWG168 bevel/emboss).
+    _blend = BlendMode.srcOver;
     final hasTransfer = transferScale != 1 || transferOffset != 0;
     final paint = Paint()..blendMode = BlendMode.dstIn;
     if (luminosity) {
@@ -220,8 +584,13 @@ class CanvasPdfDevice implements PdfDevice {
   /// Second half of [endSoftMasked]'s compositing: composites the mask into
   /// the captured content (dstIn) and the masked content into the page.
   void finishSoftMaskComposite() {
+    // Mask interpretation can leave the device in one of the mask form's
+    // blend modes. Neither layer restoration should inherit that state: the
+    // content layer's restore paint already carries the source object's mode.
+    _blend = BlendMode.srcOver;
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
+    _blend = _softMaskBlends.removeLast();
     _knockout.removeLast();
   }
 
@@ -240,7 +609,7 @@ class CanvasPdfDevice implements PdfDevice {
       _toUiPath(path, rule),
       Paint()
         ..shader = _shaderFor(gradient)
-        ..blendMode = _elementBlend
+        ..blendMode = _fillElementBlend
         ..color =
             Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0),
     );
@@ -285,26 +654,23 @@ class CanvasPdfDevice implements PdfDevice {
     // BlendMode.dst keeps the vertex colors (paint is the src side of
     // this mode); the paint still carries the PDF blend mode
     canvas.drawVertices(
-        vertices, BlendMode.dst, Paint()..blendMode = _elementBlend);
+        vertices, BlendMode.dst, Paint()..blendMode = _fillElementBlend);
   }
 
   @override
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
-    final segments = path.segments;
     if (debugDrawSimpleLines &&
         stroke.dashArray.isEmpty &&
-        segments.length == 2) {
-      switch ((segments[0], segments[1])) {
-        case (
-            PdfMoveTo(:final x, :final y),
-            PdfLineTo(x: final x2, y: final y2)
-          ):
-          canvas.drawLine(Offset(x, y), Offset(x2, y2),
+        path.segmentCount == 2) {
+      final cursor = path.cursor();
+      if (cursor.moveNext() && cursor.verb == PdfPathVerb.moveTo) {
+        final x = cursor.x1, y = cursor.y1;
+        if (cursor.moveNext() && cursor.verb == PdfPathVerb.lineTo) {
+          canvas.drawLine(Offset(x, y), Offset(cursor.x1, cursor.y1),
               _solidStrokePaint(color, stroke, alpha));
           return;
-        default:
-          break;
+        }
       }
     }
     var uiPath = _toUiPath(path, PdfFillRule.nonzero);
@@ -318,7 +684,7 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   Paint _solidFillPaint(PdfColor color, double alpha) {
-    final blend = _elementBlend;
+    final blend = _fillElementBlend;
     if (!debugReuseSolidPaints) {
       return Paint()
         ..style = PaintingStyle.fill
@@ -342,12 +708,12 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   Paint _solidStrokePaint(PdfColor color, PdfStroke stroke, double alpha) {
-    final blend = _elementBlend;
+    final blend = _strokeElementBlend;
     if (!debugReuseSolidPaints) {
       return Paint()
         ..style = PaintingStyle.stroke
         ..color = _toColor(color, alpha)
-        ..strokeWidth = stroke.width
+        ..strokeWidth = strokeWidthFor(stroke.width)
         ..strokeCap = switch (stroke.cap) {
           1 => StrokeCap.round,
           2 => StrokeCap.square,
@@ -381,7 +747,7 @@ class CanvasPdfDevice implements PdfDevice {
     return _strokePaint = Paint()
       ..style = PaintingStyle.stroke
       ..color = _toColor(color, alpha)
-      ..strokeWidth = stroke.width
+      ..strokeWidth = strokeWidthFor(stroke.width)
       ..strokeCap = switch (stroke.cap) {
         1 => StrokeCap.round,
         2 => StrokeCap.square,
@@ -453,16 +819,18 @@ class CanvasPdfDevice implements PdfDevice {
 
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {
-    // Rectangular clips (the `re W n` idiom) must not antialias: writers
-    // tile big images as abutting clipped strips, and soft clip edges
-    // composite to <100% coverage at every shared boundary — visible as
-    // hairline seams of the backdrop. Hard edges keep abutting strips
-    // pixel-exact; irregular clips keep antialiasing for quality.
+    // Clip geometry is a coverage constraint, not another paint operation.
+    // Antialiasing it independently multiplies edge coverage when the same
+    // path was painted below the clipped object: a coverage `a` becomes
+    // `a * (1 - a)` and leaves a visible seam. GWG173 constructs exactly that
+    // case around its JBIG2 images. Keep clips hard and let the actual painted
+    // geometry/image sampling provide edge antialiasing. This also preserves
+    // the established no-seam behavior for abutting rectangular image tiles.
     final rect = _rectOf(path);
     if (rect != null) {
       canvas.clipRect(rect, doAntiAlias: false);
     } else {
-      canvas.clipPath(_toUiPath(path, rule));
+      canvas.clipPath(_toUiPath(path, rule), doAntiAlias: false);
     }
   }
 
@@ -470,17 +838,18 @@ class CanvasPdfDevice implements PdfDevice {
   /// points must be exactly the corners of their bounding box.
   static ui.Rect? _rectOf(PdfPath path) {
     final points = <ui.Offset>[];
-    for (final segment in path.segments) {
-      switch (segment) {
-        case PdfMoveTo(:final x, :final y):
+    final cursor = path.cursor();
+    while (cursor.moveNext()) {
+      switch (cursor.verb) {
+        case PdfPathVerb.moveTo:
           if (points.isNotEmpty) return null;
-          points.add(ui.Offset(x, y));
-        case PdfLineTo(:final x, :final y):
+          points.add(ui.Offset(cursor.x1, cursor.y1));
+        case PdfPathVerb.lineTo:
           if (points.isEmpty) return null;
-          points.add(ui.Offset(x, y));
-        case PdfClosePath():
+          points.add(ui.Offset(cursor.x1, cursor.y1));
+        case PdfPathVerb.close:
           break;
-        case PdfCubicTo():
+        case PdfPathVerb.cubicTo:
           return null;
       }
     }
@@ -524,61 +893,98 @@ class CanvasPdfDevice implements PdfDevice {
     // a cached laid-out painter (immutable, repaints at any transform) and its
     // metrics. The plain painter doubles as the fill painter in the common
     // no-gradient case, exactly as the un-cached path did.
-    final layout = _measureLayout(run);
+    //
+    // Per-glyph composition (#454) applies only to plain fills of simple-script
+    // runs; a gradient, a stroke, or complex text keeps whole-run shaping so the
+    // fresh gradient/stroke painters and the layout stay width-consistent.
+    // Edge whitespace (a leading/trailing space carrying a large Tw to reach a
+    // table column) must open a real gap, not stretch the visible glyphs.
+    // TextPainter drops leading/trailing whitespace from both placement and
+    // layout.width, so paint a run trimmed to its visible core and shift it
+    // right by the leading-whitespace advance; the original run's
+    // width/transform stay full so extraction still sees the true gap. The
+    // common no-edge-whitespace run is used as-is.
+    final paintRun = run.leadingSpace != 0 || run.visibleWidth != null
+        ? _trimmedForPaint(run)
+        : run;
+
+    // A gradient or a stroke paints through its own whole-run painter below,
+    // which no per-character layout can stand in for - those keep whole-run
+    // shaping so painter and layout stay width-consistent.
+    final wholeRunPaint =
+        paintRun.gradient != null || paintRun.strokeColor != null;
+    // The PDF's own per-character pen offsets, when this run carries them and
+    // its script lays one glyph out per character (#649). Preferred over both
+    // the composed and the whole-run path: it is the only one whose interior
+    // matches the geometry selection and search are computed from.
+    final placements = exactSubstitutedGlyphPlacement && !wholeRunPaint
+        ? _placeableOffsets(paintRun)
+        : null;
+    final compose = placements == null &&
+        perGlyphSubstitutedText &&
+        !wholeRunPaint &&
+        paintRun.letterSpacing == 0 &&
+        paintRun.wordSpacing == 0 &&
+        _composableRun(paintRun.text);
+    final layout = placements != null
+        ? _placedLayout(paintRun, placements)
+        : _measureLayout(paintRun, compose: compose);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
-    // unflip: the page transform is y-up, text rasterizes y-down
-    final targetWidth = run.width * renderSize;
-    final scaleX = run.width > 0 && layout.width > 0
+    // unflip: the page transform is y-up, text rasterizes y-down.
+    if (run.leadingSpace != 0) canvas.translate(run.leadingSpace, 0);
+    final targetWidth = paintRun.width * renderSize;
+    final scaleX = paintRun.width > 0 && layout.width > 0
         ? targetWidth / layout.width
         : 1.0;
 
-    // Fill painter (modes 0/2/4/6), with a gradient shader when present.
-    TextPainter? fillPainter;
-    if (run.fill) {
-      Paint? foreground;
-      final gradient = run.gradient;
+    // Fill (modes 0/2/4/6). A plain fill paints the cached/composed layout
+    // (colour baked in); a gradient fill needs a fresh painter carrying the
+    // shader, which can't be cached because the shader depends on this run's
+    // own transform. The cached/composed layout serves every plain fill.
+    TextPainter? gradientFill;
+    if (paintRun.fill) {
+      final gradient = paintRun.gradient;
       if (gradient != null) {
         final localToPage =
             PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
                 .concat(run.transform);
         final pageToLocal = localToPage.inverted();
         if (pageToLocal != null) {
-          foreground = Paint()
-            ..shader = _shaderFor(gradient,
-                transform: gradient.transform.concat(pageToLocal))
-            ..blendMode = _elementBlend;
+          gradientFill = TextPainter(
+            text: TextSpan(
+                text: paintRun.text,
+                style: _styleFor(paintRun,
+                    foreground: Paint()
+                      ..shader = _shaderFor(gradient,
+                          transform: gradient.transform.concat(pageToLocal))
+                      ..color = const Color(0xFFFFFFFF)
+                          .withValues(alpha: paintRun.fillAlpha)
+                      ..blendMode = _elementBlend)),
+            textDirection: TextDirection.ltr,
+          )..layout();
         }
       }
-      // A gradient run's shader depends on this run's own transform, so it
-      // can't be cached — build it fresh. The cached painter serves every
-      // plain fill.
-      fillPainter = foreground == null
-          ? layout.painter
-          : (TextPainter(
-              text: TextSpan(
-                  text: run.text, style: _styleFor(run, foreground: foreground)),
-              textDirection: TextDirection.ltr,
-            )..layout());
     }
 
     // Stroke painter (modes 1/2/5/6): outline the glyphs in the stroke colour.
     // The line width is page-space; map it into the painter's 100px-per-em
     // space (canvas is scaled by run.transform then 1/renderSize).
     TextPainter? strokePainter;
-    if (run.strokeColor != null) {
+    if (paintRun.strokeColor != null) {
       final ts = run.transform.scaleFactor;
-      final w = run.strokeWidth > 0 ? run.strokeWidth : ts / renderSize;
+      final w =
+          paintRun.strokeWidth > 0 ? paintRun.strokeWidth : ts / renderSize;
       strokePainter = TextPainter(
         text: TextSpan(
-          text: run.text,
+          text: paintRun.text,
           style: _styleFor(
-            run,
+            paintRun,
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = ts > 0 ? w * renderSize / ts : w
-              ..color = _toColor(run.strokeColor!, 1)
+              ..color = _toColor(paintRun.strokeColor!, paintRun.strokeAlpha)
               ..blendMode = _elementBlend,
           ),
         ),
@@ -587,21 +993,237 @@ class CanvasPdfDevice implements PdfDevice {
     }
 
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    fillPainter?.paint(canvas, Offset(0, -layout.baseline));
+    if (paintRun.fill) {
+      if (gradientFill != null) {
+        gradientFill.paint(canvas, Offset(0, -layout.baseline));
+      } else {
+        layout.paint(canvas, Offset(0, -layout.baseline));
+      }
+    }
     strokePainter?.paint(canvas, Offset(0, -layout.baseline));
     canvas.restore();
   }
 
+  @override
+  void drawTextBatch(
+      List<PdfRenderCommand> commands, int start, int endExclusive) {
+    // The pixel-identical production path deliberately paints every run
+    // separately. Avoid constructing paths and evaluating the batching gates
+    // in that overwhelmingly common case; the opt-in path below is retained
+    // for controlled experiments.
+    if (!batchEmbeddedTextOutlines) {
+      for (var i = start; i < endExclusive; i++) {
+        drawText((commands[i] as PdfDrawTextCommand).run);
+      }
+      return;
+    }
+
+    ui.Path? pending;
+    PdfColor? pendingColor;
+    Rect? pendingBounds;
+
+    void flush() {
+      final path = pending;
+      final color = pendingColor;
+      if (path == null || color == null) return;
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = _toColor(color, 1)
+          ..blendMode = BlendMode.srcOver,
+      );
+      pending = null;
+      pendingColor = null;
+      pendingBounds = null;
+    }
+
+    for (var i = start; i < endExclusive; i++) {
+      final run = (commands[i] as PdfDrawTextCommand).run;
+      final canBatch = batchEmbeddedTextOutlines &&
+          _knockout.isEmpty &&
+          !run.invisible &&
+          run.glyphs != null &&
+          run.fill &&
+          run.gradient == null &&
+          run.strokeColor == null &&
+          run.fillAlpha == 1 &&
+          _elementBlend == BlendMode.srcOver;
+      if (!canBatch) {
+        flush();
+        drawText(run);
+        continue;
+      }
+      if (pendingColor != run.color) {
+        flush();
+      }
+      final runPath = ui.Path();
+      _appendGlyphOutlines(runPath, run);
+      // Separate draw calls alpha-composite overlapping antialiased contours;
+      // one combined path resolves their winding and coverage only once. Those
+      // are not pixel-equivalent (the Ghent 6pt overprint patch exposed it), so
+      // only coalesce runs whose device-pixel-inflated bounds are disjoint.
+      // A union bound is deliberately conservative: it may flush a run sitting
+      // in a gap between earlier labels, but can never merge interacting ink.
+      final guard =
+          runPath.getBounds().inflate(pixelRatio > 0 ? 1 / pixelRatio : 1);
+      if (pendingBounds?.overlaps(guard) ?? false) {
+        flush();
+      }
+      if (pending == null) {
+        pendingColor = run.color;
+        pending = ui.Path();
+      }
+      pending!.addPath(runPath, Offset.zero);
+      pendingBounds =
+          pendingBounds == null ? guard : pendingBounds!.expandToInclude(guard);
+    }
+    flush();
+  }
+
+  /// A copy of [run] trimmed to its visible core for painting: edge whitespace
+  /// removed from the text, and the width reduced to the visible-glyph advance
+  /// (`visibleWidth - leadingSpace`). [leadingSpace] itself is applied by the
+  /// caller as a canvas translation, so it is zeroed here. Everything else -
+  /// transform, colour, spacing, stroke, gradient - is carried through unchanged.
+  static PdfTextRun _trimmedForPaint(PdfTextRun run) {
+    final text = run.text;
+    var start = 0;
+    var end = text.length;
+    while (start < end && _isTrimWhitespace(text.codeUnitAt(start))) {
+      start++;
+    }
+    while (end > start && _isTrimWhitespace(text.codeUnitAt(end - 1))) {
+      end--;
+    }
+    final core = text.substring(start, end);
+    final coreWidth = (run.visibleWidth ?? run.width) - run.leadingSpace;
+    // Rebase the per-character offsets onto the trimmed text. They are rebased
+    // by the caller's own translation ([leadingSpace]), not by `offsets[start]`,
+    // so a disagreement between this trim and the interpreter's per-glyph
+    // visibility test shifts nothing: every character keeps its absolute
+    // position on the page.
+    final offsets = run.charOffsets;
+    final coreOffsets = offsets != null && offsets.length == text.length + 1
+        ? [for (var i = start; i <= end; i++) offsets[i] - run.leadingSpace]
+        : null;
+    return PdfTextRun(
+      text: core,
+      charOffsets: coreOffsets,
+      transform: run.transform,
+      color: run.color,
+      width: coreWidth,
+      gradient: run.gradient,
+      fontName: run.fontName,
+      fontSize: run.fontSize,
+      fill: run.fill,
+      strokeColor: run.strokeColor,
+      strokeWidth: run.strokeWidth,
+      fillAlpha: run.fillAlpha,
+      strokeAlpha: run.strokeAlpha,
+      letterSpacing: run.letterSpacing,
+      wordSpacing: run.wordSpacing,
+      mcid: run.mcid,
+    );
+  }
+
+  /// The code units [String.trim] strips - the interpreter's
+  /// `text.trim().isNotEmpty` visibility test, which produced leadingSpace /
+  /// visibleWidth, uses the same set. Tested by index rather than by trimming a
+  /// substring so the character offsets can be sliced to match.
+  static bool _isTrimWhitespace(int cu) =>
+      (cu >= 0x09 && cu <= 0x0D) ||
+      cu == 0x20 ||
+      cu == 0x85 ||
+      cu == 0xA0 ||
+      cu == 0x1680 ||
+      (cu >= 0x2000 && cu <= 0x200A) ||
+      cu == 0x2028 ||
+      cu == 0x2029 ||
+      cu == 0x202F ||
+      cu == 0x205F ||
+      cu == 0x3000 ||
+      cu == 0xFEFF;
+
   /// A laid-out painter (+ width/baseline) for a substituted-font run, served
   /// from the process-wide cache. The key is (text, font, colour) — everything
   /// [_styleFor] reads — so the cached painter and its metrics are exact.
-  _TextLayout _measureLayout(PdfTextRun run) {
+  _TextLayout _measureLayout(PdfTextRun run, {required bool compose}) {
+    // Composed runs are transient (built per paint from the glyph cache), so
+    // they skip the run cache and its miss/hit instrumentation entirely.
+    if (compose) return _composeLayout(run);
     final c = run.color;
-    final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue}';
-    return _textCache.get(key, () {
+    final key = '${run.text} ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
+        '${run.letterSpacing},${run.wordSpacing}';
+    return _cachedLayout(key, () => _shapeLayout(run));
+  }
+
+  /// The run-cache lookup, with the shaping instrumentation (#454) wrapped
+  /// around it: [build] runs only on a miss, so timing it isolates the shaping
+  /// cost and the flag separates miss from hit.
+  _TextLayout _cachedLayout(String key, _TextLayout Function() build) {
+    if (!PdfPerfLog.enabled) return _textCache.getOrAdd(key, build);
+    var missed = false;
+    final layout = _textCache.getOrAdd(key, () {
+      missed = true;
+      final clock = Stopwatch()..start();
+      final l = build();
+      debugTextShapeUs += clock.elapsedMicroseconds;
+      return l;
+    });
+    if (missed) {
+      debugTextShapeMiss++;
+    } else {
+      debugTextShapeHit++;
+    }
+    return layout;
+  }
+
+  _TextLayout _shapeLayout(PdfTextRun run) {
+    debugTextPainterBuilds++;
+    final painter = TextPainter(
+      text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final baseline =
+        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    return _TextLayout(painter, painter.width, baseline);
+  }
+
+  /// Builds a run layout by placing per-character layouts (each shaped once and
+  /// cached in [_glyphCache]) at their cumulative natural advances. The total
+  /// natural width still feeds the same `scaleX` that stretches the run to the
+  /// PDF's own advance, so the run's overall placement is unchanged; only the
+  /// intra-run distribution differs (no cross-character kerning) - which is why
+  /// [_composableRun] gates it to text where that difference is nil-to-tiny.
+  _TextLayout _composeLayout(PdfTextRun run) {
+    final parts = <_GlyphRun>[];
+    var dx = 0.0;
+    double? baseline;
+    for (final rune in run.text.runes) {
+      final glyph = _glyphLayout(rune, run);
+      parts.add(_GlyphRun(glyph, dx));
+      dx += glyph.width;
+      baseline ??= glyph.baseline;
+    }
+    return _TextLayout.composed(parts, dx, baseline ?? 0);
+  }
+
+  /// A single character's cached layout, keyed like the run cache but per rune.
+  /// Laid out without the run's Tc/Tw: a per-character layout is positioned by
+  /// its caller, which knows the real advances, so baking spacing into the
+  /// glyph would double-count it - and it would make the key a lie.
+  _TextLayout _glyphLayout(int rune, PdfTextRun run) {
+    final c = run.color;
+    final key = '$rune ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha}';
+    return _glyphCache.getOrAdd(key, () {
+      debugTextPainterBuilds++;
       final painter = TextPainter(
-        text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
+        text: TextSpan(
+            text: String.fromCharCode(rune),
+            style: _styleFor(run, foreground: null, applySpacing: false)),
         textDirection: TextDirection.ltr,
       )..layout();
       final baseline =
@@ -609,6 +1231,287 @@ class CanvasPdfDevice implements PdfDevice {
       return _TextLayout(painter, painter.width, baseline);
     });
   }
+
+  /// The per-character pen offsets to paint [run] at, or null when this run
+  /// must keep whole-run (or naturally composed) placement (#649).
+  ///
+  /// Requires a table of the right shape, a positive advance to scale against,
+  /// and a script that lays one glyph out per character - see [_placeableRun].
+  static List<double>? _placeableOffsets(PdfTextRun run) {
+    final offsets = run.charOffsets;
+    if (offsets == null || run.text.isEmpty || run.width <= 0) return null;
+    if (offsets.length != run.text.length + 1) return null;
+    return _placeableRun(run.text) ? offsets : null;
+  }
+
+  /// How far, in em, a word's own shaped advance may differ from the PDF's
+  /// before [_buildPlacedLayout] stops shaping it whole and places its
+  /// characters individually. 0.02 em is 0.24pt at 12pt - an order of
+  /// magnitude under the drift this fixes, and small enough that the
+  /// difference is invisible where it is tolerated.
+  static const double _placementToleranceEm = 0.02;
+
+  /// A run laid out at the PDF's own pen offsets (#649) instead of at the
+  /// substitute's cumulative advances, served from the run cache. The key
+  /// carries the offsets as well as everything [_styleFor] reads, because the
+  /// same text under different advances is a different layout.
+  _TextLayout _placedLayout(PdfTextRun run, List<double> offsets) {
+    final c = run.color;
+    final key = '${run.text} ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
+        'p${_offsetsHash(offsets)}';
+    // A run with nothing to scale against falls back to whole-run shaping,
+    // cached under this key too so the failed attempt is not repeated.
+    return _cachedLayout(
+        key, () => _buildPlacedLayout(run, offsets) ?? _shapeLayout(run));
+  }
+
+  /// Builds the layout [_placedLayout] caches: one part per **word** - a
+  /// maximal span of non-whitespace characters - drawn at that word's own
+  /// offset, so a word can never drift from the geometry selection and search
+  /// are computed from. A word whose shaped advance disagrees with the PDF's
+  /// by more than [_placementToleranceEm] is broken down further and placed
+  /// character by character, which is what a run of prose against a mismatched
+  /// substitute needs. Whitespace lays no ink down and is positioned by the
+  /// offsets around it, so it gets no part at all.
+  ///
+  /// Words rather than characters throughout because the draw call is the
+  /// cost: a `drawParagraph` per character measured 3.7x the record pass and
+  /// 1.6x the full DPR-2 raster on a page of non-embedded prose. Shaping a
+  /// word whole also keeps its internal kerning, which the PDF's own advances
+  /// do not contradict at this tolerance.
+  ///
+  /// The glyph *shapes* take one uniform horizontal scale, so their proportions
+  /// stay even (scaling each word to its own advance would squeeze an `i` far
+  /// harder than an `o`); only the origins become exact. That scale is
+  /// `Σ natural ÷ Σ PDF advance` over the ink-bearing characters alone, so
+  /// neither the substitute's idea of a space (Skia's width for a lone
+  /// whitespace layout is not something to build on) nor the run's Tc/Tw
+  /// (already inside [offsets]) can skew it.
+  ///
+  /// The caller derives `scaleX = run.width × renderSize ÷ layout.width` and
+  /// paints under `scaleX / renderSize`, so reporting `run.width × k` for a
+  /// layout laid out at `k` units per em recovers `renderSize ÷ k` whatever the
+  /// run's total advance is - and every part lands on exactly its own offset.
+  ///
+  /// Null when there is nothing measurable to scale against.
+  _TextLayout? _buildPlacedLayout(PdfTextRun run, List<double> offsets) {
+    final text = run.text;
+    var natural = 0.0; // Σ natural width of the ink-bearing glyphs
+    var advance = 0.0; // Σ PDF advance of the same glyphs
+    for (var i = 0; i < text.length;) {
+      final step = _runeLengthAt(text, i);
+      if (!_isTrimWhitespace(text.codeUnitAt(i))) {
+        natural += _glyphLayout(_runeAt(text, i), run).width;
+        advance += offsets[i + step] - offsets[i];
+      }
+      i += step;
+    }
+    if (natural <= 0 || advance <= 0) return null;
+
+    final k = natural / advance; // layout units per em
+    final style = _styleFor(run, foreground: null, applySpacing: false);
+    final parts = <_GlyphRun>[];
+    double? baseline;
+    var i = 0;
+    while (i < text.length) {
+      if (_isTrimWhitespace(text.codeUnitAt(i))) {
+        i++;
+        continue;
+      }
+      var end = i;
+      while (end < text.length && !_isTrimWhitespace(text.codeUnitAt(end))) {
+        end += _runeLengthAt(text, end);
+      }
+      if (_wordHolds(run, offsets, i, end, k)) {
+        final word = _shapeString(text.substring(i, end), style);
+        baseline ??= word.baseline;
+        parts.add(_GlyphRun(word, offsets[i] * k));
+      } else {
+        for (var j = i; j < end;) {
+          final step = _runeLengthAt(text, j);
+          // The natural-width pass above has already populated this exact
+          // glyph/style in the shared cache. Retain that painter for the
+          // placed run instead of shaping a fresh paragraph for every
+          // character of every unique CAD label. The retained reference keeps
+          // it alive if the glyph-cache LRU later evicts its own ownership;
+          // disposing this placed layout releases the borrowed reference.
+          final glyph = _glyphLayout(_runeAt(text, j), run).retain();
+          baseline ??= glyph.baseline;
+          parts.add(_GlyphRun(glyph, offsets[j] * k));
+          j += step;
+        }
+      }
+      i = end;
+    }
+    if (parts.isEmpty) return null;
+    return _TextLayout.composed(parts, run.width * k, baseline ?? 0,
+        ownsParts: true);
+  }
+
+  /// Whether the word `[start, end)` of [run] can be shaped whole without any
+  /// of its characters landing more than [_placementToleranceEm] from the
+  /// offset the PDF gives it.
+  ///
+  /// Checked at *every* character boundary, not just the word's end: matching
+  /// only a total is the very defect this replaces, and a two-character word
+  /// can have an exact total with a badly placed interior. The substitute's own
+  /// per-character advances stand in for where the shaped word would put each
+  /// character, so cross-character kerning is unaccounted for - a fraction of
+  /// the tolerance, and it only ever moves a word from whole-shaped to
+  /// per-character placement, which is the safe direction.
+  bool _wordHolds(
+      PdfTextRun run, List<double> offsets, int start, int end, double k) {
+    final tolerance = _placementToleranceEm;
+    var natural = 0.0; // em, from the substitute's own advances
+    for (var i = start; i < end;) {
+      final step = _runeLengthAt(run.text, i);
+      if ((natural - (offsets[i] - offsets[start])).abs() > tolerance) {
+        return false;
+      }
+      natural += _glyphLayout(_runeAt(run.text, i), run).width / k;
+      i += step;
+    }
+    return (natural - (offsets[end] - offsets[start])).abs() <= tolerance;
+  }
+
+  /// One laid-out [TextPainter] for [text] in [style], owned by the caller.
+  _TextLayout _shapeString(String text, TextStyle style) {
+    debugTextPainterBuilds++;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    return _TextLayout(painter, painter.width,
+        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic));
+  }
+
+  /// Order-sensitive hash of a run's character offsets, for the layout key.
+  static int _offsetsHash(List<double> offsets) {
+    var h = 0x811c9dc5;
+    for (final offset in offsets) {
+      h = ((h ^ offset.hashCode) * 0x01000193) & 0x3FFFFFFF;
+    }
+    return h;
+  }
+
+  /// 2 when [i] starts a surrogate pair in [s], 1 otherwise.
+  static int _runeLengthAt(String s, int i) {
+    final cu = s.codeUnitAt(i);
+    if (cu < 0xD800 || cu > 0xDBFF || i + 1 >= s.length) return 1;
+    final low = s.codeUnitAt(i + 1);
+    return low >= 0xDC00 && low <= 0xDFFF ? 2 : 1;
+  }
+
+  /// The code point starting at [i] in [s].
+  static int _runeAt(String s, int i) => _runeLengthAt(s, i) == 2
+      ? 0x10000 +
+          ((s.codeUnitAt(i) - 0xD800) << 10) +
+          (s.codeUnitAt(i + 1) - 0xDC00)
+      : s.codeUnitAt(i);
+
+  /// Whether [text] can be painted one character at a time at positions the
+  /// caller dictates.
+  ///
+  /// Unlike [_composableRun] this does not care about kerning - the PDF's
+  /// offsets replace it - only that the script needs no shaping: one glyph per
+  /// character, in logical order, with no combining marks, joining behaviour,
+  /// reordering, or format characters. So it admits Latin, Greek, Cyrillic,
+  /// the common symbol blocks and CJK/kana/Hangul-syllable text (ordinary
+  /// prose, which [_composableRun] excludes outright), and rejects Arabic,
+  /// Hebrew, Indic, South-East Asian, Hangul jamo, combining sequences and
+  /// anything astral, all of which keep whole-run shaping.
+  static bool _placeableRun(String text) {
+    for (var i = 0; i < text.length; i++) {
+      if (!_placeableChar(text.codeUnitAt(i))) return false;
+    }
+    return true;
+  }
+
+  static bool _placeableChar(int cu) =>
+      // ASCII printable, Latin-1 Supplement, Latin Extended-A/B, IPA and the
+      // spacing modifier letters (0x2B0-0x2FF); 0x300+ is combining marks.
+      (cu >= 0x20 && cu <= 0x2FF && cu != 0x7F) ||
+      // Greek and Coptic; Cyrillic either side of its combining block
+      // (0x483-0x489).
+      (cu >= 0x370 && cu <= 0x482) ||
+      (cu >= 0x48A && cu <= 0x52F) ||
+      // General punctuation, minus the format and bidi controls at 0x200B-
+      // 0x200F / 0x202A-0x202E / 0x2060+, and minus the combining marks at
+      // 0x20D0+.
+      (cu >= 0x2010 && cu <= 0x2027) ||
+      (cu >= 0x2030 && cu <= 0x205E) ||
+      (cu >= 0x20A0 && cu <= 0x20BF) ||
+      // Letterlike, number forms, arrows, maths, technical, enclosed
+      // alphanumerics, box drawing, geometric shapes and dingbats.
+      (cu >= 0x2100 && cu <= 0x23FF) ||
+      (cu >= 0x2460 && cu <= 0x27BF) ||
+      // CJK punctuation and kana, minus the combining voiced marks
+      // (0x3099/0x309A); ideographs; Hangul syllables (precomposed - jamo at
+      // 0x1100 compose and are excluded); CJK compatibility; halfwidth and
+      // fullwidth forms.
+      (cu >= 0x3000 && cu <= 0x3098) ||
+      (cu >= 0x309B && cu <= 0x30FF) ||
+      (cu >= 0x3400 && cu <= 0x4DBF) ||
+      (cu >= 0x4E00 && cu <= 0x9FFF) ||
+      (cu >= 0xAC00 && cu <= 0xD7A3) ||
+      (cu >= 0xF900 && cu <= 0xFAFF) ||
+      (cu >= 0xFF01 && cu <= 0xFFEE);
+
+  /// Whether [text] can be composed from independent per-character layouts
+  /// without visibly changing the result. Composition drops cross-character
+  /// kerning, so the run must contain no kernable adjacency: every character is
+  /// an ASCII digit, uppercase letter, space, or common technical punctuation
+  /// (no lowercase - those ligate), AND a letter only ever neighbours a digit or
+  /// a space, never another letter or punctuation. That is exactly the shape of
+  /// coordinate/survey/part labels ("N1234.567 E7654.321", "PLATE 12/48"), where
+  /// tabular digits and isolated letters do not kern - a real-Chrome probe put
+  /// the whole-run-vs-composed pixel diff at 0% for such runs and 20-56% for
+  /// kerning-pair uppercase words (PAY, AVENUE, WATER), which this gate excludes.
+  static bool _composableRun(String text) {
+    if (text.isEmpty) return false;
+    final u = text.codeUnits;
+    for (var i = 0; i < u.length; i++) {
+      final cu = u[i];
+      if (!_composableChar(cu)) return false;
+      // A letter may only sit next to a digit or a space; a letter beside
+      // another letter or beside punctuation is a kerning pair in the
+      // substitute fonts, so the whole run falls back to whole-run shaping.
+      if (i > 0) {
+        final prev = u[i - 1];
+        final curLetter = _isAsciiUpper(cu);
+        final prevLetter = _isAsciiUpper(prev);
+        if (curLetter && !(_isAsciiDigit(prev) || prev == 0x20)) return false;
+        if (prevLetter && !(_isAsciiDigit(cu) || cu == 0x20)) return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _isAsciiUpper(int cu) => cu >= 0x41 && cu <= 0x5A;
+  static bool _isAsciiDigit(int cu) => cu >= 0x30 && cu <= 0x39;
+  static bool _composableChar(int cu) =>
+      _isAsciiDigit(cu) ||
+      _isAsciiUpper(cu) ||
+      cu == 0x20 || // space
+      _composablePunct.contains(cu);
+
+  // . , - + / : = ( ) % # * _
+  static const _composablePunct = <int>{
+    0x2E,
+    0x2C,
+    0x2D,
+    0x2B,
+    0x2F,
+    0x3A,
+    0x3D,
+    0x28,
+    0x29,
+    0x25,
+    0x23,
+    0x2A,
+    0x5F,
+  };
 
   /// The em-space [ui.Path] for a glyph outline, built once per outline
   /// instance and memoized by identity. Glyph outlines fill nonzero.
@@ -619,29 +1522,18 @@ class CanvasPdfDevice implements PdfDevice {
   /// maps em space (y-up) to page space, so no unflip is needed.
   void _drawGlyphOutlines(PdfTextRun run) {
     final path = ui.Path();
-    for (final glyph in run.glyphs!) {
-      final outline = glyph.outline;
-      if (outline == null) continue;
-      // The em-space ui.Path of a glyph is identical at every occurrence —
-      // the font engine hands back the same outline instance per glyph — so
-      // build it once and only re-transform it into place (a fast native op),
-      // skipping the per-glyph rebuild from PdfPath segments. The cache is keyed
-      // by outline identity and GC-tied to the font's own outline lifetime.
-      path.addPath(
-        _glyphUiPath(outline).transform(
-          _toFloat64(PdfMatrix.translation(glyph.offset, glyph.offsetY)
-              .concat(run.transform)),
-        ),
-        Offset.zero,
-      );
-    }
+    _appendGlyphOutlines(path, run);
     if (run.fill) {
-      final paint = Paint()..blendMode = _elementBlend;
+      final paint = Paint()..blendMode = _fillElementBlend;
       final gradient = run.gradient;
       if (gradient != null) {
         paint.shader = _shaderFor(gradient);
       } else {
-        paint.color = _toColor(run.color, 1);
+        paint.color = _toColor(run.color, run.fillAlpha);
+      }
+      if (gradient != null) {
+        paint.color = const Color(0xFFFFFFFF)
+            .withValues(alpha: run.fillAlpha.clamp(0, 1));
       }
       canvas.drawPath(path, paint);
     }
@@ -652,22 +1544,82 @@ class CanvasPdfDevice implements PdfDevice {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = run.strokeWidth
-          ..color = _toColor(run.strokeColor!, 1)
-          ..blendMode = _elementBlend,
+          ..color = _toColor(run.strokeColor!, run.strokeAlpha)
+          ..blendMode = _strokeElementBlend,
       );
     }
+  }
+
+  /// Appends an embedded run's glyph contours directly through their
+  /// glyph-to-page transforms. Passing the matrix to [ui.Path.addPath] avoids
+  /// allocating one transformed path per glyph (and gives batched replay one
+  /// destination for many adjacent runs).
+  static void _appendGlyphOutlines(ui.Path path, PdfTextRun run) {
+    final transform = run.transform;
+    // This is per text-show run and dense plans can contain thousands of
+    // short labels. Fill the typed matrix directly instead of first allocating
+    // a growable/list-literal copy for Float64List.fromList.
+    final matrix = Float64List(16)
+      ..[0] = transform.a
+      ..[1] = transform.b
+      ..[4] = transform.c
+      ..[5] = transform.d
+      ..[10] = 1
+      ..[12] = transform.e
+      ..[13] = transform.f
+      ..[15] = 1;
+    for (final glyph in run.glyphs!) {
+      final outline = glyph.outline;
+      if (outline == null) continue;
+      matrix[12] = glyph.offset * transform.a +
+          glyph.offsetY * transform.c +
+          transform.e;
+      matrix[13] = glyph.offset * transform.b +
+          glyph.offsetY * transform.d +
+          transform.f;
+      // Flutter web's Path is lazy: addPath retains the matrix object in an
+      // AddPathCommand until CanvasKit materializes the destination path. If
+      // every glyph receives this same mutable list, they all observe a later
+      // glyph's translation and collapse into the corrupted text seen on the
+      // Time Without Tide pages. Native Path consumes the matrix immediately,
+      // so keep its allocation-free loop; web needs a value snapshot per
+      // deferred command.
+      path.addPath(
+        _glyphUiPath(outline),
+        Offset.zero,
+        matrix4: debugGlyphPathMatrixForEngine(matrix),
+      );
+    }
+  }
+
+  /// Returns the matrix representation appropriate for an immediate or lazy
+  /// engine path command.
+  @visibleForTesting
+  static Float64List debugGlyphPathMatrixForEngine(
+    Float64List matrix, {
+    bool deferred = kIsWeb,
+  }) =>
+      deferred ? Float64List.fromList(matrix) : matrix;
+
+  /// Materializes the combined outline bounds used by the web regression test.
+  @visibleForTesting
+  static Rect debugEmbeddedGlyphPathBounds(PdfTextRun run) {
+    final path = ui.Path();
+    _appendGlyphOutlines(path, run);
+    return path.getBounds();
   }
 
   @override
   void drawImage(PdfImageRequest request) {
     final image = images[pdfImageKey(request)];
     if (image == null) return; // not decodable (yet): skip silently
+    final softMask = pdfGpuSoftMaskOf(image);
     // antialiased edges leave hairline seams between abutting image slices
     // (PowerPoint and scanners split large images into strips)
     final paint = Paint()
       ..filterQuality = FilterQuality.medium
       ..isAntiAlias = false
-      ..blendMode = _elementBlend;
+      ..blendMode = softMask == null ? _fillElementBlend : BlendMode.srcOver;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
       paint.colorFilter = ColorFilter.mode(
@@ -680,44 +1632,97 @@ class CanvasPdfDevice implements PdfDevice {
     // image space: unit square, y-up; image pixels: y-down from the top
     canvas.translate(0, 1);
     canvas.scale(1, -1);
+    if (softMask != null) {
+      // Isolate the base + mask so the PDF blend mode applies to the finished
+      // composite, not to the base against a transparent temporary surface.
+      // The mask JPEG is grayscale, so its red sample is the specified alpha.
+      canvas.saveLayer(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..blendMode = _fillElementBlend,
+      );
+    }
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       const Rect.fromLTWH(0, 0, 1, 1),
       paint,
     );
+    if (softMask != null) {
+      // The dstIn and the red->alpha filter go on a *layer* paint, not on the
+      // mask's own draw paint. Impeller ignores a draw paint's blend mode when
+      // that same paint also carries a colour filter: the mask then composites
+      // srcOver, painting its filtered samples (opaque black where the mask is
+      // white) over the base instead of cutting the base's alpha - every
+      // /SMask'd JPEG on the page turns into a black rectangle (#675). Skia
+      // honours both on one paint, and both engines honour this shape.
+      canvas.saveLayer(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..colorFilter = const ColorFilter.matrix(_redToAlpha),
+      );
+      canvas.drawImageRect(
+        softMask,
+        Rect.fromLTWH(
+          0,
+          0,
+          softMask.width.toDouble(),
+          softMask.height.toDouble(),
+        ),
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..isAntiAlias = false,
+      );
+      canvas.restore();
+      canvas.restore();
+    }
     canvas.restore();
   }
 
-  TextStyle _styleFor(PdfTextRun run, {Paint? foreground}) {
+  TextStyle _styleFor(PdfTextRun run,
+      {Paint? foreground, bool applySpacing = true}) {
     final name = run.fontName ?? '';
     final cjk = _cjkPrimaryFontFor(name);
     final symbol = name.contains('ZapfDingbats') || name.contains('Symbol');
+    final adventor = pdfUsesAdventorSubstitute(name);
     return TextStyle(
-      color: foreground == null ? _toColor(run.color, 1) : null,
+      color: foreground == null ? _toColor(run.color, run.fillAlpha) : null,
       foreground: foreground,
       fontSize: 100,
       fontFamily: cjk ??
-          switch (name) {
-            _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
-            _ when name.contains('Symbol') => 'Symbol',
-            _ when name.contains('Courier') || name.contains('Mono') =>
-              'Courier',
-            _ when name.contains('Times') || name.contains('Serif') =>
-              'Times New Roman',
-            _ => 'Helvetica',
-          },
+          (adventor
+              ? pdfBundledAdventorFontFamily
+              : switch (name) {
+                  _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
+                  _ when name.contains('Symbol') => 'Symbol',
+                  _ when name.contains('Courier') || name.contains('Mono') =>
+                    'Courier',
+                  _ when name.contains('Times') || name.contains('Serif') =>
+                    'Times New Roman',
+                  _ => 'Helvetica',
+                }),
       fontFamilyFallback: cjk != null
           ? _cjkFontFallbacks
-          : symbol
-              ? _symbolFontFallbacks
-              : _defaultFontFallbacks,
+          : adventor
+              ? _adventorFontFallbacks
+              : symbol
+                  ? _symbolFontFallbacks
+                  : _defaultFontFallbacks,
       fontWeight: name.contains('Bold') ? FontWeight.bold : FontWeight.normal,
       fontStyle: name.contains('Italic') || name.contains('Oblique')
           ? FontStyle.italic
           : FontStyle.normal,
-      // metric scaling handles placement; kill extra spacing sources
-      letterSpacing: 0,
+      // Reproduce the PDF's Tc/Tw as real tracking/word spacing (em → the 100px
+      // render em) so the substitute's own advances match run.width. Without
+      // this the layout is tight and run.width's spacing is recovered by
+      // stretching the glyph shapes - which explodes when a space carries a
+      // large Tw (issue: over-wide table digits). letterSpacing/wordSpacing 0
+      // (the common case) is a no-op, so unspaced runs are unchanged. A
+      // per-character layout opts out: its caller places it from the PDF's own
+      // offsets, which already carry Tc/Tw.
+      letterSpacing: applySpacing ? run.letterSpacing * 100 : 0,
+      wordSpacing: applySpacing ? run.wordSpacing * 100 : 0,
       height: 1,
     );
   }
@@ -747,10 +1752,13 @@ class CanvasPdfDevice implements PdfDevice {
   ];
 
   static const _defaultFontFallbacks = [
-    // Shipped with dart_pdf_editor, so Arabic (including presentation forms
+    // Shipped in the optional dart_pdf_editor_assets package (registered by
+    // registerBundledEditorAssets), so Arabic (including presentation forms
     // copied from shaped PDFs), Hebrew, Greek and Cyrillic render consistently
-    // even when the host's Helvetica substitute has no suitable fallback.
-    'packages/dart_pdf_editor/DejaVu Sans',
+    // even when the host's Helvetica substitute has no suitable fallback. When
+    // that package isn't present this family simply isn't registered and the
+    // later candidates apply.
+    'packages/dart_pdf_editor_assets/DejaVu Sans',
     // The unprefixed family is used when this package itself is the Flutter
     // application under test, and by hosts that register DejaVu system-wide.
     'DejaVu Sans',
@@ -768,6 +1776,15 @@ class CanvasPdfDevice implements PdfDevice {
     'Noto Sans CJK JP',
     'Source Han Sans SC',
     'Microsoft YaHei',
+  ];
+
+  static const _adventorFontFallbacks = [
+    pdfAdventorFontFamily,
+    'Century Gothic',
+    'URW Gothic L',
+    'Avenir Next',
+    'Futura',
+    ..._defaultFontFallbacks,
   ];
 
   static const _symbolFontFallbacks = [
@@ -835,24 +1852,31 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   static ui.Path _toUiPath(PdfPath path, PdfFillRule rule) {
-    final out = ui.Path()
-      ..fillType = rule == PdfFillRule.evenOdd
-          ? PathFillType.evenOdd
-          : PathFillType.nonZero;
-    for (final segment in path.segments) {
-      switch (segment) {
-        case PdfMoveTo(:final x, :final y):
-          out.moveTo(x, y);
-        case PdfLineTo(:final x, :final y):
-          out.lineTo(x, y);
-        case PdfCubicTo():
-          out.cubicTo(segment.x1, segment.y1, segment.x2, segment.y2,
-              segment.x3, segment.y3);
-        case PdfClosePath():
+    final out = _emptyUiPath(rule);
+    _appendUiPath(out, path);
+    return out;
+  }
+
+  static ui.Path _emptyUiPath(PdfFillRule rule) => ui.Path()
+    ..fillType = rule == PdfFillRule.evenOdd
+        ? PathFillType.evenOdd
+        : PathFillType.nonZero;
+
+  static void _appendUiPath(ui.Path out, PdfPath path) {
+    final cursor = path.cursor();
+    while (cursor.moveNext()) {
+      switch (cursor.verb) {
+        case PdfPathVerb.moveTo:
+          out.moveTo(cursor.x1, cursor.y1);
+        case PdfPathVerb.lineTo:
+          out.lineTo(cursor.x1, cursor.y1);
+        case PdfPathVerb.cubicTo:
+          out.cubicTo(
+              cursor.x1, cursor.y1, cursor.x2, cursor.y2, cursor.x3, cursor.y3);
+        case PdfPathVerb.close:
           out.close();
       }
     }
-    return out;
   }
 
   static Float64List _toFloat64(PdfMatrix m) => Float64List.fromList([
@@ -869,40 +1893,75 @@ class CanvasPdfDevice implements PdfDevice {
 /// and baseline are constant for a given (text, font, colour) so the per-run
 /// horizontal squeeze (scaleX) and baseline offset are recomputed cheaply.
 class _TextLayout {
-  _TextLayout(this.painter, this.width, this.baseline);
-  final TextPainter painter;
+  /// A whole-run layout: one [TextPainter] the cache owns and disposes.
+  _TextLayout(TextPainter this.painter, this.width, this.baseline)
+      : parts = null,
+        ownsParts = false;
+
+  /// A run built from several sub-layouts.
+  ///
+  /// With [ownsParts] false (#454's per-character composition) the parts are
+  /// glyph-cache layouts this one does NOT own; such a layout is transient -
+  /// built per paint, never cached - so the referenced glyphs cannot be
+  /// evicted under it on the single thread. With [ownsParts] true (#649's
+  /// word placement) the parts were shaped for this layout alone, which is
+  /// what lets it be cached: nothing else can dispose them out from under it.
+  _TextLayout.composed(List<_GlyphRun> this.parts, this.width, this.baseline,
+      {this.ownsParts = false})
+      : painter = null;
+
+  final TextPainter? painter;
+  final List<_GlyphRun>? parts;
+
+  /// Whether [dispose] must dispose [parts] as well as [painter].
+  final bool ownsParts;
   final double width;
   final double baseline;
+  int _references = 1;
+  bool _disposed = false;
+
+  /// Adds one owner of this immutable layout. Exact-placement run layouts use
+  /// this for glyph-cache entries they embed: cache eviction and run eviction
+  /// can then happen in either order without handing either owner a disposed
+  /// paragraph.
+  _TextLayout retain() {
+    assert(!_disposed);
+    _references++;
+    return this;
+  }
+
+  /// Paints the run at [offset] in the painter's 100px-per-em space.
+  void paint(Canvas canvas, Offset offset) {
+    final p = painter;
+    if (p != null) {
+      p.paint(canvas, offset);
+      return;
+    }
+    for (final g in parts!) {
+      g.glyph.painter!.paint(canvas, offset.translate(g.dx, 0));
+    }
+  }
+
+  /// Disposes what this layout owns: its own painter, and its parts when they
+  /// were shaped for it rather than borrowed from the glyph cache.
+  void dispose() {
+    if (_disposed) return;
+    _references--;
+    if (_references > 0) return;
+    _disposed = true;
+    painter?.dispose();
+    if (ownsParts) {
+      for (final part in parts!) {
+        part.glyph.dispose();
+      }
+    }
+  }
 }
 
-/// Bounded LRU over [_TextLayout], keyed by a (text, font, colour) string.
-/// Insertion order is the LRU order; a hit re-inserts to mark it most-recent.
-class _TextLayoutCache {
-  static const _maxEntries = 2048;
-  final _entries = <String, _TextLayout>{};
-
-  /// Returns the cached layout for [key], building (and caching) it with
-  /// [build] on a miss. Evicts the least-recently-used entries past the cap.
-  _TextLayout get(String key, _TextLayout Function() build) {
-    final hit = _entries.remove(key);
-    if (hit != null) {
-      _entries[key] = hit; // touch → most-recently-used
-      return hit;
-    }
-    final created = build();
-    _entries[key] = created;
-    while (_entries.length > _maxEntries) {
-      _entries.remove(_entries.keys.first)!.painter.dispose();
-    }
-    return created;
-  }
-
-  void clear() {
-    for (final entry in _entries.values) {
-      entry.painter.dispose();
-    }
-    _entries.clear();
-  }
-
-  int get length => _entries.length;
+/// One character's layout within a composed run: the shared glyph-cache
+/// layout and its x-offset (natural, un-scaled 100px-per-em space).
+class _GlyphRun {
+  const _GlyphRun(this.glyph, this.dx);
+  final _TextLayout glyph;
+  final double dx;
 }

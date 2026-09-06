@@ -396,4 +396,71 @@ void main() {
       expect(after.to, geometry.toViewRect(editing.selectedAnnotation!.rect));
     });
   });
+
+  group('text-markup chrome per /QuadPoints quad', () {
+    /// 306×396 view of the 612×792 page (0.5 px/pt), with one selected
+    /// text-markup annotation. Returns the editing controller plus the
+    /// page geometry the overlay mounted with.
+    Future<(PdfEditingController, PdfPageGeometry)> pumpMarkupOverlay(
+        WidgetTester tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addMarkup(PdfMarkupKind.highlight, {
+          0: const [
+            // two quads on different vertical bands → /Rect spans
+            // the gap, exercising the per-quad chrome path
+            PdfRect(100, 700, 300, 712),
+            PdfRect(100, 685, 200, 697),
+          ],
+        })
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      final geometry = PdfPageGeometry(
+        cropBox: editing.document.page(0).cropBox,
+        rotation: 0,
+        viewSize: const Size(306, 396),
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 306,
+            height: 396,
+            child: EditingPageOverlay(
+              controller: editing,
+              pageIndex: 0,
+              geometry: geometry,
+              textPrompt: showPdfTextPrompt,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      return (editing, geometry);
+    }
+
+    testWidgets(
+        'the primary chrome box hugs the first /QuadPoints quad, '
+        'not the annotation /Rect', (tester) async {
+      final (_, geometry) = await pumpMarkupOverlay(tester);
+      // 0.5 px/pt → the upper quad (100,700)-(300,712) becomes
+      // (50,40)-(150,46) in view space. The annotation /Rect would
+      // span the gap to the lower quad and reach (50,40)-(150,53.5).
+      final painter = overlayPainter(tester);
+      final expected = geometry.toViewRect(const PdfRect(100, 700, 300, 712));
+      expect(painter.selectionRect, expected);
+      expect(painter.selectionRect!.top, lessThan(50));
+    });
+
+    testWidgets(
+        'every /QuadPoints quad becomes its own chrome box in '
+        'extraSelectionRects', (tester) async {
+      final (_, geometry) = await pumpMarkupOverlay(tester);
+      final painter = overlayPainter(tester);
+      // the painter should carry one extra box for the second quad;
+      // the first quad is the primary and lives in selectionRect.
+      expect(painter.extraSelectionRects, hasLength(1));
+      final expected = geometry.toViewRect(const PdfRect(100, 685, 200, 697));
+      expect(painter.extraSelectionRects.single, expected);
+    });
+  });
 }

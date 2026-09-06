@@ -1,5 +1,5 @@
 // Line-type (dash) styles, polygon fill, cross-page annotation moves, the
-// select-tool toggle-off, and the stroke/opacity drag readout.
+// Hand / Select navigation modes, and the stroke/opacity drag readout.
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +15,7 @@ void main() {
   group('line style (dash) on the controller', () {
     test('a non-solid line style stores a /BS /D dash array on new shapes', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStyle = PdfLineStyle.dashed;
+        ..preferences.lineStyle = PdfLineStyle.dashed;
       addTearDown(editing.dispose);
       editing.addRectangle(0, const PdfRect(100, 100, 200, 200));
       final square = editing.document.page(0).annotations.single;
@@ -65,16 +65,16 @@ void main() {
     test('the pattern scale drives new shapes and is independent of stroke',
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStyle = PdfLineStyle.dashed
-        ..strokeWidth = 1
-        ..lineScale = 1;
+        ..preferences.lineStyle = PdfLineStyle.dashed
+        ..preferences.strokeWidth = 1
+        ..preferences.lineScale = 1;
       addTearDown(editing.dispose);
       editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
       final narrow =
           editing.document.page(0).annotations.single.borderDash!.first;
 
       editing
-        ..lineScale = 3
+        ..preferences.lineScale = 3
         ..addRectangle(0, const PdfRect(100, 300, 300, 400));
       final wide = editing.document.page(0).annotations.last.borderDash!.first;
       expect(wide, greaterThan(narrow));
@@ -84,7 +84,7 @@ void main() {
   group('pattern scale on clouds', () {
     test('a cloud drawn at a bigger scale stores it on /BE /I', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineScale = 2.5;
+        ..preferences.lineScale = 2.5;
       addTearDown(editing.dispose);
       editing.addCloudPolygon(0, const PdfRect(100, 100, 300, 200));
       final cloud = editing.document.page(0).annotations.single;
@@ -106,10 +106,59 @@ void main() {
     });
   });
 
+  group('rectangle corner radius on the controller', () {
+    test('the corner radius preference rounds new rectangles', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.cornerRadius = 10;
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
+      expect(
+          editing.document.page(0).annotations.single.cornerRadius, 10);
+    });
+
+    test('a zero radius leaves the rectangle square', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
+      expect(editing.document.page(0).annotations.single.cornerRadius, 0);
+    });
+
+    test('restyleSelected rounds and re-squares a selected rectangle', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing
+        ..addRectangle(0, const PdfRect(100, 100, 300, 200))
+        ..selectAnnotation(0, 0);
+      expect(editing.canRoundSelectedCorners, isTrue);
+      expect(editing.selectedCornerRadius, 0);
+
+      expect(editing.restyleSelected(cornerRadius: 12), isTrue);
+      expect(editing.document.page(0).annotations.single.cornerRadius, 12);
+      // the selection survives, so the control reflects the new radius
+      expect(editing.selectedCornerRadius, 12);
+
+      expect(editing.restyleSelected(cornerRadius: 0), isTrue);
+      expect(editing.document.page(0).annotations.single.cornerRadius, 0);
+      expect(editing.selectedCornerRadius, 0);
+    });
+
+    test('corner radius controls are off for non-rectangle selections', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing
+        ..addEllipse(0, const PdfRect(100, 100, 300, 200))
+        ..selectAnnotation(0, 0);
+      expect(editing.canRoundSelectedCorners, isFalse);
+      expect(editing.selectedCornerRadius, isNull);
+      // a circle has no corners, so the radius restyle is a no-op
+      expect(editing.restyleSelected(cornerRadius: 12), isFalse);
+    });
+  });
+
   group('polygon fill', () {
     test('a polygon drawn with a shape fill colour stores /IC', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..shapeFillColor = const Color(0xFF80C0FF);
+        ..preferences.shapeFillColor = const Color(0xFF80C0FF);
       addTearDown(editing.dispose);
       editing.addPolygon(0, const [(100, 100), (200, 180), (160, 100)]);
       expect(
@@ -208,8 +257,8 @@ void main() {
     });
   });
 
-  group('select tool toggle-off', () {
-    testWidgets('tapping the armed Select chip disarms to reader mode',
+  group('desktop navigation modes', () {
+    testWidgets('Hand and Select are explicit compact sibling buttons',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       final viewer = PdfViewerController();
@@ -223,16 +272,34 @@ void main() {
         ),
       ));
 
+      final modes = find.byKey(const ValueKey('pdf-navigation-modes'));
+      final hand = find.byKey(const ValueKey('pdf-mode-hand'));
+      final select = find.byKey(const ValueKey('pdf-group-select'));
+      expect(modes, findsOneWidget);
+      expect(tester.getSize(modes), const Size(81, 40));
+      // Tool-free reader mode is intentionally distinct from explicit Hand:
+      // it still permits text selection and therefore highlights neither.
+      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
+      expect(tester.widget<IconButton>(select).isSelected, isFalse);
+
       editing.tool = PdfEditTool.select;
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('pdf-group-select')));
+      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
+      expect(tester.widget<IconButton>(select).isSelected, isTrue);
+
+      await tester.tap(hand);
       await tester.pump();
       expect(editing.tool, isNull);
+      expect(editing.isHandMode, isTrue);
+      expect(tester.widget<IconButton>(hand).isSelected, isTrue);
+      expect(tester.widget<IconButton>(select).isSelected, isFalse);
 
-      // tapping it again re-arms Select
-      await tester.tap(find.byKey(const ValueKey('pdf-group-select')));
+      await tester.tap(select);
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
+      expect(editing.isHandMode, isFalse);
+      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
+      expect(tester.widget<IconButton>(select).isSelected, isTrue);
     });
   });
 
@@ -262,8 +329,8 @@ void main() {
       await tester.pump();
       editing
         ..tool = PdfEditTool.rectangle
-        ..strokeWidth = 4
-        ..opacity = 0.5;
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5;
       await tester.pump();
 
       final gesture = await tester.startGesture(view(150, 600));
@@ -300,8 +367,8 @@ void main() {
       await tester.pump();
       editing
         ..tool = PdfEditTool.rectangle
-        ..strokeWidth = 4
-        ..opacity = 0.5;
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5;
       await tester.pump();
 
       Future<Rect> dragAndRead(Offset start, Offset end) async {

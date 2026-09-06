@@ -11,7 +11,8 @@ void main() {
   group('callout through the controller', () {
     test('addCallout builds a FreeText callout pointing at the target', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..author = 'Ben'
+        ..preferences.author = 'Ben'
+        ..preferences.opacity = 0.45
         ..addCallout(
             0, const PdfRect(300, 600, 460, 660), 'Look here', (120, 500));
 
@@ -19,6 +20,7 @@ void main() {
       expect(annot.subtype, 'FreeText');
       expect(annot.isCallout, isTrue);
       expect(annot.contents, 'Look here');
+      expect(annot.appearanceOpacity, closeTo(0.45, 1e-9));
       final line = annot.calloutLine!;
       expect(line.first, (120.0, 500.0), reason: 'leader tip is the target');
       expect(annot.rect.left, lessThanOrEqualTo(120));
@@ -34,6 +36,7 @@ void main() {
 
     test('resizing a selected callout resizes the box, not the arrow', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.opacity = 0.55
         ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
       expect(editing.selectAnnotation(0, 0), isTrue);
       final terminus0 =
@@ -46,11 +49,12 @@ void main() {
       expect(a.calloutLine!.first, terminus0, reason: 'arrow tip stays put');
       expect(a.calloutBox!.left, closeTo(320, 0.5));
       expect(a.calloutBox!.right, closeTo(520, 0.5));
+      expect(a.appearanceOpacity, closeTo(0.55, 1e-9));
     });
 
     test('autosize fits the box and leaves the arrow tip alone', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..fontSize = 14
+        ..preferences.fontSize = 14
         ..addCallout(0, const PdfRect(300, 600, 700, 700), 'Hi', (120, 500));
       expect(editing.selectAnnotation(0, 0), isTrue);
       final tip0 =

@@ -3,11 +3,14 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'page_geometry.dart';
+import 'render_worker.dart';
 import 'strips/strip_device.dart';
 
 /// Which device family [PdfPageRenderer.renderImageWithPlan] paints with.
@@ -22,6 +25,87 @@ enum PdfRenderDeviceMode {
   strips,
 }
 
+/// The resolution and physical pixel size a page raster is baked at.
+///
+/// A page displayed [layoutWidth] logical pixels wide on a display of
+/// [devicePixelRatio] needs `layoutWidth / pageWidth * devicePixelRatio`
+/// device pixels per PDF point, times the live zoom [scale]. Two caps bound
+/// what that can ask for; past them the deep-zoom detail patch takes over for
+/// the visible region rather than the base raster growing without limit.
+///
+/// This lives here - rather than inside the page widget that reads it every
+/// render - because the idle full-raster warm ([PdfPagePreviewCache
+/// .warmFullRaster]) has to bake a raster at *exactly* the geometry the page
+/// widget will later ask the cache for. Two copies of this arithmetic that
+/// disagree by one pixel turn every warmed page into a cache miss, so both
+/// sides compute it here.
+class PdfPageRasterGeometry {
+  PdfPageRasterGeometry._();
+
+  /// Pixel ceiling for one whole-page raster (~4.2M px, 16 MiB RGBA).
+  ///
+  /// This matches [PdfPageRasterCachePolicy]'s default per-entry budget. Once
+  /// a view asks for more resolution, the whole-page image remains a bounded
+  /// backing layer and [PdfPageView]'s visible-region detail path supplies the
+  /// sharp pixels. A larger base would be expensive to raster, rejected by the
+  /// default cache, and mostly outside the viewport.
+  static const maxPixels = 1 << 22;
+
+  /// Pixel ceiling for one visible-region detail raster (~16.7M px).
+  ///
+  /// Detail is already cropped to the viewport and its panning guard band, so
+  /// this larger transient allowance preserves sharpness without paying for a
+  /// whole page at the same density.
+  static const maxDetailPixels = 1 << 24;
+
+  /// Per-side pixel ceiling for one page raster.
+  static const maxDimension = 8192.0;
+
+  /// The uncapped resolution, in device pixels per PDF point.
+  static double desiredRatio({
+    required Size pageSize,
+    required double layoutWidth,
+    required double devicePixelRatio,
+    double scale = 1.0,
+  }) {
+    final width = math.max(1.0, pageSize.width);
+    // pages display fit-width, so the raster must match the on-screen width -
+    // a 612pt page across a wide window needs far more pixels than its
+    // nominal point size
+    final fitWidth = (layoutWidth <= 0 ? width : layoutWidth) / width;
+    return math.max(fitWidth * devicePixelRatio * scale, 0.05);
+  }
+
+  /// [desiredRatio] bounded by [maxPixels] and [maxDimension].
+  static double effectiveRatio({
+    required Size pageSize,
+    required double layoutWidth,
+    required double devicePixelRatio,
+    double scale = 1.0,
+  }) {
+    final width = math.max(1.0, pageSize.width);
+    final height = math.max(1.0, pageSize.height);
+    var ratio = desiredRatio(
+      pageSize: pageSize,
+      layoutWidth: layoutWidth,
+      devicePixelRatio: devicePixelRatio,
+      scale: scale,
+    );
+    ratio = math.min(ratio, math.sqrt(maxPixels / (width * height)));
+    ratio = math.min(ratio, maxDimension / math.max(width, height));
+    return math.max(ratio, 0.05);
+  }
+
+  /// The physical raster size [PdfPageRenderer.rasterize] produces for a page
+  /// of [pageSize] at [pixelRatio] - the same rounding and clamp, so a cache
+  /// lookup keyed on these dimensions matches the image that lands.
+  static (int width, int height) dimensions(Size pageSize, double pixelRatio) =>
+      (
+        (pageSize.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (pageSize.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+}
+
 /// Immutable display inputs for rendering a page.
 ///
 /// The same trio travels through the viewer, thumbnails, color sampler,
@@ -32,10 +116,17 @@ class PdfPageRenderPlan {
     this.pageColor = const Color(0xFFFFFFFF),
     this.annotations = true,
     this.rotation,
+    this.paper = true,
   });
 
   /// The paper color painted behind page contents.
   final Color pageColor;
+
+  /// Whether the paper is painted at all. False leaves the picture
+  /// transparent wherever the content does not draw, so it can be composited
+  /// over something else - a page fragment floating above the live page.
+  /// [pageColor] is then unused.
+  final bool paper;
 
   /// Whether page annotations are included in the render.
   final bool annotations;
@@ -51,10 +142,12 @@ class PdfPageRenderPlan {
       other is PdfPageRenderPlan &&
       pageColor == other.pageColor &&
       annotations == other.annotations &&
-      rotation == other.rotation;
+      rotation == other.rotation &&
+      paper == other.paper;
 
   @override
-  int get hashCode => Object.hash(pageColor.toARGB32(), annotations, rotation);
+  int get hashCode =>
+      Object.hash(pageColor.toARGB32(), annotations, rotation, paper);
 }
 
 /// Rasterizes PDF pages.
@@ -97,15 +190,27 @@ class PdfPageRenderer {
   }
 
   /// Renders [page] using a pre-computed display [plan].
+  ///
+  /// [maxImagePixelRatio] (screen px per page point) caps each image decode to
+  /// display resolution; see [decodeImages]. Callers that know the final raster
+  /// scale (e.g. [renderImageWithPlan]) pass it so a giant raster underlay is
+  /// not decoded at full native resolution.
+  /// [operations] renders those operations in place of the page's own
+  /// content stream - the page still supplies resources, boxes and
+  /// annotations. Callers pass a filtered list to paint a subset of the page
+  /// (see `PdfPageElements.operationsRetaining`); null parses the page.
   static Future<ui.Picture> renderPictureWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
-      {bool Function(PdfAnnotation)? skipAnnotation}) async {
+      {bool Function(PdfAnnotation)? skipAnnotation,
+      double? maxImagePixelRatio,
+      List<ContentOperation>? operations}) async {
     final cos = page.document.cos;
 
     // Parsing the content stream (and decompressing it) dominates rendering on
     // graphics-rich pages, and the page is interpreted twice here - once to
     // discover images to decode, once to paint. Parse it once and feed both.
-    final pageOps = ContentStreamParser.parse(page.contentBytes());
+    final pageOps =
+        operations ?? ContentStreamParser.parse(page.contentBytes());
 
     // Discover the images to decode with a scan-only interpretation: it walks
     // the same content (so it sees every image - including those drawn by
@@ -119,14 +224,14 @@ class PdfPageRenderer {
       collecting.drawAnnotations(page, skip: skipAnnotation);
     }
     final images = await decodeImages(cos, collector.streams,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    _paintBackground(canvas, size, plan.pageColor);
+    if (plan.paper) _paintBackground(canvas, size, plan.pageColor);
     _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
 
     final painting = PdfInterpreter(
@@ -138,7 +243,7 @@ class PdfPageRenderer {
     // decode handles (clones from the cache, or fresh decodes) can be freed
     // now - the cache keeps the masters for the next render.
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -175,9 +280,14 @@ class PdfPageRenderer {
   }
 
   /// Renders [page] through the record/replay path using [plan].
+  ///
+  /// [maxImagePixelRatio] caps each image decode to display resolution, as in
+  /// [renderPictureWithPlan].
   static Future<ui.Picture> renderPictureRecordedWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
-      {bool Function(PdfAnnotation)? skipAnnotation}) async {
+      {bool Function(PdfAnnotation)? skipAnnotation,
+      double? maxImagePixelRatio,
+      double imageDecodeHeadroom = 2}) async {
     final cos = page.document.cos;
 
     // Record the page into a flat command buffer. This single walk also
@@ -189,7 +299,9 @@ class PdfPageRenderer {
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance,
+        maxImagePixelRatio: maxImagePixelRatio,
+        imageDecodeHeadroom: imageDecodeHeadroom);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -202,7 +314,7 @@ class PdfPageRenderer {
     replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
     final picture = uiRecorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -225,29 +337,44 @@ class PdfPageRenderer {
   /// every image. This is the fast first pass of progressive rendering: a heavy
   /// raster underlay can take many seconds to decode, so the page paints its
   /// linework immediately and the images drop in on a later full pass.
+  ///
+  /// [maxImagePixelRatio] caps those decodes to the resolution the picture is
+  /// about to be rasterized at, exactly as in [pictureFromCommandsWithPlan].
+  /// Pass it whenever the buffer may carry un-decoded images (the worker's
+  /// codec declined them) and the target is smaller than the page: without it
+  /// a 256px thumbnail decodes a declined image at its native size, on the
+  /// platform thread (#603).
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
       {Color pageColor = const Color(0xFFFFFFFF),
       int? rotation,
-      bool includeImages = true}) async {
+      bool includeImages = true,
+      double? maxImagePixelRatio}) async {
     return pictureFromCommandsWithPlan(
       page,
       commands,
       PdfPageRenderPlan(pageColor: pageColor, rotation: rotation),
       includeImages: includeImages,
+      maxImagePixelRatio: maxImagePixelRatio,
     );
   }
 
   /// Replays recorded [commands] for [page] using [plan].
+  ///
+  /// [maxImagePixelRatio] caps any images the buffer carries un-decoded to
+  /// display resolution ([decodeImages]) - the JPEGs a render worker shipped
+  /// without decoding, which would otherwise decode at native size here.
   static Future<ui.Picture> pictureFromCommandsWithPlan(
       PdfPage page, List<PdfRenderCommand> commands, PdfPageRenderPlan plan,
-      {bool includeImages = true}) async {
+      {bool includeImages = true, double? maxImagePixelRatio}) async {
     final requests = <PdfImageRequest>[];
     if (includeImages) collectImageRequests(commands, requests);
-    final images = requests.isEmpty
+    final Map<Object, ui.Image> images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
-            cache: PdfImageCache.instance);
+            cache: PdfImageCache.instance,
+            maxImagePixelRatio: maxImagePixelRatio,
+            imageDecodeHeadroom: 1);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -258,7 +385,7 @@ class PdfPageRenderer {
     replayCommands(commands, CanvasPdfDevice(canvas, images: images));
     final picture = recorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -293,8 +420,73 @@ class PdfPageRenderer {
     return requests.isNotEmpty;
   }
 
+  /// Total pixels the image draws in [commands] will decode and upload -
+  /// the honest cost of replaying this buffer, as opposed to merely whether
+  /// it contains an image at all ([hasImageDraws]).
+  ///
+  /// Prefers the pixels the worker already decoded; falls back to the source
+  /// image's declared /Width x /Height for a draw that will decode locally.
+  /// Returns -1 when any image declines to say how big it is, so a caller
+  /// weighing a budget cannot mistake "unknown" for "small".
+  static int imageDrawPixels(List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    collectImageRequests(commands, requests);
+    var pixels = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded != null) {
+        pixels += decoded.width * decoded.height;
+        continue;
+      }
+      final width =
+          request.decodedWidth ?? _declaredExtent(request, 'Width', 'W');
+      final height =
+          request.decodedHeight ?? _declaredExtent(request, 'Height', 'H');
+      if (width == null || height == null) return -1;
+      pixels += width * height;
+    }
+    return pixels;
+  }
+
+  /// An image's declared extent, by its full key or the abbreviation an
+  /// inline image (BI ... ID) uses for the same entry.
+  static int? _declaredExtent(
+      PdfImageRequest request, String key, String abbreviation) {
+    final dict = request.stream.dictionary;
+    final value = dict[key] ?? dict[abbreviation];
+    return value is CosInteger ? value.value : null;
+  }
+
+  /// Decodes the image payloads in a retained command buffer into the shared
+  /// image cache without replaying or rasterizing the page.
+  ///
+  /// This is the cheap UI-side half of speculative nearby-page warming: the
+  /// worker can parse and decode off-thread, then the platform image handles
+  /// are admitted while the current page is already stable. A later visible
+  /// render receives cache clones and only pays command replay. Every temporary
+  /// handle is released here; [PdfImageCache] retains its bounded masters.
+  static Future<void> predecodeCommandImages(
+    PdfPage page,
+    List<PdfRenderCommand> commands, {
+    double? maxImagePixelRatio,
+  }) async {
+    final requests = <PdfImageRequest>[];
+    collectImageRequests(commands, requests);
+    if (requests.isEmpty) return;
+    final images = await decodeImages(
+      page.document.cos,
+      requests,
+      cache: PdfImageCache.instance,
+      maxImagePixelRatio: maxImagePixelRatio,
+      imageDecodeHeadroom: 1,
+    );
+    for (final image in images.values) {
+      disposePdfDecodedImage(image);
+    }
+  }
+
   /// Gathers every image draw request in [commands], descending into soft-mask
-  /// groups (whose own commands can draw images), in replay order.
+  /// groups and retained tiling cells, in replay order.
   static void collectImageRequests(
       List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
     for (final command in commands) {
@@ -303,6 +495,8 @@ class PdfPageRenderer {
           out.add(request);
         case PdfEndSoftMaskedCommand(:final maskCommands):
           collectImageRequests(maskCommands, out);
+        case PdfDrawTiledCellCommand(:final cellCommands):
+          collectImageRequests(cellCommands, out);
         default:
           break;
       }
@@ -348,11 +542,51 @@ class PdfPageRenderer {
   /// Renders one annotation's appearance into a picture in the same page
   /// raster space as [renderPicture] (post-rotation, y down, 1 unit =
   /// 1 point) but with a transparent background - for live drag/resize
-  /// previews. Null when the annotation has no appearance stream.
+  /// previews and the viewer's annotation layer. Null when the annotation has
+  /// no appearance stream.
+  ///
+  /// The picture is scale-independent: callers replay it at any page-to-view
+  /// scale, so stroke widths stay in page space (no device-pixel floor - see
+  /// [CanvasPdfDevice.pixelRatio]).
   static Future<ui.Picture?> renderAnnotationPicture(
       PdfPage page, PdfAnnotation annotation,
       {int? rotation}) async {
-    if (annotation.normalAppearance == null) return null;
+    final pictures = await _renderAnnotationPictures(
+      page,
+      annotation,
+      rotation: rotation,
+      splitWrappedHighlight: false,
+    );
+    return pictures.isEmpty ? null : pictures.single;
+  }
+
+  /// Renders an annotation for the viewer's resting appearance layer.
+  ///
+  /// A Highlight with a small set of pairwise-disjoint, axis-aligned
+  /// `/QuadPoints` is recorded as one tightly clipped picture per quad.
+  /// Keeping the advanced Multiply blend out of the annotation's much larger
+  /// union `/Rect` avoids an intermediate Windows compositor surface covering
+  /// several text lines. Overlapping or long quad lists retain the
+  /// single-picture behavior of [renderAnnotationPicture]: overlap must not
+  /// composite the full appearance repeatedly, and split replay must stay
+  /// bounded rather than becoming quadratic in the quad count.
+  static Future<List<ui.Picture>> renderAnnotationPictures(
+          PdfPage page, PdfAnnotation annotation,
+          {int? rotation}) =>
+      _renderAnnotationPictures(
+        page,
+        annotation,
+        rotation: rotation,
+        splitWrappedHighlight: true,
+      );
+
+  static Future<List<ui.Picture>> _renderAnnotationPictures(
+    PdfPage page,
+    PdfAnnotation annotation, {
+    required bool splitWrappedHighlight,
+    int? rotation,
+  }) async {
+    if (annotation.normalAppearance == null) return const [];
     final cos = page.document.cos;
 
     final collector = ImageCollector();
@@ -362,18 +596,84 @@ class PdfPageRenderer {
         cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page, rotation: rotation);
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+    final effectiveRotation = rotation ?? page.rotation;
+    final size = pageSize(page, rotation: effectiveRotation);
+    final quads = annotation.behavior.markupQuads;
+    final splitQuads = splitWrappedHighlight &&
+            annotation.subtype == 'Highlight' &&
+            quads != null &&
+            quads.length > 1 &&
+            quads.length <= _maxSplitHighlightQuads &&
+            quads.every((quad) =>
+                quad.left.isFinite &&
+                quad.bottom.isFinite &&
+                quad.right.isFinite &&
+                quad.top.isFinite &&
+                quad.width > 0 &&
+                quad.height > 0) &&
+            _arePairwiseDisjoint(quads)
+        ? quads
+        : null;
+    final clips = splitQuads ?? const <PdfRect?>[null];
+    final geometry = PdfPageGeometry(
+      cropBox: box,
+      rotation: effectiveRotation,
+      viewSize: size,
+    );
+    final pictures = <ui.Picture>[];
+    try {
+      for (final clip in clips) {
+        final recorder = ui.PictureRecorder();
+        final rasterClip = clip == null ? null : geometry.toViewRect(clip);
+        final canvas = Canvas(recorder, rasterClip);
+        _applyPageTransform(canvas, page, size, box,
+            rotation: effectiveRotation);
+        if (clip != null) {
+          canvas.clipRect(
+            Rect.fromLTRB(clip.left, clip.bottom, clip.right, clip.top),
+          );
+        }
 
-    PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
-        .drawAnnotation(page, annotation);
-    final picture = recorder.endRecording();
-    for (final image in images.values) {
-      image.dispose();
+        // pixelRatio 0 turns the one-device-pixel stroke floor off (#660).
+        // The pictures are scale-independent; flooring here would bake a
+        // scale-dependent choice into every later replay.
+        PdfInterpreter(
+          cos: cos,
+          device: CanvasPdfDevice(canvas, images: images, pixelRatio: 0),
+        ).drawAnnotation(page, annotation);
+        pictures.add(recorder.endRecording());
+      }
+      return List.unmodifiable(pictures);
+    } catch (_) {
+      for (final picture in pictures) {
+        picture.dispose();
+      }
+      rethrow;
+    } finally {
+      for (final image in images.values) {
+        disposePdfDecodedImage(image);
+      }
     }
-    return picture;
+  }
+
+  /// Bounds interpreter replay for the split path. Each clipped picture still
+  /// replays the complete appearance, so an unbounded list would do O(q²)
+  /// command work. Longer highlights take the legacy one-picture path.
+  static const int _maxSplitHighlightQuads = 8;
+
+  static bool _arePairwiseDisjoint(List<PdfRect> quads) {
+    for (var i = 0; i < quads.length; i++) {
+      final a = quads[i];
+      for (var j = i + 1; j < quads.length; j++) {
+        final b = quads[j];
+        final overlaps = a.left < b.right &&
+            a.right > b.left &&
+            a.bottom < b.top &&
+            a.top > b.bottom;
+        if (overlaps) return false;
+      }
+    }
+    return true;
   }
 
   /// Renders [page] to a bitmap. [pixelRatio] of 2 doubles the resolution.
@@ -381,7 +681,7 @@ class PdfPageRenderer {
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool recorded = false,
+      bool recorded = true,
       int? rotation}) async {
     return renderImageWithPlan(
       page,
@@ -405,13 +705,18 @@ class PdfPageRenderer {
   static Future<ui.Image> renderImageWithPlan(PdfPage page,
       {required PdfPageRenderPlan plan,
       double pixelRatio = 1,
-      bool recorded = false}) async {
-    if (deviceMode == PdfRenderDeviceMode.strips && !recorded) {
+      bool recorded = true}) async {
+    // Strips is its own device axis (opt-in via [deviceMode], only the
+    // benchmark/parity harnesses set it) - independent of the recorded/two-walk
+    // choice, so it engages whenever selected regardless of [recorded].
+    if (deviceMode == PdfRenderDeviceMode.strips) {
       return _renderImageStrips(page, plan, pixelRatio);
     }
     final picture = recorded
-        ? await renderPictureRecordedWithPlan(page, plan)
-        : await renderPictureWithPlan(page, plan);
+        ? await renderPictureRecordedWithPlan(page, plan,
+            maxImagePixelRatio: pixelRatio)
+        : await renderPictureWithPlan(page, plan,
+            maxImagePixelRatio: pixelRatio);
     try {
       return await rasterize(picture, plan.pageSize(page), pixelRatio);
     } finally {
@@ -441,8 +746,11 @@ class PdfPageRenderer {
         PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
           ..drawPageOperations(page, pageOps);
     if (plan.annotations) collecting.drawAnnotations(page);
+    // Cap image decodes to display resolution just like the canvas bitmap path
+    // ([renderImageWithPlan]), so the two devices stay pixel-parity on scaled
+    // images instead of one decoding sharper than the other.
     final images = await decodeImages(cos, collector.streams,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, maxImagePixelRatio: pixelRatio);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -481,7 +789,7 @@ class PdfPageRenderer {
       picture.dispose();
       device.dispose();
       for (final image in images.values) {
-        image.dispose();
+        disposePdfDecodedImage(image);
       }
     }
   }
@@ -598,39 +906,75 @@ class PdfPageRenderer {
 /// per event would be far too slow.
 ///
 /// Points are page raster space: post-rotation points with y down, the
-/// view position divided by the view scale.
+/// view position divided by the view scale. The backing raster may be
+/// smaller than that (see [maxPixels]); [colorAt] maps into it, so callers
+/// never deal in the raster's own pixels.
 class PdfPageColorSampler {
-  PdfPageColorSampler._(this._pixels, this._width, this._height);
+  PdfPageColorSampler._(this._pixels, this._width, this._height, this._scale);
 
   final ByteData _pixels;
   final int _width;
   final int _height;
 
-  /// Renders and rasterizes [page] at 1 px per point. [pageColor] and
+  /// Raster pixels per page point. 1 unless the page was too large for
+  /// [maxPixels] and the raster was scaled down to fit.
+  final double _scale;
+
+  /// The pixel ceiling a sampler's raster is built under. A page is
+  /// rasterized at 1 px per point until that would exceed this, and scaled
+  /// down to fit beyond it: an ISO A0 sheet (3370x2384 pt) would otherwise
+  /// allocate 32 MB of RGBA on the UI thread for what is only ever read a
+  /// few pixels at a time, and a large-format CAD plan is worse again.
+  /// 4 MP keeps every ordinary page (a letter page is 0.5 MP) at 1:1.
+  static const maxPixels = 4 * 1000 * 1000;
+
+  /// Renders and rasterizes [page] for sampling. [pageColor] and
   /// [annotations] must match how the page is displayed, so samples
   /// read the color the user actually sees.
+  ///
+  /// [worker] (with [pageIndex]) moves the interpreter walk - the dominant
+  /// cost, and the reason a UI-thread render of a busy page reads as a
+  /// freeze - onto the render worker's isolate, exactly as page rendering
+  /// does. The worker's cache usually already holds the buffer for a page
+  /// on screen, so an eyedropper armed over a rendered page pays only the
+  /// replay and the raster. A worker that declines (an inline image, no
+  /// worker on this platform) falls back to the local render.
   static Future<PdfPageColorSampler> of(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
       int? rotation,
-      PdfPageRenderPlan? plan}) async {
+      PdfPageRenderPlan? plan,
+      PdfRenderWorker? worker,
+      int? pageIndex}) async {
     final renderPlan = plan ??
         PdfPageRenderPlan(
           pageColor: pageColor,
           annotations: annotations,
           rotation: rotation,
         );
-    final picture =
-        await PdfPageRenderer.renderPictureWithPlan(page, renderPlan);
+    final size = renderPlan.pageSize(page);
+    // 1 px per point, scaled down only when the page is big enough that a
+    // full-resolution raster would be a memory event of its own.
+    final area = size.width * size.height;
+    final scale = area > maxPixels ? math.sqrt(maxPixels / area) : 1.0;
+    final commands = worker == null || pageIndex == null
+        ? null
+        : await worker.record(pageIndex,
+            annotations: renderPlan.annotations, imagePixelRatio: scale);
+    final picture = commands != null
+        ? await PdfPageRenderer.pictureFromCommandsWithPlan(
+            page, commands, renderPlan, maxImagePixelRatio: scale)
+        : await PdfPageRenderer.renderPictureRecordedWithPlan(page, renderPlan,
+            maxImagePixelRatio: scale, imageDecodeHeadroom: 1);
     try {
-      final image = await PdfPageRenderer.rasterize(
-          picture, renderPlan.pageSize(page), 1);
+      final image = await PdfPageRenderer.rasterize(picture, size, scale);
       try {
         final data = await image.toByteData();
         if (data == null) {
           throw StateError('page raster yielded no pixels');
         }
-        return PdfPageColorSampler._(data, image.width, image.height);
+        return PdfPageColorSampler._(
+            data, image.width, image.height, image.width / size.width);
       } finally {
         image.dispose();
       }
@@ -639,22 +983,44 @@ class PdfPageColorSampler {
     }
   }
 
-  /// The color at [point], averaged over a 3×3-point patch so
-  /// anti-aliased strokes still read as their color. Null off the page.
-  ui.Color? colorAt(ui.Offset point) {
-    final cx = point.dx.round(), cy = point.dy.round();
-    var r = 0, g = 0, b = 0, n = 0;
-    for (var y = cy - 1; y <= cy + 1; y++) {
-      for (var x = cx - 1; x <= cx + 1; x++) {
+  /// The color at [point] (page raster space - see the class docs),
+  /// averaged over the (2*[radius]+1)-square patch of raster pixels around
+  /// it so anti-aliased strokes still read as their color. Null off the
+  /// page.
+  ///
+  /// [radius] is in raster pixels, so a caller showing the page zoomed in
+  /// can narrow the patch to what the pointer actually covers on screen -
+  /// see [patchRadiusForZoom]. The default 1 (a 3x3 patch) is the
+  /// unzoomed reading.
+  ui.Color? colorAt(ui.Offset point, {int radius = 1}) {
+    final cx = (point.dx * _scale).round(), cy = (point.dy * _scale).round();
+    final r = radius < 0 ? 0 : radius;
+    var red = 0, green = 0, blue = 0, n = 0;
+    for (var y = cy - r; y <= cy + r; y++) {
+      for (var x = cx - r; x <= cx + r; x++) {
         if (x < 0 || y < 0 || x >= _width || y >= _height) continue;
         final i = (y * _width + x) * 4;
         if (_pixels.getUint8(i + 3) == 0) continue; // past the page edge
-        r += _pixels.getUint8(i);
-        g += _pixels.getUint8(i + 1);
-        b += _pixels.getUint8(i + 2);
+        red += _pixels.getUint8(i);
+        green += _pixels.getUint8(i + 1);
+        blue += _pixels.getUint8(i + 2);
         n++;
       }
     }
-    return n == 0 ? null : ui.Color.fromARGB(255, r ~/ n, g ~/ n, b ~/ n);
+    return n == 0
+        ? null
+        : ui.Color.fromARGB(255, red ~/ n, green ~/ n, blue ~/ n);
+  }
+
+  /// The [colorAt] patch radius that covers about the same *screen* area at
+  /// [zoom] as the default 3x3 patch does unzoomed - so the sample tracks
+  /// what the pointer is over rather than blurring a 3pt disc of the page
+  /// at 8x, where 3pt is most of a glyph stem. Zoomed in past 2x it
+  /// collapses to the single pixel under the pointer.
+  int patchRadiusForZoom(double zoom) {
+    if (!zoom.isFinite || zoom <= 0) return 1;
+    // (2r+1) raster px should span ~3 screen px; screen px per raster px
+    // is zoom / _scale.
+    return ((3 * _scale / zoom - 1) / 2).floor().clamp(0, 8);
   }
 }

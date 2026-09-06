@@ -1,0 +1,196 @@
+{
+  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|read|wheel|open|search|edit|hover|warm), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
+  "default": "scroll-plan",
+  "scenarios": {
+    "scroll-plan": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "passes": 1, "fast": 1 },
+      "note": "16-sheet vector plan set (~70k ops/page). Scroll + fast-fling: frame smoothness and interpret/decode worker offload."
+    },
+    "scroll-scan": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "params": { "passes": 1, "fast": 1 },
+      "note": "12p A3 scanned grayscale (~3.7 MB decoded/page). Stresses off-thread image decode + the image cache."
+    },
+    "scroll-text": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "passes": 1, "fast": 1, "maxPages": 16 },
+      "note": "40p office-text report, the everyday reading workload: cheap glyph-only pages scrolled and flung past. Light per page, so what shows up here is scheduling and retention, not interpret throughput."
+    },
+    "zoom-scan": {
+   "kind": "scroll",
+   "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+   "params": {
+    "passes": 1,
+    "fast": 0,
+    "maxPages": 4,
+    "zoom": 2
+   },
+   "note": "Deep-zoom settle cycles on A3 scans: the tile pyramid's region-scoped image re-decode. Every page is one big raster, so zoom sharpness comes entirely from re-decoding the visible slice - this is the workload that pays for it."
+  },
+  "scroll-diagram": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "passes": 2, "fast": 0 },
+      "note": "3p ultra-dense diagram (~270k ops/page, MB-scale streams). Tokenizer/interpreter saturation."
+    },
+    "scroll-photo-noworker": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/photo-jpeg-6p.pdf",
+      "params": { "passes": 1, "fast": 1, "worker": 0 },
+      "note": "6p full-page DeviceRGB DCTDecode covers (~1240x1654) with the render worker OFF (worker=0), so every JPEG decodes on the main thread through _decodeOne. The A/B lever for #458's browser-codec fallback vs the engine WASM codec - the win the worker-on desktop path hides."
+    },
+    "scroll-cad-labels": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/cad-labels-6p.pdf",
+      "params": { "passes": 1, "fast": 1 },
+      "note": "6p A3 sheets of 660 UNIQUE survey-point labels each, substituted Helvetica. The run-layout cache misses on every label, so this is the worst case for substituted-text shaping (#454) - the interpret line's shape= vs replay= split shows shaping vs canvas-call volume when the cache cannot help."
+    },
+    "open-plan": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "targetPage": 8 },
+      "note": "Cold-open time-to-first-content jumping to a heavy vector sheet mid-document."
+    },
+    "open-text": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "targetPage": 0 },
+      "note": "Cold-open of a 40p office-text doc: page-tree walk + first paint."
+    },
+    "open-diagram": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "targetPage": 0, "earlyPrefixMin": 262144 },
+      "note": "Cold-open first-content on a ~270k-op/~450KB-content dense diagram: the #527 bounded-early-prefix BASELINE. A/B vs open-diagram-progressive for the #564 reveal (earlyPrefixMin lowered so this just-under-512KB page engages both)."
+    },
+    "open-diagram-progressive": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "targetPage": 0, "earlyPrefixMin": 262144, "progressive": 1 },
+      "note": "Same cold-open as open-diagram but with the #564 progressive top-down reveal on: the vector-first record streams growing linework prefixes. openFirstContentMs vs open-diagram is the first-content A/B."
+    },
+    "search-text": {
+      "kind": "search",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "query": "Page", "repeat": 3 },
+      "note": "Full-document text search latency + match count on a 40p text report (best-of-3). 'Page' hits ~1.1k times, spread across every page - a stable, comparable workload."
+    },
+    "hover-ink": {
+   "kind": "hover",
+   "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+   "params": {
+    "events": 240,
+    "tool": "ink"
+   },
+   "note": "240 pointer-hover events over a dense vector sheet with the ink tool armed - the painted pen cursor has to follow the mouse. Measures whether that costs a rebuild of the editing overlay's subtree or a repaint of the cursor layer (#403): watch hoverBuildMsTotal / hoverBuildMsPerEvent."
+  },
+  "hover-eraser": {
+   "kind": "hover",
+   "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+   "params": {
+    "events": 240,
+    "tool": "eraser"
+   },
+   "note": "Same hover sweep with the eraser armed (the ring cursor). Same metrics as hover-ink; a second armed tool so a regression in one cursor path doesn't hide behind the other."
+  },
+  "edit-annotate": {
+      "kind": "edit",
+      "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
+      "params": { "ops": 24 },
+      "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
+    },
+    "warm-plan-off": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "warm": "off", "warmIdleMs": 9000, "warmTarget": 8 },
+      "note": "Control arm for #614: idle 6s with the idle full-raster warm OFF, then jump to a mid-document sheet. warmArriveMs is what arriving on an unvisited heavy vector sheet costs today."
+    },
+    "warm-plan-document": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "warm": "document", "warmIdleMs": 9000, "warmTarget": 8 },
+      "note": "Same script with the whole-document idle warm ON. warmArriveMs vs warm-plan-off is the feature's headline win; warmCompletions/warmRetainedMb/warmEvictions are what it spent to get it."
+    },
+    "warm-scan-document": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "params": { "warm": "document", "warmIdleMs": 9000, "warmTarget": 6 },
+      "note": "Scan-heavy arm: 12p A3 grayscale (~3.7 MB decoded/page). Warming these costs image decode, so watch warmRetainedMb and warmEvictions against the budget as well as warmArriveMs."
+    },
+    "warm-scan-off": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "params": { "warm": "off", "warmIdleMs": 9000, "warmTarget": 6 },
+      "note": "Control arm for warm-scan-document."
+    },
+    "wheel-text": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "A continuous trackpad-speed wheel scroll through a 40p text report, sampled every frame: wheelSharpWhileScrollingPct is how much of what was on screen was actually readable while the document moved, and wheelSettleMs is the wait after the reader stops. The 'scroll two pages, wait half a second' report."
+    },
+    "wheel-text-noworker": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
+      "note": "The same continuous scroll with the render worker OFF, which is what a session that never attached one (or whose byte source is still completing) actually looks like. Every interpret is on the UI thread, so this is the arm the motion-safe lane's local half exists for."
+    },
+    "wheel-letterhead": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "The corporate-report shape: the same continuous scroll over text pages that each declare one small letterhead image. Ordinary documents look like this, and a render policy that reads 'has an image' as 'expensive' switches itself off across the whole file - which is what a field trace of a 113-page report showed."
+    },
+    "wheel-letterhead-noworker": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
+      "note": "The letterhead report with the render worker OFF - every interpret on the UI thread, which is what the field trace behind this scenario actually was."
+    },
+    "scroll-letterhead-noworker": {
+     "kind": "scroll",
+     "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+     "params": {
+      "passes": 1,
+      "fast": 1,
+      "maxPages": 16,
+      "worker": 0
+     },
+     "note": "The #699 field trace's own condition: the corporate-report shape scrolled with the render worker OFF (worker=0), so every page interpret AND every background preview-ladder warm lands on the platform thread. A scroll rather than a wheel because the idle prerender needs a full second of quiet on web, which a continuous wheel never gives it - so this is the scenario where what the ladder costs is visible at all."
+    },
+    "wheel-plan": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "wheelPages": 6, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "The same continuous scroll over dense vector sheets - the arm where rendering through the scroll must not be attempted at any cost."
+    },
+    "read-text": {
+      "kind": "read",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "maxPages": 24, "readDwell": 250 },
+      "note": "Read a 40p office-text report page by page, then read back. Every page is cheap, so readFirstSettleP50Ms is pure scheduling latency and readBackInstantPct is how much of the document the caches actually kept - the 'PDFium shows it instantly, we take a moment' shape."
+    },
+    "read-booklet": {
+      "kind": "read",
+      "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
+      "params": { "maxPages": 20, "readDwell": 250 },
+      "note": "Mixed text/graphics booklet read end to end and back. Guards the reading journey on a document whose pages are not uniformly cheap."
+    },
+    "read-plan": {
+      "kind": "read",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "maxPages": 12, "readDwell": 250 },
+      "note": "Heavy vector plan set on the same reading journey: the arm that must not regress when scheduling gets greedier - these pages are the ones the one-per-frame pacing exists for."
+    },
+    "scroll-hatch": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/hatch-sections-4p.pdf",
+      "params": { "passes": 2, "fast": 0 },
+      "note": "4p A1 sheets, ~70 tiling-pattern-hatched regions each (~300k device commands/page under per-tile re-execution). The #524 record-once/replay anchor: interpret cost, record size, build/raster."
+    }
+  }
+}

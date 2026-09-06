@@ -13,19 +13,46 @@
 /// runs after [record] returns.
 library;
 
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger, CosStream;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'banded_transcript.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'perf_log.dart';
 import 'renderer.dart';
 import 'render_worker.dart';
 import 'region_replay_index.dart';
 import 'strips/strip_device.dart';
+
+const _overprintRerecordMaxSourceBytes = 64 << 20;
+
+/// Mutable carrier for the image-decode half of a [PdfRetainedScene.fromCommands]
+/// build, so the perf log can split the render 'build' phase into decode vs
+/// canvas-call construction without [PdfRetainedScene.fromCommands] growing a
+/// second return channel. The caller allocates one only while
+/// [PdfPerfLog.enabled] - an ordinary render never pays for it.
+class PdfSceneBuildTiming {
+  /// Wall time of the `decodeImages` await, in milliseconds. Stays 0 when
+  /// the buffer carried no images (or `includeImages` was false).
+  double decodeMs = 0;
+}
+
+/// Phase attribution for one strip-region raster. Allocated only while the
+/// opt-in performance log is enabled, so ordinary rendering pays no cost.
+class PdfStripRasterTiming {
+  double pictureMs = 0;
+  double routeMs = 0;
+  double atlasDecodeMs = 0;
+  double tapeReplayMs = 0;
+  double toImageMs = 0;
+}
 
 /// A page retained as a replayable scene: the recorded interpreter command
 /// buffer plus its decoded images, both produced exactly once in [record].
@@ -37,7 +64,79 @@ import 'strips/strip_device.dart';
 /// the cache window (outstanding pictures keep painting - `ui.Image.dispose`
 /// on a picture-referenced image is safe, the picture holds its own ref).
 class PdfRetainedScene {
-  PdfRetainedScene._(this.page, this.plan, this.commands, this._images);
+  PdfRetainedScene._(
+    this.page,
+    this.plan,
+    this.commands,
+    this._images, {
+    List<PdfImageRequest>? retainedDecodedRequests,
+    this.imageDecodingAttempted = true,
+    ({
+      double? maxImagePixelRatio,
+      double imageDecodeHeadroom
+    })? recordingOptions,
+  })  : _retainedDecodedRequests = retainedDecodedRequests,
+        _recordingOptions = recordingOptions;
+
+  /// Whether image requests were passed through the decoder for this scene.
+  ///
+  /// When true, a request absent from [imageFor] is definitively undecodable
+  /// and Canvas replay skips it. When false, the scene is a deliberate
+  /// vector-only progressive buffer and a later complete scene may still
+  /// supply the image.
+  final bool imageDecodingAttempted;
+
+  final ({
+    double? maxImagePixelRatio,
+    double imageDecodeHeadroom
+  })? _recordingOptions;
+
+  /// Whether this scene retains enough complete recording inputs for an exact
+  /// overprint-resolution retry.
+  bool get canRerecordWithOverprint => !_disposed && _recordingOptions != null;
+
+  /// Scenes holding sheddable spatial metadata (a region index or banded
+  /// transcript), weakly held so a coordinated memory-pressure sweep can drop
+  /// it without keeping any scene alive. Registration is lazy - a scene that
+  /// never region-replays never joins - and the list self-prunes past a
+  /// growing threshold so dead refs cannot accumulate unbounded.
+  static final List<WeakReference<PdfRetainedScene>> _liveScenes = [];
+  static int _livePruneThreshold = 64;
+  bool _registered = false;
+
+  void _register() {
+    if (_registered) return;
+    _registered = true;
+    _liveScenes.add(WeakReference(this));
+    if (_liveScenes.length > _livePruneThreshold) {
+      _liveScenes
+          .removeWhere((ref) => ref.target == null || ref.target!._disposed);
+      _livePruneThreshold = math.max(64, _liveScenes.length * 2);
+    }
+  }
+
+  /// Sheds the spatial retention metadata (region index + any X-strip banded
+  /// transcript) of every live scene under platform memory pressure - the
+  /// viewer's `didHaveMemoryPressure` drives this alongside the cache registry.
+  /// The authoritative [commands] transcript is untouched; a dropped index
+  /// rebuilds identically on the next region replay, and evicted strips
+  /// re-materialize on demand. Returns the number of scenes touched.
+  static int handleMemoryPressure() {
+    var touched = 0;
+    for (final ref in _liveScenes.toList()) {
+      final scene = ref.target;
+      if (scene == null || scene._disposed) continue;
+      if (scene._regionIndex != null || scene._bands != null) {
+        // Drops the index and the whole banded transcript (all retained
+        // strips), the strongest shed short of the authoritative commands.
+        scene.dropRegionIndex();
+        touched++;
+      }
+    }
+    _liveScenes
+        .removeWhere((ref) => ref.target == null || ref.target!._disposed);
+    return touched;
+  }
 
   /// The page this scene replays. Must stay open (the scene borrows nothing
   /// from it after [record], but callers naturally keep both together).
@@ -61,15 +160,140 @@ class PdfRetainedScene {
   /// Unsupported command groups conservatively use the full transcript.
   static bool spatialRegionReplay = true;
 
-  /// Hard construction bound for the spatial index. Larger transcripts keep
-  /// the historical full replay rather than retaining unbounded metadata.
+  /// Hard construction bound for the linear spatial index. Larger transcripts
+  /// keep the historical full replay rather than retaining unbounded metadata
+  /// — because the linear index is scanned in full on every region raster, so
+  /// a huge unit count would cost O(N) per tile.
   static int spatialRegionReplayMaxCommands = 250000;
 
+  /// Escalate to a uniform-grid spatial index for transcripts ABOVE the linear
+  /// [spatialRegionReplayMaxCommands] ceiling, up to [spatialGridReplayMaxCommands].
+  ///
+  /// Below the linear ceiling nothing changes: the flat per-op scan is cheap
+  /// enough. Above it, the historical behaviour was to give up on culling and
+  /// full-replay the whole transcript into every tile — catastrophic on a dense
+  /// CAD page (a 256px tile replaying ~850k commands, ~260ms, on the UI
+  /// isolate). The grid makes region replay O(candidates) instead, so those
+  /// pages become pannable. On by default because it only ever REPLACES the
+  /// full-transcript fallback — it never changes a page that already culled.
+  static bool spatialGridReplay = true;
+  static int spatialGridReplayMaxCommands = 4000000;
+
   PdfRegionReplayIndex? _regionIndex;
+  PdfBandedTranscript? _bands;
 
   /// Test/diagnostic counters for the most recent [replayRegion].
   bool debugLastRegionReplayWasSelective = false;
   int debugLastRegionReplayCommandCount = 0;
+
+  /// Per-band unit distribution across [bands] equal-width X strips, the
+  /// diagnostic that quantifies how unevenly paint work spreads along the pan
+  /// axis (input to sizing an X-strip band decomposition). Empty when the
+  /// transcript is outside the spatially-indexable subset.
+  List<int> debugUnitBandHistogram(int bands) =>
+      _ensureRegionIndex().unitBandHistogram(bands);
+
+  /// Partitions this scene's transcript into [bandCount] X strips for lazy
+  /// per-strip retention/eviction (see [PdfBandedTranscript]). Built once and
+  /// reused; null when the transcript is not spatially indexable. Callers evict
+  /// offscreen strips against the viewport and [reband] to re-materialize.
+  PdfBandedTranscript? bandTranscript({required int bandCount}) {
+    assert(!_disposed, 'bandTranscript after dispose');
+    return _bands ??= PdfBandedTranscript.build(
+      commands,
+      bandCount: bandCount,
+      index: _ensureRegionIndex(),
+    );
+  }
+
+  /// The banded transcript built by [bandTranscript], if any.
+  PdfBandedTranscript? get bands => _bands;
+
+  /// Re-materializes any evicted strips of the banded transcript by
+  /// re-interpreting the page once (the ~full-page record the strip dec
+  /// omposition trades against) and re-partitioning it. No-op without a banded
+  /// transcript or with every strip resident. Returns the strips restored.
+  Future<List<int>> reband() async {
+    final banded = _bands;
+    if (banded == null) return const [];
+    if (banded.bands.every((b) => b.resident)) return const [];
+    final rebuilt = await record(page, plan: plan);
+    try {
+      return banded.restore(rebuilt.commands);
+    } finally {
+      rebuilt.dispose();
+    }
+  }
+
+  /// Frees the retained spatial index (and any banded transcript); both rebuild
+  /// identically on next use. A memory-pressure primitive on the extreme pages
+  /// that carry a large index, and a component of strip eviction - the
+  /// authoritative [commands] transcript stays intact. A no-op when none is
+  /// held; an in-flight [warmRegionIndex] simply repopulates the index.
+  void dropRegionIndex() {
+    _regionIndex = null;
+    _bands = null;
+  }
+
+  /// Whether region rasters ([rasterizeRegion]) can be spatially culled to the
+  /// requested bounds rather than replaying the whole transcript. False when a
+  /// transparency group or soft mask spans the page (splitting one would change
+  /// its isolated compositing) - the [PdfTileStore] tile path leaves such pages
+  /// on the legacy full-page raster to avoid per-tile full-transcript replays.
+  bool get supportsRegionRaster => _ensureRegionIndex().supported;
+
+  /// Approximate bytes of the decoded images this scene retains for replay
+  /// (RGBA, width*height*4). Counted against the live-raster budget (#405): a
+  /// dense sheet's underlays keep tens of MB of pixels resident per live page.
+  int get decodedImageBytes {
+    var total = 0;
+    for (final image in _images.values) {
+      total += pdfDecodedImageBytes(image);
+    }
+    return total;
+  }
+
+  /// Whether every image this scene retains is already decoded at its stream's
+  /// full native pixel size, so no re-decode - at any zoom, for any region -
+  /// could make its image draws sharper.
+  ///
+  /// The deep-zoom paths use this to skip a region re-record they would gain
+  /// nothing from: an image whose display cap landed on native (a scan shown
+  /// at roughly its own dpi) is already the best pixels that exist. An image
+  /// the scene could not decode at all is ignored - a re-decode won't produce
+  /// it either.
+  bool get imagesAtNativeResolution =>
+      _imagesAtNativeResolution ??= _computeImagesAtNativeResolution();
+
+  /// Memoized: the scene's images never change after construction, and deep
+  /// zoom asks this on every settle - an O(commands) walk per settle on a
+  /// dense sheet is exactly the kind of per-frame cost the retained scene
+  /// exists to avoid.
+  bool? _imagesAtNativeResolution;
+
+  bool _computeImagesAtNativeResolution() {
+    final requests = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, requests);
+    for (final request in requests) {
+      final image = _images[pdfImageKey(request)];
+      if (image == null) continue;
+      final cos = page.document.cos;
+      final referenced = request.sourceReference;
+      final resolved = referenced == null ? null : cos.resolve(referenced);
+      final stream = resolved is CosStream ? resolved : request.stream;
+      final dict = stream.dictionary;
+      final width = cos.resolve(dict['Width']);
+      final height = cos.resolve(dict['Height']);
+      // A worker-wire request carries a tiny placeholder stream beside its
+      // source reference. If that reference cannot be resolved, native size
+      // is unknown rather than proven: keep deep-zoom refinement eligible.
+      if (width is! CosInteger || height is! CosInteger) return false;
+      if (image.width < width.value || image.height < height.value) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
   int get debugRegionReplayEstimatedBytes =>
@@ -105,6 +329,23 @@ class PdfRetainedScene {
   /// Decoded images keyed by [pdfImageKey], owned by this scene.
   final Map<Object, ui.Image> _images;
 
+  /// The small subset of image requests whose worker RGBA was deliberately
+  /// retained for a direct accelerated-backend upload.
+  ///
+  /// Keeping this list avoids rediscovering images by walking a very large CAD
+  /// transcript when the backend finishes compiling or disposes its session.
+  List<PdfImageRequest>? _retainedDecodedRequests;
+
+  /// The already-decoded image for [request], or null when its codec failed or
+  /// this is a deliberate vector-only progressive scene.
+  ///
+  /// Accelerated backends use this to upload each image once at session
+  /// creation instead of decoding or uploading it once per tile.
+  ui.Image? imageFor(PdfImageRequest request) {
+    assert(!_disposed, 'imageFor after dispose');
+    return _images[pdfImageKey(request)];
+  }
+
   bool _disposed = false;
 
   /// Page size in points after the plan's rotation - the raster size at
@@ -118,19 +359,145 @@ class PdfRetainedScene {
   ///
   /// Decodes share [PdfImageCache.instance] like every other render path, so
   /// recording a page the viewer already showed is decode-free.
+  ///
+  /// [maxImagePixelRatio] (screen px per page point) caps each image decode to
+  /// display resolution, as in [decodeImages] - the local twin of the render
+  /// worker's own cap, so a JPEG the worker declined does not decode at full
+  /// native resolution on the UI thread.
+  ///
+  /// [retainDecodedPixels] keeps portable decoder output until an accelerated
+  /// backend uploads it. Platform-codec images still retain only their
+  /// [ui.Image].
+  /// [retainDecodedPixelsForCommands] can opt in after recording has exposed
+  /// the complete command mix, allowing a backend to keep pixels only for
+  /// scenes whose upload strategy needs them.
   static Future<PdfRetainedScene> record(
     PdfPage page, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool Function(PdfAnnotation)? skipAnnotation,
+    int overprintMaxDimension = 384,
+    double? maxImagePixelRatio,
+    double imageDecodeHeadroom = 2,
+    bool retainDecodedPixels = false,
+    bool Function(List<PdfRenderCommand>)? retainDecodedPixelsForCommands,
+    PdfSceneBuildTiming? timing,
   }) async {
     final cos = page.document.cos;
     final recorder = RecordingPdfDevice();
-    final recording = PdfInterpreter(cos: cos, device: recorder)
-      ..drawPageContent(page, page.contentBytes());
+    final recording = PdfInterpreter(
+      cos: cos,
+      device: recorder,
+      overprintMaxDimension: overprintMaxDimension,
+    )..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    final keepDecodedPixels = retainDecodedPixels ||
+        (retainDecodedPixelsForCommands?.call(recorder.commands) ?? false);
+    final clock = timing == null ? null : (Stopwatch()..start());
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance);
-    return PdfRetainedScene._(page, plan, recorder.commands, images);
+        cache: PdfImageCache.instance,
+        maxImagePixelRatio: maxImagePixelRatio,
+        imageDecodeHeadroom: imageDecodeHeadroom,
+        retainDecodedPixels: keepDecodedPixels);
+    if (clock != null) {
+      timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
+    }
+    return PdfRetainedScene._(
+      page,
+      plan,
+      recorder.commands,
+      images,
+      retainedDecodedRequests: !keepDecodedPixels
+          ? null
+          : <PdfImageRequest>[
+              for (final request in recorder.imageRequests)
+                if (request.decoded != null &&
+                    images.containsKey(pdfImageKey(request)))
+                  request,
+            ],
+      recordingOptions: skipAnnotation == null
+          ? (
+              maxImagePixelRatio: maxImagePixelRatio,
+              imageDecodeHeadroom: imageDecodeHeadroom,
+            )
+          : null,
+    );
+  }
+
+  /// Repeats a complete scene with a denser overprint colorant grid.
+  ///
+  /// The pure-Dart page walk and image-command serialization run on a temporary
+  /// isolate so a difficult overprint page cannot stall the UI isolate. The
+  /// ordinary page walk never retries by itself; an optional tile backend can
+  /// use this only after conservatively rejecting the default transcript.
+  ///
+  /// Returns null for partial/imported command buffers, encrypted sources (the
+  /// parsed document does not retain its password), sources above 64 MiB (to
+  /// keep the isolate hand-off bounded), recordings that skipped annotations,
+  /// and pages no longer reachable from their document.
+  Future<PdfRetainedScene>? rerecordWithOverprintMaxDimension(
+    int maxDimension,
+  ) {
+    final options = _recordingOptions;
+    final document = page.document;
+    if (_disposed ||
+        options == null ||
+        maxDimension <= 0 ||
+        document.cos.isEncrypted ||
+        document.cos.bytes.length > _overprintRerecordMaxSourceBytes) {
+      return null;
+    }
+    final pageIndex = document.pageIndexOf(page.dict);
+    if (pageIndex < 0) return null;
+    return _rerecordWithOverprint(
+      pageIndex,
+      maxDimension,
+      options,
+    );
+  }
+
+  Future<PdfRetainedScene> _rerecordWithOverprint(
+    int pageIndex,
+    int maxDimension,
+    ({double? maxImagePixelRatio, double imageDecodeHeadroom}) options,
+  ) async {
+    final source = TransferableTypedData.fromList([page.document.cos.bytes]);
+    final populatedRanges = page.document.cos.populatedRanges;
+    final annotations = plan.annotations;
+    final decodeRatio = options.maxImagePixelRatio == null
+        ? null
+        : options.maxImagePixelRatio! * options.imageDecodeHeadroom;
+    final encoded = await Isolate.run(() {
+      final document = PdfDocument.open(source.materialize().asUint8List(),
+          populatedRanges: populatedRanges);
+      if (pageIndex >= document.pageCount) return null;
+      final retryPage = document.page(pageIndex);
+      final recorder = RecordingPdfDevice();
+      final interpreter = PdfInterpreter(
+        cos: document.cos,
+        device: recorder,
+        overprintMaxDimension: maxDimension,
+      )..drawPageContent(retryPage, retryPage.contentBytes());
+      if (annotations) interpreter.drawAnnotations(retryPage);
+      return serializeCommands(
+        recorder.commands,
+        cos: document.cos,
+        decodeImages: true,
+        maxImagePixelRatio: decodeRatio,
+        pageRasterPixels: pdfPageRasterPixels(
+          retryPage.cropBox,
+          decodeRatio,
+        ),
+      );
+    });
+    if (encoded == null) {
+      throw StateError('overprint retry command buffer is not transferable');
+    }
+    return fromCommands(
+      page,
+      deserializeCommands(encoded),
+      plan: plan,
+      maxImagePixelRatio: options.maxImagePixelRatio,
+    );
   }
 
   /// Builds a scene from an already-recorded [commands] buffer (e.g. one a
@@ -138,20 +505,110 @@ class PdfRetainedScene {
   /// must have been recorded for [page] under [plan]. Set [includeImages] to
   /// false for a deliberate vector-only progressive buffer; image draws then
   /// stay transparent until a complete scene replaces it.
+  /// [allowOverprintRerecord] marks a complete, unfiltered worker transcript
+  /// as reconstructible for an optional exact overprint retry.
+  ///
+  /// [timing], when non-null, receives the duration of the decode pass - the
+  /// perf log's way of splitting the render 'build' phase into image decode
+  /// vs the canvas-call construction that follows. Null (the default)
+  /// measures nothing.
+  ///
+  /// [maxImagePixelRatio] caps each image decode to display resolution
+  /// ([decodeImages]). This is the path that pays for a JPEG the worker shipped
+  /// un-decoded (it cannot run the platform codec); the cap keeps that UI-thread
+  /// decode at display size instead of the image's full native resolution.
+  /// [retainDecodedPixels] preserves pixels already carried by a worker;
+  /// [retainLocallyDecodedPixels] separately controls portable decoding done in
+  /// this isolate and defaults to the same value.
   static Future<PdfRetainedScene> fromCommands(
     PdfPage page,
     List<PdfRenderCommand> commands, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool includeImages = true,
+    bool allowOverprintRerecord = false,
+    bool retainDecodedPixels = false,
+    bool? retainLocallyDecodedPixels,
+    PdfSceneBuildTiming? timing,
+    double? maxImagePixelRatio,
   }) async {
-    final images = <Object, ui.Image>{};
+    final keepLocalPixels = retainLocallyDecodedPixels ?? retainDecodedPixels;
+    Map<Object, ui.Image> images = const <Object, ui.Image>{};
+    final requests = <PdfImageRequest>[];
     if (includeImages) {
-      final requests = <PdfImageRequest>[];
       PdfPageRenderer.collectImageRequests(commands, requests);
-      images.addAll(await decodeImages(page.document.cos, requests,
-          cache: PdfImageCache.instance));
+      // The clock exists only when a caller asked for the split; an ordinary
+      // render never pays for it.
+      final clock = timing == null ? null : (Stopwatch()..start());
+      images = await decodeImages(page.document.cos, requests,
+          cache: PdfImageCache.instance,
+          maxImagePixelRatio: maxImagePixelRatio,
+          imageDecodeHeadroom: 1,
+          retainDecodedPixels: keepLocalPixels);
+      if (!retainDecodedPixels && !keepLocalPixels) {
+        _releaseDecodedImagePixels(requests, images);
+      }
+      if (clock != null) {
+        timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
+      }
     }
-    return PdfRetainedScene._(page, plan, commands, images);
+    final retainedRequests = !retainDecodedPixels && !keepLocalPixels
+        ? null
+        : <PdfImageRequest>[
+            for (final request in requests)
+              if (request.decoded != null &&
+                  images.containsKey(pdfImageKey(request)))
+                request,
+          ];
+    return PdfRetainedScene._(
+      page,
+      plan,
+      commands,
+      images,
+      retainedDecodedRequests: retainedRequests,
+      imageDecodingAttempted: includeImages,
+      recordingOptions: allowOverprintRerecord && includeImages
+          ? (
+              maxImagePixelRatio: maxImagePixelRatio,
+              imageDecodeHeadroom: 1,
+            )
+          : null,
+    );
+  }
+
+  /// Releases worker-carried or locally retained RGBA after an accelerated
+  /// backend has uploaded its scene textures.
+  ///
+  /// Retained Canvas replay continues to use [_images]. The command requests
+  /// keep their decoded dimensions, so inline-image lookup identity remains
+  /// stable after the payload is dropped. This is idempotent.
+  void releaseDecodedImagePixels() {
+    final requests = _retainedDecodedRequests;
+    if (requests == null) return;
+    _retainedDecodedRequests = null;
+    _releaseDecodedImagePixels(requests, _images);
+  }
+
+  static void _releaseDecodedImagePixels(
+    Iterable<PdfImageRequest> requests,
+    Map<Object, ui.Image> images,
+  ) {
+    var releasedBytes = 0;
+    var releasedImages = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded == null || !images.containsKey(pdfImageKey(request))) {
+        continue;
+      }
+      releasedBytes += decoded.rgba.length;
+      releasedImages++;
+      request.releaseDecodedPixels();
+    }
+    if (releasedBytes > 0) {
+      PdfPerfLog.log(
+        'image worker-handoff released=$releasedBytes '
+        'images=$releasedImages',
+      );
+    }
   }
 
   /// Replays the retained commands into a fresh picture with [pixelRatio]
@@ -203,14 +660,38 @@ class PdfRetainedScene {
 
   /// Convenience: [replayRegion] + `toImage`, mirror of
   /// [PdfPageRenderer.rasterizeRegion].
+  ///
+  /// [tracePage] labels tile-pyramid calls for performance diagnostics. Null
+  /// keeps the ordinary path instrumentation-free.
   Future<ui.Image> rasterizeRegion(Rect region,
-      {required double pixelRatio}) async {
+      {required double pixelRatio, int? tracePage}) async {
+    final replayClock =
+        tracePage != null && PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final picture = replayRegion(region, pixelRatio: pixelRatio);
+    final replayMs = replayClock?.elapsedMicroseconds;
+    final selectedCommands = debugLastRegionReplayCommandCount;
+    final rasterClock =
+        tracePage != null && PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     try {
-      return await picture.toImage(
+      final image = await picture.toImage(
         (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
         (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
       );
+      if (tracePage != null) {
+        final replayElapsedMs = (replayMs ?? 0) / 1000;
+        final rasterElapsedMs = (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
+        PdfPerfLog.log(
+          'tile replay page=$tracePage '
+          'region=${region.width.toStringAsFixed(0)}x'
+          '${region.height.toStringAsFixed(0)}pt '
+          'ratio=${pixelRatio.toStringAsFixed(2)} '
+          'selected=$selectedCommands/${commands.length} '
+          'replay=${replayElapsedMs.toStringAsFixed(1)}ms '
+          'raster=${rasterElapsedMs.toStringAsFixed(1)}ms '
+          'img=${image.width}x${image.height}${PdfPerfLog.rssSuffix()}',
+        );
+      }
+      return image;
     } finally {
       picture.dispose();
     }
@@ -225,7 +706,7 @@ class PdfRetainedScene {
       if (index.supported && pageRegion != null) {
         debugLastRegionReplayWasSelective = true;
         debugLastRegionReplayCommandCount =
-            index.replay(pageRegion, commands, device, canvas);
+            index.replay(pageRegion, commands, device);
         return;
       }
     }
@@ -234,11 +715,135 @@ class PdfRetainedScene {
     replayCommands(commands, device);
   }
 
-  PdfRegionReplayIndex _ensureRegionIndex() =>
-      _regionIndex ??= PdfRegionReplayIndex.build(
-        commands,
-        maxCommands: spatialRegionReplayMaxCommands,
-      );
+  PdfRegionReplayIndex _ensureRegionIndex() {
+    _register();
+    if (_regionIndex != null) return _regionIndex!;
+    final params = _regionIndexBuildParams;
+    return _regionIndex = PdfRegionReplayIndex.build(
+      commands,
+      maxCommands: params.maxCommands,
+      buildGrid: params.buildGrid,
+    );
+  }
+
+  /// Selects the painter-order units needed for [rasterRegion].
+  ///
+  /// [rasterRegion] uses the same page-point, y-down space as
+  /// [rasterizeRegion]. Each returned unit carries its command index plus the
+  /// clip and blend state active at that command. Null means the scene cannot
+  /// be split safely (for example, it contains an isolated group or soft
+  /// mask), so a backend must decline the scene and let the Canvas fallback
+  /// render it whole. An empty list means the supported region is genuinely
+  /// blank.
+  List<PdfRegionReplayUnit>? selectRegion(Rect rasterRegion) {
+    assert(!_disposed, 'selectRegion after dispose');
+    final index = _ensureRegionIndex();
+    if (!index.supported) return null;
+    final pageRegion = _pageSpaceRegion(rasterRegion);
+    if (pageRegion == null) return null;
+    return index.select(pageRegion);
+  }
+
+  /// The `(maxCommands, buildGrid)` the region index builds under for this
+  /// transcript, given the current escalation policy. Below the linear ceiling:
+  /// the flat per-op scan (unchanged). Above it: escalate to the grid rather
+  /// than falling back to full-transcript replay. Shared by the in-isolate
+  /// build ([_ensureRegionIndex]) and the worker request ([warmRegionIndex]) so
+  /// both bin the transcript identically — the worker re-records a byte-for-byte
+  /// identical transcript, so the same parameters produce an index whose unit
+  /// indices line up with this scene's [commands].
+  ({int maxCommands, bool buildGrid}) get _regionIndexBuildParams {
+    final overLinear = commands.length > spatialRegionReplayMaxCommands;
+    final useGrid = spatialGridReplay && overLinear;
+    return (
+      maxCommands: useGrid
+          ? spatialGridReplayMaxCommands
+          : spatialRegionReplayMaxCommands,
+      buildGrid: useGrid,
+    );
+  }
+
+  Future<PdfRegionReplayIndex>? _regionIndexWarming;
+
+  /// Whether the transcript is heavy enough that building the region index is
+  /// worth offloading to a worker — the grid-escalation case, which is the
+  /// ~O(commands) build (~210ms on the dense CAD probe) issue #384 targets. A
+  /// small page's linear index builds in microseconds; warming it on a worker
+  /// would only add a round trip.
+  bool get regionIndexBuildIsHeavy => _regionIndexBuildParams.buildGrid;
+
+  /// Builds the region-replay index off the UI isolate on [worker] when it can,
+  /// so the first deep-zoom on a dense page does not pay the grid build (pure
+  /// command-bounds arithmetic — no `dart:ui`) synchronously on the UI isolate.
+  ///
+  /// [worker] must be the worker this scene was recorded from (its re-record is
+  /// deterministic, so the index it ships lines up with this scene's
+  /// [commands]); [pageIndex] is that page's index in the worker's document.
+  /// Falls back to an in-isolate build when the worker is null/inactive/declines
+  /// or ships a buffer that fails to reconstruct, and to nothing extra when the
+  /// index is already resident. Idempotent: concurrent calls share one build.
+  Future<PdfRegionReplayIndex> warmRegionIndex(
+    PdfRenderWorker? worker, {
+    int pageIndex = -1,
+    int priority = 0,
+  }) {
+    // A warmed index (worker-built grid on a dense CAD page) is exactly the
+    // heavy retention the pressure sweep must be able to shed, so register even
+    // though this path bypasses _ensureRegionIndex.
+    _register();
+    final resident = _regionIndex;
+    if (resident != null) return Future.value(resident);
+    final inFlight = _regionIndexWarming;
+    if (inFlight != null) return inFlight;
+    final future = _warmRegionIndex(worker, pageIndex, priority);
+    _regionIndexWarming = future;
+    // Clear the memo on completion, but only if it still points to THIS build.
+    // The worker-less path completes _warmRegionIndex synchronously (no await),
+    // so a `finally` inside it would null the field before the assignment above
+    // even ran, leaving a stale completed future memoized - which a later
+    // dropRegionIndex would then hand back instead of rebuilding. whenComplete
+    // with an identity guard nulls exactly the right one, whenever it finishes.
+    future.whenComplete(() {
+      if (identical(_regionIndexWarming, future)) _regionIndexWarming = null;
+    });
+    return future;
+  }
+
+  Future<PdfRegionReplayIndex> _warmRegionIndex(
+    PdfRenderWorker? worker,
+    int pageIndex,
+    int priority,
+  ) async {
+    final params = _regionIndexBuildParams;
+    PdfRegionReplayIndex? fromWorker;
+    if (worker != null && worker.isActive && pageIndex >= 0) {
+      try {
+        fromWorker = await worker.buildRegionIndex(
+          pageIndex,
+          annotations: plan.annotations,
+          maxCommands: params.maxCommands,
+          buildGrid: params.buildGrid,
+          priority: priority,
+        );
+      } catch (_) {
+        // worker failure → local build below
+      }
+    }
+    // A synchronous access (supportsRegionRaster) may have built the index
+    // while the worker ran; prefer the resident one to keep a single instance.
+    final resident = _regionIndex;
+    if (resident != null) return resident;
+    final index = fromWorker ??
+        PdfRegionReplayIndex.build(
+          commands,
+          maxCommands: params.maxCommands,
+          buildGrid: params.buildGrid,
+        );
+    // Don't repopulate a disposed scene's field; the caller ignores the
+    // result once disposed, but a rebuilt index would leak past dispose.
+    if (!_disposed) _regionIndex = index;
+    return index;
+  }
 
   PdfRect? _pageSpaceRegion(Rect region) {
     final inverse = PdfPageRenderer.pageToDeviceMatrix(
@@ -362,16 +967,19 @@ class PdfRetainedScene {
       {required double pixelRatio,
       StripPlan? stripPlan,
       bool slugGlyphs = false,
+      PdfStripRasterTiming? timing,
       void Function(({int quads, int fallbackOutlineRuns}))?
           onSlugStats}) async {
     assert(!_disposed, 'replay after dispose');
     final geometry = stripRegionGeometry(region, pixelRatio: pixelRatio);
     try {
       return await _stripPicture(
-          geometry, region, pixelRatio, stripPlan, slugGlyphs, onSlugStats);
+          geometry, region, pixelRatio, stripPlan, slugGlyphs, onSlugStats,
+          timing: timing);
     } on StripPlanMismatchError {
       return _stripPicture(
-          geometry, region, pixelRatio, null, slugGlyphs, onSlugStats);
+          geometry, region, pixelRatio, null, slugGlyphs, onSlugStats,
+          timing: timing);
     }
   }
 
@@ -384,8 +992,9 @@ class PdfRetainedScene {
       double pixelRatio,
       StripPlan? stripPlan,
       bool slugGlyphs,
-      void Function(({int quads, int fallbackOutlineRuns}))?
-          onSlugStats) async {
+      void Function(({int quads, int fallbackOutlineRuns}))? onSlugStats,
+      {PdfStripRasterTiming? timing}) async {
+    final pictureClock = timing == null ? null : (Stopwatch()..start());
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(pixelRatio);
     if (region != null) canvas.translate(-region.left, -region.top);
@@ -404,13 +1013,22 @@ class PdfRetainedScene {
     try {
       final sw = Stopwatch()..start();
       replayCommands(commands, device);
-      StripPdfDevice.totalRouteMicros += sw.elapsedMicroseconds;
+      final routeMicros = sw.elapsedMicroseconds;
+      StripPdfDevice.totalRouteMicros += routeMicros;
       await device.finish(); // must precede endRecording
+      if (timing != null) {
+        timing.routeMs = routeMicros / 1000;
+        timing.atlasDecodeMs = device.atlasDecodeMicros / 1000;
+        timing.tapeReplayMs = device.tapeReplayMicros / 1000;
+      }
       onSlugStats?.call((
         quads: device.slugQuadCount,
         fallbackOutlineRuns: device.slugFallbackOutlineRuns,
       ));
       picture = recorder.endRecording();
+      if (pictureClock != null) {
+        timing!.pictureMs = pictureClock.elapsedMicroseconds / 1000;
+      }
     } catch (_) {
       recorder.endRecording().dispose();
       device.dispose();
@@ -440,14 +1058,21 @@ class PdfRetainedScene {
   /// Convenience: [replayRegionStrips] + `toImage`, the strip-router
   /// counterpart of [rasterizeRegion].
   Future<ui.Image> rasterizeRegionStrips(Rect region,
-      {required double pixelRatio, StripPlan? stripPlan}) async {
+      {required double pixelRatio,
+      StripPlan? stripPlan,
+      PdfStripRasterTiming? timing}) async {
     final picture = await replayRegionStrips(region,
-        pixelRatio: pixelRatio, stripPlan: stripPlan);
+        pixelRatio: pixelRatio, stripPlan: stripPlan, timing: timing);
     try {
-      return await picture.toImage(
+      final rasterClock = timing == null ? null : (Stopwatch()..start());
+      final image = await picture.toImage(
         (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
         (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
       );
+      if (rasterClock != null) {
+        timing!.toImageMs = rasterClock.elapsedMicroseconds / 1000;
+      }
+      return image;
     } finally {
       picture.dispose();
     }
@@ -460,8 +1085,13 @@ class PdfRetainedScene {
     if (_disposed) return;
     _disposed = true;
     _regionIndex = null;
+    _bands = null;
+    // An accelerated backend normally drops worker-carried RGBA immediately
+    // after uploading it. A speculative scene can be evicted before any GPU
+    // session compiles it, so disposal is the other ownership boundary.
+    releaseDecodedImagePixels();
     for (final image in _images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
   }
 }

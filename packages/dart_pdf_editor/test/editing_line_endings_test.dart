@@ -14,8 +14,8 @@ void main() {
   group('controller line endings', () {
     test('new lines and polylines use the persisted endings', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStartEnding = PdfLineEnding.circle
-        ..lineEndEnding = PdfLineEnding.closedArrow;
+        ..preferences.lineStartEnding = PdfLineEnding.circle
+        ..preferences.lineEndEnding = PdfLineEnding.closedArrow;
       addTearDown(editing.dispose);
 
       editing.addLine(0, (100, 100), (220, 160));
@@ -31,8 +31,8 @@ void main() {
 
     test('the arrow tool still forces a closed arrow at the end', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStartEnding = PdfLineEnding.diamond
-        ..lineEndEnding = PdfLineEnding.none;
+        ..preferences.lineStartEnding = PdfLineEnding.diamond
+        ..preferences.lineEndEnding = PdfLineEnding.none;
       addTearDown(editing.dispose);
 
       editing.addLine(0, (100, 100), (220, 160), arrow: true);
@@ -67,7 +67,7 @@ void main() {
           (PdfLineEnding.none, PdfLineEnding.none));
     });
 
-    test('canSetLineEndings is false for shapes and multi-selection', () {
+    test('mixed selections expose endings for their compatible lines', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addRectangle(0, const PdfRect(100, 100, 200, 200))
         ..addLine(0, (100, 240), (220, 300))
@@ -78,8 +78,13 @@ void main() {
       expect(editing.canSetLineEndings, isFalse);
       expect(editing.selectedLineEndings, isNull);
 
-      editing.selectAllAnnotationsOn(0); // both
-      expect(editing.canSetLineEndings, isFalse);
+      editing.selectAllAnnotationsOn(0); // square + line
+      expect(editing.canSetLineEndings, isTrue);
+      editing.setSelectedLineEndings(end: PdfLineEnding.circle);
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations[0].subtype, 'Square');
+      expect(pdfLineEndings(annotations[1]),
+          (PdfLineEnding.none, PdfLineEnding.circle));
     });
   });
 
@@ -127,7 +132,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Closed arrow').last);
       await tester.pumpAndSettle();
-      expect(editing.lineEndEnding, PdfLineEnding.closedArrow);
+      expect(editing.preferences.lineEndEnding, PdfLineEnding.closedArrow);
     });
 
     testWidgets('the picker restyles a selected line in place', (tester) async {

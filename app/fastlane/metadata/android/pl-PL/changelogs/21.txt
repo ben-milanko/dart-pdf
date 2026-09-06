@@ -1,0 +1,7 @@
+Nowości w wersji 3.1.0
+
+• Skanuj papierowe dokumenty prosto do pliku PDF lub zrób zdjęcie aparatem.
+• Niezapisane zmiany są kopiowane i przywracane po awarii.
+• Nowe narzędzia: hiperłącza, przycinanie obrazów, blokowanie adnotacji i skróty do każdego narzędzia.
+• Wierne renderowanie nadruku; szybsze, stopniowe wyświetlanie stron.
+• Zmniejsz rozmiar pliku PDF bezstratnie podczas zapisu.

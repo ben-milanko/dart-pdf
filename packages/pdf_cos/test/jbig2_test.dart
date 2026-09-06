@@ -84,6 +84,32 @@ void main() {
     expect(out, _symbolExpected);
   });
 
+  test('a cached globals dictionary yields identical output (#532)', () {
+    Jbig2Decoder.debugResetGlobalsCache();
+    // First decode populates the globals cache (cold); a second decode of the
+    // same page with the same globals must seed from the cache (warm) and
+    // produce the byte-identical result (the shared symbol bitmaps are
+    // read-only).
+    Uint8List? run() => Jbig2Decoder.decode(
+          data: Uint8List.fromList(_symbolPage),
+          globals: Uint8List.fromList(_symbolGlobals),
+          width: 64,
+          height: 24,
+        );
+    final first = run();
+    final second = run();
+    expect(first, _symbolExpected);
+    expect(second, _symbolExpected);
+    // A different globals stream (empty) must NOT collide with the cached
+    // entry - it decodes independently (and here fails to find symbols).
+    final noGlobals = Jbig2Decoder.decode(
+      data: Uint8List.fromList(_symbolPage),
+      width: 64,
+      height: 24,
+    );
+    expect(noGlobals, isNot(_symbolExpected));
+  });
+
   test('halftone regions render PDF.js bitmap-halftone corpus image', () {
     final raw = _pdfjsImageData('bitmap-halftone.pdf', 'Im');
     final out = Jbig2Decoder.decode(

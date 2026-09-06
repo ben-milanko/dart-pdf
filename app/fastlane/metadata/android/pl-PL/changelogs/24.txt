@@ -1,0 +1,5 @@
+Nowości w wersji 3.3.0
+
+• Ponownie odwiedzane strony otwierają się natychmiast dzięki opcjonalnemu przygotowaniu w tle i trwałej pamięci podręcznej pełnej rozdzielczości.
+• Ostrzejsze głębokie powiększenie skanów i plików PDF opartych na obrazach.
+• Lepsze przesuwanie dotykiem, regulacja zaokrąglenia prostokątów i płynniejsza nawigacja po wstawieniu stron.

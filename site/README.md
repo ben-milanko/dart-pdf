@@ -10,10 +10,56 @@ up against the real product facts.
 - `index.html` is the landing page (hero, features, privacy band, download,
   developers, footer). Self-contained: only external dependency is the Manrope
   web font from Google Fonts.
+- `sdk.html` serves the canonical `/flutter-pdf-editor` developer landing page.
+  Firebase permanently redirects the old `/sdk` URL to it.
+- `guides/add-pdf-editing-to-flutter.html` is the answer-first integration
+  tutorial served at `/guides/add-pdf-editing-to-flutter`.
 - `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
+- `404.html` is the not-found page. Firebase Hosting serves it automatically
+  (with a 404 status) for any URL that doesn't match a file. Because it can be
+  served at *any* path depth, every link on it is root-absolute (`/support`,
+  not `support.html`), and it is `noindex` and kept out of `sitemap.xml`.
 - `assets/editor-screenshot.png` is the hero screenshot of the editor.
 - `firebase.json` / `.firebaserc` are the Firebase Hosting config.
+
+## Localization (i18n)
+
+The marketing, support, and SDK overview pages are translated into the same 19
+non-English locales the DartPDF app ships (ar, de, es, fr, hi, id, it, ja, ko,
+nl, pl, pt, ru, th, tr, uk, vi, zh, zh-Hant), with English as the source. The
+developer integration guide is English-only. The localized pages use a
+lightweight client-side system — no build step, no framework:
+
+- `i18n/en.json` is the **source of truth**: a flat map of key → English
+  string covering every page. It is also the runtime fallback.
+- `i18n/<locale>.json` holds each translation with the same keys.
+- `i18n.js` (included on every page via `<script src="/i18n.js" defer>`) detects
+  the locale (`?lang=` override → saved choice → `navigator.languages` →
+  English), lazily fetches the locale JSON, applies it over the DOM, sets
+  `<html lang>`/`dir` (RTL for Arabic), and injects the language `<select>` into
+  the `[data-i18n-switcher]` slot in the nav. English pages render with **zero
+  fetches** because the English text is native in the HTML.
+
+Markup contract in the HTML:
+
+| Attribute | Effect |
+|---|---|
+| `data-i18n="key"` | sets `textContent` |
+| `data-i18n-html="key"` | sets `innerHTML` (values with inline `<a>`/`<strong>`/`<code>`) |
+| `data-i18n-attr="content:key;alt:key2"` | sets the named attribute(s) |
+
+### Editing / adding strings
+
+1. Add or change the English key in `i18n/en.json` and the matching
+   `data-i18n*` marker in the HTML.
+2. Add the same key to every `i18n/<locale>.json`.
+3. Run the parity + tag-integrity check: `python3 i18n/_validate.py`
+   (verifies every locale has the exact key set and that HTML values keep the
+   same tags as English). `_validate.py` is dev-only and excluded from deploys.
+
+Share a localized link directly with `?lang=<locale>`, e.g.
+`https://dart-pdf.com/?lang=ja`.
 
 ## Local preview
 
@@ -25,7 +71,7 @@ cd site && python3 -m http.server 8000   # → http://localhost:8000
 
 ## Deploy
 
-Hosted on the existing **`dart-pdf-demo`** Firebase project. Three sites now
+Hosted on the existing **`dart-pdf-demo`** Firebase project. Four sites now
 live under that project:
 
 | Site | `.web.app` | Custom domain | Serves |
@@ -33,6 +79,7 @@ live under that project:
 | `dart-pdf-demo` | `dart-pdf-demo.web.app` | none | the SDK demo (`packages/dart_pdf_editor/example`) |
 | `dartpdf` | `dartpdf.web.app` | `dart-pdf.com`, `www.dart-pdf.com` | this landing page (`site/`) |
 | `dartpdf-app` | `dartpdf-app.web.app` | `app.dart-pdf.com` | the DartPDF web app (`app/`, `flutter build web`) |
+| `dartpdf-flatpak` | `dartpdf-flatpak.web.app` | none | the signed Flatpak repository (`flatpak-hosting/`) |
 
 Deploy the landing page:
 
@@ -47,6 +94,11 @@ Deploy the web app (after `cd app && fvm flutter build web --release`):
 cd app
 firebase deploy --only hosting:dartpdf-app --project dart-pdf-demo
 ```
+
+The Flatpak repository is published by
+`.github/workflows/publish-flatpak.yml`; do not deploy `flatpak-hosting/`
+from an empty `public/` directory. See
+[`flatpak-hosting/README.md`](../flatpak-hosting/README.md).
 
 Custom domains were wired via the Firebase Hosting `customDomains` REST API
 against Namecheap DNS (apex A `199.36.158.100` + `hosting-site=dartpdf` TXT;

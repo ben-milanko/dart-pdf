@@ -1,10 +1,33 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
+  // This suite exercises the legacy base-raster + single detail-patch path.
+  // The deep-zoom tile pyramid - on by default on every platform now
+  // (issues #314/#360) - composites through a CustomPaint layer that replaces
+  // the patch, so a deep-zoom view shows one RawImage (the base) plus tiles
+  // rather than base + patch. Pin the pyramid off here to test the patch path
+  // deterministically; it has its own suites (tile_store_page_view_test.dart,
+  // tile_layer_test.dart).
+  final tilesDefault = PdfPageView.tileStoreDetail;
+  final directPictureDefault = PdfPageView.directPicturePresentation;
+  setUp(() {
+    PdfPageView.tileStoreDetail = false;
+    PdfPageView.directPicturePresentation = false;
+  });
+  tearDown(() {
+    PdfPageView.tileStoreDetail = tilesDefault;
+    PdfPageView.directPicturePresentation = directPictureDefault;
+  });
+
   testWidgets('PdfPageView reserves the page aspect ratio', (tester) async {
     final doc = PdfDocument.open(buildClassicPdf());
     await tester.pumpWidget(
@@ -33,23 +56,833 @@ void main() {
     final base = tester.widget<RawImage>(find.byType(RawImage)).image!;
     expect(base.width, 612);
 
-    await tester.pumpWidget(at(3));
+    await tester.pumpWidget(at(2.5));
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
     final zoomed = tester.widget<RawImage>(find.byType(RawImage)).image!;
-    expect(zoomed.width, 612 * 3);
+    expect(zoomed.width, 1530);
+  });
+
+  testWidgets('lowering scale reuses a sharper base raster', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(page: page, scale: scale),
+          ),
+        );
+
+    await tester.pumpWidget(at(2));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final sharp = tester.widget<RawImage>(find.byType(RawImage)).image!;
+    expect(sharp.width, 1224);
+
+    await tester.pumpWidget(at(1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final zoomedOut = tester.widget<RawImage>(find.byType(RawImage)).image!;
+    expect(zoomedOut, same(sharp),
+        reason: 'zooming out must not replace an already-sharper raster');
+  });
+
+  testWidgets('bounded pages can present their retained picture directly',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.directPicturePresentation = true;
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+    var ready = 0;
+
+    Widget at(double scale) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: page,
+              scale: scale,
+              onRasterReady: () => ready++,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1));
+    for (var i = 0; i < 100; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-direct-picture'))
+          .evaluate()
+          .isNotEmpty) {
+        await tester.pump();
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+    );
+    expect(find.byType(RawImage), findsNothing,
+        reason: 'the completed display list replaces the base readback');
+    expect(ready, 1);
+
+    await tester.pumpWidget(at(2));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+      reason: 'zoom reuses the retained display list without flattening it',
+    );
+    expect(find.byType(RawImage), findsNothing);
+  });
+
+  testWidgets('a page presented directly never seeds the exact raster tier',
+      (tester) async {
+    // #699 read 163 `page-raster miss ... reason=empty` lines with zero stores
+    // against an idle budget and reached for putFullImage's
+    // _renderedAtFullImageRatio gate. The gate is not it: a page that presents
+    // its completed display list produces no base raster at all, so nothing
+    // ever reaches the cache and every lookup necessarily misses. That is by
+    // design - the whole point of the route is to skip the readback - and it
+    // is why the free ladder fill putFullImage performs
+    // (_putIntermediateLadderFromImage) does not happen either, which is what
+    // left the preview ladder interpreting pages the viewer already held.
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.directPicturePresentation = true;
+    final cache = PdfPagePreviewCache()
+      ..configureFullRasterCache(const PdfPageRasterCachePolicy());
+    addTearDown(cache.dispose);
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 612,
+        child: PdfPageView(
+          page: page,
+          previewIndex: 0,
+          previewCache: cache,
+          onScreen: true,
+        ),
+      ),
+    ));
+    for (var i = 0; i < 200; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-direct-picture'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+    );
+    expect(find.byType(RawImage), findsNothing);
+    final restored = cache.fullImageFor(
+      0,
+      page,
+      width: 612,
+      height: 792,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    addTearDown(() => restored?.dispose());
+    expect(restored, isNull,
+        reason: 'no readback happened, so there is no raster to retain');
+    expect(cache.lodStats.intermediateEntries, 0,
+        reason: 'and no raster means no free preview-ladder fill either');
+  });
+
+  testWidgets('a direct picture refines display-capped images at the live zoom',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.directPicturePresentation = true;
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 1024, height: 1024)],
+      layers: 1,
+      ops: 0,
+      pageW: 256,
+      pageH: 256,
+    );
+    final document = PdfDocument.open(bytes);
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    addTearDown(worker.dispose);
+
+    Widget at(double scale, int settleGeneration) => Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 256,
+            child: PdfPageView(
+              page: document.page(0),
+              scale: scale,
+              settleGeneration: settleGeneration,
+              baseRasterScale: 1,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, 0));
+    for (var i = 0; i < 300; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-direct-picture'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+      reason: 'the fit-size display list should be retained before zooming',
+    );
+    expect(worker.imageRatios, contains(moreOrLessEquals(2, epsilon: 0.01)),
+        reason: 'the retained base picture uses fit-size decode headroom');
+
+    await tester.pumpWidget(at(4, 1));
+    for (var i = 0; i < 300; i++) {
+      await tester.pump();
+      if (worker.imageRatios.any((ratio) => ratio >= 3.9) &&
+          find
+              .byKey(const ValueKey('pdf-page-detail-image'))
+              .evaluate()
+              .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+      reason: 'vector and text should remain transform-sharp',
+    );
+    expect(worker.imageRatios, contains(greaterThanOrEqualTo(3.9)),
+        reason: 'the image-bearing visible region must decode at the live '
+            'zoom instead of treating the fit-size picture as complete');
+    expect(
+      find.byKey(const ValueKey('pdf-page-detail-image')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a base scale keeps fit pixels and sharpens the visible slice',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: page,
+              scale: scale,
+              baseRasterScale: 1,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final fitRaster =
+        tester.widgetList<RawImage>(find.byType(RawImage)).first.image!;
+    expect(fitRaster.width, 612);
+
+    await tester.pumpWidget(at(2.5));
+    for (var i = 0; i < 100; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-detail-image'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+    final images = tester.widgetList<RawImage>(find.byType(RawImage)).toList();
+    expect(images, hasLength(2));
+    expect(images.first.image, same(fitRaster),
+        reason: 'zoom must not replace the whole-page fit backing');
+    final detail = images.last.image!;
+    expect(detail.width, greaterThan(fitRaster.width));
+  });
+
+  testWidgets(
+      'an off-screen page defers its cold and scale raster until visible',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    const firstKey = ValueKey('first-page-view');
+    const secondKey = ValueKey('second-page-view');
+
+    Widget pair(double scale, {required bool secondVisible}) => Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            Positioned(
+              top: secondVisible ? 800 : 0,
+              width: 612,
+              child: SizedBox(
+                key: firstKey,
+                width: 612,
+                child: PdfPageView(
+                  page: page,
+                  scale: scale,
+                  focusDistance: secondVisible ? 1 : 0,
+                ),
+              ),
+            ),
+            Positioned(
+              top: secondVisible ? 0 : 800,
+              width: 612,
+              child: SizedBox(
+                key: secondKey,
+                width: 612,
+                child: PdfPageView(
+                  page: page,
+                  scale: scale,
+                  focusDistance: secondVisible ? 0 : 1,
+                ),
+              ),
+            ),
+          ],
+        );
+
+    ui.Image imageUnder(Key key) => tester
+        .widget<RawImage>(find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        ))
+        .image!;
+
+    Future<void> waitForWidth(Key key, int width) async {
+      for (var i = 0; i < 100; i++) {
+        await tester.pump();
+        final images = find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        );
+        if (images.evaluate().isNotEmpty && imageUnder(key).width == width) {
+          return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('page under $key did not rasterize at width $width');
+    }
+
+    await tester.pumpWidget(pair(1, secondVisible: false));
+    await waitForWidth(firstKey, 612);
+    expect(
+      find.descendant(
+        of: find.byKey(secondKey),
+        matching: find.byType(RawImage),
+      ),
+      findsNothing,
+      reason: 'a cold cache-window neighbour must not compete with the page '
+          'that is actually visible',
+    );
+
+    await tester.pumpWidget(pair(2, secondVisible: false));
+    await waitForWidth(firstKey, 1224);
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(secondKey),
+        matching: find.byType(RawImage),
+      ),
+      findsNothing,
+      reason: 'a scale change must not start the deferred cold render',
+    );
+
+    await tester.pumpWidget(pair(2, secondVisible: true));
+    await waitForWidth(secondKey, 1224);
+  });
+
+  testWidgets('a worker result is not replayed after its page leaves viewport',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _DeferredRecordWorker(PdfRenderWorker.startUncached(bytes));
+    addTearDown(worker.dispose);
+    final progressiveDefault = PdfPageView.progressiveStreamingPaint;
+    final fusedDefault = PdfPageView.fusedProgressiveRecord;
+    PdfPageView.progressiveStreamingPaint = true;
+    PdfPageView.fusedProgressiveRecord = true;
+    addTearDown(() {
+      PdfPageView.progressiveStreamingPaint = progressiveDefault;
+      PdfPageView.fusedProgressiveRecord = fusedDefault;
+    });
+    var ready = 0;
+
+    Widget at({required bool visible}) => Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            Positioned(
+              top: visible ? 0 : 800,
+              width: 612,
+              child: PdfPageView(
+                page: document.page(0),
+                renderWorker: worker,
+                focusDistance: visible ? 0 : 1,
+                onScreen: visible,
+                onRasterReady: () => ready++,
+              ),
+            ),
+          ],
+        );
+
+    await tester.pumpWidget(at(visible: true));
+    for (var i = 0; i < 100 && !worker.hasPending; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(worker.hasPending, isTrue);
+
+    await tester.pumpWidget(at(visible: false));
+    worker.release();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+
+    expect(find.byType(RawImage), findsNothing);
+    expect(ready, 0,
+        reason: 'an obsolete prefetch must not consume UI replay time');
+
+    await tester.pumpWidget(at(visible: true));
+    for (var i = 0; i < 100 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byType(RawImage), findsOneWidget);
+    expect(ready, 1);
+  });
+
+  testWidgets('an edge sliver withdraws queued deep-detail work',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final scheduler = PdfPageRenderScheduler();
+    final oldMotionSafe = PdfPageView.motionSafeRenders;
+    final oldRetained = PdfPageView.retainedZoomReplay;
+    PdfPageView.motionSafeRenders = false;
+    PdfPageView.retainedZoomReplay = false;
+    addTearDown(() {
+      PdfPageView.motionSafeRenders = oldMotionSafe;
+      PdfPageView.retainedZoomReplay = oldRetained;
+      scheduler.dispose();
+      worker.dispose();
+    });
+
+    Widget at(double scale, bool qualityVisible, int settleGeneration) =>
+        Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: document.page(0),
+              baseRasterScale: 1,
+              scale: scale,
+              settleGeneration: settleGeneration,
+              qualityVisible: qualityVisible,
+              renderScheduler: scheduler,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, true, 0));
+    for (var i = 0; i < 100 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byType(RawImage), findsOneWidget);
+    expect(worker.detailRecords, 0);
+
+    scheduler.holding = true;
+    await tester.pumpWidget(at(4, true, 1));
+    await tester.pump();
+    expect(scheduler.hasPending, isTrue);
+
+    // This is the field-trace ordering: a zoom/detail refresh was queued while
+    // the page was meaningful, then the page became a sub-15% edge sliver
+    // before the shared scheduler granted it.
+    await tester.pumpWidget(at(4, false, 1));
+    await tester.pump();
+    scheduler.holding = false;
+    for (var i = 0; i < 20; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(worker.detailRecords, 0,
+        reason: 'an edge page must not enter the worker detail queue');
+    expect(find.byType(RawImage), findsOneWidget,
+        reason: 'the existing fit-size base remains the sliver fallback');
+  });
+
+  testWidgets('an in-flight detail result is discarded after edge hand-off',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _BlockingDetailWorker(_LocalCommandWorker(bytes));
+    final oldRetained = PdfPageView.retainedZoomReplay;
+    PdfPageView.retainedZoomReplay = false;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplay = oldRetained;
+      worker.releaseFirst();
+      worker.dispose();
+    });
+
+    Widget at(double scale, bool qualityVisible, int settleGeneration) =>
+        Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: document.page(0),
+              baseRasterScale: 1,
+              scale: scale,
+              settleGeneration: settleGeneration,
+              qualityVisible: qualityVisible,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, true, 0));
+    for (var i = 0; i < 100 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byType(RawImage), findsOneWidget);
+
+    await tester.pumpWidget(at(4, true, 1));
+    for (var i = 0; i < 100 && worker.detailRecords == 0; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(worker.detailRecords, 1);
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsNothing);
+
+    await tester.pumpWidget(at(4, false, 1));
+    worker.releaseFirst();
+    for (var i = 0; i < 40; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsNothing,
+        reason: 'a late result must not replay or rasterize over the edge');
+
+    // Becoming meaningful again consumes the deferred refresh and sharpens
+    // without requiring an unrelated scale or settle change.
+    await tester.pumpWidget(at(4, true, 1));
+    for (var i = 0;
+        i < 100 &&
+            find
+                .byKey(const ValueKey('pdf-page-detail-image'))
+                .evaluate()
+                .isEmpty;
+        i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(worker.detailRecords, 2);
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget);
+
+    await tester.pumpWidget(at(4, false, 1));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget,
+        reason: 'the edge can keep presenting already-completed sharp pixels');
+  });
+
+  testWidgets('both visible pages sharpen when the viewport spans a boundary',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+    const focusedKey = ValueKey('focused-page-view');
+    const neighbourKey = ValueKey('visible-neighbour-page-view');
+
+    Widget pair(double scale, {required bool neighbourFocused}) => Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            Positioned(
+              top: 0,
+              width: 612,
+              child: SizedBox(
+                key: focusedKey,
+                child: PdfPageView(
+                  page: page,
+                  scale: scale,
+                  focusDistance: neighbourFocused ? 1 : 0,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 500,
+              width: 612,
+              child: SizedBox(
+                key: neighbourKey,
+                child: PdfPageView(
+                  page: page,
+                  scale: scale,
+                  focusDistance: neighbourFocused ? 0 : 1,
+                ),
+              ),
+            ),
+          ],
+        );
+
+    ui.Image imageUnder(Key key) => tester
+        .widget<RawImage>(find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        ))
+        .image!;
+
+    Future<void> waitForWidth(Key key, int width) async {
+      for (var i = 0; i < 100; i++) {
+        await tester.pump();
+        final images = find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        );
+        if (images.evaluate().isNotEmpty && imageUnder(key).width == width) {
+          return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('page under $key did not rasterize at width $width');
+    }
+
+    await tester.pumpWidget(pair(1, neighbourFocused: false));
+    await waitForWidth(focusedKey, 612);
+    await waitForWidth(neighbourKey, 612);
+
+    await tester.pumpWidget(pair(2, neighbourFocused: false));
+    await waitForWidth(focusedKey, 1224);
+    await waitForWidth(neighbourKey, 1224);
+
+    await tester.pumpWidget(pair(2, neighbourFocused: true));
+    expect(imageUnder(focusedKey).width, 1224,
+        reason: 'crossing the integer current-page boundary must not make the '
+            'other still-visible page soft again');
+  });
+
+  testWidgets('layout zoom sharpens every visible page', (tester) async {
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+    const focusedKey = ValueKey('layout-focused-page-view');
+    const neighbourKey = ValueKey('layout-neighbour-page-view');
+
+    Widget pair(
+      double width, {
+      required int settleGeneration,
+      required bool neighbourFocused,
+    }) =>
+        Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            Positioned(
+              top: 0,
+              width: width,
+              child: SizedBox(
+                key: focusedKey,
+                child: PdfPageView(
+                  page: page,
+                  settleGeneration: settleGeneration,
+                  focusDistance: neighbourFocused ? 1 : 0,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 500,
+              width: width,
+              child: SizedBox(
+                key: neighbourKey,
+                child: PdfPageView(
+                  page: page,
+                  settleGeneration: settleGeneration,
+                  focusDistance: neighbourFocused ? 0 : 1,
+                ),
+              ),
+            ),
+          ],
+        );
+
+    ui.Image imageUnder(Key key) => tester
+        .widget<RawImage>(find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        ))
+        .image!;
+
+    Future<void> waitForWidth(Key key, int width) async {
+      for (var i = 0; i < 100; i++) {
+        await tester.pump();
+        final images = find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        );
+        if (images.evaluate().isNotEmpty && imageUnder(key).width == width) {
+          return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('page under $key did not rasterize at width $width');
+    }
+
+    await tester.pumpWidget(pair(
+      306,
+      settleGeneration: 0,
+      neighbourFocused: false,
+    ));
+    await waitForWidth(focusedKey, 306);
+    await waitForWidth(neighbourKey, 306);
+
+    await tester.pumpWidget(pair(
+      612,
+      settleGeneration: 1,
+      neighbourFocused: false,
+    ));
+    await waitForWidth(focusedKey, 612);
+    await waitForWidth(neighbourKey, 612);
+
+    await tester.pumpWidget(pair(
+      612,
+      settleGeneration: 1,
+      neighbourFocused: true,
+    ));
+    expect(imageUnder(focusedKey).width, 612,
+        reason: 'both pages remain sharp while focus crosses the gap');
+  });
+
+  testWidgets('off-screen neighbours stay at fit raster resolution',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+    Widget at({required bool onScreen}) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: page,
+              scale: 4,
+              onScreen: onScreen,
+              focusDistance: onScreen ? 0 : 1,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(onScreen: false));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final offScreenImages =
+        tester.widgetList<RawImage>(find.byType(RawImage)).toList();
+    expect(offScreenImages, hasLength(1),
+        reason: 'an off-screen page must not allocate a detail patch');
+    expect(offScreenImages.single.image!.width, 612,
+        reason: 'global zoom must not allocate a sharp off-screen page');
+
+    await tester.pumpWidget(at(onScreen: true));
+    for (var i = 0; i < 100; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-detail-image'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+    final visibleImages =
+        tester.widgetList<RawImage>(find.byType(RawImage)).toList();
+    expect(visibleImages, hasLength(2),
+        reason: 'entering the viewport adds sharp visible detail');
+    expect(visibleImages.first.image, same(offScreenImages.single.image),
+        reason: 'the fit-resolution base remains a valid backing raster');
+    expect(visibleImages.last.image!.width, 2448,
+        reason: 'the visible detail promotes to the live zoom resolution');
   });
 
   testWidgets(
       'pages denser than retainedZoomReplayMaxCommands zoom via the '
       'cached-picture fallback', (tester) async {
-    // Force every page over the density ceiling: no scene is retained and
-    // the zoom re-raster must take the classic nested-picture path (the
-    // same code retainedZoomReplay=false uses). Same assertions as the
-    // retained-path test above - the two paths are byte-identical, so only
-    // the raster geometry is observable.
+    // Force every page over BOTH density ceilings: no scene is retained at all
+    // (the tile ceiling would otherwise still retain one to feed tiles), so the
+    // zoom re-raster must take the classic nested-picture path - the same code
+    // retainedZoomReplay=false uses. Same assertions as the retained-path test
+    // above: the two paths are byte-identical, so only the raster geometry is
+    // observable.
     PdfPageView.retainedZoomReplayMaxCommands = 0;
-    addTearDown(() => PdfPageView.retainedZoomReplayMaxCommands = 20000);
+    PdfPageView.retainedZoomReplayTileMaxCommands = 0;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    });
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
     final doc = PdfDocument.open(buildClassicPdf());
@@ -64,14 +897,88 @@ void main() {
     final base = tester.widget<RawImage>(find.byType(RawImage)).image!;
     expect(base.width, 612);
 
-    await tester.pumpWidget(at(3));
+    await tester.pumpWidget(at(2.5));
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
     final zoomed = tester.widget<RawImage>(find.byType(RawImage)).image!;
-    expect(zoomed.width, 612 * 3);
+    expect(zoomed.width, 1530);
   });
 
-  testWidgets('raster resolution follows the on-screen width', (tester) async {
+  testWidgets(
+      'a page too dense for flat replay still retains a scene to feed tiles',
+      (tester) async {
+    // The gap this closes: a dense single-sheet drawing used to drop its scene
+    // entirely, which disabled tiling, which made every pan step re-render the
+    // whole viewport. Over the flat-replay ceiling but under the tile ceiling
+    // the scene must be retained (so tiles can cull per region) while the
+    // full-page base raster still comes from the cached picture - retaining
+    // must not turn the base raster into a UI-thread flat replay.
+    PdfPageView.retainedZoomReplayMaxCommands = 0; // "too dense to flat-replay"
+    PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+        child:
+            SizedBox(width: 612, child: PdfPageView(page: page, scale: scale)));
+
+    await tester.pumpWidget(at(1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 612);
+
+    // Same observable geometry as the fallback path - the point is that the
+    // raster stays correct while the scene is now available for tiling.
+    await tester.pumpWidget(at(2.5));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 1530);
+  });
+
+  testWidgets('an off-focus dense page does not enter the scene LRU',
+      (tester) async {
+    final oldFlatLimit = PdfPageView.retainedZoomReplayMaxCommands;
+    final oldTileLimit = PdfPageView.retainedZoomReplayTileMaxCommands;
+    final oldOffFocus = PdfPageView.retainDenseScenesOffFocus;
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    PdfPageView.retainDenseScenesOffFocus = false;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = oldFlatLimit;
+      PdfPageView.retainedZoomReplayTileMaxCommands = oldTileLimit;
+      PdfPageView.retainDenseScenesOffFocus = oldOffFocus;
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 612,
+        child: PdfPageView(
+          page: doc.page(0),
+          focusDistance: 1,
+          previewCache: cache,
+        ),
+      ),
+    ));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+
+    expect(find.byType(RawImage), findsOneWidget);
+    expect(cache.debugRetainedSceneCount, 0,
+        reason: 'the raster remains reusable without pinning the dense '
+            'command transcript and picture in the session LRU');
+  });
+
+  testWidgets('raster resolution grows with width and stays sharp after shrink',
+      (tester) async {
     // Regression: rasters were sized from the page's nominal point size,
     // so a page stretched across a wide window (or a big external
     // display) was upscaled and blurry.
@@ -92,7 +999,229 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
     final narrow = tester.widget<RawImage>(find.byType(RawImage)).image!;
-    expect(narrow.width, 306);
+    expect(narrow, same(wide));
+    expect(narrow.width, 800,
+        reason: 'a resize down must reuse the sharper existing raster');
+  });
+
+  testWidgets('a visible non-focused page reaches final image resolution',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildEmbeddedFontImagePdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final performance = PdfPerformanceController();
+    addTearDown(worker.dispose);
+    addTearDown(performance.dispose);
+
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 1224,
+        child: PdfPageView(
+          page: document.page(0),
+          renderWorker: worker,
+          performance: performance,
+          workerImagePixelRatioCap: 1.25,
+          focusDistance: 1,
+          onScreen: true,
+        ),
+      ),
+    ));
+    for (var i = 0; i < 200 && worker.imageRatios.length < 2; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(worker.imageRatios, hasLength(greaterThanOrEqualTo(2)));
+    expect(worker.imageRatios.first, moreOrLessEquals(2, epsilon: 0.01),
+        reason: 'first content should use the visible physical footprint');
+    expect(worker.imageRatios.last, moreOrLessEquals(4, epsilon: 0.01),
+        reason: 'the adaptive cap may reduce speculative neighbours, but '
+            'every visible page must refine with resampling headroom above its '
+            '2x physical raster');
+  });
+
+  testWidgets('a focused mount rejects a retained reduced-image scene',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildEmbeddedFontImagePdf();
+    final document = PdfDocument.open(bytes);
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final performance = PdfPerformanceController();
+    addTearDown(cache.dispose);
+    addTearDown(worker.dispose);
+    addTearDown(performance.dispose);
+
+    late PdfRetainedScene scene;
+    late ui.Picture picture;
+    await tester.runAsync(() async {
+      scene = await PdfRetainedScene.record(page, maxImagePixelRatio: 1.25);
+      picture = scene.replay(pixelRatio: 1);
+    });
+    final producer = cache.retainScene(
+      0,
+      page,
+      scene,
+      plan: const PdfPageRenderPlan(),
+      fromWorker: false,
+      imagePixelRatio: 1.25,
+      estimatedBytes: 1,
+      picture: picture,
+    );
+    producer.dispose();
+
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 1224,
+        child: PdfPageView(
+          page: page,
+          renderWorker: worker,
+          performance: performance,
+          previewCache: cache,
+          focusDistance: 0,
+          onScreen: true,
+        ),
+      ),
+    ));
+    for (var i = 0; i < 200 && worker.imageRatios.length < 2; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(worker.imageRatios, hasLength(greaterThanOrEqualTo(2)),
+        reason: 'the focused page must re-record instead of flattening the '
+            'retained low-LoD scene into a final raster');
+    expect(worker.imageRatios.first, moreOrLessEquals(2, epsilon: 0.01));
+    expect(worker.imageRatios.last, moreOrLessEquals(4, epsilon: 0.01),
+        reason: 'the retained scene may look sufficient before first layout, '
+            'but must be re-evaluated against the focused physical width and '
+            'its final-quality resampling headroom');
+  });
+
+  testWidgets('a page coming back adopts a retained display-sharp scene',
+      (tester) async {
+    // The scroll-back case. A page recorded while it scrolled past retains
+    // its scene at the resolution that pass asked for; coming back, the page
+    // wants [PdfPageView.focusedImageDecodeHeadroom] on top of its physical
+    // footprint. Refusing the scene over that headroom threw away a display
+    // list already sharp at the current zoom - the reader got blank paper and
+    // paid a re-interpret for a difference they cannot see. A field trace of
+    // the journey read `scene-cache reject reason=image-lod have=1.79
+    // need=2.00`.
+    //
+    // The distinction from the reduced-image test above is the point: 1.25
+    // against a 2x physical footprint is genuinely soft and stays rejected;
+    // 2.0 against that same footprint is sharp, and must paint.
+    //
+    // The lane is off and the scheduler holds throughout, so nothing this
+    // page paints can have come from a render: adopting the scene is the
+    // only way content reaches the screen here.
+    final previousLane = PdfPageView.motionSafeRenders;
+    PdfPageView.motionSafeRenders = false;
+    addTearDown(() => PdfPageView.motionSafeRenders = previousLane);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildEmbeddedFontImagePdf();
+    final document = PdfDocument.open(bytes);
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final performance = PdfPerformanceController()
+      // Past the document's very first cold page, whose one-off two-pass
+      // transaction asks for a lower ratio ([_imageRatioTarget]). This page
+      // is a scroll-back, so it asks for full quality: its 2x physical
+      // footprint with 2x decode headroom on top.
+      ..observe(const PdfPerformanceSample(
+          fullRenderDuration: Duration(milliseconds: 8)));
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(cache.dispose);
+    addTearDown(worker.dispose);
+    addTearDown(performance.dispose);
+    addTearDown(scheduler.dispose);
+
+    // Mount the page as an off-screen cache-window neighbour first, so its
+    // layout width - and therefore the image ratio it will ask for - is
+    // established before the scene is looked up. That ordering IS the
+    // scroll-back case: the field reject happened on a page coming back into
+    // view, not on a cold mount.
+    var onScreen = false;
+    late StateSetter rebuild;
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 1224, // a 612pt page at 1.0 DPR: an effective ratio of 2.0
+        child: StatefulBuilder(builder: (context, setState) {
+          rebuild = setState;
+          return PdfPageView(
+            page: page,
+            renderWorker: worker,
+            performance: performance,
+            previewCache: cache,
+            renderScheduler: scheduler,
+            focusDistance: onScreen ? 0 : 3,
+            onScreen: onScreen,
+            qualityVisible: onScreen,
+          );
+        }),
+      ),
+    ));
+    await tester.pump();
+
+    late PdfRetainedScene scene;
+    late ui.Picture picture;
+    await tester.runAsync(() async {
+      scene = await PdfRetainedScene.record(page, maxImagePixelRatio: 2);
+      picture = scene.replay(pixelRatio: 1);
+    });
+    cache
+        .retainScene(
+          0,
+          page,
+          scene,
+          plan: const PdfPageRenderPlan(),
+          fromWorker: false,
+          imagePixelRatio: 2,
+          estimatedBytes: 1,
+          picture: picture,
+        )
+        .dispose();
+
+    // The page scrolls back into view. The hold is still up, so this rebuild
+    // can only consult the cache - nothing renders yet.
+    rebuild(() => onScreen = true);
+    await tester.pump();
+    expect(worker.imageRatios, isEmpty,
+        reason: 'nothing may have rendered before the scene lookup');
+
+    // The scroll settles and the page is free to present.
+    scheduler.holding = false;
+    bool painted() =>
+        tester
+            .widgetList<RawImage>(find.byType(RawImage))
+            .any((w) => (w.image?.width ?? 0) > 200) ||
+        tester.widgetList<CustomPaint>(find.byType(CustomPaint)).any((w) =>
+            w.painter.runtimeType.toString() == '_RetainedPagePicturePainter');
+    var recordedBeforePaint = <double>[];
+    for (var i = 0; i < 200 && !painted(); i++) {
+      recordedBeforePaint = List.of(worker.imageRatios);
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(painted(), isTrue);
+    expect(recordedBeforePaint, isEmpty,
+        reason: 'the retained display list is sharp at this zoom, so first '
+            'content came from it - not from a fresh record, which is the '
+            'blank page and the round trip the reader was seeing');
   });
 
   testWidgets('a structural epoch bump drops the slot\'s stale raster',
@@ -235,8 +1364,9 @@ void main() {
     await tester.pumpWidget(at(content: 1));
     await tester.pump();
 
-    expect(find.byType(RawImage), findsNWidgets(2),
-        reason: 'the stale detail patch stays up for sharpness');
+    expect(find.byType(RawImage), findsAtLeastNWidgets(2),
+        reason: 'the stale exact patch (and any completed pan-ahead layer) '
+            'stay up for sharpness');
     expect(ready, 1,
         reason: 'the annotation afterimage must stay until a fresh detail '
             'patch is ready');
@@ -256,17 +1386,26 @@ void main() {
     // the base raster plus the deep-zoom detail patch
     expect(images, hasLength(2));
     for (final image in images) {
-      // capped to ~2^24 total pixels (plus ceil() rounding), 8192/side
-      expect(image.width * image.height, lessThan((1 << 24) * 1.001));
+      final pixelLimit = identical(image, images.first)
+          ? PdfPageRasterGeometry.maxPixels
+          : PdfPageRasterGeometry.maxDetailPixels;
+      expect(image.width * image.height, lessThan(pixelLimit * 1.001));
       expect(image.width, lessThanOrEqualTo(8192));
       expect(image.height, lessThanOrEqualTo(8192));
     }
   });
 
   testWidgets('no detail patch below the raster caps', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
     final doc = PdfDocument.open(buildClassicPdf());
     await tester.pumpWidget(
-      Center(child: PdfPageView(page: doc.page(0))),
+      Center(
+        child: SizedBox(
+          width: 612,
+          child: PdfPageView(page: doc.page(0)),
+        ),
+      ),
     );
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
@@ -296,13 +1435,479 @@ void main() {
     expect(rawImages, findsNWidgets(2));
     final base = tester.widgetList<RawImage>(rawImages).first.image!;
     final patch = tester.widgetList<RawImage>(rawImages).last.image!;
-    // base: 612x792 capped to sqrt(2^24/(612*792)) ≈ 5.88 px per point
+    // The whole-page backing is deliberately much softer than the visible
+    // patch once the view crosses the bounded base-raster budget.
     final baseDensity = base.width / 612;
-    expect(baseDensity, lessThan(6));
+    expect(baseDensity, lessThan(3));
     // patch density: raster pixels per page point of the area it covers
     final patchLayoutWidth = tester.getSize(rawImages.last).width;
     final patchPoints = patchLayoutWidth / 6120 * 612;
     expect(patch.width / patchPoints,
         moreOrLessEquals(10, epsilon: 0.5)); // the uncapped desired ratio
   });
+
+  testWidgets('zoom and pan sharpen exactly the visible viewport',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    final logs = <String>[];
+    final oldPerfEnabled = PdfPerfLog.enabled;
+    final oldPerfSink = PdfPerfLog.sink;
+    PdfPerfLog.enabled = true;
+    PdfPerfLog.sink = logs.add;
+    addTearDown(() {
+      PdfPerfLog.enabled = oldPerfEnabled;
+      PdfPerfLog.sink = oldPerfSink;
+    });
+    const detailKey = ValueKey('pdf-page-detail-image');
+
+    Widget at(double scale, int generation, {double dx = 0}) => Center(
+          child: Transform.translate(
+            offset: Offset(dx, 0),
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: SizedBox(
+                width: 6120,
+                child: PdfPageView(
+                  page: page,
+                  scale: scale,
+                  settleGeneration: generation,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    Future<RawImage> waitForDetail({Object? differentFrom}) async {
+      for (var i = 0; i < 200; i++) {
+        await tester.pump();
+        if (find.byKey(detailKey).evaluate().isNotEmpty) {
+          final image = tester.widget<RawImage>(find.byKey(detailKey));
+          if (differentFrom == null || !identical(image.image, differentFrom)) {
+            return image;
+          }
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('detail patch did not reach the expected state');
+    }
+
+    await tester.pumpWidget(at(1, 0));
+    final initial = await waitForDetail();
+
+    // A scale-changing settle covers exactly the 800x600 visible slice:
+    // 80x60 page points at ratio 20.
+    await tester.pumpWidget(at(2, 1));
+    final tight = await waitForDetail(differentFrom: initial.image);
+    expect(tight.image!.width, closeTo(1600, 2));
+    expect(tight.image!.height, closeTo(1200, 2));
+
+    // A later pan first sharpens the same exact-visible 80x60pt patch. The
+    // historical 50%-per-side guard made this 4x larger and delayed the first
+    // sharp frame on image-heavy CAD pages.
+    await tester.pumpWidget(at(2, 2, dx: -200));
+    final panned = await waitForDetail(differentFrom: tight.image);
+    expect(panned.image!.width, closeTo(1600, 2));
+    expect(panned.image!.height, closeTo(1200, 2));
+    expect(
+      find.byKey(const ValueKey('pdf-page-detail-headroom-image')),
+      findsNothing,
+      reason: 'the fallback must not start an unpreemptible second raster',
+    );
+    final paintLogs = logs.where((line) => line.contains('detail paint'));
+    expect(paintLogs.length, greaterThanOrEqualTo(3));
+    expect(paintLogs, everyElement(contains('pass=visible')),
+        reason: 'foreground time-to-sharp observations must survive later '
+            'pan-ahead scheduling');
+  });
+
+  testWidgets('detail adoption rebalances reclaimable live rasters',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final budget = PdfLiveRasterBudget.instance;
+    final oldMax = budget.maxBytes;
+    final reclaimable = _BudgetProbeHolder(bytes: 1, distance: 9);
+    addTearDown(() {
+      budget.unregister(reclaimable);
+      budget.maxBytes = oldMax;
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    Widget page(double scale, int generation) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: doc.page(0),
+              baseRasterScale: 4,
+              scale: scale,
+              settleGeneration: generation,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(page(1, 0));
+    for (var i = 0; i < 200 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    // Drain the base raster's own post-frame rebalance before introducing the
+    // probe. The scale change below retains that capped base and adds only the
+    // exact deep-zoom detail allocation.
+    await tester.pump();
+    budget.register(reclaimable);
+    budget.maxBytes = budget.totalBytes - 1;
+
+    await tester.pumpWidget(page(8, 1));
+    for (var i = 0; i < 300 && !reclaimable.evicted; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(reclaimable.evicted, isTrue,
+        reason: 'retaining the new detail image must run the global budget');
+  });
+
+  testWidgets('deep zoom reuses a current fit raster as its base',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+
+    Widget at(double scale) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(page: page, scale: scale),
+          ),
+        );
+
+    await tester.pumpWidget(at(1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final fitRaster =
+        tester.widgetList<RawImage>(find.byType(RawImage)).first.image!;
+    expect(fitRaster.width, 612);
+
+    await tester.pumpWidget(at(1000));
+    for (var i = 0; i < 200; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-detail-image'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+
+    final images = tester.widgetList<RawImage>(find.byType(RawImage)).toList();
+    expect(images, hasLength(2), reason: 'base raster plus sharp detail');
+    expect(images.first.image, same(fitRaster),
+        reason: 'deep zoom must not replace the whole-page backing raster');
+  });
+
+  testWidgets('exact detail reuse still validates current content',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.debugDetailPatchReuses = 0;
+    addTearDown(() => PdfPageView.debugDetailPatchReuses = 0);
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    const detailKey = ValueKey('pdf-page-detail-image');
+
+    Widget at(double dx, int generation, {int contentStamp = 0}) => Center(
+          child: Transform.translate(
+            offset: Offset(dx, 0),
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: SizedBox(
+                width: 6120,
+                child: PdfPageView(
+                  page: page,
+                  contentStamp: contentStamp,
+                  settleGeneration: generation,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    Object detailImage() =>
+        tester.widget<RawImage>(find.byKey(detailKey)).image!;
+
+    Future<void> waitForDetail({Object? differentFrom}) async {
+      for (var i = 0; i < 200; i++) {
+        await tester.pump();
+        if (find.byKey(detailKey).evaluate().isNotEmpty) {
+          final image = detailImage();
+          if (differentFrom == null || !identical(image, differentFrom)) return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('detail patch did not reach the expected state');
+    }
+
+    await tester.pumpWidget(at(0, 0));
+    await waitForDetail();
+    final visible = detailImage();
+
+    // A settle with unchanged geometry reuses the exact current patch.
+    await tester.pumpWidget(at(0, 1));
+    for (var i = 0; i < 20 && PdfPageView.debugDetailPatchReuses == 0; i++) {
+      await tester.pump();
+    }
+    expect(PdfPageView.debugDetailPatchReuses, 1);
+    expect(detailImage(), same(visible));
+
+    // An additive edit leaves the old sharp patch painted while the
+    // replacement is rendering. It must not be mistaken for reusable current
+    // content even though its geometry still covers the viewport.
+    await tester.pumpWidget(at(0, 2, contentStamp: 1));
+    await waitForDetail(differentFrom: visible);
+    final edited = detailImage();
+    expect(PdfPageView.debugDetailPatchReuses, 1);
+
+    // A moved viewport no longer fits the exact patch, so a replacement lands.
+    await tester.pumpWidget(at(-1000, 3, contentStamp: 1));
+    await waitForDetail(differentFrom: edited);
+    expect(PdfPageView.debugDetailPatchReuses, 1);
+  });
+}
+
+class _BudgetProbeHolder implements PdfLiveRasterHolder {
+  _BudgetProbeHolder({required int bytes, required this.distance})
+      : _bytes = bytes;
+
+  int _bytes;
+  final int distance;
+  bool evicted = false;
+
+  @override
+  int get liveRasterBytes => _bytes;
+
+  @override
+  int get liveRasterDistance => distance;
+
+  @override
+  bool get liveRasterOnScreen => false;
+
+  @override
+  void evictLiveRaster() {
+    evicted = true;
+    _bytes = 0;
+  }
+}
+
+class _DeferredRecordWorker extends PdfRenderWorker {
+  _DeferredRecordWorker(this._inner);
+
+  final PdfRenderWorker _inner;
+  Completer<void>? _gate;
+  bool _released = false;
+
+  bool get hasPending => _gate != null;
+
+  void release() {
+    _released = true;
+    final gate = _gate;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    final result = await _inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+    if (_released) return result;
+    final gate = _gate = Completer<void>();
+    await gate.future;
+    _gate = null;
+    return result;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {
+    // Deliberately keep the result alive: this test exercises the post-await
+    // visibility gate rather than the worker cancellation path.
+  }
+
+  @override
+  void dispose() {
+    release();
+    _inner.dispose();
+  }
+}
+
+class _RatioRecordingWorker extends PdfRenderWorker {
+  _RatioRecordingWorker(this._inner);
+
+  final PdfRenderWorker _inner;
+  final List<double> imageRatios = [];
+  int detailRecords = 0;
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) {
+    if (imageDecodeRegion != null) detailRecords++;
+    if (decodeImages && imagePixelRatio != null) {
+      imageRatios.add(imagePixelRatio);
+    }
+    return _inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() => _inner.dispose();
+}
+
+class _BlockingDetailWorker extends PdfRenderWorker {
+  _BlockingDetailWorker(this._inner);
+
+  final PdfRenderWorker _inner;
+  final Completer<void> _firstRelease = Completer<void>();
+  int detailRecords = 0;
+
+  void releaseFirst() {
+    if (!_firstRelease.isCompleted) _firstRelease.complete();
+  }
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    if (imageDecodeRegion != null) {
+      detailRecords++;
+      if (detailRecords == 1) await _firstRelease.future;
+    }
+    return _inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() => _inner.dispose();
+}
+
+/// In-process command worker used by the image-LoD tests. The production
+/// isolate may deliberately decline an inline-image buffer on some platforms,
+/// which would exercise PdfPageView's single-pass local fallback instead of
+/// the worker-backed staged refinement these tests pin.
+class _LocalCommandWorker extends PdfRenderWorker {
+  _LocalCommandWorker(List<int> bytes)
+      : _document = PdfDocument.open(Uint8List.fromList(bytes));
+
+  final PdfDocument _document;
+  bool _disposed = false;
+
+  @override
+  bool get isActive => !_disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
+      return null;
+    }
+    final page = _document.page(pageIndex);
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(cos: _document.cos, device: recorder)
+      ..drawPageContent(page, page.contentBytes());
+    if (annotations) interpreter.drawAnnotations(page);
+    return recorder.commands;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _disposed = true;
 }

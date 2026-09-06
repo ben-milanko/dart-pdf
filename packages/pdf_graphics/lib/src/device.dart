@@ -3,7 +3,6 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
 import 'image_pixels.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
@@ -68,10 +67,17 @@ class PdfTextRun {
     this.fontName,
     this.fontSize = 0,
     this.glyphs,
+    this.charOffsets,
     this.invisible = false,
     this.fill = true,
     this.strokeColor,
     this.strokeWidth = 0,
+    this.fillAlpha = 1,
+    this.strokeAlpha = 1,
+    this.letterSpacing = 0,
+    this.wordSpacing = 0,
+    this.visibleWidth,
+    this.leadingSpace = 0,
     this.mcid,
   });
 
@@ -95,6 +101,12 @@ class PdfTextRun {
   /// the CTM, like every other stroke); 0 means the thinnest renderable line.
   final double strokeWidth;
 
+  /// Nonstroking opacity (`ca`) in effect for the filled glyphs.
+  final double fillAlpha;
+
+  /// Stroking opacity (`CA`) in effect for the outlined glyphs.
+  final double strokeAlpha;
+
   /// Render mode 3 (§9.4.3): the run paints nothing but still occupies
   /// its geometry - the OCR text layer of scanned documents. Painting
   /// devices must skip it; text extraction wants it like any other run.
@@ -116,8 +128,45 @@ class PdfTextRun {
   final PdfGradient? gradient;
 
   /// Advance width in em units, from the PDF's font metrics. Devices should
-  /// scale their substituted font's output to match, so columns line up.
+  /// scale their substituted font's output to match, so columns line up. This
+  /// total already includes the character/word spacing described by
+  /// [letterSpacing]/[wordSpacing].
   final double width;
+
+  /// Character spacing (Tc, §9.3.2) in em units - the extra advance added after
+  /// every glyph. A device substituting a system font should reproduce it as
+  /// real tracking so the substitute's own advances match [width] instead of
+  /// stretching the glyph shapes to fill it.
+  final double letterSpacing;
+
+  /// Word spacing (Tw, §9.3.3) in em units - the extra advance added after each
+  /// single-byte space (code 32) on a simple font; 0 for composite (CID) fonts,
+  /// which Tw never touches. Like [letterSpacing], a substituting device should
+  /// apply it as real spacing so a space carrying a large Tw opens a genuine gap
+  /// rather than stretching the surrounding glyphs across it.
+  final double wordSpacing;
+
+  /// Advance in em units up to the end of the last non-whitespace glyph -
+  /// [width] minus any trailing-whitespace advance. Null means "same as
+  /// [width]" (no trailing whitespace, or the emitter didn't distinguish).
+  ///
+  /// A substituting device stretches its system font to a target width to make
+  /// advances line up; that target must be this visible width, because the
+  /// layout engines it measures against (e.g. Flutter's [TextPainter]) drop
+  /// trailing whitespace from their reported width. Using [width] there would
+  /// stretch the visible glyphs to swallow a trailing space's advance - which a
+  /// large Tw makes enormous. [width] itself stays whitespace-inclusive so text
+  /// extraction still sees the true inter-run gap.
+  final double? visibleWidth;
+
+  /// Advance in em units from the run origin to the start of the first
+  /// non-whitespace glyph - the leading-whitespace advance (a leading space
+  /// carrying a large Tw is a common way tabular content reaches its column).
+  /// A substituting device draws its trimmed text shifted right by this much,
+  /// because the layout engines it measures against also drop leading
+  /// whitespace and would otherwise place the first visible glyph at the origin.
+  /// [transform] itself keeps the untrimmed origin, so extraction is unaffected.
+  final double leadingSpace;
 
   /// The /BaseFont name, e.g. `ABCDEF+Helvetica-Bold`.
   final String? fontName;
@@ -129,6 +178,21 @@ class PdfTextRun {
   /// should prefer these over substituted text rendering.
   final List<PdfGlyphPlacement>? glyphs;
 
+  /// Em-space pen offset of every character boundary in [text] - entry `i` is
+  /// the advance from the run origin to the start of `text[i]`, and the last
+  /// entry (index `text.length`) is [width]. Always ascending.
+  ///
+  /// Unlike [glyphs] this is populated for substituted fonts too (it needs
+  /// only the metrics, not outlines), so consumers get exact intra-run
+  /// geometry for any horizontal run. A character code that maps to several
+  /// characters (a ligature through /ToUnicode) splits its advance evenly
+  /// across them, since the PDF exposes no finer position.
+  ///
+  /// Null unless the interpreter was built with `collectCharOffsets`, and
+  /// null for vertical writing mode, where the pen advances along y. Callers
+  /// must fall back to interpolating across [width] when it is absent.
+  final List<double>? charOffsets;
+
   bool get hasOutlines =>
       glyphs != null && glyphs!.any((g) => g.outline != null);
 }
@@ -136,17 +200,45 @@ class PdfTextRun {
 /// An image draw request. Decoding is left to the device, which may have
 /// platform codecs (and may need to be async - devices can pre-collect).
 class PdfImageRequest {
-  const PdfImageRequest({
+  PdfImageRequest({
     required this.stream,
     required this.transform,
     this.alpha = 1,
     this.isStencil = false,
     this.stencilColor = PdfColor.black,
     this.isInline = false,
-    this.decoded,
-  });
+    this.isLuminosityMask = false,
+    PdfDecodedPixels? decoded,
+    this.sourceReference,
+  })  : _decoded = decoded,
+        decodedWidth = decoded?.width,
+        decodedHeight = decoded?.height;
+
+  PdfImageRequest._copy({
+    required this.stream,
+    required this.transform,
+    required this.alpha,
+    required this.isStencil,
+    required this.stencilColor,
+    required this.isInline,
+    required this.isLuminosityMask,
+    required PdfDecodedPixels? decoded,
+    required this.decodedWidth,
+    required this.decodedHeight,
+    required this.sourceReference,
+  }) : _decoded = decoded;
 
   final CosStream stream;
+
+  /// Indirect object identity for a worker command that deliberately omitted
+  /// the stream bytes. The consumer resolves this against its copy of the same
+  /// document revision before decoding. Null for ordinary interpreter draws,
+  /// direct streams, inline images, and legacy command buffers.
+  ///
+  /// Keeping this on the request (rather than a renderer-specific side table)
+  /// preserves the portable command model while avoiding repeated copies of a
+  /// multi-megabyte JPEG/SMask subgraph across the worker boundary.
+  final CosReference? sourceReference;
 
   /// Premultiplied RGBA pixels decoded off-thread by a [PdfRenderWorker] and
   /// carried back with the recorded command, or null when this image is to be
@@ -155,12 +247,70 @@ class PdfImageRequest {
   /// pure-Dart decode - the point of the worker's image-decode offload. The
   /// [stream] is still serialized so the decoded pixels cache by content like
   /// every other render path.
-  final PdfDecodedPixels? decoded;
+  PdfDecodedPixels? _decoded;
+
+  /// Worker-decoded pixels that have not yet been handed off to an engine
+  /// image. A retained-scene consumer may release this CPU payload after the
+  /// corresponding engine image is live; the source stream/reference remains
+  /// available for a later cache miss to decode again.
+  PdfDecodedPixels? get decoded => _decoded;
+
+  /// Dimensions of the worker payload, retained after [releaseDecodedPixels]
+  /// so inline-image cache identity does not change during the handoff.
+  final int? decodedWidth;
+  final int? decodedHeight;
+
+  /// Releases the worker's CPU-side RGBA payload after an engine image has
+  /// successfully adopted the same pixels.
+  ///
+  /// Render-command buffers deliberately share their request objects with the
+  /// worker-record cache. Clearing here therefore also stops a large decoded
+  /// image view from pinning the whole transferred command buffer. Rendering
+  /// remains reproducible from [stream] or [sourceReference].
+  void releaseDecodedPixels() => _decoded = null;
+
+  /// Keeps locally decoded RGBA available for a one-time accelerated upload.
+  ///
+  /// Unlike worker-carried pixels, these dimensions are deliberately not
+  /// folded into [decodedWidth]/[decodedHeight]: the request may already have
+  /// been used as an image-map key before the local decoder produced them.
+  /// Callers must only attach pixels matching the engine image built for this
+  /// request, and release them with [releaseDecodedPixels] after upload.
+  void retainDecodedPixels(PdfDecodedPixels pixels) {
+    _decoded ??= pixels;
+  }
+
+  /// Copies this request with new geometry while preserving its image-map key.
+  ///
+  /// Local retained pixels are attached after the original request has keyed
+  /// an image map, so reconstructing through the public constructor would
+  /// incorrectly infer sized-key dimensions from them. Geometry adapters use
+  /// this method to keep worker-sized and locally-unsized identities intact.
+  PdfImageRequest withTransform(PdfMatrix value) => PdfImageRequest._copy(
+        stream: stream,
+        transform: value,
+        alpha: alpha,
+        isStencil: isStencil,
+        stencilColor: stencilColor,
+        isInline: isInline,
+        isLuminosityMask: isLuminosityMask,
+        decoded: decoded,
+        decodedWidth: decodedWidth,
+        decodedHeight: decodedHeight,
+        sourceReference: sourceReference,
+      );
 
   /// True for inline images (`BI .. ID .. EI`). Their [stream] is
   /// synthesized fresh on every interpretation pass, so consumers that
   /// cache decoded pixels must key them by value, not stream identity.
   final bool isInline;
+
+  /// True when this image is being painted into a luminosity soft-mask
+  /// group. Device samples must then retain their native mask luminance
+  /// instead of being colour-managed for page preview. In particular,
+  /// DeviceGray 0/1 must remain exact black/white even when the document has
+  /// a CMYK OutputIntent.
+  final bool isLuminosityMask;
 
   /// Maps the unit square (image space, y-up) to page space.
   final PdfMatrix transform;
@@ -211,6 +361,29 @@ abstract interface class PdfDevice {
   /// devices can ignore it.
   void setBlendMode(PdfBlendMode mode);
 
+  /// Sets the overprint state for subsequent painting (gs /OP, /op, /OPM;
+  /// PDF §8.6.7). [fill] is nonstroking overprint (/op), [stroke] is stroking
+  /// overprint (/OP), and [mode] is the overprint mode (/OPM, 0 or 1).
+  ///
+  /// Overprint is a subtractive (CMYK/spot colorant) operation: an
+  /// overprinting colorant that is not written leaves the underlying colorant
+  /// untouched instead of knocking it out. The interpreter resolves that in a
+  /// CMYK/spot colorant buffer (`PdfOverprintCompositor`, issue #502) before
+  /// the draw reaches a device: a resolved draw arrives with its composite
+  /// already in the colour and this flag **cleared**, so devices paint it
+  /// plainly.
+  ///
+  /// The flag therefore only arrives set where the buffer declined - over an
+  /// image, a gradient, a transparency group, or a colour space with no
+  /// colorant reading. Painting devices approximate that residue with a
+  /// `darken` (per-channel min) composite, which is a no-op over white, so it
+  /// only affects ink laid over ink. [mode] is the parsed /OPM; the RGB
+  /// approximation cannot act on its zero-component distinction, which is a
+  /// colorant-space question the buffer has already answered. Non-compositing
+  /// devices can ignore all three.
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode});
+
   /// Brackets a transparency-group form (§11.6.6) whose composite result
   /// paints at [alpha]. Inside the group, alpha starts over at 1.0; the
   /// group then blends as one object. Non-compositing devices can treat
@@ -248,5 +421,22 @@ abstract interface class PdfDevice {
     double backdropLuminance = 0,
     double transferScale = 1,
     double transferOffset = 0,
+  });
+}
+
+/// Optional richer transparency-group entry used by painting/recording
+/// devices that can model isolated and non-isolated group backdrops.
+///
+/// Basic devices continue to receive [PdfDevice.beginGroup]. [bounds] and a
+/// uniform [backdropColor] let a canvas backend seed a non-isolated offscreen
+/// layer with the group's initial backdrop; [isolated] explicitly requests a
+/// transparent initial backdrop (§11.4.6).
+abstract interface class PdfTransparencyGroupDevice {
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
   });
 }

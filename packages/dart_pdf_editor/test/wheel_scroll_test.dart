@@ -10,7 +10,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -36,13 +35,76 @@ void main() {
     await pumpViewer(tester);
     final pointer = TestPointer(101, PointerDeviceKind.trackpad);
     pointer.hover(const Offset(400, 300));
-    await tester.sendEventToBinding(
-        pointer.scroll(const Offset(0, 120)));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 120)));
     await tester.pumpAndSettle();
-    final state = tester
-        .state<ScrollableState>(find.byType(Scrollable).first);
+    final state = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(state.position.pixels, greaterThan(0),
         reason: 'vertical trackpad scroll should scroll the list');
+  });
+
+  testWidgets('wheel motion keeps heavy rasters held through short gaps',
+      (tester) async {
+    final controller = await pumpViewer(tester);
+    await tester.pumpAndSettle();
+    expect(controller.debugRenderHold, isFalse);
+
+    final pointer = TestPointer(107, PointerDeviceKind.mouse);
+    pointer.hover(const Offset(400, 300));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 120)));
+    await tester.pump();
+    expect(controller.debugRenderHold, isTrue);
+    expect(controller.debugLiveRenderInput, isTrue,
+        reason: 'the very first wheel event must close the quiet render lane');
+    expect(controller.debugSlowRenderMotion, isFalse,
+        reason: 'the opening sample must not misclassify an accelerating '
+            'flick as slow');
+
+    await tester.pump(const Duration(milliseconds: 119));
+    expect(controller.debugLiveRenderInput, isTrue);
+    await tester.pump(const Duration(milliseconds: 2));
+    expect(controller.debugLiveRenderInput, isFalse,
+        reason: 'the focused worker page may sharpen after input goes quiet');
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'heavy local and background work keeps the 500ms protection');
+
+    await tester.pump(const Duration(milliseconds: 179));
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'a delayed wheel acknowledgement must not release a CAD '
+            'raster into the middle of the gesture');
+
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(controller.debugRenderHold, isFalse);
+  });
+
+  testWidgets('sustained slow scrolling opens the sharpening lane',
+      (tester) async {
+    final controller = await pumpViewer(tester);
+    await tester.pumpAndSettle();
+    final pointer = TestPointer(108, PointerDeviceKind.mouse);
+    pointer.hover(const Offset(400, 300));
+
+    // Five small steps over 200ms are well under one viewport per second.
+    // The 150ms opening grace must elapse before the lane can open.
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 8)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(controller.debugLiveRenderInput, isTrue,
+        reason: 'the wheel stream is still active');
+    expect(controller.debugSlowRenderMotion, isTrue,
+        reason: 'bounded worker-backed pages may sharpen during slow motion');
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'strict local and background work remains held');
+
+    // One fast step pushes the 200ms window above the hysteresis exit. The
+    // lane closes immediately, without waiting for the settle timer.
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 300)));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(controller.debugSlowRenderMotion, isFalse);
+    expect(controller.debugRenderHold, isTrue);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(controller.debugRenderHold, isFalse);
   });
 
   testWidgets('web-style trackpad scroll: vertical while zoomed',
@@ -55,14 +117,12 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(controller.zoom, greaterThan(1.01));
 
-    final state = tester
-        .state<ScrollableState>(find.byType(Scrollable).first);
+    final state = tester.state<ScrollableState>(find.byType(Scrollable).first);
     final before = state.position.pixels;
     final pointer = TestPointer(102, PointerDeviceKind.trackpad);
     pointer.hover(const Offset(400, 300));
     for (var i = 0; i < 5; i++) {
-      await tester.sendEventToBinding(
-          pointer.scroll(const Offset(0, 60)));
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 60)));
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pumpAndSettle();
@@ -84,8 +144,7 @@ void main() {
     // capture tx via the controller's pan state: use visiblePageRegion
     final beforeRegion = controller.visiblePageRegion(0);
     for (var i = 0; i < 5; i++) {
-      await tester.sendEventToBinding(
-          pointer.scroll(const Offset(60, 0)));
+      await tester.sendEventToBinding(pointer.scroll(const Offset(60, 0)));
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pumpAndSettle();

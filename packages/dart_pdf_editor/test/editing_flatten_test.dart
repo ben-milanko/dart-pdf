@@ -56,6 +56,52 @@ void main() {
       expect(editing.flattenAllAnnotations(), isTrue);
       expect(editing.document.page(0).annotations, isEmpty);
     });
+
+    test('flattenDocument includes empty fields and annotations in one undo',
+        () {
+      final source = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = source.addTextField(
+        0,
+        'empty',
+        const PdfRect(72, 700, 300, 724),
+      );
+      expect(
+        PdfAnnotation.fromDict(source.document, field.dict).normalAppearance,
+        isNull,
+      );
+      final editing = PdfEditingController(source.save());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 100, 200, 150));
+
+      expect(editing.flattenDocument(), isTrue);
+      expect(editing.acroForm!.fields, isEmpty);
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      editing.undo();
+      expect(editing.acroForm!.fieldNamed('empty'), isNotNull);
+      expect(
+        editing.document.page(0).annotations.any((a) => a.subtype == 'Square'),
+        isTrue,
+      );
+    });
+
+    test('flattenSelectedAnnotations only bakes the selection', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 100, 200, 150))
+        ..addRectangle(0, const PdfRect(300, 100, 400, 150))
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+
+      expect(editing.canFlattenSelectedAnnotations, isTrue);
+      expect(editing.flattenSelectedAnnotations(), isTrue);
+      expect(editing.document.page(0).annotations, hasLength(1));
+      expect(editing.document.page(0).annotations.single.rect,
+          const PdfRect(300, 100, 400, 150));
+      expect(editing.hasAnnotationSelection, isFalse);
+
+      editing.undo();
+      expect(editing.document.page(0).annotations, hasLength(2));
+    });
   });
 
   group('flatten feedback in the toolbar', () {
@@ -68,7 +114,7 @@ void main() {
       addTearDown(viewer.dispose);
       await pumpToolbar(tester, editing, viewer);
 
-      final flatten = find.byTooltip('Flatten annotations into the pages');
+      final flatten = find.byKey(const ValueKey('pdf-flatten-all'));
       final toolbarScrollable = find
           .descendant(
               of: find.byType(PdfEditingToolbar),
@@ -81,7 +127,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
 
-      expect(find.text('Annotations flattened into the pages'), findsOneWidget);
+      expect(
+        find.text('Annotations and form fields flattened into the pages'),
+        findsOneWidget,
+      );
       expect(find.widgetWithText(SnackBarAction, 'Undo'), findsOneWidget);
       expect(editing.document.page(0).annotations, isEmpty);
 
@@ -99,7 +148,7 @@ void main() {
       addTearDown(viewer.dispose);
       await pumpToolbar(tester, editing, viewer);
 
-      final flatten = find.byTooltip('Flatten annotations into the pages');
+      final flatten = find.byKey(const ValueKey('pdf-flatten-all'));
       final toolbarScrollable = find
           .descendant(
               of: find.byType(PdfEditingToolbar),
@@ -110,9 +159,50 @@ void main() {
       await tester.tap(flatten);
       await tester.pump();
 
-      expect(find.text('No annotations to flatten'), findsOneWidget);
+      expect(
+        find.text('No annotations or form fields to flatten'),
+        findsOneWidget,
+      );
       // nothing changed, so there is no Undo offered
       expect(find.widgetWithText(SnackBarAction, 'Undo'), findsNothing);
+    });
+
+    testWidgets('document flatten includes untouched empty form fields',
+        (tester) async {
+      final source = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      source.addTextField(
+        0,
+        'empty',
+        const PdfRect(72, 700, 300, 724),
+      );
+      final editing = PdfEditingController(source.save());
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pumpToolbar(tester, editing, viewer);
+
+      final flatten = find.byKey(const ValueKey('pdf-flatten-all'));
+      final toolbarScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .first;
+      await tester.scrollUntilVisible(flatten, 100,
+          scrollable: toolbarScrollable);
+      await tester.tap(flatten);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(editing.acroForm!.fields, isEmpty);
+      expect(editing.document.page(0).annotations, isEmpty);
+      expect(
+        find.text('Annotations and form fields flattened into the pages'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Undo'));
+      await tester.pump();
+      expect(editing.acroForm!.fieldNamed('empty'), isNotNull);
     });
   });
 }

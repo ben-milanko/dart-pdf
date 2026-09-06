@@ -1,0 +1,4 @@
+Baru di 3.1.1
+
+• Pengguliran lebih mulus pada PDF besar atau padat visual, dengan lebih sedikit frame yang terlewat.
+• Pratinjau halaman tetap terlihat saat menggulir cepat, lalu tampil kembali dengan detail penuh.

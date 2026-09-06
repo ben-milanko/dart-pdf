@@ -1,0 +1,5 @@
+Nouveautés de la version 3.3.0
+
+• Les pages revisitées s’ouvrent instantanément grâce au préchargement facultatif et au cache persistant en pleine résolution.
+• Zoom profond plus net sur les PDF numérisés ou composés d’images.
+• Panoramique tactile amélioré, réglage du rayon des rectangles et navigation plus fluide après insertion de pages.

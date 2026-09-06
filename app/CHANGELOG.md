@@ -1,5 +1,288 @@
 # Changelog
 
+## Unreleased
+
+- Keep the browser responsive during PDF optimisation with a dedicated worker;
+  Cancel stops the job immediately. Use **Optimise** throughout the Australian
+  and UK English dialog, retaining **Optimize** for US English.
+- Section the app menu: a **Search actions… (⌘K)** row on top, then File, This
+  document and App under quiet headers, ordered by how often each entry is
+  reached. A header is only drawn over two rows or more, so with nothing open
+  the menu keeps a bare divider. **Switch to read-only** becomes a **Read-only**
+  switch that shows the current mode instead of a verb that rewrites its label.
+- Add an app-wide **command palette** (⌘K / Ctrl+K, from anywhere, or the
+  menu's first row): one index over the menu's actions, the 35 editing tools,
+  the panels, the view options and the recent files. Every result names the
+  surface it came from and its shortcut, and commands that need an open
+  document stay listed - dimmed, with the reason - rather than disappearing.
+- Add **Reduce file size…** with lossless, screen, eBook, and print presets,
+  independent optimization settings, a savings report, and **Save copy…**.
+  Lossy image changes are opt-in; the open document and undo history stay intact.
+- Add **Insert document…** to the app menu: insert a PDF after the current page
+  as one undo step, with the existing tab identity and session recovery.
+- Preserve imported form fields, bookmarks, and named links when inserting PDFs.
+
+## 4.2.0
+
+- Keep nearby pages sharp during slow scrolling and warm pages ahead of the
+  scroll direction using spare GPU capacity, while fast scrolling continues to
+  prioritize responsiveness.
+- Prefer the Flutter GPU renderer by default, with the existing Canvas
+  fallback for scenes it cannot draw exactly.
+- Add annotation alignment guides and page rulers for precise placement.
+- Zoom around the pointer with `Ctrl`/`Cmd`+wheel, on desktop and on the web.
+- Fix annotation selection, resizing, and text editing on rotated pages, where
+  a square annotation could be handled as though it were turned a quarter turn.
+- Fix selecting multi-line highlights, and keep text under them sharp.
+- Allow panning between lines of text instead of starting a selection.
+
+## 4.1.0
+
+- Save and manage named handwritten signatures, and reuse saved annotations
+  across documents from a searchable library.
+- Add cursor guides, a visible page grid, and optional grid snapping for
+  precise annotation placement and resizing.
+- Reposition selected page content and drag it between pages.
+- Fix importing private keys and certificate chains for digital signatures in
+  the cross-origin-isolated web app.
+- Allow a visible digital signature to be selected and removed, with
+  confirmation and undo.
+- Keep the colour eyedropper responsive across every page and expose it from
+  the colour dialog.
+- Improve rendering speed and fidelity for complex blends, transparency,
+  overprint, images, and large engineering drawings.
+- Fix sparse remote-PDF loading and a colorant clip error that could display a
+  blank page.
+
+## 4.0.0
+
+- Add slimmer, dockable editor controls and improve page, panel, and
+  recent-document navigation.
+- Auto-fit free text to its box, flatten selected annotations, and reliably
+  flatten empty form fields.
+- Render demanding print files more faithfully with complete Ghent V5 colour
+  and transparency coverage, including output intents, overprint, soft masks,
+  high-bit-depth images, and substituted fonts.
+- Accelerate more blends, transparency groups, images, hairlines, and exact
+  text through the optional GPU renderer, with idle preparation to keep first
+  use smooth.
+- Improve drag-and-drop, document scanning, file-opening errors, and thumbnail
+  persistence across document sessions.
+
+## 3.8.0
+
+- Browse recent PDFs with searchable page previews.
+- Place and edit annotations beyond the page edge, style compatible mixed
+  selections together, and choose any signature colour and pen thickness.
+- Preview print jobs before sending them.
+- Scroll and deep-zoom large, image-heavy drawings more smoothly with faster
+  rendering and steadier page caches.
+- Fix text-caret alignment, popup placement, browser JPEG decoding, and several
+  annotation and rendering crashes.
+
+## 3.7.0
+
+- Pages now render as you scroll past them instead of arriving half a second
+  after you stop. Scrolling back to a page you have already read shows it
+  immediately.
+- Add find and replace to the search panel: replace the current match or every
+  match at once, in a single undo step.
+- Fix the content tool showing scrambled characters - and editing the wrong
+  text - on documents whose fonts renumber their character codes, which is
+  common in forms and any file with subsetted fonts.
+- Fix "Replace text" in the element strip changing every matching line on the
+  page rather than the one selected.
+- Fix the app closing when you chose Open or Save on Windows.
+- Fix the Mac App Store build being rejected over the bundled command-line
+  helper; the helper still ships with every other download.
+
+## 3.6.1
+
+- Fix the Linux app exiting at launch: the experimental multi-window bootstrap
+  is disabled on Linux only (upstream: flutter/flutter#191166), restoring the
+  classic single-window startup. Windows and macOS keep multi-window support.
+- Fix the Snap package failing to start under strict confinement by allowing
+  the app to own its `dev.milanko.dartpdf` D-Bus name.
+- Add blocking launch smoke tests for every desktop platform to CI and the
+  release pipeline.
+
+## 3.6.0
+
+- Open documents in multiple native desktop windows and drag tabs between
+  windows, with crash-safe session ownership and correct input routing.
+- Bundle the new `dartpdf` command-line and MCP sidecar in desktop releases for
+  inspecting PDFs, extracting bounded text, and listing forms or annotations.
+- Sandbox the bundled command-line helper correctly in Mac App Store archives.
+- Make annotation panels easier to navigate, keep selections visible across
+  edits, and preserve FreeText opacity while editing and rendering.
+- Preserve Bluebeam FreeText alignment, spacing, and caret placement.
+- Fix stale page rendering after edits on macOS, reveal cloud-backed files in
+  Finder reliably, and improve substituted text spacing on the web.
+
+## 3.5.1
+
+- Fix Open in Finder for PDFs stored in sandboxed OneDrive folders.
+- Fix scanned MRC and JBIG2 pages whose text, background, or mask layers could
+  be missing or opaque.
+- Fix soft-masked images that could render as black blocks with Impeller or the
+  optional GPU renderer.
+- Fix Android document scans that returned a `content://` URI, and show the
+  actual read-back error instead of treating every failure as cancellation.
+
+## 3.5.0
+
+- Large and visually dense PDFs stay responsive while scrolling, panning, and
+  zooming, with the visible region sharpening before bounded background work.
+- Fast navigation now moves through progressively clearer page previews rather
+  than waiting on one final full-detail raster.
+- Keep pages sharp and visible as they cross viewport edges, reduce redundant
+  off-screen detail work, and make remote and web document loading faster and
+  more memory-predictable.
+- Add a live Canvas/flutter_gpu tile-backend switch to Developer tools, along
+  with persistent texture/geometry ceilings and diagnostics for actual route,
+  fallback reasons, compile/replay time, cache pressure, uploads/readbacks,
+  and live resource leases. Export all GPU metrics in the JSON snapshot. PR
+  web previews link to downloadable macOS, Windows, and Linux native builds so
+  the real Impeller backend can be tested even though flutter_gpu has no web
+  runtime. The ad-hoc macOS preview/release packages now omit the provisioned
+  Keychain entitlement so macOS can launch them normally.
+
+## 3.4.0
+
+- Copy and paste annotations between open documents, save placed stamps back
+  to the stamp collection, and show the selected annotation colour in the
+  toolbar.
+- Drop a PDF between page thumbnails to insert its pages at that exact
+  position, and optionally show document chapters on the scrollbar.
+- Improve proportional-font selection and substituted-font placement, keep
+  touch selection menus aligned while zoomed, and hide page-colour editing in
+  view mode.
+- Improve tab-grid scrolling, trackpad pinch-out scrolling, progressive file
+  access, and print-preview reliability.
+
+## 3.3.1
+
+- Changing annotation properties no longer creates a duplicate in PDFs that
+  store annotation lists indirectly.
+- Text colour changes now preserve embedded fonts, and cloud/polygon live
+  previews retain the configured pattern scale.
+- Multi-page reordering has clearer group feedback and moves the selected page
+  set reliably.
+
+## 3.3.0
+
+- Pages you revisit can open immediately from full-resolution memory and disk
+  caches, while optional idle warming prepares more pages before you navigate
+  to them.
+- Deep zoom is sharper on scanned and image-backed PDFs because visible tiles
+  re-decode the source image at the requested detail.
+- Touch panning responds sooner and works reliably from the canvas around a
+  page. Rectangle corner radius is available in the properties panel, newly
+  inserted PDF pages stay in view, and the floating toolbar no longer obscures
+  the end of a document.
+- Linux users can install from the preferred GPG-signed Flatpak repository or
+  the secondary Snap package, with AppImage and portable archives retained as
+  fallbacks.
+
+## 3.2.0
+
+- Page caching now adapts to device memory and system pressure, and the render
+  pipeline avoids redundant full-page and detail work. Large and dense
+  documents stay responsive while using a larger cache where the device can
+  afford it.
+- Third-party FreeText boxes and callouts render more faithfully, including
+  wrapping, alignment, fills, borders, and leader lines. Multi-line text
+  markups select only where their visible quads are painted.
+- Fix loading pauses on macOS, keep remote session restoration responsive, and
+  preserve Ctrl/Cmd-wheel zoom after drawing a Shift-constrained line.
+- Add opt-in nightly Windows updates for users who want the newest fixes
+  between stable releases.
+
+## 3.1.1
+
+- Smoother scrolling on large and visually dense PDFs, with the page renderer
+  staying responsive through rapid mouse-wheel gestures.
+- Page previews remain visible during fast scrolling and settle cleanly into
+  full-detail renders, with fewer dropped frames.
+
+## 3.1.0
+
+- Scan documents straight into a PDF: scan to a new document or insert a scan
+  into the open one, and take a photo with the camera on mobile.
+- Never lose work to a crash: unsaved changes are mirrored in the background
+  and restored when the document is reopened.
+- New editing tools: hyperlinks (web and in-document), cropping for placed
+  images, annotation lock/unlock, and keyboard shortcuts for every tool.
+- Faithful overprint rendering — print-oriented PDFs that rely on overprint
+  (knockouts, spot inks) now display the way they print.
+- Pages reveal progressively as they render, and rendering is much faster on
+  large or image-heavy files; search text is extracted in the background.
+- Recent files can show as a grid of page thumbnails.
+- Shrink a PDF's file size losslessly from the save flow.
+- The app updates itself in place on desktop — "Update now" downloads and
+  applies the new version without a browser visit.
+
+## 3.0.0
+
+- The app is now available in 10 languages, with full right-to-left layout
+  for Arabic.
+- More accurate overprint, blend-mode and soft-mask rendering.
+- Hold Shift to draw straight lines, and set a default style for annotations.
+- Redesigned, smoother document tabs.
+- Faster rendering and lower memory use on large files.
+
+## 2.1.0
+
+- Reflow reading view: read a document as flowing text instead of fixed
+  pages, with lazy scrolling, quick navigation, a remembered reading
+  position, and a figure viewer for images and diagrams.
+- Faster opening and rendering, especially on large or image-heavy files;
+  saving an edit is proportional to the size of the change, and very wide
+  drawings use less memory.
+- Crisper hairlines, so fine linework stays legible when zoomed out.
+- Better colour on gradients and indexed images; Symbol and ZapfDingbats
+  characters render instead of empty boxes.
+
+## 2.0.0
+
+- Deep zoom now shows crisp detail on every platform: zoom past the normal
+  limit and the visible area re-renders at full resolution instead of looking
+  blurry.
+- Large files and cloud documents open much faster — the first page appears
+  while the rest of the file is still loading, instead of waiting for the whole
+  download or read to finish.
+- Digitally sign a document with one tap: create a signing identity in the app
+  (self-signed, or keyless via Sigstore) and sign without setting up
+  certificates by hand.
+- Rearrange the workspace: side panels can be dragged and docked to any edge,
+  placed side by side or grouped into tabs, and the layout is remembered.
+  Press F12 for a developer-tools overlay.
+- The font menu lists the document's own fonts and your recent picks, and the
+  toolbar shows the actual embedded typeface.
+- The annotation list supports multi-select (ctrl/shift) and a hover menu.
+- Better colour accuracy for certain CMYK photos, and assorted mobile polish.
+
+## 1.4.7
+
+- Printing now goes through each platform's own print system, so
+  documents that open here but trip up other engines print reliably —
+  and printing no longer crashes the app on Windows.
+- Scanned and image-heavy pages, especially large print exports, render
+  much faster and use less memory; the app also frees cached images when
+  the system is low on memory.
+- Rectangle shapes can now have rounded corners, and dash and cloud
+  patterns can be scaled independently of line thickness.
+- Copy, cut, and paste whole pages in the page thumbnail view — including
+  between open document tabs — with the usual keyboard shortcuts.
+- The colour picker now shows a swatch grid with the colours you recently
+  used and the colours already in the open document.
+- Nudge a selected annotation with the arrow keys, add or remove points on
+  polyline and polygon shapes, and recolour a pasted vector snapshot.
+- Add a visible signature box when signing, showing the signer's name and
+  details (and an optional handwritten-signature or logo graphic).
+- Free-text boxes gain line spacing, letter spacing, width, and underline
+  controls, and Save now works on a brand-new untitled document.
+
 ## 1.4.6
 
 - Hover a document tab on desktop to preview the page before switching to it,

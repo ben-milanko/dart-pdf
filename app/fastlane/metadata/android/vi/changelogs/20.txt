@@ -1,0 +1,7 @@
+Mới trong 3.0.0
+
+• Ứng dụng hiện có 10 ngôn ngữ, hỗ trợ đầy đủ bố cục từ phải sang trái.
+• Hiển thị in đè, chế độ hòa trộn và mặt nạ mềm chính xác hơn.
+• Giữ Shift để vẽ đường thẳng và đặt kiểu mặc định cho chú thích.
+• Thẻ tài liệu được thiết kế lại, mượt mà hơn.
+• Hiển thị nhanh hơn và dùng ít bộ nhớ hơn với các tệp lớn.

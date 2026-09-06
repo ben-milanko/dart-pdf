@@ -1,0 +1,68 @@
+name: Deploy App Web
+
+# Publishes the standalone DartPDF app's web build to the `dartpdf-app` Firebase
+# Hosting site's live channel (app.dart-pdf.com) on every main push that can
+# affect it. Until now the app web only had per-PR previews (preview-app-web.yml)
+# and no production deploy, so app.dart-pdf.com went stale between manual pushes.
+# The demo app has the same shape in deploy-demo-web.yml.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/deploy-app-web.yml
+      - pubspec.yaml
+      - app/**
+      - packages/pdf_cos/**
+      - packages/pdf_document/**
+      - packages/pdf_graphics/**
+      - packages/dart_pdf_editor/**
+
+concurrency:
+  group: app-web
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Compile the off-thread render worker first (app/lib/main.dart points
+      # pdfRenderWorkerScriptUrl at it); without it heavy PDFs hang the tab.
+      # Matches preview-app-web.yml and release-app.yml's web build.
+      - name: Build the render worker
+        working-directory: app
+        run: >-
+          dart run dart_pdf_editor:build_web_worker
+          --out ../packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+
+      # CanvasKit renderer (matches the app preview + release web builds).
+      # PDF_BUILD_COMMIT stamps the build into the `?perf=1` trace, so a device
+      # trace says which build produced it instead of being dated by hand (#451).
+      - run: flutter build web --release --dart-define=PDF_BUILD_COMMIT=${GITHUB_SHA::7}
+        working-directory: app
+
+      - name: Cache-bust web build
+        run: bash tool/web_cache_bust.sh app/build/web
+
+      # app/firebase.json pins "site": "dartpdf-app"; channelId live -> the
+      # production channel behind app.dart-pdf.com.
+      - uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+          projectId: dart-pdf-demo
+          channelId: live
+          entryPoint: app

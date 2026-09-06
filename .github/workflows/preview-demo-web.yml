@@ -9,6 +9,7 @@ on:
       - packages/pdf_document/**
       - packages/pdf_graphics/**
       - packages/dart_pdf_editor/**
+      - tool/patrol_perf_summary.dart
 
 concurrency:
   group: demo-web-preview-${{ github.event.pull_request.number }}
@@ -16,11 +17,15 @@ concurrency:
 
 env:
   FIREBASE_TOOLS_VERSION: 15.22.4
+  PATROL_CLI_VERSION: 4.7.0
+  PATROL_ANALYTICS_ENABLED: "false"
+  PATROL_PERF_REPETITIONS: 3
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
 
     steps:
@@ -30,7 +35,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.4
+          flutter-version: 3.47.0
           channel: stable
           cache: true
 
@@ -59,6 +64,233 @@ jobs:
           name: demo-web-preview
           path: ${{ runner.temp }}/demo-preview
           if-no-files-found: error
+
+      # Continue into the browser E2E journey on the same runner so Patrol
+      # reuses this job's checkout, Flutter toolchain, and resolved workspace.
+      - name: Install Patrol CLI
+        run: |
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Run Patrol on web
+        id: patrol-web
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/demo_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee "$RUNNER_TEMP/patrol-web.log"
+
+      - name: Run Patrol performance scenario
+        id: patrol-perf
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -euo pipefail
+          touch "$RUNNER_TEMP/patrol-web.log"
+          completed=0
+          attempt=0
+          max_attempts=$((PATROL_PERF_REPETITIONS + 2))
+          while ((completed < PATROL_PERF_REPETITIONS && attempt < max_attempts)); do
+            attempt=$((attempt + 1))
+            attempt_log="$RUNNER_TEMP/patrol-web-perf-$attempt.log"
+            echo "::group::Patrol performance attempt $attempt/$max_attempts"
+            set +e
+            patrol test \
+              --device chrome \
+              --target patrol_test/perf_e2e_test.dart \
+              --dart-define PDF_PERF_LOG=true \
+              --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+              --show-flutter-logs \
+              --web-headless \
+              --web-locale en-US \
+              --web-workers 1 \
+              --web-viewport '{"width":2600,"height":2600}' \
+              --web-video retain-on-failure \
+              --verbose \
+              2>&1 | tee "$attempt_log"
+            patrol_status=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+            if ((patrol_status == 0)) && dart ../../../tool/patrol_perf_summary.dart \
+              "$attempt_log" \
+              --output "$RUNNER_TEMP/patrol-web-perf-${attempt}-summary" \
+              --require-scenario-runs cad-image-deep-zoom=1 \
+              --require-scenario-runs heavy-document=1 \
+              --require-scenario-runs jpeg-consumer-decode=1 \
+              --require-scenario-runs rounded-rung-pressure=1 \
+              --require-scenario-runs web-worker=1 \
+              >/dev/null 2>&1; then
+              tee -a "$RUNNER_TEMP/patrol-web.log" < "$attempt_log" >/dev/null
+              completed=$((completed + 1))
+            else
+              echo "::warning::Patrol web attempt $attempt returned without a complete performance sample; retrying"
+            fi
+          done
+          if ((completed < PATROL_PERF_REPETITIONS)); then
+            echo "::error::Patrol web produced $completed/$PATROL_PERF_REPETITIONS complete performance repetitions"
+            exit 1
+          fi
+
+      - name: Download latest main Patrol web baseline
+        id: patrol-baseline
+        if: always()
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t baseline_runs < <(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId')
+          for baseline_run in "${baseline_runs[@]}"; do
+            destination="$RUNNER_TEMP/patrol-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-web-results \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol web baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol web artifact is available yet"
+
+      - name: Collect Patrol performance trace
+        if: always()
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -euo pipefail
+          arguments=(
+            "$RUNNER_TEMP/patrol-web.log"
+            --output test-results/perf
+            --markdown "$GITHUB_STEP_SUMMARY"
+            --require-scenario-runs "cad-image-deep-zoom=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "heavy-document=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "jpeg-consumer-decode=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "rounded-rung-pressure=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "web-worker=$PATROL_PERF_REPETITIONS"
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
+
+      - name: Upload Patrol web results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-web-results
+          path: |
+            packages/dart_pdf_editor/example/test-results
+            packages/dart_pdf_editor/example/playwright-report
+          if-no-files-found: ignore
+
+  report:
+    name: Patrol performance report
+    if: >-
+      always() &&
+      needs.build.result != 'cancelled' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download Patrol web results
+        id: patrol-results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: patrol-web-results
+          path: patrol-results
+
+      - name: Comment Patrol performance report
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          PATROL_MARKER: dart-pdf-patrol-performance
+          PATROL_HEADLINE: patrol-results/test-results/perf/patrol-perf-headline.md
+          PATROL_SUMMARY: patrol-results/test-results/perf/patrol-perf.md
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = `<!-- ${process.env.PATROL_MARKER} -->`;
+            const headlinePath = process.env.PATROL_HEADLINE;
+            const summaryPath = process.env.PATROL_SUMMARY;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const summary = fs.existsSync(summaryPath)
+              ? fs.readFileSync(summaryPath, 'utf8').trim()
+              : [
+                  '## Patrol web performance',
+                  '',
+                  'No performance summary artifact was produced. Open the workflow run for the failing step and raw logs.',
+                ].join('\n');
+            const headline = fs.existsSync(headlinePath)
+              ? fs.readFileSync(headlinePath, 'utf8').trim()
+              : 'No headline performance summary was produced.';
+            const body = [
+              marker,
+              '## Patrol web performance',
+              '',
+              `Automated for commit \`${sha}\` · [workflow run and downloadable trace artifact](${runUrl})`,
+              '',
+              headline,
+              '',
+              '<details>',
+              '<summary>View browser performance details</summary>',
+              '',
+              summary,
+              '',
+              '</details>',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   deploy:
     # Fork and Dependabot PRs do not receive repository secrets. Other same-repo
@@ -167,15 +399,6 @@ jobs:
 
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
-      #
-      # continue-on-error: the channel `releases` POST is the one
-      # non-idempotent Hosting call, and on GitHub runners the API
-      # intermittently drops the keep-alive socket ("premature close").
-      # firebase-tools retries, the first attempt already created the release,
-      # and the retry fails with FAILED_PRECONDITION "supplied version ... is
-      # the current active version" — so the deploy succeeded but the action
-      # exits 1. The recover step below confirms the freshly finalized release
-      # and reuses its URL; a genuine failure (no recent release) still fails.
       - id: deploy
         uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
         continue-on-error: true
@@ -268,46 +491,6 @@ jobs:
               },
             });
             core.info(`Marked recovered Deploy Preview check-run ${run.id} successful`);
-
-      - id: recover
-        name: Recover the preview URL after a transient release retry error
-        if: steps.deploy.outcome == 'failure'
-        working-directory: packages/dart_pdf_editor/example
-        env:
-          FIREBASE_SITE: dart-pdf-demo
-          FIREBASE_PROJECT: dart-pdf-demo
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
-          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
-        run: |
-          printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx -y firebase-tools@latest hosting:channel:list \
-            --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
-            > channels.json
-          node -e '
-            const fs = require("fs");
-            const data = JSON.parse(fs.readFileSync("channels.json", "utf8"));
-            const r = data.result;
-            const chans = Array.isArray(r) ? r : ((r && r.channels) || []);
-            const re = new RegExp("^pr" + process.env.PR_NUMBER + "(-|$)");
-            const ch = chans.find(c => re.test(String(c.name || "").split("/").pop()));
-            if (!ch || !ch.release) {
-              console.error("No channel/release for PR " + process.env.PR_NUMBER + "; deploy genuinely failed.");
-              process.exit(1);
-            }
-            // Only treat the failure as benign if the release was finalized in
-            // this run; a stale release means the deploy really did fail.
-            const age = Date.now() - (Date.parse(ch.updateTime || ch.release.releaseTime || 0) || 0);
-            if (!(age >= 0 && age < 30 * 60 * 1000)) {
-              console.error("Channel release is " + Math.round(age / 1000) + "s old; deploy genuinely failed.");
-              process.exit(1);
-            }
-            const out = process.env.GITHUB_OUTPUT;
-            fs.appendFileSync(out, "details_url=" + ch.url + "\n");
-            fs.appendFileSync(out, "expire_time_formatted=" + (ch.expireTime || "") + "\n");
-            console.log("Recovered preview URL " + ch.url + " (release " + Math.round(age / 1000) + "s old).");
-          '
-          rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json
 
       - name: Comment preview URL
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3

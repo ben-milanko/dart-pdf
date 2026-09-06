@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  FLUTTER_VERSION: '3.44.4'
+  FLUTTER_VERSION: '3.47.0'
   APPIMAGETOOL_SHA256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
 
 jobs:
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -80,10 +80,14 @@ jobs:
           PY
           }
 
-          patch_gradle "$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
-          patch_gradle "$(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle' -print -quit)" dev.irondash.engine_context
+          # Patch EVERY match, not just the first: `-print -quit` can return a
+          # plugin's example/android/build.gradle instead of its own (find's
+          # order is filesystem-dependent), which leaves the real plugin
+          # unpatched and fails :onnxruntime:checkReleaseAarMetadata.
+          while IFS= read -r f; do patch_gradle "$f"; done < <(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle')
+          while IFS= read -r f; do patch_gradle "$f" dev.irondash.engine_context; done < <(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle')
           super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
-          patch_gradle "$super_native_gradle" com.superlist.super_native_extensions
+          while IFS= read -r f; do patch_gradle "$f" com.superlist.super_native_extensions; done < <(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle')
 
           if [[ -n "$super_native_gradle" ]]; then
             cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
@@ -145,7 +149,7 @@ jobs:
         working-directory: app
         run: |
           dart run dart_pdf_editor:build_web_worker \
-            --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+            --out ../packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
           flutter build web --release
       - name: Cache-bust web build
         working-directory: app
@@ -165,7 +169,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb x11-utils
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -174,9 +178,15 @@ jobs:
       - run: flutter pub get
       - name: Build Linux
         working-directory: app
-        run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+        run: |
+          flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+          build/linux/x64/release/bundle/dartpdf-cli --version
       - name: Tar bundle (portable folder)
         working-directory: app
+        # The bundle now carries the desktop-integration files under share/
+        # (app/linux/CMakeLists.txt installs the .desktop, AppStream metainfo,
+        # and hicolor icons), so this tarball is what app/packaging/flatpak
+        # unpacks. Archiving the whole bundle dir includes them automatically.
         run: tar czf dartpdf-linux-x64.tar.gz -C build/linux/x64/release/bundle .
       - name: Build AppImage (single portable file)
         working-directory: app
@@ -208,6 +218,19 @@ jobs:
           echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
+
+      - name: Smoke-test Linux GUI bundle
+        run: |
+          tool/smoke_test_linux_gui.sh \
+            --cmd "app/build/linux/x64/release/bundle/dart_pdf_editor_app" \
+            --timeout 15
+
+      - name: Smoke-test Linux AppImage GUI
+        working-directory: app
+        run: |
+          ../tool/smoke_test_linux_gui.sh \
+            --cmd "./dartpdf-linux-x86_64.AppImage --appimage-extract-and-run" \
+            --timeout 15
       - uses: actions/upload-artifact@v7
         with:
           name: linux
@@ -230,7 +253,27 @@ jobs:
       - run: flutter pub get
       - name: Build Windows
         working-directory: app
-        run: flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+        shell: pwsh
+        run: |
+          flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
+          & build/windows/x64/runner/Release/dartpdf.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
+      - name: Smoke-test Windows GUI launch
+        working-directory: app
+        shell: pwsh
+        # Launch the GUI executable and require it to survive the window: a
+        # startup crash (plugin registration, missing DLL) exits immediately.
+        run: |
+          $exe = "build/windows/x64/runner/Release/dart_pdf_editor_app.exe"
+          $p = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 12
+          $p.Refresh()
+          if ($p.HasExited) {
+            throw "dart_pdf_editor_app.exe exited during smoke launch (code $($p.ExitCode))"
+          }
+          Stop-Process -Id $p.Id -Force
+          echo "App still running after 12s - startup OK."
       - name: Bundle MSVC runtime (makes the folder portable on clean PCs)
         working-directory: app
         shell: pwsh
@@ -362,9 +405,18 @@ jobs:
             app/dartpdf-windows-portable.exe
             app/dartpdf-windows-installer.exe
 
-  macos:
+  macos_cli:
+    name: Build macOS CLI (${{ matrix.arch }})
     needs: setup
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -375,12 +427,87 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Compile native CLI/MCP slice
+        run: |
+          dart tool/build_desktop_cli.dart \
+            --output app/build/dartpdf-cli/dartpdf-${{ matrix.arch }} \
+            --target-os macos \
+            --target-arch ${{ matrix.arch }}
+          file app/build/dartpdf-cli/dartpdf-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-cli-${{ matrix.arch }}
+          path: app/build/dartpdf-cli/dartpdf-${{ matrix.arch }}
+
+  macos:
+    needs: [setup, macos_cli]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Neutralize code signing for the unsigned CI build (runner-only)
+        working-directory: app
+        # The committed pbxproj carries Automatic signing + the RES team so the
+        # local App Store archive can distribution-sign. CI has no Apple account
+        # and only produces an ad-hoc DMG, so patch the runner's copy back to
+        # ad-hoc (matching how the Android job patches hosted plugins on-runner).
+        run: |
+          sed -i '' \
+            -e 's/"Apple Development"/"-"/g' \
+            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' \
+            -e 's/DEVELOPMENT_TEAM = N5K9GK8B27;/DEVELOPMENT_TEAM = "";/g' \
+            macos/Runner.xcodeproj/project.pbxproj
       - name: Build macOS
         working-directory: app
-        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
-      - name: Normalize macOS code signatures
+        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: macos-cli-*
+          path: app/build/dartpdf-cli-slices
+          merge-multiple: true
+      - name: Install universal CLI/MCP sidecar
         working-directory: app
+        run: |
+          /usr/bin/lipo -create \
+            build/dartpdf-cli-slices/dartpdf-arm64 \
+            build/dartpdf-cli-slices/dartpdf-x64 \
+            -output build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          chmod 755 build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          /usr/bin/lipo -info build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli --version
+      - name: Ad-hoc sign macOS app with distributable entitlements
+        working-directory: app
+        env:
+          CODESIGN_ENTITLEMENTS: macos/Runner/AdHoc.entitlements
         run: bash macos/resign_embedded_code.sh build/macos/Build/Products/Release/DartPDF.app
+      - name: Smoke-test macOS app launch
+        working-directory: app
+        # Launch the signed .app directly and require it to survive the window:
+        # a startup crash (plugin registration, missing dylib) exits the process
+        # immediately. The runner's GUI session lets the app create its window.
+        run: |
+          set -euo pipefail
+          bin="build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/DartPDF"
+          "$bin" >"$RUNNER_TEMP/dartpdf-macos-smoke.log" 2>&1 &
+          pid=$!
+          sleep 12
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "App still running after 12s - startup OK."
+            kill "$pid" 2>/dev/null || true
+          else
+            status=0
+            wait "$pid" || status=$?
+            cat "$RUNNER_TEMP/dartpdf-macos-smoke.log" || true
+            echo "macOS app exited during smoke launch (status $status)" >&2
+            exit 1
+          fi
       - name: Package DMG (unsigned)
         working-directory: app
         run: |
@@ -430,11 +557,19 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true
-          files: artifacts/**/*
+          # The macos-cli-* artifacts are internal slices used to create the
+          # universal sidecar; only user-facing package artifacts are released.
+          files: |
+            artifacts/android/**/*
+            artifacts/web/**/*
+            artifacts/linux/**/*
+            artifacts/windows/**/*
+            artifacts/macos/**/*
+            artifacts/ios/**/*
           body: |
             Standalone DartPDF ${{ needs.setup.outputs.version }}.
 

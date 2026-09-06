@@ -7,8 +7,13 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfPageTextCache;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
+import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:pdf_ocr_vlm/pdf_ocr_vlm.dart';
 import 'package:share_plus/share_plus.dart';
+
+import 'l10n/app_l10n.dart';
+import 'l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'demo_brand_assets.dart';
@@ -18,6 +23,7 @@ import 'feedback.dart';
 import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
+import 'scroll_indicator_demo.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -25,49 +31,79 @@ final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
 /// The published Flutter package the example is built on.
 final _pubDevUrl = Uri.parse('https://pub.dev/packages/dart_pdf_editor');
 
+/// CI stamps Patrol performance traces with the exact revision under test.
+const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
+
+/// A CORS-enabled, Range-capable sample used to prefill the "Open from a URL"
+/// field - the classic pdf.js test document, served by raw.githubusercontent
+/// with `Access-Control-Allow-Origin: *`.
+const _sampleRemotePdfUrl =
+    'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/'
+    'compressed.tracemonkey-pldi-09.pdf';
+
+/// Custom actions for the host-takeover demo menu shown in the app when
+/// the user has disabled the stock context menu. The host owns the strings
+/// and labels, so a different action set per annotation type fits here
+/// naturally.
+enum _DemoAnnotAction { copy, highlight, sendTo }
+
+/// Test seam: builds the byte source a remote open reads from. Defaults to a
+/// real [PdfHttpByteSource]; tests swap in an in-memory source so no network
+/// is touched. See `test/remote_open_test.dart`.
+@visibleForTesting
+PdfByteSource Function(Uri uri) remoteByteSourceFactory =
+    (uri) => PdfHttpByteSource(uri);
+
 /// One filter, every platform: desktop and web match on the extension,
 /// Android on the MIME type, iOS/macOS on the uniform type identifier -
 /// a type group missing the field a platform filters by throws there.
-const _pdfTypeGroup = XTypeGroup(
-  label: 'PDF documents',
-  extensions: ['pdf'],
-  mimeTypes: ['application/pdf'],
-  uniformTypeIdentifiers: ['com.adobe.pdf'],
-);
+// The `label` is the file-dialog filter name and is localized; the caller (it
+// always has a BuildContext) passes the resolved string in.
+XTypeGroup _pdfTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['pdf'],
+      mimeTypes: const ['application/pdf'],
+      uniformTypeIdentifiers: const ['com.adobe.pdf'],
+    );
 
 /// Images the form tool's push-button fill accepts.
-const _imageTypeGroup = XTypeGroup(
-  label: 'Images',
-  extensions: ['png', 'jpg', 'jpeg'],
-  mimeTypes: ['image/png', 'image/jpeg'],
-  uniformTypeIdentifiers: ['public.png', 'public.jpeg'],
-);
+XTypeGroup _imageTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['png', 'jpg', 'jpeg'],
+      mimeTypes: const ['image/png', 'image/jpeg'],
+      uniformTypeIdentifiers: const ['public.png', 'public.jpeg'],
+    );
 
 /// The form tool's image picker: tapped push-button fields (signature
 /// and logo slots in templates) fill with the chosen PNG or JPEG.
 Future<Uint8List?> _pickFormImage(BuildContext context, PdfFormField field) =>
-    openFile(acceptedTypeGroups: const [_imageTypeGroup])
-        .then((file) => file?.readAsBytes());
+    openFile(acceptedTypeGroups: [
+      _imageTypeGroup(appL10n(context).exFileTypeImages)
+    ]).then((file) => file?.readAsBytes());
 
 /// The image tool's picker: inserts the chosen PNG or JPEG as a stamp
 /// annotation the user can move, resize, and rotate.
 Future<Uint8List?> _pickImage(BuildContext context) =>
-    openFile(acceptedTypeGroups: const [_imageTypeGroup])
-        .then((file) => file?.readAsBytes());
+    openFile(acceptedTypeGroups: [
+      _imageTypeGroup(appL10n(context).exFileTypeImages)
+    ]).then((file) => file?.readAsBytes());
 
 /// Fonts the "Load font…" entry accepts.
-const _fontTypeGroup = XTypeGroup(
-  label: 'Fonts',
-  extensions: ['ttf', 'otf'],
-  mimeTypes: ['font/ttf', 'font/otf'],
-  uniformTypeIdentifiers: ['public.truetype-ttf-font', 'public.opentype-font'],
-);
+XTypeGroup _fontTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['ttf', 'otf'],
+      mimeTypes: const ['font/ttf', 'font/otf'],
+      uniformTypeIdentifiers: const [
+        'public.truetype-ttf-font',
+        'public.opentype-font',
+      ],
+    );
 
 /// The font menu's "Load font…" picker: embeds the chosen TrueType or
 /// OpenType file so new text can use any font.
-Future<Uint8List?> _pickFont(BuildContext context) =>
-    openFile(acceptedTypeGroups: const [_fontTypeGroup])
-        .then((file) => file?.readAsBytes());
+Future<Uint8List?> _pickFont(BuildContext context) => openFile(
+        acceptedTypeGroups: [_fontTypeGroup(appL10n(context).exFileTypeFonts)])
+    .then((file) => file?.readAsBytes());
 
 @visibleForTesting
 String pdfSavePathWithExtension(String path) {
@@ -82,6 +118,19 @@ String pdfSavePathWithExtension(String path) {
 }
 
 void main() {
+  if (_buildCommit.isNotEmpty) {
+    PdfPerfLog.buildTag = 'commit=$_buildCommit';
+  }
+  // Register the optional bundled editor fonts + web render worker so the
+  // example keeps the full-featured editor (font menu catalogue, composite-text
+  // fallbacks, off-main-thread web rendering). A viewer-only app would omit the
+  // dart_pdf_editor_assets dependency and this call.
+  registerBundledEditorAssets();
+  // Repository checkouts intentionally keep only a placeholder in the asset
+  // package; the example's web build compiles the real worker into web/.
+  // Point this app at that self-hosted bundle. Published package consumers can
+  // keep the package-asset URL installed by registerBundledEditorAssets().
+  if (kIsWeb) pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo
@@ -100,12 +149,16 @@ void main() {
 }
 
 class ViewerApp extends StatefulWidget {
-  const ViewerApp({super.key, this.cacheStore});
+  const ViewerApp({super.key, this.cacheStore, this.identityStore});
 
   /// The persistent backend the on-disk caches and the recent-files list
   /// share. Defaults to the platform store (filesystem / IndexedDB); tests
   /// inject an in-memory one.
   final PdfCacheStore? cacheStore;
+
+  /// Where one-tap signing identities are persisted. The production default
+  /// is the platform secure store; tests can inject an in-memory backend.
+  final PdfIdentityStore? identityStore;
 
   @override
   State<ViewerApp> createState() => _ViewerAppState();
@@ -150,6 +203,11 @@ class _ViewerAppState extends State<ViewerApp> {
       listenable: _prefs,
       builder: (context, _) => MaterialApp(
         title: 'dart-pdf viewer',
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          DartPdfEditorLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
         darkTheme: ThemeData(
           colorSchemeSeed: Colors.indigo,
@@ -157,19 +215,31 @@ class _ViewerAppState extends State<ViewerApp> {
           useMaterial3: true,
         ),
         themeMode: _prefs.themeMode,
-        home: ViewerScreen(prefs: _prefs, cacheStore: widget.cacheStore),
+        home: ViewerScreen(
+          prefs: _prefs,
+          cacheStore: widget.cacheStore,
+          identityStore: widget.identityStore,
+        ),
       ),
     );
   }
 }
 
 class ViewerScreen extends StatefulWidget {
-  const ViewerScreen({super.key, required this.prefs, this.cacheStore});
+  const ViewerScreen({
+    super.key,
+    required this.prefs,
+    this.cacheStore,
+    this.identityStore,
+  });
 
   final PdfEditingPreferences prefs;
 
   /// Optional override for the persistent cache backend (see [ViewerApp]).
   final PdfCacheStore? cacheStore;
+
+  /// Optional override for the digital-signing identity backend.
+  final PdfIdentityStore? identityStore;
 
   @override
   State<ViewerScreen> createState() => _ViewerScreenState();
@@ -177,6 +247,12 @@ class ViewerScreen extends StatefulWidget {
 
 class _ViewerScreenState extends State<ViewerScreen> {
   PdfEditingPreferences get _prefs => widget.prefs;
+
+  /// Opt-in scene-retained tile backend. Unsupported pages and platforms
+  /// decline their session and transparently keep using the Canvas backend.
+  /// Keeping one instance also makes its diagnostics meaningful app-wide.
+  late final FlutterGpuTileRasterBackend _tileRasterBackend =
+      FlutterGpuTileRasterBackend(systemTextOutlines: true);
 
   /// App-wide on-disk caches sharing one persistent backend (filesystem on
   /// native, IndexedDB on web - see persistent_cache.dart). The raster
@@ -186,8 +262,32 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// namespaces keep their byte budgets independent.
   late final PdfCacheStore _cacheStore =
       widget.cacheStore ?? createPersistentCacheStore();
+
+  /// Private keys live in the platform Keychain/secure browser store. The
+  /// namespace is example-specific so a host app can choose its own policy.
+  late final PdfIdentityStore _signingIdentities = widget.identityStore ??
+      SecureIdentityStore(
+        keyPrefix: 'dart_pdf_editor.example.signing_identity.',
+      );
+
+  /// `fullRasters` opts the demo into the persistent exact-raster tier: an
+  /// already-rendered page at the same physical size reopens straight from
+  /// the store instead of being interpreted and rasterized again. It is a
+  /// separate [PdfDiskCache] on purpose - a page raster is orders of
+  /// magnitude larger than a preview, so a shared budget would let a few of
+  /// them evict the whole preview/thumbnail set.
   late final PdfRasterCache _rasterCache = PdfRasterCache(
     PdfDiskCache(_cacheStore, namespace: 'previews'),
+    fullRasters: PdfDiskCache(
+      _cacheStore,
+      namespace: 'page-rasters',
+      maxBytes: 256 * 1024 * 1024,
+    ),
+    tiles: PdfDiskCache(
+      _cacheStore,
+      namespace: 'lod-tiles',
+      maxBytes: 256 * 1024 * 1024,
+    ),
   );
   late final PdfPageTextCache _textCache = PdfPageTextCache(
     PdfDiskCache(_cacheStore, namespace: 'text'),
@@ -211,16 +311,177 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
 
+  /// Demo of [PdfViewer.contextMenuEnabled]: when off, right-click and
+  /// long-press annotation menus are suppressed. App-wide.
+  bool _contextMenuEnabled = true;
+
+  /// Demo of [PdfViewer.onContextMenuRequested]: when the stock menu is
+  /// off, this handler renders the demo app's own menu (a custom Copy row,
+  /// Highlight and Add-note actions that write real annotations, plus a
+  /// "Send to…" action) using the gesture position the viewer passes in.
+  /// The viewer has already resolved what the gesture landed on, so the
+  /// menu can label itself from [PdfContextMenuRequest.target] without
+  /// re-running a hit test. App-wide.
+  Future<void> _onContextMenuRequested(PdfContextMenuRequest request) async {
+    if (!mounted) return;
+    final overlay = Overlay.of(context, rootOverlay: true)
+        .context
+        .findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    // showMenu anchors at the tap point in the root overlay's coordinate
+    // space; flip the global position to local with the root overlay's box.
+    final local = overlay.globalToLocal(request.globalPosition);
+    final tab = _active;
+    final editing = tab?.session;
+    final pageIndex = request.pageIndex;
+    // the viewer already named the annotation - no hit test needed here
+    final annotation = request.annotation;
+    final picked = await showMenu<_DemoAnnotAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        local.dx,
+        local.dy,
+        overlay.size.width - local.dx,
+        overlay.size.height - local.dy,
+      ),
+      items: [
+        PopupMenuItem<_DemoAnnotAction>(
+          value: _DemoAnnotAction.copy,
+          child: ListTile(
+            leading: const Icon(Icons.copy),
+            // the request already carries the selection the viewer made
+            title: Text(request.selectedText.isEmpty
+                ? 'Copy (custom)'
+                : 'Copy "${request.selectedText}" (custom)'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem<_DemoAnnotAction>(
+          value: _DemoAnnotAction.highlight,
+          child: ListTile(
+            leading: Icon(Icons.brush_outlined),
+            title: Text('Highlight (custom)'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem<_DemoAnnotAction>(
+          value: _DemoAnnotAction.sendTo,
+          child: ListTile(
+            leading: const Icon(Icons.send),
+            // branch on what the viewer resolved, not on a re-run hit test
+            title: Text(switch (request.target) {
+              PdfContextMenuTarget.annotation =>
+                'Send ${annotation?.subtype ?? "annotation"}…',
+              PdfContextMenuTarget.lockedAnnotation => 'Send (locked)…',
+              PdfContextMenuTarget.formWidget => 'Send form field…',
+              PdfContextMenuTarget.emptyPage ||
+              PdfContextMenuTarget.text =>
+                'Send to…',
+            }),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+
+    if (picked == null || !mounted) return;
+
+    switch (picked) {
+      case _DemoAnnotAction.copy:
+        _toast(request.selectedText);
+      case _DemoAnnotAction.highlight:
+        final viewer = tab?.viewer;
+        if (editing == null || viewer == null || !viewer.hasSelection) {
+          _toast('Select some text first');
+          return;
+        }
+        final quadsByPage = {
+          for (final page in viewer.selectionPages)
+            page: viewer.selectionRectsOn(page),
+        };
+
+        final noteText = await showDialog<String>(
+          context: context,
+          builder: (ctx) {
+            final field = TextEditingController();
+            return AlertDialog(
+              title: const Text('Highlight note'),
+              content: TextField(
+                controller: field,
+                autofocus: true,
+                maxLines: 3,
+                minLines: 1,
+                decoration:
+                    const InputDecoration(hintText: 'Note text (optional)'),
+                onSubmitted: (value) => Navigator.pop(ctx, value),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, field.text),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+        if (!mounted) return;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          try {
+            editing.useMarkupStyleScope();
+            editing.addMarkup(PdfMarkupKind.highlight, quadsByPage);
+            if (noteText != null && noteText.isNotEmpty) {
+              final firstPage = quadsByPage.keys.first;
+              final page = editing.document.page(firstPage);
+              final highlight = page.annotations.lastWhere(
+                (a) => a.subtype == 'Highlight',
+                orElse: () => throw StateError(
+                  'highlight annotation not found on page $firstPage',
+                ),
+              );
+              editing.apply(
+                (e) => e.setAnnotationContents(firstPage, highlight, noteText),
+              );
+            }
+          } catch (e, s) {
+            AppLog.instance.error(
+              'Could not save highlight',
+              error: e,
+              stackTrace: s,
+            );
+          }
+        });
+      case _DemoAnnotAction.sendTo:
+        _toast('Send page ${pageIndex + 1}'
+            '${annotation != null ? " (${annotation.subtype})" : ""}');
+    }
+  }
+
+  /// Demo of [PdfViewer.pageLayout]: the toggle flips the viewer between the
+  /// default vertical continuous layout and horizontal continuous
+  /// (left-to-right, book-like). App-wide.
+  bool _horizontalLayout = false;
+
+  PdfPageLayout get _pageLayout => _horizontalLayout
+      ? const PdfPageLayout.horizontalContinuous()
+      : const PdfPageLayout.verticalContinuous();
+
   final PdfPerformanceController _performance = PdfPerformanceController();
   int _workerConfigEpoch = 0;
 
   String get _workerPoolTooltip {
     final mode = _performance.mode;
-    if (mode.isAuto) return 'Performance: Auto';
+    if (mode.isAuto) return appL10n(context).exPerformanceAuto;
     final count = mode.workerCount!;
-    return count == 1
-        ? 'Performance: single worker'
-        : 'Performance: $count workers';
+    return appL10n(context).exWorkerPoolTooltip(count);
   }
 
   /// OCR connection settings, supplied through the credentials dialog and
@@ -246,17 +507,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
             if (tab != null) setState(() => tab.counter++);
             return;
           case 'message':
-            _toast(uri.queryParameters['text'] ?? 'No message');
+            _toast(uri.queryParameters['text'] ?? appL10n(context).exNoMessage);
             return;
         }
       }
     }
     _toast(switch (action) {
-      PdfUriAction(:final uri) => 'Link: $uri',
+      PdfUriAction(:final uri) => appL10n(context).exActionLink(uri),
       PdfJavaScriptAction(:final script) =>
-        'JavaScript surfaced to the app: $script',
-      PdfNamedAction(:final name) => 'Named action: $name',
-      PdfUnknownAction(:final type) => 'Unhandled action type: $type',
+        appL10n(context).exActionJavaScript(script),
+      PdfNamedAction(:final name) => appL10n(context).exActionNamed(name),
+      PdfUnknownAction(:final type) => appL10n(context).exActionUnhandled(type),
       PdfGoToAction() => 'GoTo', // unreachable
     });
   }
@@ -269,19 +530,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
     if (contents == null || contents.isEmpty) return const [];
     return [
       PdfAnnotationMenuItem(
-        label: 'Copy text',
+        label: appL10n(context).exCopyText,
         icon: Icons.copy_outlined,
         onSelected: (request) {
           Clipboard.setData(ClipboardData(text: contents));
-          _toast('Annotation text copied');
+          _toast(appL10n(context).exAnnotationTextCopied);
         },
       ),
     ];
   }
 
   Future<void> _openLink(Uri url) async {
+    final l10n = appL10n(context);
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      _toast('Could not open $url');
+      _toast(l10n.exCouldNotOpenUrl(url.toString()));
     }
   }
 
@@ -291,7 +553,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     unawaited(showFeedbackDialog(
       context,
       onOpen: _openLink,
-      onCopied: () => _toast('Diagnostics copied to clipboard'),
+      onCopied: () => _toast(appL10n(context).exDiagnosticsCopied),
     ));
   }
 
@@ -319,9 +581,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
       ValueKey<Object>((tab, mode, _workerConfigEpoch));
 
   String get _nextThemeLabel => switch (_prefs.themeMode) {
-        ThemeMode.system => 'Theme: system - switch to light',
-        ThemeMode.light => 'Theme: light - switch to dark',
-        ThemeMode.dark => 'Theme: dark - switch to system',
+        ThemeMode.system => appL10n(context).exThemeSystem,
+        ThemeMode.light => appL10n(context).exThemeLight,
+        ThemeMode.dark => appL10n(context).exThemeDark,
       };
 
   bool get _usesAppleShortcuts =>
@@ -364,7 +626,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           enabled: tab?.session != null,
           child: _appMenuTile(
             icon: Icons.save_as_outlined,
-            title: 'Save as…',
+            title: appL10n(context).exSaveAs,
             shortcut: _menuShortcut('S'),
           ),
         ),
@@ -373,15 +635,33 @@ class _ViewerScreenState extends State<ViewerScreen> {
           value: () => unawaited(_pickFile()),
           child: _appMenuTile(
             icon: Icons.folder_open,
-            title: 'Open a PDF…',
+            title: appL10n(context).exOpenPdf,
             shortcut: _menuShortcut('O'),
+          ),
+        ),
+        PopupMenuItem(
+          value: () => unawaited(_openFromUrl()),
+          child: _appMenuTile(
+            icon: Icons.cloud_download_outlined,
+            title: appL10n(context).exOpenFromUrl,
           ),
         ),
         PopupMenuItem(
           value: _openDemo,
           child: _appMenuTile(
             icon: Icons.auto_awesome,
-            title: 'Open the interactive demo',
+            title: appL10n(context).exOpenInteractiveDemo,
+          ),
+        ),
+        PopupMenuItem(
+          value: () => unawaited(Navigator.of(menuContext).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ScrollIndicatorDemoScreen(bytes: buildDemoPdf()),
+            ),
+          )),
+          child: _appMenuTile(
+            icon: Icons.straighten,
+            title: appL10n(context).exScrollIndicatorDemo,
           ),
         ),
         ..._recentMenuItems(menuContext),
@@ -391,7 +671,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           enabled: tab?.session != null,
           child: _appMenuTile(
             icon: Icons.document_scanner_outlined,
-            title: 'OCR…',
+            title: appL10n(context).exOcrMenu,
           ),
         ),
         PopupMenuItem(
@@ -399,15 +679,51 @@ class _ViewerScreenState extends State<ViewerScreen> {
           enabled: tab?.session != null,
           child: _appMenuTile(
             icon: Icons.compare_arrows,
-            title: 'Compare with another PDF…',
+            title: appL10n(context).exCompareWithAnother,
           ),
         ),
         PopupMenuItem(
+          key: const ValueKey('dartpdf-read-only-toggle'),
           value: () => setState(() => _readOnly = !_readOnly),
           enabled: tab?.session != null,
           child: _appMenuTile(
             icon: _readOnly ? Icons.edit : Icons.edit_off,
-            title: _readOnly ? 'Switch to edit mode' : 'Switch to read-only',
+            title: _readOnly
+                ? appL10n(context).exSwitchToEdit
+                : appL10n(context).exSwitchToReadOnly,
+          ),
+        ),
+        PopupMenuItem(
+          value: () =>
+              setState(() => _contextMenuEnabled = !_contextMenuEnabled),
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: _contextMenuEnabled ? Icons.touch_app : Icons.do_not_touch,
+            title: _contextMenuEnabled
+                ? 'Disable context menu'
+                : 'Enable context menu',
+          ),
+        ),
+        PopupMenuItem(
+          value: () => setState(() => _horizontalLayout = !_horizontalLayout),
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: _horizontalLayout ? Icons.swap_vert : Icons.swap_horiz,
+            title: _horizontalLayout
+                ? appL10n(context).exVerticalLayout
+                : appL10n(context).exHorizontalLayout,
+          ),
+        ),
+        PopupMenuItem(
+          key: const ValueKey('dartpdf-gpu-route-devtool'),
+          value: () => pdfDebugShowGpuRasterRoutes.value =
+              !pdfDebugShowGpuRasterRoutes.value,
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: Icons.developer_mode,
+            title: pdfDebugShowGpuRasterRoutes.value
+                ? 'Hide GPU rendering overlay'
+                : 'Show GPU rendering overlay',
           ),
         ),
         PopupMenuItem(
@@ -415,7 +731,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           enabled: tab?.session != null,
           child: _appMenuTile(
             icon: Icons.image_outlined,
-            title: 'Export page as image…',
+            title: appL10n(context).exExportPageImageMenu,
           ),
         ),
         const PopupMenuDivider(),
@@ -431,21 +747,21 @@ class _ViewerScreenState extends State<ViewerScreen> {
           value: _openFeedback,
           child: _appMenuTile(
             icon: Icons.feedback_outlined,
-            title: 'Supply feedback…',
+            title: appL10n(context).exSupplyFeedback,
           ),
         ),
         PopupMenuItem(
           value: () => _openLink(_githubUrl),
           child: _appMenuTile(
             icon: Icons.code,
-            title: 'View source on GitHub',
+            title: appL10n(context).exViewSource,
           ),
         ),
         PopupMenuItem(
           value: () => _openLink(_pubDevUrl),
           child: _appMenuTile(
             icon: Icons.inventory_2_outlined,
-            title: 'dart_pdf_editor on pub.dev',
+            title: appL10n(context).exPubDevMenuItem,
           ),
         ),
       ];
@@ -481,7 +797,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         padding: EdgeInsets.zero,
         child: PopupMenuButton<VoidCallback>(
           key: const ValueKey('open-recent-submenu'),
-          tooltip: 'Open Recent',
+          tooltip: appL10n(context).exOpenRecent,
           enabled: recents.isNotEmpty,
           // Run the chosen submenu action, then dismiss the parent menu,
           // which stays open behind the submenu otherwise.
@@ -493,11 +809,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
           },
           itemBuilder: (_) => [
             if (recents.isEmpty)
-              const PopupMenuItem<VoidCallback>(
+              PopupMenuItem<VoidCallback>(
                 enabled: false,
                 child: ListTile(
-                  leading: Icon(Icons.history_toggle_off),
-                  title: Text('No recent files'),
+                  leading: const Icon(Icons.history_toggle_off),
+                  title: Text(appL10n(context).exNoRecentFiles),
                   contentPadding: EdgeInsets.zero,
                 ),
               )
@@ -508,7 +824,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   child: ListTile(
                     leading: const Icon(Icons.picture_as_pdf_outlined),
                     title: Text(
-                      entry.title.isEmpty ? 'Untitled' : entry.title,
+                      entry.title.isEmpty
+                          ? appL10n(context).exUntitled
+                          : entry.title,
                       overflow: TextOverflow.ellipsis,
                     ),
                     contentPadding: EdgeInsets.zero,
@@ -517,9 +835,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
               const PopupMenuDivider(),
               PopupMenuItem<VoidCallback>(
                 value: () => unawaited(_recents.clear()),
-                child: const ListTile(
-                  leading: Icon(Icons.clear_all),
-                  title: Text('Clear recent files'),
+                child: ListTile(
+                  leading: const Icon(Icons.clear_all),
+                  title: Text(appL10n(context).exClearRecentFiles),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -527,7 +845,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ],
           child: _appMenuTile(
             icon: Icons.history,
-            title: 'Open Recent',
+            title: appL10n(context).exOpenRecent,
             trailing: trailing,
           ),
         ),
@@ -546,7 +864,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   void _openMostRecent() {
     final recents = _recentMenuEntries();
     if (recents.isEmpty) {
-      _toast('No recent files');
+      _toast(appL10n(context).exNoRecentFiles);
       return;
     }
     unawaited(_openRecent(recents.first));
@@ -567,14 +885,80 @@ class _ViewerScreenState extends State<ViewerScreen> {
       ));
   }
 
+  Future<PdfSigningIdentity?> _signingIdentity(
+      BuildContext dialogContext) async {
+    for (final id in await _signingIdentities.ids()) {
+      final identity = await _signingIdentities.load(id);
+      if (identity != null) return identity;
+    }
+    if (!mounted || !dialogContext.mounted) return null;
+    return showCreateSigningIdentityDialog(
+      dialogContext,
+      store: _signingIdentities,
+    );
+  }
+
+  Future<void> _placeDigitalSignature(
+    BuildContext dialogContext,
+    _DocumentTab tab, {
+    required int pageIndex,
+    required PdfRect pageRect,
+  }) async {
+    final session = tab.session;
+    if (session == null) return;
+    try {
+      final identity = await _signingIdentity(dialogContext);
+      if (identity == null ||
+          !mounted ||
+          !_tabs.contains(tab) ||
+          !identical(tab.session, session)) {
+        return;
+      }
+      final signed = await session.addSelfSignedSignature(
+        identity,
+        appearance: PdfSignatureAppearance(
+          page: pageIndex,
+          rect: pageRect,
+        ),
+      );
+      if (signed && mounted) {
+        _toast('Digitally signed by ${identity.name ?? 'signer'}');
+      }
+    } catch (e, s) {
+      AppLog.instance.error(
+        'Digital signature failed',
+        error: e,
+        stackTrace: s,
+      );
+      if (mounted) _toast('Could not digitally sign: $e');
+    }
+  }
+
   /// Opens [bytes] in a brand-new tab and makes it the active one.
-  void _openBytes(Uint8List bytes, String title, {bool isDemo = false}) {
+  void _openBytes(Uint8List bytes, String title,
+      {bool isDemo = false, bool isExtracted = false}) {
     _addTab(_DocumentTab.document(
       title: title,
       bytes: bytes,
       preferences: _prefs,
       isDemo: isDemo,
+      isExtracted: isExtracted,
     ));
+  }
+
+  void _openExtracted(List<Uint8List> outputs, String sourceTitle) {
+    final l10n = appL10n(context);
+    final stem =
+        sourceTitle.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
+    final titles = {for (final tab in _tabs) tab.title};
+    var part = 1;
+    for (final output in outputs) {
+      var title = l10n.exExtractedTitle(stem, part++);
+      while (!titles.add(title)) {
+        title = l10n.exExtractedTitle(stem, part++);
+      }
+      _openBytes(output, title, isExtracted: true);
+    }
   }
 
   /// Adds a tab that just reports an open failure.
@@ -614,7 +998,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   void _openDemo() =>
-      _openBytes(buildDemoPdf(), 'Feature showcase', isDemo: true);
+      _openBytes(buildDemoPdf(), appL10n(context).exFeatureShowcase,
+          isDemo: true);
 
   /// Disposes the tab at [index] and drops it, keeping a sensible tab
   /// active. The controllers are torn down after the frame so the
@@ -684,10 +1069,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
               child: TextField(
                 key: const ValueKey('demo-note'),
                 controller: tab.noteField,
-                decoration: const InputDecoration(
-                  hintText: 'Type here - this text box floats above the page',
+                decoration: InputDecoration(
+                  hintText: appL10n(context).exDemoNoteHint,
                   isDense: true,
-                  contentPadding: EdgeInsets.all(10),
+                  contentPadding: const EdgeInsets.all(10),
                   border: InputBorder.none,
                 ),
               ),
@@ -707,11 +1092,18 @@ class _ViewerScreenState extends State<ViewerScreen> {
     // open a file straight away with:
     //   flutter run -d macos --dart-define=PDF=/path/to/file.pdf
     const preset = String.fromEnvironment('PDF');
-    if (preset.isNotEmpty) {
-      _openPath(preset);
-    } else {
-      _openDemo();
-    }
+    // The initial auto-open resolves a localized tab title through
+    // Localizations.of(context), which isn't available until the first build
+    // completes - defer to a post-frame callback so it runs with a ready
+    // context instead of throwing in initState.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (preset.isNotEmpty) {
+        _openPath(preset);
+      } else {
+        _openDemo();
+      }
+    });
   }
 
   void _onRecentsChanged() {
@@ -730,7 +1122,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   Future<void> _pickFile() async {
-    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    final file = await openFile(
+        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     final loading = _openLoading(file.name);
     try {
@@ -756,16 +1149,81 @@ class _ViewerScreenState extends State<ViewerScreen> {
         loading,
         _DocumentTab.error(
           title: file.name,
-          error: 'Could not open ${file.name}\n$e',
+          error: appL10n(context).exCouldNotOpenFile(file.name, '$e'),
         ),
       );
     }
   }
 
+  /// Opens a PDF hosted at a URL without downloading it whole up front, using
+  /// the asynchronous byte-source API: [PdfHttpByteSource] streams the ranges
+  /// the parser needs (Range requests, falling back to a full download), and
+  /// [PdfDocument.openSource] assembles the document. A live download percent
+  /// is shown while it loads.
+  Future<void> _openFromUrl() async {
+    final l10n = appL10n(context);
+    final input = await _promptForUrl();
+    if (input == null) return;
+    final uri = Uri.tryParse(input.trim());
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      _openError(input, l10n.exNotAValidUrl(input));
+      return;
+    }
+    final name = uri.pathSegments.isNotEmpty && uri.pathSegments.last.isNotEmpty
+        ? uri.pathSegments.last
+        : uri.host;
+
+    final progress = ValueNotifier<double>(0);
+    final loading =
+        _DocumentTab.loading(title: name, loadingProgress: progress);
+    _addTab(loading);
+
+    final source = remoteByteSourceFactory(uri);
+    try {
+      final doc = await PdfDocument.openSource(
+        source,
+        options: PdfSourceLoadOptions(onProgress: (received, total) {
+          if (total != null && total > 0) progress.value = received / total;
+        }),
+      );
+      await source.close();
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final bytes = doc.cos.bytes;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(title: name, bytes: bytes, preferences: _prefs),
+      );
+      unawaited(_recents.record(name, bytes));
+    } catch (e, s) {
+      AppLog.instance.error('Could not open $uri', error: e, stackTrace: s);
+      await source.close();
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(
+          title: name,
+          error: appL10n(context).exCouldNotOpenUrlCors('$uri', '$e'),
+        ),
+      );
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  /// Prompts for a URL to open, prefilled with a known CORS-enabled sample.
+  /// Returns null when cancelled.
+  Future<String?> _promptForUrl() => showDialog<String>(
+        context: context,
+        builder: (context) =>
+            const _OpenUrlDialog(initial: _sampleRemotePdfUrl),
+      );
+
   /// Picks a PDF and returns its bytes (null when cancelled) - the source
   /// for the editor's "Insert PDF…" action.
   Future<Uint8List?> _pickPdfBytes() async {
-    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    final file = await openFile(
+        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     return file?.readAsBytes();
   }
 
@@ -775,13 +1233,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final tab = _active;
     final current = tab?.session?.bytes;
     if (current == null) return;
-    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    final l10n = appL10n(context);
+    final file = await openFile(
+        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     try {
       final other = await file.readAsBytes();
       setState(() {
         _tabs.add(_DocumentTab.comparison(
-          title: 'Compare: ${tab!.title} ↔ ${file.name}',
+          title: l10n.exCompareTabTitle(tab!.title, file.name),
           before: current,
           after: other,
         ));
@@ -790,7 +1250,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     } catch (e, s) {
       AppLog.instance
           .error('Could not open ${file.name}', error: e, stackTrace: s);
-      _openError(file.name, 'Could not open ${file.name}\n$e');
+      _openError(file.name, l10n.exCouldNotOpenFile(file.name, '$e'));
     }
   }
 
@@ -815,7 +1275,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.error(title: name, error: 'Could not open $path\n$e'),
+        _DocumentTab.error(
+            title: name,
+            error: appL10n(context).exCouldNotOpenPath(path, '$e')),
       );
     }
   }
@@ -833,8 +1295,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           loading,
           _DocumentTab.error(
             title: entry.title,
-            error: 'Could not reopen ${entry.title} - its saved copy is no '
-                'longer available.',
+            error: appL10n(context).exCouldNotReopenGone(entry.title),
           ),
         );
         unawaited(_recents.remove(entry.id));
@@ -859,7 +1320,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         loading,
         _DocumentTab.error(
           title: entry.title,
-          error: 'Could not reopen ${entry.title}\n$e',
+          error: appL10n(context).exCouldNotReopen(entry.title, '$e'),
         ),
       );
     }
@@ -878,11 +1339,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// a browser download on the web, the share sheet on phones and
   /// tablets (where apps can't write outside their sandbox directly).
   Future<void> _saveAs(Uint8List bytes) async {
+    final l10n = appL10n(context);
     final name = _saveFileName();
     final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
     if (kIsWeb) {
       await file.saveTo(name);
-      _toast('Downloaded $name');
+      _toast(l10n.exDownloaded(name));
       return;
     }
     switch (defaultTargetPlatform) {
@@ -899,16 +1361,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
       default:
         final location = await getSaveLocation(
           suggestedName: name,
-          acceptedTypeGroups: const [_pdfTypeGroup],
+          acceptedTypeGroups: [_pdfTypeGroup(l10n.exFileTypePdf)],
         );
         if (location == null) return;
         try {
           final path = pdfSavePathWithExtension(location.path);
           await file.saveTo(path);
-          _toast('Saved to $path');
+          _toast(l10n.exSavedTo(path));
         } catch (e, s) {
           AppLog.instance.error('Save failed', error: e, stackTrace: s);
-          _toast('Save failed: $e');
+          _toast(l10n.exSaveFailed('$e'));
         }
     }
   }
@@ -918,12 +1380,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// copy of the same region stays on the editor's clipboard, so ⌘V/Ctrl+V
   /// (or the right-click Paste) drops it back into the PDF as vectors.
   Future<void> _saveSnapshot(BuildContext context, PdfSnapshot snapshot) async {
+    final l10n = appL10n(context);
     const name = 'snapshot.png';
     final file =
         XFile.fromData(snapshot.pngBytes, mimeType: 'image/png', name: name);
     if (kIsWeb) {
       await file.saveTo(name);
-      _toast('Downloaded $name - paste back into the PDF with Ctrl+V');
+      _toast(l10n.exDownloadedSnapshotCtrl(name));
       return;
     }
     switch (defaultTargetPlatform) {
@@ -939,15 +1402,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
       default:
         final location = await getSaveLocation(
           suggestedName: name,
-          acceptedTypeGroups: const [_imageTypeGroup],
+          acceptedTypeGroups: [_imageTypeGroup(l10n.exFileTypeImages)],
         );
         if (location == null) return;
         try {
           await file.saveTo(location.path);
-          _toast('Saved $name - paste back into the PDF with ⌘V');
+          _toast(l10n.exSavedSnapshotCmd(name));
         } catch (e, s) {
           AppLog.instance.error('Save failed', error: e, stackTrace: s);
-          _toast('Save failed: $e');
+          _toast(l10n.exSaveFailed('$e'));
         }
     }
   }
@@ -961,7 +1424,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final session = tab?.session;
     final viewer = tab?.viewer;
     if (tab == null || session == null || viewer == null) {
-      _toast('Open a document first');
+      _toast(appL10n(context).exOpenDocumentFirst);
       return;
     }
     final choice = await _showImageExportDialog();
@@ -987,7 +1450,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       await _saveImageBytes(bytes, name, isPng ? 'image/png' : 'image/jpeg');
     } catch (e, s) {
       AppLog.instance.error('Image export failed', error: e, stackTrace: s);
-      if (mounted) _toast('Export failed: $e');
+      if (mounted) _toast(appL10n(context).exExportFailed('$e'));
     }
   }
 
@@ -995,10 +1458,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// on desktop, a download on the web, the share sheet on phones.
   Future<void> _saveImageBytes(
       Uint8List bytes, String name, String mimeType) async {
+    final l10n = appL10n(context);
     final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
     if (kIsWeb) {
       await file.saveTo(name);
-      _toast('Downloaded $name');
+      _toast(l10n.exDownloaded(name));
       return;
     }
     switch (defaultTargetPlatform) {
@@ -1014,15 +1478,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
       default:
         final location = await getSaveLocation(
           suggestedName: name,
-          acceptedTypeGroups: const [_imageTypeGroup],
+          acceptedTypeGroups: [_imageTypeGroup(l10n.exFileTypeImages)],
         );
         if (location == null) return;
         try {
           await file.saveTo(location.path);
-          _toast('Saved $name');
+          _toast(l10n.exSavedName(name));
         } catch (e, s) {
           AppLog.instance.error('Save failed', error: e, stackTrace: s);
-          _toast('Save failed: $e');
+          _toast(l10n.exSaveFailed('$e'));
         }
     }
   }
@@ -1036,12 +1500,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Export page as image'),
+          title: Text(appL10n(context).exExportPageImageTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Format'),
+              Text(appL10n(context).exFormat),
               const SizedBox(height: 8),
               SegmentedButton<PdfRasterFormat>(
                 segments: const [
@@ -1053,7 +1517,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 onSelectionChanged: (s) => setState(() => format = s.first),
               ),
               const SizedBox(height: 16),
-              const Text('Resolution'),
+              Text(appL10n(context).exResolution),
               const SizedBox(height: 8),
               DropdownButton<double>(
                 value: dpi,
@@ -1071,11 +1535,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: Text(appL10n(context).cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop((format, dpi)),
-              child: const Text('Export'),
+              child: Text(appL10n(context).exExport),
             ),
           ],
         ),
@@ -1092,11 +1556,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final tab = _active;
     final bytes = tab?.session?.bytes;
     if (tab == null || bytes == null) {
-      _toast('Open a document before running OCR');
+      _toast(appL10n(context).exOpenDocumentBeforeOcr);
       return;
     }
 
     // Supply / confirm the OCR service credentials.
+    final l10n = appL10n(context);
     final settings = await showDialog<_OcrSettings>(
       context: context,
       builder: (_) => _OcrSettingsDialog(
@@ -1114,7 +1579,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       _ocrApiKey = settings.apiKey;
     });
 
-    final progress = ValueNotifier<String>('Preparing…');
+    final progress = ValueNotifier<String>(l10n.exPreparing);
     if (!mounted) return;
     unawaited(showDialog<void>(
       context: context,
@@ -1132,24 +1597,25 @@ class _ViewerScreenState extends State<ViewerScreen> {
       final count = editor.document.pageCount;
       var spans = 0;
       for (var i = 0; i < count; i++) {
-        progress.value = 'Recognising page ${i + 1} of $count…';
+        progress.value = l10n.exRecognisingPage(i + 1, count);
         spans += await editor.applyOcr(i, engine, pixelRatio: 2);
       }
       final result = editor.save();
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(); // dismiss progress
-      _openBytes(result, '${tab.title} (OCR)');
-      _toast('OCR added $spans text spans - the page text is now selectable');
+      _openBytes(result, appL10n(context).exOcrDocumentTitle(tab.title));
+      _toast(appL10n(context).exOcrAddedSpans(spans));
     } on VlmOcrException catch (e, s) {
-      AppLog.instance.error('OCR failed: ${e.message}', error: e, stackTrace: s);
+      AppLog.instance
+          .error('OCR failed: ${e.message}', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _toast('OCR failed: ${e.message}');
+      _toast(appL10n(context).exOcrFailed(e.message));
     } catch (e, s) {
       AppLog.instance.error('OCR failed', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _toast('OCR failed: $e');
+      _toast(appL10n(context).exOcrFailed('$e'));
     } finally {
       engine.close();
       progress.dispose();
@@ -1198,21 +1664,21 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     key: const ValueKey('dartpdf-worker-pool-auto'),
                     value: 0,
                     checked: _performance.mode.isAuto,
-                    child: const Text('Auto'),
+                    child: Text(appL10n(context).exWorkerAuto),
                   ),
                   const PopupMenuDivider(),
                   CheckedPopupMenuItem<int>(
                     key: const ValueKey('dartpdf-worker-pool-off'),
                     value: 1,
                     checked: _performance.mode.workerCount == 1,
-                    child: const Text('Single worker'),
+                    child: Text(appL10n(context).exSingleWorker),
                   ),
                   for (final size in const [2, 3, 4, 6])
                     CheckedPopupMenuItem<int>(
                       key: ValueKey('dartpdf-worker-pool-$size'),
                       value: size,
                       checked: _performance.mode.workerCount == size,
-                      child: Text('$size workers'),
+                      child: Text(appL10n(context).exWorkersCount(size)),
                     ),
                 ],
               ),
@@ -1223,11 +1689,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     ? const SizedBox.shrink()
                     : IconButton(
                         icon: const Icon(Icons.copy),
-                        tooltip: 'Copy selected text (⌘C)',
+                        tooltip: appL10n(context).exCopySelectedText,
                         onPressed: () async {
                           await tab.viewer!.copySelection();
                           if (!context.mounted) return;
-                          _toast('Copied to clipboard');
+                          _toast(appL10n(context).exCopiedToClipboard);
                         },
                       ),
               ),
@@ -1244,19 +1710,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     FilledButton.icon(
                       onPressed: _pickFile,
                       icon: const Icon(Icons.folder_open),
-                      label: const Text('Open a PDF'),
+                      label: Text(appL10n(context).exOpenPdfButton),
                     ),
                     const SizedBox(height: 12),
                     FilledButton.tonalIcon(
                       onPressed: _openDemo,
                       icon: const Icon(Icons.auto_awesome),
-                      label: const Text('Try the interactive demo'),
+                      label: Text(appL10n(context).exTryDemo),
                     ),
                   ],
                 ),
               )
             : tab.isLoading
-                ? _OpeningDocument(title: tab.title)
+                ? _OpeningDocument(
+                    title: tab.title, progress: tab.loadingProgress)
                 : tab.error != null
                     ? Center(
                         child: Text(tab.error!, textAlign: TextAlign.center))
@@ -1279,8 +1746,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 controller: tab.viewer,
                                 preferences: _prefs,
                                 performance: _performance,
+                                tileRasterBackend: _tileRasterBackend,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
+                                pageLayout: _pageLayout,
+                                contextMenuEnabled: _contextMenuEnabled,
+                                onContextMenuRequested: _contextMenuEnabled
+                                    ? null
+                                    : _onContextMenuRequested,
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
@@ -1291,20 +1764,41 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 controller: tab.session,
                                 viewerController: tab.viewer,
                                 performance: _performance,
+                                tileRasterBackend: _tileRasterBackend,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
+                                pageLayout: _pageLayout,
                                 onSave: (saved) => unawaited(_saveAs(saved)),
+                                alwaysAllowSave: tab.isExtracted,
                                 onPickPdfToInsert: _pickPdfBytes,
                                 onExportPages: (bytes) =>
-                                    unawaited(_saveAs(bytes)),
+                                    _openExtracted([bytes], tab.title),
+                                onSplitPages: (outputs) =>
+                                    _openExtracted(outputs, tab.title),
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
                                 annotationMenuBuilder: _annotationMenuActions,
+                                contextMenuEnabled: _contextMenuEnabled,
+                                onContextMenuRequested: _contextMenuEnabled
+                                    ? null
+                                    : _onContextMenuRequested,
                                 formImagePicker: _pickFormImage,
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,
                                 onSnapshot: _saveSnapshot,
+                                onPlaceSignature: (context,
+                                        {required pageIndex,
+                                        required pageRect}) =>
+                                    _placeDigitalSignature(
+                                  context,
+                                  tab,
+                                  pageIndex: pageIndex,
+                                  pageRect: pageRect,
+                                ),
+                                onShareReflowImage: (context, png) =>
+                                    _saveImageBytes(
+                                        png, 'figure.png', 'image/png'),
                               ),
       ),
     );
@@ -1319,7 +1813,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           height: _appMenuIconSize,
           semanticLabel: 'DartPDF',
         ),
-        tooltip: 'DartPDF menu',
+        tooltip: appL10n(context).exAppMenuTooltip,
         onSelected: (action) => action(),
         itemBuilder: (context) => _appMenuItems(context, tab),
       );
@@ -1361,7 +1855,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   constraints:
                       const BoxConstraints.tightFor(width: buttonWidth),
                   icon: const Icon(Icons.add),
-                  tooltip: 'Open PDF in a new tab',
+                  tooltip: appL10n(context).exOpenInNewTab,
                   onPressed: _pickFile,
                 ),
               ),
@@ -1379,7 +1873,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     for (final tab in _tabs) {
       final painter = TextPainter(
         text: TextSpan(
-          text: tab.title.isEmpty ? 'Untitled' : tab.title,
+          text: tab.title.isEmpty ? appL10n(context).exUntitled : tab.title,
           style: style,
         ),
         maxLines: 1,
@@ -1405,14 +1899,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
           borderRadius: BorderRadius.circular(8),
           onTap: () => setState(() => _activeIndex = index),
           child: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 2),
+            padding: const EdgeInsetsDirectional.only(start: 12, end: 2),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 160),
                   child: Text(
-                    tab.title.isEmpty ? 'Untitled' : tab.title,
+                    tab.title.isEmpty ? appL10n(context).exUntitled : tab.title,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontWeight:
@@ -1429,7 +1923,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   padding: EdgeInsets.zero,
                   constraints:
                       const BoxConstraints(minWidth: 30, minHeight: 30),
-                  tooltip: 'Close tab',
+                  tooltip: appL10n(context).exCloseTab,
                   onPressed: () => _closeTab(index),
                 ),
               ],
@@ -1450,25 +1944,54 @@ const double _appMenuIconSize = 24;
 const int _maxRecentMenuItems = 8;
 
 class _OpeningDocument extends StatelessWidget {
-  const _OpeningDocument({required this.title});
+  const _OpeningDocument({required this.title, this.progress});
 
   final String title;
 
+  /// Determinate download progress (0..1) for a remote load, or null for the
+  /// indeterminate spinner used by local opens.
+  final ValueListenable<double>? progress;
+
   @override
   Widget build(BuildContext context) {
+    final label = title.isEmpty
+        ? appL10n(context).exOpeningPdf
+        : appL10n(context).exOpeningTitle(title);
+    final tracker = progress;
     return Center(
       child: Semantics(
-        label: 'Opening document',
+        label: appL10n(context).exOpeningDocument,
         liveRegion: true,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            if (tracker == null)
+              const CircularProgressIndicator()
+            else
+              ValueListenableBuilder<double>(
+                valueListenable: tracker,
+                builder: (context, value, _) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(
+                        // Indeterminate until the first byte lands, then a
+                        // determinate ring driven by PdfHttpByteSource's
+                        // onProgress.
+                        value: value > 0 ? value.clamp(0.0, 1.0) : null,
+                      ),
+                    ),
+                    if (value > 0) ...[
+                      const SizedBox(height: 8),
+                      Text('${(value.clamp(0.0, 1.0) * 100).round()}%'),
+                    ],
+                  ],
+                ),
+              ),
             const SizedBox(height: 16),
-            Text(
-              title.isEmpty ? 'Opening PDF…' : 'Opening $title…',
-              textAlign: TextAlign.center,
-            ),
+            Text(label, textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -1480,10 +2003,11 @@ class _OpeningDocument extends StatelessWidget {
 /// so switching tabs preserves edits, undo history, scroll position,
 /// and any demo-specific overlay state.
 class _DocumentTab {
-  _DocumentTab.loading({required this.title})
+  _DocumentTab.loading({required this.title, this.loadingProgress})
       : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         error = null,
         compareBefore = null,
         compareAfter = null,
@@ -1494,19 +2018,23 @@ class _DocumentTab {
     required Uint8List bytes,
     required PdfEditingPreferences preferences,
     this.isDemo = false,
+    this.isExtracted = false,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
         error = null,
         compareBefore = null,
         compareAfter = null,
+        loadingProgress = null,
         isLoading = false;
 
   _DocumentTab.error({required this.title, required this.error})
       : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         compareBefore = null,
         compareAfter = null,
+        loadingProgress = null,
         isLoading = false;
 
   /// A document-comparison tab: hosts a [PdfComparisonView] over two
@@ -1518,15 +2046,24 @@ class _DocumentTab {
   })  : session = null,
         viewer = null,
         isDemo = false,
+        isExtracted = false,
         error = null,
         compareBefore = before,
         compareAfter = after,
+        loadingProgress = null,
         isLoading = false;
 
   final String title;
   final String? error;
   final bool isDemo;
+  // A new extraction has no saved file yet, even without any edits.
+  final bool isExtracted;
   final bool isLoading;
+
+  /// Download progress (0..1) for a remote-load ([_openFromUrl]) loading tab,
+  /// or null for an indeterminate spinner. The notifier is owned by the code
+  /// that started the load, not the tab.
+  final ValueListenable<double>? loadingProgress;
 
   /// The two documents a comparison tab diffs; null on every other tab.
   final Uint8List? compareBefore;
@@ -1548,6 +2085,67 @@ class _DocumentTab {
     session?.dispose();
     viewer?.dispose();
     noteField.dispose();
+  }
+}
+
+/// Collects a URL to open a remote PDF from. Returns the entered string on
+/// "Open", or null on cancel. Submitting the text field also confirms.
+class _OpenUrlDialog extends StatefulWidget {
+  const _OpenUrlDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_OpenUrlDialog> createState() => _OpenUrlDialogState();
+}
+
+class _OpenUrlDialogState extends State<_OpenUrlDialog> {
+  late final TextEditingController _url =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _url.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_url.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(appL10n(context).exOpenFromUrlTitle),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(appL10n(context).exOpenUrlDescription),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('open-url-field'),
+            controller: _url,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            decoration: InputDecoration(
+              labelText: appL10n(context).exPdfUrlLabel,
+              hintText: 'https://example.com/document.pdf',
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(appL10n(context).cancel),
+        ),
+        FilledButton(
+          key: const ValueKey('open-url-confirm'),
+          onPressed: _submit,
+          child: Text(appL10n(context).exOpen),
+        ),
+      ],
+    );
   }
 }
 
@@ -1598,37 +2196,33 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Run OCR'),
+      title: Text(appL10n(context).exRunOcr),
       content: SizedBox(
         width: 460,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Adds a selectable, searchable text layer over scanned pages '
-              'using a vision-language OCR model you host (dots.ocr on vLLM, '
-              'or any OpenAI-compatible OCR endpoint).',
-            ),
+            Text(appL10n(context).exOcrDescription),
             const SizedBox(height: 16),
             TextField(
               key: const ValueKey('ocr-endpoint'),
               controller: _endpoint,
               autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Service endpoint',
+              decoration: InputDecoration(
+                labelText: appL10n(context).exServiceEndpoint,
                 hintText: 'http://localhost:8000/v1/chat/completions',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               key: const ValueKey('ocr-model'),
               controller: _model,
-              decoration: const InputDecoration(
-                labelText: 'Model name',
+              decoration: InputDecoration(
+                labelText: appL10n(context).exModelName,
                 hintText: 'model',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -1637,23 +2231,25 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
               controller: _apiKey,
               obscureText: _obscureKey,
               decoration: InputDecoration(
-                labelText: 'API key / token (optional)',
-                helperText: 'Sent as Authorization: Bearer …',
+                labelText: appL10n(context).exApiKeyLabel,
+                helperText: appL10n(context).exApiKeyHelper,
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   icon: Icon(
                       _obscureKey ? Icons.visibility : Icons.visibility_off),
-                  tooltip: _obscureKey ? 'Show' : 'Hide',
+                  tooltip: _obscureKey
+                      ? appL10n(context).exShow
+                      : appL10n(context).exHide,
                   onPressed: () => setState(() => _obscureKey = !_obscureKey),
                 ),
               ),
             ),
             const SizedBox(height: 8),
             Align(
-              alignment: Alignment.centerLeft,
+              alignment: AlignmentDirectional.centerStart,
               child: TextButton.icon(
                 icon: const Icon(Icons.help_outline, size: 18),
-                label: const Text('How to set up an OCR server'),
+                label: Text(appL10n(context).exHowToSetupOcr),
                 onPressed: widget.onOpenDocs,
               ),
             ),
@@ -1663,12 +2259,12 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(appL10n(context).cancel),
         ),
         FilledButton.icon(
           key: const ValueKey('ocr-run'),
           icon: const Icon(Icons.document_scanner_outlined),
-          label: const Text('Run OCR'),
+          label: Text(appL10n(context).exRunOcr),
           onPressed: () {
             final endpoint = _endpoint.text.trim();
             if (endpoint.isEmpty) return;

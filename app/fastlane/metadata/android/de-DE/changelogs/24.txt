@@ -1,0 +1,5 @@
+Neu in 3.3.0
+
+• Bereits besuchte Seiten öffnen sich sofort – mit optionalem Vorladen im Hintergrund und dauerhaftem Vollauflösungs-Cache.
+• Schärferer Tiefenzoom bei gescannten und bildbasierten PDFs.
+• Besseres Schwenken per Touch, Eckenradius-Regler für Rechtecke und flüssigere Navigation nach dem Einfügen von Seiten.

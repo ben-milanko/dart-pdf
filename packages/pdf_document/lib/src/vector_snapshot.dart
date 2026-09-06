@@ -25,10 +25,7 @@ class PdfVectorSnapshot {
   PdfVectorSnapshot._(this.region, this.displayWidth, this.displayHeight,
       this._content, this._resources, this._matrix);
 
-  /// Re-imports a snapshot from the single-page PDF written by [toPdfBytes]
-  /// — the interchange that lets snapshots move between documents, app tabs,
-  /// and other PDF tools (Bluebeam's Snapshot tool round-trips through the
-  /// very same one-page-PDF-of-the-region shape).
+  /// Imports the first page of a PDF as a detached vector snapshot.
   ///
   /// The whole first page (its crop box) becomes the captured region, so the
   /// PDF's page size is the snapshot's natural paste size. Throws if the
@@ -36,8 +33,10 @@ class PdfVectorSnapshot {
   factory PdfVectorSnapshot.fromPdfBytes(Uint8List bytes,
       {String password = ''}) {
     final document = PdfDocument.open(bytes, password: password);
-    return PdfEditor(document)
-        .captureVectorSnapshot(0, document.page(0).cropBox);
+    final snapshot =
+        PdfEditor(document).captureVectorSnapshot(0, document.page(0).cropBox);
+    snapshot._validateSize();
+    return snapshot;
   }
 
   /// The captured region in the source page's user space (points, origin
@@ -68,13 +67,12 @@ class PdfVectorSnapshot {
   /// page is exactly the captured region (MediaBox `[0 0 displayWidth
   /// displayHeight]`, the page's /Rotate already baked into the content).
   ///
-  /// This is the portable interchange behind copy/paste *between documents*
-  /// and *between app tabs*, and the interop format with other PDF tools:
-  /// Bluebeam's Snapshot likewise exchanges a region as a small PDF, so the
-  /// bytes here paste into Bluebeam as vectors, and a snapshot copied out of
-  /// Bluebeam re-imports through [PdfVectorSnapshot.fromPdfBytes]. Hosts put
-  /// these bytes on the OS clipboard (e.g. as `application/pdf`).
+  /// Hosts can exchange these bytes as `application/pdf` with applications
+  /// that support PDF clipboard data. Resources stay vector where the source
+  /// was vector; embedded images keep their original encoding. Throws when
+  /// the captured region has empty or non-finite dimensions.
   Uint8List toPdfBytes() {
+    _validateSize();
     final builder = CosDocumentBuilder();
 
     // the page content replays the captured operators under the rotation
@@ -113,7 +111,16 @@ class PdfVectorSnapshot {
       'Type': const CosName('Catalog'),
       'Pages': pagesRef,
     }));
-    return builder.build(root: rootRef);
+    return builder.build(root: rootRef, preserveRealPrecision: true);
+  }
+
+  void _validateSize() {
+    if (!displayWidth.isFinite ||
+        !displayHeight.isFinite ||
+        displayWidth <= 0 ||
+        displayHeight <= 0) {
+      throw const FormatException('Snapshot must have a finite, positive size');
+    }
   }
 }
 
@@ -349,8 +356,8 @@ extension PdfVectorSnapshotEditing on PdfEditor {
           if (visiting.contains(nested)) continue; // guard cyclic forms
           final ref = done[nested] ??=
               _updater.addObject(_recoloredForm(nested, rgb, done, visiting));
-          (recoloredXObjects ??= CosDictionary({...xObjects.entries}))[
-              entry.key] = ref;
+          (recoloredXObjects ??=
+              CosDictionary({...xObjects.entries}))[entry.key] = ref;
         }
         if (recoloredXObjects != null) {
           dict['Resources'] = CosDictionary({...resources.entries})

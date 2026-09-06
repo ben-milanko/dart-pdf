@@ -1,0 +1,4 @@
+Novità della 3.1.1
+
+• Scorrimento più fluido nei PDF grandi o ricchi di elementi, con meno fotogrammi persi.
+• Le anteprime restano visibili durante lo scorrimento rapido e poi tornano nitide a pieno dettaglio.

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// One entry in the "recent documents" list shown on the welcome screen.
 @immutable
 class RecentFile {
@@ -10,6 +12,7 @@ class RecentFile {
     required this.title,
     this.path,
     this.cachePath,
+    this.cacheAvailable = true,
     this.bookmark,
     required this.openedAt,
   });
@@ -22,10 +25,14 @@ class RecentFile {
   /// only a genuine picked path belongs here - never a [cachePath].
   final String? path;
 
-  /// The app-private snapshot of a mobile pick's bytes (see pdf_cache.dart).
-  /// Lets the entry reopen without a fresh pick when there is no reusable
-  /// [path]; not a writable origin, so saves still go through save-as.
+  /// The app-private snapshot of a pick's bytes (a private file on mobile, an
+  /// IndexedDB blob on web - see pdf_cache.dart). Lets the entry reopen without
+  /// a fresh pick when there is no reusable [path]; not a writable origin, so
+  /// saves still go through save-as.
   final String? cachePath;
+
+  /// Evicted snapshots retain their identity/title in Recents, but need a pick.
+  final bool cacheAvailable;
 
   /// macOS security-scoped bookmark for [path], when available.
   final String? bookmark;
@@ -42,7 +49,9 @@ class RecentFile {
   /// otherwise the private snapshot. Null when neither is available (web).
   String? get readPath {
     if (path != null && path!.isNotEmpty) return path;
-    if (cachePath != null && cachePath!.isNotEmpty) return cachePath;
+    if (cacheAvailable && cachePath != null && cachePath!.isNotEmpty) {
+      return cachePath;
+    }
     return null;
   }
 
@@ -53,6 +62,7 @@ class RecentFile {
         't': title,
         if (path != null) 'p': path,
         if (cachePath != null) 'c': cachePath,
+        if (!cacheAvailable) 'a': false,
         if (bookmark != null) 'b': bookmark,
         'o': openedAt,
       };
@@ -61,6 +71,7 @@ class RecentFile {
         title: (j['t'] as String?) ?? 'Untitled',
         path: j['p'] as String?,
         cachePath: j['c'] as String?,
+        cacheAvailable: j['a'] != false,
         bookmark: j['b'] as String?,
         openedAt: (j['o'] as num?)?.toInt() ?? 0,
       );
@@ -76,6 +87,13 @@ class RecentsStore extends ChangeNotifier {
 
   final List<RecentFile> _items = [];
   bool _loaded = false;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   List<RecentFile> get items => List.unmodifiable(_items);
   bool get isEmpty => _items.isEmpty;
@@ -98,8 +116,10 @@ class RecentsStore extends ChangeNotifier {
             .map((m) => RecentFile.fromJson(m.cast<String, dynamic>())));
       _sort();
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
       // No storage (tests) - keep the in-memory list.
+      AppDevTools.instance
+          .addLog('recents load failed: $e', level: DevLogLevel.error);
     }
   }
 
@@ -135,6 +155,31 @@ class RecentsStore extends ChangeNotifier {
     await _persist();
   }
 
+  /// Reconciles only the keys inspected by the caller, so a concurrent add
+  /// isn't marked missing using an older inventory. Keeps ordering/identity.
+  Future<void> updateCachedAvailability(
+      Set<String> checked, Set<String> available) async {
+    if (_disposed) return;
+    var changed = false;
+    for (var i = 0; i < _items.length; i++) {
+      final entry = _items[i];
+      if (!checked.contains(entry.cachePath)) continue;
+      final exists = available.contains(entry.cachePath);
+      if (entry.cacheAvailable == exists) continue;
+      _items[i] = RecentFile(
+          title: entry.title,
+          path: entry.path,
+          cachePath: entry.cachePath,
+          cacheAvailable: exists,
+          bookmark: entry.bookmark,
+          openedAt: entry.openedAt);
+      changed = true;
+    }
+    if (!changed) return;
+    notifyListeners();
+    await _persist();
+  }
+
   void _sort() => _items.sort((a, b) => b.openedAt.compareTo(a.openedAt));
 
   Future<void> _persist() async {
@@ -142,8 +187,10 @@ class RecentsStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _key, jsonEncode(_items.map((e) => e.toJson()).toList()));
-    } catch (_) {
+    } catch (e) {
       // No storage - nothing to persist.
+      AppDevTools.instance
+          .addLog('recents persist failed: $e', level: DevLogLevel.error);
     }
   }
 }

@@ -1,0 +1,57 @@
+# Maintainer: Ben Milanko <ben.milanko@protonmail.com>
+pkgname=dartpdf-bin
+pkgver=4.0.0
+pkgrel=1
+pkgdesc="Edit, annotate, sign, and fill in PDFs - a private, local PDF editor (prebuilt binary)"
+arch=('x86_64')
+url="https://dart-pdf.com"
+license=('Apache-2.0')
+# Runtime libs the Flutter/GTK bundle links against. Verified by ldd-ing the
+# released bundle on Ubuntu 24.04 (glibc 2.39): the binary + every bundled .so
+# resolve against gtk3 (which pulls pango/cairo/gdk-pixbuf/glib2/at-spi2/
+# harfbuzz/fontconfig/freetype/libx*/wayland/libxkbcommon) and libsecret; there
+# are no other unbundled runtime deps. NOTE: jsoncpp is a *build*-time dep only
+# (libjsoncpp-dev in CI) - nothing in the shipped bundle links libjsoncpp, so it
+# is intentionally NOT listed here.
+depends=('gtk3' 'libsecret')
+# lib/libdartjni.so links libjvm.so (the `jni` plugin). The app launches and
+# runs fine with no JRE; only the on-device OCR path could touch it. If OCR is
+# found to require Java on Linux, add `java-runtime` here as an optdepend.
+optdepends=('org.freedesktop.secrets: store digital-signing identities in a keyring')
+provides=('dartpdf')
+conflicts=('dartpdf')
+options=('!strip')  # bundled .so files are already stripped; don't touch the AOT blob
+
+source=("dartpdf-${pkgver}.tar.gz::https://github.com/ben-milanko/dart-pdf/releases/download/app-v${pkgver}/dartpdf-linux-x64.tar.gz"
+        "LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v${pkgver}/LICENSE")
+
+sha256sums=('a76ef546a97a03c4aee3b063652394d13b69cc33aa10dd9711fe08d0e7711cb8'
+            'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30')
+
+package() {
+  # The release tarball extracts the runner, data/, lib/, and share/ straight
+  # into $srcdir. Install the runtime bundle under /opt/dartpdf; the
+  # runner resolves its real path via readlink and finds data/ + lib/ next to
+  # it, so a /usr/bin symlink works.
+  install -d "${pkgdir}/opt/dartpdf"
+  cp -r "${srcdir}/dart_pdf_editor_app" "${srcdir}/data" "${srcdir}/lib" \
+        "${pkgdir}/opt/dartpdf/"
+  chmod 755 "${pkgdir}/opt/dartpdf/dart_pdf_editor_app"
+
+  install -d "${pkgdir}/usr/bin"
+  ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
+  # The checked-in PKGBUILD remains pinned to the stable release while the
+  # next release is prepared. Install the sidecar as soon as that release
+  # archive contains it without breaking reproducible builds of the old pin.
+  if [[ -f "${srcdir}/dartpdf-cli" ]]; then
+    install -Dm755 "${srcdir}/dartpdf-cli" \
+      "${pkgdir}/opt/dartpdf/dartpdf-cli"
+    ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
+  fi
+
+  install -d "${pkgdir}/usr/share"
+  cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"
+
+  install -Dm644 "${srcdir}/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

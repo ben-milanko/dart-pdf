@@ -23,7 +23,7 @@ void main() {
   Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
 
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
-      {int pages = 3, Uint8List? bytes}) async {
+      {int pages = 3, Uint8List? bytes, bool contextMenuEnabled = true}) async {
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -32,6 +32,7 @@ void main() {
           initialFit: PdfViewerFit.width,
           document: PdfDocument.open(bytes ?? buildMultiPagePdf(pages)),
           controller: controller,
+          contextMenuEnabled: contextMenuEnabled,
         ),
       ),
     ));
@@ -121,6 +122,49 @@ void main() {
     });
   });
 
+  group('armed text markup', () {
+    testWidgets('mouse drag applies markup and leaves the tool armed',
+        (tester) async {
+      final state = await pumpEditor(tester);
+      state.editing.markupTool = PdfMarkupKind.highlight;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(158, 720),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(const Offset(-20, 0));
+      await tester.pump();
+      await gesture.moveTo(view(50, 720));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(state.viewer.hasSelection, isFalse);
+      expect(state.editing.markupTool, PdfMarkupKind.highlight);
+      final annotations = state.editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.subtype, 'Highlight');
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('touch long-press applies the armed markup on lift',
+        (tester) async {
+      final state = await pumpEditor(tester);
+      state.editing.markupTool = PdfMarkupKind.underline;
+      await tester.pump();
+
+      await longPressSelect(tester, view(100, 720));
+
+      expect(state.viewer.hasSelection, isFalse);
+      expect(state.editing.markupTool, PdfMarkupKind.underline);
+      final annotations = state.editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.subtype, 'Underline');
+      expect(
+          find.byKey(const ValueKey('pdf-text-selection-chip')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+  });
+
   group('long-press selection', () {
     testWidgets('RTL selection starts on the right edge', (tester) async {
       final controller = await pumpViewer(tester, bytes: buildRtlTextPdf());
@@ -182,6 +226,27 @@ void main() {
           findsNothing);
       expect(find.byKey(const ValueKey('pdf-text-selection-chip-markup')),
           findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets(
+        'contextMenuEnabled: false hides the chip but keeps the selection, '
+        'its handles and word-drag extension', (tester) async {
+      final controller = await pumpViewer(tester, contextMenuEnabled: false);
+      final gesture = await tester.startGesture(view(100, 720));
+      await tester.pump(const Duration(milliseconds: 600));
+      // the press still extends by word while it drags
+      await gesture.moveTo(view(138, 720));
+      await tester.pump();
+      expect(controller.selectedText, 'Page 1');
+      await gesture.up();
+      await tester.pump();
+
+      expect(
+          find.byKey(const ValueKey('pdf-text-selection-chip')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-handle-start')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-handle-end')), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 400));
     });
 

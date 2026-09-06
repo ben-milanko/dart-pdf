@@ -32,9 +32,13 @@ class PdfScrollbar extends StatefulWidget {
     this.viewExtent,
     this.onScrollBy,
     this.thumbKey,
-  })  : assert(axis == Axis.vertical ? scroll != null : viewExtent != null),
-        assert(axis == Axis.vertical || transform != null,
-            'a horizontal bar measures overflow from the transform'),
+    this.markers = const [],
+  })  : assert(
+            scroll != null || viewExtent != null,
+            'a scroll-driven bar needs a controller; a transform-only bar '
+            'needs the cross-axis view extent'),
+        assert(scroll != null || transform != null,
+            'a transform-only bar measures overflow from the transform'),
         assert(onScrollBy != null || scroll != null);
 
   /// How much room bars reserve: the viewer's horizontal bar is inset
@@ -67,6 +71,11 @@ class PdfScrollbar extends StatefulWidget {
   /// A key for the thumb itself, for tests.
   final Key? thumbKey;
 
+  /// Named locations painted as ticks on the track. The stock viewer uses
+  /// these for PDF outline entries (bookmarks/chapters). Hovering a tick
+  /// reveals its title and activating it follows the outline destination.
+  final List<PdfScrollbarMarker> markers;
+
   @override
   State<PdfScrollbar> createState() => _PdfScrollbarState();
 }
@@ -85,12 +94,22 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
 
   bool get _vertical => widget.axis == Axis.vertical;
 
+  /// Whether this bar tracks a real [ScrollController] (the layout's main
+  /// axis) rather than measuring overflow purely from the zoom transform
+  /// (the cross axis, which overflows only while zoomed in). Independent of
+  /// orientation: a horizontal continuous layout has a scroll-driven
+  /// *horizontal* main bar and a transform-only *vertical* cross bar.
+  bool get _scrollDriven => widget.scroll != null;
+
+  /// This bar's translation index into the zoom transform, by orientation.
+  int get _translateIndex => _vertical ? 13 : 12;
+
   double get _scale => widget.transform?.value.getMaxScaleOnAxis() ?? 1;
 
   /// (laid-out extent, visible extent) along the axis, in list-space
   /// pixels, or null while there are no metrics yet.
   (double, double)? _extents() {
-    if (_vertical) {
+    if (_scrollDriven) {
       final scroll = widget.scroll!;
       // exactly one: a host swapping its list's slot in the tree leaves
       // both the old and new positions attached for one frame
@@ -100,21 +119,22 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
       final total = position.maxScrollExtent + position.viewportDimension;
       return (total, position.viewportDimension / _scale);
     }
-    // horizontally the pages always lay out at the viewer width;
+    // the cross axis always lays out at the viewer's cross extent;
     // overflow exists only inside the zoom window
     final total = widget.viewExtent!;
     return (total, total / _scale);
   }
 
   /// The visible window's leading edge in list space: the viewport
-  /// unprojects through the transform as (p - t) / s, riding on the
-  /// scroll offset vertically (see _visibleFractionOf).
+  /// unprojects through the transform as (p - t) / s, riding on the scroll
+  /// offset along the scroll-driven (main) axis (see _visibleFractionOf).
   double _offset() {
     final m = widget.transform?.value;
-    if (m == null) return widget.scroll!.position.pixels;
-    return _vertical
-        ? -m.storage[13] / _scale + widget.scroll!.position.pixels
-        : -m.storage[12] / _scale;
+    if (!_scrollDriven) {
+      return m == null ? 0 : -m.storage[_translateIndex] / _scale;
+    }
+    final base = widget.scroll!.position.pixels;
+    return m == null ? base : -m.storage[_translateIndex] / _scale + base;
   }
 
   void _scrollBy(double delta) {
@@ -173,6 +193,14 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
         if (thumb == null) return const SizedBox.shrink();
         final (thumbPos, thumbExtent) = thumb;
         final active = _hovered || _dragging;
+        PdfScrollbarMarker? markerAt(double at) {
+          for (final marker in widget.markers.reversed) {
+            final center = marker.position.clamp(0.0, 1.0) * trackExtent;
+            if ((at - center).abs() <= 5) return marker;
+          }
+          return null;
+        }
+
         void dragStart(DragStartDetails details) {
           final at =
               _vertical ? details.localPosition.dy : details.localPosition.dx;
@@ -206,6 +234,11 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
               final at = _vertical
                   ? details.localPosition.dy
                   : details.localPosition.dx;
+              final marker = markerAt(at);
+              if (marker != null) {
+                marker.onTap?.call();
+                return;
+              }
               // a tap on the thumb itself is not a jump
               if (at < thumbPos || at > thumbPos + thumbExtent) {
                 _jumpTo(at, trackExtent);
@@ -231,6 +264,42 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
                           ? theme?.trackActiveColor ?? _defaultTrackActive
                           : theme?.trackColor ?? _defaultTrack),
                 ),
+                for (var i = 0; i < widget.markers.length; i++)
+                  Positioned(
+                    top: _vertical
+                        ? (trackExtent - 10) *
+                            widget.markers[i].position.clamp(0.0, 1.0)
+                        : null,
+                    left: _vertical
+                        ? 1
+                        : (trackExtent - 10) *
+                            widget.markers[i].position.clamp(0.0, 1.0),
+                    right: _vertical ? 1 : null,
+                    bottom: _vertical ? null : 1,
+                    width: _vertical ? null : 10,
+                    height: _vertical ? 10 : null,
+                    child: Tooltip(
+                      message: widget.markers[i].label,
+                      preferBelow: false,
+                      child: Semantics(
+                        button: widget.markers[i].onTap != null,
+                        label: widget.markers[i].label,
+                        onTap: widget.markers[i].onTap,
+                        child: SizedBox(
+                          key: ValueKey('pdf-scrollbar-marker-$i'),
+                          child: Center(
+                            child: SizedBox(
+                              width: _vertical ? double.infinity : 3,
+                              height: _vertical ? 3 : double.infinity,
+                              child: ColoredBox(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   top: _vertical ? thumbPos : null,
                   left: _vertical ? null : thumbPos,
@@ -259,4 +328,22 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
       }),
     );
   }
+}
+
+/// A labelled location on a [PdfScrollbar] track.
+class PdfScrollbarMarker {
+  const PdfScrollbarMarker({
+    required this.position,
+    required this.label,
+    this.onTap,
+  });
+
+  /// Location along the document, normalized from 0 to 1.
+  final double position;
+
+  /// Tooltip and accessibility label (normally an outline title).
+  final String label;
+
+  /// Invoked when the tick is activated.
+  final VoidCallback? onTap;
 }

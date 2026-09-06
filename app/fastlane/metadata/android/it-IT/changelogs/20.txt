@@ -1,0 +1,7 @@
+Novità della versione 3.0.0
+
+• L'app è ora disponibile in 10 lingue, con layout completo da destra a sinistra.
+• Rendering più preciso di sovrastampa, metodi di fusione e maschere morbide.
+• Tieni premuto Maiusc per tracciare linee dritte e imposta uno stile predefinito per le annotazioni.
+• Schede dei documenti ridisegnate e più fluide.
+• Rendering più veloce e minor uso di memoria sui file di grandi dimensioni.

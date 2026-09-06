@@ -20,17 +20,24 @@ void main() {
       a.fingerDrawsInk = false;
       a.showThumbnailSidebar = false; // non-default, so the write is real
       a.showAnnotationSidebar = true;
+      a.showAnnotationLibraryPanel = true;
+      a.annotationLibraryPanelWidth = 336;
+      a.annotationLibraryPanelDock = PdfPanelDock.left;
       a.author = 'Ben';
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
+      a.showScrollbarChapters = true;
       a.showReflowView = true;
       a.lineStartEnding = PdfLineEnding.circle;
       a.lineEndEnding = PdfLineEnding.closedArrow;
       a.searchMatchCase = true;
       a.searchWholeWord = true;
       a.searchRegex = true;
+      a.searchAnnotations = false; // non-default, so the write is real
       a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
       a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
+      a.locale = const Locale('es');
+      a.toolbarDock = PdfPanelDock.right;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -43,17 +50,85 @@ void main() {
       expect(b.fingerDrawsInk, isFalse);
       expect(b.showThumbnailSidebar, isFalse);
       expect(b.showAnnotationSidebar, isTrue);
+      expect(b.showAnnotationLibraryPanel, isTrue);
+      expect(b.annotationLibraryPanelWidth, 336);
+      expect(b.annotationLibraryPanelDock, PdfPanelDock.left);
       expect(b.author, 'Ben');
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
+      expect(b.showScrollbarChapters, isTrue);
       expect(b.showReflowView, isTrue);
       expect(b.lineStartEnding, PdfLineEnding.circle);
       expect(b.lineEndEnding, PdfLineEnding.closedArrow);
       expect(b.searchMatchCase, isTrue);
       expect(b.searchWholeWord, isTrue);
       expect(b.searchRegex, isTrue);
+      expect(b.searchAnnotations, isFalse);
       expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
+      expect(b.locale, const Locale('es'));
+      expect(b.toolbarDock, PdfPanelDock.right);
+    });
+
+    test('locale persists as a BCP-47 tag and restores script/region subtags',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      // A script+region-bearing tag exercises the tag parser both ways.
+      a.locale = const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN');
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.locale?.languageCode, 'zh');
+      expect(b.locale?.scriptCode, 'Hans');
+      expect(b.locale?.countryCode, 'CN');
+
+      // Clearing it back to "System default" removes the stored value.
+      b.locale = null;
+      await pumpEventQueue();
+      final c = PdfEditingPreferences();
+      await c.ready;
+      expect(c.locale, isNull);
+    });
+
+    test('noteRecentColor moves to front, dedupes, caps, and persists',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      expect(a.recentColors, isEmpty);
+
+      // alpha is dropped and RGB deduplicated; newest goes first
+      a.noteRecentColor(const Color(0xFFE53935));
+      a.noteRecentColor(const Color(0x8043A047));
+      a.noteRecentColor(const Color(0xFFE53935)); // re-pick moves it to front
+      expect(a.recentColors,
+          const [Color(0xFF43A047), Color(0xFFE53935)].reversed.toList());
+      expect(a.recentColors.first, const Color(0xFFE53935));
+      expect(a.recentColors.length, 2);
+
+      // re-noting the newest colour (any alpha) is a no-op: no duplicate,
+      // no reorder, no listener churn
+      var notified = 0;
+      a.addListener(() => notified++);
+      a.noteRecentColor(const Color(0x00E53935)); // same RGB, alpha ignored
+      a.noteRecentColor(const Color(0xFFE53935));
+      expect(notified, 0);
+
+      // the cap holds: pushing 20 distinct colours keeps only the newest 18
+      for (var i = 0; i < 20; i++) {
+        a.noteRecentColor(Color(0xFF000000 | i));
+      }
+      expect(a.recentColors.length, 18);
+      expect(a.recentColors.first, const Color(0xFF000013)); // 19th push (i=19)
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.recentColors, a.recentColors);
     });
 
     test('empty storage leaves the defaults', () async {
@@ -69,15 +144,20 @@ void main() {
       // the thumbnail strip is on by default since 9bbfc87
       expect(prefs.showThumbnailSidebar, isTrue);
       expect(prefs.showAnnotationSidebar, isFalse);
+      expect(prefs.showAnnotationLibraryPanel, isFalse);
+      expect(prefs.annotationLibraryPanelWidth, isNull);
+      expect(prefs.annotationLibraryPanelDock, PdfPanelDock.right);
       expect(prefs.author, isNull);
       expect(prefs.colorPickerFormat, PdfColorFormat.hex);
       expect(prefs.lineStartEnding, PdfLineEnding.none);
       expect(prefs.lineEndEnding, PdfLineEnding.none);
       expect(prefs.highlightFormFields, isTrue);
+      expect(prefs.showScrollbarChapters, isFalse);
       expect(prefs.showReflowView, isFalse);
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+      expect(prefs.searchAnnotations, isTrue); // on by default
       expect(prefs.stampDateFormat, PdfStampDateFormat.iso);
       expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });
@@ -115,10 +195,10 @@ void main() {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       await editing.preferences.ready;
       expect(editing.color, const Color(0xFF00A040));
-      expect(editing.strokeWidth, 6);
-      expect(editing.fontSize, 22);
-      expect(editing.opacity, 0.4);
-      expect(editing.fingerDrawsInk, isFalse);
+      expect(editing.preferences.strokeWidth, 6);
+      expect(editing.preferences.fontSize, 22);
+      expect(editing.preferences.opacity, 0.4);
+      expect(editing.preferences.fingerDrawsInk, isFalse);
     });
 
     test('controller setters write through to storage', () async {
@@ -127,16 +207,16 @@ void main() {
       await first.preferences.ready;
       first
         ..color = const Color(0xFF0000FF)
-        ..strokeWidth = 7
-        ..opacity = 0.8;
+        ..preferences.strokeWidth = 7
+        ..preferences.opacity = 0.8;
       await pumpEventQueue();
 
       // a later session: new controller, its own preferences instance
       final second = PdfEditingController(buildMultiPagePdf(1));
       await second.preferences.ready;
       expect(second.color, const Color(0xFF0000FF));
-      expect(second.strokeWidth, 7);
-      expect(second.opacity, 0.8);
+      expect(second.preferences.strokeWidth, 7);
+      expect(second.preferences.opacity, 0.8);
     });
 
     test('preference changes notify controller listeners', () async {
@@ -159,22 +239,22 @@ void main() {
 
       editing.tool = PdfEditTool.ink;
       editing.color = const Color(0xFFFF0000);
-      editing.strokeWidth = 6;
+      editing.preferences.strokeWidth = 6;
 
       editing.tool = PdfEditTool.rectangle;
       editing.color = const Color(0xFF0000FF);
-      editing.strokeWidth = 2;
-      editing.shapeFillColor = const Color(0xFF00FF00);
+      editing.preferences.strokeWidth = 2;
+      editing.preferences.shapeFillColor = const Color(0xFF00FF00);
 
       // arming the rectangle didn't disturb ink's remembered style
       editing.tool = PdfEditTool.ink;
       expect(editing.color, const Color(0xFFFF0000));
-      expect(editing.strokeWidth, 6);
+      expect(editing.preferences.strokeWidth, 6);
 
       editing.tool = PdfEditTool.rectangle;
       expect(editing.color, const Color(0xFF0000FF));
-      expect(editing.strokeWidth, 2);
-      expect(editing.shapeFillColor, const Color(0xFF00FF00));
+      expect(editing.preferences.strokeWidth, 2);
+      expect(editing.preferences.shapeFillColor, const Color(0xFF00FF00));
     });
 
     test('the markup scope keeps the highlighter its own colour', () async {
@@ -205,8 +285,8 @@ void main() {
         ..tool = PdfEditTool.highlight;
 
       expect(editing.color, const Color(0xFF123456));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
 
       editing.colorLocked = false;
       expect(editing.color, const Color(0xFFFFD100));

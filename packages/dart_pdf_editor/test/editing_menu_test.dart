@@ -15,6 +15,10 @@ Offset viewPoint(double x, double y) => Offset(x * scale, (792 - y) * scale);
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
+    PdfAnnotationSnapshotClipboard.instance.clear();
   });
 
   group('controller z-order', () {
@@ -78,6 +82,85 @@ void main() {
     });
   });
 
+  group('polyline/polygon nodes', () {
+    test('addSelectedVertexAt splices a node into the nearest edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100), (200, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      expect(editing.canAddSelectedVertex, isTrue);
+
+      // a point beside the first edge lands between vertices 0 and 1
+      editing.addSelectedVertexAt((150, 90));
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, hasLength(4));
+      expect(vertices![1], (150, 90));
+      expect(vertices, const [(100, 100), (150, 90), (200, 100), (200, 200)]);
+    });
+
+    test('addSelectedVertexAt on a polygon can splice the closing edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolygon(0, const [(100, 100), (200, 100), (150, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+
+      // nearest the last→first edge: appended at the end
+      editing.addSelectedVertexAt((120, 150));
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, hasLength(4));
+      expect(vertices!.last, (120, 150));
+    });
+
+    test('removeSelectedVertexNear drops the closest node', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100), (200, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      expect(editing.canRemoveSelectedVertex, isTrue);
+
+      editing.removeSelectedVertexNear((205, 105)); // nearest (200, 100)
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, const [(100, 100), (200, 200)]);
+    });
+
+    test('removal stops at the subtype minimum', () {
+      final line = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(line.dispose);
+      expect(line.canRemoveSelectedVertex, isFalse);
+      final before = line.document;
+      line.removeSelectedVertexNear((100, 100));
+      expect(identical(line.document, before), isTrue);
+
+      final polygon = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolygon(0, const [(100, 100), (200, 100), (150, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(polygon.dispose);
+      expect(polygon.canRemoveSelectedVertex, isFalse); // 3 is the floor
+    });
+
+    test('node editing is unavailable for a plain /Line or /Square', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addLine(0, const (100, 100), const (200, 200))
+        ..addRectangle(0, const PdfRect(60, 700, 160, 750))
+        ..tool = PdfEditTool.select;
+      addTearDown(editing.dispose);
+
+      editing.selectAnnotation(0, 0); // the /Line
+      expect(editing.canAddSelectedVertex, isFalse);
+      expect(editing.canRemoveSelectedVertex, isFalse);
+
+      editing.selectAnnotation(0, 1); // the /Square
+      expect(editing.canAddSelectedVertex, isFalse);
+    });
+  });
+
   group('context menu', () {
     Future<PdfEditingController> pumpViewer(WidgetTester tester,
         {PdfAnnotationMenuBuilder? menuBuilder}) async {
@@ -118,6 +201,8 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
       expect(find.text('Bring to front'), findsOneWidget);
       expect(find.text('Send to back'), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-flatten')), findsOneWidget);
       expect(find.text('Delete'), findsOneWidget);
 
       await tester.tap(find.text('Bring to front'));
@@ -154,6 +239,61 @@ void main() {
       expect(annotations, hasLength(1));
       expect(annotations.single.rect, const PdfRect(200, 700, 300, 750));
       expect(editing.hasAnnotationSelection, isFalse);
+    });
+
+    testWidgets('Flatten from the menu bakes only the right-clicked annotation',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725));
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-flatten')));
+      await tester.pumpAndSettle();
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.rect, const PdfRect(200, 700, 300, 750));
+      expect(editing.hasAnnotationSelection, isFalse);
+      editing.undo();
+      expect(editing.document.page(0).annotations, hasLength(2));
+    });
+
+    testWidgets('Lock from the menu locks the annotation and clears selection',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // A
+      final lock =
+          tester.widget(find.byKey(const ValueKey('pdf-annot-menu-lock')))
+              as PopupMenuItem;
+      expect(lock.enabled, isTrue);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-lock')));
+      await tester.pumpAndSettle();
+
+      final locked = editing.document.page(0).annotations[0];
+      expect(locked.isLocked, isTrue);
+      expect(locked.isLockedContents, isTrue);
+      expect(editing.hasAnnotationSelection, isFalse);
+
+      // right-clicking the locked one can't select it, but offers Unlock
+      // instead of the normal Lock/edit menu
+      await rightClick(tester, viewPoint(110, 725));
+      expect(editing.hasAnnotationSelection, isFalse);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-unlock')), findsOneWidget);
+
+      // and it unlocks
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-unlock')));
+      await tester.pumpAndSettle();
+      final unlocked = editing.document.page(0).annotations[0];
+      expect(unlocked.isLocked, isFalse);
+      expect(unlocked.isLockedContents, isFalse);
+
+      // now it's a normal, selectable annotation again
+      await rightClick(tester, viewPoint(110, 725));
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsOneWidget);
     });
 
     testWidgets('Recolour… shows only for a vector snapshot selection',
@@ -222,6 +362,54 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 1), (0, 2)]);
     });
 
+    testWidgets('a polygon right-click offers add/remove node, and adds one',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.addPolygon(
+          0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(450, 650)); // inside the polygon
+      expect(editing.selectedAnnotation?.subtype, 'Polygon');
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
+          findsOneWidget);
+      final remove = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
+      expect(remove.enabled, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-node')));
+      await tester.pumpAndSettle();
+      expect(editing.document.page(0).annotations.last.vertices, hasLength(5));
+    });
+
+    testWidgets('Remove node from the menu drops the nearest vertex',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.addPolygon(
+          0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(405, 605)); // near vertex (400, 600)
+      expect(editing.selectedAnnotation?.subtype, 'Polygon');
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
+      await tester.pumpAndSettle();
+
+      final vertices = editing.document.page(0).annotations.last.vertices;
+      expect(vertices, hasLength(3));
+      expect(vertices, isNot(contains((400.0, 600.0))));
+    });
+
+    testWidgets('a rectangle right-click has no node entries', (tester) async {
+      await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-add-node')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-remove-node')),
+          findsNothing);
+    });
+
     testWidgets('host actions ride below a divider and get the request',
         (tester) async {
       PdfAnnotationMenuRequest? received;
@@ -238,7 +426,9 @@ void main() {
       );
 
       await rightClick(tester, viewPoint(110, 725));
-      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      // stock entries are grouped (clipboard | arrange | set-default | delete)
+      // and the host action rides in its own group below the last divider
+      expect(find.byType(PopupMenuDivider), findsNWidgets(4));
       expect(find.text('Bring to front'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-copy-comment')));
@@ -250,6 +440,37 @@ void main() {
       expect(identical(received!.controller, editing), isTrue);
     });
 
+    testWidgets('Save to stamps shows only for a stamp, and saves it',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      // a plain rectangle has no stamp design to save
+      await rightClick(tester, viewPoint(110, 725));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-save-stamp')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      editing.activeStamp =
+          const PdfCustomStamp(text: 'APPROVED', color: 0x2E7D32);
+      expect(editing.placeStamp(0, 300, 400), isTrue);
+      await tester.pump();
+      // forget it again, as if the stamp had arrived in the document
+      editing
+        ..activeStamp = null
+        ..preferences.customStamps = const [];
+
+      await rightClick(tester, viewPoint(300, 400)); // the stamp
+      expect(find.text('Save to stamps'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-save-stamp')));
+      await tester.pumpAndSettle();
+
+      expect(editing.savedCustomStamps,
+          [const PdfCustomStamp(text: 'APPROVED', color: 0x2E7D32)]);
+      expect(editing.activeStamp, editing.savedCustomStamps.single);
+      expect(find.text('Saved to stamps'), findsOneWidget); // the snackbar
+    });
+
     testWidgets('right-click on empty page space shows no annotation menu',
         (tester) async {
       final editing = await pumpViewer(tester);
@@ -258,20 +479,90 @@ void main() {
       expect(find.text('Bring to front'), findsNothing);
       expect(editing.hasAnnotationSelection, isFalse);
     });
+
+    testWidgets(
+        'a plain rectangle menu rules off clipboard, arrange, set-default, '
+        'delete', (tester) async {
+      await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      // clipboard (copy/cut/apply/paste) | arrange (front/back) |
+      // set-default (style capture) | delete
+      expect(find.byType(PopupMenuDivider), findsNWidgets(3));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-set-default')),
+          findsOneWidget);
+    });
+
+    testWidgets('a paste-only menu draws no dividers', (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      // empty-area right-click with a clipboard: the lone Paste group has
+      // nothing to be ruled off from
+      await rightClick(tester, viewPoint(450, 400));
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
+      expect(find.byType(PopupMenuDivider), findsNothing);
+    });
+  });
+
+  group('form field menu', () {
+    Future<PdfEditingController> openMenu(
+        WidgetTester tester, String fieldName) async {
+      final editing = PdfEditingController(buildAcroFormPdf());
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () => showPdfFormFieldMenu(
+                  context: context,
+                  position: const Offset(200, 200),
+                  controller: editing,
+                  fieldName: fieldName,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return editing;
+    }
+
+    testWidgets('a text field rules off edit, structure, and delete',
+        (tester) async {
+      await openMenu(tester, 'name');
+      expect(
+          find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-form-menu-flatten')), findsOneWidget);
+      // edit (value + style) | rename/convert | delete/flatten
+      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
+    });
   });
 
   group('text context menu (mouse)', () {
     // a plain reader (no editing controller); fixture text 'Page 1' sits
     // at 72,720 in 24pt Helvetica ('Page' spans x 72..120)
-    Future<PdfViewerController> pumpReader(WidgetTester tester) async {
+    Future<PdfViewerController> pumpReader(WidgetTester tester,
+        {PdfTextMenuBuilder? textMenuBuilder, Uint8List? document}) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: PdfViewer(
             initialFit: PdfViewerFit.width,
-            document: PdfDocument.open(buildMultiPagePdf(1)),
+            document: PdfDocument.open(document ?? buildMultiPagePdf(1)),
             controller: controller,
+            textMenuBuilder: textMenuBuilder,
           ),
         ),
       ));
@@ -283,6 +574,7 @@ void main() {
         pumpEditor(
       WidgetTester tester, {
       PdfStyledTextPrompt? styledTextPrompt,
+      PdfTextMenuBuilder? textMenuBuilder,
     }) async {
       final viewer = PdfViewerController();
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -298,6 +590,7 @@ void main() {
               controller: viewer,
               editing: editing,
               editingStyledTextPrompt: styledTextPrompt,
+              textMenuBuilder: textMenuBuilder,
             ),
           ),
         ),
@@ -327,6 +620,57 @@ void main() {
       final copy = tester.widget<PopupMenuItem>(
           find.byKey(const ValueKey('pdf-text-menu-copy')));
       expect(copy.enabled, isTrue);
+    });
+
+    testWidgets('the text menu is anchored in an offset navigator overlay',
+        (tester) async {
+      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            const SizedBox(width: 220),
+            Expanded(
+              child: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    body: PdfViewer(
+                      initialFit: PdfViewerFit.width,
+                      document: PdfDocument.open(buildMultiPagePdf(1)),
+                      controller: controller,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      const navigatorLeft = 220.0;
+      const nestedScale = (1000 - navigatorLeft) / 612;
+      final clickPosition = Offset(
+        navigatorLeft + 100 * nestedScale,
+        (792 - 720) * nestedScale,
+      );
+      await rightClick(tester, clickPosition);
+
+      final menuPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('pdf-text-menu-copy')),
+      );
+      expect(
+        (menuPosition.dx - clickPosition.dx).abs(),
+        lessThan(100),
+        reason: 'The nested overlay origin must not be added twice.',
+      );
+
+      await tester.tapAt(const Offset(900, 1200));
+      await tester.pumpAndSettle();
     });
 
     testWidgets('Copy puts the selection on the system clipboard',
@@ -416,6 +760,205 @@ void main() {
           .join();
       expect(text, 'Document 1');
       expect(state.viewer.hasSelection, isFalse);
+    });
+
+    testWidgets('host text entries ride below a divider and get the request',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final controller = await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-record'),
+            label: 'Link to a record',
+            icon: Icons.link,
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720)); // 'Page'
+      expect(controller.selectedText, 'Page');
+      // stock (Copy | Select all) then the host's group below the divider
+      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      expect(find.text('Link to a record'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('host-link-record')));
+      await tester.pumpAndSettle();
+
+      expect(received, isNotNull);
+      expect(received!.controller, isNull, reason: 'plain reader');
+      expect(received!.pageIndex, 0);
+      expect(received!.selectedText, 'Page');
+      expect(received!.hasSelection, isTrue);
+      expect(received!.selectionPages, [0]);
+      expect(received!.quadsByPage.keys, [0]);
+      expect(received!.quadsByPage[0], isNotEmpty);
+      // the click point, in PDF page coordinates
+      expect(received!.pagePoint.$1, closeTo(100, 1));
+      expect(received!.pagePoint.$2, closeTo(720, 1));
+    });
+
+    testWidgets('a disabled host entry cannot be picked', (tester) async {
+      var picked = false;
+      await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-disabled'),
+            label: 'Link to a record',
+            enabled: false,
+            onSelected: (request) => picked = true,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      final item = tester
+          .widget<PopupMenuItem>(find.byKey(const ValueKey('host-disabled')));
+      expect(item.enabled, isFalse);
+      await tester.tap(find.byKey(const ValueKey('host-disabled')));
+      await tester.pumpAndSettle();
+      expect(picked, isFalse);
+      expect(find.text('Link to a record'), findsOneWidget,
+          reason: 'a disabled row does not close the menu');
+    });
+
+    testWidgets('host entries still show with nothing selected',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final controller = await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-no-selection'),
+            label: 'Link to this page',
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(450, 400)); // no text here
+      expect(controller.hasSelection, isFalse);
+      await tester.tap(find.byKey(const ValueKey('host-no-selection')));
+      await tester.pumpAndSettle();
+
+      expect(received, isNotNull);
+      expect(received!.hasSelection, isFalse);
+      expect(received!.selectedText, isEmpty);
+      expect(received!.selectionPages, isEmpty);
+      expect(received!.quadsByPage, isEmpty);
+    });
+
+    testWidgets('the editor menu keeps its stock entries above the host ones',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final state = await pumpEditor(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-record'),
+            label: 'Link to a record',
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-menu-highlight')),
+          findsOneWidget);
+      // markup | copy+select-all | host
+      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
+
+      await tester.tap(find.byKey(const ValueKey('host-link-record')));
+      await tester.pumpAndSettle();
+      expect(identical(received!.controller, state.editing), isTrue);
+      expect(received!.selectedText, 'Page');
+      expect(received!.quadsByPage[0], isNotEmpty);
+    });
+
+    testWidgets('the host entry keeps the selection the menu opened on',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      final controller = await pumpReader(
+        tester,
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-record'),
+            label: 'Link to a record',
+            onSelected: (request) async => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      // the selection moves on while the menu is open; the picked entry
+      // must still act on what the user right-clicked
+      controller.selectAllTextOn(0);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('host-link-record')));
+      await tester.pumpAndSettle();
+
+      expect(received!.selectedText, 'Page');
+      expect(controller.selectedText, 'Page 1');
+    });
+
+    testWidgets('a page with no text at all opens no menu', (tester) async {
+      // an empty content stream: nothing to select and nothing to Select all,
+      // so every stock entry would be dead and the menu stays shut
+      final controller =
+          await pumpReader(tester, document: buildTextLinesPdf(const []));
+
+      await rightClick(tester, viewPoint(300, 400));
+      expect(controller.hasSelection, isFalse);
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')), findsNothing);
+    });
+
+    testWidgets('host entries alone open the menu on a page with no text',
+        (tester) async {
+      PdfTextMenuRequest? received;
+      await pumpReader(
+        tester,
+        document: buildTextLinesPdf(const []),
+        textMenuBuilder: (context, request) => [
+          PdfTextMenuItem(
+            key: const ValueKey('host-link-page'),
+            label: 'Link to a record',
+            onSelected: (request) => received = request,
+          ),
+        ],
+      );
+
+      await rightClick(tester, viewPoint(300, 400));
+      // the stock rows come along, both dead; the host's is the live one
+      final copy = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-copy')));
+      expect(copy.enabled, isFalse);
+      final all = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')));
+      expect(all.enabled, isFalse);
+
+      await tester.tap(find.byKey(const ValueKey('host-link-page')));
+      await tester.pumpAndSettle();
+      expect(received, isNotNull);
+      expect(received!.hasSelection, isFalse);
+      expect(received!.pageIndex, 0);
+    });
+
+    testWidgets('selectAllTextOn selects a page and ignores a bad index',
+        (tester) async {
+      final controller = await pumpReader(tester);
+
+      controller.selectAllTextOn(0);
+      await tester.pump();
+      expect(controller.selectedText, 'Page 1');
+
+      controller.selectAllTextOn(7); // out of range: selection untouched
+      await tester.pump();
+      expect(controller.selectedText, 'Page 1');
     });
   });
 }

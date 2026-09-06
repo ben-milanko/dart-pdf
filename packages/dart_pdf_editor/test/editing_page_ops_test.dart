@@ -74,6 +74,116 @@ void main() {
     });
   });
 
+  group('viewer position across page edits', () {
+    Future<(PdfEditingController, PdfViewerController)> pumpViewer(
+      WidgetTester tester,
+    ) async {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            editing: editing,
+            controller: viewer,
+            initialFit: PdfViewerFit.width,
+            pagePreviews: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+      viewer.restoreViewport(
+        const PdfViewport(page: 3, top: 0.18, left: 0.12, zoom: 1.5),
+      );
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      return (editing, viewer);
+    }
+
+    void expectViewport(
+      PdfEditingController editing,
+      PdfViewerController viewer, {
+      required int page,
+      required String label,
+    }) {
+      final viewport = viewer.captureViewport();
+      expect(viewport, isNotNull);
+      expect(viewport!.page, page);
+      expect(viewer.currentPage, page);
+      expect(labelOf(editing.document, page), label);
+      expect(viewport.top, closeTo(0.18, 0.02));
+      expect(viewport.left, closeTo(0.12, 0.02));
+      expect(viewport.zoom, closeTo(1.5, 0.02));
+    }
+
+    testWidgets('adding pages keeps the current page and zoom',
+        (tester) async {
+      final (editing, viewer) = await pumpViewer(tester);
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+
+      editing.addBlankPage(at: 1);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 4, label: 'Page 4');
+
+      editing.addBlankPage();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 4, label: 'Page 4');
+    });
+
+    testWidgets('deleting pages keeps the nearest surviving view',
+        (tester) async {
+      final (editing, viewer) = await pumpViewer(tester);
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+
+      // A deletion before the viewport follows the same page to its new slot.
+      editing.removePage(0);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 2, label: 'Page 4');
+
+      // Deleting the viewed page keeps its position and shows the page that
+      // moved into that slot instead of returning to page 1.
+      editing.removePage(2);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 2, label: 'Page 5');
+
+      // At the end of the document the previous page is the nearest survivor.
+      editing.removePage(2);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 1, label: 'Page 3');
+    });
+
+    testWidgets('reordering pages follows the viewed page by identity',
+        (tester) async {
+      final (editing, viewer) = await pumpViewer(tester);
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+
+      editing.movePage(3, 0);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 0, label: 'Page 4');
+
+      editing.undo();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+    });
+
+    test('render stamps follow stable pages through reorder and undo', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(20, 20, 80, 80));
+      final changedStamp = editing.pageRenderStamp(0);
+      final cleanStamp = editing.pageRenderStamp(1);
+      expect(changedStamp, greaterThan(cleanStamp));
+
+      editing.movePage(0, 1);
+      expect(editing.pageRenderStamp(1), changedStamp);
+      expect(editing.pageRenderStamp(0), cleanStamp);
+
+      editing.undo();
+      expect(editing.pageRenderStamp(0), changedStamp);
+      expect(editing.pageRenderStamp(1), cleanStamp);
+    });
+  });
+
   group('duplicatePages', () {
     test('copies one page right after itself', () {
       final editing = PdfEditingController(buildMultiPagePdf(3));
@@ -227,6 +337,53 @@ void main() {
       editing.selectAllPages();
       expect(editing.removeSelectedPages(), isFalse);
       expect(editing.document.pageCount, 3);
+    });
+
+    test('dragging a selected page reorders the whole selection', () {
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      editing.togglePageSelection(3);
+
+      editing.movePage(1, 4);
+
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 3', 'Page 5', 'Page 6', 'Page 2', 'Page 4']);
+      expect(editing.selectedPages, [4, 5]);
+      expect(editing.pageSelectionAnchor, 4);
+      editing.undo();
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5', 'Page 6']);
+    });
+
+    test('a selected-page reorder preserves order and clamps at an edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      addTearDown(editing.dispose);
+      editing.selectPage(2);
+      editing.togglePageSelection(4);
+
+      // Page 5 is the dragged member, so it cannot itself land at zero while
+      // Page 3 remains before it. Clamp the two-page block instead.
+      editing.movePage(4, 0);
+
+      expect(labelsOf(editing.document),
+          ['Page 3', 'Page 5', 'Page 1', 'Page 2', 'Page 4', 'Page 6']);
+      expect(editing.selectedPages, [0, 1]);
+      expect(editing.pageSelectionAnchor, 1);
+    });
+
+    test('dropping a selected page on its selection is a no-op', () {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      editing.togglePageSelection(3);
+
+      editing.movePage(1, 3);
+
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5']);
+      expect(editing.selectedPages, [1, 3]);
+      expect(editing.isModified, isFalse);
     });
 
     test('a structural page edit clears the selection', () {
@@ -590,6 +747,74 @@ void main() {
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
+    testWidgets('Delete removes the strip selection', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(editing.selectedPages, [1, 2]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(labelsOf(editing.document), ['Page 1', 'Page 4', 'Page 5']);
+      expect(editing.hasPageSelection, isFalse);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('Backspace deletes the keyboard page when nothing is selected',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      // land the keyboard cursor on page 2, then clear the selection so only
+      // the navigation cursor remains
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      editing.clearPageSelection();
+      await tester.pump();
+      expect(editing.hasPageSelection, isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+      expect(labelsOf(editing.document), ['Page 1', 'Page 3', 'Page 4']);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
     testWidgets('ctrl-click toggles pages into the selection', (tester) async {
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
@@ -799,6 +1024,50 @@ void main() {
       expect(find.byIcon(Icons.check), findsNothing);
       await tester.pump(const Duration(seconds: 2));
     });
+
+    testWidgets('multi-page reorder shows a count and dims companion pages',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+      editing.selectPage(1);
+      editing.selectPageRange(2);
+      await tester.pump();
+
+      final list = tester.widget<ReorderableListView>(
+        find.byType(ReorderableListView),
+      );
+      list.onReorderStart!(1);
+      await tester.pump();
+      final companion = tester.widget<Opacity>(
+        find.byKey(const ValueKey('pdf-thumbnail-reorder-companion-2')),
+      );
+      expect(companion.opacity, 0.35);
+
+      final proxy = list.proxyDecorator!(
+        const SizedBox(width: 100, height: 100),
+        1,
+        const AlwaysStoppedAnimation(1),
+      );
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: proxy)));
+      expect(find.byKey(const ValueKey('pdf-thumbnail-reorder-count')),
+          findsOneWidget);
+      expect(find.text('2 pages'), findsOneWidget);
+    });
   });
 
   group('thumbnail context menu', () {
@@ -945,6 +1214,56 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
+    testWidgets('⌘V paste reveals the new page instead of jumping to the top',
+        (tester) async {
+      // Structural edits preserve the existing view by default. Pasting from
+      // the strip intentionally overrides that anchor and reveals the pages
+      // that were just pasted.
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditorView(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // copy page 1, then select a lower page as the paste anchor
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      await tester.tap(find.text('Page 4'));
+      await tester.pump();
+      expect(editing.selectedPages, [3]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      // pasted after page 4 (index 3) -> the copy lands at index 4
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 1', 'Page 5',
+              'Page 6']);
+      // the viewer (and the strip that follows it) lands on the pasted page,
+      // not back at the top
+      expect(viewer.currentPage, 4);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('the menu exports the right-clicked page to the host',
         (tester) async {
       Uint8List? exported;
@@ -958,6 +1277,64 @@ void main() {
       expect(labelsOf(PdfDocument.open(exported!)), ['Page 3']);
       // the document itself is untouched by an export
       expect(editing.document.pageCount, 4);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('the menu is anchored in an offset navigator overlay',
+        (tester) async {
+      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            const SizedBox(width: 220),
+            Expanded(
+              child: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    body: Row(children: [
+                      PdfThumbnailSidebar(
+                        controller: editing,
+                        viewerController: viewer,
+                        allowPageEditing: false,
+                        onExportPages: (_) {},
+                      ),
+                      const Expanded(child: SizedBox()),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      final clickPosition = tester.getCenter(find.text('Page 1'));
+      await tester.tapAt(
+        clickPosition,
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+
+      final menuPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('pdf-thumbnail-menu-export')),
+      );
+      expect(
+        (menuPosition.dx - clickPosition.dx).abs(),
+        lessThan(100),
+        reason: 'The nested overlay origin must not be added twice.',
+      );
+
+      await tester.tapAt(const Offset(900, 1200));
+      await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 2));
     });
 

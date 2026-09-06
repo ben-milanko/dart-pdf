@@ -1,73 +1,62 @@
-# Snapshot copy/paste between tabs + Bluebeam interchange
+# Snapshot PDF interchange and desktop clipboard (#168)
 
-Two asks: let the Snapshot tool's captured region move **between open
-tabs**, and make snapshots **interoperate with Bluebeam** (paste our
-snapshot into Bluebeam as vectors, and import one copied out of it).
+Completed against current main on 2026-09-06. The shared snapshot clipboard
+had already landed in main: controllers use `PdfSnapshotClipboard.instance`
+by default, with an injectable private clipboard when isolation is needed.
+This completion preserves that API and the per-document captured-form cache.
 
-## What shipped
+## Portable PDF API
 
-### A portable interchange for `PdfVectorSnapshot` (pdf_document)
+- `PdfVectorSnapshot.toPdfBytes()` writes one page sized to the captured
+  region, with its display rotation baked into content. Nested streams are
+  indirect objects, resource number precision is retained, and source images
+  keep their encoding. Exporting does not mutate the detached snapshot.
+- `PdfVectorSnapshot.fromPdfBytes(bytes, password: ...)` captures the first
+  page's crop box. Zero-page, unreadable, or empty-sized inputs are rejected.
+- `PdfSnapshot.pdfBytes` exposes export on the Snapshot handler payload.
+- `PdfEditingController.pasteSnapshotBytes` imports and pastes one editable
+  vector Stamp in one undo step. Invalid input or a missing destination leaves
+  the document and clipboards alone. Repeat imports reuse the captured form.
 
-The snapshot already detaches a page region as inline vector graphics
-(`vector_snapshot.dart`), but it lived only in memory. Added:
+The capture retains the source page content behind a region clip; it is not
+redaction. It captures page content, not separate annotation appearances.
 
-- `PdfVectorSnapshot.toPdfBytes()` — serializes the snapshot as a
-  self-contained **single-page PDF** whose page *is* the captured region
-  (MediaBox `[0 0 displayWidth displayHeight]`, /Rotate already baked into
-  the content, resources hoisted to indirect objects). Built with
-  `CosDocumentBuilder` (pdf_cos's from-scratch writer). This is the same
-  shape Bluebeam's Snapshot exchanges — a small PDF of the region — so the
-  bytes paste into Bluebeam as vectors. Hosts put them on the OS clipboard
-  as `application/pdf`.
-- `PdfVectorSnapshot.fromPdfBytes(bytes)` — re-imports one: opens the PDF
-  and captures the whole first page's crop box as a snapshot (so a region
-  copied out of Bluebeam, or any single-page PDF, round-trips back in).
-- `_hoistBuilderStreams` — the `CosDocumentBuilder` counterpart of the
-  updater's `_hoistStreams` (inline streams in /Resources must become
-  indirect objects, §7.3.8, before the page references them).
+## Desktop clipboard
 
-Round-trip is covered in `vector_snapshot_test.dart` (toPdfBytes writes a
-one-page PDF sized to the region; fromPdfBytes re-imports and pastes the
-captured vectors).
+The app's existing method channel now offers PDF and PNG in one update:
 
-### Snapshot clipboard shared across sessions (dart_pdf_editor)
+| Platform | PDF representation | Image fallback |
+| --- | --- | --- |
+| macOS | AppKit `.pdf` (`com.adobe.pdf`) | `.png` |
+| Windows | `application/pdf`, `Portable Document Format` | PNG, DIBV5 |
+| Linux | GTK `application/pdf` selection target | `image/png` |
 
-Each tab owns its own `PdfEditingController`, and the snapshot clipboard
-was a private field on it — so a region copied in one tab was invisible to
-the next. Introduced `PdfSnapshotClipboard` (a tiny `ChangeNotifier`
-holding the current `PdfVectorSnapshot?`), mirroring how `preferences`
-are injected:
+Native ownership tracking ignores this process's own snapshot write, so
+cross-tab Paste uses the original detached snapshot and its reuse/cascade
+bookkeeping. `PdfClipboardPdf.changeToken` carries the native clipboard
+revision; once that revision has been pasted it yields to subsequent local
+copies. A new external revision wins even when its PDF bytes are identical.
+`systemPdfPasteProvider` is forwarded through both editor-shell constructors
+and split panes. Keyboard and context-menu Paste read PDF before local
+annotations/snapshots, then image/text fallback. Merely opening a context menu
+does not access the system clipboard. Pending PDF reads are discarded when
+the destination viewer closes, changes sessions, or moves to another revision.
+Web and mobile retain their PNG clipboard transport.
 
-- `PdfEditingController(..., PdfSnapshotClipboard? snapshotClipboard)`.
-  Passed one → shares it; omitted → keeps a private one (single-document
-  hosts and every existing test need no change). The controller listens to
-  it and re-notifies, so a copy in tab A lights up tab B's paste
-  affordance. Only a *private* clipboard is disposed with the controller.
-- Per-document bookkeeping (`_snapshotCapturedRef`, `_snapshotPasteCount`)
-  stays local; `pasteSnapshot` resets it when the shared clipboard has
-  moved to a snapshot this session hasn't pasted (`_lastPastedSnapshot`)
-  — otherwise tab B would reuse tab A's captured-form object number, which
-  doesn't exist in tab B's document.
-- `pasteSnapshotBytes(pdfBytes, page, {at})` — imports an interchange PDF
-  (e.g. read off the OS clipboard from us or Bluebeam) onto the clipboard
-  and pastes it. The import primitive for the cross-application direction.
-- `PdfSnapshot.pdfBytes` getter exposes `vector.toPdfBytes()` on the
-  handler payload so `PdfViewer.onSnapshot` hosts can write it to the OS
-  clipboard.
+## Interoperability limit
 
-### App wiring (app/)
+PDF clipboard exchange works with applications that offer/accept the PDF
+formats above. Bluebeam-specific vector exchange is **not verified**. The
+original PR's universal Bluebeam claim was too strong: [Bluebeam's Snapshot
+documentation](https://support.bluebeam.com/user-manual/menus/edit/snapshot.html)
+describes raster output when pasting into other applications. PNG fallback is
+retained for consumers that do not accept PDF data.
 
-`EditorScreen` owns one `PdfSnapshotClipboard` (like `_prefs`) and passes
-it to every `DocumentTab.document(...)`, so snapshots copy/paste between
-tabs end-to-end. (The Snapshot tool fills the vector clipboard on drag
-regardless of an `onSnapshot` handler, so cross-tab paste works in the app
-today.)
+## Validation
 
-## Left for the host
-
-Writing/reading the actual OS clipboard in **binary** (`application/pdf`
-on macOS/Windows/X11) needs a platform clipboard plugin — Flutter's
-framework `Clipboard` is text-only, and `lib/` is `dart:io`-free. The
-library now produces/consumes the interchange bytes (`pdfBytes` /
-`pasteSnapshotBytes`); the app's last-mile OS-clipboard transport for
-true Bluebeam exchange is a follow-up that adds such a plugin.
+Snapshot serialization, rotation, resources, invalid input, encryption,
+controller undo/shared-clipboard behavior, keyboard/menu paste precedence,
+app wiring, and tab regressions are covered by Dart/Flutter tests.
+`app/tool/test_snapshot_clipboard.swift` exercises real AppKit PDF/PNG transfer
+and ownership changes on a private pasteboard, without altering the user's
+clipboard. CI runs it on macOS and builds the desktop runners.

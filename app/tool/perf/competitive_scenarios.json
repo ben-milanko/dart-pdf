@@ -1,0 +1,151 @@
+{
+  "_readme": "Common user journeys for competitive.mjs. Every engine receives the same PDF bytes, cold browser profile, viewport, page targets, zoom levels, visual-stability rule, and iteration order. Ratios are dart-pdf/PDFium (lower is better). Budgets define PDFium-class as <=15% slower at p50, <=25% slower at p95, and <=25% higher whole-browser RSS; use --gate only on controlled hardware.",
+  "default": "parity-plan",
+  "budgets": {
+    "openP50": 1.15,
+    "openP95": 1.25,
+    "navigationP50": 1.15,
+    "navigationP95": 1.25,
+    "zoomP50": 1.15,
+    "zoomP95": 1.25,
+    "scrollP50": 1.15,
+    "scrollP95": 1.25,
+    "scrollRafP95": 1.25,
+    "rssP50": 1.25
+  },
+  "scenarios": {
+    "parity-plan": {
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "pages": [0, 4, 8, 15, 7, 1],
+      "zooms": [2, 1, 3, 1],
+      "scrolls": [
+        {"deltaY": 4200, "steps": 18, "intervalMs": 16},
+        {"deltaY": -4200, "steps": 18, "intervalMs": 16}
+      ],
+      "surfaceBudgets": {
+        "maxDifferenceFraction": 0.66,
+        "maxMeanAbsoluteChannelError": 54,
+        "minForegroundRecall": 0.99,
+        "minForegroundPrecision": 0.995,
+        "minForegroundCoverageRatio": 0.85,
+        "maxForegroundCoverageRatio": 1.08
+      },
+      "note": "Heavy vector plans (~70k operations/page): cold open, long and short page jumps, zoom refinement, and retained-memory pressure."
+    },
+    "parity-scan": {
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "pages": [0, 3, 6, 11, 5, 1],
+      "zooms": [2, 1, 3, 1],
+      "scrolls": [
+        {"deltaY": 4200, "steps": 18, "intervalMs": 16},
+        {"deltaY": -4200, "steps": 18, "intervalMs": 16}
+      ],
+      "surfaceBudgets": {
+        "maxDifferenceFraction": 0.1,
+        "maxMeanAbsoluteChannelError": 5,
+        "minForegroundRecall": 0.9,
+        "minForegroundPrecision": 0.93,
+        "minForegroundCoverageRatio": 0.5,
+        "maxForegroundCoverageRatio": 1.3
+      },
+      "note": "A3 grayscale scans (~3.7 MB decoded/page): image decode, upload, cache, and zoom re-decode behavior."
+    },
+    "parity-text": {
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "pages": [0, 9, 19, 39, 20, 1],
+      "zooms": [1.5, 1, 2, 1],
+      "scrolls": [
+        {"deltaY": 4200, "steps": 18, "intervalMs": 16},
+        {"deltaY": -4200, "steps": 18, "intervalMs": 16}
+      ],
+      "searches": [
+        "Matrix quadrant layout raster header",
+        "Workflow trailer trailer notation header"
+      ],
+      "budgets": {
+        "searchColdP50": 1.15,
+        "searchColdP95": 1.25,
+        "searchWarmP50": 1.15,
+        "searchWarmP95": 1.25
+      },
+      "surfaceBudgets": {
+        "maxDifferenceFraction": 0.3,
+        "maxMeanAbsoluteChannelError": 28,
+        "minForegroundRecall": 0.98,
+        "minForegroundPrecision": 0.98,
+        "minForegroundCoverageRatio": 0.85,
+        "maxForegroundCoverageRatio": 1.2
+      },
+      "surfaceComparison": {
+        "foregroundRadius": 2
+      },
+      "note": "Forty-page office-style text report: page-tree/open cost, glyph-heavy navigation, sustained scrolling, moderate zoom, and cold/warm full-document text queries."
+    },
+    "parity-diagram": {
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "pages": [0, 2, 1, 0],
+      "zooms": [2, 1, 3, 1],
+      "scrolls": [
+        {"deltaY": 1800, "steps": 18, "intervalMs": 16},
+        {"deltaY": -1800, "steps": 18, "intervalMs": 16}
+      ],
+      "surfaceBudgets": {
+        "maxDifferenceFraction": 0.78,
+        "maxMeanAbsoluteChannelError": 50,
+        "minForegroundRecall": 0.995,
+        "minForegroundPrecision": 0.995,
+        "minForegroundCoverageRatio": 0.93,
+        "maxForegroundCoverageRatio": 1.06
+      },
+      "note": "Ultra-dense vector diagram (~270k operations/page): tokenizer/interpreter saturation and zoom repaint latency."
+    },
+    "parity-long-cad": {
+      "pdf": "tool/perf/cache/cad-138-6000-20260718.pdf",
+      "prepare": "tool/perf/gen_perf_docs.sh",
+      "pages": [0, 34, 68, 137, 103, 69, 1],
+      "zooms": [1.5, 1],
+      "scrolls": [
+        {"deltaY": 12000, "steps": 24, "intervalMs": 16},
+        {"deltaY": -12000, "steps": 24, "intervalMs": 16}
+      ],
+      "scrubs": [0.25, 0.5, 0.75, 1, 0.33, 0.66, 0],
+      "warmReopen": true,
+      "memorySampleIntervalMs": 250,
+      "memorySettleMs": 2000,
+      "budgets": {
+        "warmOpenP50": 1.15,
+        "warmOpenP95": 1.25,
+        "scrubP50": 1.15,
+        "scrubP95": 1.25,
+        "scrubRafP95": 1.25,
+        "settledRssP50": 1.25
+      },
+      "note": "Deterministic 138-page A1 CAD set modeled on a profiled rail-plan workload: far/near jumps, real normalized scrollbar scrubs, warm same-process reopen, and continuously sampled peak plus settled memory."
+    },
+    "parity-progressive-cad": {
+      "pdf": "tool/perf/cache/cad-138-6000-20260718.pdf",
+      "prepare": "tool/perf/gen_perf_docs.sh",
+      "transport": "range",
+      "pages": [],
+      "zooms": [],
+      "scrolls": [],
+      "inheritBudgets": false,
+      "budgets": {
+        "documentOpenP50": 1.15,
+        "documentOpenP95": 1.25,
+        "fullyLoadedP50": 1.25,
+        "fullyLoadedP95": 1.5,
+        "openTransferP50": 1.25,
+        "openTransferP95": 1.25,
+        "totalTransferP50": 1.25,
+        "totalTransferP95": 1.25,
+        "openRequestP50": 8,
+        "openRequestP95": 8,
+        "totalRequestP50": 8,
+        "totalRequestP95": 8,
+        "rssP50": 1.25
+      },
+      "note": "Matched HTTP Range document open of the 138-page CAD document: sparse page-one paint, background full-buffer handoff, request and byte amplification, full-load latency, and browser memory versus PDFium. Navigation-to-visual remains a reported app-bootstrap diagnostic; parity gates begin at the first PDF request so Flutter application startup is not mislabeled as document-open work."
+    }
+  }
+}

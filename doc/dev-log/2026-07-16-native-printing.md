@@ -1,0 +1,129 @@
+# Native printing on every platform; drop `printing` / PDFium
+
+## Symptom
+
+Printing crashed the whole app on Windows.
+
+## Root cause
+
+The app handed the document bytes to the `printing` plugin
+(`Printing.layoutPdf`). Its desktop backend spools by rendering the PDF
+through a **bundled PDFium** (`FPDF_LoadMemDocument64` + `FPDF_RenderPage`).
+PDFium is a strict, third-party rasteriser, and a render-time access
+violation inside it takes down the process - a native crash Dart's
+`try/catch` cannot catch. This engine is deliberately *lenient* and opens
+broken-but-renderable files that PDFium chokes on, so a document that
+displays fine here crashes when handed to the plugin.
+
+## Fix
+
+Remove the `printing` dependency (and thus PDFium) entirely and print
+through each platform's **own** print system, feeding it pages this engine
+renders itself. PDFium is gone on every platform.
+
+### Uniform protocol
+
+One method channel, `dev.milanko.dartpdf/native_print`, with the same
+contract everywhere:
+
+- `beginJob({name})` → resets the job, returns a target `{dpi}`.
+- `printPage({image})` → one page as JPEG bytes; the runner accumulates it.
+- `endJob()` → shows the platform print UI and prints the accumulated pages;
+  returns false if the user cancels.
+- `cancelJob()` → discards the accumulated pages.
+
+The Dart side (`app/lib/native_print_io.dart`, `printDocumentPages`) renders
+each page with our own engine (`PdfPageExport`, JPEG at the returned dpi) and
+streams it. `native_print_web.dart` is the browser path (render to PNG, lay
+out in a hidden iframe, `window.print()`); `native_print.dart` picks io vs web
+by conditional import, mirroring `image_clipboard.dart`. `printing.dart` just
+opens the document and calls `printDocumentPages`.
+
+### Per-platform runners (all accumulate JPEGs, print at `endJob`)
+
+- **Windows** (`windows/runner/native_print.cpp`): `PrintDlg` → `StartDoc`;
+  each page decoded with WIC (as `image_clipboard.cpp` already does) and
+  blitted with `StretchDIBits`; `EndDoc`. Links `comdlg32`/`gdi32`.
+- **macOS** (`macos/Runner/MainFlutterWindow.swift`): an `NSView` that draws
+  one image per page, run through `NSPrintOperation`.
+- **iOS** (`ios/Runner/AppDelegate.swift`): `UIPrintInteractionController` with
+  the JPEG `Data` array as `printingItems` (channel registered off the
+  implicit engine's plugin registrar).
+- **Android** (`MainActivity.kt`): `PrintManager` + a `PrintDocumentAdapter`
+  that draws the bitmaps into the framework's own `android.graphics.pdf.
+  PdfDocument` (the OS engine, not a bundled PDFium).
+- **Linux** (`linux/runner/my_application.cc`): `GtkPrintOperation`; each page
+  decoded with `GdkPixbufLoader` and painted onto the Cairo print context.
+
+Each runner registers the channel next to its existing ones (incoming-file,
+image-clipboard), so no new plugin plumbing.
+
+Tradeoff: prints are 300-dpi rasters (200 on web), not vector - no selectable
+text in the spool, slightly larger jobs - but they print instead of crashing,
+and the same broken-but-renderable inputs this engine opens now print too.
+
+## Retained utility
+
+`rasterizePdfForPrinting` (dart_pdf_editor) - flatten a document to an
+image-only PDF - stays as a public utility with its test, though the app no
+longer routes printing through it.
+
+## Vector printing (later in the session)
+
+The first cut rasterised every page on every platform - portable, but it loses
+selectable text, bloats jobs, and (the real complaint) is *slow*, because it
+renders and JPEG-encodes the whole document up front. Switched to letting the
+OS print the PDF's own vector content where it can:
+
+- The channel gained a `printPdf(name, pdf)` method. `printDocumentPages` now
+  takes the raw PDF bytes and tries `printPdf` first; a `MissingPluginException`
+  (the runner returned not-implemented) drops it onto the raster path.
+- **iOS** (`AppDelegate`): `UIPrintInteractionController.printingItem = pdfData`.
+- **macOS** (`MainFlutterWindow`): `PDFKit.PDFDocument(data:).printOperation(...)`.
+- **Android** (`MainActivity`): a `PrintDocumentAdapter` that writes the PDF
+  bytes straight to the print fd - the framework renders it.
+- **web** (`native_print_web.dart`): load the PDF into a hidden iframe as a
+  `blob:` URL and `window.print()` - the browser renders it.
+- **Windows/Linux**: no native PDF-print API (the reason the plugin bundled
+  PDFium), so they don't implement `printPdf` and keep the raster path. The
+  runner's existing not-implemented `else` branch is all that's needed - no
+  Windows/Linux code changed.
+
+So four platforms print vector (crisp, selectable, and *fast* - no
+rasterising), two stay raster. The old per-platform raster runners (the macOS
+`ImagePrintView`, the Android image `PrintDocumentAdapter`, the iOS image
+accumulation) were replaced by the one-shot `printPdf` handlers.
+
+Windows/Linux vector would need our interpreter to emit to GDI / Cairo (or a
+PDF→XPS path on Windows) - still tracked in #303.
+
+## Follow-ups
+
+- Large documents made the app unresponsive while printing: the loop renders
+  and JPEG-encodes every page on the UI isolate (the encode is synchronous), so
+  a big doc holds the isolate too long. `printDocumentPages` now yields
+  (`await Future.delayed(Duration.zero)`) before each page so the engine can
+  service input and paint between pages. Fuller offloading (encode in an
+  isolate) is possible future work.
+- Print progress: `printDocumentPages` takes an `onProgress(rendered, total)`
+  callback (fired per page); the editor shows a modal `PrintProgressDialog`
+  ("Rendering page X of Y") for multi-page jobs, dismissed when rendering
+  finishes and before the OS print dialog opens. Small jobs skip it (no flash).
+- Rasterising every page up front is also the print path's main *performance*
+  cost (not just a quality limit), which strengthens the case for the vector
+  print work in #303.
+- Rasterized output loses selectable text and is heavier than vector - tracked
+  as a follow-up enhancement (#303) to print vector content without
+  reintroducing a third-party PDF engine.
+
+## Validation
+
+- Dart is fully checked: `dart analyze --fatal-infos` clean; app + dart_pdf_
+  editor suites green. `native_print_io_test.dart` mocks the channel and
+  asserts the begin/stream/end handshake, cancel, missing-plugin, and
+  page-rejection paths; `printing_test.dart` drives `printPdfBytes` end to end
+  through the mocked channel; `print_rasterize_test.dart` covers the utility.
+- The native runner code (Swift/Kotlin/C++/GTK) could not be compiled in this
+  environment, and PR CI builds only web + Dart on Ubuntu - it does not
+  compile the desktop/mobile runners. **Validate each platform's build and a
+  real print on device/CI before release.**

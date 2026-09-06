@@ -3,10 +3,14 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
+import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_signature.dart';
@@ -31,6 +35,35 @@ const _monthNames = [
   'Dec',
 ];
 
+/// The abbreviated month name for [month] (1-12) in [localeName], falling back
+/// to the bundled English abbreviations.
+///
+/// `localeName == null` keeps the English default (the behavior for hosts that
+/// never register the localization delegate). When a locale is given but its
+/// `intl` date symbols aren't loaded yet - e.g. a plain unit test that never
+/// registered `flutter_localizations` - the lookup throws and we fall back to
+/// English rather than crash the stamp.
+String _monthAbbr(int month, String? localeName) {
+  if (localeName == null) return _monthNames[month - 1];
+  try {
+    return intl.DateFormat.MMM(localeName).format(DateTime(2000, month));
+  } catch (_) {
+    return _monthNames[month - 1];
+  }
+}
+
+/// The localized AM/PM marker for [value] in [localeName], falling back to
+/// English `AM`/`PM` (see [_monthAbbr] for the fallback rationale).
+String _dayPeriod(DateTime value, String? localeName) {
+  final fallback = value.hour < 12 ? 'AM' : 'PM';
+  if (localeName == null) return fallback;
+  try {
+    return intl.DateFormat('a', localeName).format(value);
+  } catch (_) {
+    return fallback;
+  }
+}
+
 /// Date formats used by the built-in `{{date}}` and `{{datetime}}` stamp
 /// template fields.
 enum PdfStampDateFormat {
@@ -40,11 +73,17 @@ enum PdfStampDateFormat {
   dayMonthNameYear,
   monthNameDayYear;
 
-  String format(DateTime value) {
+  /// Formats [value] for the stamp `{{date}}` field.
+  ///
+  /// [localeName] localizes the spelled-out month name (`dayMonthNameYear` /
+  /// `monthNameDayYear`); null keeps English. Numeric shapes ([iso] and the
+  /// slash forms) stay ASCII digits regardless - `iso` in particular is a
+  /// fixed technical format, not a localized one.
+  String format(DateTime value, {String? localeName}) {
     final year = _fourDigits(value.year);
     final month = _twoDigits(value.month);
     final day = _twoDigits(value.day);
-    final monthName = _monthNames[value.month - 1];
+    final monthName = _monthAbbr(value.month, localeName);
     return switch (this) {
       PdfStampDateFormat.iso => '$year-$month-$day',
       PdfStampDateFormat.dayMonthYear => '$day/$month/$year',
@@ -63,11 +102,15 @@ enum PdfStampTimeFormat {
   twentyFourHourSeconds,
   twelveHourSeconds;
 
-  String format(DateTime value) {
+  /// Formats [value] for the stamp `{{time}}` field.
+  ///
+  /// [localeName] localizes the AM/PM marker on the 12-hour shapes; null keeps
+  /// English. The 24-hour shapes carry no marker and are locale-independent.
+  String format(DateTime value, {String? localeName}) {
     final hour = _twoDigits(value.hour);
     final minute = _twoDigits(value.minute);
     final second = _twoDigits(value.second);
-    final suffix = value.hour < 12 ? 'AM' : 'PM';
+    final suffix = _dayPeriod(value, localeName);
     final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
     return switch (this) {
       PdfStampTimeFormat.twentyFourHour => '$hour:$minute',
@@ -187,7 +230,7 @@ Future<void> showPdfStampPicker(BuildContext context,
         PdfImagePicker? imagePicker,
         PdfStampExportCallback? onExportStamps,
         PdfStampImportCallback? onImportStamps}) =>
-    showDialog<void>(
+    showPdfDialog<void>(
       context: context,
       builder: (context) => PdfStampPickerDialog(
         controller: controller,
@@ -255,7 +298,7 @@ class PdfStampPickerDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Stamps'),
+      title: Text(pdfL10n(context).stampStamps),
       content: SizedBox(
         width: 340,
         child: ListenableBuilder(
@@ -267,7 +310,7 @@ class PdfStampPickerDialog extends StatelessWidget {
                 for (final stamp in controller.customStamps)
                   ListTile(
                     title: Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: PdfStampPreview(
                           stamp: stamp,
                           templateValues:
@@ -287,12 +330,12 @@ class PdfStampPickerDialog extends StatelessWidget {
                             children: [
                               IconButton(
                                 icon: const Icon(Icons.edit_outlined),
-                                tooltip: 'Edit stamp',
+                                tooltip: pdfL10n(context).stampEditStamp,
                                 onPressed: () => _edit(context, stamp),
                               ),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline),
-                                tooltip: 'Delete stamp',
+                                tooltip: pdfL10n(context).stampDeleteStamp,
                                 onPressed: () =>
                                     controller.removeCustomStamp(stamp),
                               ),
@@ -313,7 +356,7 @@ class PdfStampPickerDialog extends StatelessWidget {
             key: const ValueKey('pdf-stamp-import'),
             onPressed: () => _import(context),
             icon: const Icon(Icons.file_upload_outlined),
-            label: const Text('Import…'),
+            label: Text(pdfL10n(context).stampImport),
           ),
         if (onExportStamps != null)
           ListenableBuilder(
@@ -324,16 +367,16 @@ class PdfStampPickerDialog extends StatelessWidget {
                   ? null
                   : () => _export(context),
               icon: const Icon(Icons.file_download_outlined),
-              label: const Text('Export…'),
+              label: Text(pdfL10n(context).stampExport),
             ),
           ),
         TextButton(
           onPressed: () => _create(context),
-          child: const Text('New stamp…'),
+          child: Text(pdfL10n(context).stampNewStamp),
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(pdfL10n(context).close),
         ),
       ],
     );
@@ -345,62 +388,67 @@ class _StampDateTimeFormatControls extends StatelessWidget {
 
   final PdfEditingController controller;
 
-  static String _timePreview(PdfStampTimeFormat format, DateTime sample) {
+  static String _timePreview(
+      BuildContext context, PdfStampTimeFormat format, DateTime sample) {
     final suffix = switch (format) {
       PdfStampTimeFormat.twentyFourHour ||
       PdfStampTimeFormat.twentyFourHourSeconds =>
-        '24 hr',
+        pdfL10n(context).stampTime24Hour,
       PdfStampTimeFormat.twelveHour ||
       PdfStampTimeFormat.twelveHourSeconds =>
-        '12 hr',
+        pdfL10n(context).stampTime12Hour,
     };
-    return '${format.format(sample)} ($suffix)';
+    final localeName = Localizations.localeOf(context).toString();
+    return '${format.format(sample, localeName: localeName)} ($suffix)';
   }
 
   @override
   Widget build(BuildContext context) {
     final sample = controller.stampTemplateClock();
+    final localeName = Localizations.localeOf(context).toString();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         KeyedSubtree(
           key: ValueKey(
-              'pdf-stamp-date-format-field-${controller.stampDateFormat.name}'),
+              'pdf-stamp-date-format-field-${controller.preferences.stampDateFormat.name}'),
           child: DropdownButtonFormField<PdfStampDateFormat>(
             key: const ValueKey('pdf-stamp-date-format'),
-            initialValue: controller.stampDateFormat,
-            decoration: const InputDecoration(labelText: 'Date format'),
+            initialValue: controller.preferences.stampDateFormat,
+            decoration:
+                InputDecoration(labelText: pdfL10n(context).stampDateFormat),
             items: [
               for (final format in PdfStampDateFormat.values)
                 DropdownMenuItem<PdfStampDateFormat>(
                   key: ValueKey('pdf-stamp-date-format-${format.name}'),
                   value: format,
-                  child: Text(format.format(sample)),
+                  child: Text(format.format(sample, localeName: localeName)),
                 ),
             ],
             onChanged: (value) {
-              if (value != null) controller.stampDateFormat = value;
+              if (value != null) controller.preferences.stampDateFormat = value;
             },
           ),
         ),
         const SizedBox(height: 8),
         KeyedSubtree(
           key: ValueKey(
-              'pdf-stamp-time-format-field-${controller.stampTimeFormat.name}'),
+              'pdf-stamp-time-format-field-${controller.preferences.stampTimeFormat.name}'),
           child: DropdownButtonFormField<PdfStampTimeFormat>(
             key: const ValueKey('pdf-stamp-time-format'),
-            initialValue: controller.stampTimeFormat,
-            decoration: const InputDecoration(labelText: 'Time format'),
+            initialValue: controller.preferences.stampTimeFormat,
+            decoration:
+                InputDecoration(labelText: pdfL10n(context).stampTimeFormat),
             items: [
               for (final format in PdfStampTimeFormat.values)
                 DropdownMenuItem<PdfStampTimeFormat>(
                   key: ValueKey('pdf-stamp-time-format-${format.name}'),
                   value: format,
-                  child: Text(_timePreview(format, sample)),
+                  child: Text(_timePreview(context, format, sample)),
                 ),
             ],
             onChanged: (value) {
-              if (value != null) controller.stampTimeFormat = value;
+              if (value != null) controller.preferences.stampTimeFormat = value;
             },
           ),
         ),
@@ -417,7 +465,7 @@ Future<PdfCustomStamp?> showPdfStampEditor(BuildContext context,
             PdfEditingController.stampTemplateBuiltinFields,
         PdfImagePicker? imagePicker,
         PdfCustomStamp? initial}) =>
-    showDialog<PdfCustomStamp>(
+    showPdfDialog<PdfCustomStamp>(
       context: context,
       builder: (context) => PdfStampEditorDialog(
         fields: fields,
@@ -507,7 +555,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
         return component.text.trim();
       }
     }
-    return 'Custom stamp';
+    return pdfL10n(context).stampCustomCaption;
   }
 
   int get _primaryColor =>
@@ -614,20 +662,38 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
     _replaceSelected(component.copyWith(x: x, y: y));
   }
 
-  void _resizeSelected(Offset delta) {
+  void _resizeSelected(_StampHandle handle, Offset delta) {
     final component = _selectedComponent;
     if (component == null) return;
     final minWidth =
         component.type == PdfStampTemplateComponentType.text ? 28.0 : 16.0;
     final minHeight =
         component.type == PdfStampTemplateComponentType.text ? 14.0 : 16.0;
-    final width = (component.width + delta.dx)
-        .clamp(minWidth, _templateWidth - component.x)
-        .toDouble();
-    final height = (component.height + delta.dy)
-        .clamp(minHeight, _templateHeight - component.y)
-        .toDouble();
-    _replaceSelected(component.copyWith(width: width, height: height));
+    var left = component.x;
+    var top = component.y;
+    var right = component.x + component.width;
+    var bottom = component.y + component.height;
+    // Each handle moves only the edge(s) it owns; the opposite edge stays put,
+    // clamped so the box keeps a minimum size and never leaves the template.
+    if (handle.dx < 0) {
+      left = (left + delta.dx).clamp(0.0, right - minWidth).toDouble();
+    } else if (handle.dx > 0) {
+      right =
+          (right + delta.dx).clamp(left + minWidth, _templateWidth).toDouble();
+    }
+    if (handle.dy < 0) {
+      top = (top + delta.dy).clamp(0.0, bottom - minHeight).toDouble();
+    } else if (handle.dy > 0) {
+      bottom = (bottom + delta.dy)
+          .clamp(top + minHeight, _templateHeight)
+          .toDouble();
+    }
+    _replaceSelected(component.copyWith(
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    ));
   }
 
   void _setSelectedFont(PdfStandardFont font) {
@@ -755,7 +821,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
       strokes: signature.strokes,
       pressures: signature.pressures,
       color: signature.color,
-      strokeWidth: math.max(0.8, width / 75),
+      // the pen the pad drew with, scaled to the size it lands in the stamp
+      strokeWidth: math.max(0.8, signature.strokeWidthFor(width)),
     );
     setState(() {
       _color = signature.color;
@@ -783,7 +850,9 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
     final selected = _selectedComponent;
     final selectedIsText = selected?.type == PdfStampTemplateComponentType.text;
     return AlertDialog(
-      title: Text(widget.initial == null ? 'New stamp' : 'Edit stamp'),
+      title: Text(widget.initial == null
+          ? pdfL10n(context).stampNewStampTitle
+          : pdfL10n(context).stampEditStamp),
       content: SizedBox(
         width: 340,
         child: SingleChildScrollView(
@@ -809,7 +878,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       key: const ValueKey('pdf-stamp-width'),
                       controller: _width,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Width'),
+                      decoration:
+                          InputDecoration(labelText: pdfL10n(context).stampWidth),
                       onSubmitted: (_) => _commitSize(),
                     ),
                   ),
@@ -820,7 +890,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       key: const ValueKey('pdf-stamp-height'),
                       controller: _height,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Height'),
+                      decoration:
+                          InputDecoration(labelText: pdfL10n(context).stampHeight),
                       onSubmitted: (_) => _commitSize(),
                     ),
                   ),
@@ -840,8 +911,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                         textCapitalization: TextCapitalization.characters,
                         decoration: InputDecoration(
                           labelText: selectedIsText
-                              ? 'Selected text'
-                              : 'Select text to edit',
+                              ? pdfL10n(context).stampSelectedText
+                              : pdfL10n(context).stampSelectTextToEdit,
                         ),
                         onChanged: selectedIsText
                             ? (value) => _replaceSelected(
@@ -852,7 +923,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                     const SizedBox(width: 8),
                     PopupMenuButton<String>(
                       key: const ValueKey('pdf-stamp-field-menu'),
-                      tooltip: 'Insert field',
+                      tooltip: pdfL10n(context).stampInsertField,
                       enabled: selectedIsText && _fields.isNotEmpty,
                       icon: const Icon(Icons.data_object),
                       onSelected: _insertField,
@@ -862,13 +933,13 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             key: ValueKey('pdf-stamp-field-$field'),
                             value: field,
                             height: 34,
-                            child: Text(_fieldLabel(field)),
+                            child: Text(_fieldLabel(context, field)),
                           ),
                       ],
                     ),
                     PopupMenuButton<PdfStandardFont>(
                       key: const ValueKey('pdf-stamp-font-menu'),
-                      tooltip: 'Font',
+                      tooltip: pdfL10n(context).stampFont,
                       enabled: selectedIsText,
                       icon: const Icon(Icons.font_download_outlined),
                       initialValue: selectedIsText ? selected!.font : null,
@@ -880,7 +951,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             value: font,
                             height: 34,
                             child: Text(
-                              _fontLabel(font),
+                              _fontLabel(context, font),
                               style: TextStyle(
                                 fontFamily: _uiFamily(font),
                                 fontWeight: font.isBold
@@ -901,7 +972,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
               Row(children: [
                 for (final ink in _inks)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsetsDirectional.only(end: 8),
                     child: InkWell(
                       onTap: () => _setSelectedColor(ink),
                       customBorder: const CircleBorder(),
@@ -923,7 +994,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                   ),
                 IconButton(
                   key: const ValueKey('pdf-stamp-color-custom'),
-                  tooltip: 'More colors…',
+                  tooltip: pdfL10n(context).stampMoreColors,
                   icon: const Icon(Icons.color_lens_outlined),
                   style: IconButton.styleFrom(
                     visualDensity: VisualDensity.compact,
@@ -942,37 +1013,37 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                     key: const ValueKey('pdf-stamp-add-text'),
                     onPressed: _addText,
                     icon: const Icon(Icons.title),
-                    label: const Text('Text'),
+                    label: Text(pdfL10n(context).stampText),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('pdf-stamp-add-box'),
                     onPressed: _addBox,
                     icon: const Icon(Icons.crop_square),
-                    label: const Text('Box'),
+                    label: Text(pdfL10n(context).stampBox),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('pdf-stamp-add-circle'),
                     onPressed: _addCircle,
                     icon: const Icon(Icons.radio_button_unchecked),
-                    label: const Text('Circle'),
+                    label: Text(pdfL10n(context).stampCircle),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('pdf-stamp-add-image'),
                     onPressed: widget.imagePicker == null ? null : _addImage,
                     icon: const Icon(Icons.image_outlined),
-                    label: const Text('Image'),
+                    label: Text(pdfL10n(context).stampImage),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('pdf-stamp-add-signature'),
                     onPressed: _addSignature,
                     icon: const Icon(Icons.draw),
-                    label: const Text('Signature'),
+                    label: Text(pdfL10n(context).stampSignature),
                   ),
                   IconButton(
                     key: const ValueKey('pdf-stamp-delete-component'),
                     onPressed: _components.length > 1 ? _deleteSelected : null,
                     icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Delete selected component',
+                    tooltip: pdfL10n(context).stampDeleteComponent,
                   ),
                 ],
               ),
@@ -983,7 +1054,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: _components.isEmpty
@@ -998,7 +1069,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                     tags: initial?.tags ?? const [],
                   ));
                 },
-          child: const Text('Save'),
+          child: Text(pdfL10n(context).save),
         ),
       ],
     );
@@ -1059,18 +1130,51 @@ class _StampTemplateCanvas extends StatefulWidget {
   final int? selectedIndex;
   final ValueChanged<int?> onSelect;
   final ValueChanged<Offset> onMoveSelected;
-  final ValueChanged<Offset> onResizeSelected;
+  final void Function(_StampHandle handle, Offset delta) onResizeSelected;
 
   @override
   State<_StampTemplateCanvas> createState() => _StampTemplateCanvasState();
 }
 
-enum _StampDragMode { move, resize }
+/// Which sides of the selection a resize handle moves: -1 the left/top edge,
+/// +1 the right/bottom edge, 0 leaves that axis anchored. (Template space, y
+/// down.) Mirrors the on-page editing overlay's `_Handle` convention.
+typedef _StampHandle = ({int dx, int dy});
+
+/// The eight resize handles (four corners + four edge midpoints) that ring a
+/// selected component, in the same order as the on-page overlay.
+const List<_StampHandle> _stampHandles = [
+  (dx: -1, dy: -1),
+  (dx: 0, dy: -1),
+  (dx: 1, dy: -1),
+  (dx: -1, dy: 0),
+  (dx: 1, dy: 0),
+  (dx: -1, dy: 1),
+  (dx: 0, dy: 1),
+  (dx: 1, dy: 1),
+];
+
+/// Side length of a handle square as drawn on the component, in logical pixels.
+const double _stampHandleSize = 9;
+
+/// How close (logical pixels) a press must land to a handle to grab it. Matches
+/// the overlay's forgiving target so scaling isn't finicky on touch.
+const double _stampHandleHitRadius = 14;
+
+/// The center of [handle] on [rect], in template space.
+Offset _stampHandleCenter(Rect rect, _StampHandle handle) => Offset(
+      rect.center.dx + handle.dx * rect.width / 2,
+      rect.center.dy + handle.dy * rect.height / 2,
+    );
+
+enum _StampDragKind { move, resize }
 
 class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
-  _StampDragMode? _dragMode;
+  _StampDragKind? _dragKind;
+  _StampHandle? _dragHandle;
   Offset? _lastTemplatePoint;
-  _StampDragMode? _pendingMode;
+  _StampDragKind? _pendingKind;
+  _StampHandle? _pendingHandle;
   Offset _pendingDelta = Offset.zero;
   bool _pendingFrame = false;
 
@@ -1084,19 +1188,27 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
   Rect _componentRect(PdfStampTemplateComponent c) =>
       Rect.fromLTWH(c.x, c.y, c.width, c.height);
 
-  Rect _handleRect(PdfStampTemplateComponent c, double scale) {
-    final size = 12 / scale;
-    return Rect.fromCenter(
-      center: _componentRect(c).bottomRight,
-      width: size,
-      height: size,
-    );
+  /// The resize handle whose forgiving hit target [local] (in logical pixels)
+  /// falls within, or null. Handles ride the selected component only, and the
+  /// test runs in logical pixels so the target stays the same size at any
+  /// template zoom.
+  _StampHandle? _handleAt(Offset local, Size size) {
+    final selected = widget.selectedIndex;
+    if (selected == null || selected >= widget.components.length) return null;
+    final scale = _scale(size);
+    final rect = _componentRect(widget.components[selected]);
+    for (final handle in _stampHandles) {
+      final center = _stampHandleCenter(rect, handle) * scale;
+      if ((local - center).distance <= _stampHandleHitRadius) return handle;
+    }
+    return null;
   }
 
-  int? _hitComponent(Offset templatePoint) {
+  int? _hitComponent(Offset templatePoint, double scale) {
+    final pad = 6 / scale;
     for (var i = widget.components.length - 1; i >= 0; i--) {
       if (_componentRect(widget.components[i])
-          .inflate(4)
+          .inflate(pad)
           .contains(templatePoint)) {
         return i;
       }
@@ -1104,34 +1216,38 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
     return null;
   }
 
-  void _start(Offset localPosition, Size size) {
-    final point = _toTemplate(localPosition, size);
-    _lastTemplatePoint = point;
-    final selected = widget.selectedIndex;
-    if (selected != null) {
-      final selectedComponent = widget.components[selected];
-      if (_handleRect(selectedComponent, _scale(size)).contains(point)) {
-        _dragMode = _StampDragMode.resize;
-        return;
-      }
+  void _panStart(DragStartDetails details, Size size) {
+    final local = details.localPosition;
+    _lastTemplatePoint = _toTemplate(local, size);
+    final handle = _handleAt(local, size);
+    if (handle != null) {
+      _dragKind = _StampDragKind.resize;
+      _dragHandle = handle;
+      return;
     }
-    final hit = _hitComponent(point);
+    final hit = _hitComponent(_lastTemplatePoint!, _scale(size));
     widget.onSelect(hit);
-    _dragMode = hit == null ? null : _StampDragMode.move;
+    _dragKind = hit == null ? null : _StampDragKind.move;
+    _dragHandle = null;
   }
 
-  void _update(Offset localPosition, Size size) {
-    final point = _toTemplate(localPosition, size);
+  void _panUpdate(DragUpdateDetails details, Size size) {
+    final point = _toTemplate(details.localPosition, size);
     final last = _lastTemplatePoint;
     _lastTemplatePoint = point;
     if (last == null) return;
-    final delta = point - last;
-    _queueDelta(delta);
+    _queueDelta(point - last);
+  }
+
+  void _tapUp(TapUpDetails details, Size size) {
+    widget.onSelect(_hitComponent(_toTemplate(details.localPosition, size),
+        _scale(size)));
   }
 
   void _queueDelta(Offset delta) {
-    if (_dragMode == null || delta == Offset.zero) return;
-    _pendingMode ??= _dragMode;
+    if (_dragKind == null || delta == Offset.zero) return;
+    _pendingKind ??= _dragKind;
+    _pendingHandle ??= _dragHandle;
     _pendingDelta += delta;
     if (_pendingFrame) return;
     _pendingFrame = true;
@@ -1143,22 +1259,25 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
   }
 
   void _flushPendingDelta() {
-    final mode = _pendingMode;
+    final kind = _pendingKind;
+    final handle = _pendingHandle;
     final delta = _pendingDelta;
-    _pendingMode = null;
+    _pendingKind = null;
+    _pendingHandle = null;
     _pendingDelta = Offset.zero;
-    if (!mounted || mode == null || delta == Offset.zero) return;
-    switch (mode) {
-      case _StampDragMode.move:
+    if (!mounted || kind == null || delta == Offset.zero) return;
+    switch (kind) {
+      case _StampDragKind.move:
         widget.onMoveSelected(delta);
-      case _StampDragMode.resize:
-        widget.onResizeSelected(delta);
+      case _StampDragKind.resize:
+        widget.onResizeSelected(handle ?? const (dx: 1, dy: 1), delta);
     }
   }
 
-  void _end() {
+  void _panEnd() {
     _flushPendingDelta();
-    _dragMode = null;
+    _dragKind = null;
+    _dragHandle = null;
     _lastTemplatePoint = null;
   }
 
@@ -1177,12 +1296,18 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
       child: SizedBox(
         width: size.width,
         height: size.height,
-        child: Listener(
+        child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPointerDown: (event) => _start(event.localPosition, size),
-          onPointerMove: (event) => _update(event.localPosition, size),
-          onPointerUp: (_) => _end(),
-          onPointerCancel: (_) => _end(),
+          // Anchor the drag at the press point (like the on-page editing
+          // overlay) so a handle grab and a move both start where the finger
+          // actually landed, not where the recognizer won the gesture arena.
+          // Using the recognizer also gives touch slop, so a tap-to-select no
+          // longer jitters the component.
+          dragStartBehavior: DragStartBehavior.down,
+          onTapUp: (details) => _tapUp(details, size),
+          onPanStart: (details) => _panStart(details, size),
+          onPanUpdate: (details) => _panUpdate(details, size),
+          onPanEnd: (_) => _panEnd(),
           child: _StampTemplateSurface(
             templateSize: widget.templateSize,
             components: widget.components,
@@ -1332,13 +1457,17 @@ class _StampTemplatePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 / scale;
       canvas.drawRect(rect.inflate(2 / scale), stroke);
-      final handle = Rect.fromCenter(
-        center: rect.bottomRight,
-        width: 10 / scale,
-        height: 10 / scale,
-      );
-      canvas.drawRect(handle, Paint()..color = scheme.surface);
-      canvas.drawRect(handle, stroke);
+      final handleSize = _stampHandleSize / scale;
+      final fill = Paint()..color = scheme.surface;
+      for (final handle in _stampHandles) {
+        final box = Rect.fromCenter(
+          center: _stampHandleCenter(rect, handle),
+          width: handleSize,
+          height: handleSize,
+        );
+        canvas.drawRect(box, fill);
+        canvas.drawRect(box, stroke);
+      }
     }
     canvas.restore();
   }
@@ -1531,11 +1660,12 @@ String? _stampDetail(PdfCustomStamp stamp) {
   return parts.isEmpty ? null : parts.join(' · ');
 }
 
-String _fontLabel(PdfStandardFont font) {
+String _fontLabel(BuildContext context, PdfStandardFont font) {
   final family = font.family.label;
+  final l = pdfL10n(context);
   final style = [
-    if (font.isBold) 'Bold',
-    if (font.isItalic) 'Italic',
+    if (font.isBold) l.stampFontBold,
+    if (font.isItalic) l.stampFontItalic,
   ].join(' ');
   return style.isEmpty ? family : '$family $style';
 }
@@ -1557,11 +1687,11 @@ List<String> _normalizeFields(Iterable<String> fields) {
   return List.unmodifiable(normalized);
 }
 
-String _fieldLabel(String field) => switch (field) {
-      'date' => 'Date',
-      'time' => 'Time',
-      'datetime' => 'Date & time',
-      'username' => 'Username',
+String _fieldLabel(BuildContext context, String field) => switch (field) {
+      'date' => pdfL10n(context).stampFieldDate,
+      'time' => pdfL10n(context).stampFieldTime,
+      'datetime' => pdfL10n(context).stampFieldDateTime,
+      'username' => pdfL10n(context).stampFieldUsername,
       _ => field
           .split(RegExp(r'[_\s]+'))
           .where((part) => part.isNotEmpty)

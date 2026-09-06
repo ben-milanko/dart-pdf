@@ -1,0 +1,72 @@
+name: dart_pdf_editor_assets
+description: >-
+  Optional bundled assets for dart_pdf_editor - the six editor fonts and the
+  prebuilt web render worker. Depend on it (and call
+  registerBundledEditorAssets) for the full-featured editor; omit it for a
+  size-minimal viewer that ships neither.
+version: 4.2.0
+repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_assets
+issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+topics:
+  - pdf
+  - pdf-editor
+  - fonts
+  - assets
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The registration API and the PdfBundledFont / global-config symbols it
+  # populates live in the editor package; this package supplies the bytes.
+  dart_pdf_editor: ^4.2.0
+
+flutter:
+  # The optional editor assets. These are declared here, not in
+  # dart_pdf_editor, so an app that only views PDFs never bundles them: Flutter
+  # includes a package's declared assets on every build target, so the only way
+  # to make them opt-in is to keep them out of the always-depended-on package.
+  #
+  # Fonts offered by the editor font menu. DejaVu is a permissive Bitstream
+  # Vera / Arev licence; Fira Sans, Spectral and Lobster are SIL Open Font
+  # Licence; TeX Gyre Adventor uses the GUST Font License - see the
+  # *-LICENSE.txt files in assets/fonts/.
+  assets:
+    - assets/web/pdf_render_worker.dart.js
+    - assets/fonts/DejaVuSans.ttf
+    - assets/fonts/DejaVuSerif.ttf
+    - assets/fonts/DejaVuSansMono.ttf
+    - assets/fonts/FiraSans-Regular.ttf
+    - assets/fonts/Spectral-Regular.ttf
+    - assets/fonts/Lobster-Regular.ttf
+    - assets/fonts/TeXGyreAdventor-Regular.otf
+    - assets/fonts/TeXGyreAdventor-Bold.otf
+  # DejaVu Sans is declared as an engine font family because the renderer names
+  # it as a script fallback (`CanvasPdfDevice`'s
+  # `_defaultFontFallbacks` - Arabic/Hebrew/Greek/Cyrillic in arbitrary PDFs)
+  # and needs it registered from the first paint. TeX Gyre Adventor is also
+  # declared because it is the renderer's metric-compatible substitute for
+  # unembedded Century Gothic / Avant Garde. Declaring a family puts it in
+  # FontManifest.json, which CanvasKit fetches and parses at web startup before
+  # the first frame - so the other five menu faces, used only to preview their own
+  # menu rows, are deliberately NOT declared here. They stay listed under
+  # `assets:` above (loaded as raw bytes for embedding, and for composite-text
+  # fallback) and are registered lazily with the engine the first time the font
+  # menu opens (`_ensureBundledFontPreview` in editing_fonts.dart), keeping
+  # ~1.85 MB of font parsing off cold start.
+  fonts:
+    - family: DejaVu Sans
+      fonts:
+        - asset: assets/fonts/DejaVuSans.ttf
+    # Metric-compatible fallback for unembedded Century Gothic / Avant Garde
+    # text. The native renderer addresses the package-qualified family; the
+    # bundled web worker loads the same two files through FontFace.
+    - family: TeX Gyre Adventor
+      fonts:
+        - asset: assets/fonts/TeXGyreAdventor-Regular.otf
+        - asset: assets/fonts/TeXGyreAdventor-Bold.otf
+          weight: 700

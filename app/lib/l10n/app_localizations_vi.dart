@@ -1,0 +1,1452 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for Vietnamese (`vi`).
+class AppLocalizationsVi extends AppLocalizations {
+  AppLocalizationsVi([String locale = 'vi']) : super(locale);
+
+  @override
+  String get add => 'Thêm';
+
+  @override
+  String get appSigAddLogo => 'Thêm biểu trưng…';
+
+  @override
+  String appSigAllPages(int pageCount) {
+    return 'Tất cả $pageCount trang';
+  }
+
+  @override
+  String get appSigAppearance => 'Giao diện';
+
+  @override
+  String get appSigAppearanceDescription =>
+      'Chữ ký được vẽ ở nơi bạn đặt nó. Tên và thông tin người ký luôn được hiển thị; bạn có thể thêm dấu vẽ tay và nền biểu trưng.';
+
+  @override
+  String appSigApplyTo(String label) {
+    return 'Áp dụng cho: $label';
+  }
+
+  @override
+  String get appSigApplyToPages => 'Áp dụng cho các trang…';
+
+  @override
+  String get appSigChooseCertificate => 'Chọn tệp chứng chỉ…';
+
+  @override
+  String get appSigChooseKeyDescription =>
+      'Chọn khóa riêng tư của bạn (RSA, PEM hoặc DER) và tệp chứng chỉ của nó. Khóa chỉ được dùng để ký và không bao giờ được lưu.';
+
+  @override
+  String get appSigChoosePngOrJpeg => 'Chọn một hình ảnh PNG hoặc JPEG.';
+
+  @override
+  String get appSigChoosePrivateKey => 'Chọn khóa riêng tư…';
+
+  @override
+  String get appSigContactInfo => 'Thông tin liên hệ';
+
+  @override
+  String get appSigCouldNotCaptureSignature => 'Không thể ghi lại chữ ký.';
+
+  @override
+  String appSigCouldNotReadCertificate(String error) {
+    return 'Không thể đọc chứng chỉ: $error';
+  }
+
+  @override
+  String appSigCouldNotReadKey(String error) {
+    return 'Không thể đọc khóa: $error';
+  }
+
+  @override
+  String get appSigCreateOnDevice => 'Tạo chữ ký trên thiết bị này';
+
+  @override
+  String appSigDate(String date) {
+    return 'Ngày: $date';
+  }
+
+  @override
+  String get appSigDigitallySign => 'Ký số';
+
+  @override
+  String get appSigDrawSignature => 'Vẽ chữ ký…';
+
+  @override
+  String get appSigFieldHelper => 'Để trống để tạo trường chữ ký mới.';
+
+  @override
+  String get appSigFieldLabel => 'Trường chữ ký hiện có (tùy chọn)';
+
+  @override
+  String appSigIdentitySubtitle(
+      int count, String validFrom, String validUntil) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count chứng chỉ',
+      one: '1 chứng chỉ',
+    );
+    return '$_temp0 · hợp lệ từ $validFrom đến $validUntil';
+  }
+
+  @override
+  String get appSigIntro =>
+      'Chữ ký số chứng minh rằng bạn đã ký tài liệu này và nó chưa bị thay đổi kể từ đó. Chọn cách bạn muốn ký.';
+
+  @override
+  String get appSigKeyOrCertUnreadable =>
+      'Không thể đọc khóa hoặc chứng chỉ đã chọn.';
+
+  @override
+  String get appSigKeylessDescription =>
+      'Dễ nhất. Chúng tôi xác nhận đó là bạn qua email và ký thay bạn, với dấu thời gian đáng tin cậy. Không cần cài đặt hay thiết lập gì.';
+
+  @override
+  String get appSigKeylessIdentity => 'Danh tính không khóa';
+
+  @override
+  String get appSigKeylessSignInExpired =>
+      'Đăng nhập không khóa của bạn đã hết hạn. Vui lòng đăng nhập lại.';
+
+  @override
+  String appSigKeylessSignInFailed(String failure) {
+    return 'Đăng nhập không khóa không thành công: $failure';
+  }
+
+  @override
+  String get appSigKeylessSubtitle =>
+      'Không khóa · có dấu thời gian · không rõ hiệu lực';
+
+  @override
+  String get appSigKeylessWebNote =>
+      'Đăng nhập bằng email là cách dễ nhất — nó có sẵn trong ứng dụng máy tính và di động của DartPDF. Vì lý do bảo mật, nó không thể chạy trong trình duyệt web.';
+
+  @override
+  String get appSigLocation => 'Vị trí';
+
+  @override
+  String get appSigLogoAdded => 'Đã thêm biểu trưng ✓';
+
+  @override
+  String appSigPagesRange(int start, int end) {
+    return 'Trang $start–$end';
+  }
+
+  @override
+  String get appSigPreviewNote => 'Xem trước - hộp đã ký có thể khác đôi chút.';
+
+  @override
+  String get appSigReason => 'Lý do';
+
+  @override
+  String appSigReasonLine(String reason) {
+    return 'Lý do: $reason';
+  }
+
+  @override
+  String get appSigRefreshingSignIn => 'Đang làm mới đăng nhập…';
+
+  @override
+  String get appSigRemoveLogo => 'Gỡ biểu trưng';
+
+  @override
+  String get appSigRemoveSignature => 'Gỡ chữ ký';
+
+  @override
+  String get appSigSelfSignedDescription =>
+      'Không cần đăng nhập hay tệp nào. Tốt nhất cho mục đích cá nhân — nó được lưu trên thiết bị này cho lần sau. Một số trình đọc PDF sẽ hiển thị nó là \"đã ký, không rõ hiệu lực\", điều này là bình thường đối với chữ ký do chính bạn tạo.';
+
+  @override
+  String get appSigSelfSignedIdentity => 'Danh tính tự ký';
+
+  @override
+  String get appSigSelfSignedSubtitle => 'Tự ký · không rõ hiệu lực';
+
+  @override
+  String get appSigShowSignatureOnPages => 'Hiển thị chữ ký trên các trang';
+
+  @override
+  String get appSigSign => 'Ký';
+
+  @override
+  String get appSigSignInWithEmail => 'Đăng nhập bằng email của bạn';
+
+  @override
+  String get appSigSignatureAdded => 'Đã thêm chữ ký ✓';
+
+  @override
+  String appSigSignedBy(String signerName) {
+    return 'Được ký số bởi $signerName';
+  }
+
+  @override
+  String get appSigSigner => 'Người ký';
+
+  @override
+  String get appSigSigningYouIn => 'Đang đăng nhập cho bạn…';
+
+  @override
+  String get appSigThisPageOnly => 'Chỉ trang này';
+
+  @override
+  String get appSigUseOwnCertificate => 'Sử dụng chứng chỉ của riêng bạn';
+
+  @override
+  String get appSigUseOwnCertificateSubtitle =>
+      'Dành cho chứng chỉ ký từ tổ chức của bạn';
+
+  @override
+  String get appSigX509Signer => 'Người ký X.509';
+
+  @override
+  String get apply => 'Áp dụng';
+
+  @override
+  String get cancel => 'Hủy';
+
+  @override
+  String get clear => 'Xóa';
+
+  @override
+  String get close => 'Đóng';
+
+  @override
+  String get copy => 'Sao chép';
+
+  @override
+  String get cut => 'Cắt';
+
+  @override
+  String get delete => 'Xóa';
+
+  @override
+  String get done => 'Xong';
+
+  @override
+  String get edit => 'Chỉnh sửa';
+
+  @override
+  String editorAddDroppedMessage(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Mở $count PDF này trong thẻ mới, hay chèn các trang của chúng vào \"$title\"?',
+      one:
+          'Mở PDF này trong thẻ mới, hay chèn các trang của nó vào \"$title\"?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorAddDroppedTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Thêm các PDF đã thả',
+      one: 'Thêm PDF đã thả',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get editorAnnotationTextCopied => 'Đã sao chép văn bản chú thích';
+
+  @override
+  String get editorAppMenuTooltip => 'Menu DartPDF';
+
+  @override
+  String get editorCancelOcr => 'Hủy OCR';
+
+  @override
+  String get editorClearRecentFiles => 'Xóa tệp gần đây';
+
+  @override
+  String get editorCloseAll => 'Đóng tất cả';
+
+  @override
+  String get editorCloseOthers => 'Đóng các thẻ khác';
+
+  @override
+  String get editorCloseTab => 'Đóng thẻ';
+
+  @override
+  String get editorCloseTabsToRight => 'Đóng các thẻ bên phải';
+
+  @override
+  String get editorCompareFailedTitle => 'So sánh không thành công';
+
+  @override
+  String editorCompareTitle(String title) {
+    return 'So sánh: $title';
+  }
+
+  @override
+  String get editorCopiedToClipboard => 'Đã sao chép vào bảng nhớ tạm';
+
+  @override
+  String get editorCopySelectedTextTooltip => 'Sao chép văn bản đã chọn (⌘C)';
+
+  @override
+  String get editorCopyText => 'Sao chép văn bản';
+
+  @override
+  String editorCouldNotExport(String title) {
+    return 'Không thể xuất $title';
+  }
+
+  @override
+  String editorCouldNotImportStamps(String error) {
+    return 'Không thể nhập con dấu: $error';
+  }
+
+  @override
+  String editorCouldNotInsertDropped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Không thể chèn các PDF đã thả',
+      one: 'Không thể chèn PDF đã thả',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorCouldNotOpenDetail(String title, String error) {
+    return 'Không thể mở $title\n$error';
+  }
+
+  @override
+  String get editorCouldNotOpenFolder => 'Không thể mở thư mục chứa tệp';
+
+  @override
+  String editorCouldNotOpenSecond(String error) {
+    return 'Không thể mở tệp thứ hai\n$error';
+  }
+
+  @override
+  String editorCouldNotOpenSelected(String error) {
+    return 'Không thể mở tệp đã chọn\n$error';
+  }
+
+  @override
+  String editorCouldNotOpenUrl(String url) {
+    return 'Không thể mở $url';
+  }
+
+  @override
+  String editorCouldNotPrint(String title) {
+    return 'Không thể in $title';
+  }
+
+  @override
+  String editorCouldNotReopen(String title) {
+    return 'Không thể mở lại $title';
+  }
+
+  @override
+  String editorCouldNotSign(String error) {
+    return 'Không thể ký số: $error';
+  }
+
+  @override
+  String get editorDiscard => 'Bỏ';
+
+  @override
+  String get editorDiscardChangesTitle => 'Bỏ các thay đổi?';
+
+  @override
+  String get editorDocumentSigned => 'Tài liệu đã được ký số';
+
+  @override
+  String get editorDownload => 'Tải xuống';
+
+  @override
+  String get editorDropToOpen => 'Thả PDF để mở';
+
+  @override
+  String get editorDropToOpenOrInsert => 'Thả PDF để mở hoặc chèn';
+
+  @override
+  String get editorInsertPages => 'Chèn trang';
+
+  @override
+  String editorInsertedButFailed(int count, String files) {
+    return 'Đã chèn $count; không thể đọc $files';
+  }
+
+  @override
+  String editorInsertedIntoTitle(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã chèn $count PDF vào $title',
+      one: 'Đã chèn các trang vào $title',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorInvalidLink(String uri) {
+    return 'Liên kết không hợp lệ: $uri';
+  }
+
+  @override
+  String get editorJavaScriptIgnored =>
+      'Tài liệu này đã cố chạy JavaScript (đã bỏ qua)';
+
+  @override
+  String get editorLoadingFullDocument => 'Đang tải toàn bộ tài liệu';
+
+  @override
+  String get editorMenuCompareWith => 'So sánh với…';
+
+  @override
+  String get editorMenuDigitallySign => 'Ký số…';
+
+  @override
+  String get editorMenuDigitallySigning => 'Đang ký số…';
+
+  @override
+  String get editorMenuExportImage => 'Xuất trang dưới dạng hình ảnh…';
+
+  @override
+  String get editorMenuNewDocument => 'Tài liệu mới…';
+
+  @override
+  String get editorMenuNewWindow => 'Cửa sổ mới';
+
+  @override
+  String get editorMoveToNewWindow => 'Chuyển sang cửa sổ mới';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'Không thể mở cửa sổ mới';
+
+  @override
+  String get editorMenuOcr => 'OCR…';
+
+  @override
+  String get editorMenuOpen => 'Mở một PDF…';
+
+  @override
+  String get editorMenuPrint => 'In…';
+
+  @override
+  String get editorMenuSaveAs => 'Lưu thành…';
+
+  @override
+  String get editorMenuScanDocument => 'Quét thành tài liệu mới…';
+
+  @override
+  String get editorMenuInsertDocument => 'Chèn tài liệu…';
+
+  @override
+  String get editorMenuInsertScan => 'Chèn bản quét…';
+
+  @override
+  String get editorScanFailed => 'Không thể quét tài liệu.';
+
+  @override
+  String get editorInsertedScan => 'Đã chèn các trang đã quét.';
+
+  @override
+  String get editorMenuSettings => 'Cài đặt';
+
+  @override
+  String get editorMenuSectionFile => 'Tệp';
+
+  @override
+  String get editorMenuSectionDocument => 'Tài liệu này';
+
+  @override
+  String get editorMenuSectionApp => 'Ứng dụng';
+
+  @override
+  String get editorMenuReadOnly => 'Chỉ đọc';
+
+  @override
+  String get editorMenuSearchActions => 'Tìm hành động…';
+
+  @override
+  String get paletteHint => 'Tìm hành động, công cụ và bảng';
+
+  @override
+  String get paletteNoMatch => 'Không có lệnh phù hợp';
+
+  @override
+  String get paletteKeyHints => '↑↓ di chuyển · ⏎ chạy · esc đóng';
+
+  @override
+  String paletteCount(int count) {
+    return '$count lệnh';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count trên $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Bảng';
+
+  @override
+  String get paletteSourceView => 'Xem';
+
+  @override
+  String get paletteSourceFile => 'Tệp';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Công cụ $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Cần mở một tài liệu';
+
+  @override
+  String editorNamedAction(String name) {
+    return 'Hành động có tên: $name';
+  }
+
+  @override
+  String get editorNoRecentFiles => 'Không có tệp gần đây';
+
+  @override
+  String editorOcrTitle(String title) {
+    return '$title (OCR)';
+  }
+
+  @override
+  String editorOcrTooltip(String title) {
+    return 'OCR · $title';
+  }
+
+  @override
+  String get editorOpenDocBeforeOcr => 'Mở một tài liệu trước khi chạy OCR';
+
+  @override
+  String get editorOpenFailedTitle => 'Mở không thành công';
+
+  @override
+  String editorOpenInNewTab(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Mở trong các thẻ mới',
+      one: 'Mở trong thẻ mới',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get editorOpenPdfNewTab => 'Mở PDF trong thẻ mới';
+
+  @override
+  String get editorOpenRecent => 'Mở gần đây';
+
+  @override
+  String get editorViewAllRecentFiles => 'Xem tất cả tệp gần đây…';
+
+  @override
+  String get editorOpenTabs => 'Các thẻ đang mở';
+
+  @override
+  String get editorOpeningDocumentSemantic => 'Đang mở tài liệu';
+
+  @override
+  String get editorOpeningPdf => 'Đang mở PDF…';
+
+  @override
+  String editorOpeningTitle(String title) {
+    return 'Đang mở $title…';
+  }
+
+  @override
+  String editorPageNumber(int number) {
+    return 'Trang $number';
+  }
+
+  @override
+  String get editorPreviewComparison => 'So sánh';
+
+  @override
+  String get editorPreviewCouldNotOpen => 'Không thể mở';
+
+  @override
+  String get editorPreviewOpening => 'Đang mở';
+
+  @override
+  String get editorPreviewPdf => 'PDF';
+
+  @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Đã khôi phục các thay đổi chưa lưu trong $count tài liệu từ phiên trước.',
+      one: 'Đã khôi phục các thay đổi chưa lưu từ phiên trước.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get editorSignatureRemoved => 'Đã gỡ chữ ký';
+
+  @override
+  String get editorSnapshotCopied => 'Đã sao chép ảnh chụp vào bảng nhớ tạm';
+
+  @override
+  String get editorSnapshotCopyFailed =>
+      'Không thể sao chép ảnh chụp vào bảng nhớ tạm';
+
+  @override
+  String get editorTabs => 'Thẻ';
+
+  @override
+  String editorTabsOpenCount(int count) {
+    return '$count đang mở';
+  }
+
+  @override
+  String editorUnsavedChangesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tài liệu có các thay đổi chưa lưu.',
+      one: 'Một tài liệu có các thay đổi chưa lưu.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorUnsupportedAction(String type) {
+    return 'Hành động không được hỗ trợ: $type';
+  }
+
+  @override
+  String get editorUntitled => 'Không có tiêu đề';
+
+  @override
+  String editorUpdateAvailable(String version) {
+    return 'DartPDF $version đã có sẵn.';
+  }
+
+  @override
+  String get editorUpdateLater => 'Để sau';
+
+  @override
+  String get updateInstallNow => 'Cập nhật ngay';
+
+  @override
+  String get updateDownloadingTitle => 'Đang tải xuống bản cập nhật';
+
+  @override
+  String get updatePreparing => 'Đang chuẩn bị…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Đang tải xuống… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Đang khởi động lại để hoàn tất cập nhật…';
+
+  @override
+  String get updateHandedOff =>
+      'Đã tải xuống bản cập nhật. Đang mở trình cài đặt…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Cập nhật thất bại: $error';
+  }
+
+  @override
+  String get editorViewAllTabs => 'Xem tất cả các thẻ';
+
+  @override
+  String imgExportDpiValue(int dpi) {
+    return '$dpi dpi';
+  }
+
+  @override
+  String get imgExportExport => 'Xuất';
+
+  @override
+  String get imgExportFormat => 'Định dạng';
+
+  @override
+  String get imgExportResolution => 'Độ phân giải';
+
+  @override
+  String get imgExportTitle => 'Xuất trang dưới dạng hình ảnh';
+
+  @override
+  String get newDocCreate => 'Tạo';
+
+  @override
+  String get newDocLandscape => 'Ngang';
+
+  @override
+  String get newDocOrientation => 'Hướng';
+
+  @override
+  String get newDocPageSize => 'Kích thước trang';
+
+  @override
+  String get newDocPortrait => 'Dọc';
+
+  @override
+  String get newDocTitle => 'Tài liệu mới';
+
+  @override
+  String get none => 'Không có';
+
+  @override
+  String get ocrAlreadyRunning =>
+      'OCR đang chạy - hãy đợi nó hoàn tất hoặc hủy nó';
+
+  @override
+  String get ocrBrowserInitFailed =>
+      'OCR trên trình duyệt khởi tạo không thành công';
+
+  @override
+  String get ocrCancelled => 'Đã hủy OCR';
+
+  @override
+  String ocrCancelledAfterSpans(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã hủy OCR sau $count đoạn văn bản',
+      one: 'Đã hủy OCR sau 1 đoạn văn bản',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrDownload => 'Tải xuống';
+
+  @override
+  String ocrDownloadFailed(String error) {
+    return 'Không thể tải xuống mô hình OCR: $error';
+  }
+
+  @override
+  String ocrDownloadPromptBody(String size, String model) {
+    return 'Việc thêm lớp văn bản có thể chọn cần mô hình OCR trên thiết bị$size. Nó tải xuống một lần rồi chạy ngoại tuyến.\n\nMô hình: $model';
+  }
+
+  @override
+  String get ocrDownloadPromptTitle => 'Tải xuống mô hình OCR?';
+
+  @override
+  String ocrFailed(String error) {
+    return 'OCR không thành công: $error';
+  }
+
+  @override
+  String ocrModelApproxSize(int mb) {
+    return '(~$mb MB)';
+  }
+
+  @override
+  String get ocrNotAvailable =>
+      'OCR trên thiết bị không khả dụng trên nền tảng này';
+
+  @override
+  String ocrResult(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'OCR đã thêm $count đoạn văn bản - văn bản trang giờ có thể chọn được',
+      one: 'OCR đã thêm 1 đoạn văn bản - văn bản trang giờ có thể chọn được',
+      zero: 'OCR không tìm thấy văn bản nào trên các trang này',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrWebPromptBody =>
+      'OCR web tải xuống mô hình ngôn ngữ-thị giác Florence-2 và chạy nó cục bộ bằng WebGPU/WASM thông qua Transformers.js. Các trang PDF vẫn ở trong trình duyệt này; chỉ các tệp mô hình được tải về khi dùng lần đầu.';
+
+  @override
+  String get ocrWebPromptTitle => 'Chạy AI OCR trong trình duyệt này?';
+
+  @override
+  String get ocrWebStart => 'Bắt đầu OCR';
+
+  @override
+  String get ok => 'OK';
+
+  @override
+  String get paste => 'Dán';
+
+  @override
+  String get printDlgPreparing => 'Đang chuẩn bị…';
+
+  @override
+  String printDlgRendering(int rendered, int total) {
+    return 'Đang kết xuất trang $rendered trên $total…';
+  }
+
+  @override
+  String get printDlgTitle => 'Đang in';
+
+  @override
+  String get printPreviewAll => 'Tất cả';
+
+  @override
+  String get printPreviewCurrent => 'Hiện tại';
+
+  @override
+  String get printPreviewFrom => 'Từ';
+
+  @override
+  String get printPreviewNextPage => 'Trang tiếp theo';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Trang $page trên $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Trang trước';
+
+  @override
+  String get printPreviewPrint => 'In';
+
+  @override
+  String get printPreviewRange => 'Phạm vi';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Nhập phạm vi trang từ 1 đến $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Số trang sẽ in: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Xem trước khi in';
+
+  @override
+  String get printPreviewTo => 'Đến';
+
+  @override
+  String get printPreviewUnavailable => 'Không có bản xem trước';
+
+  @override
+  String get redo => 'Làm lại';
+
+  @override
+  String get remove => 'Gỡ bỏ';
+
+  @override
+  String get rename => 'Đổi tên';
+
+  @override
+  String get reset => 'Đặt lại';
+
+  @override
+  String get save => 'Lưu';
+
+  @override
+  String get settingsAbout => 'Giới thiệu';
+
+  @override
+  String get settingsAppearance => 'Giao diện';
+
+  @override
+  String get settingsCheckNow => 'Kiểm tra ngay';
+
+  @override
+  String get settingsLanguage => 'Ngôn ngữ';
+
+  @override
+  String get settingsLanguageSystem => 'Mặc định của hệ thống';
+
+  @override
+  String get settingsCheckingForUpdates => 'Đang kiểm tra cập nhật…';
+
+  @override
+  String get settingsCouldNotOpenDownload => 'Không thể mở bản tải xuống';
+
+  @override
+  String get settingsCouldNotOpenSystemSettings =>
+      'Không thể mở cài đặt hệ thống';
+
+  @override
+  String get settingsDeveloperTools => 'Công cụ nhà phát triển';
+
+  @override
+  String get settingsDeveloperToolsSubtitle =>
+      'Số liệu, nhật ký, chế độ kết xuất (F12)';
+
+  @override
+  String settingsDownloadVersion(String version) {
+    return 'Tải xuống $version';
+  }
+
+  @override
+  String get settingsOpenSettings => 'Mở Cài đặt';
+
+  @override
+  String settingsRecentCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã ghi nhớ $count',
+      one: 'Đã ghi nhớ 1',
+      zero: 'Không có tệp gần đây',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsRecentFiles => 'Tệp gần đây';
+
+  @override
+  String get settingsSetUpAsDefault => 'Thiết lập làm ứng dụng mặc định';
+
+  @override
+  String get settingsSystem => 'Hệ thống';
+
+  @override
+  String get settingsThemeDark => 'Tối';
+
+  @override
+  String get settingsThemeLight => 'Sáng';
+
+  @override
+  String get settingsThemeSystem => 'Hệ thống';
+
+  @override
+  String get settingsTitle => 'Cài đặt';
+
+  @override
+  String settingsUpToDate(String version) {
+    return 'Bạn đang dùng phiên bản mới nhất ($version).';
+  }
+
+  @override
+  String settingsUpdateAvailable(String version, String currentVersion) {
+    return 'Phiên bản $version đã có sẵn (bạn đang có $currentVersion).';
+  }
+
+  @override
+  String get settingsUpdateFailed =>
+      'Không thể kiểm tra cập nhật. Hãy thử lại sau.';
+
+  @override
+  String settingsUpdateIdle(String name, String version) {
+    return 'Bạn đang có $name $version.';
+  }
+
+  @override
+  String get settingsNightlyUpdates => 'Bản cập nhật hằng đêm';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'Nhận thông báo cập nhật tự động cho các bản dựng thử nghiệm Windows chưa ký từ main.';
+
+  @override
+  String get settingsUpdates => 'Cập nhật';
+
+  @override
+  String get settingsViewSource => 'Xem mã nguồn trên GitHub';
+
+  @override
+  String get undo => 'Hoàn tác';
+
+  @override
+  String get welcomeOpenPdf => 'Mở một PDF';
+
+  @override
+  String get welcomePickAgainToReopen => 'Chọn lại để mở lại';
+
+  @override
+  String get welcomeRecent => 'Gần đây';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Tìm kiếm tệp gần đây';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Không có tệp gần đây nào khớp với tìm kiếm';
+
+  @override
+  String get welcomeRemoveFromRecent => 'Gỡ khỏi danh sách gần đây';
+
+  @override
+  String get welcomeTapToReopen => 'Nhấn để mở lại';
+
+  @override
+  String get welcomeViewAsGrid => 'Xem dạng lưới';
+
+  @override
+  String get welcomeViewAsList => 'Xem dạng danh sách';
+
+  @override
+  String settingsDefaultAppSubtitle(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web': 'Cài đặt ứng dụng web, sau đó chọn nó cho các tệp PDF.',
+        'windows': 'Mở cài đặt ứng dụng mặc định của Windows cho PDF.',
+        'macos': 'Làm theo các bước “Always Open With” của Finder.',
+        'linux':
+            'Sử dụng cài đặt ứng dụng mặc định của môi trường máy tính để bàn của bạn.',
+        'android': 'Chọn DartPDF khi mở PDF, sau đó nhấn Luôn luôn.',
+        'ios': 'Dùng Chia sẻ hoặc Mở Trong từ Tệp để gửi PDF vào đây.',
+        'other': 'Định cấu hình trình xử lý tệp PDF của hệ thống của bạn.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String settingsDefaultAppInstructions(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web':
+            'Cài đặt DartPDF từ trình duyệt của bạn trước. Sau đó dùng cài đặt trình xử lý tệp của trình duyệt hoặc hệ điều hành để liên kết các tệp PDF với ứng dụng đã cài đặt.',
+        'windows':
+            'Cài đặt Windows sẽ mở đến Ứng dụng mặc định. Tìm kiếm “.pdf” hoặc “PDF”, chọn ứng dụng PDF hiện tại, sau đó chọn DartPDF.',
+        'macos':
+            'Trong Finder, chọn bất kỳ PDF nào, chọn File > Get Info, mở rộng “Open with”, chọn DartPDF, sau đó nhấp “Change All…”.',
+        'linux':
+            'Mở cài đặt máy tính để bàn cho Ứng dụng mặc định, hoặc nhấp chuột phải vào một PDF trong Tệp, chọn Thuộc tính, và đặt DartPDF làm mặc định cho tài liệu PDF.',
+        'android':
+            'Mở một PDF từ Tệp hoặc Tải xuống, chọn DartPDF trong bộ chọn ứng dụng, sau đó chọn Luôn luôn. Nếu một ứng dụng khác đã mở PDF, hãy xóa mặc định của ứng dụng đó trong Cài đặt Android trước.',
+        'ios':
+            'iOS không cung cấp trình chỉnh sửa PDF mặc định toàn cục. Dùng Tệp > Chia sẻ, hoặc nhấn giữ một PDF và chọn Chia sẻ/Mở Trong, sau đó chọn DartPDF.',
+        'other':
+            'Dùng cài đặt hệ thống cho trình xử lý tệp để liên kết tài liệu PDF với DartPDF.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrChipDownloadingModel => 'Đang tải xuống mô hình OCR…';
+
+  @override
+  String ocrChipDownloadingModelPercent(int percent) {
+    return 'Đang tải xuống mô hình $percent%';
+  }
+
+  @override
+  String ocrChipRecognising(int page, int pageCount) {
+    return 'OCR $page/$pageCount';
+  }
+
+  @override
+  String get ocrChipFinishing => 'Đang hoàn tất OCR…';
+
+  @override
+  String get fileTypePdf => 'Tài liệu PDF';
+
+  @override
+  String get fileTypeImages => 'Hình ảnh';
+
+  @override
+  String get fileTypeStampBundle => 'Con dấu DartPDF';
+
+  @override
+  String get appSigKeyFileType => 'Khóa riêng tư RSA';
+
+  @override
+  String get appSigCertificateFileType => 'Chứng chỉ X.509';
+
+  @override
+  String get appSigErrorNoCertificateSelected =>
+      'Chọn ít nhất một chứng chỉ X.509.';
+
+  @override
+  String appSigErrorInvalidCertificate(int index) {
+    return 'Chứng chỉ $index không phải X.509 hợp lệ.';
+  }
+
+  @override
+  String get appSigErrorKeyCertificateMismatch =>
+      'Khóa riêng tư không khớp với bất kỳ chứng chỉ RSA nào đã chọn.';
+
+  @override
+  String get appSigErrorEncryptedKeyUnsupported =>
+      'Không hỗ trợ khóa riêng tư được mã hóa. Hãy chọn khóa RSA PKCS#1 hoặc PKCS#8 chưa mã hóa.';
+
+  @override
+  String get appSigErrorKeyNotRsa =>
+      'Khóa riêng tư không phải là khóa RSA PKCS#1 hoặc PKCS#8 chưa mã hóa.';
+
+  @override
+  String get appSigErrorNoCertificateFound =>
+      'Không tìm thấy chứng chỉ X.509 nào.';
+
+  @override
+  String get imageSourceTakePhoto => 'Chụp ảnh';
+
+  @override
+  String get imageSourceChooseFile => 'Chọn tệp';
+
+  @override
+  String get imageSourceCameraFailed => 'Không thể chụp ảnh';
+
+  @override
+  String get settingsCachedDocuments => 'Tài liệu đã lưu vào bộ nhớ đệm';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return 'Đã dùng $used MiB trên $limit MiB';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return 'Tệp lớn hơn $limit MiB không được lưu vào bộ nhớ đệm. Việc xóa vẫn giữ danh sách gần đây, tài liệu đang mở và thay đổi chưa lưu; bạn cần chọn lại tệp đã lưu trong bộ nhớ đệm để mở lại.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => 'Xóa tài liệu trong bộ nhớ đệm';
+
+  @override
+  String get settingsCacheUnavailable =>
+      'Không có thông tin kích thước bộ nhớ đệm';
+
+  @override
+  String get settingsCacheClearFailed =>
+      'Không thể xóa tài liệu trong bộ nhớ đệm. Hãy thử lại.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Giảm kích thước tệp…';
+
+  @override
+  String get reduceSizeTitle => 'Giảm kích thước tệp';
+
+  @override
+  String get reduceSizeDescription =>
+      'Tối ưu hóa tài liệu hiện tại, xem dung lượng tiết kiệm rồi lưu một bản sao nhỏ hơn.';
+
+  @override
+  String get reduceSizePreset => 'Thiết lập sẵn';
+
+  @override
+  String get reduceSizeLossless => 'Không mất dữ liệu — giữ chất lượng ảnh';
+
+  @override
+  String get reduceSizeScreen => 'Màn hình — 72 DPI, chất lượng JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'Sách điện tử — 150 DPI, chất lượng JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'In — 300 DPI, chất lượng JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Độ phân giải và chất lượng ảnh không thay đổi.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Ảnh có độ phân giải cao hơn mục tiêu có thể được thu nhỏ và mã hóa JPEG. Chi tiết nhỏ có thể bị mất; văn bản và đồ họa vector vẫn sắc nét.';
+
+  @override
+  String get reduceSizeAdvanced => 'Cài đặt nâng cao';
+
+  @override
+  String get reduceSizeRecompress => 'Nén lại luồng dữ liệu';
+
+  @override
+  String get reduceSizeUnusedResources => 'Xóa tài nguyên không dùng';
+
+  @override
+  String get reduceSizeDeduplicate => 'Gộp các đối tượng trùng lặp';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Thu gọn phông chữ nhúng còn các glyph được dùng';
+
+  @override
+  String get reduceSizeDpi => 'Độ phân giải mục tiêu của ảnh';
+
+  @override
+  String get reduceSizeKeepImages => 'Giữ ảnh gốc (không mất dữ liệu)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Chất lượng JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Việc viết lại PDF đã ký này sẽ làm mất hiệu lực chữ ký số trong bản sao được lưu.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Cho phép làm mất hiệu lực chữ ký trong bản sao này';
+
+  @override
+  String get reduceSizeEncrypted => 'Không thể tối ưu hóa PDF đã mã hóa.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Hãy đợi tài liệu tải xong trước khi giảm kích thước.';
+
+  @override
+  String get reduceSizeRun => 'Tối ưu hóa';
+
+  @override
+  String get reduceSizeRunning => 'Đang tối ưu hóa tài liệu…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Không thể tối ưu hóa PDF này: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Không thể lưu bản sao: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Lưu bản sao…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Đổi cài đặt';
+
+  @override
+  String get reduceSizeBefore => 'Kích thước ban đầu';
+
+  @override
+  String get reduceSizeAfter => 'Kích thước đã tối ưu';
+
+  @override
+  String get reduceSizeSavings => 'Dung lượng tiết kiệm';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Tài liệu này đã gọn với các cài đặt này. Dữ liệu gốc được giữ nguyên.';
+
+  @override
+  String get reduceSizeReportHint => 'Số byte tiết kiệm ở mỗi bước tối ưu hóa:';
+
+  @override
+  String get reduceSizeStructure => 'Cấu trúc tài liệu';
+
+  @override
+  String get reduceSizeResources => 'Tài nguyên không dùng';
+
+  @override
+  String get reduceSizeFonts => 'Phông chữ nhúng';
+
+  @override
+  String get reduceSizeImages => 'Ảnh';
+
+  @override
+  String get reduceSizeDuplicates => 'Đối tượng trùng lặp';
+
+  @override
+  String get reduceSizeCustom => 'Cài đặt tùy chỉnh';
+
+  @override
+  String get printOptionsPrinter => 'Máy in';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Trong hộp thoại in của hệ thống tiếp theo, hãy chọn máy in, khay giấy, màu, chế độ in hai mặt và thuộc tính thiết bị. Giữ tỷ lệ ở 100% và số bản sao là 1 để sử dụng bố cục hiển thị ở đây.';
+
+  @override
+  String get printOptionsPages => 'Trang';
+
+  @override
+  String get printOptionsSelected => 'Đã chọn';
+
+  @override
+  String get printOptionsPageRange => 'Trang (ví dụ: 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Thêm tệp…';
+
+  @override
+  String get printOptionsAddFailed => 'Không thể thêm các tệp đã chọn.';
+
+  @override
+  String get printOptionsGetWindow => 'Chọn vùng';
+
+  @override
+  String get printOptionsClearWindow => 'Xóa vùng chọn';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Kéo một hình chữ nhật trên trang gốc này để chọn vùng cần in.';
+
+  @override
+  String get printOptionsPaper => 'Giấy';
+
+  @override
+  String get printOptionsPaperSize => 'Khổ giấy';
+
+  @override
+  String get printOptionsPageSize => 'Dùng kích thước trang của tài liệu';
+
+  @override
+  String get printOptionsOrientation => 'Hướng giấy';
+
+  @override
+  String get printOptionsAuto => 'Tự động';
+
+  @override
+  String get printOptionsPortrait => 'Dọc';
+
+  @override
+  String get printOptionsLandscape => 'Ngang';
+
+  @override
+  String get printOptionsCopies => 'Bản sao';
+
+  @override
+  String get printOptionsCollate => 'In từng bộ';
+
+  @override
+  String get printOptionsReverse => 'Đảo thứ tự trang';
+
+  @override
+  String get printOptionsLayout => 'Bố cục trang';
+
+  @override
+  String get printOptionsScaling => 'Co giãn trang';
+
+  @override
+  String get printOptionsScaleNone => 'Không (kích thước thực)';
+
+  @override
+  String get printOptionsFitPaper => 'Vừa khổ giấy';
+
+  @override
+  String get printOptionsReducePaper => 'Thu nhỏ cho vừa khổ giấy';
+
+  @override
+  String get printOptionsFitMargins => 'Vừa trong lề';
+
+  @override
+  String get printOptionsReduceMargins => 'Thu nhỏ cho vừa trong lề';
+
+  @override
+  String get printOptionsCustomScale => 'Tỷ lệ tùy chỉnh';
+
+  @override
+  String get printOptionsMultiple => 'Nhiều trang trên một tờ';
+
+  @override
+  String get printOptionsScalePercent => 'Tỷ lệ (%)';
+
+  @override
+  String get printOptionsMargin => 'Lề (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Số trang mỗi tờ';
+
+  @override
+  String get printOptionsPageOrder => 'Thứ tự trang';
+
+  @override
+  String get printOptionsHorizontal => 'Theo chiều ngang';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Theo chiều ngang đảo ngược';
+
+  @override
+  String get printOptionsVertical => 'Theo chiều dọc';
+
+  @override
+  String get printOptionsVerticalReverse => 'Theo chiều dọc đảo ngược';
+
+  @override
+  String get printOptionsBorder => 'In viền trang';
+
+  @override
+  String get printOptionsRotation => 'Xoay (theo chiều kim đồng hồ)';
+
+  @override
+  String get printOptionsNoRotation => 'Không';
+
+  @override
+  String get printOptionsCenter => 'Căn giữa trên giấy';
+
+  @override
+  String get printOptionsOffsetX => 'Dịch sang phải (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Dịch xuống (pt)';
+
+  @override
+  String get printOptionsContents => 'Nội dung cần in';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Tài liệu và chú thích';
+
+  @override
+  String get printOptionsDocumentOnly => 'Chỉ tài liệu';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Chỉ chú thích';
+
+  @override
+  String get printOptionsDimPage => 'Làm nhạt nội dung trang';
+
+  @override
+  String get printOptionsDimMarkups => 'Làm nhạt chú thích';
+
+  @override
+  String get printOptionsHyperlinks => 'In siêu liên kết hiển thị';
+
+  @override
+  String get printOptionsDefaults => 'Mặc định';
+
+  @override
+  String get printOptionsInvalidNumber => 'Nhập số hợp lệ trước khi in.';
+
+  @override
+  String get printOptionsInvalidValue => 'Giá trị không hợp lệ';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Các đường màu đỏ thể hiện lề và sẽ không được in.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Vùng: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Trang gốc: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Tờ: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Tờ $sheet / $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Không thể chuẩn bị bố cục này. Hãy kiểm tra khổ giấy, lề và tỷ lệ.';
+}

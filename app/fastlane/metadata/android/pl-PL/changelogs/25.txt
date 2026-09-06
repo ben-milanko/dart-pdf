@@ -1,0 +1,5 @@
+Nowości w wersji 3.3.1
+
+• Usunięto duplikowanie adnotacji po zmianie właściwości.
+• Osadzone czcionki są zachowywane przy zmianie koloru tekstu, a podgląd chmur i wielokątów utrzymuje skalę wzoru.
+• Zmienianie kolejności wielu stron ma czytelniejszy podgląd grupy i działa pewniej.

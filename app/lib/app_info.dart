@@ -11,7 +11,17 @@ class AppInfo {
   static const tagline = 'A fully native Flutter PDF editor';
   static const sourceUrl = 'https://github.com/ben-milanko/dart-pdf';
 
+  /// Git commit supplied by CI through `--dart-define=PDF_BUILD_COMMIT=...`.
+  /// Release builds without the define stay honest rather than inventing one.
+  static const buildCommit =
+      String.fromEnvironment('PDF_BUILD_COMMIT', defaultValue: 'unknown');
+
   static String version = '1.4.1';
+
+  /// Build number from the same artifact (`+18` in `2.0.0+18`). Empty when
+  /// unavailable. Kept separate from [version] because two builds of one
+  /// version are otherwise indistinguishable in a diagnostics export.
+  static String buildNumber = '';
 
   /// Populates [version] from the platform package metadata. Best-effort: any
   /// failure leaves the fallback in place.
@@ -19,6 +29,7 @@ class AppInfo {
     try {
       final info = await PackageInfo.fromPlatform();
       if (info.version.isNotEmpty) version = info.version;
+      buildNumber = info.buildNumber;
     } catch (_) {
       // Keep the fallback; the About box is non-critical.
     }

@@ -52,6 +52,62 @@ void main() {
     expect(transition.dropDetail, isFalse);
   });
 
+  test('a settle at unchanged scale supersedes the detail, not the base', () {
+    // The full raster depends on content, display settings and resolution -
+    // none of which a settle touches. Superseding it here discarded rasters
+    // that had already finished: the page view disposes an image whose
+    // generation no longer matches and rasterizes the whole page again. The
+    // 2026-07-29 trace shows page 0 producing an identical `base-full ratio=1.4
+    // 1715x1213` three times inside one second with only the last one painting.
+    final session = PdfPageRenderSession(intent());
+    final full = session.beginFull();
+    final detail = session.beginDetail();
+
+    final transition = session.update(intent(settleGeneration: 1));
+
+    expect(transition.scheduleRender, isTrue,
+        reason: 'the detail patch still needs a pass');
+    expect(session.acceptsFull(full, 0), isTrue,
+        reason: 'a raster already in flight is still exactly the right pixels');
+    expect(session.acceptsDetail(detail), isFalse,
+        reason: 'the patch tracks the viewport, so a settle does supersede it');
+  });
+
+  test('a settle that also changes the scale still supersedes the base', () {
+    final session = PdfPageRenderSession(intent());
+    final full = session.beginFull();
+
+    session.update(intent(scale: 2, settleGeneration: 1));
+
+    expect(session.acceptsFull(full, 0), isFalse,
+        reason: 'an in-flight raster really is at the wrong resolution now');
+  });
+
+  test('content and slot changes still supersede an in-flight raster', () {
+    for (final next in [
+      intent(contentStamp: 1),
+      intent(destructiveStamp: 1),
+      intent(pageEpoch: 1),
+      intent(rotation: 90),
+      intent(pageColor: const Color(0xFF000000)),
+      intent(showAnnotations: false),
+    ]) {
+      final session = PdfPageRenderSession(intent());
+      final full = session.beginFull();
+      session.update(next);
+      expect(session.acceptsFull(full, 0), isFalse,
+          reason: 'these change what the page should look like');
+    }
+
+    // A slot change is checked through acceptsFull's page index too, but the
+    // generation must move as well so a worker reply for the old slot cannot be
+    // accepted into the recycled one.
+    final session = PdfPageRenderSession(intent());
+    final full = session.beginFull();
+    session.update(intent(pageIndex: 1));
+    expect(session.acceptsFull(full, 1), isFalse);
+  });
+
   test(
     'additive content keeps the old base and detail while replacing data',
     () {

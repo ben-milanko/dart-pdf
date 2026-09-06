@@ -17,6 +17,8 @@ The release tag format is:
 | `pdf_document` | `pdf_document-v{{version}}` |
 | `pdf_graphics` | `pdf_graphics-v{{version}}` |
 | `dart_pdf_editor` | `dart_pdf_editor-v{{version}}` |
+| `dart_pdf_editor_flutter_gpu` | `dart_pdf_editor_flutter_gpu-v{{version}}` |
+| `dart_pdf_editor_assets` | `dart_pdf_editor_assets-v{{version}}` |
 | `pdf_ocr_vlm` | `pdf_ocr_vlm-v{{version}}` |
 | `pdf_ocr_ondevice` | `pdf_ocr_ondevice-v{{version}}` |
 

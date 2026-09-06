@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
 import 'editing_value_field.dart';
 import 'text_prompt.dart';
+import '../l10n/pdf_l10n.dart';
+import '../popup_position.dart';
 
 /// A field-type menu for the single selected form widget.
 ///
@@ -41,15 +43,16 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
         _ => null,
       };
 
-  static String _label(PdfFieldType type) => switch (type) {
-        PdfFieldType.text => 'Text field',
-        PdfFieldType.checkBox => 'Check box',
-        PdfFieldType.radioGroup => 'Radio group',
-        PdfFieldType.pushButton => 'Image button',
-        PdfFieldType.comboBox => 'Combo box',
-        PdfFieldType.listBox => 'List box',
-        PdfFieldType.signature => 'Signature',
-        PdfFieldType.unknown => 'Unknown field',
+  static String _label(BuildContext context, PdfFieldType type) =>
+      switch (type) {
+        PdfFieldType.text => pdfL10n(context).propFieldTypeText,
+        PdfFieldType.checkBox => pdfL10n(context).propFieldTypeCheckBox,
+        PdfFieldType.radioGroup => pdfL10n(context).propFieldTypeRadioGroup,
+        PdfFieldType.pushButton => pdfL10n(context).propFieldTypeImageButton,
+        PdfFieldType.comboBox => pdfL10n(context).propFieldTypeComboBox,
+        PdfFieldType.listBox => pdfL10n(context).propFieldTypeListBox,
+        PdfFieldType.signature => pdfL10n(context).propFieldTypeSignature,
+        PdfFieldType.unknown => pdfL10n(context).propFieldTypeUnknown,
       };
 
   static IconData _icon(PdfFieldType type) => switch (type) {
@@ -66,10 +69,10 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final type = controller.selectedWidgetFieldType;
     if (type == null) return const SizedBox.shrink();
-    final label = _label(type);
+    final label = _label(context, type);
     return PopupMenuButton<PdfFormFieldKind>(
       key: buttonKey,
-      tooltip: 'Field type: $label',
+      tooltip: pdfL10n(context).propFieldTypeTooltip(label),
       initialValue: _kind(type),
       onSelected: controller.changeSelectedFormFieldKind,
       itemBuilder: (context) => [
@@ -77,19 +80,19 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
           key: ValueKey('$itemKeyPrefix-text'),
           value: PdfFormFieldKind.text,
           height: 34,
-          child: const Text('Text field'),
+          child: Text(pdfL10n(context).propFieldTypeText),
         ),
         PopupMenuItem(
           key: ValueKey('$itemKeyPrefix-checkbox'),
           value: PdfFormFieldKind.checkBox,
           height: 34,
-          child: const Text('Check box'),
+          child: Text(pdfL10n(context).propFieldTypeCheckBox),
         ),
         PopupMenuItem(
           key: ValueKey('$itemKeyPrefix-button'),
           value: PdfFormFieldKind.pushButton,
           height: 34,
-          child: const Text('Image button'),
+          child: Text(pdfL10n(context).propFieldTypeImageButton),
         ),
       ],
       icon: showLabel ? null : Icon(_icon(type)),
@@ -140,11 +143,8 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
   PdfEditingController get _controller => widget.controller;
 
   Future<void> _pickColor(String name, Color current) async {
-    final prefs = _controller.preferences;
-    final picked = await showPdfColorPicker(context,
-        initial: current,
-        initialFormat: prefs.colorPickerFormat,
-        onFormatChanged: (format) => prefs.colorPickerFormat = format);
+    final picked =
+        await pickEditingColor(context, _controller, initial: current);
     if (picked != null) {
       _controller.setFormFieldStyle(name, color: picked.toARGB32() & 0xFFFFFF);
     }
@@ -164,7 +164,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(children: [
-              const Expanded(child: Text('Font')),
+              Expanded(child: Text(pdfL10n(context).propFont)),
               PdfFontMenuButton(
                 buttonKey: const ValueKey('pdf-form-style-font-menu'),
                 controller: _controller,
@@ -174,7 +174,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
             ]),
             const SizedBox(height: 6),
             Row(children: [
-              const Expanded(child: Text('Style')),
+              Expanded(child: Text(pdfL10n(context).propStyle)),
               FontStyleToggles(
                 keyPrefix: 'pdf-form-style-font',
                 font: style.font,
@@ -184,7 +184,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
             ]),
             const SizedBox(height: 6),
             Row(children: [
-              const Expanded(child: Text('Align')),
+              Expanded(child: Text(pdfL10n(context).propAlign)),
               TextAlignToggles(
                 keyPrefix: 'pdf-form-style-align',
                 align: style.align,
@@ -196,14 +196,14 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
               key: const ValueKey('pdf-form-style-autosize'),
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text('Auto-size'),
+              title: Text(pdfL10n(context).propAutoSize),
               value: style.autoSize,
               onChanged: (v) => _controller.setFormFieldStyle(name,
                   autoSize: v, fontSize: v ? null : style.size),
             ),
             if (!style.autoSize)
               Row(children: [
-                const Text('Size'),
+                Text(pdfL10n(context).propSize),
                 Expanded(
                   child: Slider(
                     key: const ValueKey('pdf-form-style-size'),
@@ -223,6 +223,8 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                   value: _draggingSize ?? style.size,
                   min: 6,
                   max: 72,
+                  fieldMin: 1,
+                  fieldMax: kPdfTypedSizeMax,
                   width: 40,
                   display: (v) => '${v.round()}',
                   onSubmit: (v) {
@@ -236,13 +238,13 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
               key: const ValueKey('pdf-form-style-multiline'),
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text('Multiline'),
+              title: Text(pdfL10n(context).propMultiline),
               value: style.multiline,
               onChanged: (v) =>
                   _controller.setFormFieldStyle(name, multiline: v),
             ),
             Row(children: [
-              const Expanded(child: Text('Colour')),
+              Expanded(child: Text(pdfL10n(context).propColour)),
               InkWell(
                 key: const ValueKey('pdf-form-style-color'),
                 onTap: () => _pickColor(name, style.color),
@@ -274,11 +276,9 @@ Future<void> showPdfFormTextStylePopup({
   PdfFontPicker? fontPicker,
 }) async {
   if (!controller.canStyleSelectedFormField) return;
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   await showMenu<void>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: [
       PopupMenuItem<void>(
         key: const ValueKey('pdf-form-style-popup'),

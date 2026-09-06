@@ -1,0 +1,6 @@
+Nieuw in 3.7.0
+
+- Pagina's worden tijdens het scrollen weergegeven in plaats van pas als je stopt, en gelezen pagina's zijn meteen terug.
+- Zoeken en vervangen in het zoekpaneel: vervang één resultaat of alle resultaten in één stap.
+- Onleesbare tekst en verkeerde bewerkingen in het inhoudsgereedschap bij subset-lettertypen opgelost.
+- Crash bij het openen of opslaan van een bestand opgelost.

@@ -1,10 +1,12 @@
 // Persistent on-disk preview cache: previews render once, get written
 // through to a pluggable byte store as PNG, and load back on a later
 // (cold) session so the page paints soft content immediately.
+import 'dart:ui' as ui;
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
-import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -30,14 +32,83 @@ void main() {
     });
   });
 
+  testWidgets('LoD tiles round-trip through their independent disk tier',
+      (tester) async {
+    await tester.runAsync(() async {
+      final store = PdfMemoryCacheStore();
+      final cache = PdfRasterCache(
+        PdfDiskCache(store, namespace: 'previews'),
+        tiles: PdfDiskCache(store, namespace: 'tiles'),
+      ).forDocument('doc-tiles');
+      const id = PdfTilePageIdentity(
+        pageIndex: 2,
+        pageEpoch: 0,
+        contentStamp: 0,
+        destructiveStamp: 0,
+        plan: PdfPageRenderPlan(),
+      );
+      const key = PdfTileKey(id, 3, 4, 5);
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawRect(
+        const Rect.fromLTWH(0, 0, 24, 16),
+        Paint()..color = const Color(0xFF335577),
+      );
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(24, 16);
+      picture.dispose();
+      const region = Rect.fromLTWH(10, 20, 12, 8);
+      await cache.storeTile(key, image, region: region, pixelRatio: 2);
+      image.dispose();
+
+      final restored = await cache.loadTile(key,
+          region: region, pixelRatio: 2, width: 24, height: 16);
+      expect(restored, isNotNull);
+      expect(restored!.width, 24);
+      expect(restored.height, 16);
+      restored.dispose();
+      expect(cache.tileStats.stores, 1);
+      expect(cache.tileStats.hits, 1);
+
+      // Every visual identity component participates in the key.
+      const other = PdfTileKey(
+        PdfTilePageIdentity(
+          pageIndex: 2,
+          pageEpoch: 0,
+          contentStamp: 1,
+          destructiveStamp: 0,
+          plan: PdfPageRenderPlan(),
+        ),
+        3,
+        4,
+        5,
+      );
+      expect(
+          await cache.loadTile(other,
+              region: region, pixelRatio: 2, width: 24, height: 16),
+          isNull);
+      // A host may choose a non-default tile size or zoom ladder. Region and
+      // ratio therefore participate independently instead of trusting rung
+      // and grid coordinates to imply the physical raster.
+      expect(
+          await cache.loadTile(key,
+              region: const Rect.fromLTWH(10, 20, 16, 8),
+              pixelRatio: 2,
+              width: 32,
+              height: 16),
+          isNull);
+      expect(cache.tileStats.misses, 2);
+    });
+  });
+
   testWidgets('renders write through to disk and load back as an image',
       (tester) async {
     final store = PdfMemoryCacheStore();
-    final raster =
-        PdfRasterCache(PdfDiskCache(store)).forDocument('doc-1');
+    final raster = PdfRasterCache(PdfDiskCache(store)).forDocument('doc-1');
     final document = PdfDocument.open(buildMultiPagePdf(3));
     // capture page objects once, exactly as the viewer holds `_pages`
-    final pages = [for (var i = 0; i < document.pageCount; i++) document.page(i)];
+    final pages = [
+      for (var i = 0; i < document.pageCount; i++) document.page(i)
+    ];
 
     // session one: render previews into a cache backed by the raster store
     final cacheA = PdfPagePreviewCache()..disk = raster;

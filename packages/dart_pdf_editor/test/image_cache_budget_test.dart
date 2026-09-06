@@ -10,7 +10,6 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 const int _mb = 1024 * 1024;
@@ -47,24 +46,24 @@ void main() {
           128 * _mb);
     });
 
-    test('web takes the mobile budget under a tab ceiling', () {
+    test('web keeps a 32 MB ceiling beside CanvasKit and worker caches', () {
       expect(
           pdfDefaultImageCacheBytes(
               platform: PdfPerformancePlatform.web, deviceMemoryGb: 16),
-          128 * _mb);
+          32 * _mb);
     });
 
-    test('a small-memory device browser drops to 64 MB', () {
+    test('a small-memory device browser uses the same bounded tier', () {
       expect(
           pdfDefaultImageCacheBytes(
               platform: PdfPerformancePlatform.web, deviceMemoryGb: 2),
-          64 * _mb);
+          32 * _mb);
     });
 
     test('web without a deviceMemory reading falls back to the constant', () {
       // Firefox, Safari, and any insecure context report nothing at all.
       expect(pdfDefaultImageCacheBytes(platform: PdfPerformancePlatform.web),
-          128 * _mb);
+          32 * _mb);
     });
 
     test('an unknown platform gets the conservative middle', () {
@@ -75,7 +74,11 @@ void main() {
     test('every platform lands in a sane range', () {
       for (final platform in PdfPerformancePlatform.values) {
         final budget = pdfDefaultImageCacheBytes(platform: platform);
-        expect(budget, greaterThanOrEqualTo(64 * _mb), reason: '$platform');
+        expect(
+          budget,
+          greaterThanOrEqualTo(32 * _mb),
+          reason: '$platform',
+        );
         expect(budget, lessThanOrEqualTo(256 * _mb), reason: '$platform');
       }
     });

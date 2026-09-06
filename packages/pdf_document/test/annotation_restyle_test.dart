@@ -164,6 +164,33 @@ void main() {
         contains('${rgb(0xFFF59D)} rg'));
   });
 
+  test('free text opacity restyles in place and preserves rich runs', () {
+    final doc = edited(
+        PdfDocument.open(buildMultiPagePdf(1)),
+        (e) => e.addFreeTextRich(
+              0,
+              const PdfRect(100, 560, 320, 630),
+              const [
+                PdfFreeTextRun('Bold ',
+                    font: PdfStandardFont.helveticaBold),
+                PdfFreeTextRun('red', color: 0xFF0000),
+              ],
+              opacity: 0.7,
+            ));
+    final before = doc.page(0).annotations.single;
+
+    final out = edited(
+        doc,
+        (e) => e.restyleAnnotation(0, before, opacity: 0.25));
+    final after = out.page(0).annotations.single;
+    final appearance = content(out, after);
+
+    expect(after.appearanceOpacity, closeTo(0.25, 1e-9));
+    expect(after.richContent, isNotNull);
+    expect(appearance, contains('/HelvBold'));
+    expect(appearance, contains('1 0 0 rg'));
+  });
+
   test('note and stamp recolor with regenerated artwork', () {
     final doc = edited(PdfDocument.open(buildMultiPagePdf(1)), (e) {
       e.addNote(0, 100, 700, 'A note');
@@ -244,5 +271,58 @@ void main() {
           ]),
         }));
     expect(pdfCanRestyleAnnotation(link), isFalse);
+  });
+
+  test('square: corner radius restyles in place, rebaking rounded corners',
+      () {
+    final doc = edited(
+        PdfDocument.open(buildMultiPagePdf(1)),
+        (e) => e.addSquare(0, const PdfRect(100, 600, 200, 660),
+            strokeColor: 0xE53935, strokeWidth: 2));
+    final before = doc.page(0).annotations.single;
+    expect(before.cornerRadius, 0);
+    expect(content(doc, before), contains(' re'));
+    final formRef = doc.cos.referenceTo(before.normalAppearance!)!;
+
+    // round the corners of the already-placed rectangle
+    final out = edited(
+        doc, (e) => e.restyleAnnotation(0, before, cornerRadius: 10));
+    final after = out.page(0).annotations.single;
+    expect(after.cornerRadius, 10);
+    // §12.5.4 /Border = [hCornerRadius vCornerRadius width]; width mirrors /BS
+    final border = out.cos.resolve(after.dict['Border']) as CosArray;
+    expect(border.length, 3);
+    expect((out.cos.resolve(border[0]) as CosReal).value, 10);
+    expect((out.cos.resolve(border[1]) as CosReal).value, 10);
+    expect((out.cos.resolve(border[2]) as CosReal).value, 2);
+    // the appearance now curves its corners rather than a single `re`
+    final stream = content(out, after);
+    expect(stream, contains('c'));
+    expect(stream, isNot(contains(' re')));
+    // identity and geometry survive; the appearance was replaced, not re-added
+    expect(after.rect, const PdfRect(100, 600, 200, 660));
+    expect(out.cos.referenceTo(after.normalAppearance!)!.objectNumber,
+        formRef.objectNumber);
+
+    // dialing it back to 0 restores square corners and drops /Border
+    final squared = edited(
+        out, (e) => e.restyleAnnotation(0, after, cornerRadius: 0));
+    final plain = squared.page(0).annotations.single;
+    expect(plain.cornerRadius, 0);
+    expect(plain.dict['Border'], isNull);
+    expect(content(squared, plain), contains(' re'));
+  });
+
+  test('corner radius is a no-op on circles (nothing to round)', () {
+    final doc = edited(
+        PdfDocument.open(buildMultiPagePdf(1)),
+        (e) => e.addCircle(0, const PdfRect(100, 600, 200, 660),
+            strokeColor: 0xE53935, strokeWidth: 2));
+    final circle = doc.page(0).annotations.single;
+    final editor = PdfEditor(doc);
+    // only /Square rounds; a lone cornerRadius on a circle changes nothing
+    expect(editor.restyleAnnotation(0, circle, cornerRadius: 10), isFalse);
+    expect(editor.hasChanges, isFalse);
+    expect(circle.dict['Border'], isNull);
   });
 }

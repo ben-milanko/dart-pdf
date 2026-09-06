@@ -2,6 +2,7 @@
 // as a raster image (handed to PdfViewer.onSnapshot) AND as detached
 // vector graphics kept on the clipboard for pasting back into the PDF.
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -13,7 +14,75 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
+    PdfAnnotationSnapshotClipboard.instance.clear();
+  });
+
   group('PdfEditingController snapshot clipboard', () {
+    test('PDF import replaces the clipboard, shares vectors, and undoes once',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+      final bytes = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      final before = Uint8List.fromList(editing.bytes);
+      expect(editing.pasteSnapshotBytes(bytes, 1, at: (300, 400)), isTrue);
+      expect(editing.hasAnnotationClipboard, isFalse);
+      expect(editing.document.page(1).annotations.single.rect,
+          const PdfRect(220, 380, 380, 420));
+      final firstSnapshot = editing.snapshotClipboard.snapshot;
+      editing.undo();
+      expect(editing.bytes, before);
+      expect(editing.snapshotClipboard.snapshot, same(firstSnapshot));
+      editing.redo();
+      expect(editing.document.page(1).annotations, hasLength(1));
+      final tab = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(tab.dispose);
+      expect(tab.pasteSnapshot(0), isTrue);
+      expect(tab.document.page(0).annotations.single.subtype, 'Stamp');
+    });
+
+    test('repeat PDF imports preserve the snapshot and position cascade', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      final pdf = PdfEditor(editing.document)
+          .captureVectorSnapshot(0, const PdfRect(0, 0, 100, 50))
+          .toPdfBytes();
+      expect(editing.pasteSnapshotBytes(pdf, 0), isTrue);
+      final snapshot = editing.snapshotClipboard.snapshot;
+      final first = editing.document.page(0).annotations.single.rect;
+      expect(editing.pasteSnapshotBytes(Uint8List.fromList(pdf), 0), isTrue);
+      expect(editing.snapshotClipboard.snapshot, same(snapshot));
+      expect(
+          editing.document.page(0).annotations.last.rect.left, first.left + 12);
+    });
+
+    test('invalid PDF or target leaves the document and clipboards intact', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+      final before = Uint8List.fromList(editing.bytes);
+      final pdf = editing
+          .captureVectorSnapshot(0, const PdfRect(0, 0, 100, 50))
+          .toPdfBytes();
+      expect(editing.pasteSnapshotBytes(Uint8List.fromList([1, 2, 3]), 0),
+          isFalse);
+      expect(editing.pasteSnapshotBytes(pdf, -1), isFalse);
+      expect(editing.pasteSnapshotBytes(pdf, 1), isFalse);
+      expect(editing.bytes, before);
+      expect(editing.hasAnnotationClipboard, isTrue);
+      expect(editing.hasSnapshotClipboard, isFalse);
+    });
+
     test('copyVectorSnapshot fills the clipboard; paste adds a vector stamp',
         () {
       SharedPreferences.setMockInitialValues({});
@@ -47,7 +116,7 @@ void main() {
           editing.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
       expect(snap.region, const PdfRect(60, 700, 220, 740));
       expect(editing.hasSnapshotClipboard, isFalse);
-      expect(editing.snapshotClipboard, isNull);
+      expect(editing.snapshotClipboard.snapshot, isNull);
     });
 
     test('copying without a paste point cascades repeat pastes', () {
@@ -55,7 +124,7 @@ void main() {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
-      expect(editing.snapshotClipboard, isNotNull);
+      expect(editing.snapshotClipboard.snapshot, isNotNull);
 
       expect(editing.pasteSnapshot(0), isTrue);
       final first = editing.document.page(0).annotations.last.rect;
@@ -101,9 +170,8 @@ void main() {
 
       final stamp = editing.document.page(0).annotations.single;
       final cos = editing.document.cos;
-      final res =
-          cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-              as CosDictionary;
+      final res = cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
       final xobj = cos.resolve(res['XObject']) as CosDictionary;
       final cap = cos.resolve(xobj['Cap']) as CosStream;
       // the captured graphics now paint in the chosen ink
@@ -118,82 +186,87 @@ void main() {
       editing.selectAnnotationAt(0, 35, 35);
       expect(editing.hasAnnotationSelection, isTrue);
       expect(editing.canRecolorSnapshotSelected, isFalse);
-      expect(
-          editing.recolorSnapshotSelected(const Color(0xFF00FF00)), isFalse);
+      expect(editing.recolorSnapshotSelected(const Color(0xFF00FF00)), isFalse);
     });
 
-    test('the snapshot clipboard clamps an oversized region into the page', () {
+    test('a snapshot pasted at a point centers there, off the page included',
+        () {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       editing.copyVectorSnapshot(0, const PdfRect(0, 0, 600, 780));
       expect(editing.pasteSnapshot(0, at: (10, 10)), isTrue);
       final rect = editing.document.page(0).annotations.single.rect;
-      // pinned to the low edge of the 612x792 crop box
-      expect(rect.left, closeTo(0, 1e-6));
-      expect(rect.bottom, closeTo(0, 1e-6));
+      // the 600x780 region centers on the point it was pasted at, running
+      // off three sides of the 612x792 crop box
+      expect(rect.left, closeTo(-290, 1e-6));
+      expect(rect.bottom, closeTo(-380, 1e-6));
+      expect(rect.right, closeTo(310, 1e-6));
+      expect(rect.top, closeTo(400, 1e-6));
     });
 
-    test('a shared clipboard carries a snapshot between sessions (tabs)', () {
+    test('the point-less snapshot cascade stays tethered to the page', () {
       SharedPreferences.setMockInitialValues({});
-      final shared = PdfSnapshotClipboard();
-      addTearDown(shared.dispose);
-      final tabA = PdfEditingController(buildMultiPagePdf(1),
-          snapshotClipboard: shared);
-      final tabB = PdfEditingController(buildMultiPagePdf(1),
-          snapshotClipboard: shared);
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(520, 20, 600, 80));
+      final box = editing.document.page(0).cropBox;
+      for (var i = 0; i < 30; i++) {
+        expect(editing.pasteSnapshot(0), isTrue);
+      }
+      const tether = PdfEditingController.pageTether;
+      for (final annotation in editing.document.page(0).annotations) {
+        final rect = annotation.rect;
+        expect(math.min(rect.right, box.right) - math.max(rect.left, box.left),
+            greaterThanOrEqualTo(tether - 1e-6));
+        expect(math.min(rect.top, box.top) - math.max(rect.bottom, box.bottom),
+            greaterThanOrEqualTo(tether - 1e-6));
+      }
+    });
+
+    test('a snapshot captured in one tab pastes as vector in another', () {
+      SharedPreferences.setMockInitialValues({});
+      // two documents ("tabs") that share one snapshot clipboard, mirroring
+      // the app's process-wide PdfSnapshotClipboard.instance
+      final clip = PdfSnapshotClipboard();
+      final tabA =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
+      final tabB =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
       addTearDown(tabA.dispose);
       addTearDown(tabB.dispose);
 
-      // copy in one tab…
-      expect(tabB.hasSnapshotClipboard, isFalse);
+      // capture a region in tab A
       tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
-      // …and the other can paste it
+      // tab B sees it on the shared clipboard - so ⌘V pastes vector, not the
+      // raster the capture also dropped on the system clipboard
+      expect(tabB.hasSnapshotClipboard, isTrue);
+      expect(tabB.pasteSnapshot(0, at: (300, 400)), isTrue);
+
+      final stamp = tabB.document.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      final ap = latin1
+          .decode(tabB.document.cos.decodeStreamData(stamp.normalAppearance!));
+      // the appearance *draws* the captured form - it is vector, not an image
+      expect(ap, contains('/Cap Do'));
+    });
+
+    test('the shared clipboard survives closing the source tab', () {
+      SharedPreferences.setMockInitialValues({});
+      final clip = PdfSnapshotClipboard();
+      final tabA =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
+      final tabB =
+          PdfEditingController(buildMultiPagePdf(1), snapshotClipboard: clip);
+      addTearDown(tabB.dispose);
+
+      tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      // the source tab is closed before the paste (the snapshot is detached)
+      tabA.dispose();
+
       expect(tabB.hasSnapshotClipboard, isTrue);
       expect(tabB.pasteSnapshot(0, at: (300, 400)), isTrue);
       expect(tabB.document.page(0).annotations.single.subtype, 'Stamp');
-    });
-
-    test('private clipboards (no shared holder) stay independent', () {
-      SharedPreferences.setMockInitialValues({});
-      final tabA = PdfEditingController(buildMultiPagePdf(1));
-      final tabB = PdfEditingController(buildMultiPagePdf(1));
-      addTearDown(tabA.dispose);
-      addTearDown(tabB.dispose);
-
-      tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
-      expect(tabA.hasSnapshotClipboard, isTrue);
-      // no shared holder → the copy doesn't leak into the other session
-      expect(tabB.hasSnapshotClipboard, isFalse);
-    });
-
-    test('pasteSnapshotBytes imports an interchange PDF (Bluebeam interop)',
-        () {
-      SharedPreferences.setMockInitialValues({});
-      // a snapshot serialized to the portable single-page PDF (as a host
-      // would read off the OS clipboard from us or another PDF tool)
-      final source = PdfDocument.open(buildMultiPagePdf(1));
-      final pdfBytes = PdfEditor(source)
-          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
-          .toPdfBytes();
-
-      final editing = PdfEditingController(buildMultiPagePdf(1));
-      addTearDown(editing.dispose);
-      expect(editing.pasteSnapshotBytes(pdfBytes, 0, at: (300, 400)), isTrue);
-      expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
-      // the import also lands on the clipboard for repeat pastes
-      expect(editing.hasSnapshotClipboard, isTrue);
-    });
-
-    test('pasteSnapshotBytes rejects non-PDF bytes', () {
-      SharedPreferences.setMockInitialValues({});
-      final editing = PdfEditingController(buildMultiPagePdf(1));
-      addTearDown(editing.dispose);
-      expect(
-          editing.pasteSnapshotBytes(
-              Uint8List.fromList([1, 2, 3, 4]), 0),
-          isFalse);
-      expect(editing.isModified, isFalse);
     });
   });
 
@@ -269,14 +342,11 @@ void main() {
       expect(captured, isNotNull);
       expect(captured!.pageIndex, 0);
       expect(captured!.pngBytes, isNotEmpty);
+      final pdf = PdfDocument.open(captured!.pdfBytes);
+      expect(pdf.pageCount, 1);
+      expect(pdf.page(0).mediaBox.width, captured!.vector.displayWidth);
       // PNG magic number
       expect(captured!.pngBytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
-      // the host-facing interchange bytes are a valid single-page PDF (what a
-      // host writes to the OS clipboard for Bluebeam) and re-import cleanly
-      final interchange = PdfDocument.open(captured!.pdfBytes);
-      expect(interchange.pageCount, 1);
-      expect(PdfVectorSnapshot.fromPdfBytes(captured!.pdfBytes).displayWidth,
-          closeTo(captured!.vector.displayWidth, 1e-6));
       // the vector half pastes back into the document
       expect(editing.pasteSnapshot(1, at: (300, 400)), isTrue);
       expect(editing.document.page(1).annotations.single.subtype, 'Stamp');

@@ -142,6 +142,10 @@ class StripBenchDevice implements PdfDevice {
   void setBlendMode(PdfBlendMode mode) {}
 
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+
+  @override
   void beginGroup(double alpha, {bool knockout = false}) {
     stats.groups++;
   }

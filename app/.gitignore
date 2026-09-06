@@ -56,7 +56,11 @@ web/pdf_render_worker.dart.js.deps
 tool/perf/node_modules/
 tool/perf/package-lock.json
 tool/perf/results.ndjson
+tool/perf/results-*.ndjson
 tool/perf/loop.log
 
 # Local release credentials and generated store API keys.
 .secrets/
+
+# Storeflight run state (plans, ledger, receipts)
+.storeflight/

@@ -8,10 +8,12 @@ import 'mq.dart';
 /// Coverage: arithmetic-coded generic regions (templates 0–3, TPGDON)
 /// and MMR-coded ones (via the CCITT engine), symbol dictionaries and
 /// text regions (arithmetic coding), pattern dictionaries, and
-/// arithmetic-coded halftone/refinement regions, with /JBIG2Globals support - which
-/// spans what real-world PDF encoders (jbig2enc, Acrobat) emit. Custom
-/// Huffman tables and refined symbol aggregation are not supported; such
-/// files decode to null and the image is skipped.
+/// arithmetic-coded halftone/refinement regions, including per-instance
+/// refinement in text regions (§6.4.11, what MRC scanners emit for the text
+/// mask of a scanned page), with /JBIG2Globals support - which spans what
+/// real-world PDF encoders (jbig2enc, Acrobat) emit. Custom Huffman tables and
+/// refinement/aggregate symbol dictionaries (SDREFAGG=1) are not supported;
+/// such files decode to null and the image is skipped.
 ///
 /// Output is 1 bit per pixel with PDF polarity: black pixels are 0 bits
 /// (matching CCITTFaxDecode's default), rows padded to byte boundaries.
@@ -27,6 +29,30 @@ class Jbig2Decoder {
   _Bitmap? _page;
   int _pageDefault = 0;
 
+  // Decoded /JBIG2Globals symbol + pattern dictionaries, keyed by a content
+  // hash of the globals bytes (#532, PDFium's JBig2_DocumentContext shape).
+  // Scanned documents share one globals stream across every page image, and
+  // the arithmetic-decoded symbol bitmaps it carries are the expensive part;
+  // decoding them once and sharing the (immutable) bitmaps across images
+  // saves that work per page. Bounded - one globals stream per document is
+  // the norm - and the shared bitmaps are only ever read by consumers
+  // (text/halftone regions draw into fresh output bitmaps), never mutated.
+  static final Map<int, _GlobalsDicts> _globalsCache = {};
+  static const _maxGlobalsCached = 8;
+
+  /// Clears the /JBIG2Globals dictionary cache. Test hook - the cache is
+  /// process-wide, so tests that assert the cold-decode path clear it first.
+  static void debugResetGlobalsCache() => _globalsCache.clear();
+
+  static int _hashGlobals(Uint8List bytes) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < bytes.length; i++) {
+      h = ((h ^ bytes[i]) * 0x01000193) & 0xFFFFFFFF;
+    }
+    // Fold the length in so two same-hash different-length streams don't alias.
+    return (h * 0x01000193 + bytes.length) & 0x1FFFFFFFFFFFFF;
+  }
+
   static Uint8List? decode({
     required Uint8List data,
     Uint8List? globals,
@@ -35,7 +61,26 @@ class Jbig2Decoder {
   }) {
     try {
       final decoder = Jbig2Decoder._(width, height);
-      if (globals != null) decoder._processSegments(globals);
+      if (globals != null && globals.isNotEmpty) {
+        final key = _hashGlobals(globals);
+        final cached = _globalsCache[key];
+        if (cached != null) {
+          // Seed from the cache: shallow-copy the maps so this decoder can
+          // add page-local dictionaries without touching the shared snapshot;
+          // the _Bitmap lists themselves are shared read-only.
+          decoder._symbolDicts.addAll(cached.symbolDicts);
+          decoder._patternDicts.addAll(cached.patternDicts);
+        } else {
+          decoder._processSegments(globals);
+          if (_globalsCache.length >= _maxGlobalsCached) {
+            _globalsCache.remove(_globalsCache.keys.first);
+          }
+          _globalsCache[key] = _GlobalsDicts(
+            Map.of(decoder._symbolDicts),
+            Map.of(decoder._patternDicts),
+          );
+        }
+      }
       decoder._processSegments(data);
       final page = decoder._page;
       if (page == null) return null;
@@ -401,10 +446,20 @@ class Jbig2Decoder {
     ).decode();
     final bitmap = _Bitmap(w, h, fill: 0);
     final rowBytes = (w + 7) >> 3;
+    final out = bitmap.data;
+    // Unpack a byte at a time: the bitmap starts all-zero, so an all-white
+    // byte (the common case on a scanned page) is skipped outright instead
+    // of costing eight bounds-checked writes.
     for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if ((packed[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1 != 0) {
-          bitmap.set(x, y, 1);
+      final rowStart = y * rowBytes;
+      final base = y * w;
+      for (var byte = 0; byte < rowBytes; byte++) {
+        final value = packed[rowStart + byte];
+        if (value == 0) continue;
+        final x0 = byte << 3;
+        final last = x0 + 8 <= w ? 8 : w - x0;
+        for (var bit = 0; bit < last; bit++) {
+          if ((value >> (7 - bit)) & 1 != 0) out[base + x0 + bit] = 1;
         }
       }
     }
@@ -486,14 +541,18 @@ class Jbig2Decoder {
     _Bitmap reference,
     int template,
     (int, int) at0,
-    (int, int) at1,
-  ) {
+    (int, int) at1, {
+    int dx = 0,
+    int dy = 0,
+  }) {
     final bitmap = _Bitmap(w, h, fill: 0);
     for (var y = 0; y < h; y++) {
+      final ry = y - dy;
       for (var x = 0; x < w; x++) {
+        final rx = x - dx;
         final context = template == 0
-            ? _refinementContext0(bitmap, reference, x, y, at0, at1)
-            : _refinementContext1(bitmap, reference, x, y);
+            ? _refinementContext0(bitmap, reference, x, y, rx, ry, at0, at1)
+            : _refinementContext1(bitmap, reference, x, y, rx, ry);
         final bit = decoder.decode(contexts, indexes, context);
         if (bit != 0) bitmap.set(x, y, 1);
       }
@@ -501,11 +560,15 @@ class Jbig2Decoder {
     return bitmap;
   }
 
+  /// [x]/[y] index the bitmap being decoded; [rx]/[ry] the reference pixel it
+  /// refines (they differ by GRREFERENCEDX/DY, §6.3.5.3).
   static int _refinementContext0(
     _Bitmap bitmap,
     _Bitmap reference,
     int x,
     int y,
+    int rx,
+    int ry,
     (int, int) at0,
     (int, int) at1,
   ) =>
@@ -513,32 +576,34 @@ class Jbig2Decoder {
       (bitmap.get(x + 1, y - 1) << 1) |
       (bitmap.get(x, y - 1) << 2) |
       (bitmap.get(x + at0.$1, y + at0.$2) << 3) |
-      (reference.get(x + 1, y + 1) << 4) |
-      (reference.get(x, y + 1) << 5) |
-      (reference.get(x - 1, y + 1) << 6) |
-      (reference.get(x + 1, y) << 7) |
-      (reference.get(x, y) << 8) |
-      (reference.get(x - 1, y) << 9) |
-      (reference.get(x + 1, y - 1) << 10) |
-      (reference.get(x, y - 1) << 11) |
-      (reference.get(x + at1.$1, y + at1.$2) << 12);
+      (reference.get(rx + 1, ry + 1) << 4) |
+      (reference.get(rx, ry + 1) << 5) |
+      (reference.get(rx - 1, ry + 1) << 6) |
+      (reference.get(rx + 1, ry) << 7) |
+      (reference.get(rx, ry) << 8) |
+      (reference.get(rx - 1, ry) << 9) |
+      (reference.get(rx + 1, ry - 1) << 10) |
+      (reference.get(rx, ry - 1) << 11) |
+      (reference.get(rx + at1.$1, ry + at1.$2) << 12);
 
   static int _refinementContext1(
     _Bitmap bitmap,
     _Bitmap reference,
     int x,
     int y,
+    int rx,
+    int ry,
   ) =>
       bitmap.get(x - 1, y) |
       (bitmap.get(x + 1, y - 1) << 1) |
       (bitmap.get(x, y - 1) << 2) |
       (bitmap.get(x - 1, y - 1) << 3) |
-      (reference.get(x + 1, y + 1) << 4) |
-      (reference.get(x, y + 1) << 5) |
-      (reference.get(x + 1, y) << 6) |
-      (reference.get(x, y) << 7) |
-      (reference.get(x - 1, y) << 8) |
-      (reference.get(x, y - 1) << 9);
+      (reference.get(rx + 1, ry + 1) << 4) |
+      (reference.get(rx, ry + 1) << 5) |
+      (reference.get(rx + 1, ry) << 6) |
+      (reference.get(rx, ry) << 7) |
+      (reference.get(rx - 1, ry) << 8) |
+      (reference.get(rx, ry - 1) << 9);
 
   // ---------- symbol dictionary (§6.5) ----------
 
@@ -709,6 +774,15 @@ class Jbig2Decoder {
 
   // ---------- text region (§6.4) ----------
 
+  /// Defensive ceilings on a refined symbol instance (§6.4.11), whose bitmap
+  /// is allocated from decoded RDW/RDH deltas before a single pixel is drawn.
+  /// A corrupt stream can code a delta of any magnitude, and nothing in the
+  /// segment bounds it - the text region's own size does not, since
+  /// composition clips. These are far above any real glyph; the per-dimension
+  /// cap also keeps the area product from overflowing.
+  static const _maxRefinedSymbolExtent = 1 << 20;
+  static const _maxRefinedSymbolPixels = 1 << 26;
+
   void _readTextRegion(Uint8List data, List<int> referred) {
     final view = ByteData.sublistView(data);
     final (w, h, x, y, op) = _regionInfo(view);
@@ -729,8 +803,15 @@ class Jbig2Decoder {
       _readHuffmanTextRegion(data, referred);
       return;
     }
+    var rAt0 = (-1, -1);
+    var rAt1 = (-1, -1);
     if (refine == 1 && rTemplate == 0) {
-      p += 4; // refinement AT pixels (unused: we reject refinement below)
+      if (data.length < p + 4) {
+        throw const FormatException('short text refinement template');
+      }
+      rAt0 = (view.getInt8(p), view.getInt8(p + 1));
+      rAt1 = (view.getInt8(p + 2), view.getInt8(p + 3));
+      p += 4;
     }
     final instanceCount = view.getUint32(p);
     p += 4;
@@ -752,8 +833,18 @@ class Jbig2Decoder {
     final iads = MqIntContext();
     final iait = MqIntContext();
     final iari = MqIntContext();
+    final iardw = MqIntContext();
+    final iardh = MqIntContext();
+    final iardx = MqIntContext();
+    final iardy = MqIntContext();
     final iaidContexts = Int8List(1 << (codeLength + 1));
     final iaidIndexes = Uint8List(1 << (codeLength + 1));
+    // One set of refinement stats is shared by every refined instance in the
+    // region (§6.4.11), so it has to outlive the loop.
+    final refinementContexts =
+        refine == 1 ? Int8List(rTemplate == 0 ? 1 << 13 : 1 << 10) : null;
+    final refinementIndexes =
+        refinementContexts == null ? null : Uint8List(refinementContexts.length);
 
     final region = _Bitmap(w, h, fill: defaultPixel);
     var stripT = -(decoder.decodeInt(iadt) ?? 0) * strips;
@@ -778,13 +869,47 @@ class Jbig2Decoder {
         final curT = strips == 1 ? 0 : (decoder.decodeInt(iait) ?? 0);
         final t = stripT + curT;
         final id = decoder.decodeId(iaidContexts, iaidIndexes, codeLength);
-        if (refine == 1 && (decoder.decodeInt(iari) ?? 0) != 0) {
-          throw const FormatException('refined text symbols');
-        }
+        final refined = refine == 1 && (decoder.decodeInt(iari) ?? 0) != 0;
         if (id >= symbols.length) {
           throw const FormatException('symbol id out of range');
         }
-        final symbol = symbols[id];
+        var symbol = symbols[id];
+        if (refined) {
+          // §6.4.11: the instance is this symbol re-coded against itself, at a
+          // size the deltas adjust and with the reference shifted to keep the
+          // two centred on each other.
+          final rdw = decoder.decodeInt(iardw) ?? 0;
+          final rdh = decoder.decodeInt(iardh) ?? 0;
+          final rdx = decoder.decodeInt(iardx) ?? 0;
+          final rdy = decoder.decodeInt(iardy) ?? 0;
+          final rw = symbol.width + rdw;
+          final rh = symbol.height + rdh;
+          // The region's own size is NOT the bound: composition clips a symbol
+          // at the region edge (see _drawSymbol), so a legitimate instance may
+          // hang off it. Only guard the allocation against a corrupt stream's
+          // arbitrarily large delta.
+          if (rw <= 0 ||
+              rh <= 0 ||
+              rw > _maxRefinedSymbolExtent ||
+              rh > _maxRefinedSymbolExtent ||
+              rw * rh > _maxRefinedSymbolPixels) {
+            throw const FormatException('bad refined symbol size');
+          }
+          symbol = _decodeRefinement(
+            decoder,
+            refinementContexts!,
+            refinementIndexes!,
+            rw,
+            rh,
+            symbol,
+            rTemplate,
+            rAt0,
+            rAt1,
+            // `>>` is the floor division the spec asks for at negative deltas.
+            dx: (rdw >> 1) + rdx,
+            dy: (rdh >> 1) + rdy,
+          );
+        }
         _drawSymbol(region, symbol, curS, t,
             refCorner: refCorner, transposed: transposed == 1, combOp: combOp);
         curS += (transposed == 1 ? symbol.height : symbol.width) - 1;
@@ -1178,6 +1303,15 @@ final _huffmanK = _HuffmanTable(const [
   _HuffmanLine(0, 32, -1),
   _HuffmanLine(7, 32, 141),
 ], htoob: false);
+
+/// A cached snapshot of the symbol + pattern dictionaries a /JBIG2Globals
+/// stream decodes to (#532). The bitmap lists are shared read-only across
+/// every image that references the same globals.
+class _GlobalsDicts {
+  _GlobalsDicts(this.symbolDicts, this.patternDicts);
+  final Map<int, List<_Bitmap>> symbolDicts;
+  final Map<int, List<_Bitmap>> patternDicts;
+}
 
 /// One-byte-per-pixel bitmap; out-of-bounds reads are 0 (white).
 class _Bitmap {

@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -72,15 +71,22 @@ void main() {
     // an idle viewer renders normally
     await waitFor(tester, fullRaster);
 
-    // Long programmatic jumps no longer animate through the intermediate
-    // pages. They land directly on the target so the destination can render
-    // immediately instead of staying blank while the old fast-scroll hold
-    // waits for settle.
+    // Long programmatic jumps neither animate through intermediate pages nor
+    // inherit the gesture-only 500 ms quiet window. They land and release the
+    // render hold synchronously so the destination starts rendering on the
+    // next frame.
     unawaited(controller.jumpToPage(6));
     await tester.pump();
     expect(controller.currentPage, 6);
-    await tester.pump(const Duration(milliseconds: 300));
-    await waitFor(tester, fullRaster);
+    expect(controller.debugRenderHold, isFalse);
+
+    final target = find.byWidgetPredicate(
+      (widget) => widget is PdfPageView && widget.previewIndex == 6,
+    );
+    await waitFor(
+      tester,
+      find.descendant(of: target, matching: fullRaster),
+    );
   });
 
   testWidgets('the first scroll event of a burst holds speculatively',
@@ -105,7 +111,7 @@ void main() {
     await tester.pump();
     await waitFor(tester, fullRaster);
     // drain any startup scroll-settle timer, then confirm idle isn't holding
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
 
     // a single scroll event - one sample, no span - must already hold
@@ -116,8 +122,40 @@ void main() {
             'sample can compute velocity');
 
     // and the settle timer still releases it
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
+  });
+
+  testWidgets('worker DOM surfaces use the short off-thread scroll settle',
+      (tester) async {
+    PdfPageView.webDomRasterPresentation = true;
+    addTearDown(() => PdfPageView.webDomRasterPresentation = false);
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+        ),
+      ),
+    ));
+    await tester.pump();
+    await waitFor(tester, fullRaster);
+    await tester.pump(const Duration(milliseconds: 550));
+
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -400));
+    await tester.pump();
+    expect(controller.debugRenderHold, isTrue);
+    await tester.pump(const Duration(milliseconds: 24));
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'the worker path still coalesces adjacent wheel frames');
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(controller.debugRenderHold, isFalse,
+        reason: 'off-thread surface painting does not need the ordinary '
+            '500ms UI-isolate protection window');
   });
 
   testWidgets('the opening grace holds through a slow scroll ramp',
@@ -143,7 +181,7 @@ void main() {
     ));
     await tester.pump();
     await waitFor(tester, fullRaster);
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
 
     // a deliberately slow drag: after crossing the touch slop, ~10px per
@@ -163,7 +201,8 @@ void main() {
         reason: 'the opening grace holds through a slow ramp');
 
     await gesture.up();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
   });
 
@@ -209,11 +248,160 @@ void main() {
     }
     expect(rasters, 1, reason: 'a same-zoom settle must not re-read the page');
 
-    // a real zoom change re-rasters at the new resolution
+    // A real zoom change past the whole-page budget keeps that base and adds a
+    // sharp visible-region detail raster instead of re-reading the entire page.
     await tester.pumpWidget(build(2, 2));
-    for (var i = 0; i < 20 && rasters < 2; i++) {
+    final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
+    final tiles = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0;
+        i < 20 && detail.evaluate().isEmpty && tiles.evaluate().isEmpty;
+        i++) {
       await settle(tester);
     }
-    expect(rasters, 2, reason: 'a zoom change must re-raster the page');
+    expect(detail.evaluate().isNotEmpty || tiles.evaluate().isNotEmpty, isTrue,
+        reason: 'deep zoom must sharpen through a patch or tile layer');
+    expect(rasters, 1,
+        reason: 'deep zoom must retain the bounded whole-page backing');
+  });
+
+  testWidgets('a re-request deferred behind a render does not re-raster',
+      (tester) async {
+    // The scheduler holds a request that arrives while that page's render is
+    // in flight and re-grants it when the render lands, on the premise that it
+    // "may carry a new scale or revision". When it doesn't, the second pass
+    // re-reads the whole page off the GPU to arrive back at the pixels already
+    // on screen. The 2026-07-29 trace paid that repeatedly - `base-full page=0
+    // ratio=1.4 1715x1213` twice inside 306ms, byte-identical.
+    final logs = <String>[];
+    PdfPerfLog.sink = logs.add;
+    PdfPerfLog.enabled = true;
+    addTearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    var rasters = 0;
+
+    Widget build(int generation) => MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: 1,
+                settleGeneration: generation,
+                renderScheduler: scheduler,
+                onRasterReady: () => rasters++,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build(0));
+    // One pump lets the scheduler grant the first render; the rebuilds below
+    // then land while it is still in flight, which is what makes the scheduler
+    // defer and re-grant them - the trace's `scheduler defer page=N (render in
+    // flight)` immediately followed by a second grant for the same page.
+    await tester.pump();
+    await tester.pumpWidget(build(1));
+    await tester.pumpWidget(build(2));
+
+    await waitFor(tester, find.byType(RawImage));
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+
+    expect(rasters, 1,
+        reason: 'the deferred re-grants asked for pixels already on screen');
+    expect(
+      logs.where((line) => line.contains('raster kind=base-full')).length,
+      1,
+      reason: 'exactly one full-page readback for one resolution',
+    );
+    expect(
+      logs.any((line) =>
+          line.contains('render skip') && line.contains('reason=base-current')),
+      isTrue,
+      reason: 'the skip should be visible in a trace, not silent',
+    );
+  });
+
+  testWidgets('a burst of settles produces exactly one full-page raster',
+      (tester) async {
+    // End-to-end cover for the invalidation rule unit-tested in
+    // page_render_session_test.dart ('a settle at unchanged scale supersedes
+    // the detail, not the base'). A settle used to bump the full-render
+    // generation, so a raster finishing just after one was disposed unpainted
+    // and the page rasterized again - the shape behind page 0's identical
+    // `base-full ratio=1.4 1715x1213` at n=59, n=61 and n=63 inside one second
+    // in the 2026-07-29 trace. The timing that discards a raster is not
+    // reproducible from a widget test (the local render lands too fast to be
+    // interrupted), so this guards the observable outcome rather than the race.
+    final logs = <String>[];
+    PdfPerfLog.sink = logs.add;
+    PdfPerfLog.enabled = true;
+    addTearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    var rasters = 0;
+
+    Widget build(double scale, int generation) => MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: scale,
+                settleGeneration: generation,
+                renderScheduler: scheduler,
+                onRasterReady: () => rasters++,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build(1, 0));
+    // Settle bumps arriving while the first raster is in flight.
+    await tester.pump();
+    for (var i = 1; i <= 4; i++) {
+      await tester.pumpWidget(build(1, i));
+    }
+
+    await waitFor(tester, find.byType(RawImage));
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+
+    expect(
+      logs.where((line) => line.contains('raster kind=base-full')).length,
+      1,
+      reason: 'settles at unchanged scale must not throw away a landed raster',
+    );
+    expect(rasters, 1);
+
+    // A scale change beyond the whole-page budget sharpens through detail and
+    // still must not supersede/re-read the current bounded base.
+    await tester.pumpWidget(build(2, 5));
+    final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
+    final tiles = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0;
+        i < 20 && detail.evaluate().isEmpty && tiles.evaluate().isEmpty;
+        i++) {
+      await settle(tester);
+    }
+    expect(detail.evaluate().isNotEmpty || tiles.evaluate().isNotEmpty, isTrue,
+        reason: 'deep zoom must sharpen through a patch or tile layer');
+    expect(rasters, 1,
+        reason: 'a deep-zoom detail must not replace the whole-page base');
   });
 }

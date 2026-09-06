@@ -1,0 +1,7 @@
+Baru di versi 4.2.0
+
+- Halaman di dekatnya tetap tajam saat menggulir lambat, memanfaatkan kapasitas grafis yang tersedia.
+- Tempatkan anotasi dengan tepat menggunakan panduan perataan dan penggaris halaman yang baru.
+- Perbesar di sekitar penunjuk dengan Ctrl atau Cmd dan roda mouse.
+- Perbaikan pengeditan anotasi pada halaman yang diputar dan pemilihan sorotan multibaris.
+- Geser tampilan di antara baris teks alih-alih memulai pemilihan.

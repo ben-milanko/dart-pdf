@@ -3,7 +3,6 @@ import 'package:flutter/gestures.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -121,6 +120,23 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
       await tester.pump();
       expect(refs.editing.selectedPages, [2, 3]);
+      await drain(tester);
+    });
+
+    testWidgets('Ctrl+A selects every page in the grid', (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 5);
+
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(refs.editing.selectedPages, [1]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(refs.editing.selectedPages, [0, 1, 2, 3, 4]);
       await drain(tester);
     });
 

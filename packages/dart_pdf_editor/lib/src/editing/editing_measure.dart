@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
+import '../l10n/pdf_l10n.dart';
+
 /// A measurement calibration the editing UI carries: how many real-world
 /// units one PDF point represents, the unit label, and the display
 /// precision. Persisted in [PdfEditingPreferences] so a drawing's scale
@@ -201,7 +204,7 @@ Future<PdfMeasurementScale?> showPdfScaleDialog(
   PdfMeasurementScale? initial,
   VoidCallback? onCalibrate,
 }) =>
-    showDialog<PdfMeasurementScale>(
+    showPdfDialog<PdfMeasurementScale>(
       context: context,
       builder: (context) =>
           PdfScaleDialog(initial: initial, onCalibrate: onCalibrate),
@@ -277,7 +280,7 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Set measurement scale'),
+      title: Text(pdfL10n(context).measSetScale),
       content: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -327,16 +330,16 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
               Navigator.of(context).pop();
               widget.onCalibrate!();
             },
-            child: const Text('Calibrate'),
+            child: Text(pdfL10n(context).measCalibrate),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           key: const ValueKey('pdf-scale-apply'),
           onPressed: _submit,
-          child: const Text('Set scale'),
+          child: Text(pdfL10n(context).measSetScaleButton),
         ),
       ],
     );
@@ -351,7 +354,7 @@ Future<(double, String)?> showPdfCalibrationLengthDialog(
   BuildContext context, {
   String? initialUnit,
 }) =>
-    showDialog<(double, String)>(
+    showPdfDialog<(double, String)>(
       context: context,
       builder: (context) => _PdfCalibrationLengthDialog(initialUnit: initialUnit),
     );
@@ -364,7 +367,7 @@ Future<double?> showPdfDepthDialog(
   BuildContext context, {
   String? unitLabel,
 }) =>
-    showDialog<double>(
+    showPdfDialog<double>(
       context: context,
       builder: (context) => _PdfDepthDialog(unitLabel: unitLabel),
     );
@@ -400,11 +403,11 @@ class _PdfDepthDialogState extends State<_PdfDepthDialog> {
   Widget build(BuildContext context) {
     final unit = widget.unitLabel;
     return AlertDialog(
-      title: const Text('Volume depth'),
+      title: Text(pdfL10n(context).measVolumeDepth),
       content: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Depth: '),
+          Text(pdfL10n(context).measDepthLabel),
           SizedBox(
             width: 100,
             child: TextField(
@@ -425,12 +428,12 @@ class _PdfDepthDialogState extends State<_PdfDepthDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           key: const ValueKey('pdf-depth-apply'),
           onPressed: _submit,
-          child: const Text('Measure'),
+          child: Text(pdfL10n(context).measMeasure),
         ),
       ],
     );
@@ -479,12 +482,12 @@ class _PdfCalibrationLengthDialogState
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Calibrate scale'),
+      title: Text(pdfL10n(context).measCalibrateScale),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('The line you drew represents:'),
+          Text(pdfL10n(context).measLineRepresents),
           const SizedBox(height: 12),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -520,12 +523,12 @@ class _PdfCalibrationLengthDialogState
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           key: const ValueKey('pdf-calibrate-apply'),
           onPressed: _submit,
-          child: const Text('Set scale'),
+          child: Text(pdfL10n(context).measSetScaleButton),
         ),
       ],
     );

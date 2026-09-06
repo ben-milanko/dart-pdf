@@ -1,0 +1,13 @@
+New in 3.3.0
+
+PERFORMANCE
+• Pages you revisit can open instantly from full-resolution memory and disk caches.
+• Optional idle warming prepares more pages before you navigate to them.
+• Deep zoom is sharper on scanned and image-based PDFs because visible tiles reload the source image at the requested detail.
+
+EDITING
+• Touch panning responds sooner and works reliably from the canvas around a page.
+• Rectangle corner radius is now available in the properties panel.
+• Newly inserted PDF pages stay in view, and the floating toolbar no longer obscures the end of a document.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

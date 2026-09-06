@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DartPDF Flatpak repository</title>
+  <meta name="description" content="The official signed Flatpak repository for DartPDF.">
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 680px; margin: 10vh auto; padding: 0 24px; line-height: 1.55; }
+    h1 { letter-spacing: -.03em; }
+    a.button { display: inline-block; padding: 12px 18px; border-radius: 10px; color: white; background: #0169b4; text-decoration: none; font-weight: 700; }
+    code { padding: .15em .4em; border-radius: 5px; background: color-mix(in srgb, CanvasText 10%, Canvas); }
+  </style>
+</head>
+<body>
+  <h1>DartPDF for Linux</h1>
+  <p>This is the official, signed DartPDF Flatpak repository. The current stable release is <strong>@VERSION@</strong>.</p>
+  <p><a class="button" href="./dartpdf.flatpakref">Install DartPDF</a></p>
+  <p>Or run:</p>
+  <p><code>flatpak install --from @BASE_URL@/dartpdf.flatpakref</code></p>
+  <p><a href="https://dart-pdf.com/pdf-editor-linux">Linux download information</a> · <a href="https://github.com/ben-milanko/dart-pdf">Source code</a></p>
+</body>
+</html>

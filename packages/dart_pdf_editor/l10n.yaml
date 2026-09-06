@@ -1,0 +1,11 @@
+arb-dir: lib/l10n
+template-arb-file: dart_pdf_editor_en.arb
+output-localization-file: dart_pdf_editor_localizations.dart
+output-class: DartPdfEditorLocalizations
+# Deferred loading is deliberately OFF. With it on, each locale is a lazily
+# loaded library, so switching language at runtime only swaps the strings once
+# that library finishes loading asynchronously - a visible lag (a network chunk
+# fetch on web), which reads as "the language picker did nothing". Synchronous
+# loading keeps a locale switch instant. Shipping only the locales you want is
+# handled at build time by tool/trim_locales.sh instead. See doc/i18n.md.
+use-deferred-loading: false

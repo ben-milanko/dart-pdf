@@ -1,0 +1,5 @@
+Yang baru di 3.2.0
+
+• Tampilan lebih cepat dan stabil dengan cache halaman yang menyesuaikan memori serta lebih sedikit render berulang.
+• Kompatibilitas FreeText dan callout lebih baik, serta pemilihan markup multi-baris lebih presisi.
+• Memperbaiki jeda pemuatan, keterlambatan pemulihan sesi jarak jauh, dan zoom Ctrl/Cmd-roda setelah menggambar dengan batasan.

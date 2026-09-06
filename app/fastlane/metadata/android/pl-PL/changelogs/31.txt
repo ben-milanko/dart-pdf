@@ -1,0 +1,6 @@
+Nowości w wersji 3.7.0
+
+- Strony renderują się podczas przewijania, zamiast pojawiać się po jego zakończeniu, a przeczytane wracają natychmiast.
+- Wyszukiwanie i zamiana w panelu wyszukiwania: zamień jedno dopasowanie lub wszystkie w jednym kroku.
+- Naprawiono zniekształcony tekst i błędne zmiany w narzędziu treści przy czcionkach podzbiorowych.
+- Naprawiono awarię podczas otwierania lub zapisywania pliku.

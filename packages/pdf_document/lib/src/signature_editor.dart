@@ -1,5 +1,12 @@
 part of 'editor.dart';
 
+/// An external signing callback: receives the DER `SET OF` signed
+/// attributes and returns the RSA PKCS#1 v1.5 SHA-256 signature over those
+/// exact bytes — typically computed by a platform keystore (Android
+/// KeyStore, iOS Keychain) whose private key never leaves the device.
+typedef PdfExternalSigner = Future<Uint8List> Function(
+    Uint8List signedAttributes);
+
 /// The visible signature box drawn into a signature field's widget when
 /// signing - the two-column layout Acrobat and Bluebeam render once a
 /// field is signed: the signer's name (or a handwritten-signature image)
@@ -16,6 +23,9 @@ class PdfSignatureAppearance {
     this.page = 0,
     this.rect,
     this.graphic,
+    this.backgroundImage,
+    this.backgroundImageOpacity = 0.2,
+    this.repeatPages = const [],
     this.showName = true,
     this.showDate = true,
     this.showReason = true,
@@ -23,6 +33,10 @@ class PdfSignatureAppearance {
     this.backgroundColor,
     this.borderColor = 0x2E5E86,
     this.textColor = 0x1A1A1A,
+    this.signedByLabel = 'Digitally signed by',
+    this.dateLabel = 'Date:',
+    this.reasonLabel = 'Reason:',
+    this.locationLabel = 'Location:',
   });
 
   /// The 0-based page a newly created signature widget is placed on.
@@ -38,6 +52,25 @@ class PdfSignatureAppearance {
   /// An optional handwritten-signature or logo image drawn in the left
   /// panel in place of the large name text.
   final PdfEmbeddableImage? graphic;
+
+  /// An optional image drawn behind the border, divider, text and [graphic] -
+  /// a company logo or letterhead backdrop. Scaled to fit inside the box
+  /// (aspect fit, centered) and drawn at [backgroundImageOpacity] so text
+  /// stays readable over it.
+  final PdfEmbeddableImage? backgroundImage;
+
+  /// How opaque [backgroundImage] is drawn, 0 (invisible) to 1 (solid).
+  /// Defaults to a light, watermark-like 0.2 so the signer name and details
+  /// remain legible on top. Ignored when [backgroundImage] is null.
+  final double backgroundImageOpacity;
+
+  /// Additional 0-based pages to also show the same box on ("apply to pages").
+  /// The cryptographic signature stays singular - its field widget lives on
+  /// [page]; each of these pages gets a matching, static appearance copy that
+  /// shares the one appearance stream, all inside the signed revision. The
+  /// primary [page] and out-of-range indices are ignored. Only honored for a
+  /// freshly created visible field (needs [rect]).
+  final List<int> repeatPages;
 
   /// Draws the large signer name in the left panel and the
   /// "Digitally signed by …" line on the right.
@@ -60,6 +93,19 @@ class PdfSignatureAppearance {
 
   /// The text color (0xRRGGBB).
   final int textColor;
+
+  /// Label prefixed to the signer name on the details panel. Override to
+  /// localise, e.g. 'Signature numérique de'.
+  final String signedByLabel;
+
+  /// Label prefixed to the signing date on the details panel.
+  final String dateLabel;
+
+  /// Label prefixed to the /Reason on the details panel.
+  final String reasonLabel;
+
+  /// Label prefixed to the /Location on the details panel.
+  final String locationLabel;
 }
 
 /// The signer details rendered into a visible signature box.
@@ -105,7 +151,9 @@ extension PdfSigning on PdfEditor {
     if (certificates.isEmpty) {
       throw ArgumentError('the signer certificate is required');
     }
-    final time = (signingTime ?? DateTime.now()).toUtc();
+    // Keep the signer's own offset for the visible box and the /M date (see
+    // saveSignedExternal); the CMS signingTime attribute is always UTC.
+    final time = signingTime ?? DateTime.now();
     final revision = _emitSignatureRevision(
       subFilter: 'adbe.pkcs7.detached',
       capacity: _cmsCapacity(certificates),
@@ -119,22 +167,148 @@ extension PdfSigning on PdfEditor {
       appearance: appearance,
     );
     final cms = cmsSignDetached(
-      contentDigest: crypto.sha256.convert(revision.signedData).bytes,
+      contentDigest: revision.digestSha256(),
       privateKey: privateKey,
       certificates: certificates,
-      signingTime: time,
+      signingTime: time.toUtc(),
     );
     _writeContents(revision, cms);
     return revision.saved;
   }
 
-  /// Generous space for a CMS: certificates, attributes, signature, plus a
-  /// timestamp token's worth of slack for the PAdES paths.
-  static int _cmsCapacity(List<Uint8List> certificates) {
+  /// Like [saveSigned], but the RSA operation is delegated to [signer], so
+  /// the private key can live in a hardware keystore. [signingTime] keeps
+  /// its own offset: pass a local DateTime to show local time in the
+  /// signature box and the /M date (the CMS signingTime attribute is
+  /// always encoded in UTC as RFC 5652 requires).
+  Future<Uint8List> saveSignedExternal({
+    required PdfExternalSigner signer,
+    required List<Uint8List> certificates,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
+  }) async {
+    if (certificates.isEmpty) {
+      throw ArgumentError('the signer certificate is required');
+    }
+    final time = signingTime ?? DateTime.now();
+    final revision = _emitSignatureRevision(
+      subFilter: 'adbe.pkcs7.detached',
+      capacity: _cmsCapacity(certificates),
+      fieldName: fieldName,
+      signingTime: time,
+      signerName: signerName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      defaultSignerCert: certificates.first,
+      appearance: appearance,
+    );
+    final signedAttrs = cmsSignedAttributes(
+      contentDigest: revision.digestSha256(),
+      signingTime: time.toUtc(),
+    );
+    final signature = await signer(signedAttrs);
+    final cms = cmsAssembleSignedData(
+      signedAttributes: signedAttrs,
+      signature: signature,
+      certificates: certificates,
+    );
+    _writeContents(revision, cms);
+    return revision.saved;
+  }
+
+  /// Signs with an EC ([EcPrivateKey]) private key instead of RSA - the path
+  /// a self-signed P-256 [PdfSigningIdentity] takes. Otherwise identical to
+  /// [saveSigned]: an `adbe.pkcs7.detached` CMS (ECDSA over SHA-256), the
+  /// signer's certificate DER chain leaf-first, an optional visible
+  /// [appearance], and the same spent-after-use contract.
+  Uint8List saveSignedEcdsa({
+    required EcPrivateKey privateKey,
+    required List<Uint8List> certificates,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
+  }) {
+    if (certificates.isEmpty) {
+      throw ArgumentError('the signer certificate is required');
+    }
+    // Keep the signer's own offset for the visible box and the /M date (see
+    // saveSignedExternal); the CMS signingTime attribute is always UTC.
+    final time = signingTime ?? DateTime.now();
+    final revision = _emitSignatureRevision(
+      subFilter: 'adbe.pkcs7.detached',
+      capacity: _cmsCapacity(certificates),
+      fieldName: fieldName,
+      signingTime: time,
+      signerName: signerName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      defaultSignerCert: certificates.first,
+      appearance: appearance,
+    );
+    final cms = cmsSignDetachedEcdsa(
+      contentDigest: revision.digestSha256(),
+      privateKey: privateKey,
+      certificates: certificates,
+      signingTime: time.toUtc(),
+    );
+    _writeContents(revision, cms);
+    return revision.saved;
+  }
+
+  /// One-tap signing with a [PdfSigningIdentity] - typically one minted by
+  /// [PdfSigningIdentity.generate]. Dispatches to [saveSignedEcdsa],
+  /// defaulting the visible signer name to the identity's [name].
+  Uint8List saveSelfSigned({
+    required PdfSigningIdentity identity,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
+  }) =>
+      saveSignedEcdsa(
+        privateKey: identity.privateKey,
+        certificates: identity.certificates,
+        fieldName: fieldName,
+        signerName: signerName ?? identity.name,
+        reason: reason,
+        location: location,
+        contactInfo: contactInfo,
+        signingTime: signingTime,
+        appearance: appearance,
+      );
+
+  /// Bytes reserved for an embedded RFC 3161 timestamp token. The token is a
+  /// full CMS SignedData that carries the TSA's own certificate chain (a
+  /// public TSA like DigiCert ships several KB of certs), so it needs its own
+  /// budget on top of the signer chain. Used both as the standalone
+  /// DocTimeStamp /Contents size and as extra slack for a PAdES B-T CMS, whose
+  /// token is fetched only after the /Contents space is already reserved.
+  static const int _timestampTokenReserve = 16384;
+
+  /// Generous space for a CMS: certificates, attributes, signature, plus - when
+  /// a PAdES path embeds an RFC 3161 timestamp ([withTimestamp]) - a full
+  /// timestamp token's worth of slack.
+  static int _cmsCapacity(List<Uint8List> certificates,
+      {bool withTimestamp = false}) {
     var capacity = 6144;
     for (final cert in certificates) {
       capacity += cert.length;
     }
+    if (withTimestamp) capacity += _timestampTokenReserve;
     return capacity;
   }
 
@@ -224,6 +398,7 @@ extension PdfSigning on PdfEditor {
 
     final saved = _updater.save();
 
+    final tPatch = PdfPerf.begin();
     final tailStart = cos.bytes.length;
     final hexLength = placeholder.length * 2;
     final contentsStart =
@@ -243,12 +418,9 @@ extension PdfSigning on PdfEditor {
             .padRight(rangeToken.length)
             .codeUnits;
     saved.setRange(rangeStart, rangeStart + byteRange.length, byteRange);
+    PdfPerf.end(PdfPerfPhase.byteRangePatch, tPatch);
 
-    final signedBytes = BytesBuilder(copy: false)
-      ..add(Uint8List.sublistView(saved, 0, contentsStart))
-      ..add(Uint8List.sublistView(saved, contentsEnd));
-    return _SignatureRevision(
-        saved, contentsStart, contentsEnd, signedBytes.takeBytes());
+    return _SignatureRevision(saved, contentsStart, contentsEnd);
   }
 
   /// Fills a revision's /Contents placeholder with [blob] (a CMS container
@@ -290,10 +462,14 @@ extension PdfSigning on PdfEditor {
   /// Ten digits so the patched real values always fit.
   static const _rangePlaceholder = 9999999999;
 
-  static String _pdfDate(DateTime utc) {
+  static String _pdfDate(DateTime time) {
     String two(int v) => v.toString().padLeft(2, '0');
-    return 'D:${utc.year}${two(utc.month)}${two(utc.day)}'
-        '${two(utc.hour)}${two(utc.minute)}${two(utc.second)}Z';
+    final base = 'D:${time.year}${two(time.month)}${two(time.day)}'
+        '${two(time.hour)}${two(time.minute)}${two(time.second)}';
+    final off = time.timeZoneOffset;
+    if (off == Duration.zero) return '${base}Z';
+    final sign = off.isNegative ? '-' : '+';
+    return "$base$sign${two(off.abs().inHours)}'${two(off.abs().inMinutes % 60)}'";
   }
 
   static String? _subjectCn(Uint8List certDer) {
@@ -387,20 +563,38 @@ extension PdfSigning on PdfEditor {
       'F': const CosInteger(132), // print + locked
       if (pageRef != null) 'P': pageRef,
     });
+    CosReference? formRef;
     if (visible != null) {
-      _installSignatureAppearance(fieldDict, visible, appearance!, text);
+      formRef = _installSignatureAppearance(fieldDict, visible, appearance!, text);
     }
     final fieldRef = _updater.addObject(fieldDict);
 
     // page /Annots
     _PdfPageAnnotationList(this, pageIndex).append(fieldRef);
 
+    // "apply to pages": repeat the same box on the other pages as static
+    // appearance copies sharing the one appearance stream (all covered by
+    // this same signed revision).
+    if (visible != null && formRef != null) {
+      _repeatSignatureBox(visible, formRef, appearance!.repeatPages, pageIndex);
+    }
+
     // AcroForm /Fields
     final acroForm = cos.resolve(document.catalog['AcroForm']);
     if (acroForm is CosDictionary) {
-      final fields = cos.resolve(acroForm['Fields']);
+      final fieldsRaw = acroForm['Fields'];
+      final fields = cos.resolve(fieldsRaw);
       if (fields is CosArray) {
-        fields.items.add(fieldRef);
+        // When /Fields is an *indirect* array, mutating the resolved array in
+        // place leaves the array object unstaged, so the incremental updater
+        // writes the old bytes and the new signature field is lost. Rebuild
+        // and re-stage whichever object owns the array (the /Annots rule).
+        final rebuilt = CosArray([...fields.items, fieldRef]);
+        if (fieldsRaw is CosReference) {
+          _updater.replaceObject(fieldsRaw.objectNumber, rebuilt);
+        } else {
+          acroForm['Fields'] = rebuilt;
+        }
       } else {
         acroForm['Fields'] = CosArray([fieldRef]);
       }
@@ -417,6 +611,35 @@ extension PdfSigning on PdfEditor {
         'SigFlags': const CosInteger(3),
       }));
       _updater.markChanged(document.catalog);
+    }
+  }
+
+  /// Draws a static copy of the signature box (sharing [formRef], the one
+  /// appearance stream) at [rect] on each of [pages] except [primaryPage] and
+  /// out-of-range indices - the "apply to pages" visuals. They are plain,
+  /// locked /Stamp annotations, not extra signature widgets, so the signature
+  /// stays a single field; they ride the same signed revision.
+  void _repeatSignatureBox(PdfRect rect, CosReference formRef,
+      List<int> pages, int primaryPage) {
+    final cos = document.cos;
+    final seen = <int>{primaryPage};
+    for (final p in pages) {
+      if (!seen.add(p) || p < 0 || p >= document.pageCount) continue;
+      final pageRef = cos.referenceTo(document.page(p).dict);
+      final annot = CosDictionary({
+        'Type': const CosName('Annot'),
+        'Subtype': const CosName('Stamp'),
+        'Rect': CosArray([
+          CosReal(rect.left),
+          CosReal(rect.bottom),
+          CosReal(rect.right),
+          CosReal(rect.top),
+        ]),
+        'F': const CosInteger(132), // print + locked
+        'AP': CosDictionary({'N': formRef}),
+        if (pageRef != null) 'P': pageRef,
+      });
+      _PdfPageAnnotationList(this, p).append(_updater.addObject(annot));
     }
   }
 
@@ -456,13 +679,16 @@ extension PdfSigning on PdfEditor {
   /// background and border, a left panel holding the signer's name (or a
   /// handwritten-signature image), and a right panel listing the signing
   /// details. Mirrors the two-column layout Acrobat and Bluebeam draw.
-  void _installSignatureAppearance(CosDictionary widget, PdfRect rect,
+  /// Returns the appearance stream's reference so it can be reused when the
+  /// same box is repeated on other pages.
+  CosReference _installSignatureAppearance(CosDictionary widget, PdfRect rect,
       PdfSignatureAppearance config, _SignatureText? text) {
     final w = rect.width, h = rect.height;
     final info = text ?? const _SignatureText();
     final writer = ContentWriter();
     final fonts = CosDictionary({});
     final xObjects = CosDictionary({});
+    final extGStates = CosDictionary({});
     const pad = 4.0;
 
     if (config.backgroundColor != null) {
@@ -470,6 +696,35 @@ extension PdfSigning on PdfEditor {
         ..fillColor(config.backgroundColor!)
         ..rect(0, 0, w, h)
         ..fill();
+    }
+    if (config.backgroundImage != null) {
+      final image = config.backgroundImage!;
+      if (image.width > 0 && image.height > 0) {
+        final imageRef =
+            _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
+        // fit the whole logo inside the box (contain), centered
+        final scale =
+            math.min(w / image.width, h / image.height);
+        final dw = image.width * scale, dh = image.height * scale;
+        writer
+          ..save()
+          ..rect(0, 0, w, h)
+          ..clip();
+        final opacity = config.backgroundImageOpacity.clamp(0.0, 1.0);
+        if (opacity < 1) {
+          extGStates['SigBgGs'] = CosDictionary({
+            'Type': const CosName('ExtGState'),
+            'ca': CosReal(opacity),
+            'CA': CosReal(opacity),
+          });
+          writer.extGState('SigBgGs');
+        }
+        writer
+          ..concatMatrix(dw, 0, 0, dh, (w - dw) / 2, (h - dh) / 2)
+          ..drawXObject('SigBg')
+          ..restore();
+        xObjects['SigBg'] = imageRef;
+      }
     }
     writer
       ..strokeColor(config.borderColor)
@@ -484,29 +739,24 @@ extension PdfSigning on PdfEditor {
 
     final details = <String>[
       if (config.showName && name != null && name.isNotEmpty)
-        'Digitally signed by $name',
+        '${config.signedByLabel} $name',
       if (config.showDate && info.time != null)
-        'Date: ${_displaySignDate(info.time!)}',
+        '${config.dateLabel} ${_displaySignDate(info.time!)}',
       if (config.showReason &&
           info.reason != null &&
           info.reason!.isNotEmpty)
-        'Reason: ${info.reason}',
+        '${config.reasonLabel} ${info.reason}',
       if (config.showLocation &&
           info.location != null &&
           info.location!.isNotEmpty)
-        'Location: ${info.location}',
+        '${config.locationLabel} ${info.location}',
     ];
 
-    // Column split: a divider only when both panels carry content.
+    // Column split coordinate (no drawn divider line): left panel when both
+    // panels carry content, else the whole width or details-only.
     double divider;
     if (hasLeft && details.isNotEmpty) {
       divider = w * 0.42;
-      writer
-        ..strokeColor(config.borderColor)
-        ..lineWidth(0.5)
-        ..moveTo(divider, pad)
-        ..lineTo(divider, h - pad)
-        ..stroke();
     } else if (hasLeft) {
       divider = w; // left content only
     } else {
@@ -562,15 +812,45 @@ extension PdfSigning on PdfEditor {
         w - pad,
         h - pad,
         maxSize: 9,
+        centerVertical: true,
       );
     }
 
     final resources = CosDictionary({
       if (fonts.entries.isNotEmpty) 'Font': fonts,
       if (xObjects.entries.isNotEmpty) 'XObject': xObjects,
+      if (extGStates.entries.isNotEmpty) 'ExtGState': extGStates,
     });
     final form = _widgetForm(w, h, writer, resources: resources);
-    _setNormalAppearance(widget, form);
+    return _setNormalAppearance(widget, form);
+  }
+
+  /// Space-wraps [line] to [maxWidth]; when [breakTokens] is set, any single
+  /// chunk still wider than the box (a long token like an email address) is
+  /// split character by character so it wraps instead of overflowing.
+  static List<String> _wrapSignatureLine(String line, double maxWidth,
+      double Function(String) measure, bool breakTokens) {
+    final soft = pdfWrapText(line, maxWidth, measure);
+    if (!breakTokens) return soft;
+    final out = <String>[];
+    for (final chunk in soft) {
+      if (measure(chunk) <= maxWidth) {
+        out.add(chunk);
+        continue;
+      }
+      var current = '';
+      for (final ch in chunk.split('')) {
+        final candidate = current + ch;
+        if (current.isNotEmpty && measure(candidate) > maxWidth) {
+          out.add(current);
+          current = ch;
+        } else {
+          current = candidate;
+        }
+      }
+      if (current.isNotEmpty) out.add(current);
+    }
+    return out;
   }
 
   /// A base-14 font dict (with /Widths) for the appearance's /Font resource.
@@ -584,9 +864,16 @@ extension PdfSigning on PdfEditor {
         'Widths': CosArray([for (final width in font.widths) CosInteger(width)]),
       });
 
-  /// Lays [lines] out in the box `[left, bottom, right, top]`, shrinking the
-  /// font (from [maxSize]) and wrapping until the block fits, clipped to the
-  /// box. Top-anchored unless [centerVertical]; aligned per [align].
+  /// Font size at or below which an over-wide run (e.g. a long email with no
+  /// spaces) is broken mid-token to wrap instead of being shrunk further -
+  /// "contain, then wrap once the font gets small enough".
+  static const double _signatureWrapFloor = 10.0;
+
+  /// Lays [lines] out in the box `[left, bottom, right, top]`. Shrinks the
+  /// font (from [maxSize]) so the text is contained in both width and height;
+  /// once it reaches [_signatureWrapFloor] and a run is still too wide (a long
+  /// unbreakable token), it wraps the run mid-token rather than shrinking
+  /// (and clipping) further. Top-anchored unless [centerVertical].
   void _drawSignatureText(
     ContentWriter writer,
     List<String> lines,
@@ -606,85 +893,75 @@ extension PdfSigning on PdfEditor {
     var size = maxSize;
     List<String> wrapped;
     while (true) {
+      final breakTokens = size <= _signatureWrapFloor;
       wrapped = [
-        for (final line in lines) ..._wrapSignatureLine(line, font, size, boxW),
+        for (final line in lines)
+          ..._wrapSignatureLine(
+              line, boxW, (s) => font.measure(s, size), breakTokens),
       ];
-      if (wrapped.length * size * 1.3 <= boxH || size <= 4) break;
+      final widest = wrapped.fold<double>(
+          0, (m, l) => math.max(m, font.measure(l, size)));
+      final fits =
+          widest <= boxW && wrapped.length * size * 1.3 <= boxH;
+      if (fits || size <= 4) break;
       size -= 0.5;
     }
     if (wrapped.isEmpty) return;
 
-    final lineHeight = size * 1.3;
-    final ascent = size * font.ascent / 1000;
-    final blockHeight = wrapped.length * lineHeight;
-    final blockTop =
-        centerVertical ? bottom + (boxH + blockHeight) / 2 : top;
-
-    writer
-      ..save()
-      ..rect(left, bottom, boxW, boxH)
-      ..clip()
-      ..beginText()
-      ..fillColor(color)
-      ..font(font.resourceName, size);
-    var prevX = 0.0, prevY = 0.0;
-    for (var i = 0; i < wrapped.length; i++) {
-      final lineWidth = font.measure(wrapped[i], size);
-      final x = switch (align) {
-        PdfTextAlign.center => left + (boxW - lineWidth) / 2,
-        PdfTextAlign.right => right - lineWidth,
-        PdfTextAlign.left => left,
-      };
-      final y = blockTop - i * lineHeight - ascent;
-      writer
-        ..textAt(x - prevX, y - prevY)
-        ..showText(wrapped[i]);
-      prevX = x;
-      prevY = y;
-    }
-    writer
-      ..endText()
-      ..restore();
+    // The box edges already exclude the caller's padding, so the shared
+    // builder runs with zero padding and unclamped alignment.
+    writer.save();
+    writePdfTextBox(
+      writer,
+      PdfRect(left, bottom, right, top),
+      wrapped,
+      font: font,
+      fontSize: size,
+      align: align,
+      padding: 0,
+      lineHeight: size * 1.3,
+      vAlign: centerVertical
+          ? PdfTextBoxVAlign.centerBlock
+          : PdfTextBoxVAlign.top,
+      writeColor: (w) => w.fillColor(color),
+    );
+    writer.restore();
   }
 
-  /// Greedy word-wrap of [text] to [maxWidth]; a single overlong word
-  /// overflows (and is clipped by the box).
-  List<String> _wrapSignatureLine(
-      String text, PdfStandardFont font, double size, double maxWidth) {
-    if (font.measure(text, size) <= maxWidth) return [text];
-    final out = <String>[];
-    var line = '';
-    for (final word in text.split(' ')) {
-      final candidate = line.isEmpty ? word : '$line $word';
-      if (line.isNotEmpty && font.measure(candidate, size) > maxWidth) {
-        out.add(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-    }
-    if (line.isNotEmpty) out.add(line);
-    return out.isEmpty ? [text] : out;
-  }
-
-  /// Acrobat-style display date: `2026.06.10 12:00:00 +00'00'`. Signing
-  /// times are normalized to UTC before display.
+  /// Acrobat-style display date: `2026.06.10 12:00:00 +00'00'`. The offset
+  /// of the [DateTime] passed is preserved; UTC input gives `+00'00'`.
   static String _displaySignDate(DateTime time) {
-    final utc = time.toUtc();
     String two(int v) => v.toString().padLeft(2, '0');
-    return '${utc.year}.${two(utc.month)}.${two(utc.day)} '
-        "${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)} +00'00'";
+    final off = time.timeZoneOffset;
+    final sign = off.isNegative ? '-' : '+';
+    return '${time.year}.${two(time.month)}.${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}:${two(time.second)} '
+        "$sign${two(off.abs().inHours)}'${two(off.abs().inMinutes % 60)}'";
   }
 }
 
-/// A written-but-unsigned revision: the buffer with patched /ByteRange, the
-/// /Contents hex span to fill, and the signed byte ranges to digest.
+/// A written-but-unsigned revision: the buffer with patched /ByteRange and
+/// the /Contents hex span to fill. The signed content is the two /ByteRange
+/// spans (everything either side of the /Contents hex).
 class _SignatureRevision {
-  _SignatureRevision(
-      this.saved, this.contentsStart, this.contentsEnd, this.signedData);
+  _SignatureRevision(this.saved, this.contentsStart, this.contentsEnd);
 
   final Uint8List saved;
   final int contentsStart;
   final int contentsEnd;
-  final Uint8List signedData;
+
+  /// SHA-256 of the signed byte ranges, digested over sublist views of
+  /// [saved] without materialising the concatenation (which would double
+  /// peak memory and memcpy the whole document per sign).
+  List<int> digestSha256() {
+    crypto.Digest? digest;
+    final sink = crypto.sha256.startChunkedConversion(
+        ChunkedConversionSink<crypto.Digest>.withCallback((d) {
+      digest = d.single;
+    }));
+    sink.add(Uint8List.sublistView(saved, 0, contentsStart));
+    sink.add(Uint8List.sublistView(saved, contentsEnd));
+    sink.close();
+    return digest!.bytes;
+  }
 }

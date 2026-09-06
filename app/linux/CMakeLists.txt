@@ -60,6 +60,13 @@ add_subdirectory("runner")
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
+# Build the pure-Dart CLI/MCP sidecar for this Linux architecture. It is
+# installed at the bundle root as `dartpdf-cli`, beside the GUI runner. Linux
+# packages already reserve `dartpdf` as their public GUI launcher.
+set(DARTPDF_CLI_TARGET_OS "linux")
+set(DARTPDF_CLI_OUTPUT_NAME "dartpdf-cli")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/dartpdf_cli.cmake")
+
 # Only the install-generated bundle's copy of the executable will launch
 # correctly, since the resources must in the right relative locations. To avoid
 # people trying to run the unbundled copy, put it in a subdirectory instead of
@@ -94,6 +101,10 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+install(PROGRAMS "${DARTPDF_CLI_OUTPUT}"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
@@ -126,3 +137,25 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# === Desktop integration ===
+# Ship the freedesktop .desktop entry, AppStream metainfo, and hicolor icons in
+# the bundle's share/ tree (relative to the bundle prefix, so the release
+# tarball carries them and packaging - Flatpak, AUR, .deb - can install them to
+# the system data dirs). See app/packaging/flatpak/ and the desktop dev-log.
+set(INSTALL_BUNDLE_SHARE_DIR "${CMAKE_INSTALL_PREFIX}/share")
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.desktop"
+  DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/applications"
+  COMPONENT Runtime)
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.metainfo.xml"
+  DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/metainfo"
+  COMPONENT Runtime)
+
+foreach(icon_size 64 128 256 512)
+  install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/icons/hicolor/${icon_size}x${icon_size}/apps/dev.milanko.dartpdf.png"
+    DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/icons/hicolor/${icon_size}x${icon_size}/apps"
+    COMPONENT Runtime)
+endforeach()

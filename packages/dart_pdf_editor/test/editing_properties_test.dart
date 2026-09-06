@@ -2,6 +2,8 @@
 // edits them through the controller - plus the controller's contents and
 // author setters it relies on.
 
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +55,21 @@ void main() {
       expect(after.contents, 'Changed');
     });
 
+    test('free-text property rewrite does not duplicate indirect annots', () {
+      final seeded = PdfEditor(PdfDocument.open(buildIndirectAnnotsPdf()))
+        ..addFreeText(0, const PdfRect(100, 560, 300, 620), 'Hello');
+      final editing = PdfEditingController(seeded.save());
+      addTearDown(editing.dispose);
+      editing.selectAnnotation(0, 0);
+
+      editing.restyleSelectedText(size: 24);
+
+      final after = editing.document.page(0).annotations;
+      expect(after, hasLength(1));
+      expect(after.single.defaultAppearance, contains('/Helv 24 Tf'));
+      expect(editing.selectedTextStyle?.size, 24);
+    });
+
     test('the author applies to the whole selection as one undo', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addRectangle(0, const PdfRect(100, 600, 200, 660))
@@ -95,6 +112,46 @@ void main() {
         editing.document.page(0).annotations.map((a) => a.contents),
         everyElement(isNull),
       );
+    });
+
+    test('mixed selections bulk-restyle only their free-text boxes', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(80, 620, 240, 680), 'First')
+        ..addFreeText(0, const PdfRect(280, 620, 440, 680), 'Second')
+        ..addLine(0, (80, 560), (440, 560));
+      addTearDown(editing.dispose);
+      editing.selectAllAnnotationsOn(0);
+      final originalSizes = editing.document
+          .page(0)
+          .annotations
+          .where((a) => a.subtype == 'FreeText')
+          .map((a) => a.freeTextStyle?.fontSize)
+          .toList();
+
+      expect(editing.canRestyleSelectedText, isTrue);
+      editing.restyleSelectedText(
+        font: PdfStandardFont.timesBold,
+        size: 24,
+      );
+
+      final after = editing.document.page(0).annotations;
+      final text = after.where((a) => a.subtype == 'FreeText').toList();
+      expect(text, hasLength(2));
+      expect(
+        text.map((a) => a.freeTextStyle?.fontName),
+        everyElement(PdfStandardFont.timesBold.resourceName),
+      );
+      expect(text.map((a) => a.freeTextStyle?.fontSize), everyElement(24));
+      expect(after.where((a) => a.subtype == 'Line'), hasLength(1));
+      expect(editing.selectedAnnotationSlots, hasLength(3));
+
+      // Both text boxes were one transaction; a single undo restores them.
+      editing.undo();
+      final restored = editing.document
+          .page(0)
+          .annotations
+          .where((a) => a.subtype == 'FreeText');
+      expect(restored.map((a) => a.freeTextStyle?.fontSize), originalSizes);
     });
   });
 
@@ -258,6 +315,78 @@ void main() {
       expect(editing.selectedAnnotation!.borderWidth, width);
     });
 
+    testWidgets('the corner-radius slider rounds a selected rectangle',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the row reads the rectangle's current (square) corners
+      final radius = find.byKey(const ValueKey('pdf-prop-corner-radius'));
+      expect(radius, findsOneWidget);
+      expect(editing.selectedCornerRadius, 0);
+
+      await tester.drag(radius, const Offset(60, 0));
+      await tester.pump();
+      expect(editing.selectedCornerRadius, greaterThan(0));
+      // the restyle kept the selection, and the annotation itself rounded
+      expect(editing.selectedAnnotation!.cornerRadius, greaterThan(0));
+
+      // typing an exact radius commits it too
+      await submit(
+          tester, const ValueKey('pdf-prop-corner-radius-input'), '12');
+      expect(editing.selectedAnnotation!.cornerRadius, closeTo(12, 1e-9));
+    });
+
+    testWidgets('an ellipse has no corner-radius row', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addEllipse(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-prop-corner-radius')), findsNothing);
+    });
+
+    testWidgets('a placed image gets a working opacity slider, no colour',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      // 2x2 RGBA PNG (shared with the image tests)
+      expect(
+          editing.placeImage(
+              0,
+              300,
+              400,
+              base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
+                  'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==')),
+          isTrue);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the pasted picture has no tint, so the colour swatch is hidden...
+      expect(find.byKey(const ValueKey('pdf-prop-color')), findsNothing);
+      // ...but its opacity is editable, and dragging it takes effect
+      final opacity = find.byKey(const ValueKey('pdf-prop-opacity'));
+      expect(opacity, findsOneWidget);
+      await tester.drag(opacity, const Offset(-60, 0));
+      await tester.pump();
+      final stamp = editing.selectedAnnotation!;
+      expect(stamp.appearanceOpacity, lessThan(1));
+      expect(stamp.appearanceOpacity, greaterThan(0));
+      // the picture survived the restyle
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(stamp.normalAppearance!));
+      expect(content, contains('/Img0 Do'));
+    });
+
     testWidgets('the pattern-scale slider rescales a selected cloud',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -295,11 +424,19 @@ void main() {
       await tester.pump();
       expect(editing.selectedAnnotation!.borderWidth, 9);
 
-      // out-of-range input clamps to the slider's max (16)
-      await tester.enterText(field, '500');
+      // the typed field is looser than the slider's scale: a value past the
+      // slider max (16) is accepted, up to the safety cap
+      await tester.enterText(field, '80');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      expect(editing.selectedAnnotation!.borderWidth, 16);
+      expect(editing.selectedAnnotation!.borderWidth, 80);
+
+      // absurd input still clamps to the safety cap (kPdfTypedSizeMax = 1000)
+      // so nothing blows up
+      await tester.enterText(field, '999999');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.borderWidth, 1000);
 
       // opacity reads back as a percentage and round-trips through it
       final opacity = find.byKey(const ValueKey('pdf-prop-opacity-input'));
@@ -308,6 +445,12 @@ void main() {
       await tester.pump();
       expect(
           editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 0.001));
+
+      // opacity is a true ratio: an over-100% entry still clamps to 100%
+      await tester.enterText(opacity, '150');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.appearanceOpacity, closeTo(1, 0.001));
     });
 
     testWidgets('the fill clear button removes a shape fill', (tester) async {
@@ -476,6 +619,40 @@ void main() {
           closeTo(annotations[1].appearanceOpacity, 1e-6));
     });
 
+    testWidgets(
+        'mixed text boxes and a line keep all compatible property controls',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(80, 620, 240, 680), 'First')
+        ..addFreeText(0, const PdfRect(280, 620, 440, 680), 'Second')
+        ..addLine(0, (80, 560), (440, 560));
+      addTearDown(editing.dispose);
+      editing.selectAllAnnotationsOn(0);
+      await pumpPanel(tester, editing);
+
+      // Text applies to the two boxes; stroke/line endings apply to the line.
+      expect(find.byKey(const ValueKey('pdf-prop-font')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-font-size')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-line-end-ending')),
+          findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-prop-font-size-input')), '26');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      final annotations = editing.document.page(0).annotations;
+      expect(
+        annotations
+            .where((a) => a.subtype == 'FreeText')
+            .map((a) => a.freeTextStyle?.fontSize),
+        everyElement(26),
+      );
+      expect(annotations.where((a) => a.subtype == 'Line'), hasLength(1));
+      expect(editing.selectedAnnotationSlots, hasLength(3));
+    });
+
     testWidgets('mixed bulk properties show Varies and accept one value',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -575,6 +752,57 @@ void main() {
         editing.document.page(0).annotations.map((a) => a.borderWidth),
         everyElement(7),
       );
+    });
+
+    testWidgets('a section header collapses and re-expands its rows',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // groups start expanded, so the position rows are visible
+      final header =
+          find.byKey(const ValueKey('pdf-prop-section-position-size'));
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
+
+      // collapsing the group hides its rows but keeps the header
+      await tester.tap(header);
+      await tester.pump();
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsNothing);
+
+      // and re-expanding brings them back
+      await tester.tap(header);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
+    });
+
+    testWidgets('a collapsed group stays collapsed across selection changes',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660))
+        ..addEllipse(0, const PdfRect(250, 600, 350, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-prop-section-appearance')));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsNothing);
+
+      // selecting a different annotation keeps the group collapsed - the
+      // choice is per-group, not per-annotation
+      editing.selectAnnotation(0, 1);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-section-appearance')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsNothing);
     });
 
     testWidgets('the dragged width persists as a preference', (tester) async {

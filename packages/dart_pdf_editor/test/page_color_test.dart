@@ -3,10 +3,76 @@ import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// An in-process [PdfRenderWorker] that records on the test isolate, so the
+/// sampler's off-thread path runs deterministically under a test.
+class _SyncWorker extends PdfRenderWorker {
+  _SyncWorker(this._bytes);
+
+  final Uint8List _bytes;
+  late final PdfDocument _doc = PdfDocument.open(_bytes);
+  bool _disposed = false;
+
+  /// The page indices [record] was asked for - the sampler's own claim to
+  /// have gone through the worker rather than quietly rendering locally.
+  final List<int> recorded = [];
+
+  @override
+  bool get isActive => !_disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
+    if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
+    recorded.add(pageIndex);
+    final page = _doc.page(pageIndex);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: _doc.cos, device: recorder)
+        .drawPageOperations(page, ops);
+    final bytes = serializeCommands(recorder.commands,
+        cos: _doc.cos,
+        maxImagePixelRatio: imagePixelRatio,
+        compactStateScopes: true);
+    return bytes == null ? null : deserializeCommands(bytes);
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _disposed = true;
+}
+
+/// A worker that declines every page, as the real one does for an inline
+/// image or on a platform with no worker at all.
+class _DecliningWorker extends _SyncWorker {
+  _DecliningWorker(super.bytes);
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
+    recorded.add(pageIndex);
+    return null;
+  }
+}
 
 void main() {
   (int, int, int) pixelAt(ByteData pixels, int width, int x, int y) {
@@ -61,6 +127,88 @@ void main() {
       final document = PdfDocument.open(buildMultiPagePdf(1));
       final sampler = await PdfPageColorSampler.of(document.page(0),
           pageColor: const Color(0xFF1B5E20));
+      expect(sampler.colorAt(const Offset(5, 5)), const Color(0xFF1B5E20));
+    });
+  });
+
+  testWidgets('the sampler narrows its patch as the page is magnified',
+      (tester) async {
+    await tester.runAsync(() async {
+      final document = PdfDocument.open(buildMultiPagePdf(1));
+      final sampler = await PdfPageColorSampler.of(document.page(0));
+      // 3x3 at 1:1, and no wider than the pointer covers once zoomed in -
+      // 3 points of a magnified page is most of a glyph stem
+      expect(sampler.patchRadiusForZoom(1), 1);
+      expect(sampler.patchRadiusForZoom(2), 0);
+      expect(sampler.patchRadiusForZoom(8), 0);
+      expect(sampler.patchRadiusForZoom(0.5), 2);
+      // a nonsense zoom falls back to the unzoomed reading
+      expect(sampler.patchRadiusForZoom(0), 1);
+      expect(sampler.patchRadiusForZoom(double.nan), 1);
+    });
+  });
+
+  testWidgets('an oversized page samples through a scaled-down raster',
+      (tester) async {
+    await tester.runAsync(() async {
+      // 4000x4000 pt is 16 MP at 1 px per point - 64 MB of RGBA for a
+      // handful of reads. The raster scales down; sampling still speaks
+      // page points.
+      final document =
+          PdfDocument.open(buildMultiPagePdf(1, width: 4000, height: 4000));
+      final sampler = await PdfPageColorSampler.of(document.page(0),
+          pageColor: const Color(0xFF1B5E20));
+      expect(
+          sampler.colorAt(const Offset(2000, 2000)), const Color(0xFF1B5E20));
+      expect(sampler.colorAt(const Offset(4200, 2000)), isNull,
+          reason: 'off the page is still off the page');
+    });
+  });
+
+  testWidgets('the sampler reads the same page through a worker as locally',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildMultiPagePdf(2);
+      // Every sample the eyedropper can take must agree whether the walk ran
+      // on the worker or here - the worker path is the whole point of the
+      // freeze fix, and a wrong replay would show up as a wrong colour.
+      final local =
+          await PdfPageColorSampler.of(PdfDocument.open(bytes).page(0));
+      final worker = _SyncWorker(bytes);
+      addTearDown(worker.dispose);
+      final offloaded = await PdfPageColorSampler.of(
+          PdfDocument.open(bytes).page(0),
+          worker: worker,
+          pageIndex: 0);
+      expect(worker.recorded, [0], reason: 'the walk went to the worker');
+
+      var ink = 0;
+      for (var y = 40.0; y < 100; y += 4) {
+        for (var x = 60.0; x < 200; x += 4) {
+          final point = Offset(x, y);
+          final here = local.colorAt(point);
+          expect(offloaded.colorAt(point), here, reason: 'differs at $point');
+          if (here != const Color(0xFFFFFFFF)) ink++;
+        }
+      }
+      // the sweep crosses the page's "Page 1" text, so the agreement above is
+      // about drawn content and not just blank paper
+      expect(ink, greaterThan(0));
+    });
+  });
+
+  testWidgets('a worker that declines falls back to the local render',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildMultiPagePdf(1);
+      final worker = _DecliningWorker(bytes);
+      addTearDown(worker.dispose);
+      final sampler = await PdfPageColorSampler.of(
+          PdfDocument.open(bytes).page(0),
+          pageColor: const Color(0xFF1B5E20),
+          worker: worker,
+          pageIndex: 0);
+      expect(worker.recorded, [0]);
       expect(sampler.colorAt(const Offset(5, 5)), const Color(0xFF1B5E20));
     });
   });

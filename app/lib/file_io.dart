@@ -8,34 +8,46 @@ import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'pdf_bookmark_source.dart';
+import 'pdf_cache.dart';
+import 'pdf_file_source.dart';
+import 'pdf_mobile_source.dart';
+import 'web_file_picker_stub.dart'
+    if (dart.library.js_interop) 'web_file_picker.dart';
+
 const _macosFileAccessChannel =
     MethodChannel('dev.milanko.dartpdf/file_access');
 
-/// One filter, every platform: desktop and web match on the extension,
-/// Android on the MIME type, iOS/macOS on the uniform type identifier -
-/// a type group missing the field a platform filters by throws there.
-const pdfTypeGroup = XTypeGroup(
-  label: 'PDF documents',
-  extensions: ['pdf'],
-  mimeTypes: ['application/pdf'],
-  uniformTypeIdentifiers: ['com.adobe.pdf'],
-);
+// The `label` shows in the native desktop file dialog's type-filter dropdown,
+// so it is localized: the callers (which have a BuildContext) pass the resolved
+// string in. Everything else is a stable platform identifier and stays put -
+// desktop and web match on the extension, Android on the MIME type, iOS/macOS
+// on the uniform type identifier; a group missing the field a platform filters
+// by throws there.
+
+/// The file filter for PDFs, labelled [label] (already localized by the caller).
+XTypeGroup pdfTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['pdf'],
+      mimeTypes: const ['application/pdf'],
+      uniformTypeIdentifiers: const ['com.adobe.pdf'],
+    );
 
 /// Images accepted by the form tool's push-button fill and the image tool.
-const imageTypeGroup = XTypeGroup(
-  label: 'Images',
-  extensions: ['png', 'jpg', 'jpeg'],
-  mimeTypes: ['image/png', 'image/jpeg'],
-  uniformTypeIdentifiers: ['public.png', 'public.jpeg'],
-);
+XTypeGroup imageTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['png', 'jpg', 'jpeg'],
+      mimeTypes: const ['image/png', 'image/jpeg'],
+      uniformTypeIdentifiers: const ['public.png', 'public.jpeg'],
+    );
 
 /// Custom stamp bundles exported from the Manage Stamps dialog.
-const stampBundleTypeGroup = XTypeGroup(
-  label: 'DartPDF stamps',
-  extensions: ['json'],
-  mimeTypes: ['application/json'],
-  uniformTypeIdentifiers: ['public.json'],
-);
+XTypeGroup stampBundleTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['json'],
+      mimeTypes: const ['application/json'],
+      uniformTypeIdentifiers: const ['public.json'],
+    );
 
 const _stampBundleFormat = 'dev.milanko.dartpdf.custom-stamps';
 
@@ -55,19 +67,108 @@ class PickedPdf {
   final String? bookmark;
 }
 
+/// A file the mobile reference picker handed back: a native [token] pointing at
+/// the *original* file (not a sandbox copy), its display [name], the [length]
+/// when the provider reports it, and whether the runner's up-front probe found
+/// the reference [seekable] (so ranged reads are worth attempting - see #364).
+class MobilePickedPdf {
+  const MobilePickedPdf({
+    required this.token,
+    required this.name,
+    this.length,
+    this.provider,
+    required this.seekable,
+  });
+
+  /// Opaque native reference (Android persisted `content://` Uri; iOS
+  /// security-scoped bookmark). Passed back to [pdfByteSourceForMobileToken].
+  final String token;
+  final String name;
+  final int? length;
+
+  /// A non-secret provider identifier supplied by the runner. Android reports
+  /// the content URI authority; iOS reports the iCloud container display name
+  /// when available and otherwise a generic File Provider label. Unlike
+  /// [token], this is safe to include in exported diagnostics.
+  final String? provider;
+
+  /// Whether native ranged reads over [token] are random-access. False for a
+  /// non-seekable pipe (many cloud providers), where the caller streams whole
+  /// instead of opening progressively.
+  final bool seekable;
+}
+
+/// Whether this platform can pick a mobile file *by reference* (Android/iOS,
+/// off-web) and read ranges from it natively - the mobile counterpart of
+/// [progressiveOpenSupported]. The OS pickers otherwise copy the whole file
+/// into the sandbox before the app sees a byte, paying the full cloud transport
+/// up front (#364); the reference picker keeps the original so ranged reads can
+/// first-paint from a few MB. Whether ranged reads actually help depends on the
+/// provider (a non-seekable SAF pipe streams whole) - probed per pick.
+bool get supportsMobileProgressiveOpen =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+
+/// Opens the reference-based mobile document picker and returns one entry per
+/// chosen PDF (empty when cancelled). Each entry carries a native [token] to
+/// the original file plus a seekability probe result. Throws
+/// [MissingPluginException] on a runner without the channel, so callers can
+/// fall back to the copy-based [pickPdfFiles].
+Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
+  final picked = await mobileFileChannel
+      .invokeListMethod<Map<Object?, Object?>>('pickDocuments');
+  if (picked == null) return const [];
+  final out = <MobilePickedPdf>[];
+  for (final entry in picked) {
+    final token = entry['token'] as String?;
+    if (token == null || token.isEmpty) continue;
+    final rawLength = (entry['length'] as num?)?.toInt();
+    out.add(MobilePickedPdf(
+      token: token,
+      name: (entry['name'] as String?) ?? 'document.pdf',
+      length: rawLength != null && rawLength >= 0 ? rawLength : null,
+      provider: entry['provider'] as String?,
+      seekable: entry['seekable'] == true,
+    ));
+  }
+  return out;
+}
+
+/// A ranged [PdfByteSource] over a mobile pick's native [token], so the app can
+/// open it progressively via [PdfDocument.openSource] and stream the rest in
+/// behind the first paint - the mobile counterpart of [pdfByteSourceForPath].
+PdfByteSource pdfByteSourceForMobileToken(
+  String token, {
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) =>
+    PdfMobileByteSource(
+      token,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
-Future<XFile?> pickPdfFile() =>
-    openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+///
+/// On the web this reads the picked file's bytes directly (see [pickPdfFileWeb])
+/// instead of going through `file_selector`, whose blob-URL XFiles hang on
+/// `readAsBytes()` under the deployed site's cross-origin isolation.
+Future<XFile?> pickPdfFile(String pdfLabel) => kIsWeb
+    ? pickPdfFileWeb()
+    : openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker for one or more PDFs. Returns an empty list
-/// when the user cancels.
-Future<List<XFile>> pickPdfFiles() =>
-    openFiles(acceptedTypeGroups: const [pdfTypeGroup]);
+/// when the user cancels. On the web, reads the bytes eagerly (see
+/// [pickPdfFilesWeb]) for the same reason as [pickPdfFile].
+Future<List<XFile>> pickPdfFiles(String pdfLabel) => kIsWeb
+    ? pickPdfFilesWeb()
+    : openFiles(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read - callers surface that.
-Future<PickedPdf?> pickPdf() async {
-  final file = await pickPdfFile();
+Future<PickedPdf?> pickPdf(String pdfLabel) async {
+  final file = await pickPdfFile(pdfLabel);
   if (file == null) return null;
   final path = originPathForPickedFile(file);
   final bytes = await file.readAsBytes();
@@ -109,15 +210,15 @@ Future<String?> securityBookmarkForPath(String? path) async {
 
 /// Picks a PDF and returns just its bytes (null when cancelled) - the source
 /// for "Insert PDF…" and document comparison.
-Future<Uint8List?> pickPdfBytes() async {
-  final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+Future<Uint8List?> pickPdfBytes(String pdfLabel) async {
+  final file = await openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
   return file?.readAsBytes();
 }
 
 /// Picks an image and returns its bytes - used by the form image picker and
 /// the insert-image tool.
-Future<Uint8List?> pickImageBytes() async {
-  final file = await openFile(acceptedTypeGroups: const [imageTypeGroup]);
+Future<Uint8List?> pickImageBytes(String imageLabel) async {
+  final file = await openFile(acceptedTypeGroups: [imageTypeGroup(imageLabel)]);
   return file?.readAsBytes();
 }
 
@@ -161,8 +262,9 @@ PdfCustomStamp _decodeCustomStampEntry(Object? raw) {
 }
 
 /// Opens a JSON stamp bundle and returns the stamps inside it.
-Future<List<PdfCustomStamp>?> importCustomStamps() async {
-  final file = await openFile(acceptedTypeGroups: const [stampBundleTypeGroup]);
+Future<List<PdfCustomStamp>?> importCustomStamps(String stampLabel) async {
+  final file =
+      await openFile(acceptedTypeGroups: [stampBundleTypeGroup(stampLabel)]);
   if (file == null) return null;
   return decodeCustomStampBundle(utf8.decode(await file.readAsBytes()));
 }
@@ -219,6 +321,13 @@ class SaveResult {
 /// before reading. This is required for sandboxed locations such as OneDrive's
 /// CloudStorage folder after an app restart.
 Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
+  // The byte-snapshot store gets first refusal. On the web a recent/session
+  // entry is an IndexedDB blob keyed under [path] and there's no filesystem to
+  // fall back to, so the web store returns the bytes (or throws on a miss, which
+  // drops the stale entry). Native keeps its snapshot as a real file, so its
+  // store declines here (returns null) and we read [path] off disk below.
+  final cached = await readCachedPdf(path);
+  if (cached != null) return cached;
   if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
     try {
       final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(
@@ -231,6 +340,40 @@ Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
     }
   }
   return XFile(path).readAsBytes();
+}
+
+/// Whether opening [path] progressively (first paint from ranged reads, full
+/// bytes streamed in behind it) is worthwhile on this platform. Desktop only:
+/// the big cloud-synced documents this pays off for live behind a real file
+/// path, and web/mobile picks hand back bytes (or a throwaway sandbox copy)
+/// that are already fully in memory.
+bool progressiveOpenSupported(String? path) =>
+    supportsInPlaceSave && path != null && path.isNotEmpty;
+
+/// A ranged [PdfByteSource] for a local file, so the app can open it
+/// progressively via [PdfDocument.openSource] and stream the rest in behind the
+/// first paint. On sandboxed macOS a bookmarked reopen must reactivate its
+/// security scope, so it reads through the native runner
+/// ([PdfBookmarkFileByteSource]); every other desktop path reads directly with
+/// a `RandomAccessFile` ([PdfFileByteSource]).
+PdfByteSource pdfByteSourceForPath(
+  String path, {
+  String? bookmark,
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) {
+  if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
+    return PdfBookmarkFileByteSource(
+      bookmark: bookmark,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+  }
+  return PdfFileByteSource(
+    path,
+    cancelToken: cancelToken,
+    onProgress: onProgress,
+  );
 }
 
 /// Whether the current platform can open a local file's containing folder in
@@ -270,13 +413,35 @@ String? containingFolderPath(String path) {
   return trimmed.substring(0, index);
 }
 
-/// Opens [path]'s containing folder in Finder / File Explorer / the Linux file
-/// manager. Returns false when there is no usable origin path or the platform
-/// refuses to launch it.
-Future<bool> openContainingFolder(String? path) async {
+/// Reveals [path] in Finder, or opens its containing folder in File Explorer /
+/// the Linux file manager. Returns false when there is no usable origin path
+/// or the platform refuses to launch it.
+///
+/// Finder needs the selected file rather than its parent directory: a
+/// sandboxed macOS app can hold a security-scoped grant for a OneDrive file
+/// without having access to the file's containing folder. [bookmark]
+/// reactivates that grant while Finder handles the reveal request.
+Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
   if (!supportsOpenContainingFolder || path == null) return false;
   final folder = containingFolderPath(path);
   if (folder == null) return false;
+  if (_isMacOSDesktop) {
+    try {
+      return await _macosFileAccessChannel.invokeMethod<bool>(
+            'revealFile',
+            {
+              'path': path,
+              if (bookmark != null && bookmark.isNotEmpty)
+                'bookmark': bookmark,
+            },
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
   return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
 }
 
@@ -325,8 +490,9 @@ Future<SaveResult> saveBytesToPath(
 Future<SaveResult> saveBytesAs(
   BuildContext context,
   Uint8List bytes,
-  String suggestedName,
-) async {
+  String suggestedName, {
+  required String pdfLabel,
+}) async {
   final name = ensurePdfName(suggestedName);
   final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
 
@@ -350,7 +516,7 @@ Future<SaveResult> saveBytesAs(
     default:
       final location = await getSaveLocation(
         suggestedName: name,
-        acceptedTypeGroups: const [pdfTypeGroup],
+        acceptedTypeGroups: [pdfTypeGroup(pdfLabel)],
       );
       if (location == null) return SaveResult.cancelled;
       // The dialog returns the path verbatim - if the user cleared or changed
@@ -368,11 +534,22 @@ Future<SaveResult> saveBytesAs(
 /// Exports user-managed custom stamps as a portable JSON bundle.
 Future<SaveResult> exportCustomStampsAs(
   BuildContext context,
-  List<PdfCustomStamp> stamps,
-) async {
-  final name = 'dartpdf-stamps.json';
-  final bytes =
-      Uint8List.fromList(utf8.encode(encodeCustomStampBundle(stamps)));
+  List<PdfCustomStamp> stamps, {
+  required String stampLabel,
+}) =>
+    saveJsonAs(context, encodeCustomStampBundle(stamps), 'dartpdf-stamps.json',
+        typeLabel: stampLabel);
+
+/// Save-as for a JSON document, with the same platform behaviour as
+/// [saveBytesAs]: a save dialog on desktop, a browser download on the web,
+/// the share sheet on phones. [name] should carry `.json`.
+Future<SaveResult> saveJsonAs(
+  BuildContext context,
+  String json,
+  String name, {
+  required String typeLabel,
+}) async {
+  final bytes = Uint8List.fromList(utf8.encode(json));
   final file = XFile.fromData(
     bytes,
     mimeType: 'application/json',
@@ -398,7 +575,7 @@ Future<SaveResult> exportCustomStampsAs(
     default:
       final location = await getSaveLocation(
         suggestedName: name,
-        acceptedTypeGroups: const [stampBundleTypeGroup],
+        acceptedTypeGroups: [stampBundleTypeGroup(typeLabel)],
       );
       if (location == null) return SaveResult.cancelled;
       final path = ensureJsonExtension(location.path);
@@ -419,8 +596,9 @@ Future<SaveResult> saveImageBytesAs(
   BuildContext context,
   Uint8List bytes,
   String name,
-  String mimeType,
-) async {
+  String mimeType, {
+  required String imageLabel,
+}) async {
   final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
 
   if (kIsWeb) {
@@ -442,7 +620,7 @@ Future<SaveResult> saveImageBytesAs(
     default:
       final location = await getSaveLocation(
         suggestedName: name,
-        acceptedTypeGroups: const [imageTypeGroup],
+        acceptedTypeGroups: [imageTypeGroup(imageLabel)],
       );
       if (location == null) return SaveResult.cancelled;
       try {

@@ -1,0 +1,7 @@
+Baru di 3.0.0
+
+• Aplikasi kini tersedia dalam 10 bahasa, dengan tata letak kanan-ke-kiri penuh.
+• Rendering overprint, mode campuran, dan soft mask yang lebih akurat.
+• Tahan Shift untuk menggambar garis lurus, dan tetapkan gaya default untuk anotasi.
+• Tab dokumen yang didesain ulang dan lebih mulus.
+• Rendering lebih cepat dan penggunaan memori lebih rendah pada berkas besar.

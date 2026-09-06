@@ -1,0 +1,194 @@
+# Audit-derived Storeflight configuration. DartPDF is not currently enrolled
+# in Shorebird; replace the Microsoft product ID before release.
+schema: 1
+
+app:
+  # Copy this file to the dart-pdf repository root as storeflight.yaml.
+  root: app
+  version_file: pubspec.yaml
+  require_clean_git: tracked
+  isolate_worktree: true
+  # A worktree of the release commit cannot inherit files that are git-ignored
+  # because they are secret. Without key.properties Gradle silently debug-signs
+  # and Play rejects the upload; without the SDK pin `flutter` resolves off
+  # PATH to whatever happens to be installed.
+  worktree_include:
+    - android/key.properties
+    - .secrets
+    - ../.fvmrc
+  metadata: fastlane/metadata
+  release_notes: release-notes
+  metadata_checks:
+    - path: release-notes/{version}-stores.txt
+      contains: "{version}"
+      max_characters: 500
+    - path: release-notes/{version}-appstore.txt
+      contains: "{version}"
+    - path: fastlane/metadata/ios/*/release_notes.txt
+      contains: "{version}"
+      minimum_matches: 20
+      max_characters: 4000
+    - path: fastlane/metadata/android/*/changelogs/{build_number}.txt
+      contains: "{version}"
+      minimum_matches: 20
+      max_characters: 500
+      seed_from: release-notes/{version}-stores.txt
+
+build:
+  provider: flutter
+  options:
+    macos:
+      # Storeflight archives with xcodebuild and exports with these options,
+      # which mints the installer certificate; no pre-existing identity needed.
+      export_method: app-store-connect
+      team_id: N5K9GK8B27
+    android:
+      expected_signer: "CN=DartPDF, O=Railway Engineering Solutions Pty Ltd"
+  providers:
+    windows:
+      command:
+        - pwsh
+        - -NoProfile
+        - -File
+        - packaging/msstore/build-msix.ps1
+      timeout_minutes: 90
+    snap:
+      command: >-
+        flutter build linux --release
+        --build-name="$STOREFLIGHT_VERSION"
+        --build-number="$STOREFLIGHT_BUILD_NUMBER"
+        --dart-define=PDF_BUILD_COMMIT="$STOREFLIGHT_SOURCE_SHA" &&
+        mkdir -p build/storeflight/snap &&
+        tar czf build/storeflight/dartpdf-linux-x64.tar.gz
+        -C build/linux/x64/release/bundle . &&
+        packaging/snap/build-release-snap.sh
+        --archive build/storeflight/dartpdf-linux-x64.tar.gz
+        --version "$STOREFLIGHT_VERSION"
+        --output build/storeflight/snap
+      timeout_minutes: 120
+    # The self-hosted Flatpak publisher consumes this immutable Linux archive.
+    flatpak:
+      command: >-
+        flutter build linux --release
+        --build-name="$STOREFLIGHT_VERSION"
+        --build-number="$STOREFLIGHT_BUILD_NUMBER" &&
+        mkdir -p build/storeflight/flatpak &&
+        tar czf build/storeflight/flatpak/app-linux.tar.gz
+        -C build/linux/x64/release/bundle .
+      artifact: build/storeflight/flatpak/app-linux.tar.gz
+      timeout_minutes: 90
+  provenance:
+    require_source_sha: true
+    require_artifact_digest: true
+
+ci:
+  provider: github_actions
+  workflow: .github/workflows/storeflight.yml
+  environment: storeflight-production
+  repository: ben-milanko/dart-pdf
+  ref: main
+  repository_token_secret: STOREFLIGHT_REPOSITORY_TOKEN
+  ledger:
+    backend: github_actions_artifacts
+    retention_days: 90
+
+profiles:
+  production:
+    until: review
+    wait: true
+    destinations:
+      apple:
+        bundle_id_ios: dev.milanko.dartpdf
+        bundle_id_macos: dev.milanko.dartpdf
+        platforms: [ios, macos]
+        submit_for_review: true
+        release_after_approval: manual
+        credentials:
+          key_id: [keychain:trax-asc-key-id, env:ASC_API_KEY_ID]
+          issuer_id: [keychain:trax-asc-issuer-id, env:ASC_API_ISSUER_ID]
+          private_key: [file:~/.appstoreconnect/private_keys/AuthKey_TRZ8JH3T68.p8, env:ASC_API_KEY_P8]
+      google_play:
+        package: dev.milanko.dartpdf
+        track: production
+        release_status: completed
+        send_for_review: true
+        on_existing_review: error
+        managed_publishing: true
+        credentials:
+          service_account: [file:app/.secrets/google-play-service-account.json, env:PLAY_STORE_SERVICE_ACCOUNT_JSON]
+      microsoft_store:
+        product_id: 9N071VSV6RGK
+        submit_for_review: true
+        credentials:
+          tenant_id: env:MSSTORE_TENANT_ID
+          seller_id: env:MSSTORE_SELLER_ID
+          client_id: env:MSSTORE_CLIENT_ID
+          certificate: env:MSSTORE_CERTIFICATE_BASE64
+          certificate_password: env:MSSTORE_CERTIFICATE_PASSWORD
+      snap:
+        name: dartpdf
+        channels: [latest/stable]
+        publish: true
+        stop_after_store_acceptance: true
+        verify:
+          command: [../tool/storeflight/verify-snap-install.sh, "{version}"]
+          contains: "{version}"
+        credentials:
+          store_credentials: env:SNAPCRAFT_STORE_CREDENTIALS
+    deliveries:
+      github_release:
+        # Publish the release event only after every configured store reaches
+        # its review target. Disable the legacy release-triggered Snap job when
+        # adopting this profile, because Storeflight publishes Snap directly.
+        after: review
+        repository: ben-milanko/dart-pdf
+        tag: app-v{version}
+        title: DartPDF {full_version}
+        notes_file: release-notes/{version}-stores.txt
+        platforms: [android, ios, macos, windows, snap, flatpak, web]
+      pub_dev:
+        mode: github_tags
+        tag: "{package}-v{version}"
+        # publish-pub.yml refuses a tag that is not an ancestor of `deploy`,
+        # so check that before creating ten public tags.
+        branch: deploy
+        packages:
+          - {name: pdf_cos, path: ../packages/pdf_cos}
+          - {name: pdf_test_fixtures, path: ../packages/pdf_test_fixtures, depends_on: [pdf_cos]}
+          - {name: pdf_document, path: ../packages/pdf_document, depends_on: [pdf_cos]}
+          - {name: pdf_graphics, path: ../packages/pdf_graphics, depends_on: [pdf_cos, pdf_document]}
+          - {name: dart_pdf_cli, path: ../packages/dart_pdf_cli, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
+          - {name: dart_pdf_editor, path: ../packages/dart_pdf_editor, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
+          - {name: dart_pdf_editor_flutter_gpu, path: ../packages/dart_pdf_editor_flutter_gpu, depends_on: [dart_pdf_editor, pdf_cos, pdf_document, pdf_graphics]}
+          - {name: dart_pdf_editor_assets, path: ../packages/dart_pdf_editor_assets, depends_on: [dart_pdf_editor]}
+          - {name: pdf_ocr_vlm, path: ../packages/pdf_ocr_vlm, depends_on: [dart_pdf_editor, pdf_document]}
+          - {name: pdf_ocr_ondevice, path: ../packages/pdf_ocr_ondevice, depends_on: [dart_pdf_editor, pdf_document]}
+      flatpak:
+        depends_on: [github_release]
+        publish_command:
+          - gh
+          - workflow
+          - run
+          - publish-flatpak.yml
+          - --ref
+          - "{source_sha}"
+          - -f
+          - version={version}
+        idempotency_check: >-
+          curl -fsSL https://dartpdf-flatpak.web.app/version.json |
+          grep -F '"{version}"'
+        status_command: [curl, --fail, --silent, https://dartpdf-flatpak.web.app/version.json]
+        verify:
+          command: [../tool/storeflight/verify-flatpak-install.sh, "{version}"]
+          contains: "{version}"
+      web:
+        deploy_command: [firebase, deploy, --config, firebase.json, --only, hosting:dartpdf-app]
+        status_command: [curl, --fail, --silent, https://app.dart-pdf.com/version.json]
+        verify:
+          url: https://app.dart-pdf.com/version.json
+          contains: "{version}"
+    integrations:
+      firebase:
+        project: dart-pdf-demo
+        configure_with_flutterfire: false
+        authentication: oidc

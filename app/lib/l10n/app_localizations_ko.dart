@@ -1,0 +1,1422 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for Korean (`ko`).
+class AppLocalizationsKo extends AppLocalizations {
+  AppLocalizationsKo([String locale = 'ko']) : super(locale);
+
+  @override
+  String get add => '추가';
+
+  @override
+  String get appSigAddLogo => '로고 추가…';
+
+  @override
+  String appSigAllPages(int pageCount) {
+    return '전체 $pageCount페이지';
+  }
+
+  @override
+  String get appSigAppearance => '모양';
+
+  @override
+  String get appSigAppearanceDescription =>
+      '서명은 배치한 위치에 그려집니다. 서명자 이름과 세부 정보는 항상 표시되며, 손으로 그린 표시와 로고 배경을 추가할 수 있습니다.';
+
+  @override
+  String appSigApplyTo(String label) {
+    return '적용 대상: $label';
+  }
+
+  @override
+  String get appSigApplyToPages => '페이지에 적용…';
+
+  @override
+  String get appSigChooseCertificate => '인증서 파일 선택…';
+
+  @override
+  String get appSigChooseKeyDescription =>
+      '개인 키(RSA, PEM 또는 DER)와 인증서 파일을 선택하세요. 키는 서명에만 사용되며 저장되지 않습니다.';
+
+  @override
+  String get appSigChoosePngOrJpeg => 'PNG 또는 JPEG 이미지를 선택하세요.';
+
+  @override
+  String get appSigChoosePrivateKey => '개인 키 선택…';
+
+  @override
+  String get appSigContactInfo => '연락처 정보';
+
+  @override
+  String get appSigCouldNotCaptureSignature => '서명을 캡처할 수 없습니다.';
+
+  @override
+  String appSigCouldNotReadCertificate(String error) {
+    return '인증서를 읽을 수 없습니다: $error';
+  }
+
+  @override
+  String appSigCouldNotReadKey(String error) {
+    return '키를 읽을 수 없습니다: $error';
+  }
+
+  @override
+  String get appSigCreateOnDevice => '이 기기에서 서명 만들기';
+
+  @override
+  String appSigDate(String date) {
+    return '날짜: $date';
+  }
+
+  @override
+  String get appSigDigitallySign => '디지털 서명';
+
+  @override
+  String get appSigDrawSignature => '서명 그리기…';
+
+  @override
+  String get appSigFieldHelper => '비워 두면 새 서명 필드를 만듭니다.';
+
+  @override
+  String get appSigFieldLabel => '기존 서명 필드(선택 사항)';
+
+  @override
+  String appSigIdentitySubtitle(
+      int count, String validFrom, String validUntil) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '인증서 $count개',
+      one: '인증서 1개',
+    );
+    return '$_temp0 · 유효 기간 $validFrom ~ $validUntil';
+  }
+
+  @override
+  String get appSigIntro =>
+      '디지털 서명은 이 문서에 서명했으며 그 이후 변경되지 않았음을 증명합니다. 서명 방법을 선택하세요.';
+
+  @override
+  String get appSigKeyOrCertUnreadable => '선택한 키 또는 인증서를 읽을 수 없습니다.';
+
+  @override
+  String get appSigKeylessDescription =>
+      '가장 간편합니다. 이메일로 본인임을 확인한 후 신뢰할 수 있는 타임스탬프와 함께 대신 서명해 드립니다. 설치나 설정이 필요 없습니다.';
+
+  @override
+  String get appSigKeylessIdentity => '키리스 ID';
+
+  @override
+  String get appSigKeylessSignInExpired => '키리스 로그인이 만료되었습니다. 다시 로그인하세요.';
+
+  @override
+  String appSigKeylessSignInFailed(String failure) {
+    return '키리스 로그인 실패: $failure';
+  }
+
+  @override
+  String get appSigKeylessSubtitle => '키리스 · 타임스탬프됨 · 유효성 알 수 없음';
+
+  @override
+  String get appSigKeylessWebNote =>
+      '이메일로 로그인하는 것이 가장 간편한 방법이며, DartPDF 데스크톱 및 모바일 앱에서 사용할 수 있습니다. 보안상의 이유로 웹 브라우저에서는 실행할 수 없습니다.';
+
+  @override
+  String get appSigLocation => '위치';
+
+  @override
+  String get appSigLogoAdded => '로고 추가됨 ✓';
+
+  @override
+  String appSigPagesRange(int start, int end) {
+    return '$start–$end페이지';
+  }
+
+  @override
+  String get appSigPreviewNote => '미리 보기 - 실제 서명된 상자는 약간 다를 수 있습니다.';
+
+  @override
+  String get appSigReason => '사유';
+
+  @override
+  String appSigReasonLine(String reason) {
+    return '사유: $reason';
+  }
+
+  @override
+  String get appSigRefreshingSignIn => '로그인 갱신 중…';
+
+  @override
+  String get appSigRemoveLogo => '로고 제거';
+
+  @override
+  String get appSigRemoveSignature => '서명 제거';
+
+  @override
+  String get appSigSelfSignedDescription =>
+      '로그인이나 파일이 필요 없습니다. 개인 용도에 가장 적합하며, 다음에 사용할 수 있도록 이 기기에 저장됩니다. 일부 PDF 리더는 이를 \"서명됨, 유효성 알 수 없음\"으로 표시하는데, 이는 직접 만든 서명에서 정상적인 현상입니다.';
+
+  @override
+  String get appSigSelfSignedIdentity => '자체 서명 ID';
+
+  @override
+  String get appSigSelfSignedSubtitle => '자체 서명 · 유효성 알 수 없음';
+
+  @override
+  String get appSigShowSignatureOnPages => '페이지에 서명 표시';
+
+  @override
+  String get appSigSign => '서명';
+
+  @override
+  String get appSigSignInWithEmail => '이메일로 로그인';
+
+  @override
+  String get appSigSignatureAdded => '서명 추가됨 ✓';
+
+  @override
+  String appSigSignedBy(String signerName) {
+    return '$signerName이(가) 디지털 서명함';
+  }
+
+  @override
+  String get appSigSigner => '서명자';
+
+  @override
+  String get appSigSigningYouIn => '로그인 중…';
+
+  @override
+  String get appSigThisPageOnly => '이 페이지만';
+
+  @override
+  String get appSigUseOwnCertificate => '직접 만든 인증서 사용';
+
+  @override
+  String get appSigUseOwnCertificateSubtitle => '조직에서 발급받은 서명 인증서용';
+
+  @override
+  String get appSigX509Signer => 'X.509 서명자';
+
+  @override
+  String get apply => '적용';
+
+  @override
+  String get cancel => '취소';
+
+  @override
+  String get clear => '지우기';
+
+  @override
+  String get close => '닫기';
+
+  @override
+  String get copy => '복사';
+
+  @override
+  String get cut => '잘라내기';
+
+  @override
+  String get delete => '삭제';
+
+  @override
+  String get done => '완료';
+
+  @override
+  String get edit => '편집';
+
+  @override
+  String editorAddDroppedMessage(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '이 $count개의 PDF를 새 탭에서 열까요, 아니면 해당 페이지를 \"$title\"에 삽입할까요?',
+      one: '이 PDF를 새 탭에서 열까요, 아니면 해당 페이지를 \"$title\"에 삽입할까요?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorAddDroppedTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '드롭한 PDF 추가',
+      one: '드롭한 PDF 추가',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get editorAnnotationTextCopied => '주석 텍스트가 복사되었습니다';
+
+  @override
+  String get editorAppMenuTooltip => 'DartPDF 메뉴';
+
+  @override
+  String get editorCancelOcr => 'OCR 취소';
+
+  @override
+  String get editorClearRecentFiles => '최근 파일 지우기';
+
+  @override
+  String get editorCloseAll => '모두 닫기';
+
+  @override
+  String get editorCloseOthers => '다른 탭 닫기';
+
+  @override
+  String get editorCloseTab => '탭 닫기';
+
+  @override
+  String get editorCloseTabsToRight => '오른쪽 탭 닫기';
+
+  @override
+  String get editorCompareFailedTitle => '비교 실패';
+
+  @override
+  String editorCompareTitle(String title) {
+    return '비교: $title';
+  }
+
+  @override
+  String get editorCopiedToClipboard => '클립보드에 복사됨';
+
+  @override
+  String get editorCopySelectedTextTooltip => '선택한 텍스트 복사 (⌘C)';
+
+  @override
+  String get editorCopyText => '텍스트 복사';
+
+  @override
+  String editorCouldNotExport(String title) {
+    return '$title을(를) 내보낼 수 없습니다';
+  }
+
+  @override
+  String editorCouldNotImportStamps(String error) {
+    return '스탬프를 가져올 수 없습니다: $error';
+  }
+
+  @override
+  String editorCouldNotInsertDropped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '드롭한 PDF를 삽입할 수 없습니다',
+      one: '드롭한 PDF를 삽입할 수 없습니다',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorCouldNotOpenDetail(String title, String error) {
+    return '$title을(를) 열 수 없습니다\n$error';
+  }
+
+  @override
+  String get editorCouldNotOpenFolder => '포함된 폴더를 열 수 없습니다';
+
+  @override
+  String editorCouldNotOpenSecond(String error) {
+    return '두 번째 파일을 열 수 없습니다\n$error';
+  }
+
+  @override
+  String editorCouldNotOpenSelected(String error) {
+    return '선택한 파일을 열 수 없습니다\n$error';
+  }
+
+  @override
+  String editorCouldNotOpenUrl(String url) {
+    return '$url을(를) 열 수 없습니다';
+  }
+
+  @override
+  String editorCouldNotPrint(String title) {
+    return '$title을(를) 인쇄할 수 없습니다';
+  }
+
+  @override
+  String editorCouldNotReopen(String title) {
+    return '$title을(를) 다시 열 수 없습니다';
+  }
+
+  @override
+  String editorCouldNotSign(String error) {
+    return '디지털 서명할 수 없습니다: $error';
+  }
+
+  @override
+  String get editorDiscard => '버리기';
+
+  @override
+  String get editorDiscardChangesTitle => '변경 사항을 버리시겠습니까?';
+
+  @override
+  String get editorDocumentSigned => '문서에 디지털 서명함';
+
+  @override
+  String get editorDownload => '다운로드';
+
+  @override
+  String get editorDropToOpen => 'PDF를 드롭하여 열기';
+
+  @override
+  String get editorDropToOpenOrInsert => 'PDF를 드롭하여 열거나 삽입';
+
+  @override
+  String get editorInsertPages => '페이지 삽입';
+
+  @override
+  String editorInsertedButFailed(int count, String files) {
+    return '$count개 삽입됨; $files을(를) 읽을 수 없음';
+  }
+
+  @override
+  String editorInsertedIntoTitle(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count개의 PDF를 $title에 삽입함',
+      one: '$title에 페이지 삽입됨',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorInvalidLink(String uri) {
+    return '잘못된 링크: $uri';
+  }
+
+  @override
+  String get editorJavaScriptIgnored => '이 문서가 JavaScript를 실행하려고 했습니다(무시됨)';
+
+  @override
+  String get editorLoadingFullDocument => '전체 문서 로드 중';
+
+  @override
+  String get editorMenuCompareWith => '다음과 비교…';
+
+  @override
+  String get editorMenuDigitallySign => '디지털 서명…';
+
+  @override
+  String get editorMenuDigitallySigning => '디지털 서명 중…';
+
+  @override
+  String get editorMenuExportImage => '페이지를 이미지로 내보내기…';
+
+  @override
+  String get editorMenuNewDocument => '새 문서…';
+
+  @override
+  String get editorMenuNewWindow => '새 창';
+
+  @override
+  String get editorMoveToNewWindow => '새 창으로 이동';
+
+  @override
+  String get editorUnableToOpenNewWindow => '새 창을 열 수 없습니다';
+
+  @override
+  String get editorMenuOcr => 'OCR…';
+
+  @override
+  String get editorMenuOpen => 'PDF 열기…';
+
+  @override
+  String get editorMenuPrint => '인쇄…';
+
+  @override
+  String get editorMenuSaveAs => '다른 이름으로 저장…';
+
+  @override
+  String get editorMenuScanDocument => '새 문서로 스캔…';
+
+  @override
+  String get editorMenuInsertDocument => '문서 삽입…';
+
+  @override
+  String get editorMenuInsertScan => '스캔 삽입…';
+
+  @override
+  String get editorScanFailed => '문서를 스캔할 수 없습니다.';
+
+  @override
+  String get editorInsertedScan => '스캔한 페이지를 삽입했습니다.';
+
+  @override
+  String get editorMenuSettings => '설정';
+
+  @override
+  String get editorMenuSectionFile => '파일';
+
+  @override
+  String get editorMenuSectionDocument => '이 문서';
+
+  @override
+  String get editorMenuSectionApp => '앱';
+
+  @override
+  String get editorMenuReadOnly => '읽기 전용';
+
+  @override
+  String get editorMenuSearchActions => '작업 검색…';
+
+  @override
+  String get paletteHint => '작업, 도구, 패널 검색';
+
+  @override
+  String get paletteNoMatch => '일치하는 명령이 없습니다';
+
+  @override
+  String get paletteKeyHints => '↑↓ 이동 · ⏎ 실행 · esc 닫기';
+
+  @override
+  String paletteCount(int count) {
+    return '명령 $count개';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total개 중 $count개';
+  }
+
+  @override
+  String get paletteSourceMenu => '메뉴';
+
+  @override
+  String get paletteSourcePanel => '패널';
+
+  @override
+  String get paletteSourceView => '보기';
+
+  @override
+  String get paletteSourceFile => '파일';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group 도구';
+  }
+
+  @override
+  String get paletteNeedsDocument => '열린 문서가 필요합니다';
+
+  @override
+  String editorNamedAction(String name) {
+    return '명명된 작업: $name';
+  }
+
+  @override
+  String get editorNoRecentFiles => '최근 파일 없음';
+
+  @override
+  String editorOcrTitle(String title) {
+    return '$title (OCR)';
+  }
+
+  @override
+  String editorOcrTooltip(String title) {
+    return 'OCR · $title';
+  }
+
+  @override
+  String get editorOpenDocBeforeOcr => 'OCR을 실행하기 전에 문서를 여세요';
+
+  @override
+  String get editorOpenFailedTitle => '열기 실패';
+
+  @override
+  String editorOpenInNewTab(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '새 탭에서 열기',
+      one: '새 탭에서 열기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get editorOpenPdfNewTab => '새 탭에서 PDF 열기';
+
+  @override
+  String get editorOpenRecent => '최근 항목 열기';
+
+  @override
+  String get editorViewAllRecentFiles => '모든 최근 파일 보기…';
+
+  @override
+  String get editorOpenTabs => '열린 탭';
+
+  @override
+  String get editorOpeningDocumentSemantic => '문서 여는 중';
+
+  @override
+  String get editorOpeningPdf => 'PDF 여는 중…';
+
+  @override
+  String editorOpeningTitle(String title) {
+    return '$title 여는 중…';
+  }
+
+  @override
+  String editorPageNumber(int number) {
+    return '$number페이지';
+  }
+
+  @override
+  String get editorPreviewComparison => '비교';
+
+  @override
+  String get editorPreviewCouldNotOpen => '열 수 없음';
+
+  @override
+  String get editorPreviewOpening => '여는 중';
+
+  @override
+  String get editorPreviewPdf => 'PDF';
+
+  @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '이전 세션의 문서 $count개에서 저장되지 않은 변경 사항을 복구했습니다.',
+      one: '이전 세션의 저장되지 않은 변경 사항을 복구했습니다.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get editorSignatureRemoved => '서명이 제거되었습니다';
+
+  @override
+  String get editorSnapshotCopied => '스냅샷이 클립보드에 복사됨';
+
+  @override
+  String get editorSnapshotCopyFailed => '스냅샷을 클립보드에 복사할 수 없습니다';
+
+  @override
+  String get editorTabs => '탭';
+
+  @override
+  String editorTabsOpenCount(int count) {
+    return '$count개 열림';
+  }
+
+  @override
+  String editorUnsavedChangesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count개 문서에 저장되지 않은 변경 사항이 있습니다.',
+      one: '한 문서에 저장되지 않은 변경 사항이 있습니다.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorUnsupportedAction(String type) {
+    return '지원되지 않는 작업: $type';
+  }
+
+  @override
+  String get editorUntitled => '제목 없음';
+
+  @override
+  String editorUpdateAvailable(String version) {
+    return 'DartPDF $version을(를) 사용할 수 있습니다.';
+  }
+
+  @override
+  String get editorUpdateLater => '나중에';
+
+  @override
+  String get updateInstallNow => '지금 업데이트';
+
+  @override
+  String get updateDownloadingTitle => '업데이트 다운로드 중';
+
+  @override
+  String get updatePreparing => '준비 중…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return '다운로드 중… $percent%';
+  }
+
+  @override
+  String get updateRestarting => '업데이트를 완료하기 위해 다시 시작하는 중…';
+
+  @override
+  String get updateHandedOff => '업데이트를 다운로드했습니다. 설치 프로그램을 여는 중…';
+
+  @override
+  String updateFailed(String error) {
+    return '업데이트 실패: $error';
+  }
+
+  @override
+  String get editorViewAllTabs => '모든 탭 보기';
+
+  @override
+  String imgExportDpiValue(int dpi) {
+    return '$dpi dpi';
+  }
+
+  @override
+  String get imgExportExport => '내보내기';
+
+  @override
+  String get imgExportFormat => '형식';
+
+  @override
+  String get imgExportResolution => '해상도';
+
+  @override
+  String get imgExportTitle => '페이지를 이미지로 내보내기';
+
+  @override
+  String get newDocCreate => '만들기';
+
+  @override
+  String get newDocLandscape => '가로';
+
+  @override
+  String get newDocOrientation => '방향';
+
+  @override
+  String get newDocPageSize => '페이지 크기';
+
+  @override
+  String get newDocPortrait => '세로';
+
+  @override
+  String get newDocTitle => '새 문서';
+
+  @override
+  String get none => '없음';
+
+  @override
+  String get ocrAlreadyRunning => 'OCR이 이미 실행 중입니다 - 완료될 때까지 기다리거나 취소하세요';
+
+  @override
+  String get ocrBrowserInitFailed => '브라우저 OCR 초기화에 실패했습니다';
+
+  @override
+  String get ocrCancelled => 'OCR이 취소되었습니다';
+
+  @override
+  String ocrCancelledAfterSpans(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '텍스트 스팬 $count개 후 OCR 취소됨',
+      one: '텍스트 스팬 1개 후 OCR 취소됨',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrDownload => '다운로드';
+
+  @override
+  String ocrDownloadFailed(String error) {
+    return 'OCR 모델을 다운로드할 수 없습니다: $error';
+  }
+
+  @override
+  String ocrDownloadPromptBody(String size, String model) {
+    return '선택 가능한 텍스트 레이어를 추가하려면 온디바이스 OCR 모델$size이 필요합니다. 한 번 다운로드하면 이후에는 오프라인으로 실행됩니다.\n\n모델: $model';
+  }
+
+  @override
+  String get ocrDownloadPromptTitle => 'OCR 모델을 다운로드하시겠습니까?';
+
+  @override
+  String ocrFailed(String error) {
+    return 'OCR 실패: $error';
+  }
+
+  @override
+  String ocrModelApproxSize(int mb) {
+    return '(~$mb MB)';
+  }
+
+  @override
+  String get ocrNotAvailable => '이 플랫폼에서는 온디바이스 OCR을 사용할 수 없습니다';
+
+  @override
+  String ocrResult(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'OCR이 텍스트 스팬 $count개를 추가했습니다 - 이제 페이지 텍스트를 선택할 수 있습니다',
+      one: 'OCR이 텍스트 스팬 1개를 추가했습니다 - 이제 페이지 텍스트를 선택할 수 있습니다',
+      zero: '이 페이지에서 OCR이 텍스트를 찾지 못했습니다',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrWebPromptBody =>
+      '웹 OCR은 Florence-2 비전-언어 모델을 다운로드하여 Transformers.js를 통해 WebGPU/WASM으로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 유지되며, 처음 사용할 때 모델 파일만 가져옵니다.';
+
+  @override
+  String get ocrWebPromptTitle => '이 브라우저에서 AI OCR을 실행하시겠습니까?';
+
+  @override
+  String get ocrWebStart => 'OCR 시작';
+
+  @override
+  String get ok => '확인';
+
+  @override
+  String get paste => '붙여넣기';
+
+  @override
+  String get printDlgPreparing => '준비 중…';
+
+  @override
+  String printDlgRendering(int rendered, int total) {
+    return '$total페이지 중 $rendered페이지 렌더링 중…';
+  }
+
+  @override
+  String get printDlgTitle => '인쇄 중';
+
+  @override
+  String get printPreviewAll => '전체';
+
+  @override
+  String get printPreviewCurrent => '현재';
+
+  @override
+  String get printPreviewFrom => '시작';
+
+  @override
+  String get printPreviewNextPage => '다음 페이지';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return '$total페이지 중 $page페이지';
+  }
+
+  @override
+  String get printPreviewPreviousPage => '이전 페이지';
+
+  @override
+  String get printPreviewPrint => '인쇄';
+
+  @override
+  String get printPreviewRange => '범위';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return '1에서 $total 사이의 페이지 범위를 입력하세요.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return '인쇄할 페이지: $count';
+  }
+
+  @override
+  String get printPreviewTitle => '인쇄 미리 보기';
+
+  @override
+  String get printPreviewTo => '끝';
+
+  @override
+  String get printPreviewUnavailable => '미리 보기를 사용할 수 없음';
+
+  @override
+  String get redo => '다시 실행';
+
+  @override
+  String get remove => '제거';
+
+  @override
+  String get rename => '이름 바꾸기';
+
+  @override
+  String get reset => '재설정';
+
+  @override
+  String get save => '저장';
+
+  @override
+  String get settingsAbout => '정보';
+
+  @override
+  String get settingsAppearance => '모양';
+
+  @override
+  String get settingsCheckNow => '지금 확인';
+
+  @override
+  String get settingsLanguage => '언어';
+
+  @override
+  String get settingsLanguageSystem => '시스템 기본값';
+
+  @override
+  String get settingsCheckingForUpdates => '업데이트 확인 중…';
+
+  @override
+  String get settingsCouldNotOpenDownload => '다운로드를 열 수 없습니다';
+
+  @override
+  String get settingsCouldNotOpenSystemSettings => '시스템 설정을 열 수 없습니다';
+
+  @override
+  String get settingsDeveloperTools => '개발자 도구';
+
+  @override
+  String get settingsDeveloperToolsSubtitle => '메트릭, 로그, 렌더링 모드 (F12)';
+
+  @override
+  String settingsDownloadVersion(String version) {
+    return '$version 다운로드';
+  }
+
+  @override
+  String get settingsOpenSettings => '설정 열기';
+
+  @override
+  String settingsRecentCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count개 기억됨',
+      one: '1개 기억됨',
+      zero: '최근 파일 없음',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsRecentFiles => '최근 파일';
+
+  @override
+  String get settingsSetUpAsDefault => '기본 애플리케이션으로 설정';
+
+  @override
+  String get settingsSystem => '시스템';
+
+  @override
+  String get settingsThemeDark => '어둡게';
+
+  @override
+  String get settingsThemeLight => '밝게';
+
+  @override
+  String get settingsThemeSystem => '시스템';
+
+  @override
+  String get settingsTitle => '설정';
+
+  @override
+  String settingsUpToDate(String version) {
+    return '최신 버전($version)을 사용 중입니다.';
+  }
+
+  @override
+  String settingsUpdateAvailable(String version, String currentVersion) {
+    return '버전 $version을(를) 사용할 수 있습니다(현재 $currentVersion).';
+  }
+
+  @override
+  String get settingsUpdateFailed => '업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.';
+
+  @override
+  String settingsUpdateIdle(String name, String version) {
+    return '$name $version을(를) 사용 중입니다.';
+  }
+
+  @override
+  String get settingsNightlyUpdates => '나이틀리 업데이트';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'main의 서명되지 않은 Windows 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
+
+  @override
+  String get settingsUpdates => '업데이트';
+
+  @override
+  String get settingsViewSource => 'GitHub에서 소스 보기';
+
+  @override
+  String get undo => '실행 취소';
+
+  @override
+  String get welcomeOpenPdf => 'PDF 열기';
+
+  @override
+  String get welcomePickAgainToReopen => '다시 열려면 다시 선택하세요';
+
+  @override
+  String get welcomeRecent => '최근';
+
+  @override
+  String get welcomeSearchRecentFiles => '최근 파일 검색';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '검색과 일치하는 최근 파일이 없습니다';
+
+  @override
+  String get welcomeRemoveFromRecent => '최근 항목에서 제거';
+
+  @override
+  String get welcomeTapToReopen => '탭하여 다시 열기';
+
+  @override
+  String get welcomeViewAsGrid => '그리드 보기';
+
+  @override
+  String get welcomeViewAsList => '목록 보기';
+
+  @override
+  String settingsDefaultAppSubtitle(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web': '웹 앱을 설치한 후 PDF 파일용으로 선택하세요.',
+        'windows': 'Windows 기본 앱 설정에서 PDF를 여세요.',
+        'macos': 'Finder의 “항상 다음으로 열기” 단계를 따르세요.',
+        'linux': '데스크톱의 기본 애플리케이션 설정을 사용하세요.',
+        'android': 'PDF를 열 때 DartPDF를 선택한 후 항상을 탭하세요.',
+        'ios': '파일 앱에서 공유 또는 다음으로 열기를 사용해 PDF를 여기로 보내세요.',
+        'other': '시스템의 PDF 파일 핸들러를 구성하세요.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String settingsDefaultAppInstructions(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web':
+            '먼저 브라우저에서 DartPDF를 설치하세요. 그런 다음 브라우저 또는 운영 체제 파일 핸들러 설정을 사용하여 PDF 파일을 설치된 앱과 연결하세요.',
+        'windows':
+            'Windows 설정이 기본 앱으로 열립니다. “.pdf” 또는 “PDF”를 검색하고 현재 PDF 앱을 선택한 후 DartPDF를 선택하세요.',
+        'macos':
+            'Finder에서 아무 PDF나 선택하고 파일 > 정보 가져오기를 선택한 후 “다음으로 열기”를 펼치고 DartPDF를 선택한 다음 “모두 변경…”을 클릭하세요.',
+        'linux':
+            '데스크톱 설정에서 기본 애플리케이션을 열거나, 파일 앱에서 PDF를 마우스 오른쪽 버튼으로 클릭하고 속성을 선택한 후 DartPDF를 PDF 문서의 기본값으로 설정하세요.',
+        'android':
+            '파일 또는 다운로드에서 PDF를 열고 앱 선택기에서 DartPDF를 선택한 후 항상을 선택하세요. 다른 앱이 이미 PDF를 연다면 먼저 Android 설정에서 해당 앱의 기본값을 지우세요.',
+        'ios':
+            'iOS는 전역 기본 PDF 편집기를 제공하지 않습니다. 파일 > 공유를 사용하거나 PDF를 길게 눌러 공유/다음으로 열기를 선택한 후 DartPDF를 선택하세요.',
+        'other': '시스템 파일 핸들러 설정을 사용하여 PDF 문서를 DartPDF와 연결하세요.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrChipDownloadingModel => 'OCR 모델 다운로드 중…';
+
+  @override
+  String ocrChipDownloadingModelPercent(int percent) {
+    return '모델 다운로드 중 $percent%';
+  }
+
+  @override
+  String ocrChipRecognising(int page, int pageCount) {
+    return 'OCR $page/$pageCount';
+  }
+
+  @override
+  String get ocrChipFinishing => 'OCR 마무리 중…';
+
+  @override
+  String get fileTypePdf => 'PDF 문서';
+
+  @override
+  String get fileTypeImages => '이미지';
+
+  @override
+  String get fileTypeStampBundle => 'DartPDF 스탬프';
+
+  @override
+  String get appSigKeyFileType => 'RSA 개인 키';
+
+  @override
+  String get appSigCertificateFileType => 'X.509 인증서';
+
+  @override
+  String get appSigErrorNoCertificateSelected => 'X.509 인증서를 하나 이상 선택하세요.';
+
+  @override
+  String appSigErrorInvalidCertificate(int index) {
+    return '인증서 $index은(는) 유효한 X.509가 아닙니다.';
+  }
+
+  @override
+  String get appSigErrorKeyCertificateMismatch =>
+      '개인 키가 선택한 어떤 RSA 인증서와도 일치하지 않습니다.';
+
+  @override
+  String get appSigErrorEncryptedKeyUnsupported =>
+      '암호화된 개인 키는 지원되지 않습니다. 암호화되지 않은 RSA PKCS#1 또는 PKCS#8 키를 선택하세요.';
+
+  @override
+  String get appSigErrorKeyNotRsa =>
+      '개인 키가 암호화되지 않은 RSA PKCS#1 또는 PKCS#8 키가 아닙니다.';
+
+  @override
+  String get appSigErrorNoCertificateFound => 'X.509 인증서를 찾을 수 없습니다.';
+
+  @override
+  String get imageSourceTakePhoto => '사진 촬영';
+
+  @override
+  String get imageSourceChooseFile => '파일 선택';
+
+  @override
+  String get imageSourceCameraFailed => '사진을 촬영하지 못했습니다';
+
+  @override
+  String get settingsCachedDocuments => '캐시된 문서';
+
+  @override
+  String settingsCacheUsage(String used, String limit) {
+    return '$limit MiB 중 $used MiB 사용';
+  }
+
+  @override
+  String settingsCacheExplanation(String limit) {
+    return '$limit MiB를 초과하는 파일은 캐시되지 않습니다. 삭제해도 최근 파일 목록, 열린 문서 및 저장하지 않은 변경 사항은 유지됩니다. 캐시된 파일을 다시 열려면 파일을 다시 선택해야 합니다.';
+  }
+
+  @override
+  String get settingsClearCachedDocuments => '캐시된 문서 삭제';
+
+  @override
+  String get settingsCacheUnavailable => '캐시 크기를 확인할 수 없음';
+
+  @override
+  String get settingsCacheClearFailed => '캐시된 문서를 삭제하지 못했습니다. 다시 시도하세요.';
+
+  @override
+  String get editorMenuReduceFileSize => '파일 크기 줄이기…';
+
+  @override
+  String get reduceSizeTitle => '파일 크기 줄이기';
+
+  @override
+  String get reduceSizeDescription =>
+      '현재 문서를 최적화하고 절약된 용량을 확인한 후 더 작은 사본을 저장합니다.';
+
+  @override
+  String get reduceSizePreset => '사전 설정';
+
+  @override
+  String get reduceSizeLossless => '무손실 — 이미지 품질 유지';
+
+  @override
+  String get reduceSizeScreen => '화면 — 72 DPI, JPEG 품질 60';
+
+  @override
+  String get reduceSizeEbook => '전자책 — 150 DPI, JPEG 품질 75';
+
+  @override
+  String get reduceSizePrinter => '인쇄 — 300 DPI, JPEG 품질 90';
+
+  @override
+  String get reduceSizeLosslessHint => '이미지 해상도와 품질이 유지됩니다.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '목표 해상도보다 큰 이미지는 축소되어 JPEG로 인코딩될 수 있습니다. 미세한 이미지 세부 사항은 손실될 수 있지만 텍스트와 벡터 그래픽은 선명하게 유지됩니다.';
+
+  @override
+  String get reduceSizeAdvanced => '고급 설정';
+
+  @override
+  String get reduceSizeRecompress => '스트림 다시 압축';
+
+  @override
+  String get reduceSizeUnusedResources => '사용하지 않는 리소스 제거';
+
+  @override
+  String get reduceSizeDeduplicate => '중복 객체 병합';
+
+  @override
+  String get reduceSizeSubsetFonts => '내장 글꼴을 사용된 글리프로 축소';
+
+  @override
+  String get reduceSizeDpi => '이미지 목표 해상도';
+
+  @override
+  String get reduceSizeKeepImages => '원본 이미지 유지(무손실)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG 품질: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      '이 서명된 PDF를 다시 작성하면 저장된 사본의 디지털 서명이 무효화됩니다.';
+
+  @override
+  String get reduceSizeInvalidateSignatures => '이 사본의 서명 무효화 허용';
+
+  @override
+  String get reduceSizeEncrypted => '암호화된 PDF는 최적화할 수 없습니다.';
+
+  @override
+  String get reduceSizeIncomplete => '크기를 줄이기 전에 문서 로딩이 완료될 때까지 기다리세요.';
+
+  @override
+  String get reduceSizeRun => '최적화';
+
+  @override
+  String get reduceSizeRunning => '문서 최적화 중…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return '이 PDF를 최적화할 수 없습니다: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return '사본을 저장할 수 없습니다: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => '사본 저장…';
+
+  @override
+  String get reduceSizeChangeSettings => '설정 변경';
+
+  @override
+  String get reduceSizeBefore => '원본 크기';
+
+  @override
+  String get reduceSizeAfter => '최적화된 크기';
+
+  @override
+  String get reduceSizeSavings => '절약된 공간';
+
+  @override
+  String get reduceSizeNoSavings =>
+      '이 문서는 현재 설정으로 이미 충분히 작습니다. 원본 데이터가 유지되었습니다.';
+
+  @override
+  String get reduceSizeReportHint => '각 최적화 단계에서 절약된 바이트:';
+
+  @override
+  String get reduceSizeStructure => '문서 구조';
+
+  @override
+  String get reduceSizeResources => '사용하지 않는 리소스';
+
+  @override
+  String get reduceSizeFonts => '내장 글꼴';
+
+  @override
+  String get reduceSizeImages => '이미지';
+
+  @override
+  String get reduceSizeDuplicates => '중복 객체';
+
+  @override
+  String get reduceSizeCustom => '사용자 지정 설정';
+
+  @override
+  String get printOptionsPrinter => '프린터';
+
+  @override
+  String get printOptionsNativePrinter =>
+      '다음에 표시되는 시스템 인쇄 대화상자에서 프린터, 용지함, 컬러, 양면 인쇄 및 장치 속성을 선택하세요. 여기에 표시된 레이아웃을 사용하려면 배율은 100%, 부수는 1로 유지하세요.';
+
+  @override
+  String get printOptionsPages => '페이지';
+
+  @override
+  String get printOptionsSelected => '선택한 페이지';
+
+  @override
+  String get printOptionsPageRange => '페이지(예: 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => '파일 추가…';
+
+  @override
+  String get printOptionsAddFailed => '선택한 파일을 추가할 수 없습니다.';
+
+  @override
+  String get printOptionsGetWindow => '영역 선택';
+
+  @override
+  String get printOptionsClearWindow => '영역 해제';
+
+  @override
+  String get printOptionsWindowHint => '원본 페이지에서 사각형을 드래그하여 인쇄할 영역을 선택하세요.';
+
+  @override
+  String get printOptionsPaper => '용지';
+
+  @override
+  String get printOptionsPaperSize => '용지 크기';
+
+  @override
+  String get printOptionsPageSize => '문서 페이지 크기 사용';
+
+  @override
+  String get printOptionsOrientation => '용지 방향';
+
+  @override
+  String get printOptionsAuto => '자동';
+
+  @override
+  String get printOptionsPortrait => '세로';
+
+  @override
+  String get printOptionsLandscape => '가로';
+
+  @override
+  String get printOptionsCopies => '부수';
+
+  @override
+  String get printOptionsCollate => '한 부씩 인쇄';
+
+  @override
+  String get printOptionsReverse => '페이지 역순으로 인쇄';
+
+  @override
+  String get printOptionsLayout => '페이지 레이아웃';
+
+  @override
+  String get printOptionsScaling => '페이지 배율';
+
+  @override
+  String get printOptionsScaleNone => '없음(실제 크기)';
+
+  @override
+  String get printOptionsFitPaper => '용지에 맞춤';
+
+  @override
+  String get printOptionsReducePaper => '용지에 맞게 축소';
+
+  @override
+  String get printOptionsFitMargins => '여백 안에 맞춤';
+
+  @override
+  String get printOptionsReduceMargins => '여백 안에 맞게 축소';
+
+  @override
+  String get printOptionsCustomScale => '사용자 지정 배율';
+
+  @override
+  String get printOptionsMultiple => '한 장에 여러 페이지';
+
+  @override
+  String get printOptionsScalePercent => '배율(%)';
+
+  @override
+  String get printOptionsMargin => '여백(pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => '한 장에 인쇄할 페이지 수';
+
+  @override
+  String get printOptionsPageOrder => '페이지 순서';
+
+  @override
+  String get printOptionsHorizontal => '가로';
+
+  @override
+  String get printOptionsHorizontalReverse => '가로 역순';
+
+  @override
+  String get printOptionsVertical => '세로';
+
+  @override
+  String get printOptionsVerticalReverse => '세로(열은 오른쪽부터)';
+
+  @override
+  String get printOptionsBorder => '페이지 테두리 인쇄';
+
+  @override
+  String get printOptionsRotation => '회전(시계 방향)';
+
+  @override
+  String get printOptionsNoRotation => '없음';
+
+  @override
+  String get printOptionsCenter => '용지 가운데 배치';
+
+  @override
+  String get printOptionsOffsetX => '오른쪽으로 이동(pt)';
+
+  @override
+  String get printOptionsOffsetY => '아래로 이동(pt)';
+
+  @override
+  String get printOptionsContents => '인쇄할 내용';
+
+  @override
+  String get printOptionsDocumentAndMarkups => '문서 및 주석';
+
+  @override
+  String get printOptionsDocumentOnly => '문서만';
+
+  @override
+  String get printOptionsMarkupsOnly => '주석만';
+
+  @override
+  String get printOptionsDimPage => '페이지 내용을 연하게 인쇄';
+
+  @override
+  String get printOptionsDimMarkups => '주석을 연하게 인쇄';
+
+  @override
+  String get printOptionsHyperlinks => '표시된 하이퍼링크 인쇄';
+
+  @override
+  String get printOptionsDefaults => '기본값';
+
+  @override
+  String get printOptionsInvalidNumber => '인쇄하기 전에 올바른 숫자를 입력하세요.';
+
+  @override
+  String get printOptionsInvalidValue => '잘못된 값';
+
+  @override
+  String get printOptionsMarginGuide => '빨간색 선은 여백을 나타내며 인쇄되지 않습니다.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return '영역: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return '원본: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return '용지: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return '$total장 중 $sheet장';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      '이 레이아웃을 준비할 수 없습니다. 용지 크기, 여백 및 배율을 확인하세요.';
+}

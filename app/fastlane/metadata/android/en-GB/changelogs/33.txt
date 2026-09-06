@@ -1,0 +1,6 @@
+New in 4.0.0
+
+- Slimmer, dockable editor controls and improved page and recent-file navigation.
+- Auto-fit text boxes and flatten selected annotations; empty form fields now flatten correctly.
+- More accurate colour, overprint, transparency, soft masks and fonts in demanding PDFs.
+- Faster GPU rendering, smoother deep zoom and cleaner drag-and-drop, scanning and file-opening workflows.

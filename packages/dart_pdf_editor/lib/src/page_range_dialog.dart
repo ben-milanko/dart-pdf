@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dialog.dart';
+import 'l10n/pdf_l10n.dart';
+
 /// Asks the user for an inclusive page range, returning it 0-based as
 /// `(start, end)` - or null when cancelled. [pageCount] bounds the input
 /// and seeds the default span (the whole document, unless [initialStart]/
@@ -16,7 +19,7 @@ Future<({int start, int end})?> showPdfPageRangeDialog(
   String title = 'Export pages',
   String confirmLabel = 'Export',
 }) {
-  return showDialog<({int start, int end})>(
+  return showPdfDialog<({int start, int end})>(
     context: context,
     builder: (context) => _PdfPageRangeDialog(
       pageCount: pageCount,
@@ -73,11 +76,12 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
     final start = _parse(_from);
     final end = _parse(_to);
     if (start == null || end == null) {
-      setState(() => _error = 'Enter pages between 1 and ${widget.pageCount}.');
+      setState(() =>
+          _error = pdfL10n(context).pageRangeErrorBounds(widget.pageCount));
       return;
     }
     if (end < start) {
-      setState(() => _error = 'The last page must not be before the first.');
+      setState(() => _error = pdfL10n(context).pageRangeErrorOrder);
       return;
     }
     Navigator.of(context).pop((start: start, end: end));
@@ -105,13 +109,15 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${widget.pageCount} pages',
+          Text(pdfL10n(context).pageRangePageCount(widget.pageCount),
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 12),
           Row(children: [
-            field('From', _from, const ValueKey('pdf-page-range-from')),
+            field(pdfL10n(context).pageRangeFrom, _from,
+                const ValueKey('pdf-page-range-from')),
             const SizedBox(width: 16),
-            field('To', _to, const ValueKey('pdf-page-range-to')),
+            field(pdfL10n(context).pageRangeTo, _to,
+                const ValueKey('pdf-page-range-to')),
           ]),
           if (_error != null) ...[
             const SizedBox(height: 8),
@@ -124,7 +130,7 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
         TextButton(
           key: const ValueKey('pdf-page-range-cancel'),
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           key: const ValueKey('pdf-page-range-confirm'),

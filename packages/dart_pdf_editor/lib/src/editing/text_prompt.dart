@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfFormField, PdfRect, PdfVectorSnapshot;
 
+import '../dialog.dart';
+import '../l10n/pdf_l10n.dart';
+
 /// Supplies the image a tapped push-button field should be filled with
 /// - typically a file picker. Return null to leave the button alone.
 /// PNG and JPEG bytes are accepted
@@ -19,6 +22,33 @@ typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
 /// clipboard does not currently carry a pasteable image. PNG and JPEG bytes
 /// are accepted ([PdfEditingController.placeImage]).
 typedef PdfSystemImagePasteProvider = Future<Uint8List?> Function(
+    BuildContext context);
+
+/// Supplies an external PDF clipboard payload for vector paste. Return null
+/// for clipboard data written by this app, so its in-app snapshot keeps its
+/// repeat-paste position and shared resources. Invoked before in-app paste;
+/// a newly copied external PDF therefore supersedes an older local copy.
+typedef PdfSystemPdfPasteProvider = Future<PdfClipboardPdf?> Function(
+    BuildContext context);
+
+/// A PDF clipboard representation and an optional native clipboard revision.
+/// [changeToken] must change on every clipboard replacement, including when
+/// the bytes are identical. Once pasted, an unchanged revision yields to the
+/// in-app clipboard so a subsequent local annotation copy remains usable.
+/// Omit the token when the host cannot observe clipboard revisions.
+class PdfClipboardPdf {
+  const PdfClipboardPdf(this.bytes, {this.changeToken});
+
+  final Uint8List bytes;
+  final Object? changeToken;
+}
+
+/// Supplies plain text for a system clipboard paste, used in preference to
+/// Flutter's [Clipboard] when set. Return null when the clipboard carries no
+/// text. Exists mainly for the web, where Flutter's `Clipboard.getData` is
+/// unreliable: the host injects a reader built on the browser Async Clipboard
+/// API so ⌘V/Ctrl+V can paste text into a [PdfEditTool.freeText] box.
+typedef PdfSystemTextPasteProvider = Future<String?> Function(
     BuildContext context);
 
 /// A selected page-content image exported by the Content tool.
@@ -82,8 +112,7 @@ class PdfSnapshot {
   /// The captured region as a self-contained, single-page PDF (the
   /// [vector] serialized via [PdfVectorSnapshot.toPdfBytes]). Put these on
   /// the OS clipboard as `application/pdf` to paste the snapshot, as
-  /// vectors, into another PDF tool such as Bluebeam — the cross-application
-  /// half of the Snapshot tool.
+  /// vectors, into another application that accepts PDF clipboard data.
   Uint8List get pdfBytes => vector.toPdfBytes();
 }
 
@@ -93,6 +122,21 @@ class PdfSnapshot {
 /// captures nothing.
 typedef PdfSnapshotHandler = Future<void> Function(
     BuildContext context, PdfSnapshot snapshot);
+
+/// Receives a signature box the user drew with the Signature-box tool
+/// ([PdfEditTool.signatureBox]) - Acrobat/Bluebeam-style placement. The host
+/// collects an identity and appearance (reason, location, a hand-drawn mark,
+/// a logo backdrop) and cryptographically signs into [pageRect] on [pageIndex]
+/// via [PdfEditingController.addKeylessSignature] / addSelfSignedSignature /
+/// addDigitalSignature with a `PdfSignatureAppearance(page: pageIndex,
+/// rect: pageRect, …)`. With no handler ([PdfViewer.onPlaceSignature]) the
+/// tool does nothing. [pageRect] is in PDF user space (points, origin
+/// bottom-left).
+typedef PdfSignaturePlacer = Future<void> Function(
+  BuildContext context, {
+  required int pageIndex,
+  required PdfRect pageRect,
+});
 
 /// Signature of the prompt the editing UI uses to ask for annotation text
 /// (free text, notes, stamps). Returns null when the user cancels.
@@ -111,7 +155,7 @@ Future<String?> showPdfTextPrompt(
   bool multiline = false,
 }) {
   final field = TextEditingController(text: initial);
-  return showDialog<String>(
+  return showPdfDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(title),
@@ -124,11 +168,11 @@ Future<String?> showPdfTextPrompt(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(field.text),
-          child: const Text('OK'),
+          child: Text(pdfL10n(context).ok),
         ),
       ],
     ),

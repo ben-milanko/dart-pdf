@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -64,7 +65,8 @@ void main() {
       expect(editing.pageRenderStamp(2), after[2]);
     });
 
-    test('structural edits bump all; editor-attributed edits stay narrow', () {
+    test('pure reorder preserves stamps; editor-attributed edits stay narrow',
+        () {
       final editing = PdfEditingController(buildMultiPagePdf(3));
       addTearDown(editing.dispose);
       final before = [for (var i = 0; i < 3; i++) editing.pageRenderStamp(i)];
@@ -72,7 +74,8 @@ void main() {
       editing.movePage(0, 2);
       final moved = [for (var i = 0; i < 3; i++) editing.pageRenderStamp(i)];
       for (var i = 0; i < 3; i++) {
-        expect(moved[i], isNot(before[i]));
+        expect(moved[i], before[i],
+            reason: 'a pure permutation does not invalidate page pixels');
       }
 
       // A host edit through public apply gets its impact from PdfEditor;
@@ -104,6 +107,33 @@ void main() {
       }
       expect(PdfThumbnailSidebar.debugRasterizations, target);
     }
+
+    testWidgets('Ctrl+A selects every page in the sidebar', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(editing.selectedPages, [1]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(editing.selectedPages, [0, 1, 2, 3]);
+      await tester.pump(const Duration(seconds: 2));
+    });
 
     testWidgets('an edit re-renders only the page it touched', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(3));
@@ -310,6 +340,79 @@ void main() {
   });
 
   group('the strip follows the viewer', () {
+    testWidgets('reopening the strip reveals the current page and viewport',
+        (tester) async {
+      final editing = PdfEditingController(buildVariedHeightPdf(112));
+      final viewer = PdfViewerController();
+      final shown = ValueNotifier(true);
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(shown.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: shown,
+            builder: (context, visible, _) => Row(children: [
+              if (visible)
+                PdfThumbnailSidebar(
+                  key: const ValueKey('thumbnails'),
+                  controller: editing,
+                  viewerController: viewer,
+                  width: 220,
+                ),
+              Expanded(
+                key: const ValueKey('viewer'),
+                child: PdfViewer(
+                  initialFit: PdfViewerFit.width,
+                  document: editing.document,
+                  controller: viewer,
+                  editing: editing,
+                  pagePreviews: false,
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      unawaited(viewer.jumpToPage(60));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Page 61').hitTestable(), findsOneWidget);
+
+      shown.value = false;
+      await tester.pump();
+      unawaited(viewer.jumpToPage(48));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(viewer.currentPage, 48);
+
+      shown.value = true;
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Page 49').hitTestable(), findsOneWidget);
+      final indicator = find.descendant(
+        of: find.byKey(const ValueKey('pdf-thumbnail-tile-chip-48')),
+        matching: find.byWidgetPredicate((w) =>
+            w is CustomPaint &&
+            w.painter.runtimeType.toString() == '_ViewportPainter'),
+      );
+      expect(indicator, findsOneWidget);
+      expect(
+          tester
+              .getRect(indicator)
+              .overlaps(tester.getRect(find.byType(PdfThumbnailSidebar))),
+          isTrue);
+      // ignore: avoid_dynamic_calls
+      expect((tester.widget<CustomPaint>(indicator).painter as dynamic).region,
+          viewer.visiblePageRegion(48));
+      await tester.pump(const Duration(seconds: 1));
+    });
+
     testWidgets('jumping pages scrolls the current tile into view',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(12));
@@ -518,9 +621,12 @@ void main() {
       expect(strip.padding, const EdgeInsets.fromLTRB(0, 8, 10, 8));
 
       // right-docked annotation list: the grip rides the far edge, so
-      // just the bar's 14px
-      final list = tester.widget<ListView>(find.byType(ListView));
-      expect(list.padding, const EdgeInsets.only(right: 14));
+      // just the bar's 14px. Each sticky page group carries the inset.
+      final annotationPadding = tester.widget<SliverPadding>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-annotation-list')),
+        matching: find.byType(SliverPadding),
+      ));
+      expect(annotationPadding.padding, const EdgeInsets.only(right: 14));
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
@@ -537,7 +643,7 @@ void main() {
             PdfAnnotationSidebar(
               controller: editing,
               viewerController: viewer,
-              side: PdfSidebarSide.left,
+              dock: PdfPanelDock.left,
             ),
             const Expanded(child: SizedBox()),
           ]),
@@ -545,8 +651,11 @@ void main() {
       ));
       await tester.pump();
 
-      final list = tester.widget<ListView>(find.byType(ListView));
-      expect(list.padding, const EdgeInsets.only(right: 22));
+      final annotationPadding = tester.widget<SliverPadding>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-annotation-list')),
+        matching: find.byType(SliverPadding),
+      ));
+      expect(annotationPadding.padding, const EdgeInsets.only(right: 22));
     });
   });
 }
