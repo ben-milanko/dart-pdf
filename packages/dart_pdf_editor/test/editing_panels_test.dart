@@ -340,6 +340,79 @@ void main() {
   });
 
   group('the strip follows the viewer', () {
+    testWidgets('reopening the strip reveals the current page and viewport',
+        (tester) async {
+      final editing = PdfEditingController(buildVariedHeightPdf(112));
+      final viewer = PdfViewerController();
+      final shown = ValueNotifier(true);
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(shown.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: shown,
+            builder: (context, visible, _) => Row(children: [
+              if (visible)
+                PdfThumbnailSidebar(
+                  key: const ValueKey('thumbnails'),
+                  controller: editing,
+                  viewerController: viewer,
+                  width: 220,
+                ),
+              Expanded(
+                key: const ValueKey('viewer'),
+                child: PdfViewer(
+                  initialFit: PdfViewerFit.width,
+                  document: editing.document,
+                  controller: viewer,
+                  editing: editing,
+                  pagePreviews: false,
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      unawaited(viewer.jumpToPage(60));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Page 61').hitTestable(), findsOneWidget);
+
+      shown.value = false;
+      await tester.pump();
+      unawaited(viewer.jumpToPage(48));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(viewer.currentPage, 48);
+
+      shown.value = true;
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Page 49').hitTestable(), findsOneWidget);
+      final indicator = find.descendant(
+        of: find.byKey(const ValueKey('pdf-thumbnail-tile-chip-48')),
+        matching: find.byWidgetPredicate((w) =>
+            w is CustomPaint &&
+            w.painter.runtimeType.toString() == '_ViewportPainter'),
+      );
+      expect(indicator, findsOneWidget);
+      expect(
+          tester
+              .getRect(indicator)
+              .overlaps(tester.getRect(find.byType(PdfThumbnailSidebar))),
+          isTrue);
+      // ignore: avoid_dynamic_calls
+      expect((tester.widget<CustomPaint>(indicator).painter as dynamic).region,
+          viewer.visiblePageRegion(48));
+      await tester.pump(const Duration(seconds: 1));
+    });
+
     testWidgets('jumping pages scrolls the current tile into view',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(12));
