@@ -57,6 +57,23 @@ shows PDF.js baselines, Dart renders, and diffs side by side, and the
 shows every print-conformance page we rasterize (our own renders, which
 are the baselines - so no diff column).
 
+## Merge PDFs
+
+```dart
+import 'package:pdf_document/pdf_document.dart';
+
+final mergedBytes = PdfMerger.merge([firstPdfBytes, secondPdfBytes]);
+```
+
+The bytes-only API runs on desktop, mobile, and web. It preserves the first
+PDF's encryption and viewing settings, imports form fields and bookmarks, and
+remaps named links. See [merge options and collision rules](packages/pdf_document/README.md#merge-pdfs).
+
+In DartPDF, choose **Insert document…** from the app menu to insert a PDF after
+the current page. Dropping PDFs on the thumbnail strip inserts at the marked
+position; dropping on the document offers **Insert pages** to append them.
+Each inserted file is one undo step and uses the existing save/recovery session.
+
 ## Performance
 
 **The default viewer has not reached PDFium interaction parity yet.** The most

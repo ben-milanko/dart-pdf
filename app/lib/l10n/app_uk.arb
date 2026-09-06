@@ -113,6 +113,7 @@
   "editorMenuPrint": "Друк…",
   "editorMenuSaveAs": "Зберегти як…",
   "editorMenuScanDocument": "Сканувати в новий документ…",
+  "editorMenuInsertDocument": "Вставити документ…",
   "editorMenuInsertScan": "Вставити скан…",
   "editorScanFailed": "Не вдалося відсканувати документ.",
   "editorInsertedScan": "Відскановані сторінки вставлено.",

@@ -450,6 +450,9 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorMenuScanDocument => 'Сканувати в новий документ…';
 
   @override
+  String get editorMenuInsertDocument => 'Вставити документ…';
+
+  @override
   String get editorMenuInsertScan => 'Вставити скан…';
 
   @override

@@ -113,6 +113,7 @@
   "editorMenuPrint": "Imprimer…",
   "editorMenuSaveAs": "Enregistrer sous…",
   "editorMenuScanDocument": "Numériser vers un nouveau document…",
+  "editorMenuInsertDocument": "Insérer un document…",
   "editorMenuInsertScan": "Insérer une numérisation…",
   "editorScanFailed": "Impossible de numériser le document.",
   "editorInsertedScan": "Pages numérisées insérées.",

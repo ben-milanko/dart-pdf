@@ -449,6 +449,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get editorMenuScanDocument => 'Digitalizar para novo documento…';
 
   @override
+  String get editorMenuInsertDocument => 'Inserir documento…';
+
+  @override
   String get editorMenuInsertScan => 'Inserir digitalização…';
 
   @override

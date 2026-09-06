@@ -437,6 +437,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorMenuScanDocument => '새 문서로 스캔…';
 
   @override
+  String get editorMenuInsertDocument => '문서 삽입…';
+
+  @override
   String get editorMenuInsertScan => '스캔 삽입…';
 
   @override

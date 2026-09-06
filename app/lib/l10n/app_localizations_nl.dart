@@ -450,6 +450,9 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorMenuScanDocument => 'Scannen naar nieuw document…';
 
   @override
+  String get editorMenuInsertDocument => 'Document invoegen…';
+
+  @override
   String get editorMenuInsertScan => 'Scan invoegen…';
 
   @override

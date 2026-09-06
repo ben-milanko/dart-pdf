@@ -113,6 +113,7 @@
   "editorMenuPrint": "Imprimir…",
   "editorMenuSaveAs": "Salvar como…",
   "editorMenuScanDocument": "Digitalizar para novo documento…",
+  "editorMenuInsertDocument": "Inserir documento…",
   "editorMenuInsertScan": "Inserir digitalização…",
   "editorScanFailed": "Não foi possível digitalizar o documento.",
   "editorInsertedScan": "Páginas digitalizadas inseridas.",

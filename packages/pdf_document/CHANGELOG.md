@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `PdfMerger.merge` for bytes-only merging with per-input passwords.
+- Preserve imported AcroForm fields, default font resources, named destinations,
+  and outline hierarchies; rename collisions and remap internal page targets.
 - Add `PdfSplitter.split`, `splitRange`, and `splitExpression` for bytes-only
   PDF splitting, with validated `PdfPageRange` batches and one-based range
   parsing. `PdfDocument.extractPageRanges` reuses an already-open document.

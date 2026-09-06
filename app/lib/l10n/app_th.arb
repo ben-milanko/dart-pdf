@@ -113,6 +113,7 @@
   "editorMenuPrint": "พิมพ์…",
   "editorMenuSaveAs": "บันทึกเป็น…",
   "editorMenuScanDocument": "สแกนเป็นเอกสารใหม่…",
+  "editorMenuInsertDocument": "แทรกเอกสาร…",
   "editorMenuInsertScan": "แทรกสแกน…",
   "editorScanFailed": "ไม่สามารถสแกนเอกสารได้",
   "editorInsertedScan": "แทรกหน้าที่สแกนแล้ว",

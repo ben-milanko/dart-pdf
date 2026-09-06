@@ -603,6 +603,8 @@
   "@editorMenuScanDocument": {
     "description": "App menu item (mobile/tablet) to scan pages with the device camera into a new document."
   },
+  "editorMenuInsertDocument": "Insert document…",
+  "@editorMenuInsertDocument": {"description": "Menu action to pick a PDF and insert its pages after the current page in the open document."},
   "editorMenuInsertScan": "Insert scan…",
   "@editorMenuInsertScan": {
     "description": "App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document."

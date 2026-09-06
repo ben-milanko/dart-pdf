@@ -446,6 +446,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorMenuScanDocument => 'नए दस्तावेज़ में स्कैन करें…';
 
   @override
+  String get editorMenuInsertDocument => 'दस्तावेज़ डालें…';
+
+  @override
   String get editorMenuInsertScan => 'स्कैन डालें…';
 
   @override
