@@ -2179,4 +2179,8 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'تعذر تقسيم ملف PDF هذا.';
+
+  @override
+  String get guidesSnapHint =>
+      'محاذاة حواف التعليقات التوضيحية ومراكزها • اضغط مطولاً على Alt للتجاوز';
 }

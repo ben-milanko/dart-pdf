@@ -394,7 +394,7 @@
   "@exPubDevMenuItem": {
     "description": "App menu item that opens the dart_pdf_editor package page on pub.dev."
   },
-  "exRecognisingPage": "Recognising page {current} of {count}…",
+  "exRecognisingPage": "Recognizing page {current} of {count}…",
   "@exRecognisingPage": {
     "description": "OCR progress message naming the page being recognised and the total.",
     "placeholders": {

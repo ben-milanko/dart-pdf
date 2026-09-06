@@ -7,7 +7,6 @@ import 'package:dart_pdf_editor_app/reduce_file_size.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
-import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
   for (final scenario in [
@@ -40,7 +39,7 @@ void main() {
       ];
       addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
       final pending = Completer<PdfCompressionResult>();
-      final bytes = buildClassicPdf();
+      final bytes = PdfBlankDocument.create();
       await tester.pumpWidget(MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

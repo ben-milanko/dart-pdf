@@ -202,7 +202,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appSigUseOwnCertificateSubtitle =>
-      'For a signing certificate from your organisation';
+      'For a signing certificate from your organization';
 
   @override
   String get appSigX509Signer => 'X.509 signer';
@@ -716,18 +716,18 @@ class AppLocalizationsEn extends AppLocalizations {
       'OCR is already running - wait for it to finish or cancel it';
 
   @override
-  String get ocrBrowserInitFailed => 'Browser OCR failed to initialise';
+  String get ocrBrowserInitFailed => 'Browser OCR failed to initialize';
 
   @override
-  String get ocrCancelled => 'OCR cancelled';
+  String get ocrCancelled => 'OCR canceled';
 
   @override
   String ocrCancelledAfterSpans(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'OCR cancelled after $count text spans',
-      one: 'OCR cancelled after 1 text span',
+      other: 'OCR canceled after $count text spans',
+      one: 'OCR canceled after 1 text span',
     );
     return '$_temp0';
   }

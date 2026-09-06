@@ -624,5 +624,6 @@
   "splitRanges": "Seitenbereiche",
   "splitInvalidRanges": "Seiten von 1 bis {count} durch Kommas trennen. Bereiche müssen aufsteigend sein.",
   "splitConfirm": "Aufteilen",
-  "splitFailed": "Diese PDF-Datei konnte nicht aufgeteilt werden."
+  "splitFailed": "Diese PDF-Datei konnte nicht aufgeteilt werden.",
+  "guidesSnapHint": "Anmerkungskanten und Mittelpunkte einrasten • Zum Umgehen Alt gedrückt halten"
 }

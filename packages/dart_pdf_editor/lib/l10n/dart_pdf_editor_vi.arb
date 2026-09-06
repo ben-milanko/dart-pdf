@@ -624,5 +624,6 @@
   "splitRanges": "Khoảng trang",
   "splitInvalidRanges": "Dùng các trang từ 1 đến {count}, phân cách bằng dấu phẩy. Các khoảng phải theo thứ tự tăng dần.",
   "splitConfirm": "Tách",
-  "splitFailed": "Không thể tách PDF này."
+  "splitFailed": "Không thể tách PDF này.",
+  "guidesSnapHint": "Bám vào cạnh và tâm chú thích • Giữ Alt để bỏ qua"
 }

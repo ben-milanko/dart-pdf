@@ -519,7 +519,7 @@
   "@menuUnlock": {
     "description": "Annotation context-menu item shown when right-clicking a locked annotation; unlocks it so it can be edited again."
   },
-  "menuRecolour": "Recolour…",
+  "menuRecolour": "Recolor…",
   "@menuRecolour": {
     "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."
   },
@@ -718,9 +718,9 @@
   "@propColor": {
     "description": "Row label for an annotation's or form field's color swatch."
   },
-  "propColour": "Colour",
+  "propColour": "Color",
   "@propColour": {
-    "description": "Row label for the form text field's colour swatch (British spelling as shown in the form style popup)."
+    "description": "Row label for the form text field's color swatch."
   },
   "propContents": "Contents",
   "@propContents": {
@@ -1091,7 +1091,7 @@
   "@sbarStateAccepted": {
     "description": "Review-state chip: the markup was accepted."
   },
-  "sbarStateCancelled": "Cancelled",
+  "sbarStateCancelled": "Canceled",
   "@sbarStateCancelled": {
     "description": "Review-state chip: the markup was cancelled."
   },
@@ -2304,7 +2304,7 @@
   "@tbTextBorder": {
     "description": "Color-row label for a text box's border color."
   },
-  "tbTextColour": "Text colour",
+  "tbTextColour": "Text color",
   "@tbTextColour": {
     "description": "Color-row label for the text foreground color."
   },
@@ -2736,5 +2736,9 @@
   "splitFailed": "Could not split this PDF.",
   "@splitFailed": {
     "description": "Shown when PDF extraction fails."
+  },
+  "guidesSnapHint": "Snap annotation edges and centers • Hold Alt to bypass",
+  "@guidesSnapHint": {
+    "description": "Smart alignment guides hint. Alt temporarily disables snapping."
   }
 }

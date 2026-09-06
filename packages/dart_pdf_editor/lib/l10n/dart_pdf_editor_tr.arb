@@ -624,5 +624,6 @@
   "splitRanges": "Sayfa aralıkları",
   "splitInvalidRanges": "1–{count} arasındaki sayfaları virgülle ayırın. Aralıklar artan sırada olmalıdır.",
   "splitConfirm": "Böl",
-  "splitFailed": "Bu PDF bölünemedi."
+  "splitFailed": "Bu PDF bölünemedi.",
+  "guidesSnapHint": "Ek açıklama kenarlarına ve merkezlerine yasla • Atlamak için Alt tuşunu basılı tutun"
 }

@@ -2140,4 +2140,8 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'PDF ini tidak dapat dipisahkan.';
+
+  @override
+  String get guidesSnapHint =>
+      'Jepret tepi dan pusat anotasi • Tahan Alt untuk melewati';
 }

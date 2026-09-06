@@ -38,6 +38,10 @@ jobs:
       # tool/check_arb_coverage.dart and doc/i18n.md.
       - name: Check ARB translation coverage
         run: dart run tool/check_arb_coverage.dart
+      - name: Check English regional spellings
+        run: |
+          dart tool/sync_english_locales_test.dart
+          dart tool/sync_english_locales.dart
       # Deterministic perf counter gate: structural work counters (objects
       # loaded, bytes decoded, content ops, ...) over fixed inputs vs the
       # committed baseline. No wall time, so a noisy shared runner cannot
@@ -160,6 +164,12 @@ jobs:
       - name: Test browser PDF snapshot cache
         working-directory: app
         run: flutter test --platform chrome test/web/pdf_cache_web_test.dart
+      - name: Test browser English regional localisation
+        working-directory: app
+        run: >-
+          flutter test --platform chrome
+          test/english_regional_localization_test.dart
+          test/reduce_file_size_localization_test.dart
       - name: Upload app coverage
         uses: codecov/codecov-action@v7
         with:

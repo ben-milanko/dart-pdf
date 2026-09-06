@@ -2142,4 +2142,8 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'No se pudo dividir este PDF.';
+
+  @override
+  String get guidesSnapHint =>
+      'Ajustar bordes y centros de anotaciones • Mantén Alt para omitir';
 }

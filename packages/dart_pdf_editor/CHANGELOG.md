@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add complete Australian and UK English locales for editor controls, including
+  colour, centre and organisation, while the base English locale uses US spelling.
+  Localise the smart alignment guide hint.
 - Add `PdfCompressionTask` in `compression_worker.dart`: cancellable PDF
   optimisation in native isolates and dedicated browser workers, with exact
   savings reports and no main-thread fallback when a worker fails.

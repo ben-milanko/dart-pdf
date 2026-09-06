@@ -2105,6 +2105,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => '无法拆分此 PDF。';
+
+  @override
+  String get guidesSnapHint => '吸附批注边缘和中心 • 按住 Alt 跳过';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4208,4 +4211,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get splitFailed => '無法分割此 PDF。';
+
+  @override
+  String get guidesSnapHint => '吸附註解邊緣和中心 • 按住 Alt 略過';
 }

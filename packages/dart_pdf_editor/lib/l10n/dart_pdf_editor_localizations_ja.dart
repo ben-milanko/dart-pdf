@@ -2113,4 +2113,7 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'このPDFを分割できませんでした。';
+
+  @override
+  String get guidesSnapHint => '注釈の端と中心にスナップ • Alt キーを押して無効化';
 }

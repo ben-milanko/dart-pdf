@@ -115,6 +115,8 @@ abstract class DartPdfEditorLocalizations {
     Locale('ar'),
     Locale('de'),
     Locale('en'),
+    Locale('en', 'AU'),
+    Locale('en', 'GB'),
     Locale('es'),
     Locale('fr'),
     Locale('hi'),
@@ -839,7 +841,7 @@ abstract class DartPdfEditorLocalizations {
   /// Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot.
   ///
   /// In en, this message translates to:
-  /// **'Recolour…'**
+  /// **'Recolor…'**
   String get menuRecolour;
 
   /// Annotation context-menu item that removes the nearest vertex of a polyline or polygon.
@@ -1112,10 +1114,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Color'**
   String get propColor;
 
-  /// Row label for the form text field's colour swatch (British spelling as shown in the form style popup).
+  /// Row label for the form text field's color swatch.
   ///
   /// In en, this message translates to:
-  /// **'Colour'**
+  /// **'Color'**
   String get propColour;
 
   /// Label for the editable contents/text of an annotation.
@@ -1643,7 +1645,7 @@ abstract class DartPdfEditorLocalizations {
   /// Review-state chip: the markup was cancelled.
   ///
   /// In en, this message translates to:
-  /// **'Cancelled'**
+  /// **'Canceled'**
   String get sbarStateCancelled;
 
   /// Review-state chip: the markup is flagged/marked.
@@ -3305,7 +3307,7 @@ abstract class DartPdfEditorLocalizations {
   /// Color-row label for the text foreground color.
   ///
   /// In en, this message translates to:
-  /// **'Text colour'**
+  /// **'Text color'**
   String get tbTextColour;
 
   /// Menu option: create a text form field.
@@ -3883,6 +3885,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Could not split this PDF.'**
   String get splitFailed;
+
+  /// Smart alignment guides hint. Alt temporarily disables snapping.
+  ///
+  /// In en, this message translates to:
+  /// **'Snap annotation edges and centers • Hold Alt to bypass'**
+  String get guidesSnapHint;
 }
 
 class _DartPdfEditorLocalizationsDelegate
@@ -3930,6 +3938,20 @@ DartPdfEditorLocalizations lookupDartPdfEditorLocalizations(Locale locale) {
         switch (locale.scriptCode) {
           case 'Hant':
             return DartPdfEditorLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
+  // Lookup logic when language+country codes are specified.
+  switch (locale.languageCode) {
+    case 'en':
+      {
+        switch (locale.countryCode) {
+          case 'AU':
+            return DartPdfEditorLocalizationsEnAu();
+          case 'GB':
+            return DartPdfEditorLocalizationsEnGb();
         }
         break;
       }

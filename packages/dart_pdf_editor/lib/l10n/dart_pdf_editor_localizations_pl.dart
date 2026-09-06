@@ -2177,4 +2177,8 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'Nie udało się podzielić tego pliku PDF.';
+
+  @override
+  String get guidesSnapHint =>
+      'Przyciągaj krawędzie i środki adnotacji • Przytrzymaj Alt, aby pominąć';
 }

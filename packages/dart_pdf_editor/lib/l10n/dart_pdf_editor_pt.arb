@@ -624,5 +624,6 @@
   "splitRanges": "Intervalos de páginas",
   "splitInvalidRanges": "Use páginas de 1 a {count}, separadas por vírgulas. Os intervalos devem ser crescentes.",
   "splitConfirm": "Dividir",
-  "splitFailed": "Não foi possível dividir este PDF."
+  "splitFailed": "Não foi possível dividir este PDF.",
+  "guidesSnapHint": "Alinhar bordas e centros das anotações • Mantenha Alt pressionado para ignorar"
 }
