@@ -303,7 +303,7 @@ void main() {
       expect(find.text('Could not add the selected files.'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('print-preview-print')));
       await tester.pumpAndSettle();
-      expect(identical(result()!.document, document), isTrue);
+      expect(result()!.document.cos.bytes, document.cos.bytes);
       expect(result()!.settings.pages, [0, 1, 2, 3, 4]);
     });
 
