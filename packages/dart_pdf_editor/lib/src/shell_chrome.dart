@@ -11,6 +11,7 @@ import 'editing/editing_preferences.dart';
 import 'editing/editing_toolbar.dart' show showPdfEditingGuidesDialog;
 import 'editing/tool_shortcuts.dart';
 import 'l10n/pdf_l10n.dart';
+import 'keyboard_availability.dart';
 import 'pdf_viewer.dart';
 import 'scrollbar.dart';
 import 'search_field_style.dart';
@@ -1898,7 +1899,9 @@ Future<void> showPdfShellViewOptionsSheet(
                   ),
                   onTap: onAuthorPressed,
                 ),
-              if (toolShortcuts != null && onToolShortcutsChanged != null)
+              if (PdfKeyboardAvailability.of(context) &&
+                  toolShortcuts != null &&
+                  onToolShortcutsChanged != null)
                 ListTile(
                   key: const ValueKey('pdf-shell-shortcuts'),
                   leading: const Icon(Icons.keyboard_outlined),
@@ -2078,7 +2081,9 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
             ),
           ),
-        if (toolShortcuts != null && onToolShortcutsChanged != null)
+        if (PdfKeyboardAvailability.of(context) &&
+            toolShortcuts != null &&
+            onToolShortcutsChanged != null)
           PopupMenuItem(
             key: const ValueKey('pdf-shell-shortcuts'),
             value: _ViewOption.shortcuts,

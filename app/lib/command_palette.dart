@@ -11,6 +11,8 @@
 // Every result carries the surface it came from ("Menu", "Shapes tool",
 // "Panel"), because the palette is meant to *teach* where a command lives
 // rather than become a second place to learn.
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show PdfKeyboardAvailability;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -269,11 +271,12 @@ class _CommandPaletteState extends State<_CommandPalette> {
                     style:
                         TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                   ),
-                  Text(
-                    l.paletteKeyHints,
-                    style:
-                        TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-                  ),
+                  if (PdfKeyboardAvailability.of(context))
+                    Text(
+                      l.paletteKeyHints,
+                      style: TextStyle(
+                          fontSize: 11, color: scheme.onSurfaceVariant),
+                    ),
                 ],
               ),
             ),
@@ -354,9 +357,10 @@ class _CommandRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final fg = command.enabled ? scheme.onSurface : scheme.onSurfaceVariant;
-    final trailing = command.enabled
-        ? command.shortcut
-        : (command.disabledReason ?? command.shortcut);
+    final shortcut =
+        PdfKeyboardAvailability.of(context) ? command.shortcut : null;
+    final trailing =
+        command.enabled ? shortcut : (command.disabledReason ?? shortcut);
     return MouseRegion(
       onEnter: command.enabled ? (_) => onHover() : null,
       child: Material(

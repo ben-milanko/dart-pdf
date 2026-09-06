@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `PdfKeyboardAvailability` so hosts can hide shortcut hints and shortcut
+  settings when a physical keyboard is unavailable. Shortcut bindings stay active.
 - Group mobile Controls into View and Panels sections in both shells, keeping
   Settings and Reflow with view controls and allowing the sheet to scroll.
 - Add complete Australian and UK English locales for editor controls, including

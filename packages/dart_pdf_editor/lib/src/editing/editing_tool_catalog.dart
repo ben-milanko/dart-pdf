@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
 import 'tool_shortcuts.dart';
+import '../keyboard_availability.dart';
 
 /// One entry in the tool catalogue: an editing [tool] or a text [markup]
 /// kind, with the icon the dock draws for it.
@@ -244,6 +245,7 @@ String pdfEditToolTooltipWithShortcut(
   Map<PdfEditTool, PdfToolShortcut> shortcuts = pdfEditToolShortcuts,
 }) {
   final tip = pdfEditToolTooltip(context, tool);
+  if (!PdfKeyboardAvailability.of(context)) return tip;
   final key = pdfEditToolShortcutLabel(tool, shortcuts: shortcuts);
   return key == null ? tip : '$tip ($key)';
 }

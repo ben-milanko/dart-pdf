@@ -40,6 +40,7 @@ import 'editing_tool_behavior.dart';
 import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
+import '../keyboard_availability.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
 typedef PdfEditingToolbarWidgetBuilder = Widget Function(
@@ -113,7 +114,9 @@ Future<void> showPdfEditingGuidesDialog(
                   key: const ValueKey('pdf-grid-snap'),
                   secondary: const Icon(Icons.grid_4x4),
                   title: const Text('Snap to grid'),
-                  subtitle: const Text('Hold Alt to bypass snapping'),
+                  subtitle: PdfKeyboardAvailability.of(context)
+                      ? const Text('Hold Alt to bypass snapping')
+                      : null,
                   value: preferences.snapToGrid,
                   onChanged: (value) => preferences.snapToGrid = value,
                 ),
@@ -505,10 +508,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// mobile tool tiles, and the active-tool caption.
   String _toolName(BuildContext context, PdfEditTool tool) =>
       pdfEditToolLabel(context, tool);
-
-  /// The full tooltip for a tool.
-  String _toolTip(BuildContext context, PdfEditTool tool) =>
-      pdfEditToolTooltip(context, tool);
 
   /// The bare, localized name of a text-markup tool (for mobile tiles).
   String _markupName(BuildContext context, PdfMarkupKind markup) =>
@@ -1555,13 +1554,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         IconButton(
           key: const ValueKey('pdf-undo'),
           icon: const Icon(Icons.undo),
-          tooltip: pdfL10n(context).tbUndoShortcut,
+          tooltip: PdfKeyboardAvailability.of(context)
+              ? pdfL10n(context).tbUndoShortcut
+              : pdfL10n(context).undo,
           onPressed: controller.canUndo ? controller.undo : null,
         ),
         IconButton(
           key: const ValueKey('pdf-redo'),
           icon: const Icon(Icons.redo),
-          tooltip: pdfL10n(context).tbRedoShortcut,
+          tooltip: PdfKeyboardAvailability.of(context)
+              ? pdfL10n(context).tbRedoShortcut
+              : pdfL10n(context).redo,
           onPressed: controller.canRedo ? controller.redo : null,
         ),
         _DockDivider(axis: axis),
@@ -1594,7 +1597,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         _DockDivider(axis: axis),
         IconButton(
           icon: const Icon(Icons.save_alt),
-          tooltip: pdfL10n(context).tbSaveShortcut,
+          tooltip: PdfKeyboardAvailability.of(context)
+              ? pdfL10n(context).tbSaveShortcut
+              : pdfL10n(context).save,
           // disabled while the document matches what was opened - there's
           // nothing to write until an edit bumps the revision cursor
           onPressed: controller.isModified
@@ -2550,14 +2555,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             IconButton(
               key: const ValueKey('pdf-undo'),
               icon: const Icon(Icons.undo),
-              tooltip: pdfL10n(context).tbUndoShortcut,
+              tooltip: PdfKeyboardAvailability.of(context)
+                  ? pdfL10n(context).tbUndoShortcut
+                  : pdfL10n(context).undo,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
               key: const ValueKey('pdf-redo'),
               icon: const Icon(Icons.redo),
-              tooltip: pdfL10n(context).tbRedoShortcut,
+              tooltip: PdfKeyboardAvailability.of(context)
+                  ? pdfL10n(context).tbRedoShortcut
+                  : pdfL10n(context).redo,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canRedo ? controller.redo : null,
             ),
@@ -3070,9 +3079,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final markup = entry.markup;
     if (markup != null) return _markupTip(context, markup);
     final tool = entry.tool!;
-    final tip = _toolTip(context, tool);
-    final key = pdfEditToolShortcutLabel(tool, shortcuts: widget.toolShortcuts);
-    return key == null ? tip : '$tip ($key)';
+    return pdfEditToolTooltipWithShortcut(context, tool,
+        shortcuts: widget.toolShortcuts);
   }
 
   /// The settings block under the sheet's tool grid - reuses the same

@@ -3022,49 +3022,56 @@ class _EditorScreenState extends State<EditorScreen>
     bool middleEllipsis = false,
     bool hidePdfExtension = false,
   }) =>
-      ListTile(
-        leading: Icon(icon),
-        title: middleEllipsis
-            ? MiddleEllipsisText(
-                title,
-                hidePdfExtension: hidePdfExtension,
-              )
-            : Text(title, overflow: overflow),
-        subtitle: subtitle,
-        trailing: trailing ??
-            (shortcut == null
-                ? null
-                : Text(
-                    shortcut,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  )),
-        contentPadding: EdgeInsets.zero,
-        minTileHeight: _usesCompactAppMenu
-            ? subtitle == null
-                ? _compactAppMenuItemHeight
-                : _compactRecentMenuItemHeight
-            : null,
-        minVerticalPadding: _usesCompactAppMenu ? 0 : null,
-      );
+      Builder(
+          builder: (context) => ListTile(
+                leading: Icon(icon),
+                title: middleEllipsis
+                    ? MiddleEllipsisText(
+                        title,
+                        hidePdfExtension: hidePdfExtension,
+                      )
+                    : Text(title, overflow: overflow),
+                subtitle: subtitle,
+                trailing: trailing ??
+                    (shortcut == null || !PdfKeyboardAvailability.of(context)
+                        ? null
+                        : Text(
+                            shortcut,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                          )),
+                contentPadding: EdgeInsets.zero,
+                minTileHeight: _usesCompactAppMenu
+                    ? subtitle == null
+                        ? _compactAppMenuItemHeight
+                        : _compactRecentMenuItemHeight
+                    : null,
+                minVerticalPadding: _usesCompactAppMenu ? 0 : null,
+              ));
 
   List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
       BuildContext menuContext) {
     final recents = _recentMenuEntries();
-    final trailing = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          _menuShortcut('O', shift: true),
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-        ),
-        const SizedBox(width: 12),
-        const Icon(Icons.arrow_right),
-      ],
-    );
+    final trailing = Builder(
+        builder: (context) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (PdfKeyboardAvailability.of(context)) ...[
+                  Text(
+                    _menuShortcut('O', shift: true),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                const Icon(Icons.arrow_right),
+              ],
+            ));
     return [
       PopupMenuItem<VoidCallback>(
         height: _appMenuItemHeight(),

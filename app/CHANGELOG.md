@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hide shortcut hints and shortcut settings on Android and iOS when no physical
+  keyboard is connected, updating menus and tooltips as keyboards attach or detach.
 - Separate panel buttons from Settings and Reflow in the mobile Controls menu.
 - Rename a PDF on Android and iOS by tapping its title (the active tab on
   tablets). Keep the new name in Recent files, session recovery, and sharing.
