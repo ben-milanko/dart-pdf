@@ -2130,11 +2130,12 @@ class _EditorScreenState extends State<EditorScreen>
             onPressed: () => Navigator.of(context).pop(_DropAction.open),
             child: Text(appL10n(context).editorOpenInNewTab(count)),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('drop-action-insert'),
             onPressed: () => Navigator.of(context).pop(_DropAction.insert),
             child: Text(appL10n(context).editorInsertPages),
-          ),
+          )),
         ],
       ),
     );
@@ -2490,10 +2491,11 @@ class _EditorScreenState extends State<EditorScreen>
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(appL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(appL10n(context).editorDiscard),
-          ),
+          )),
         ],
       ),
     );

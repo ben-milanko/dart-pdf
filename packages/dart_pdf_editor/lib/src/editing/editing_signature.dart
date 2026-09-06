@@ -401,10 +401,11 @@ class _PdfSignatureLibraryDialogState extends State<PdfSignatureLibraryDialog> {
           icon: const Icon(Icons.add),
           label: Text(pdfL10n(context).tbDrawNewSignature),
         ),
-        TextButton(
+        PdfDialogSubmit(
+            child: TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).close),
-        ),
+        )),
       ],
     );
   }
@@ -758,14 +759,15 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           onPressed: _isEmpty
               ? null
               : () => Navigator.of(context).pop(PdfInkSignature.fromPad(
                   _strokes, _pressures, _ink,
                   strokeWidth: _strokeWidth)),
           child: Text(pdfL10n(context).done),
-        ),
+        )),
       ],
     );
   }

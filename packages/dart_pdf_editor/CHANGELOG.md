@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `PdfDialogSubmit` to mark a `showPdfDialog` primary button for Enter and
+  numpad Enter submission. Wire the stock editing dialogs to it, preserving
+  validation, IME composition, Shift+Enter, and keyboard-focused buttons.
 - Expose snapshot PDF bytes, `pasteSnapshotBytes`, and `systemPdfPasteProvider`
   on the viewer and editor shell. External PDFs paste as editable vector stamps
   through keyboard and context-menu Paste, with image/text fallback.

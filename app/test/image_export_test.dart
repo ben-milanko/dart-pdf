@@ -3,6 +3,7 @@
 // here we cover the pure pieces: the dialog's returned options and the
 // suggested-filename builder.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dart_pdf_editor_app/image_export.dart';
@@ -17,18 +18,18 @@ void main() {
     });
 
     test('keeps a name without a .pdf extension', () {
-      expect(imageExportFileName('scan', 2, ImageExportFormat.png),
-          'scan-p2.png');
+      expect(
+          imageExportFileName('scan', 2, ImageExportFormat.png), 'scan-p2.png');
     });
 
     test('falls back to a stem for an empty title', () {
-      expect(imageExportFileName('   ', 5, ImageExportFormat.png),
-          'page-p5.png');
+      expect(
+          imageExportFileName('   ', 5, ImageExportFormat.png), 'page-p5.png');
     });
   });
 
   group('showImageExportDialog', () {
-    testWidgets('returns PNG @ 150 dpi by default', (tester) async {
+    testWidgets('Enter returns PNG @ 150 dpi by default', (tester) async {
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: Builder(
@@ -45,7 +46,7 @@ void main() {
       ));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('export-image-confirm')));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
     });
 

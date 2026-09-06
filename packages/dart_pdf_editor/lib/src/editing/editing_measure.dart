@@ -74,8 +74,7 @@ class PdfMeasurementScale {
         unitLabel: measure.distance.isNotEmpty
             ? measure.distance.first.unit
             : measure.x.first.unit,
-        areaUnitLabel:
-            measure.area.isNotEmpty ? measure.area.first.unit : null,
+        areaUnitLabel: measure.area.isNotEmpty ? measure.area.first.unit : null,
         precision: measure.distance.isNotEmpty
             ? measure.distance.first.precision
             : 100,
@@ -96,7 +95,9 @@ class PdfMeasurementScale {
     final perPageUnit = unitsPerPoint * _pointsPerPageUnit(pageUnitLabel);
     var text = perPageUnit.toStringAsFixed(2);
     if (text.contains('.')) {
-      text = text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+      text = text
+          .replaceFirst(RegExp(r'0+$'), '')
+          .replaceFirst(RegExp(r'\.$'), '');
     }
     return '1 $pageUnitLabel = $text $unitLabel';
   }
@@ -240,15 +241,18 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
     // Carry over the on-page reference unit (the left-hand side) from an
     // existing scale; otherwise default to the device region's measurement
     // system (inches vs centimetres).
-    _pageUnit = (initial != null && _pdfPageUnits.contains(initial.pageUnitLabel))
-        ? initial.pageUnitLabel
-        : pdfDefaultPageUnit();
-    final perPageUnit =
-        initial == null ? 1.0 : initial.unitsPerPoint * _pointsPerPageUnit(_pageUnit);
+    _pageUnit =
+        (initial != null && _pdfPageUnits.contains(initial.pageUnitLabel))
+            ? initial.pageUnitLabel
+            : pdfDefaultPageUnit();
+    final perPageUnit = initial == null
+        ? 1.0
+        : initial.unitsPerPoint * _pointsPerPageUnit(_pageUnit);
     var text = perPageUnit.toStringAsFixed(2);
     if (text.contains('.')) {
-      text =
-          text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+      text = text
+          .replaceFirst(RegExp(r'0+$'), '')
+          .replaceFirst(RegExp(r'\.$'), '');
     }
     _value = TextEditingController(text: text);
     // Carry over the real-world unit from an existing scale; otherwise
@@ -303,7 +307,8 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
               key: const ValueKey('pdf-scale-value'),
               controller: _value,
               autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               textAlign: TextAlign.end,
               onSubmitted: (_) => _submit(),
             ),
@@ -336,11 +341,12 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           key: const ValueKey('pdf-scale-apply'),
           onPressed: _submit,
           child: Text(pdfL10n(context).measSetScaleButton),
-        ),
+        )),
       ],
     );
   }
@@ -356,7 +362,8 @@ Future<(double, String)?> showPdfCalibrationLengthDialog(
 }) =>
     showPdfDialog<(double, String)>(
       context: context,
-      builder: (context) => _PdfCalibrationLengthDialog(initialUnit: initialUnit),
+      builder: (context) =>
+          _PdfCalibrationLengthDialog(initialUnit: initialUnit),
     );
 
 /// Asks for the extrusion depth of a volume measurement, in the scale's
@@ -414,7 +421,8 @@ class _PdfDepthDialogState extends State<_PdfDepthDialog> {
               key: const ValueKey('pdf-depth-value'),
               controller: _value,
               autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               textAlign: TextAlign.end,
               onSubmitted: (_) => _submit(),
             ),
@@ -430,11 +438,12 @@ class _PdfDepthDialogState extends State<_PdfDepthDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           key: const ValueKey('pdf-depth-apply'),
           onPressed: _submit,
           child: Text(pdfL10n(context).measMeasure),
-        ),
+        )),
       ],
     );
   }
@@ -525,11 +534,12 @@ class _PdfCalibrationLengthDialogState
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           key: const ValueKey('pdf-calibrate-apply'),
           onPressed: _submit,
           child: Text(pdfL10n(context).measSetScaleButton),
-        ),
+        )),
       ],
     );
   }

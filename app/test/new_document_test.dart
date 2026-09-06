@@ -1,5 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -52,7 +53,8 @@ void main() {
     expect(find.text('A4 (210 × 297 mm)'), findsOneWidget);
   });
 
-  testWidgets('creates the selected page size and orientation', (tester) async {
+  testWidgets('Enter creates the selected page size and orientation',
+      (tester) async {
     await pumpApp(tester);
     await openNewDocumentDialog(tester);
 
@@ -62,7 +64,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Landscape'));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('new-document-create')));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
 
     expect(findMiddleEllipsisText('Untitled.pdf'), findsWidgets);

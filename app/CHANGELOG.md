@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Submit dialogs with Enter or numpad Enter; use Shift+Enter for multiline text.
+  Keep validation, disabled actions, and keyboard-focused Cancel buttons intact.
 - Apply US and UK/Australian English spellings consistently across app dialogs,
   editor controls and OCR messages, with CI checks for regional bundle drift.
 - Keep the browser responsive during PDF optimisation with a dedicated worker;

@@ -75,13 +75,14 @@ Future<ImageExportOptions?> showImageExportDialog(BuildContext context) {
             onPressed: () => Navigator.of(context).pop(),
             child: Text(appL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('export-image-confirm'),
             onPressed: () => Navigator.of(context).pop(
               ImageExportOptions(format: format, dpi: dpi),
             ),
             child: Text(appL10n(context).imgExportExport),
-          ),
+          )),
         ],
       ),
     ),

@@ -487,7 +487,8 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
                 controller: _page,
                 decoration: InputDecoration(
                   labelText: pdfL10n(context).bookmarkPageFieldLabel,
-                  helperText: pdfL10n(context).bookmarkPageRangeHint(widget.pageCount),
+                  helperText:
+                      pdfL10n(context).bookmarkPageRangeHint(widget.pageCount),
                   border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -508,11 +509,12 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
             onPressed: () => Navigator.of(context).pop(),
             child: Text(pdfL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('pdf-bookmark-save'),
             onPressed: _save,
             child: Text(pdfL10n(context).save),
-          ),
+          )),
         ],
       );
 }
