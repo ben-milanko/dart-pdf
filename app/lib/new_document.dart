@@ -1,4 +1,5 @@
-import 'package:dart_pdf_editor/dart_pdf_editor.dart' show showPdfDialog;
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show PdfDialogSubmit, showPdfDialog;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -81,7 +82,8 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
             onPressed: () => Navigator.of(context).pop(),
             child: Text(appL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('new-document-create'),
             onPressed: () => Navigator.of(context).pop(
               orientation == Orientation.portrait
@@ -89,7 +91,7 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
                   : preset.size.landscape,
             ),
             child: Text(appL10n(context).newDocCreate),
-          ),
+          )),
         ],
       ),
     ),

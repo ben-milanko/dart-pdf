@@ -642,10 +642,11 @@ Future<Color?> showPdfColorPicker(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
+        PdfDialogSubmit(
+            child: FilledButton(
           onPressed: () => Navigator.of(context).pop(current),
           child: Text(pdfL10n(context).ok),
-        ),
+        )),
       ],
     ),
   );

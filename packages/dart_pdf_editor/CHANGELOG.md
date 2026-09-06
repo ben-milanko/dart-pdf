@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `PdfDialogSubmit` to mark a `showPdfDialog` primary button for Enter and
+  numpad Enter submission. Wire the stock editing dialogs to it, preserving
+  validation, IME composition, Shift+Enter, and keyboard-focused buttons.
 - Add complete Australian and UK English locales for editor controls, including
   colour, centre and organisation, while the base English locale uses US spelling.
   Localise the smart alignment guide hint.

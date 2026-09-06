@@ -155,11 +155,12 @@ Future<void> showPdfEditingGuidesDialog(
         ),
       ),
       actions: [
-        TextButton(
+        PdfDialogSubmit(
+            child: TextButton(
           key: const ValueKey('pdf-guides-done'),
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).done),
-        ),
+        )),
       ],
     ),
   );
@@ -1342,11 +1343,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(pdfL10n(context).cancel),
           ),
-          FilledButton(
+          PdfDialogSubmit(
+              child: FilledButton(
             key: const ValueKey('pdf-redaction-confirm-apply'),
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(pdfL10n(context).apply),
-          ),
+          )),
         ],
       ),
     );
