@@ -8,13 +8,12 @@ app:
   isolate_worktree: true
   # A worktree of the release commit cannot inherit files that are git-ignored
   # because they are secret. Without key.properties Gradle silently debug-signs
-  # and Play rejects the upload; without the SDK pin `flutter` resolves off
-  # PATH to whatever happens to be installed.
+  # and Play rejects the upload. The tracked root .fvmrc already travels with
+  # the checkout; worktree_include accepts only paths inside app.root.
   worktree_include:
     - android/key.properties
     - android/app/upload-keystore.jks
     - .secrets
-    - ../.fvmrc
   metadata: fastlane/metadata
   release_notes: release-notes
   metadata_checks:
