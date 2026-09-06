@@ -465,10 +465,58 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorMenuSettings => 'Instellingen';
 
   @override
-  String get editorMenuSwitchToEdit => 'Overschakelen naar bewerkmodus';
+  String get editorMenuSectionFile => 'Bestand';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Overschakelen naar alleen-lezen';
+  String get editorMenuSectionDocument => 'Dit document';
+
+  @override
+  String get editorMenuSectionApp => 'App';
+
+  @override
+  String get editorMenuReadOnly => 'Alleen-lezen';
+
+  @override
+  String get editorMenuSearchActions => 'Acties zoeken…';
+
+  @override
+  String get paletteHint => 'Zoek acties, gereedschappen en panelen';
+
+  @override
+  String get paletteNoMatch => 'Geen overeenkomende opdracht';
+
+  @override
+  String get paletteKeyHints => '↑↓ bewegen · ⏎ uitvoeren · esc sluiten';
+
+  @override
+  String paletteCount(int count) {
+    return '$count opdrachten';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count van $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Paneel';
+
+  @override
+  String get paletteSourceView => 'Weergave';
+
+  @override
+  String get paletteSourceFile => 'Bestand';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Gereedschap $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Vereist een geopend document';
 
   @override
   String editorNamedAction(String name) {

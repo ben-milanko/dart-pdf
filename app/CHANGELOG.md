@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Section the app menu: a **Search actions… (⌘K)** row on top, then File, This
+  document and App under quiet headers, ordered by how often each entry is
+  reached. A header is only drawn over two rows or more, so with nothing open
+  the menu keeps a bare divider. **Switch to read-only** becomes a **Read-only**
+  switch that shows the current mode instead of a verb that rewrites its label.
+- Add an app-wide **command palette** (⌘K / Ctrl+K, from anywhere, or the
+  menu's first row): one index over the menu's actions, the 35 editing tools,
+  the panels, the view options and the recent files. Every result names the
+  surface it came from and its shortcut, and commands that need an open
+  document stay listed - dimmed, with the reason - rather than disappearing.
 - Add **Insert document…** to the app menu: insert a PDF after the current page
   as one undo step, with the existing tab identity and session recovery.
 - Preserve imported form fields, bookmarks, and named links when inserting PDFs.

@@ -459,10 +459,58 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorMenuSettings => 'Cài đặt';
 
   @override
-  String get editorMenuSwitchToEdit => 'Chuyển sang chế độ chỉnh sửa';
+  String get editorMenuSectionFile => 'Tệp';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Chuyển sang chỉ đọc';
+  String get editorMenuSectionDocument => 'Tài liệu này';
+
+  @override
+  String get editorMenuSectionApp => 'Ứng dụng';
+
+  @override
+  String get editorMenuReadOnly => 'Chỉ đọc';
+
+  @override
+  String get editorMenuSearchActions => 'Tìm hành động…';
+
+  @override
+  String get paletteHint => 'Tìm hành động, công cụ và bảng';
+
+  @override
+  String get paletteNoMatch => 'Không có lệnh phù hợp';
+
+  @override
+  String get paletteKeyHints => '↑↓ di chuyển · ⏎ chạy · esc đóng';
+
+  @override
+  String paletteCount(int count) {
+    return '$count lệnh';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count trên $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menu';
+
+  @override
+  String get paletteSourcePanel => 'Bảng';
+
+  @override
+  String get paletteSourceView => 'Xem';
+
+  @override
+  String get paletteSourceFile => 'Tệp';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Công cụ $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Cần mở một tài liệu';
 
   @override
   String editorNamedAction(String name) {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Expose the toolbar's tool catalogue: `pdfToolGroups`, `pdfToolCatalog()`,
+  `PdfToolGroup`/`PdfToolEntry`, and `pdfEditToolLabel`/`pdfEditToolTooltip`/
+  `pdfMarkupLabel`/`pdfMarkupTooltip`. The dock now reads the same list a host
+  can enumerate, so a command palette or shortcut sheet stays in step with the
+  tools the toolbar actually shows.
 - Add `PdfEditingController.exportPageRanges`, `showPdfSplitDialog`, and the
   `onSplitPages` host callback on the editor shell and both thumbnail layouts.
   The Split PDF action accepts comma-separated ranges and generates one PDF

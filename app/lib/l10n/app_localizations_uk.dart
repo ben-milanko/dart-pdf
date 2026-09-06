@@ -465,10 +465,58 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorMenuSettings => 'Налаштування';
 
   @override
-  String get editorMenuSwitchToEdit => 'Перейти в режим редагування';
+  String get editorMenuSectionFile => 'Файл';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Перейти в режим лише для читання';
+  String get editorMenuSectionDocument => 'Цей документ';
+
+  @override
+  String get editorMenuSectionApp => 'Застосунок';
+
+  @override
+  String get editorMenuReadOnly => 'Лише читання';
+
+  @override
+  String get editorMenuSearchActions => 'Пошук дій…';
+
+  @override
+  String get paletteHint => 'Пошук дій, інструментів і панелей';
+
+  @override
+  String get paletteNoMatch => 'Команд не знайдено';
+
+  @override
+  String get paletteKeyHints => '↑↓ вибір · ⏎ виконати · esc закрити';
+
+  @override
+  String paletteCount(int count) {
+    return 'Команд: $count';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count з $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Меню';
+
+  @override
+  String get paletteSourcePanel => 'Панель';
+
+  @override
+  String get paletteSourceView => 'Вигляд';
+
+  @override
+  String get paletteSourceFile => 'Файл';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Інструмент «$group»';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Потрібен відкритий документ';
 
   @override
   String editorNamedAction(String name) {

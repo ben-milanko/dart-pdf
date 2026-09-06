@@ -451,10 +451,58 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuSettings => '设置';
 
   @override
-  String get editorMenuSwitchToEdit => '切换到编辑模式';
+  String get editorMenuSectionFile => '文件';
 
   @override
-  String get editorMenuSwitchToReadOnly => '切换到只读';
+  String get editorMenuSectionDocument => '此文档';
+
+  @override
+  String get editorMenuSectionApp => '应用';
+
+  @override
+  String get editorMenuReadOnly => '只读';
+
+  @override
+  String get editorMenuSearchActions => '搜索操作…';
+
+  @override
+  String get paletteHint => '搜索操作、工具和面板';
+
+  @override
+  String get paletteNoMatch => '没有匹配的命令';
+
+  @override
+  String get paletteKeyHints => '↑↓ 移动 · ⏎ 执行 · esc 关闭';
+
+  @override
+  String paletteCount(int count) {
+    return '$count 个命令';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total 个中的 $count 个';
+  }
+
+  @override
+  String get paletteSourceMenu => '菜单';
+
+  @override
+  String get paletteSourcePanel => '面板';
+
+  @override
+  String get paletteSourceView => '视图';
+
+  @override
+  String get paletteSourceFile => '文件';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group工具';
+  }
+
+  @override
+  String get paletteNeedsDocument => '需要打开文档';
 
   @override
   String editorNamedAction(String name) {
@@ -1501,10 +1549,58 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get editorMenuSettings => '設定';
 
   @override
-  String get editorMenuSwitchToEdit => '切換至編輯模式';
+  String get editorMenuSectionFile => '檔案';
 
   @override
-  String get editorMenuSwitchToReadOnly => '切換至唯讀';
+  String get editorMenuSectionDocument => '此文件';
+
+  @override
+  String get editorMenuSectionApp => '應用程式';
+
+  @override
+  String get editorMenuReadOnly => '唯讀';
+
+  @override
+  String get editorMenuSearchActions => '搜尋操作…';
+
+  @override
+  String get paletteHint => '搜尋操作、工具和面板';
+
+  @override
+  String get paletteNoMatch => '沒有相符的命令';
+
+  @override
+  String get paletteKeyHints => '↑↓ 移動 · ⏎ 執行 · esc 關閉';
+
+  @override
+  String paletteCount(int count) {
+    return '$count 個命令';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total 個中的 $count 個';
+  }
+
+  @override
+  String get paletteSourceMenu => '選單';
+
+  @override
+  String get paletteSourcePanel => '面板';
+
+  @override
+  String get paletteSourceView => '檢視';
+
+  @override
+  String get paletteSourceFile => '檔案';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group工具';
+  }
+
+  @override
+  String get paletteNeedsDocument => '需要開啟文件';
 
   @override
   String editorNamedAction(String name) {

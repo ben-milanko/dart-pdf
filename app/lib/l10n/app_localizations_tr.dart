@@ -462,10 +462,58 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorMenuSettings => 'Ayarlar';
 
   @override
-  String get editorMenuSwitchToEdit => 'Düzenleme moduna geç';
+  String get editorMenuSectionFile => 'Dosya';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Salt okunura geç';
+  String get editorMenuSectionDocument => 'Bu belge';
+
+  @override
+  String get editorMenuSectionApp => 'Uygulama';
+
+  @override
+  String get editorMenuReadOnly => 'Salt okunur';
+
+  @override
+  String get editorMenuSearchActions => 'Eylem ara…';
+
+  @override
+  String get paletteHint => 'Eylem, araç ve panel ara';
+
+  @override
+  String get paletteNoMatch => 'Eşleşen komut yok';
+
+  @override
+  String get paletteKeyHints => '↑↓ gez · ⏎ çalıştır · esc kapat';
+
+  @override
+  String paletteCount(int count) {
+    return '$count komut';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count / $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Menü';
+
+  @override
+  String get paletteSourcePanel => 'Panel';
+
+  @override
+  String get paletteSourceView => 'Görünüm';
+
+  @override
+  String get paletteSourceFile => 'Dosya';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group aracı';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Açık bir belge gerekir';
 
   @override
   String editorNamedAction(String name) {

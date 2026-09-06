@@ -466,10 +466,58 @@ class AppLocalizationsRu extends AppLocalizations {
   String get editorMenuSettings => 'Настройки';
 
   @override
-  String get editorMenuSwitchToEdit => 'Перейти в режим редактирования';
+  String get editorMenuSectionFile => 'Файл';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'Перейти в режим только для чтения';
+  String get editorMenuSectionDocument => 'Этот документ';
+
+  @override
+  String get editorMenuSectionApp => 'Приложение';
+
+  @override
+  String get editorMenuReadOnly => 'Только чтение';
+
+  @override
+  String get editorMenuSearchActions => 'Поиск действий…';
+
+  @override
+  String get paletteHint => 'Поиск действий, инструментов и панелей';
+
+  @override
+  String get paletteNoMatch => 'Команды не найдены';
+
+  @override
+  String get paletteKeyHints => '↑↓ выбор · ⏎ выполнить · esc закрыть';
+
+  @override
+  String paletteCount(int count) {
+    return 'Команд: $count';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count из $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'Меню';
+
+  @override
+  String get paletteSourcePanel => 'Панель';
+
+  @override
+  String get paletteSourceView => 'Вид';
+
+  @override
+  String get paletteSourceFile => 'Файл';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'Инструмент «$group»';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'Нужен открытый документ';
 
   @override
   String editorNamedAction(String name) {

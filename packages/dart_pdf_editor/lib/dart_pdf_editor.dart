@@ -50,6 +50,7 @@ export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnail_drop.dart';
 export 'src/editing/editing_thumbnails.dart';
+export 'src/editing/editing_tool_catalog.dart';
 export 'src/editing/editing_toolbar.dart';
 export 'src/editing/line_style.dart';
 export 'src/editing/stroke_prediction.dart';

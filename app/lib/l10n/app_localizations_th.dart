@@ -459,10 +459,58 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuSettings => 'การตั้งค่า';
 
   @override
-  String get editorMenuSwitchToEdit => 'สลับเป็นโหมดแก้ไข';
+  String get editorMenuSectionFile => 'ไฟล์';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'สลับเป็นอ่านอย่างเดียว';
+  String get editorMenuSectionDocument => 'เอกสารนี้';
+
+  @override
+  String get editorMenuSectionApp => 'แอป';
+
+  @override
+  String get editorMenuReadOnly => 'อ่านอย่างเดียว';
+
+  @override
+  String get editorMenuSearchActions => 'ค้นหาคำสั่ง…';
+
+  @override
+  String get paletteHint => 'ค้นหาคำสั่ง เครื่องมือ และแผง';
+
+  @override
+  String get paletteNoMatch => 'ไม่พบคำสั่งที่ตรงกัน';
+
+  @override
+  String get paletteKeyHints => '↑↓ เลื่อน · ⏎ เรียกใช้ · esc ปิด';
+
+  @override
+  String paletteCount(int count) {
+    return '$count คำสั่ง';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count จาก $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'เมนู';
+
+  @override
+  String get paletteSourcePanel => 'แผง';
+
+  @override
+  String get paletteSourceView => 'มุมมอง';
+
+  @override
+  String get paletteSourceFile => 'ไฟล์';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'เครื่องมือ$group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'ต้องเปิดเอกสารก่อน';
 
   @override
   String editorNamedAction(String name) {

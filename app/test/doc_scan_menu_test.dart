@@ -115,6 +115,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await openMenu(tester);
 
+    // The sectioned menu is taller than the test surface on a phone, so the
+    // row has to be scrolled into view before it can be tapped.
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-insert-scan')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-insert-scan')));
     await tester.pump();
 
@@ -171,6 +175,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await openMenu(tester);
 
+    // The sectioned menu is taller than the test surface on a phone, so the
+    // row has to be scrolled into view before it can be tapped.
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-insert-scan')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-insert-scan')));
     await tester.pump(); // reject the future
     await tester.pump(); // show the snack bar

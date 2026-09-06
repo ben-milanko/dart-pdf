@@ -476,10 +476,58 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorMenuSettings => 'الإعدادات';
 
   @override
-  String get editorMenuSwitchToEdit => 'التبديل إلى وضع التحرير';
+  String get editorMenuSectionFile => 'ملف';
 
   @override
-  String get editorMenuSwitchToReadOnly => 'التبديل إلى وضع القراءة فقط';
+  String get editorMenuSectionDocument => 'هذا المستند';
+
+  @override
+  String get editorMenuSectionApp => 'التطبيق';
+
+  @override
+  String get editorMenuReadOnly => 'للقراءة فقط';
+
+  @override
+  String get editorMenuSearchActions => 'بحث عن الإجراءات…';
+
+  @override
+  String get paletteHint => 'ابحث في الإجراءات والأدوات واللوحات';
+
+  @override
+  String get paletteNoMatch => 'لا يوجد أمر مطابق';
+
+  @override
+  String get paletteKeyHints => '↑↓ تنقل · ⏎ تنفيذ · esc إغلاق';
+
+  @override
+  String paletteCount(int count) {
+    return '$count أمر';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$count من $total';
+  }
+
+  @override
+  String get paletteSourceMenu => 'القائمة';
+
+  @override
+  String get paletteSourcePanel => 'لوحة';
+
+  @override
+  String get paletteSourceView => 'عرض';
+
+  @override
+  String get paletteSourceFile => 'ملف';
+
+  @override
+  String paletteSourceTool(String group) {
+    return 'أداة $group';
+  }
+
+  @override
+  String get paletteNeedsDocument => 'يتطلب مستندًا مفتوحًا';
 
   @override
   String editorNamedAction(String name) {

@@ -452,10 +452,58 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorMenuSettings => '설정';
 
   @override
-  String get editorMenuSwitchToEdit => '편집 모드로 전환';
+  String get editorMenuSectionFile => '파일';
 
   @override
-  String get editorMenuSwitchToReadOnly => '읽기 전용으로 전환';
+  String get editorMenuSectionDocument => '이 문서';
+
+  @override
+  String get editorMenuSectionApp => '앱';
+
+  @override
+  String get editorMenuReadOnly => '읽기 전용';
+
+  @override
+  String get editorMenuSearchActions => '작업 검색…';
+
+  @override
+  String get paletteHint => '작업, 도구, 패널 검색';
+
+  @override
+  String get paletteNoMatch => '일치하는 명령이 없습니다';
+
+  @override
+  String get paletteKeyHints => '↑↓ 이동 · ⏎ 실행 · esc 닫기';
+
+  @override
+  String paletteCount(int count) {
+    return '명령 $count개';
+  }
+
+  @override
+  String paletteCountFiltered(int count, int total) {
+    return '$total개 중 $count개';
+  }
+
+  @override
+  String get paletteSourceMenu => '메뉴';
+
+  @override
+  String get paletteSourcePanel => '패널';
+
+  @override
+  String get paletteSourceView => '보기';
+
+  @override
+  String get paletteSourceFile => '파일';
+
+  @override
+  String paletteSourceTool(String group) {
+    return '$group 도구';
+  }
+
+  @override
+  String get paletteNeedsDocument => '열린 문서가 필요합니다';
 
   @override
   String editorNamedAction(String name) {
