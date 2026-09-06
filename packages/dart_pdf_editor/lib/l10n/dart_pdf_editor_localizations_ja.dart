@@ -2113,4 +2113,11 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'このPDFを分割できませんでした。';
+
+  @override
+  String get tbToolContentDelete => '消去';
+
+  @override
+  String get tbTipContentDelete =>
+      'コンテンツを削除 — ドラッグで長方形を描くか、多角形の頂点をクリックし、ダブルクリックで完了';
 }

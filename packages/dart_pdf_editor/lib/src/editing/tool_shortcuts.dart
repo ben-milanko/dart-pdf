@@ -75,6 +75,7 @@ PdfEditToolGroup pdfEditToolGroupOf(PdfEditTool tool) {
     case PdfEditTool.calibrate:
       return PdfEditToolGroup.measure;
     case PdfEditTool.content:
+    case PdfEditTool.contentDelete:
     case PdfEditTool.form:
     case PdfEditTool.redact:
     case PdfEditTool.snapshot:
@@ -192,6 +193,8 @@ const Map<PdfEditTool, PdfToolShortcut> pdfEditToolShortcuts = {
 
   // Edit group: content, form, redact, and link (Shift+K beside redact's K).
   PdfEditTool.content: PdfToolShortcut(LogicalKeyboardKey.keyC),
+  PdfEditTool.contentDelete:
+      PdfToolShortcut(LogicalKeyboardKey.keyE, shift: true),
   PdfEditTool.form: PdfToolShortcut(LogicalKeyboardKey.keyF),
   PdfEditTool.redact: PdfToolShortcut(LogicalKeyboardKey.keyK),
   PdfEditTool.link: PdfToolShortcut(LogicalKeyboardKey.keyK, shift: true),

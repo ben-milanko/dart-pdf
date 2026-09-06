@@ -207,6 +207,13 @@ enum PdfEditTool {
   /// images are inserted as movable image stamps.
   content,
 
+  /// Delete page content inside a region, like Bluebeam's
+  /// content erase/delete tool. A drag rubber-bands a rectangle; a tap starts
+  /// (and each further tap extends) a free-form polygon lasso, finished by a
+  /// double-tap. This edits the page's content stream directly and ignores
+  /// annotations.
+  contentDelete,
+
   /// Interactive forms: tap a field widget to fill it (text fields open
   /// an inline editor, check boxes and radio buttons toggle, choice
   /// fields offer their options), drag on empty page area to add a new
@@ -7971,6 +7978,34 @@ class PdfEditingController extends ChangeNotifier {
     if (_selectedElement == null) return;
     _selectedElement = null;
     notifyListeners();
+  }
+
+  /// Erases bounded page graphics inside [rect], clipping crossing vectors
+  /// and images at the boundary. Text glyphs are deleted when their centres
+  /// fall inside it.
+  /// Unbounded elements are left alone because there is no reliable hit box
+  /// for a region delete. Returns the number of elements affected.
+  int deleteElementsInRect(int pageIndex, PdfRect rect) {
+    final elements = elementsOn(pageIndex);
+    var count = 0;
+    apply((e) => count = e.deleteElementsInRect(elements, rect),
+        pages: [pageIndex]);
+    return count;
+  }
+
+  /// Erases bounded page graphics inside the closed [polygon] (page space),
+  /// like [deleteElementsInRect]. Graphics
+  /// crossing its boundary retain their outside portions.
+  /// Text runs are sliced to the glyphs whose centres land inside it. Returns
+  /// the number of elements affected; a degenerate polygon is a no-op.
+  int deleteElementsInPolygon(int pageIndex, List<(double, double)> polygon) {
+    if (polygon.length < 3) return 0;
+    final elements = elementsOn(pageIndex);
+    var count = 0;
+    // A no-op edit leaves the editor unchanged, so apply() adds no revision.
+    apply((e) => count = e.deleteElementsInPolygon(elements, polygon),
+        pages: [pageIndex]);
+    return count;
   }
 
   /// Deletes the selected content element from its page's content stream.

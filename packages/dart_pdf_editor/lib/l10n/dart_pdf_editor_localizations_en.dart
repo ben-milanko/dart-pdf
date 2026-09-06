@@ -2131,4 +2131,11 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'Could not split this PDF.';
+
+  @override
+  String get tbToolContentDelete => 'Erase';
+
+  @override
+  String get tbTipContentDelete =>
+      'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
 }

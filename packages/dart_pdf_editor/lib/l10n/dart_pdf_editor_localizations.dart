@@ -3883,6 +3883,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Could not split this PDF.'**
   String get splitFailed;
+
+  /// No description provided for @tbToolContentDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase'**
+  String get tbToolContentDelete;
+
+  /// No description provided for @tbTipContentDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete content — drag a rectangle, or click polygon vertices and double-click to finish'**
+  String get tbTipContentDelete;
 }
 
 class _DartPdfEditorLocalizationsDelegate

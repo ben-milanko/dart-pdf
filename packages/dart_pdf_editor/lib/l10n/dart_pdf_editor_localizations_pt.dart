@@ -2141,4 +2141,11 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'Não foi possível dividir este PDF.';
+
+  @override
+  String get tbToolContentDelete => 'Apagar';
+
+  @override
+  String get tbTipContentDelete =>
+      'Excluir conteúdo — arraste um retângulo ou clique nos vértices do polígono e clique duas vezes para concluir';
 }

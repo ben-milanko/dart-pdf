@@ -624,5 +624,7 @@
   "splitRanges": "Intervalos de páginas",
   "splitInvalidRanges": "Usa páginas de 1 a {count}, separadas por comas. Los intervalos deben ser ascendentes.",
   "splitConfirm": "Dividir",
-  "splitFailed": "No se pudo dividir este PDF."
+  "splitFailed": "No se pudo dividir este PDF.",
+  "tbToolContentDelete": "Borrar",
+  "tbTipContentDelete": "Eliminar contenido: arrastra un rectángulo o haz clic en los vértices del polígono y doble clic para terminar"
 }

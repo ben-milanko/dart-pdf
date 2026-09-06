@@ -2152,4 +2152,11 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'Impossible de scinder ce PDF.';
+
+  @override
+  String get tbToolContentDelete => 'Effacer';
+
+  @override
+  String get tbTipContentDelete =>
+      'Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer';
 }

@@ -624,5 +624,7 @@
   "splitRanges": "Seitenbereiche",
   "splitInvalidRanges": "Seiten von 1 bis {count} durch Kommas trennen. Bereiche müssen aufsteigend sein.",
   "splitConfirm": "Aufteilen",
-  "splitFailed": "Diese PDF-Datei konnte nicht aufgeteilt werden."
+  "splitFailed": "Diese PDF-Datei konnte nicht aufgeteilt werden.",
+  "tbToolContentDelete": "Löschen",
+  "tbTipContentDelete": "Inhalt löschen – Rechteck ziehen oder Polygonecken anklicken und mit Doppelklick abschließen"
 }

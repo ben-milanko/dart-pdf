@@ -2140,4 +2140,11 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'PDF ini tidak dapat dipisahkan.';
+
+  @override
+  String get tbToolContentDelete => 'Hapus';
+
+  @override
+  String get tbTipContentDelete =>
+      'Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai';
 }

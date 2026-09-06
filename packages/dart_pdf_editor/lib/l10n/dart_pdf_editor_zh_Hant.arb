@@ -624,5 +624,7 @@
   "splitRanges": "頁面範圍",
   "splitInvalidRanges": "請輸入 1 至 {count} 之間的頁碼，以逗號分隔。範圍必須按遞增順序填寫。",
   "splitConfirm": "分割",
-  "splitFailed": "無法分割此 PDF。"
+  "splitFailed": "無法分割此 PDF。",
+  "tbToolContentDelete": "擦除",
+  "tbTipContentDelete": "刪除內容 — 拖曳矩形，或點擊多邊形頂點並按兩下完成"
 }

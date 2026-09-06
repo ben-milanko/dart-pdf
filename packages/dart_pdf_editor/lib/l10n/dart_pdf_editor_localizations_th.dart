@@ -2126,4 +2126,11 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'ไม่สามารถแยก PDF นี้ได้';
+
+  @override
+  String get tbToolContentDelete => 'ลบ';
+
+  @override
+  String get tbTipContentDelete =>
+      'ลบเนื้อหา — ลากสี่เหลี่ยม หรือคลิกจุดยอดของรูปหลายเหลี่ยมแล้วดับเบิลคลิกเพื่อเสร็จสิ้น';
 }

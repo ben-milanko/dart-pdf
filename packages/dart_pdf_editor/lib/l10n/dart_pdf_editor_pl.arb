@@ -624,5 +624,7 @@
   "splitRanges": "Zakresy stron",
   "splitInvalidRanges": "Użyj stron od 1 do {count}, oddzielonych przecinkami. Zakresy muszą być rosnące.",
   "splitConfirm": "Podziel",
-  "splitFailed": "Nie udało się podzielić tego pliku PDF."
+  "splitFailed": "Nie udało się podzielić tego pliku PDF.",
+  "tbToolContentDelete": "Wymaż",
+  "tbTipContentDelete": "Usuń zawartość — przeciągnij prostokąt lub klikaj wierzchołki wielokąta i kliknij dwukrotnie, aby zakończyć"
 }

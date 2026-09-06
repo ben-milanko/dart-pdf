@@ -42,6 +42,7 @@ part 'annotation_sync.dart';
 part 'comment_editor.dart';
 part 'attachment_editor.dart';
 part 'content_editor.dart';
+part 'content_region_clip.dart';
 part 'color_processing.dart';
 part 'content_editor_type0.dart';
 part 'content_reflow.dart';

@@ -2140,4 +2140,11 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get splitFailed => 'Deze PDF kon niet worden gesplitst.';
+
+  @override
+  String get tbToolContentDelete => 'Wissen';
+
+  @override
+  String get tbTipContentDelete =>
+      'Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden';
 }

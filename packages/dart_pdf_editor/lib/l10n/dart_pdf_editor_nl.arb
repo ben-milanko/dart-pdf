@@ -624,5 +624,7 @@
   "splitRanges": "Paginabereiken",
   "splitInvalidRanges": "Gebruik pagina’s 1–{count}, gescheiden door komma’s. Bereiken moeten oplopend zijn.",
   "splitConfirm": "Splitsen",
-  "splitFailed": "Deze PDF kon niet worden gesplitst."
+  "splitFailed": "Deze PDF kon niet worden gesplitst.",
+  "tbToolContentDelete": "Wissen",
+  "tbTipContentDelete": "Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden"
 }

@@ -624,5 +624,7 @@
   "splitRanges": "Plages de pages",
   "splitInvalidRanges": "Utilisez les pages de 1 à {count}, séparées par des virgules. Les plages doivent être croissantes.",
   "splitConfirm": "Scinder",
-  "splitFailed": "Impossible de scinder ce PDF."
+  "splitFailed": "Impossible de scinder ce PDF.",
+  "tbToolContentDelete": "Effacer",
+  "tbTipContentDelete": "Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer"
 }

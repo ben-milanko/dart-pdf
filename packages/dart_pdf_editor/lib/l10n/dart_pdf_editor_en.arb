@@ -2736,5 +2736,7 @@
   "splitFailed": "Could not split this PDF.",
   "@splitFailed": {
     "description": "Shown when PDF extraction fails."
-  }
+  },
+  "tbToolContentDelete": "Erase",
+  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish"
 }
