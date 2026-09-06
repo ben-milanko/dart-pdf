@@ -1125,4 +1125,134 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Could not clear cached documents. Try again.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Reduce file size…';
+
+  @override
+  String get reduceSizeTitle => 'Reduce file size';
+
+  @override
+  String get reduceSizeDescription =>
+      'Optimize the current document, review the savings, then save a smaller copy.';
+
+  @override
+  String get reduceSizePreset => 'Preset';
+
+  @override
+  String get reduceSizeLossless => 'Lossless — preserve image quality';
+
+  @override
+  String get reduceSizeScreen => 'Screen — 72 DPI, JPEG quality 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, JPEG quality 75';
+
+  @override
+  String get reduceSizePrinter => 'Print — 300 DPI, JPEG quality 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Image resolution and quality stay the same.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Images above the target resolution may be reduced and JPEG-encoded. Fine image detail can be lost; text and vector graphics stay sharp.';
+
+  @override
+  String get reduceSizeAdvanced => 'Advanced settings';
+
+  @override
+  String get reduceSizeRecompress => 'Recompress streams';
+
+  @override
+  String get reduceSizeUnusedResources => 'Remove unused resources';
+
+  @override
+  String get reduceSizeDeduplicate => 'Merge duplicate objects';
+
+  @override
+  String get reduceSizeSubsetFonts => 'Subset embedded fonts';
+
+  @override
+  String get reduceSizeDpi => 'Image target resolution';
+
+  @override
+  String get reduceSizeKeepImages => 'Keep original images (lossless)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG quality: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Rewriting this signed PDF invalidates its digital signatures in the saved copy.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Allow invalidating signatures in this copy';
+
+  @override
+  String get reduceSizeEncrypted => 'Encrypted PDFs cannot be optimized.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Wait for the document to finish loading before reducing its size.';
+
+  @override
+  String get reduceSizeRun => 'Optimize';
+
+  @override
+  String get reduceSizeRunning => 'Optimizing document…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Could not optimize this PDF: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Could not save the copy: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Save copy…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Change settings';
+
+  @override
+  String get reduceSizeBefore => 'Original size';
+
+  @override
+  String get reduceSizeAfter => 'Optimized size';
+
+  @override
+  String get reduceSizeSavings => 'Space saved';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'This document is already compact with these settings. The original bytes were kept.';
+
+  @override
+  String get reduceSizeReportHint => 'Bytes saved by each optimization step:';
+
+  @override
+  String get reduceSizeStructure => 'Document structure';
+
+  @override
+  String get reduceSizeResources => 'Unused resources';
+
+  @override
+  String get reduceSizeFonts => 'Embedded fonts';
+
+  @override
+  String get reduceSizeImages => 'Images';
+
+  @override
+  String get reduceSizeDuplicates => 'Duplicate objects';
+
+  @override
+  String get reduceSizeCustom => 'Custom settings';
 }

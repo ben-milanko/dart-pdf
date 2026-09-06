@@ -1848,6 +1848,240 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not clear cached documents. Try again.'**
   String get settingsCacheClearFailed;
+
+  /// App menu action that opens the PDF optimization tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce file size…'**
+  String get editorMenuReduceFileSize;
+
+  /// Title of the PDF optimization dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce file size'**
+  String get reduceSizeTitle;
+
+  /// Explanation of the optimization and save-copy workflow.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimize the current document, review the savings, then save a smaller copy.'**
+  String get reduceSizeDescription;
+
+  /// Label for the compression preset picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset'**
+  String get reduceSizePreset;
+
+  /// Default preset that preserves image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Lossless — preserve image quality'**
+  String get reduceSizeLossless;
+
+  /// Low-resolution compression preset, describes its image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen — 72 DPI, JPEG quality 60'**
+  String get reduceSizeScreen;
+
+  /// Medium-resolution compression preset, describes its image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'eBook — 150 DPI, JPEG quality 75'**
+  String get reduceSizeEbook;
+
+  /// High-resolution compression preset, describes its image quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Print — 300 DPI, JPEG quality 90'**
+  String get reduceSizePrinter;
+
+  /// Description shown when lossy image processing is disabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Image resolution and quality stay the same.'**
+  String get reduceSizeLosslessHint;
+
+  /// Describes the quality tradeoff when image downsampling is enabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Images above the target resolution may be reduced and JPEG-encoded. Fine image detail can be lost; text and vector graphics stay sharp.'**
+  String get reduceSizeLossyHint;
+
+  /// Expansion title for individual optimization settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced settings'**
+  String get reduceSizeAdvanced;
+
+  /// Option to apply lossless compression to PDF streams.
+  ///
+  /// In en, this message translates to:
+  /// **'Recompress streams'**
+  String get reduceSizeRecompress;
+
+  /// Option to remove resources that page content does not use.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove unused resources'**
+  String get reduceSizeUnusedResources;
+
+  /// Option to share identical PDF objects.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge duplicate objects'**
+  String get reduceSizeDeduplicate;
+
+  /// Option to remove unused embedded font glyphs when supported.
+  ///
+  /// In en, this message translates to:
+  /// **'Subset embedded fonts'**
+  String get reduceSizeSubsetFonts;
+
+  /// Label for image target DPI control.
+  ///
+  /// In en, this message translates to:
+  /// **'Image target resolution'**
+  String get reduceSizeDpi;
+
+  /// Image resolution choice that disables lossy processing.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep original images (lossless)'**
+  String get reduceSizeKeepImages;
+
+  /// Image encoder quality, from 10 to 100.
+  ///
+  /// In en, this message translates to:
+  /// **'JPEG quality: {quality}'**
+  String reduceSizeJpegQuality(int quality);
+
+  /// Warning shown only for a document containing digital signatures.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewriting this signed PDF invalidates its digital signatures in the saved copy.'**
+  String get reduceSizeSignaturesNotice;
+
+  /// Explicit consent checkbox required before optimizing a signed file.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow invalidating signatures in this copy'**
+  String get reduceSizeInvalidateSignatures;
+
+  /// Message shown when the optimization action is used on an encrypted PDF.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted PDFs cannot be optimized.'**
+  String get reduceSizeEncrypted;
+
+  /// Message shown when a progressive source has not fully loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Wait for the document to finish loading before reducing its size.'**
+  String get reduceSizeIncomplete;
+
+  /// Button that runs the selected optimizations.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimize'**
+  String get reduceSizeRun;
+
+  /// Indeterminate progress status while the compression worker is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimizing document…'**
+  String get reduceSizeRunning;
+
+  /// An error returned by the PDF optimizer.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not optimize this PDF: {error}'**
+  String reduceSizeFailed(String error);
+
+  /// An error raised while saving an optimized copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the copy: {error}'**
+  String reduceSizeSaveFailed(String error);
+
+  /// Opens the save dialog for the optimized PDF.
+  ///
+  /// In en, this message translates to:
+  /// **'Save copy…'**
+  String get reduceSizeSaveCopy;
+
+  /// Returns from the optimization report to its settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Change settings'**
+  String get reduceSizeChangeSettings;
+
+  /// Original file size in the optimization report.
+  ///
+  /// In en, this message translates to:
+  /// **'Original size'**
+  String get reduceSizeBefore;
+
+  /// Resulting file size in the optimization report.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimized size'**
+  String get reduceSizeAfter;
+
+  /// Bytes and percentage saved by optimization.
+  ///
+  /// In en, this message translates to:
+  /// **'Space saved'**
+  String get reduceSizeSavings;
+
+  /// Explains a result that could not reduce the file size.
+  ///
+  /// In en, this message translates to:
+  /// **'This document is already compact with these settings. The original bytes were kept.'**
+  String get reduceSizeNoSavings;
+
+  /// Labels the sequential contribution of each compression category.
+  ///
+  /// In en, this message translates to:
+  /// **'Bytes saved by each optimization step:'**
+  String get reduceSizeReportHint;
+
+  /// Report category for compaction and stream compression.
+  ///
+  /// In en, this message translates to:
+  /// **'Document structure'**
+  String get reduceSizeStructure;
+
+  /// Report category for unused-resource removal.
+  ///
+  /// In en, this message translates to:
+  /// **'Unused resources'**
+  String get reduceSizeResources;
+
+  /// Report category for font subsetting.
+  ///
+  /// In en, this message translates to:
+  /// **'Embedded fonts'**
+  String get reduceSizeFonts;
+
+  /// Report category for image processing.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get reduceSizeImages;
+
+  /// Report category for identical-object sharing.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate objects'**
+  String get reduceSizeDuplicates;
+
+  /// Preset label shown after any individual compression setting is changed.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom settings'**
+  String get reduceSizeCustom;
 }
 
 class _AppLocalizationsDelegate

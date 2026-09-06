@@ -40,6 +40,7 @@ import 'print_progress_dialog.dart';
 import 'printing.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
+import 'reduce_file_size.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
 import 'tab_drag.dart';
@@ -108,6 +109,7 @@ class EditorScreen extends StatefulWidget {
     this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
+    this.compressDocument,
     this.imageClipboardWriter,
     this.imageClipboardReader,
     this.textClipboardReader,
@@ -181,6 +183,10 @@ class EditorScreen extends StatefulWidget {
     String path, {
     String? bookmark,
   })? saveDocumentToPath;
+
+  /// Overrides the optimizer worker for tests or a host-provided executor.
+  /// Results are offered as a copy through [saveDocumentAs].
+  final PdfCompressionRunner? compressDocument;
 
   /// Override for writing a captured snapshot to the system clipboard. Tests
   /// inject a fake to assert the Snapshot tool's clipboard wiring without the
@@ -2538,6 +2544,37 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- printing ------------------------------------------------------------
 
+  Future<void> _reduceFileSize(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    if (session.document.cos.isEncrypted) {
+      _toast(l10n.reduceSizeEncrypted);
+      return;
+    }
+    if (session.document.cos.populatedRanges != null) {
+      _toast(l10n.reduceSizeIncomplete);
+      return;
+    }
+    // A copy must include what is on the page now, including ink that is
+    // waiting for its auto-commit timer and the inline editor's current text.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || !identical(tab.session, session)) return;
+    session.finishInk();
+    final bytes = Uint8List.fromList(session.bytes);
+    await showReduceFileSizeDialog(
+      context,
+      bytes: bytes,
+      title: tab.title,
+      hasSignatures: PdfSignature.of(session.document).isNotEmpty,
+      runner: widget.compressDocument ?? reducePdfBytes,
+      saveCopy: widget.saveDocumentAs ??
+          (ctx, bytes, name) =>
+              saveBytesAs(ctx, bytes, name, pdfLabel: appL10n(ctx).fileTypePdf),
+    );
+  }
+
   /// Reuses a keyless (Sigstore/Fulcio) identity across signatures while its
   /// short-lived certificate (~10 min) stays valid, so most boxes need no
   /// fresh OIDC sign-in.
@@ -3139,6 +3176,16 @@ class _EditorScreenState extends State<EditorScreen>
         run: () {
           final tab = _active;
           if (tab != null) unawaited(_save(tab, saveAs: true));
+        },
+      ),
+      _MenuAction(
+        id: 'reduce-file-size',
+        requiresDocument: true,
+        icon: Icons.compress_outlined,
+        title: l.editorMenuReduceFileSize,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_reduceFileSize(tab));
         },
       ),
       _MenuAction(

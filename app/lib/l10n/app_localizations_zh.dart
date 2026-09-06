@@ -1100,6 +1100,130 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsCacheClearFailed => '无法清除缓存的文档。请重试。';
+
+  @override
+  String get editorMenuReduceFileSize => '减小文件大小…';
+
+  @override
+  String get reduceSizeTitle => '减小文件大小';
+
+  @override
+  String get reduceSizeDescription => '优化当前文档，查看节省的空间，然后保存较小的副本。';
+
+  @override
+  String get reduceSizePreset => '预设';
+
+  @override
+  String get reduceSizeLossless => '无损 — 保持图像质量';
+
+  @override
+  String get reduceSizeScreen => '屏幕 — 72 DPI，JPEG 质量 60';
+
+  @override
+  String get reduceSizeEbook => '电子书 — 150 DPI，JPEG 质量 75';
+
+  @override
+  String get reduceSizePrinter => '打印 — 300 DPI，JPEG 质量 90';
+
+  @override
+  String get reduceSizeLosslessHint => '图像分辨率和质量保持不变。';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '超过目标分辨率的图像可能会被缩小并编码为 JPEG。图像的细节可能会丢失；文字和矢量图形仍保持清晰。';
+
+  @override
+  String get reduceSizeAdvanced => '高级设置';
+
+  @override
+  String get reduceSizeRecompress => '重新压缩数据流';
+
+  @override
+  String get reduceSizeUnusedResources => '删除未使用的资源';
+
+  @override
+  String get reduceSizeDeduplicate => '合并重复对象';
+
+  @override
+  String get reduceSizeSubsetFonts => '将嵌入字体缩减为已使用的字形';
+
+  @override
+  String get reduceSizeDpi => '图像目标分辨率';
+
+  @override
+  String get reduceSizeKeepImages => '保留原始图像（无损）';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG 质量：$quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice => '重写此已签名的 PDF 会使保存副本中的数字签名失效。';
+
+  @override
+  String get reduceSizeInvalidateSignatures => '允许使此副本中的签名失效';
+
+  @override
+  String get reduceSizeEncrypted => '无法优化加密的 PDF。';
+
+  @override
+  String get reduceSizeIncomplete => '请等待文档加载完成后再减小其大小。';
+
+  @override
+  String get reduceSizeRun => '优化';
+
+  @override
+  String get reduceSizeRunning => '正在优化文档…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return '无法优化此 PDF：$error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return '无法保存副本：$error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => '保存副本…';
+
+  @override
+  String get reduceSizeChangeSettings => '更改设置';
+
+  @override
+  String get reduceSizeBefore => '原始大小';
+
+  @override
+  String get reduceSizeAfter => '优化后大小';
+
+  @override
+  String get reduceSizeSavings => '节省空间';
+
+  @override
+  String get reduceSizeNoSavings => '此文档在这些设置下已足够小。已保留原始数据。';
+
+  @override
+  String get reduceSizeReportHint => '各优化步骤节省的字节数：';
+
+  @override
+  String get reduceSizeStructure => '文档结构';
+
+  @override
+  String get reduceSizeResources => '未使用的资源';
+
+  @override
+  String get reduceSizeFonts => '嵌入字体';
+
+  @override
+  String get reduceSizeImages => '图像';
+
+  @override
+  String get reduceSizeDuplicates => '重复对象';
+
+  @override
+  String get reduceSizeCustom => '自定义设置';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2199,4 +2323,128 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsCacheClearFailed => '無法清除快取的文件。請重試。';
+
+  @override
+  String get editorMenuReduceFileSize => '縮小檔案大小…';
+
+  @override
+  String get reduceSizeTitle => '縮小檔案大小';
+
+  @override
+  String get reduceSizeDescription => '最佳化目前文件，查看節省的空間，再儲存較小的副本。';
+
+  @override
+  String get reduceSizePreset => '預設';
+
+  @override
+  String get reduceSizeLossless => '無損 — 保持影像品質';
+
+  @override
+  String get reduceSizeScreen => '螢幕 — 72 DPI，JPEG 品質 60';
+
+  @override
+  String get reduceSizeEbook => '電子書 — 150 DPI，JPEG 品質 75';
+
+  @override
+  String get reduceSizePrinter => '列印 — 300 DPI，JPEG 品質 90';
+
+  @override
+  String get reduceSizeLosslessHint => '影像解析度和品質維持不變。';
+
+  @override
+  String get reduceSizeLossyHint =>
+      '超過目標解析度的影像可能會被縮小並編碼為 JPEG。影像細節可能會遺失；文字和向量圖形仍維持清晰。';
+
+  @override
+  String get reduceSizeAdvanced => '進階設定';
+
+  @override
+  String get reduceSizeRecompress => '重新壓縮資料流';
+
+  @override
+  String get reduceSizeUnusedResources => '移除未使用的資源';
+
+  @override
+  String get reduceSizeDeduplicate => '合併重複物件';
+
+  @override
+  String get reduceSizeSubsetFonts => '將嵌入字型縮減為已使用的字形';
+
+  @override
+  String get reduceSizeDpi => '影像目標解析度';
+
+  @override
+  String get reduceSizeKeepImages => '保留原始影像（無損）';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG 品質：$quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice => '重寫此已簽署的 PDF 會使儲存副本中的數位簽章失效。';
+
+  @override
+  String get reduceSizeInvalidateSignatures => '允許使此副本中的簽章失效';
+
+  @override
+  String get reduceSizeEncrypted => '無法最佳化加密的 PDF。';
+
+  @override
+  String get reduceSizeIncomplete => '請等待文件載入完成後再縮小其大小。';
+
+  @override
+  String get reduceSizeRun => '最佳化';
+
+  @override
+  String get reduceSizeRunning => '正在最佳化文件…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return '無法最佳化此 PDF：$error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return '無法儲存副本：$error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => '儲存副本…';
+
+  @override
+  String get reduceSizeChangeSettings => '變更設定';
+
+  @override
+  String get reduceSizeBefore => '原始大小';
+
+  @override
+  String get reduceSizeAfter => '最佳化後大小';
+
+  @override
+  String get reduceSizeSavings => '節省空間';
+
+  @override
+  String get reduceSizeNoSavings => '此文件在這些設定下已足夠小。已保留原始資料。';
+
+  @override
+  String get reduceSizeReportHint => '各最佳化步驟節省的位元組數：';
+
+  @override
+  String get reduceSizeStructure => '文件結構';
+
+  @override
+  String get reduceSizeResources => '未使用的資源';
+
+  @override
+  String get reduceSizeFonts => '嵌入字型';
+
+  @override
+  String get reduceSizeImages => '影像';
+
+  @override
+  String get reduceSizeDuplicates => '重複物件';
+
+  @override
+  String get reduceSizeCustom => '自訂設定';
 }

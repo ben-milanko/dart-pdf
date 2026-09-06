@@ -1129,4 +1129,135 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Không thể xóa tài liệu trong bộ nhớ đệm. Hãy thử lại.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Giảm kích thước tệp…';
+
+  @override
+  String get reduceSizeTitle => 'Giảm kích thước tệp';
+
+  @override
+  String get reduceSizeDescription =>
+      'Tối ưu hóa tài liệu hiện tại, xem dung lượng tiết kiệm rồi lưu một bản sao nhỏ hơn.';
+
+  @override
+  String get reduceSizePreset => 'Thiết lập sẵn';
+
+  @override
+  String get reduceSizeLossless => 'Không mất dữ liệu — giữ chất lượng ảnh';
+
+  @override
+  String get reduceSizeScreen => 'Màn hình — 72 DPI, chất lượng JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'Sách điện tử — 150 DPI, chất lượng JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'In — 300 DPI, chất lượng JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Độ phân giải và chất lượng ảnh không thay đổi.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Ảnh có độ phân giải cao hơn mục tiêu có thể được thu nhỏ và mã hóa JPEG. Chi tiết nhỏ có thể bị mất; văn bản và đồ họa vector vẫn sắc nét.';
+
+  @override
+  String get reduceSizeAdvanced => 'Cài đặt nâng cao';
+
+  @override
+  String get reduceSizeRecompress => 'Nén lại luồng dữ liệu';
+
+  @override
+  String get reduceSizeUnusedResources => 'Xóa tài nguyên không dùng';
+
+  @override
+  String get reduceSizeDeduplicate => 'Gộp các đối tượng trùng lặp';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Thu gọn phông chữ nhúng còn các glyph được dùng';
+
+  @override
+  String get reduceSizeDpi => 'Độ phân giải mục tiêu của ảnh';
+
+  @override
+  String get reduceSizeKeepImages => 'Giữ ảnh gốc (không mất dữ liệu)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Chất lượng JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Việc viết lại PDF đã ký này sẽ làm mất hiệu lực chữ ký số trong bản sao được lưu.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Cho phép làm mất hiệu lực chữ ký trong bản sao này';
+
+  @override
+  String get reduceSizeEncrypted => 'Không thể tối ưu hóa PDF đã mã hóa.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Hãy đợi tài liệu tải xong trước khi giảm kích thước.';
+
+  @override
+  String get reduceSizeRun => 'Tối ưu hóa';
+
+  @override
+  String get reduceSizeRunning => 'Đang tối ưu hóa tài liệu…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Không thể tối ưu hóa PDF này: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Không thể lưu bản sao: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Lưu bản sao…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Đổi cài đặt';
+
+  @override
+  String get reduceSizeBefore => 'Kích thước ban đầu';
+
+  @override
+  String get reduceSizeAfter => 'Kích thước đã tối ưu';
+
+  @override
+  String get reduceSizeSavings => 'Dung lượng tiết kiệm';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Tài liệu này đã gọn với các cài đặt này. Dữ liệu gốc được giữ nguyên.';
+
+  @override
+  String get reduceSizeReportHint => 'Số byte tiết kiệm ở mỗi bước tối ưu hóa:';
+
+  @override
+  String get reduceSizeStructure => 'Cấu trúc tài liệu';
+
+  @override
+  String get reduceSizeResources => 'Tài nguyên không dùng';
+
+  @override
+  String get reduceSizeFonts => 'Phông chữ nhúng';
+
+  @override
+  String get reduceSizeImages => 'Ảnh';
+
+  @override
+  String get reduceSizeDuplicates => 'Đối tượng trùng lặp';
+
+  @override
+  String get reduceSizeCustom => 'Cài đặt tùy chỉnh';
 }

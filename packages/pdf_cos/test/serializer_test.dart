@@ -14,23 +14,42 @@ void main() {
     expect(String.fromCharCodes(CosSerializer.serialize(CosNull.instance)),
         'null');
     expect(
-        String.fromCharCodes(
-            CosSerializer.serialize(const CosBoolean(true))),
+        String.fromCharCodes(CosSerializer.serialize(const CosBoolean(true))),
         'true');
     expect(String.fromCharCodes(CosSerializer.serialize(const CosInteger(42))),
         '42');
     expect(String.fromCharCodes(CosSerializer.serialize(const CosReal(1.5))),
         '1.5');
-    expect(String.fromCharCodes(CosSerializer.serialize(const CosReal(2))),
-        '2.0');
     expect(
-        String.fromCharCodes(CosSerializer.serialize(const CosName('Type'))),
+        String.fromCharCodes(CosSerializer.serialize(const CosReal(2))), '2.0');
+    expect(String.fromCharCodes(CosSerializer.serialize(const CosName('Type'))),
         '/Type');
   });
 
   test('reals never use exponent notation', () {
     expect(CosSerializer.formatReal(0.0000001), isNot(contains('e')));
     expect(CosSerializer.formatReal(1e20), isNot(contains('e')));
+  });
+
+  test('lossless mode preserves font matrices and expands exponents exactly',
+      () {
+    for (final value in [
+      0.0001220703125,
+      1e-20,
+      -1.25e-30,
+      1.25e21,
+      1e200,
+      3.141592653589793,
+      -0.0
+    ]) {
+      final text = CosSerializer.formatRealExact(value);
+      expect(text, isNot(contains('e')));
+      expect(double.parse(text), value);
+      final parsed = CosParser(CosSerializer.serialize(CosReal(value),
+              preserveRealPrecision: true))
+          .parseObject() as CosReal;
+      expect(parsed.value, value);
+    }
   });
 
   test('strings escape delimiters', () {

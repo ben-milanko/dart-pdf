@@ -1139,4 +1139,139 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Impossibile svuotare la cache dei documenti. Riprova.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Riduci dimensioni file…';
+
+  @override
+  String get reduceSizeTitle => 'Riduci dimensioni file';
+
+  @override
+  String get reduceSizeDescription =>
+      'Ottimizza il documento attuale, verifica il risparmio e salva una copia più piccola.';
+
+  @override
+  String get reduceSizePreset => 'Preimpostazione';
+
+  @override
+  String get reduceSizeLossless =>
+      'Senza perdita — conserva la qualità delle immagini';
+
+  @override
+  String get reduceSizeScreen => 'Schermo — 72 DPI, qualità JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, qualità JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'Stampa — 300 DPI, qualità JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'La risoluzione e la qualità delle immagini restano invariate.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Le immagini oltre la risoluzione prevista possono essere ridotte e codificate in JPEG. I dettagli fini possono andare persi; testo e grafica vettoriale restano nitidi.';
+
+  @override
+  String get reduceSizeAdvanced => 'Impostazioni avanzate';
+
+  @override
+  String get reduceSizeRecompress => 'Ricomprimi flussi';
+
+  @override
+  String get reduceSizeUnusedResources => 'Rimuovi risorse inutilizzate';
+
+  @override
+  String get reduceSizeDeduplicate => 'Unisci oggetti duplicati';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Riduci i font incorporati ai glifi usati';
+
+  @override
+  String get reduceSizeDpi => 'Risoluzione delle immagini';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Conserva immagini originali (senza perdita)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Qualità JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'La riscrittura di questo PDF firmato invalida le firme digitali nella copia salvata.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Consenti di invalidare le firme in questa copia';
+
+  @override
+  String get reduceSizeEncrypted =>
+      'I PDF crittografati non possono essere ottimizzati.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Attendi il caricamento completo del documento prima di ridurne le dimensioni.';
+
+  @override
+  String get reduceSizeRun => 'Ottimizza';
+
+  @override
+  String get reduceSizeRunning => 'Ottimizzazione del documento…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Impossibile ottimizzare questo PDF: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Impossibile salvare la copia: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Salva copia…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Modifica impostazioni';
+
+  @override
+  String get reduceSizeBefore => 'Dimensioni originali';
+
+  @override
+  String get reduceSizeAfter => 'Dimensioni ottimizzate';
+
+  @override
+  String get reduceSizeSavings => 'Spazio risparmiato';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Questo documento è già compatto con queste impostazioni. Sono stati conservati i dati originali.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Byte risparmiati in ogni fase di ottimizzazione:';
+
+  @override
+  String get reduceSizeStructure => 'Struttura del documento';
+
+  @override
+  String get reduceSizeResources => 'Risorse inutilizzate';
+
+  @override
+  String get reduceSizeFonts => 'Font incorporati';
+
+  @override
+  String get reduceSizeImages => 'Immagini';
+
+  @override
+  String get reduceSizeDuplicates => 'Oggetti duplicati';
+
+  @override
+  String get reduceSizeCustom => 'Impostazioni personalizzate';
 }

@@ -12,6 +12,9 @@
   the panels, the view options and the recent files. Every result names the
   surface it came from and its shortcut, and commands that need an open
   document stay listed - dimmed, with the reason - rather than disappearing.
+- Add **Reduce file size…** with lossless, screen, eBook, and print presets,
+  independent optimization settings, a savings report, and **Save copy…**.
+  Lossy image changes are opt-in; the open document and undo history stay intact.
 - Add **Insert document…** to the app menu: insert a PDF after the current page
   as one undo step, with the existing tab identity and session recovery.
 - Preserve imported form fields, bookmarks, and named links when inserting PDFs.

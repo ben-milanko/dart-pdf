@@ -30,13 +30,13 @@ class CosCompactionResult {
   /// object streams and cross-reference stream the writer synthesises).
   final int objectsAfter;
 
-  /// Number of previously uncompressed streams re-deflated by this pass.
+  /// Number of unfiltered/Flate streams compressed smaller by this pass.
   final int streamsDeflated;
 
   int get bytesAfter => bytes.length;
 
-  /// Fraction of the original size removed, in `[0, 1)`; 0 when the source
-  /// was empty.
+  /// Fraction of the original size removed; negative if framing made this
+  /// low-level rewrite larger, and 0 when the source was empty.
   double get ratio =>
       bytesBefore == 0 ? 0 : (bytesBefore - bytesAfter) / bytesBefore;
 }
@@ -48,9 +48,9 @@ class CosCompactionResult {
 /// catalog (and `/Info`) survive, so the dead copies that incremental updates
 /// accumulate across revisions are dropped; the non-stream objects are packed
 /// into compressed object streams and addressed by a PDF 1.5 xref stream; and
-/// streams that were stored with no compression filter are re-deflated (kept
-/// only when that actually shrinks them). Every stream's decoded content is
-/// preserved bit-for-bit - already-encoded payloads pass through verbatim.
+/// unfiltered and single-Flate streams are re-deflated (kept only when that
+/// actually shrinks them). Every stream's decoded content is preserved
+/// bit-for-bit; other encoded payloads pass through verbatim.
 ///
 /// The output is a from-scratch file with no `/Prev` chain, so it does **not**
 /// preserve prior-revision history and it invalidates any existing digital
@@ -61,7 +61,8 @@ class CosCompactionResult {
 /// re-encrypt (out of scope here) or silently drop the encryption, so the
 /// caller is told to decrypt first.
 class CosCompactor {
-  CosCompactor(this.document, {this.deflateLevel = 9});
+  CosCompactor(this.document,
+      {this.deflateLevel = 9, this.recompressStreams = true});
 
   final CosDocument document;
 
@@ -70,10 +71,19 @@ class CosCompactor {
   /// file size" action.
   final int deflateLevel;
 
+  /// Compress unfiltered payloads and recompress single-Flate payloads.
+  /// Object and cross-reference streams are compressed independently.
+  final bool recompressStreams;
+
   CosCompactionResult run() {
+    RangeError.checkValueInInterval(deflateLevel, 0, 9, 'deflateLevel');
     if (document.isEncrypted) {
       throw ArgumentError(
           'cannot compact an encrypted document; decrypt it first');
+    }
+    if (document.populatedRanges != null) {
+      throw ArgumentError('cannot compact an incomplete, progressively loaded '
+          'document; load the complete file first');
     }
     final rootRef = document.trailer['Root'];
     if (rootRef is! CosReference) {
@@ -81,7 +91,8 @@ class CosCompactor {
     }
 
     final builder = CosDocumentBuilder();
-    final copier = _GraphCopier(document, builder, deflateLevel);
+    final copier =
+        _GraphCopier(document, builder, deflateLevel, recompressStreams);
 
     final rootDest = copier.copyValue(rootRef) as CosReference;
     CosReference? infoDest;
@@ -93,8 +104,11 @@ class CosCompactor {
     final bytes = builder.build(
       root: rootDest,
       info: infoDest,
-      version: '1.7',
+      version: (double.tryParse(document.version) ?? 1.7) > 1.7
+          ? document.version
+          : '1.7',
       objectStreams: true,
+      preserveRealPrecision: true,
       deflateLevel: deflateLevel,
     );
 
@@ -115,11 +129,13 @@ class CosCompactor {
 /// Unlike page extraction there is no copy boundary - every reference is
 /// followed - so a dead object simply never gets visited and is dropped.
 class _GraphCopier {
-  _GraphCopier(this.document, this._builder, this._deflateLevel);
+  _GraphCopier(this.document, this._builder, this._deflateLevel,
+      this._recompressStreams);
 
   final CosDocument document;
   final CosDocumentBuilder _builder;
   final int _deflateLevel;
+  final bool _recompressStreams;
   final Map<CosReference, CosObject> _mapped = {};
 
   int objectsWritten = 0;
@@ -158,6 +174,15 @@ class _GraphCopier {
         objectsWritten++;
         dict.entries.forEach((key, item) => out[key] = copyValue(item));
         return outRef;
+      case CosArray array:
+        // Indirect arrays can be shared or cyclic just like dictionaries.
+        // Reserve their reference before following their children.
+        final out = CosArray();
+        final outRef = _builder.add(out);
+        _mapped[ref] = outRef;
+        objectsWritten++;
+        out.items.addAll(array.items.map(copyValue));
+        return outRef;
       case CosNull():
         return CosNull.instance;
       default:
@@ -166,15 +191,13 @@ class _GraphCopier {
     }
   }
 
-  /// Copies a stream. An already-encoded payload passes through verbatim; a
-  /// stream stored with no compression filter is re-deflated when that
-  /// shrinks it (kept lossless - `FlateDecode` of the result reproduces the
-  /// stored bytes exactly).
+  /// Copies a stream, recompressing only unfiltered and single-Flate data.
+  /// Predictor bytes remain unchanged; all other codecs pass through verbatim.
   CosObject _copyStream(CosReference? ref, CosStream stream) {
     final srcDict = stream.dictionary;
     var payload = stream.rawBytes;
     var addFlate = false;
-    if (_isUnfiltered(srcDict)) {
+    if (_recompressStreams && _isUnfiltered(srcDict)) {
       final deflated = Uint8List.fromList(
           const ZLibEncoder().encodeBytes(payload, level: _deflateLevel));
       if (deflated.length < payload.length) {
@@ -182,11 +205,29 @@ class _GraphCopier {
         addFlate = true;
         streamsDeflated++;
       }
+    } else if (_recompressStreams && _isSingleFlate(srcDict)) {
+      try {
+        // Inflate only the zlib envelope, NOT the PDF predictor. Retaining
+        // the original predictor bytes and /DecodeParms is lossless even
+        // for 16-bit images and unusual TIFF/PNG predictor parameters.
+        final inflated = const ZLibDecoder().decodeBytes(payload);
+        final deflated =
+            const ZLibEncoder().encodeBytes(inflated, level: _deflateLevel);
+        if (deflated.length < payload.length) {
+          payload = deflated;
+          streamsDeflated++;
+        }
+      } on Object {
+        // Preserve malformed/unsupported streams exactly as the lenient
+        // reader found them; optimisation is not a repair operation.
+      }
     }
 
     final out = CosStream(CosDictionary(), payload);
-    final outRef = ref != null ? (_mapped[ref] = _builder.add(out)) : null;
-    if (ref != null) objectsWritten++;
+    // Streams must be indirect even if malformed input held one inline.
+    final outRef = _builder.add(out);
+    if (ref != null) _mapped[ref] = outRef;
+    objectsWritten++;
     srcDict.entries.forEach((key, item) {
       if (key == 'Length') return; // recomputed below
       // When we impose FlateDecode, drop any decode params the (unfiltered)
@@ -197,7 +238,7 @@ class _GraphCopier {
     });
     if (addFlate) out.dictionary['Filter'] = const CosName('FlateDecode');
     out.dictionary['Length'] = CosInteger(payload.length);
-    return outRef ?? out;
+    return outRef;
   }
 
   /// A stream is unfiltered when it declares no `/Filter` (or an empty array).
@@ -206,7 +247,17 @@ class _GraphCopier {
     return switch (filter) {
       CosName() => false,
       CosArray(:final items) => items.isEmpty,
-      _ => true,
+      CosNull() => true,
+      _ => false,
     };
+  }
+
+  bool _isSingleFlate(CosDictionary dict) {
+    var filter = document.resolve(dict['Filter']);
+    if (filter is CosArray && filter.length == 1) {
+      filter = document.resolve(filter[0]);
+    }
+    return filter is CosName &&
+        (filter.value == 'FlateDecode' || filter.value == 'Fl');
   }
 }

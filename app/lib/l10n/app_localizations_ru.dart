@@ -1144,4 +1144,138 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Не удалось очистить кэш документов. Повторите попытку.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Уменьшить размер файла…';
+
+  @override
+  String get reduceSizeTitle => 'Уменьшить размер файла';
+
+  @override
+  String get reduceSizeDescription =>
+      'Оптимизируйте текущий документ, оцените экономию и сохраните уменьшенную копию.';
+
+  @override
+  String get reduceSizePreset => 'Набор настроек';
+
+  @override
+  String get reduceSizeLossless =>
+      'Без потерь — сохранить качество изображений';
+
+  @override
+  String get reduceSizeScreen => 'Экран — 72 DPI, качество JPEG 60';
+
+  @override
+  String get reduceSizeEbook => 'eBook — 150 DPI, качество JPEG 75';
+
+  @override
+  String get reduceSizePrinter => 'Печать — 300 DPI, качество JPEG 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Разрешение и качество изображений не меняются.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Изображения выше целевого разрешения могут быть уменьшены и перекодированы в JPEG. Мелкие детали могут потеряться; текст и векторная графика сохранят чёткость.';
+
+  @override
+  String get reduceSizeAdvanced => 'Дополнительные настройки';
+
+  @override
+  String get reduceSizeRecompress => 'Повторно сжать потоки';
+
+  @override
+  String get reduceSizeUnusedResources => 'Удалить неиспользуемые ресурсы';
+
+  @override
+  String get reduceSizeDeduplicate => 'Объединить дублирующиеся объекты';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Оставить в шрифтах только используемые глифы';
+
+  @override
+  String get reduceSizeDpi => 'Целевое разрешение изображений';
+
+  @override
+  String get reduceSizeKeepImages =>
+      'Сохранить исходные изображения (без потерь)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'Качество JPEG: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Перезапись этого подписанного PDF сделает цифровые подписи в сохранённой копии недействительными.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Разрешить аннулирование подписей в этой копии';
+
+  @override
+  String get reduceSizeEncrypted => 'Зашифрованные PDF нельзя оптимизировать.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Дождитесь окончания загрузки документа перед уменьшением его размера.';
+
+  @override
+  String get reduceSizeRun => 'Оптимизировать';
+
+  @override
+  String get reduceSizeRunning => 'Оптимизация документа…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Не удалось оптимизировать PDF: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Не удалось сохранить копию: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Сохранить копию…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Изменить настройки';
+
+  @override
+  String get reduceSizeBefore => 'Исходный размер';
+
+  @override
+  String get reduceSizeAfter => 'Размер после оптимизации';
+
+  @override
+  String get reduceSizeSavings => 'Освобождено места';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Документ уже компактен с этими настройками. Исходные данные сохранены.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Байт сэкономлено на каждом этапе оптимизации:';
+
+  @override
+  String get reduceSizeStructure => 'Структура документа';
+
+  @override
+  String get reduceSizeResources => 'Неиспользуемые ресурсы';
+
+  @override
+  String get reduceSizeFonts => 'Встроенные шрифты';
+
+  @override
+  String get reduceSizeImages => 'Изображения';
+
+  @override
+  String get reduceSizeDuplicates => 'Дублирующиеся объекты';
+
+  @override
+  String get reduceSizeCustom => 'Пользовательские настройки';
 }

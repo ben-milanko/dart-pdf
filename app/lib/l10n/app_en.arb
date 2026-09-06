@@ -1511,5 +1511,176 @@
   },
   "@settingsCacheClearFailed": {
     "description": "Opened PDF snapshot cache settings: settingsCacheClearFailed"
+  },
+  "editorMenuReduceFileSize": "Reduce file size…",
+  "@editorMenuReduceFileSize": {
+    "description": "App menu action that opens the PDF optimization tool."
+  },
+  "reduceSizeTitle": "Reduce file size",
+  "@reduceSizeTitle": {
+    "description": "Title of the PDF optimization dialog."
+  },
+  "reduceSizeDescription": "Optimize the current document, review the savings, then save a smaller copy.",
+  "@reduceSizeDescription": {
+    "description": "Explanation of the optimization and save-copy workflow."
+  },
+  "reduceSizePreset": "Preset",
+  "@reduceSizePreset": {
+    "description": "Label for the compression preset picker."
+  },
+  "reduceSizeLossless": "Lossless — preserve image quality",
+  "@reduceSizeLossless": {
+    "description": "Default preset that preserves image quality."
+  },
+  "reduceSizeScreen": "Screen — 72 DPI, JPEG quality 60",
+  "@reduceSizeScreen": {
+    "description": "Low-resolution compression preset, describes its image quality."
+  },
+  "reduceSizeEbook": "eBook — 150 DPI, JPEG quality 75",
+  "@reduceSizeEbook": {
+    "description": "Medium-resolution compression preset, describes its image quality."
+  },
+  "reduceSizePrinter": "Print — 300 DPI, JPEG quality 90",
+  "@reduceSizePrinter": {
+    "description": "High-resolution compression preset, describes its image quality."
+  },
+  "reduceSizeLosslessHint": "Image resolution and quality stay the same.",
+  "@reduceSizeLosslessHint": {
+    "description": "Description shown when lossy image processing is disabled."
+  },
+  "reduceSizeLossyHint": "Images above the target resolution may be reduced and JPEG-encoded. Fine image detail can be lost; text and vector graphics stay sharp.",
+  "@reduceSizeLossyHint": {
+    "description": "Describes the quality tradeoff when image downsampling is enabled."
+  },
+  "reduceSizeAdvanced": "Advanced settings",
+  "@reduceSizeAdvanced": {
+    "description": "Expansion title for individual optimization settings."
+  },
+  "reduceSizeRecompress": "Recompress streams",
+  "@reduceSizeRecompress": {
+    "description": "Option to apply lossless compression to PDF streams."
+  },
+  "reduceSizeUnusedResources": "Remove unused resources",
+  "@reduceSizeUnusedResources": {
+    "description": "Option to remove resources that page content does not use."
+  },
+  "reduceSizeDeduplicate": "Merge duplicate objects",
+  "@reduceSizeDeduplicate": {
+    "description": "Option to share identical PDF objects."
+  },
+  "reduceSizeSubsetFonts": "Subset embedded fonts",
+  "@reduceSizeSubsetFonts": {
+    "description": "Option to remove unused embedded font glyphs when supported."
+  },
+  "reduceSizeDpi": "Image target resolution",
+  "@reduceSizeDpi": {
+    "description": "Label for image target DPI control."
+  },
+  "reduceSizeKeepImages": "Keep original images (lossless)",
+  "@reduceSizeKeepImages": {
+    "description": "Image resolution choice that disables lossy processing."
+  },
+  "reduceSizeJpegQuality": "JPEG quality: {quality}",
+  "@reduceSizeJpegQuality": {
+    "description": "Image encoder quality, from 10 to 100.",
+    "placeholders": {
+      "quality": {
+        "type": "int"
+      }
+    }
+  },
+  "reduceSizeSignaturesNotice": "Rewriting this signed PDF invalidates its digital signatures in the saved copy.",
+  "@reduceSizeSignaturesNotice": {
+    "description": "Warning shown only for a document containing digital signatures."
+  },
+  "reduceSizeInvalidateSignatures": "Allow invalidating signatures in this copy",
+  "@reduceSizeInvalidateSignatures": {
+    "description": "Explicit consent checkbox required before optimizing a signed file."
+  },
+  "reduceSizeEncrypted": "Encrypted PDFs cannot be optimized.",
+  "@reduceSizeEncrypted": {
+    "description": "Message shown when the optimization action is used on an encrypted PDF."
+  },
+  "reduceSizeIncomplete": "Wait for the document to finish loading before reducing its size.",
+  "@reduceSizeIncomplete": {
+    "description": "Message shown when a progressive source has not fully loaded."
+  },
+  "reduceSizeRun": "Optimize",
+  "@reduceSizeRun": {
+    "description": "Button that runs the selected optimizations."
+  },
+  "reduceSizeRunning": "Optimizing document…",
+  "@reduceSizeRunning": {
+    "description": "Indeterminate progress status while the compression worker is running."
+  },
+  "reduceSizeFailed": "Could not optimize this PDF: {error}",
+  "@reduceSizeFailed": {
+    "description": "An error returned by the PDF optimizer.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "reduceSizeSaveFailed": "Could not save the copy: {error}",
+  "@reduceSizeSaveFailed": {
+    "description": "An error raised while saving an optimized copy.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "reduceSizeSaveCopy": "Save copy…",
+  "@reduceSizeSaveCopy": {
+    "description": "Opens the save dialog for the optimized PDF."
+  },
+  "reduceSizeChangeSettings": "Change settings",
+  "@reduceSizeChangeSettings": {
+    "description": "Returns from the optimization report to its settings."
+  },
+  "reduceSizeBefore": "Original size",
+  "@reduceSizeBefore": {
+    "description": "Original file size in the optimization report."
+  },
+  "reduceSizeAfter": "Optimized size",
+  "@reduceSizeAfter": {
+    "description": "Resulting file size in the optimization report."
+  },
+  "reduceSizeSavings": "Space saved",
+  "@reduceSizeSavings": {
+    "description": "Bytes and percentage saved by optimization."
+  },
+  "reduceSizeNoSavings": "This document is already compact with these settings. The original bytes were kept.",
+  "@reduceSizeNoSavings": {
+    "description": "Explains a result that could not reduce the file size."
+  },
+  "reduceSizeReportHint": "Bytes saved by each optimization step:",
+  "@reduceSizeReportHint": {
+    "description": "Labels the sequential contribution of each compression category."
+  },
+  "reduceSizeStructure": "Document structure",
+  "@reduceSizeStructure": {
+    "description": "Report category for compaction and stream compression."
+  },
+  "reduceSizeResources": "Unused resources",
+  "@reduceSizeResources": {
+    "description": "Report category for unused-resource removal."
+  },
+  "reduceSizeFonts": "Embedded fonts",
+  "@reduceSizeFonts": {
+    "description": "Report category for font subsetting."
+  },
+  "reduceSizeImages": "Images",
+  "@reduceSizeImages": {
+    "description": "Report category for image processing."
+  },
+  "reduceSizeDuplicates": "Duplicate objects",
+  "@reduceSizeDuplicates": {
+    "description": "Report category for identical-object sharing."
+  },
+  "reduceSizeCustom": "Custom settings",
+  "@reduceSizeCustom": {
+    "description": "Preset label shown after any individual compression setting is changed."
   }
 }

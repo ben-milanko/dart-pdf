@@ -57,6 +57,51 @@ editor.addFreeText(0, const PdfRect(72, 600, 280, 660), 'Reviewed.');
 final saved = editor.save(); // incremental update
 ```
 
+## Reduce file size
+
+```dart
+final result = PdfCompressor.optimize(PdfDocument.open(bytes)); // lossless
+print('${result.bytesSaved} bytes saved '
+    '(${(result.savingsFraction * 100).toStringAsFixed(1)}%)');
+final reducedBytes = result.bytes;
+
+// Explicitly opt in to reducing image quality for on-screen reading.
+final screenCopy = PdfCompressor.optimize(
+  PdfDocument.open(bytes),
+  options: PdfCompressionPreset.screen.options,
+);
+
+// Includes pending edits; leaves the editor's history intact.
+final editedCopy = editor.compress(
+  options: const PdfCompressionOptions(targetDpi: 150, jpegQuality: 75),
+);
+```
+
+Lossless defaults remove unreachable objects and unused resources, compress
+unfiltered/Flate streams, write object/xref streams, deduplicate identical
+images/font programs/ICC profiles, and subset supported TrueType and CFF fonts.
+The result is never larger than the input. `steps` reports actual sequential
+file-size changes by category; its savings sum to `bytesSaved`. Options enable
+or disable each pass independently, and `warnings` explains content preserved
+because it could not be optimised safely.
+
+Presets are **Lossless** (no image changes), **Screen** (72 DPI / JPEG 60),
+**eBook** (150 DPI / JPEG 75), and **Print** (300 DPI / JPEG 90). Image sizing
+uses the largest placement across pages and nested forms, including page
+`UserUnit`. Only eligible 8-bit DeviceRGB/DeviceGray DCT/Flate images are
+processed. Masks, bitonal/JBIG2 images, ICC/CMYK images, uncertain placements,
+and images over 16 million pixels remain intact. Gray images stay gray and use
+Flate after downsampling. Fonts with ambiguous mappings, unsupported formats,
+or editable AcroForm consumers are retained; TrueType/CFF subsetting keeps
+glyph IDs, used outlines, widths, and required composite/subroutine data.
+
+This produces a rewritten copy, removing incremental revision history.
+Encrypted and incomplete progressive sources are refused. Signed PDFs require
+`allowInvalidateSignatures: true`, because rewriting invalidates signatures.
+The source bytes and parsed document are never modified. The API is pure Dart
+and web-compatible; dispatch it to an isolate or web worker when responsiveness
+matters for large files. Linearization is not included.
+
 ## Merge PDFs
 
 ```dart

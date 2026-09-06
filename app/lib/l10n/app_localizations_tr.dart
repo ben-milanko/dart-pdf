@@ -1127,4 +1127,136 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Önbellekteki belgeler temizlenemedi. Tekrar deneyin.';
+
+  @override
+  String get editorMenuReduceFileSize => 'Dosya boyutunu küçült…';
+
+  @override
+  String get reduceSizeTitle => 'Dosya boyutunu küçült';
+
+  @override
+  String get reduceSizeDescription =>
+      'Geçerli belgeyi optimize edin, tasarrufu inceleyin ve daha küçük bir kopya kaydedin.';
+
+  @override
+  String get reduceSizePreset => 'Ön ayar';
+
+  @override
+  String get reduceSizeLossless => 'Kayıpsız — görüntü kalitesini koru';
+
+  @override
+  String get reduceSizeScreen => 'Ekran — 72 DPI, JPEG kalitesi 60';
+
+  @override
+  String get reduceSizeEbook => 'e-Kitap — 150 DPI, JPEG kalitesi 75';
+
+  @override
+  String get reduceSizePrinter => 'Yazdırma — 300 DPI, JPEG kalitesi 90';
+
+  @override
+  String get reduceSizeLosslessHint =>
+      'Görüntü çözünürlüğü ve kalitesi aynı kalır.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'Hedef çözünürlüğün üzerindeki görüntüler küçültülüp JPEG olarak kodlanabilir. İnce ayrıntılar kaybolabilir; metin ve vektör grafikler keskin kalır.';
+
+  @override
+  String get reduceSizeAdvanced => 'Gelişmiş ayarlar';
+
+  @override
+  String get reduceSizeRecompress => 'Akışları yeniden sıkıştır';
+
+  @override
+  String get reduceSizeUnusedResources => 'Kullanılmayan kaynakları kaldır';
+
+  @override
+  String get reduceSizeDeduplicate => 'Yinelenen nesneleri birleştir';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'Gömülü yazı tiplerini kullanılan gliflerle sınırla';
+
+  @override
+  String get reduceSizeDpi => 'Görüntü hedef çözünürlüğü';
+
+  @override
+  String get reduceSizeKeepImages => 'Özgün görüntüleri koru (kayıpsız)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'JPEG kalitesi: $quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'Bu imzalı PDF’nin yeniden yazılması, kaydedilen kopyadaki dijital imzaları geçersiz kılar.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'Bu kopyadaki imzaların geçersiz kılınmasına izin ver';
+
+  @override
+  String get reduceSizeEncrypted => 'Şifrelenmiş PDF’ler optimize edilemez.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'Boyutunu küçültmeden önce belgenin yüklenmesinin bitmesini bekleyin.';
+
+  @override
+  String get reduceSizeRun => 'Optimize et';
+
+  @override
+  String get reduceSizeRunning => 'Belge optimize ediliyor…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'Bu PDF optimize edilemedi: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'Kopya kaydedilemedi: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'Kopyayı kaydet…';
+
+  @override
+  String get reduceSizeChangeSettings => 'Ayarları değiştir';
+
+  @override
+  String get reduceSizeBefore => 'Özgün boyut';
+
+  @override
+  String get reduceSizeAfter => 'Optimize edilmiş boyut';
+
+  @override
+  String get reduceSizeSavings => 'Kazanılan alan';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'Bu belge, bu ayarlarla zaten küçüktür. Özgün veriler korundu.';
+
+  @override
+  String get reduceSizeReportHint =>
+      'Her optimizasyon adımında kazanılan bayt:';
+
+  @override
+  String get reduceSizeStructure => 'Belge yapısı';
+
+  @override
+  String get reduceSizeResources => 'Kullanılmayan kaynaklar';
+
+  @override
+  String get reduceSizeFonts => 'Gömülü yazı tipleri';
+
+  @override
+  String get reduceSizeImages => 'Görüntüler';
+
+  @override
+  String get reduceSizeDuplicates => 'Yinelenen nesneler';
+
+  @override
+  String get reduceSizeCustom => 'Özel ayarlar';
 }
