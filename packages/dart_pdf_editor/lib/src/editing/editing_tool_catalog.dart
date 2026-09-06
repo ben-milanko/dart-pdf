@@ -124,6 +124,7 @@ const pdfToolGroups = <PdfToolGroup>[
   ]),
   PdfToolGroup('edit', Icons.design_services, [
     PdfToolEntry.tool(PdfEditTool.content, Icons.format_shapes),
+    PdfToolEntry.tool(PdfEditTool.contentDelete, Icons.content_cut),
     PdfToolEntry.tool(PdfEditTool.form, Icons.ballot_outlined),
     PdfToolEntry.tool(PdfEditTool.link, Icons.link),
     PdfToolEntry.tool(PdfEditTool.redact, Icons.gradient),
@@ -181,6 +182,7 @@ String pdfEditToolLabel(BuildContext context, PdfEditTool tool) {
     PdfEditTool.signature => l.tbNameSignature,
     PdfEditTool.image => l.tbNameImage,
     PdfEditTool.content => l.tbToolContent,
+    PdfEditTool.contentDelete => l.tbToolContentDelete,
     PdfEditTool.form => l.tbToolForm,
     PdfEditTool.link => l.toolLink,
     PdfEditTool.redact => l.tbToolRedact,
@@ -203,6 +205,7 @@ String pdfEditToolTooltip(BuildContext context, PdfEditTool tool) {
     PdfEditTool.measureAngle => l.tbTipMeasureAngle,
     PdfEditTool.measureArc => l.tbTipMeasureArc,
     PdfEditTool.content => l.tbTipContent,
+    PdfEditTool.contentDelete => l.tbTipContentDelete,
     PdfEditTool.form => l.tbTipForm,
     PdfEditTool.redact => l.tbTipRedact,
     PdfEditTool.snapshot => l.tbTipSnapshot,

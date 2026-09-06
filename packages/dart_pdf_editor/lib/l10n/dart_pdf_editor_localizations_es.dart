@@ -2146,4 +2146,11 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Ajustar bordes y centros de anotaciones • Mantén Alt para omitir';
+
+  @override
+  String get tbToolContentDelete => 'Borrar';
+
+  @override
+  String get tbTipContentDelete =>
+      'Eliminar contenido: arrastra un rectángulo o haz clic en los vértices del polígono y doble clic para terminar';
 }

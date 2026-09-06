@@ -2140,4 +2140,11 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Ek açıklama kenarlarına ve merkezlerine yasla • Atlamak için Alt tuşunu basılı tutun';
+
+  @override
+  String get tbToolContentDelete => 'Sil';
+
+  @override
+  String get tbTipContentDelete =>
+      'İçeriği sil — bir dikdörtgen sürükleyin veya çokgenin köşelerine tıklayıp bitirmek için çift tıklayın';
 }

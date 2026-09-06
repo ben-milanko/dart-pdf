@@ -2183,4 +2183,11 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Прив’язка до країв і центрів анотацій • Утримуйте Alt, щоб пропустити';
+
+  @override
+  String get tbToolContentDelete => 'Стерти';
+
+  @override
+  String get tbTipContentDelete =>
+      'Видалити вміст — намалюйте прямокутник або натисніть вершини багатокутника й завершіть подвійним клацанням';
 }

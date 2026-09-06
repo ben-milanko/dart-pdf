@@ -2144,4 +2144,11 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Jepret tepi dan pusat anotasi • Tahan Alt untuk melewati';
+
+  @override
+  String get tbToolContentDelete => 'Hapus';
+
+  @override
+  String get tbTipContentDelete =>
+      'Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai';
 }

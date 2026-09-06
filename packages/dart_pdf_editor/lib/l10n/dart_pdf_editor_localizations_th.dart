@@ -2130,4 +2130,11 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'จัดแนวขอบและจุดกึ่งกลางของคำอธิบายประกอบ • กด Alt ค้างไว้เพื่อข้าม';
+
+  @override
+  String get tbToolContentDelete => 'ลบ';
+
+  @override
+  String get tbTipContentDelete =>
+      'ลบเนื้อหา — ลากสี่เหลี่ยม หรือคลิกจุดยอดของรูปหลายเหลี่ยมแล้วดับเบิลคลิกเพื่อเสร็จสิ้น';
 }

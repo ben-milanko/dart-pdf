@@ -2147,4 +2147,11 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Aggancia bordi e centri delle annotazioni • Tieni premuto Alt per ignorare';
+
+  @override
+  String get tbToolContentDelete => 'Cancella';
+
+  @override
+  String get tbTipContentDelete =>
+      'Elimina contenuto: trascina un rettangolo oppure fai clic sui vertici del poligono e doppio clic per terminare';
 }

@@ -2117,4 +2117,11 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get guidesSnapHint => '주석 가장자리와 중심에 맞춤 • Alt 키를 눌러 건너뛰기';
+
+  @override
+  String get tbToolContentDelete => '지우기';
+
+  @override
+  String get tbTipContentDelete =>
+      '콘텐츠 삭제 — 사각형을 드래그하거나 다각형의 꼭짓점을 클릭한 후 두 번 클릭하여 완료';
 }

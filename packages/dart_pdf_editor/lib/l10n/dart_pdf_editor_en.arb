@@ -2740,5 +2740,7 @@
   "guidesSnapHint": "Snap annotation edges and centers • Hold Alt to bypass",
   "@guidesSnapHint": {
     "description": "Smart alignment guides hint. Alt temporarily disables snapping."
-  }
+  },
+  "tbToolContentDelete": "Erase",
+  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish"
 }

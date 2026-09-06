@@ -9,7 +9,11 @@ import 'package:test/test.dart';
 
 /// One-page PDF around a custom content stream, with /F1 Helvetica and a
 /// 1×1 gray image /Im1 available.
-Uint8List buildContentPdf(String content) {
+Uint8List buildContentPdf(
+  String content, {
+  String font = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  String? toUnicode,
+}) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -17,10 +21,14 @@ Uint8List buildContentPdf(String content) {
         '/Resources << /Font << /F1 5 0 R >> '
         '/XObject << /Im1 6 0 R >> >> >>',
     '<< /Length ${content.length} >>\nstream\n$content\nendstream',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    toUnicode == null
+        ? font
+        : '${font.substring(0, font.lastIndexOf(">>"))} /ToUnicode 7 0 R >>',
     '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 '
         '/ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\n'
         'stream\nx\nendstream',
+    if (toUnicode != null)
+      '<< /Length ${toUnicode.length} >>\nstream\n$toUnicode\nendstream',
   ];
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
@@ -125,6 +133,133 @@ void main() {
       expect(three.bounds!.bottom, closeTo(700 - 28 - 2.4, 0.01));
     });
 
+    test('region deleting part of a text run slices to character bounds', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(
+          editor.deleteElementsInRect(
+              elements, const PdfRect(72, 700, 90, 710)),
+          1);
+
+      final out = PdfDocument.open(editor.save());
+      final reparsed = PdfPageElements.of(out, 0);
+      expect(
+          reparsed.elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          [' line', 'second line']);
+      expect(pageText(out), contains('TJ'));
+      expect(pageText(out), isNot(contains('(first line) Tj')));
+    });
+
+    test('a region flush to a glyph edge does not swallow the neighbour', () {
+      // "first line" starts at x=72, size 12. Drag a box whose right edge lands
+      // exactly on the "first "/"l" boundary and whose left edge lands exactly
+      // on the " line" gap: only the covered glyphs go, not the ones the box is
+      // merely flush against (a boundary the "any overlap" test got wrong).
+      final left = 72.0;
+      final firstSpace = left + measureHelvetica('first ', 12);
+      final firstLi = left + measureHelvetica('first li', 12);
+
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      // box flush to the left of "l": erases "first ", keeps "line".
+      expect(
+          editor.deleteElementsInRect(
+              elements, PdfRect(left, 700, firstSpace, 712)),
+          1);
+      var out = PdfDocument.open(editor.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['line', 'second line']);
+
+      // box flush to the right of "i" (start of "ne"): erases "ne", keeps
+      // "first li" — the left edge must not pull the preceding "i" in.
+      final doc2 = PdfDocument.open(buildContentPdf(richContent));
+      final elements2 = PdfPageElements.of(doc2, 0);
+      final editor2 = PdfEditor(doc2);
+      expect(
+          editor2.deleteElementsInRect(
+              elements2, PdfRect(firstLi, 700, 200, 712)),
+          1);
+      out = PdfDocument.open(editor2.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['first li', 'second line']);
+    });
+
+    test('a polygon lasso slices the glyphs whose centres it encloses', () {
+      // A quadrilateral over the middle of "first line" (baseline 700, band
+      // ~[697.6, 712]), covering the "st li" glyph centres.
+      final left = 72.0;
+      final poly = <(double, double)>[
+        (left + measureHelvetica('fir', 12), 697),
+        (left + measureHelvetica('first li', 12), 697),
+        (left + measureHelvetica('first li', 12), 713),
+        (left + measureHelvetica('fir', 12), 713),
+      ];
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(editor.deleteElementsInPolygon(elements, poly), 1);
+
+      final out = PdfDocument.open(editor.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['firne', 'second line']);
+    });
+
+    test('a polygon lasso removes a fully-enclosed non-text element', () {
+      // The filled rectangle "100 100 50 40 re f" sits at x 100..150, y
+      // 100..140; a lasso around it drops it whole.
+      final poly = <(double, double)>[
+        (95, 95),
+        (160, 95),
+        (160, 150),
+        (95, 150),
+      ];
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(editor.deleteElementsInPolygon(elements, poly), 1);
+
+      final out = PdfDocument.open(editor.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.path),
+          isEmpty);
+      // text runs it does not enclose are untouched
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['first line', 'second line']);
+    });
+
+    test('a degenerate polygon is a no-op', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(
+          editor.deleteElementsInPolygon(
+              elements, const [(0.0, 0.0), (1.0, 1.0)]),
+          0);
+      expect(editor.hasChanges, isFalse);
+    });
+
     test('inline images round-trip through a rewrite', () {
       final doc = PdfDocument.open(buildContentPdf('100 100 10 10 re f\n'
           'q 5 0 0 5 10 10 cm BI /W 2 /H 1 /CS /G /BPC 8 ID \xa0\xa1 EI Q\n'));
@@ -187,8 +322,7 @@ void main() {
 
       expect(
           editor.replaceElementText(elements, texts.first, 'Page', 'Sheet'), 1);
-      expect(
-          editor.replaceElementText(elements, texts[1], 'Page', 'Folio'), 1);
+      expect(editor.replaceElementText(elements, texts[1], 'Page', 'Folio'), 1);
 
       final reopened = PdfDocument.open(editor.save());
       final text = PdfPageElements.of(reopened, 0)

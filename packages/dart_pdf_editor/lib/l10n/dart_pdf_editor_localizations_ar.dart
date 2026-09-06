@@ -2183,4 +2183,11 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'محاذاة حواف التعليقات التوضيحية ومراكزها • اضغط مطولاً على Alt للتجاوز';
+
+  @override
+  String get tbToolContentDelete => 'محو';
+
+  @override
+  String get tbTipContentDelete =>
+      'حذف المحتوى — اسحب مستطيلاً، أو انقر رؤوس المضلع وانقر مرتين للإنهاء';
 }

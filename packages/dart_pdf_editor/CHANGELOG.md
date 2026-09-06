@@ -5,6 +5,11 @@
 - Add complete Australian and UK English locales for editor controls, including
   colour, centre and organisation, while the base English locale uses US spelling.
   Localise the smart alignment guide hint.
+- Add the Erase content tool (Shift+E) to the toolbar and shared tool catalogue,
+  with a compact "Erase" label and full instructions in its tooltip.
+  Drag a rectangle or click polygon vertices and double-click to finish;
+  crossing graphics are clipped at the boundary and text is sliced by glyph.
+  Deletion is undoable and leaves annotations unchanged.
 - Add `PdfCompressionTask` in `compression_worker.dart`: cancellable PDF
   optimisation in native isolates and dedicated browser workers, with exact
   savings reports and no main-thread fallback when a worker fails.

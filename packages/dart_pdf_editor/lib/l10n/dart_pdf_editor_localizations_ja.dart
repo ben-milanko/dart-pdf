@@ -2116,4 +2116,11 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get guidesSnapHint => '注釈の端と中心にスナップ • Alt キーを押して無効化';
+
+  @override
+  String get tbToolContentDelete => '消去';
+
+  @override
+  String get tbTipContentDelete =>
+      'コンテンツを削除 — ドラッグで長方形を描くか、多角形の頂点をクリックし、ダブルクリックで完了';
 }

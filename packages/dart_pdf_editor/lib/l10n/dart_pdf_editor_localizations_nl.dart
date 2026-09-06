@@ -2144,4 +2144,11 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Randen en middelpunten van annotaties uitlijnen • Houd Alt ingedrukt om over te slaan';
+
+  @override
+  String get tbToolContentDelete => 'Wissen';
+
+  @override
+  String get tbTipContentDelete =>
+      'Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden';
 }

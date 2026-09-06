@@ -625,5 +625,7 @@
   "splitInvalidRanges": "1–{count} arasındaki sayfaları virgülle ayırın. Aralıklar artan sırada olmalıdır.",
   "splitConfirm": "Böl",
   "splitFailed": "Bu PDF bölünemedi.",
-  "guidesSnapHint": "Ek açıklama kenarlarına ve merkezlerine yasla • Atlamak için Alt tuşunu basılı tutun"
+  "guidesSnapHint": "Ek açıklama kenarlarına ve merkezlerine yasla • Atlamak için Alt tuşunu basılı tutun",
+  "tbToolContentDelete": "Sil",
+  "tbTipContentDelete": "İçeriği sil — bir dikdörtgen sürükleyin veya çokgenin köşelerine tıklayıp bitirmek için çift tıklayın"
 }

@@ -625,5 +625,7 @@
   "splitInvalidRanges": "Use pages 1–{count}, separated by commas. Ranges must run from first to last.",
   "splitConfirm": "Split",
   "splitFailed": "Could not split this PDF.",
-  "guidesSnapHint": "Snap annotation edges and centres • Hold Alt to bypass"
+  "guidesSnapHint": "Snap annotation edges and centres • Hold Alt to bypass",
+  "tbToolContentDelete": "Erase",
+  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish"
 }

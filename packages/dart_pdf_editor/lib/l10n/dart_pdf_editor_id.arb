@@ -625,5 +625,7 @@
   "splitInvalidRanges": "Gunakan halaman 1–{count}, dipisahkan koma. Rentang harus berurutan naik.",
   "splitConfirm": "Pisahkan",
   "splitFailed": "PDF ini tidak dapat dipisahkan.",
-  "guidesSnapHint": "Jepret tepi dan pusat anotasi • Tahan Alt untuk melewati"
+  "guidesSnapHint": "Jepret tepi dan pusat anotasi • Tahan Alt untuk melewati",
+  "tbToolContentDelete": "Hapus",
+  "tbTipContentDelete": "Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai"
 }

@@ -2148,4 +2148,11 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Anmerkungskanten und Mittelpunkte einrasten • Zum Umgehen Alt gedrückt halten';
+
+  @override
+  String get tbToolContentDelete => 'Löschen';
+
+  @override
+  String get tbTipContentDelete =>
+      'Inhalt löschen – Rechteck ziehen oder Polygonecken anklicken und mit Doppelklick abschließen';
 }

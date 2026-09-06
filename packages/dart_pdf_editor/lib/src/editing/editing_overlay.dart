@@ -739,6 +739,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _dragStart;
   Offset? _dragCurrent;
   List<Offset>? _polyPoints;
+  PdfEditTool? _polyOwner;
   // the raw (un-snapped) view position of the last placed vertex. Vertices in
   // [_polyPoints] may be Shift-snapped away from where they were tapped, so
   // the near-duplicate dedup (which rejects the second tap of a finishing
@@ -1331,12 +1332,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _host.panViewport != null;
   bool get _polyTool => _behavior?.isPoly ?? false;
 
-  /// The cloud tool is a hybrid: a drag rubber-bands a rectangle, but a
-  /// tap starts (and each further tap extends) a free-form vertex list -
-  /// finished by a double-tap. This is true once at least one vertex has
-  /// been placed, so a drag no longer restarts the shape as a rectangle.
-  bool get _cloudPolyInProgress =>
-      _tool == PdfEditTool.cloudPolygon && (_polyPoints?.isNotEmpty ?? false);
+  /// The tools that are hybrids: a drag rubber-bands a rectangle, but a tap
+  /// starts (and each further tap extends) a free-form vertex list, finished
+  /// by a double-tap. The cloud stamps a polygon annotation; content-delete
+  /// erases the page content the polygon encloses.
+  bool get _hybridPolyTool =>
+      _tool == PdfEditTool.cloudPolygon || _tool == PdfEditTool.contentDelete;
+
+  /// True once at least one hybrid-tool vertex has been placed, so a drag no
+  /// longer restarts the shape as a rectangle.
+  bool get _regionPolyInProgress =>
+      _hybridPolyTool && (_polyPoints?.isNotEmpty ?? false);
 
   /// The number of clicks a fixed-arity poly tool takes before it
   /// auto-finishes - three for the angle and arc takeoffs - or null for an
@@ -3855,8 +3861,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _selectPanStart(details);
       return;
     }
-    if (_cloudPolyInProgress) {
-      // committing a cloud by clicks: a stray drag must not rubber-band a
+    if (_regionPolyInProgress) {
+      // committing a region by clicks: a stray drag must not rubber-band a
       // rectangle over the vertices already placed
       return;
     }
@@ -3904,6 +3910,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.redact ||
             PdfEditTool.snapshot ||
             PdfEditTool.signatureBox ||
+            PdfEditTool.contentDelete ||
             PdfEditTool.link:
         _beginInteraction(PdfEditingInteractionIntent.create, details.kind);
         setState(() {
@@ -4724,6 +4731,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // exactly where they landed. Dedup against the raw tap so a snapped
       // vertex doesn't make the finishing double-tap add a stray segment.
       if (points.isEmpty) {
+        _polyOwner = _tool;
         _polyPoints = [snapped];
         _polyLastRaw = point;
       } else if ((point - _polyLastRaw!).distance >= 2) {
@@ -4755,6 +4763,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
+        _tool == PdfEditTool.contentDelete ||
         _tool == PdfEditTool.measureArea ||
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
@@ -4773,6 +4782,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // so prompt for the depth and commit asynchronously here.
     if (_measureKind == PdfMeasurementKind.volume) {
       unawaited(_commitVolume(pagePoints));
+      _clearAfterimage();
+      setState(() {
+        _polyPoints = null;
+        _polyLastRaw = null;
+        _polyHover = null;
+      });
+      return;
+    }
+    if (_tool == PdfEditTool.contentDelete) {
+      // the lasso erases page content; there is no shape to leave behind,
+      // so clear the vertices and let the new revision render (no afterimage,
+      // unlike the shape tools below)
+      _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
       _clearAfterimage();
       setState(() {
         _polyPoints = null;
@@ -4865,6 +4887,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _controller.newFormFieldKind, widget.pageIndex, rect);
       case PdfEditTool.redact:
         _controller.addRedaction(widget.pageIndex, rect);
+      case PdfEditTool.contentDelete:
+        _controller.deleteElementsInRect(widget.pageIndex, rect);
       case PdfEditTool.link:
         final target = await widget.linkPrompt(
           context,
@@ -5119,8 +5143,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_polyTool) {
       return;
     }
-    if (_tool == PdfEditTool.cloudPolygon) {
-      // a tap (not a drag) drops a cloud vertex; double-tap finishes it
+    if (_hybridPolyTool) {
+      // a tap (not a drag) drops a vertex; double-tap finishes the region
       _addPolyPoint(details.localPosition);
       return;
     }
@@ -5249,7 +5273,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
       return;
     }
-    if (!_polyTool && _tool != PdfEditTool.cloudPolygon) return;
+    if (!_polyTool && !_hybridPolyTool) return;
     _finishPolyPath(_polyDoubleTapPosition);
     _polyDoubleTapPosition = null;
   }
@@ -5364,9 +5388,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _bumpCursor();
       }
       cursor = SystemMouseCursors.precise;
-    } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
-      // once a cloud vertex is down, the hover rubber-bands the next edge;
-      // before that the cloud tool still rubber-bands a rectangle on drag.
+    } else if (_polyTool || _hybridPolyTool) {
+      // once a hybrid vertex is down, the hover rubber-bands the next edge;
+      // before that a hybrid tool still rubber-bands a rectangle on drag.
       // the raw hover is stored; Shift-snapping is applied in the preview
       // builder (see [_straightChain]) so the rubber band tracks the snap
       if (_polyPoints != null && event.localPosition != _polyHover) {
@@ -5989,9 +6013,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         (widget.rasterCurrent || _afterRevisionId != _controller.revisionId)) {
       _clearAfterimage();
     }
-    if (_polyPoints != null &&
-        !_polyTool &&
-        _tool != PdfEditTool.cloudPolygon) {
+    if (_polyPoints != null && _polyOwner != _tool) {
       _polyPoints = null;
       _polyLastRaw = null;
       _polyHover = null;
@@ -6199,16 +6221,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             cropping || picking || !acceptsEditingGestures ? null : _onTapUp,
         onDoubleTapDown: !cropping &&
                 !picking &&
-                (_polyTool ||
-                    _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form)
+                (_polyTool || _hybridPolyTool || _tool == PdfEditTool.form)
             ? _onDoubleTapDown
             : null,
         onDoubleTap: !cropping &&
                 !picking &&
-                (_polyTool ||
-                    _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form)
+                (_polyTool || _hybridPolyTool || _tool == PdfEditTool.form)
             ? _onDoubleTap
             : null,
         child: MouseRegion(
@@ -8063,6 +8081,16 @@ class _EditingPreviewPainter extends CustomPainter {
               ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.redact:
         paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
+      case PdfEditTool.contentDelete:
+        // Same region marquee as Snapshot, but orange to signal permanent
+        // page-content edits rather than a read-only capture.
+        canvas.drawRect(rect, Paint()..color = _elementChrome.withAlpha(0x1A));
+        canvas.drawRect(
+            rect,
+            Paint()
+              ..color = _elementChrome
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.snapshot || PdfEditTool.signatureBox || PdfEditTool.link:
         // a selection marquee: the region grab in a screenshot tool, the
         // "draw where the signature goes" box in Acrobat/Bluebeam, and the
@@ -8255,6 +8283,25 @@ class _EditingPreviewPainter extends CustomPainter {
       bool dashed,
       double patternScale) {
     if (points.length < 2) return;
+    if (tool == PdfEditTool.contentDelete) {
+      // the lasso-in-progress marquee: an orange dashed outline with a faint
+      // fill, matching the drag-rectangle content-delete preview
+      final region = Path()
+        ..fillType = PathFillType.evenOdd
+        ..moveTo(points.first.dx, points.first.dy);
+      for (final point in points.skip(1)) {
+        region.lineTo(point.dx, point.dy);
+      }
+      region.close();
+      canvas.drawPath(region, Paint()..color = _elementChrome.withAlpha(0x1A));
+      canvas.drawPath(
+          _dashPath(region, 1 * chromeScale),
+          Paint()
+            ..color = _elementChrome
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 * chromeScale);
+      return;
+    }
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke

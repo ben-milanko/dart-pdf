@@ -603,6 +603,7 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
         styleFields:
             PdfToolStyleFields(opacity: true, font: true, boxColors: true)),
     const _SimpleTool(PdfEditTool.content),
+    const _SimpleTool(PdfEditTool.contentDelete),
     const _SimpleTool(PdfEditTool.form),
     const _SimpleTool(PdfEditTool.redact),
     const _SimpleTool(PdfEditTool.snapshot),

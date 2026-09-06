@@ -2135,4 +2135,11 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Bám vào cạnh và tâm chú thích • Giữ Alt để bỏ qua';
+
+  @override
+  String get tbToolContentDelete => 'Xóa';
+
+  @override
+  String get tbTipContentDelete =>
+      'Xóa nội dung — kéo hình chữ nhật hoặc nhấp các đỉnh đa giác rồi nhấp đúp để hoàn tất';
 }

@@ -2135,6 +2135,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get guidesSnapHint =>
       'Snap annotation edges and centers • Hold Alt to bypass';
+
+  @override
+  String get tbToolContentDelete => 'Erase';
+
+  @override
+  String get tbTipContentDelete =>
+      'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4268,6 +4275,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get guidesSnapHint =>
       'Snap annotation edges and centres • Hold Alt to bypass';
+
+  @override
+  String get tbToolContentDelete => 'Erase';
+
+  @override
+  String get tbTipContentDelete =>
+      'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -6401,4 +6415,11 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get guidesSnapHint =>
       'Snap annotation edges and centres • Hold Alt to bypass';
+
+  @override
+  String get tbToolContentDelete => 'Erase';
+
+  @override
+  String get tbTipContentDelete =>
+      'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
 }

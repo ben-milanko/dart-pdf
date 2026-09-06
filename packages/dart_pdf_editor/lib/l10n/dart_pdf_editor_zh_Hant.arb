@@ -625,5 +625,7 @@
   "splitInvalidRanges": "請輸入 1 至 {count} 之間的頁碼，以逗號分隔。範圍必須按遞增順序填寫。",
   "splitConfirm": "分割",
   "splitFailed": "無法分割此 PDF。",
-  "guidesSnapHint": "吸附註解邊緣和中心 • 按住 Alt 略過"
+  "guidesSnapHint": "吸附註解邊緣和中心 • 按住 Alt 略過",
+  "tbToolContentDelete": "擦除",
+  "tbTipContentDelete": "刪除內容 — 拖曳矩形，或點擊多邊形頂點並按兩下完成"
 }
