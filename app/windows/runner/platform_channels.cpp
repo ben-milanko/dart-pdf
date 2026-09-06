@@ -275,6 +275,31 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
           }
           result->Success(flutter::EncodableValue(
               CopyPngToClipboard(owner, *bytes)));
+        } else if (call.method_name() == "markLocalCopy") {
+          MarkLocalClipboardCopy();
+          result->Success();
+        } else if (call.method_name() == "copySnapshot") {
+          const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+          const auto* pdf_value = args ? Lookup(*args, "pdf") : nullptr;
+          const auto* png_value = args ? Lookup(*args, "png") : nullptr;
+          const auto* pdf = pdf_value ? std::get_if<std::vector<uint8_t>>(pdf_value) : nullptr;
+          const auto* png = png_value ? std::get_if<std::vector<uint8_t>>(png_value) : nullptr;
+          if (pdf == nullptr || png == nullptr) {
+            result->Error("bad_args", "copySnapshot expects PDF and PNG bytes");
+            return;
+          }
+          result->Success(flutter::EncodableValue(
+              CopySnapshotToClipboard(owner, *pdf, *png)));
+        } else if (call.method_name() == "readPdf") {
+          auto pdf = ReadExternalPdfFromClipboard(owner);
+          if (pdf.has_value()) {
+            result->Success(flutter::EncodableValue(flutter::EncodableMap{
+                {flutter::EncodableValue("pdf"), flutter::EncodableValue(std::move(pdf->bytes))},
+                {flutter::EncodableValue("changeToken"), flutter::EncodableValue(static_cast<int64_t>(pdf->sequence))},
+            }));
+          } else {
+            result->Success();
+          }
         } else if (call.method_name() == "readImage") {
           std::optional<std::vector<uint8_t>> png =
               ReadImageFromClipboard(owner);

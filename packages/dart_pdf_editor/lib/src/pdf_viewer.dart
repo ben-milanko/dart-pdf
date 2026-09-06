@@ -60,6 +60,10 @@ export 'annotation_tap.dart'
 
 const double _defaultMaxZoom = 24;
 
+// Clipboard revisions are shared across viewer windows just like the snapshot
+// holder. Weak keys keep private clipboard lifetimes independent of this cache.
+final _pastedSystemPdfCopies = Expando<Object>('pasted system PDF copy');
+
 /// How the viewer reconciled its page presentation across a document change.
 enum PdfPageReconciliationMode {
   /// Only pages named by the edit impact were re-wrapped.
@@ -1305,6 +1309,7 @@ class PdfViewer extends StatefulWidget {
     this.formImagePicker,
     this.fontPicker,
     this.imagePicker,
+    this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
     this.systemTextPasteProvider,
     this.onSnapshot,
@@ -1644,6 +1649,10 @@ class PdfViewer extends StatefulWidget {
   /// no pointer location is known. When null or when it returns null, paste
   /// falls back to plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies an external PDF for vector paste before the in-app clipboard.
+  /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
+  final PdfSystemPdfPasteProvider? systemPdfPasteProvider;
 
   /// Supplies plain text for ⌘V/Ctrl+V when neither the in-app clipboard nor
   /// [systemImagePasteProvider] produced content. Used in preference to
@@ -6425,7 +6434,11 @@ class _PdfViewerState extends State<PdfViewer>
         final hit = editing.selectableAnnotationAt(page, x, y);
         // an annotation, or empty page area with something to paste,
         // gets the annotation menu
-        if (hit != null || editing.hasAnnotationClipboard) {
+        if (hit != null ||
+            editing.hasAnnotationClipboard ||
+            editing.hasSnapshotClipboard ||
+            (widget.systemPdfPasteProvider != null &&
+                editing.lockedAnnotationAt(page, x, y) == null)) {
           if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
             editing.selectAnnotationAt(page, x, y);
           }
@@ -6446,6 +6459,9 @@ class _PdfViewerState extends State<PdfViewer>
             pageIndex: page,
             customActions: widget.annotationMenuBuilder,
             pagePoint: (x, y),
+            onPaste: widget.systemPdfPasteProvider == null
+                ? null
+                : () => _onPaste(pageIndex: page, at: (x, y)),
           );
           return;
         }
@@ -6832,6 +6848,9 @@ class _PdfViewerState extends State<PdfViewer>
       pageIndex: pageIndex,
       customActions: widget.annotationMenuBuilder,
       pagePoint: pagePoint,
+      onPaste: widget.systemPdfPasteProvider == null
+          ? null
+          : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
     );
   }
 
@@ -7023,29 +7042,64 @@ class _PdfViewerState extends State<PdfViewer>
   /// With no pointer seen yet (touch / keyboard-only) annotation paste
   /// falls back to the current page's cascade; text paste lands in the
   /// current page's center.
-  void _onPaste() {
+  bool _readingPaste = false;
+
+  void _onPaste({int? pageIndex, (double, double)? at}) {
     final editing = widget.editing;
-    if (editing == null) return;
-    // a captured snapshot pastes back as vector graphics; otherwise the
-    // annotation clipboard (the most recent copy wins, mirroring the
-    // controller's clipboards)
-    final snapshot = editing.hasSnapshotClipboard;
-    if (!snapshot && !editing.hasAnnotationClipboard) {
-      unawaited(_pasteSystemClipboard(editing));
+    if (editing == null || _readingPaste) return;
+    final local = _lastPointerLocal;
+    final point =
+        pageIndex == null && local != null ? _pagePointAt(local) : null;
+    final page = pageIndex ?? point?.$1 ?? _controller.currentPage;
+    at ??= point == null ? null : (point.$2, point.$3);
+    if (widget.systemPdfPasteProvider == null) {
+      _pasteLocalClipboard(editing, page, at);
       return;
     }
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (snapshot) {
-      if (point != null) {
-        editing.pasteSnapshot(point.$1, at: (point.$2, point.$3));
-      } else {
-        editing.pasteSnapshot(_controller.currentPage);
+    unawaited(_pasteWithExternalPdf(editing, page, at));
+  }
+
+  Future<void> _pasteWithExternalPdf(
+      PdfEditingController editing, int page, (double, double)? at) async {
+    _readingPaste = true;
+    final revision = editing.revisionId;
+    try {
+      PdfClipboardPdf? pdf;
+      try {
+        pdf = await widget.systemPdfPasteProvider!(context);
+      } catch (_) {
+        // Missing support or denied clipboard access keeps local paste usable.
       }
-    } else if (point != null) {
-      editing.pasteAnnotations(point.$1, at: (point.$2, point.$3));
+      if (!mounted ||
+          widget.editing != editing ||
+          editing.revisionId != revision) {
+        return;
+      }
+      final token = pdf?.changeToken;
+      final alreadyPasted = token != null &&
+          _pastedSystemPdfCopies[editing.snapshotClipboard] == token;
+      if (pdf != null &&
+          !alreadyPasted &&
+          editing.pasteSnapshotBytes(pdf.bytes, page, at: at)) {
+        if (token != null) {
+          _pastedSystemPdfCopies[editing.snapshotClipboard] = token;
+        }
+        return;
+      }
+      _pasteLocalClipboard(editing, page, at);
+    } finally {
+      _readingPaste = false;
+    }
+  }
+
+  void _pasteLocalClipboard(
+      PdfEditingController editing, int page, (double, double)? at) {
+    if (editing.hasSnapshotClipboard) {
+      editing.pasteSnapshot(page, at: at);
+    } else if (editing.hasAnnotationClipboard) {
+      editing.pasteAnnotations(page, at: at);
     } else {
-      editing.pasteAnnotations(_controller.currentPage);
+      unawaited(_pasteSystemClipboard(editing));
     }
   }
 
@@ -7599,7 +7653,12 @@ class _PdfViewerState extends State<PdfViewer>
       }
       final hit = editing.selectableAnnotationAt(page, x, y);
       // nothing to act on: not a menu gesture at all
-      if (hit == null && !editing.hasAnnotationClipboard) return false;
+      if (hit == null &&
+          !editing.hasAnnotationClipboard &&
+          !editing.hasSnapshotClipboard &&
+          widget.systemPdfPasteProvider == null) {
+        return false;
+      }
       // select first, so the host sees the same context the stock menu
       // would have had - and so a press with no listening host still
       // leaves the selection the stock path would have made
@@ -7624,7 +7683,9 @@ class _PdfViewerState extends State<PdfViewer>
       if (!editing.isAnnotationSelected(page, hit.$1)) {
         editing.selectAnnotationAt(page, x, y);
       }
-    } else if (!editing.hasAnnotationClipboard) {
+    } else if (!editing.hasAnnotationClipboard &&
+        !editing.hasSnapshotClipboard &&
+        widget.systemPdfPasteProvider == null) {
       return false;
     }
     HapticFeedback.selectionClick();

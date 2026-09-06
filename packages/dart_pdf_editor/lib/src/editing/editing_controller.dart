@@ -5824,6 +5824,34 @@ class PdfEditingController extends ChangeNotifier {
   /// Whether [pasteSnapshot] has a captured region to paste.
   bool get hasSnapshotClipboard => snapshotClipboard.isNotEmpty;
 
+  Uint8List? _importedSnapshotBytes;
+  PdfVectorSnapshot? _importedSnapshot;
+
+  /// Imports the first page of [pdfBytes] as a vector snapshot and pastes it.
+  /// The page's crop box and rotation determine the natural paste size.
+  /// Invalid bytes or a missing target page leave both clipboards unchanged.
+  /// A successful import becomes the shared snapshot for repeat pastes.
+  bool pasteSnapshotBytes(Uint8List pdfBytes, int pageIndex,
+      {(double, double)? at}) {
+    if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    if (identical(snapshotClipboard.snapshot, _importedSnapshot) &&
+        _importedSnapshot != null &&
+        listEquals(pdfBytes, _importedSnapshotBytes)) {
+      return pasteSnapshot(pageIndex, at: at);
+    }
+    final PdfVectorSnapshot snapshot;
+    try {
+      snapshot = PdfVectorSnapshot.fromPdfBytes(pdfBytes);
+    } catch (_) {
+      return false;
+    }
+    _importedSnapshotBytes = Uint8List.fromList(pdfBytes);
+    _importedSnapshot = snapshot;
+    snapshotClipboard.set(snapshot);
+    annotationClipboard.clear();
+    return pasteSnapshot(pageIndex, at: at);
+  }
+
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot - the page graphics under the region, copied inline,
   /// with the page's /Rotate baked in. Read-only: the document is

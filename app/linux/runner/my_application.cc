@@ -37,6 +37,7 @@ struct _MyApplication {
   FlMethodChannel* incoming_channel;
   // Physical/available memory snapshots for the adaptive PDF cache policy.
   FlMethodChannel* memory_channel;
+  FlMethodChannel* image_clipboard_channel;
   // Resolves a tab-drag pointer back to a Dart-owned GtkWindow/FlView.
   FlMethodChannel* window_geometry_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
@@ -807,9 +808,136 @@ static void present_existing_window(MyApplication* self) {
   g_list_free(windows);
 }
 
+// The selection owner holds both representations until another application
+// replaces them. GTK requests data lazily on X11 and Wayland.
+struct SnapshotClipboardData {
+  GBytes* pdf;
+  GBytes* png;
+};
+static SnapshotClipboardData* local_snapshot = nullptr;
+static gint64 clipboard_generation = 1;
+static gint64 local_copy_generation = 0;
+struct PendingPdfRead {
+  FlMethodCall* call;
+  gint64 generation;
+};
+
+static void snapshot_get(GtkClipboard*, GtkSelectionData* selection,
+                         guint info, gpointer user_data) {
+  auto* data = static_cast<SnapshotClipboardData*>(user_data);
+  GBytes* bytes = info == 0 ? data->pdf : data->png;
+  if (bytes == nullptr) return;
+  gsize length = 0;
+  const auto* buffer = static_cast<const guint8*>(g_bytes_get_data(bytes, &length));
+  gtk_selection_data_set(selection, gtk_selection_data_get_target(selection),
+                         8, buffer, static_cast<gint>(length));
+}
+
+static void snapshot_clear(GtkClipboard*, gpointer user_data) {
+  auto* data = static_cast<SnapshotClipboardData*>(user_data);
+  if (local_snapshot == data) local_snapshot = nullptr;
+  if (data->pdf != nullptr) g_bytes_unref(data->pdf);
+  g_bytes_unref(data->png);
+  delete data;
+}
+
+static bool clipboard_bytes(FlValue* value) {
+  return value != nullptr && fl_value_get_type(value) == FL_VALUE_TYPE_UINT8_LIST &&
+         fl_value_get_length(value) > 0 && fl_value_get_length(value) <= G_MAXINT;
+}
+
+static void image_clipboard_method_call_cb(FlMethodChannel*, FlMethodCall* call,
+                                           gpointer) {
+  const gchar* method = fl_method_call_get_name(call);
+  GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+  FlValue* args = fl_method_call_get_args(call);
+  if (strcmp(method, "copySnapshot") == 0 || strcmp(method, "copyPng") == 0) {
+    const bool snapshot = strcmp(method, "copySnapshot") == 0;
+    const bool map = args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP;
+    FlValue* pdf = snapshot && map ? fl_value_lookup_string(args, "pdf") : nullptr;
+    FlValue* png = snapshot
+        ? (map ? fl_value_lookup_string(args, "png") : nullptr) : args;
+    if (!clipboard_bytes(png) || (snapshot && !clipboard_bytes(pdf))) {
+      fl_method_call_respond_error(call, "bad_args", "Expected PDF/PNG bytes",
+                                   nullptr, nullptr);
+      return;
+    }
+    auto* data = new SnapshotClipboardData{
+        pdf ? g_bytes_new(fl_value_get_uint8_list(pdf), fl_value_get_length(pdf)) : nullptr,
+        g_bytes_new(fl_value_get_uint8_list(png), fl_value_get_length(png))};
+    GtkTargetEntry targets[] = {
+        {const_cast<gchar*>("application/pdf"), 0, 0},
+        {const_cast<gchar*>("image/png"), 0, 1}};
+    const bool copied = gtk_clipboard_set_with_data(clipboard,
+        snapshot ? targets : targets + 1, snapshot ? 2 : 1,
+        snapshot_get, snapshot_clear, data);
+    if (copied) {
+      local_snapshot = data;
+      gtk_clipboard_set_can_store(clipboard, nullptr, 0);
+    } else {
+      snapshot_clear(clipboard, data);
+    }
+    g_autoptr(FlValue) result = fl_value_new_bool(copied);
+    fl_method_call_respond_success(call, result, nullptr);
+  } else if (strcmp(method, "markLocalCopy") == 0) {
+    local_copy_generation = clipboard_generation;
+    fl_method_call_respond_success(call, nullptr, nullptr);
+  } else if (strcmp(method, "readPdf") == 0) {
+    if (local_snapshot != nullptr || local_copy_generation == clipboard_generation) {
+      fl_method_call_respond_success(call, nullptr, nullptr);
+      return;
+    }
+    // Retain the method call until GTK delivers the external selection.
+    gtk_clipboard_request_contents(clipboard, gdk_atom_intern_static_string("application/pdf"),
+        [](GtkClipboard*, GtkSelectionData* selection, gpointer user_data) {
+          auto* pending = static_cast<PendingPdfRead*>(user_data);
+          const gint length = gtk_selection_data_get_length(selection);
+          g_autoptr(FlValue) value = nullptr;
+          if (length > 0 && pending->generation == clipboard_generation) {
+            value = fl_value_new_map();
+            fl_value_set_string_take(value, "pdf",
+                fl_value_new_uint8_list(gtk_selection_data_get_data(selection), length));
+            fl_value_set_string_take(value, "changeToken", fl_value_new_int(pending->generation));
+          }
+          fl_method_call_respond_success(pending->call, value, nullptr);
+          g_object_unref(pending->call);
+          delete pending;
+        }, new PendingPdfRead{FL_METHOD_CALL(g_object_ref(call)), clipboard_generation});
+  } else if (strcmp(method, "readImage") == 0) {
+    gtk_clipboard_request_image(clipboard,
+        [](GtkClipboard*, GdkPixbuf* image, gpointer user_data) {
+          auto* pending = FL_METHOD_CALL(user_data);
+          gchar* png = nullptr;
+          gsize length = 0;
+          g_autoptr(FlValue) value = nullptr;
+          if (image != nullptr && gdk_pixbuf_save_to_buffer(image, &png, &length,
+                                                           "png", nullptr, nullptr)) {
+            value = fl_value_new_uint8_list(reinterpret_cast<const guint8*>(png), length);
+          }
+          g_free(png);
+          fl_method_call_respond_success(pending, value, nullptr);
+          g_object_unref(pending);
+        }, g_object_ref(call));
+  } else {
+    fl_method_call_respond_not_implemented(call, nullptr);
+  }
+}
+
 static void register_platform_channels(MyApplication* self,
                                        FlBinaryMessenger* messenger) {
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  static bool clipboard_signals_connected = false;
+  if (!clipboard_signals_connected) {
+    g_signal_connect(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), "owner-change",
+        G_CALLBACK(+[](GtkClipboard*, GdkEventOwnerChange*, gpointer) {
+          ++clipboard_generation;
+        }), nullptr);
+    clipboard_signals_connected = true;
+  }
+  self->image_clipboard_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/image_clipboard", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->image_clipboard_channel,
+      image_clipboard_method_call_cb, self, nullptr);
   self->native_print_channel = fl_method_channel_new(
       messenger, "dev.milanko.dartpdf/native_print", FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(
@@ -992,6 +1120,10 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  if (local_snapshot != nullptr) {
+    gtk_clipboard_store(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD));
+  }
+  g_clear_object(&self->image_clipboard_channel);
   g_clear_object(&self->native_print_channel);
   g_clear_object(&self->incoming_channel);
   g_clear_object(&self->memory_channel);

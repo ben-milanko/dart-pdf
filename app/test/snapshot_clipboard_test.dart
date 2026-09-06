@@ -12,12 +12,14 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/image_clipboard.dart';
+import 'package:dart_pdf_editor_app/editor_screen.dart';
 
 void main() {
   setUp(() {
     // controllers share the process-wide snapshot clipboard by default; start
     // each test from empty so one test's capture can't leak into the next.
     PdfSnapshotClipboard.instance.clear();
+    PdfAnnotationSnapshotClipboard.instance.clear();
   });
 
   // A throwaway PdfSnapshot whose pngBytes are the only field the handler reads.
@@ -97,18 +99,21 @@ void main() {
     expect(reported, isFalse);
   });
 
-  testWidgets('the default writer hands PNG bytes to the native channel',
+  testWidgets('the default writer sends PDF and PNG in one native call',
       (tester) async {
     // copyPngToClipboard is the production ImageClipboardWriter. Its native
     // channel is unavailable under flutter_test, so install a mock handler and
     // assert the default writer sends the captured PNG through it.
     const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
     Uint8List? written;
+    Uint8List? pdf;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       channel,
       (call) async {
-        expect(call.method, 'copyPng');
-        written = call.arguments as Uint8List;
+        expect(call.method, 'copySnapshot');
+        final args = call.arguments as Map;
+        written = args['png'] as Uint8List;
+        pdf = args['pdf'] as Uint8List;
         return true;
       },
     );
@@ -136,6 +141,43 @@ void main() {
 
     expect(written, [0x89, 0x50, 1, 2]);
     expect(reported, isTrue);
+    expect(
+        PdfDocument.open(pdf!).page(0).mediaBox, const PdfRect(0, 0, 160, 40));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets(
+      'older and mobile runners fall back to PNG when PDF is unsupported',
+      (tester) async {
+    const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
+    final calls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      calls.add(call.method);
+      if (call.method == 'copyPng') return true;
+      throw MissingPluginException();
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    expect(await copySnapshotToClipboard(Uint8List(2), Uint8List(4)), isTrue);
+    expect(await readPdfFromClipboard(), isNull);
+    expect(calls, ['copySnapshot', 'copyPng', 'readPdf']);
+  });
+
+  testWidgets('PDF reader returns external bytes and respects local ownership',
+      (tester) async {
+    const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
+    Uint8List? offered = buildMultiPagePdf(1);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      expect(call.method, 'readPdf');
+      return offered == null ? null : {'pdf': offered, 'changeToken': 42};
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    expect((await readPdfFromClipboard())!.bytes, offered);
+    expect((await readPdfFromClipboard())!.changeToken, 42);
+    offered = null; // runner identifies this process as the current owner
+    expect(await readPdfFromClipboard(), isNull);
   });
 
   testWidgets('the default reader asks the native channel for image bytes',
@@ -180,6 +222,67 @@ void main() {
 
     expect(calls, 1);
     expect(read, 'Native clipboard text');
+  });
+
+  testWidgets(
+      'local annotation Copy records native precedence without writing bytes',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = PdfEditingPreferences();
+    addTearDown(prefs.dispose);
+    const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
+    final calls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      calls.add(call.method);
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildMultiPagePdf(1), title: 'Copy.pdf'),
+    )));
+    await tester.pumpAndSettle();
+    final editing = tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+    editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+    editing.selectAnnotation(0, 0);
+    editing.copySelectedAnnotations();
+    await tester.pumpAndSettle();
+    expect(calls, ['markLocalCopy']);
+    editing.pasteSnapshotBytes(buildMultiPagePdf(1), 0);
+    await tester.pumpAndSettle();
+    expect(calls, ['markLocalCopy'],
+        reason: 'an external import is not a local copy');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets(
+      'EditorScreen wires both desktop clipboard directions through the shell',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = PdfEditingPreferences();
+    addTearDown(prefs.dispose);
+    final pdf = makeSnapshot(Uint8List(4)).pdfBytes;
+    Uint8List? written;
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildMultiPagePdf(1), title: 'Target.pdf'),
+      pdfClipboardReader: () async => PdfClipboardPdf(pdf),
+      snapshotClipboardWriter: (bytes, png) async {
+        written = bytes;
+        return true;
+      },
+    )));
+    await tester.pumpAndSettle();
+    final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
+    final context = tester.element(find.byType(PdfViewer));
+    expect((await viewer.systemPdfPasteProvider!(context))!.bytes, pdf);
+    await viewer.onSnapshot!(context, makeSnapshot(Uint8List(4)));
+    expect(PdfDocument.open(written!).page(0).mediaBox,
+        const PdfRect(0, 0, 160, 40));
+    await tester.pumpAndSettle();
   });
 
   group('Snapshot tool through the viewer', () {

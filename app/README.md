@@ -185,3 +185,20 @@ native OS-integration paths still want on-device confirmation:
 
 \* In-place save is desktop-only today; mobile/web fall back to share/download
 (see RELEASING.md and the save notes in the source).
+
+## Snapshot clipboard
+
+Drag with Snapshot to copy a region. Desktop clipboard items contain a
+single-page vector PDF plus a PNG fallback. Paste with Ctrl/Cmd+V or the
+page context menu; PDFs copied by another application import as movable,
+resizable Stamp annotations. Cross-tab copies use the shared in-app vector
+clipboard. macOS, Windows, and Linux support PDF data; web and mobile keep
+PNG transport. A receiving application must accept PDF clipboard data to
+retain vectors; Bluebeam's private vector format has not been validated.
+
+The macOS transport has a native test using a private pasteboard:
+
+```sh
+swiftc macos/Runner/SnapshotClipboard.swift tool/test_snapshot_clipboard.swift -o /tmp/test_snapshot_clipboard
+/tmp/test_snapshot_clipboard
+```

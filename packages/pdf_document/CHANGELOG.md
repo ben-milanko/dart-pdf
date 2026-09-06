@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `PdfVectorSnapshot.toPdfBytes` and `fromPdfBytes` for detached, single-page
+  PDF interchange with embedded resources and baked page rotation.
 - Add rectangular and polygonal page-content deletion with glyph-level text
   slicing. Preserve font encodings, kerning, spacing, surviving glyph positions,
   and path clipping state; concave lassos can erase disjoint text spans. Clip
