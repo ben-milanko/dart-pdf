@@ -2,6 +2,7 @@
 // context menu) and restyling a selected annotation (controller +
 // toolbar wiring).
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -193,9 +194,9 @@ void main() {
       clip.clear();
       expect(notified, 0);
 
-      final source = PdfEditingController(buildMultiPagePdf(1),
-          annotationClipboard: clip)
-        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      final source =
+          PdfEditingController(buildMultiPagePdf(1), annotationClipboard: clip)
+            ..addRectangle(0, const PdfRect(100, 650, 250, 750));
       addTearDown(source.dispose);
       source.selectAnnotation(0, 0);
       expect(source.copySelectedAnnotations(), 1);
@@ -427,6 +428,7 @@ void main() {
         WidgetTester tester,
         {int pages = 2,
         bool toolbar = false,
+        PdfSystemPdfPasteProvider? systemPdfPasteProvider,
         PdfSystemImagePasteProvider? systemImagePasteProvider,
         PdfSystemTextPasteProvider? systemTextPasteProvider}) async {
       final editing = PdfEditingController(buildMultiPagePdf(pages));
@@ -442,6 +444,7 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              systemPdfPasteProvider: systemPdfPasteProvider,
               systemImagePasteProvider: systemImagePasteProvider,
               systemTextPasteProvider: systemTextPasteProvider,
             ),
@@ -478,6 +481,121 @@ void main() {
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
     }
+
+    testWidgets('external PDF beats stale local copies and the raster fallback',
+        (tester) async {
+      final pdf = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      var imageReads = 0;
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async => PdfClipboardPdf(pdf),
+          systemImagePasteProvider: (_) async {
+            imageReads++;
+            return _png;
+          });
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      final stamp = editing.document.page(0).annotations.last;
+      expect(stamp.subtype, 'Stamp');
+      expect(stamp.rect, const PdfRect(320, 480, 480, 520));
+      expect(editing.canRecolorSnapshotSelected, isTrue);
+      expect(imageReads, 0);
+    });
+
+    testWidgets('unavailable PDF support preserves local vector paste',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async => throw StateError('denied'));
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      final snapshot = editing.snapshotClipboard.snapshot;
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
+      expect(editing.snapshotClipboard.snapshot, same(snapshot));
+    });
+
+    testWidgets('invalid PDF falls back to image and text providers',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async => PdfClipboardPdf(_png),
+          systemImagePasteProvider: (_) async => null,
+          systemTextPasteProvider: (_) async => 'fallback');
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.single.contents, 'fallback');
+      expect(editing.hasSnapshotClipboard, isFalse);
+    });
+
+    testWidgets(
+        'a delayed PDF read cannot paste into a revised or closed viewer',
+        (tester) async {
+      final pending = Completer<PdfClipboardPdf?>();
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) => pending.future);
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      pending.complete(PdfClipboardPdf(buildMultiPagePdf(1)));
+      await settle(tester);
+      expect(editing.document.page(0).annotations.single.subtype, 'Square');
+      expect(editing.hasSnapshotClipboard, isFalse);
+    });
+
+    testWidgets(
+        'empty-page context Paste reads PDF only on selection and uses the menu point',
+        (tester) async {
+      var reads = 0;
+      final pdf = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      final (editing, _) =
+          await pumpEditor(tester, systemPdfPasteProvider: (_) async {
+        reads++;
+        return PdfClipboardPdf(pdf);
+      });
+      await tester.tapAt(view(400, 500),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await settle(tester);
+      expect(reads, 0);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-paste')));
+      await settle(tester);
+      expect(reads, 1);
+      expect(editing.document.page(0).annotations.single.rect,
+          const PdfRect(320, 480, 480, 520));
+    });
+
+    testWidgets(
+        'an unchanged external clipboard yields to a newer local copy; recopying wins',
+        (tester) async {
+      Object token = Object();
+      final pdf = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async =>
+              PdfClipboardPdf(pdf, changeToken: token));
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 1);
+      editing.copySelectedAnnotations();
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.last.subtype, 'Square');
+      token = Object(); // another app copies the same PDF again
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.last.subtype, 'Stamp');
+      expect(editing.hasAnnotationClipboard, isFalse);
+    });
 
     testWidgets('Ctrl+C copies the selection and Ctrl+V pastes',
         (tester) async {
@@ -553,8 +671,7 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets(
-        'Ctrl+V prefers systemTextPasteProvider over Flutter Clipboard',
+    testWidgets('Ctrl+V prefers systemTextPasteProvider over Flutter Clipboard',
         (tester) async {
       // Flutter's Clipboard.getData is unreliable on the web; the host injects
       // a provider (browser Async Clipboard API). It must win over the

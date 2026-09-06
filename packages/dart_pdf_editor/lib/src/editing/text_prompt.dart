@@ -24,6 +24,25 @@ typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
 typedef PdfSystemImagePasteProvider = Future<Uint8List?> Function(
     BuildContext context);
 
+/// Supplies an external PDF clipboard payload for vector paste. Return null
+/// for clipboard data written by this app, so its in-app snapshot keeps its
+/// repeat-paste position and shared resources. Invoked before in-app paste;
+/// a newly copied external PDF therefore supersedes an older local copy.
+typedef PdfSystemPdfPasteProvider = Future<PdfClipboardPdf?> Function(
+    BuildContext context);
+
+/// A PDF clipboard representation and an optional native clipboard revision.
+/// [changeToken] must change on every clipboard replacement, including when
+/// the bytes are identical. Once pasted, an unchanged revision yields to the
+/// in-app clipboard so a subsequent local annotation copy remains usable.
+/// Omit the token when the host cannot observe clipboard revisions.
+class PdfClipboardPdf {
+  const PdfClipboardPdf(this.bytes, {this.changeToken});
+
+  final Uint8List bytes;
+  final Object? changeToken;
+}
+
 /// Supplies plain text for a system clipboard paste, used in preference to
 /// Flutter's [Clipboard] when set. Return null when the clipboard carries no
 /// text. Exists mainly for the web, where Flutter's `Clipboard.getData` is
@@ -89,6 +108,12 @@ class PdfSnapshot {
   /// (or in-app via [PdfEditingController.pasteSnapshot]) - Bluebeam-style,
   /// the snapshot stays sharp at any zoom.
   final PdfVectorSnapshot vector;
+
+  /// The captured region as a self-contained, single-page PDF (the
+  /// [vector] serialized via [PdfVectorSnapshot.toPdfBytes]). Put these on
+  /// the OS clipboard as `application/pdf` to paste the snapshot, as
+  /// vectors, into another application that accepts PDF clipboard data.
+  Uint8List get pdfBytes => vector.toPdfBytes();
 }
 
 /// Receives a region captured by the Snapshot tool ([PdfEditTool.snapshot])

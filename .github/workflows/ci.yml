@@ -195,6 +195,12 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Test native PDF snapshot clipboard
+        working-directory: app
+        run: |
+          swiftc macos/Runner/SnapshotClipboard.swift tool/test_snapshot_clipboard.swift \
+            -o /tmp/test_snapshot_clipboard
+          /tmp/test_snapshot_clipboard
       - name: Require a real flutter_gpu tile
         working-directory: packages/dart_pdf_editor_flutter_gpu
         run: >-

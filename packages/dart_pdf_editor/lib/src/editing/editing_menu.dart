@@ -181,6 +181,9 @@ Future<void> showPdfAnnotationMenu({
   required int pageIndex,
   PdfAnnotationMenuBuilder? customActions,
   PdfTextPrompt textPrompt = showPdfTextPrompt,
+  // When supplied, the host can read a system clipboard on the user's Paste
+  // action. No clipboard permissions are requested merely to open the menu.
+  VoidCallback? onPaste,
   (double, double)? pagePoint,
   (int page, int slot)? unlockTarget,
 }) async {
@@ -188,7 +191,8 @@ Future<void> showPdfAnnotationMenu({
   // a captured snapshot pastes back as vector graphics; otherwise the
   // annotation clipboard (the most recent copy wins)
   final canPasteSnapshot = controller.hasSnapshotClipboard;
-  final canPaste = canPasteSnapshot || controller.hasAnnotationClipboard;
+  final canPaste =
+      onPaste != null || canPasteSnapshot || controller.hasAnnotationClipboard;
   final hasSelection = request.annotations.isNotEmpty;
   // A locked annotation can't be selected, so a right-click on one opens
   // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
@@ -255,9 +259,15 @@ Future<void> showPdfAnnotationMenu({
         label: pdfL10n(context).paste,
         icon: Icons.paste,
         enabled: canPaste,
-        onSelected: (request) => canPasteSnapshot
-            ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
-            : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
+        onSelected: (request) {
+          if (onPaste != null) {
+            onPaste();
+          } else if (canPasteSnapshot) {
+            request.controller.pasteSnapshot(pageIndex, at: pagePoint);
+          } else {
+            request.controller.pasteAnnotations(pageIndex, at: pagePoint);
+          }
+        },
       ),
   ];
   final arrange = <PdfAnnotationMenuItem>[

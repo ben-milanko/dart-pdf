@@ -248,6 +248,7 @@ class PdfEditorView extends StatefulWidget {
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
+    this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
@@ -343,6 +344,7 @@ class PdfEditorView extends StatefulWidget {
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
+    this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
@@ -552,6 +554,10 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.systemImagePasteProvider].
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies an external PDF for vector paste before the in-app clipboard.
+  /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
+  final PdfSystemPdfPasteProvider? systemPdfPasteProvider;
 
   /// See [PdfViewer.systemTextPasteProvider].
   final PdfSystemTextPasteProvider? systemTextPasteProvider;
@@ -812,6 +818,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onContextMenuRequested: widget.onContextMenuRequested,
         formImagePicker: widget.formImagePicker,
         imagePicker: widget.imagePicker,
+        systemPdfPasteProvider: widget.systemPdfPasteProvider,
         systemImagePasteProvider: widget.systemImagePasteProvider,
         systemTextPasteProvider: widget.systemTextPasteProvider,
         onExportSelectedContentImage: widget.onExportSelectedContentImage,
@@ -1554,6 +1561,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         onContextMenuRequested: widget.onContextMenuRequested,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
+                        systemPdfPasteProvider: widget.systemPdfPasteProvider,
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
                         systemTextPasteProvider: widget.systemTextPasteProvider,

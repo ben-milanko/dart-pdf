@@ -1,4 +1,15 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfClipboardPdf;
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
+
+bool get supportsPdfClipboard => switch (defaultTargetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux =>
+        true,
+      _ => false,
+    };
 
 const _channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
 
@@ -23,4 +34,43 @@ Future<Uint8List?> readImageFromClipboard() async {
 Future<String?> readTextFromClipboard() async {
   final data = await Clipboard.getData(Clipboard.kTextPlain);
   return data?.text;
+}
+
+/// Desktop runners publish both representations in one clipboard update.
+/// Older runners and mobile platforms retain the PNG transport.
+Future<bool> copySnapshotToClipboard(Uint8List pdf, Uint8List png) async {
+  try {
+    return await _channel
+            .invokeMethod<bool>('copySnapshot', {'pdf': pdf, 'png': png}) ??
+        false;
+  } on MissingPluginException {
+    return copyPngToClipboard(png);
+  }
+}
+
+/// Reads only PDF data from an external clipboard owner. Native runners
+/// recognize their own snapshot write and return null for it.
+Future<PdfClipboardPdf?> readPdfFromClipboard() async {
+  try {
+    final value = await _channel.invokeMapMethod<String, Object?>('readPdf');
+    final bytes = value?['pdf'];
+    return bytes is Uint8List
+        ? PdfClipboardPdf(bytes, changeToken: value?['changeToken'])
+        : null;
+  } on MissingPluginException {
+    return null;
+  }
+}
+
+/// Records which OS clipboard revision a local annotation copy supersedes.
+/// This changes no system clipboard data; unsupported platforms ignore it.
+Future<void> markLocalClipboardCopy() async {
+  if (!supportsPdfClipboard) return;
+  try {
+    await _channel.invokeMethod<void>('markLocalCopy');
+  } on PlatformException {
+    // Clipboard access can be denied without disabling in-app copy/paste.
+  } on MissingPluginException {
+    // Older runners and mobile keep the in-app clipboard behavior.
+  }
 }

@@ -3,6 +3,7 @@ import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfClipboardPdf;
 
 /// Web [copyPngToClipboard]: writes the PNG [bytes] to the browser clipboard
 /// through the Async Clipboard API directly. Returns true on success; rejects
@@ -84,3 +85,14 @@ Future<String?> readTextFromClipboard() async {
     return null;
   }
 }
+
+/// Browsers retain the interoperable PNG clipboard path. PDF clipboard
+/// transport is provided by the desktop runners.
+Future<bool> copySnapshotToClipboard(Uint8List pdf, Uint8List png) =>
+    copyPngToClipboard(png);
+
+Future<PdfClipboardPdf?> readPdfFromClipboard() async => null;
+
+const supportsPdfClipboard = false;
+
+Future<void> markLocalClipboardCopy() async {}

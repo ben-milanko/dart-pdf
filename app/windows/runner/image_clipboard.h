@@ -24,4 +24,16 @@ bool CopyPngToClipboard(HWND owner, const std::vector<uint8_t>& png);
 // std::nullopt when the clipboard holds no image (or the conversion fails).
 std::optional<std::vector<uint8_t>> ReadImageFromClipboard(HWND owner);
 
+// Offers PDF and PNG/DIB in the same clipboard update. Subsequent reads ignore
+// this process's own write, preserving in-app repeat paste and object reuse.
+bool CopySnapshotToClipboard(HWND owner, const std::vector<uint8_t>& pdf,
+                             const std::vector<uint8_t>& png);
+void MarkLocalClipboardCopy();
+
+struct ClipboardPdf {
+  std::vector<uint8_t> bytes;
+  DWORD sequence;
+};
+std::optional<ClipboardPdf> ReadExternalPdfFromClipboard(HWND owner);
+
 #endif  // RUNNER_IMAGE_CLIPBOARD_H_

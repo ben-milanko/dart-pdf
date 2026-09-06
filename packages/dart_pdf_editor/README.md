@@ -483,3 +483,32 @@ CCITT/JBIG2/JPEG 2000 images, and lenient parsing of broken real-world
 files, with conformance pinned against the Ghent Output Suite and the
 PDF.js test corpus. Checked-in PDF.js visual comparisons are available at
 [`../../test_corpora/pdfjs/_renders/README.md`](../../test_corpora/pdfjs/_renders/README.md).
+
+### Vector snapshot interchange
+
+The Snapshot tool shares detached vectors between editing controllers by
+default through `PdfSnapshotClipboard.instance`. A captured `PdfSnapshot`
+provides `pngBytes` for image consumers and `pdfBytes` for PDF clipboard
+consumers. `PdfVectorSnapshot.toPdfBytes()` exports one page sized to the
+capture; `fromPdfBytes()` imports the first page of an interchange PDF.
+
+Desktop hosts can provide `PdfViewer.systemPdfPasteProvider` (also available
+on `PdfEditorView`) to read a PDF for keyboard or context-menu Paste:
+
+```dart
+systemPdfPasteProvider: (context) async {
+  final data = await myClipboard.readPdf();
+  return data == null ? null : PdfClipboardPdf(
+    data.bytes,
+    changeToken: data.clipboardRevision,
+  );
+},
+```
+
+Return null for snapshots written by your own process so local paste retains
+its shared resources and position cascade. The optional `changeToken` should
+change whenever the OS clipboard is replaced: once an external revision is
+pasted, subsequent local annotation copies take precedence until it changes.
+The app includes native PDF/PNG transport on macOS, Windows, and Linux;
+mobile and web use the PNG fallback. Direct imports can use
+`editing.pasteSnapshotBytes(pdfBytes, pageIndex, at: (x, y))`.
