@@ -4,6 +4,9 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +14,7 @@ import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/print_preview_dialog.dart';
 import 'package:dart_pdf_editor_app/printing.dart';
 import 'package:dart_pdf_editor_app/print_settings.dart';
+import 'package:dart_pdf_editor_app/print_composer.dart';
 
 void main() {
   test('page range parser validates every component and preserves order', () {
@@ -206,7 +210,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(result()!.settings.copies, 1);
       expect(result()!.settings.scaling, PrintScaling.none);
-      expect(identical(result()!.document, document), isTrue);
+      expect(identical(result()!.document.cos, document.cos), isFalse);
       expect(document.pageCount, 5);
     });
 
@@ -316,6 +320,73 @@ void main() {
       expect(result()!.document.pageCount, 7);
       expect(result()!.settings.pages, [0, 1, 2, 3, 4, 5, 6]);
       expect(document.pageCount, 5);
+    });
+
+    testWidgets('a later source revision cannot change the previewed print job',
+        (tester) async {
+      final result = await openPreview(tester);
+      final editor = PdfEditor(document);
+      editor.addFreeText(0, const PdfRect(100, 100, 400, 180), 'Later edit');
+      document.withIncrementalUpdate(editor.save());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
+      final job = result()!;
+      expect(job.document.page(0).annotations, isEmpty);
+      expect(document.page(0).annotations, hasLength(1));
+      final printed =
+          PdfDocument.open(preparePrintDocument(job.document, job.settings));
+      expect(PdfTextExtractor.extract(printed, 0).text,
+          isNot(contains('Later edit')));
+    });
+
+    testWidgets('adding a file keeps the original hidden PDF layers hidden',
+        (tester) async {
+      document = _layeredPrintDocument();
+      final result = await openPreview(tester,
+          addFiles: () async => [PdfDocument.open(buildMultiPagePdf(1))]);
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('print-options-add-files')));
+      await tester.tap(find.byKey(const ValueKey('print-options-add-files')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
+      final job = result()!;
+      final printed =
+          PdfDocument.open(preparePrintDocument(job.document, job.settings));
+      expect(printed.pageCount, 2);
+      expect(PdfTextExtractor.extract(printed, 0).text,
+          isNot(contains('Hidden layer')));
+      expect(PdfTextExtractor.extract(printed, 1).text, contains('Page 1'));
+    });
+
+    testWidgets(
+        'an encrypted snapshot retains separate document and markup choices',
+        (tester) async {
+      final encrypted = PdfDocument.open(
+          buildEncryptedPdf(revision: 4, userPassword: 'secret'),
+          password: 'secret');
+      final editor = PdfEditor(encrypted)
+        ..addFreeText(0, const PdfRect(100, 100, 400, 180), 'Private markup');
+      document = PdfDocument.open(editor.save(), password: 'secret');
+      final result = await openPreview(tester);
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('print-options-content')));
+      await tester.tap(find.byKey(const ValueKey('print-options-content')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Markups only').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
+      final job = result()!;
+      expect(job.document.cos.isEncrypted, isFalse);
+      expect(document.cos.isEncrypted, isTrue);
+      expect(job.document.page(0).annotations, hasLength(1));
+      final printed =
+          PdfDocument.open(preparePrintDocument(job.document, job.settings));
+      final text = PdfTextExtractor.extract(printed, 0).text;
+      expect(text, contains('Private markup'));
+      expect(text, isNot(contains('Hello, world!')));
     });
 
     testWidgets('narrow screens and keyboard keep print controls reachable',
@@ -483,4 +554,53 @@ void main() {
       });
     });
   });
+}
+
+PdfDocument _layeredPrintDocument() {
+  final builder = CosDocumentBuilder();
+  final pages = CosDictionary({'Type': const CosName('Pages')});
+  final parent = builder.add(pages);
+  final layer = builder.add(CosDictionary({
+    'Type': const CosName('OCG'),
+    'Name': CosString.fromText('Hidden'),
+  }));
+  final bytes = Uint8List.fromList(
+      '/OC /Layer BDC BT /F1 20 Tf 100 500 Td (Hidden layer) Tj ET EMC'
+          .codeUnits);
+  final page = builder.add(CosDictionary({
+    'Type': const CosName('Page'),
+    'Parent': parent,
+    'MediaBox': CosArray([
+      const CosInteger(0),
+      const CosInteger(0),
+      const CosInteger(612),
+      const CosInteger(792)
+    ]),
+    'Contents': builder.add(
+        CosStream(CosDictionary({'Length': CosInteger(bytes.length)}), bytes)),
+    'Resources': CosDictionary({
+      'Properties': CosDictionary({'Layer': layer}),
+      'Font': CosDictionary({
+        'F1': CosDictionary({
+          'Type': const CosName('Font'),
+          'Subtype': const CosName('Type1'),
+          'BaseFont': const CosName('Helvetica'),
+        })
+      }),
+    }),
+  }));
+  pages['Kids'] = CosArray([page]);
+  pages['Count'] = const CosInteger(1);
+  return PdfDocument.open(builder.build(
+      root: builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': parent,
+    'OCProperties': CosDictionary({
+      'OCGs': CosArray([layer]),
+      'D': CosDictionary({
+        'BaseState': const CosName('ON'),
+        'OFF': CosArray([layer])
+      }),
+    }),
+  }))));
 }

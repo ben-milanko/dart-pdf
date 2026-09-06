@@ -2683,6 +2683,12 @@ class _EditorScreenState extends State<EditorScreen>
     final session = tab.session;
     if (session == null) return;
     try {
+      // Finish visible drafts before the preview detaches its print source.
+      // Keyboard shortcuts can arrive while inline text still owns focus,
+      // and recently lifted ink strokes may still await their commit timer.
+      FocusManager.instance.primaryFocus?.unfocus();
+      FocusManager.instance.applyFocusChangesIfNeeded();
+      session.finishInk();
       final job = await showPrintPreviewDialog(
         context,
         document: session.document,

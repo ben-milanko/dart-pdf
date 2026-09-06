@@ -31,6 +31,12 @@ keep their existing compression, encrypted inputs are decrypted on import,
 and the original editor session never changes. The preview uses this same
 composer for one sheet at a time. Print validation checks every sheet's
 geometry before the dialog closes, including smaller pages in mixed-size jobs.
+Print commits pending ink and inline text before the dialog takes a detached
+revision, so later edits cannot change the job under its preview. Batch imports
+retain each source's optional-content defaults and
+print-usage rules, plus the first document's output profile. Interleaved form
+fields and markups retain their original annotation stacking order, including
+opacity on annotations whose appearances must be synthesized.
 
 The native handoff carries `useDocumentPageSize` and first-sheet dimensions.
 Windows maps points to physical printer pixels and updates media between
@@ -53,5 +59,5 @@ inputs, widget range/crop/batch/validation tests, menu and shortcut integration
 across the five native platforms, and pixel checks for content selection,
 dimming, rotation, scaling and crop placement. The dialog was visually checked
 at desktop and phone sizes, and a prepared n-up PDF was independently rendered
-with macOS ImageIO. The macOS app builds; Windows/GTK native compilation and
-physical-printer output require their target environments.
+with macOS ImageIO. The macOS and Android apps build; Windows/GTK native
+compilation runs in CI. Physical-printer output has not been tested.

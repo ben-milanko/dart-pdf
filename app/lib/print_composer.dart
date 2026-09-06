@@ -235,21 +235,43 @@ class _PrintComposer {
         final geometry = _sourceGeometry(page, settings.region);
         final sourceToSheet = geometry.matrix;
         final objects = CosDictionary();
-        final writer = ContentWriter()..save();
-        _concat(writer, sourceToSheet);
+        final writer = ContentWriter();
+        final layers = <({
+          bool document,
+          bool content,
+          List<PdfAnnotation> annotations
+        })>[];
         if (settings.content != PrintContent.markupsOnly) {
-          objects['Document'] = _layer(page, documentLayer: true);
-          if (settings.dimPageContent) writer.extGState('Dim');
-          writer.drawXObject('Document');
+          layers.add((document: true, content: true, annotations: []));
         }
-        writer.restore();
-        if (settings.content != PrintContent.documentOnly) {
-          objects['Markups'] = _layer(page, documentLayer: false);
+        // Keep /Annots paint order even when widgets and markups interleave.
+        // Contiguous runs can still share a group for independent dimming.
+        for (final annotation in page.annotations) {
+          final isDocument = annotation.subtype == 'Widget';
+          if (!_shouldPrintAnnotation(annotation) ||
+              (isDocument && settings.content == PrintContent.markupsOnly) ||
+              (!isDocument && settings.content == PrintContent.documentOnly)) {
+            continue;
+          }
+          if (layers.isEmpty || layers.last.document != isDocument) {
+            layers.add((document: isDocument, content: false, annotations: []));
+          }
+          layers.last.annotations.add(annotation);
+        }
+        for (var i = 0; i < layers.length; i++) {
+          final layer = layers[i];
+          final name = 'Layer$i';
+          objects[name] = _layer(page,
+              documentLayer: layer.document,
+              includeContent: layer.content,
+              annotations: layer.annotations);
           writer.save();
           _concat(writer, sourceToSheet);
-          if (settings.dimMarkups) writer.extGState('Dim');
+          if (layer.document ? settings.dimPageContent : settings.dimMarkups) {
+            writer.extGState('Dim');
+          }
           writer
-            ..drawXObject('Markups')
+            ..drawXObject(name)
             ..restore();
         }
         final width = geometry.width;
@@ -265,11 +287,23 @@ class _PrintComposer {
         return _PageArt(builder.add(normalized), width, height);
       });
 
-  CosReference _layer(PdfPage page, {required bool documentLayer}) {
+  bool _shouldPrintAnnotation(PdfAnnotation annotation) =>
+      !annotation.isHidden &&
+      annotation.isPrint &&
+      annotation.subtype != 'Popup' &&
+      !annotation.isReply &&
+      !annotation.isStateAnnotation &&
+      (annotation.subtype != 'Link' || settings.printVisibleHyperlinks);
+
+  CosReference _layer(PdfPage page,
+      {required bool documentLayer,
+      required bool includeContent,
+      required List<PdfAnnotation> annotations}) {
     final writer = ContentWriter();
     final objects = CosDictionary();
     final properties = CosDictionary();
-    if (documentLayer) {
+    final graphicsStates = CosDictionary();
+    if (includeContent) {
       final content = _form(
         page.cropBox,
         copier.copy(page.resources),
@@ -286,22 +320,12 @@ class _PrintComposer {
         ..restore();
     }
     var ordinal = 0;
-    for (final annotation in page.annotations) {
-      final isDocument = annotation.subtype == 'Widget';
-      if (isDocument != documentLayer ||
-          annotation.isHidden ||
-          !annotation.isPrint ||
-          annotation.subtype == 'Popup' ||
-          annotation.isReply ||
-          annotation.isStateAnnotation ||
-          (annotation.subtype == 'Link' && !settings.printVisibleHyperlinks)) {
-        continue;
-      }
+    for (final annotation in annotations) {
       final appearance = annotation.normalAppearance;
       if (appearance == null) {
         final optional = _optionalAnnotation(
             writer, properties, annotation, 'Layer${ordinal++}');
-        _fallback(writer, annotation);
+        _fallback(writer, graphicsStates, annotation);
         if (optional) writer.endMarkedContent();
         continue;
       }
@@ -333,12 +357,7 @@ class _PrintComposer {
       CosDictionary({
         'XObject': objects,
         'Properties': properties,
-        'ExtGState': CosDictionary({
-          'PrintHighlight': CosDictionary({
-            ..._alpha(0.35).entries,
-            'BM': const CosName('Multiply'),
-          }),
-        }),
+        'ExtGState': graphicsStates,
         'Font': CosDictionary({
           'PrintFallback': CosDictionary({
             'Type': const CosName('Font'),
@@ -371,7 +390,8 @@ class _PrintComposer {
 
   // Producers may omit /AP on simple annotations and form widgets. Keep
   // their semantic border/text/ink visible when constructing print content.
-  void _fallback(ContentWriter writer, PdfAnnotation annotation) {
+  void _fallback(ContentWriter writer, CosDictionary graphicsStates,
+      PdfAnnotation annotation) {
     final r = annotation.rect;
     if (r.width <= 0 || r.height <= 0) return;
     final color = annotation.color ?? 0x000000;
@@ -381,8 +401,26 @@ class _PrintComposer {
       border = _number(document.cos.resolve(rawBorder[2]), 0);
     }
     final width = border ?? 1;
+    double? opacity(String key) {
+      final value = document.cos.resolve(annotation.dict[key]);
+      return switch (value) {
+        CosInteger(:final value) => value.toDouble().clamp(0, 1),
+        CosReal(:final value) => value.clamp(0, 1),
+        _ => null,
+      };
+    }
+
+    final highlight = annotation.subtype == 'Highlight';
+    final strokeAlpha = opacity('CA');
+    final stateName = 'AnnotationOpacity${graphicsStates.entries.length}';
+    graphicsStates[stateName] = CosDictionary({
+      'CA': CosReal(strokeAlpha ?? 1),
+      'ca': CosReal(opacity('ca') ?? strokeAlpha ?? (highlight ? 0.35 : 1)),
+      if (highlight) 'BM': const CosName('Multiply'),
+    });
     writer
       ..save()
+      ..extGState(stateName)
       ..strokeColor(color)
       ..fillColor(annotation.interiorColor ?? color)
       ..lineWidth(width);
@@ -448,7 +486,6 @@ class _PrintComposer {
             ];
             if (annotation.subtype == 'Highlight') {
               writer
-                ..extGState('PrintHighlight')
                 ..moveTo(points[0].$1, points[0].$2)
                 ..lineTo(points[1].$1, points[1].$2)
                 ..lineTo(points[3].$1, points[3].$2)

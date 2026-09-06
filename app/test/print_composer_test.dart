@@ -220,6 +220,81 @@ void main() {
         isA<CosDictionary>());
   });
 
+  test('fallback annotations retain independent fill and stroke opacity', () {
+    final shape = _annotation('', flags: 4, subtype: 'Square')
+      ..['C'] = CosArray(
+          [const CosInteger(1), const CosInteger(0), const CosInteger(0)])
+      ..['IC'] = CosArray(
+          [const CosInteger(1), const CosInteger(0), const CosInteger(0)])
+      ..['CA'] = const CosReal(0.2)
+      ..['ca'] = const CosReal(0.6);
+    final source = _fixture(annotations: [shape]);
+    final original = RecordingPdfDevice();
+    PdfInterpreter(cos: source.cos, device: original)
+        .drawAnnotations(source.page(0), forPrint: true);
+    final output = prepare(source, PrintSettings(pages: [0]));
+    final printed = RecordingPdfDevice();
+    PdfInterpreter(cos: output.cos, device: printed).drawPage(output.page(0));
+    expect(original.commands.whereType<PdfFillPathCommand>().single.alpha, 0.6);
+    expect(
+        original.commands.whereType<PdfStrokePathCommand>().single.alpha, 0.2);
+    expect(printed.commands.whereType<PdfFillPathCommand>().single.alpha, 0.6);
+    expect(
+        printed.commands.whereType<PdfStrokePathCommand>().single.alpha, 0.2);
+  });
+
+  test('fallback highlight opacity uses declared values before its default',
+      () {
+    for (final opacity in [null, 0.7]) {
+      final highlight = _annotation('', flags: 4, subtype: 'Highlight')
+        ..['QuadPoints'] = CosArray([
+          for (final value in [50, 500, 400, 500, 50, 400, 400, 400])
+            CosInteger(value)
+        ]);
+      if (opacity != null) highlight['CA'] = CosReal(opacity);
+      final source = _fixture(annotations: [highlight]);
+      final output = prepare(source, PrintSettings(pages: [0]));
+      final printed = RecordingPdfDevice();
+      PdfInterpreter(cos: output.cos, device: printed).drawPage(output.page(0));
+      expect(printed.commands.whereType<PdfFillPathCommand>().single.alpha,
+          opacity ?? 0.35);
+    }
+  });
+
+  test('interleaved form widgets and markups retain annotation paint order',
+      () {
+    final source = _fixture(annotations: [
+      _appearanceAnnotation('Square', 0xFF0000),
+      _appearanceAnnotation('Widget', 0x0000FF),
+      _appearanceAnnotation('Square', 0x00FF00),
+    ]);
+    final original = RecordingPdfDevice();
+    PdfInterpreter(cos: source.cos, device: original)
+        .drawAnnotations(source.page(0), forPrint: true);
+    final expected = original.commands
+        .whereType<PdfFillPathCommand>()
+        .map((command) => command.color)
+        .toList();
+    expect(expected, [
+      const PdfColor(1, 0, 0),
+      const PdfColor(0, 0, 1),
+      const PdfColor(0, 1, 0),
+    ]);
+    for (final content in PrintContent.values) {
+      final output =
+          prepare(source, PrintSettings(pages: [0], content: content));
+      final printed = RecordingPdfDevice();
+      PdfInterpreter(cos: output.cos, device: printed).drawPage(output.page(0));
+      expect(
+          printed.commands.whereType<PdfFillPathCommand>().map((c) => c.color),
+          switch (content) {
+            PrintContent.documentAndMarkups => expected,
+            PrintContent.documentOnly => [expected[1]],
+            PrintContent.markupsOnly => [expected[0], expected[2]],
+          });
+    }
+  });
+
   test('print layer usage is frozen identically for preview and native print',
       () {
     for (final printVisible in [true, false]) {
@@ -330,6 +405,12 @@ PdfDocument _fixture({
         ..endText()
         ..endMarkedContent())
       .takeBytes();
+  for (final annotation in annotations) {
+    final appearance = annotation['AP'];
+    if (appearance is CosDictionary && appearance['N'] is CosStream) {
+      appearance['N'] = builder.add(appearance['N']!);
+    }
+  }
   final page = builder.add(CosDictionary({
     'Type': const CosName('Page'),
     'Parent': root,
@@ -400,3 +481,28 @@ CosDictionary _annotation(String text,
         'V': CosString.fromText(text),
       },
     });
+
+CosDictionary _appearanceAnnotation(String subtype, int color) {
+  final content = (ContentWriter()
+        ..fillColor(color)
+        ..rect(0, 0, 350, 100)
+        ..fill())
+      .takeBytes();
+  return _annotation('', flags: 4, subtype: subtype)
+    ..['AP'] = CosDictionary({
+      'N': CosStream(
+          CosDictionary({
+            'Type': const CosName('XObject'),
+            'Subtype': const CosName('Form'),
+            'BBox': CosArray([
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(350),
+              const CosInteger(100),
+            ]),
+            'Resources': CosDictionary(),
+            'Length': CosInteger(content.length),
+          }),
+          content),
+    });
+}

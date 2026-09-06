@@ -94,7 +94,10 @@ class PrintPreviewDialog extends StatefulWidget {
 }
 
 class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
-  late PdfDocument _document = widget.document;
+  // Controller revisions share a mutable COS graph. Retaining their wrapper
+  // would let a later edit change the print job while the cached preview
+  // still showed the revision that was open when this dialog appeared.
+  late PdfDocument _document = _snapshotPrintSource(widget.document);
   late final int _currentPage = widget.currentPage.clamp(0, _pageCount - 1);
   late PrintSettings _settings = PrintSettings(pages: _allPages);
   final _rangeInput = TextEditingController();
@@ -198,22 +201,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     try {
       final incoming = await widget.addFiles!();
       if (!mounted || incoming.isEmpty) return;
-      // Import into an empty document so the job owns its objects and keeps
-      // each source's form resources, including encrypted sources already open.
-      final builder = CosDocumentBuilder();
-      final pages = builder.add(CosDictionary({
-        'Type': const CosName('Pages'),
-        'Count': const CosInteger(0),
-        'Kids': CosArray([]),
-      }));
-      final catalog = builder.add(
-          CosDictionary({'Type': const CosName('Catalog'), 'Pages': pages}));
-      final editor = PdfEditor(PdfDocument.open(builder.build(root: catalog)));
-      editor.appendPagesFrom(_document);
-      for (final document in incoming) {
-        editor.appendPagesFrom(document);
-      }
-      final merged = PdfDocument.open(editor.save());
+      final merged = _mergePrintSources([_document, ...incoming]);
       if (!mounted) return;
       setState(() {
         _document = merged;
@@ -802,6 +790,34 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                 style: Theme.of(context).textTheme.bodySmall),
         ]);
   }
+}
+
+PdfDocument _snapshotPrintSource(PdfDocument source) {
+  if (!source.cos.isEncrypted) {
+    // Reopen the immutable revision bytes into an independent object graph.
+    // This preserves the complete catalog without copying the byte buffer.
+    return PdfDocument.open(source.cos.bytes,
+        populatedRanges: source.cos.populatedRanges);
+  }
+  // The source is already unlocked. Importing copies/decrypts its objects
+  // without asking for the password again or flattening its annotations.
+  return _mergePrintSources([source]);
+}
+
+PdfDocument _mergePrintSources(List<PdfDocument> sources) {
+  final builder = CosDocumentBuilder();
+  final pages = builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Count': const CosInteger(0),
+    'Kids': CosArray([]),
+  }));
+  final catalog = builder
+      .add(CosDictionary({'Type': const CosName('Catalog'), 'Pages': pages}));
+  final editor = PdfEditor(PdfDocument.open(builder.build(root: catalog)));
+  for (final source in sources) {
+    editor.appendPagesFrom(source);
+  }
+  return PdfDocument.open(editor.save());
 }
 
 /// Fits the raster and its interactive crop area to exactly the same bounds.

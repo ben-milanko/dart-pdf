@@ -151,7 +151,7 @@ extension PdfPageOperations on PdfEditor {
         _PageImporter(source, _updater.addObject, documentData: true);
     final imported = importer.importPages(picks);
     _rebuildPageTree([...leaves]..insertAll(insertAt, imported));
-    _mergeImportedDocumentData(importer);
+    _mergeImportedDocumentData(importer, intoEmpty: leaves.isEmpty);
   }
 
   /// Collects the current leaves in order, copying any attributes a page

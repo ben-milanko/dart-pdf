@@ -8,11 +8,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/printing.dart';
+import 'package:dart_pdf_editor_app/print_preview_dialog.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -158,6 +160,117 @@ void main() {
     expect(session.bytes, before);
     expect(session.selectedPages, [1, 3]);
   });
+
+  Future<void> printShortcut(WidgetTester tester) async {
+    final modifier = defaultTargetPlatform == TargetPlatform.macOS
+        ? LogicalKeyboardKey.metaLeft
+        : LogicalKeyboardKey.controlLeft;
+    await tester.sendKeyDownEvent(modifier);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.sendKeyUpEvent(modifier);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('printing commits buffered ink before capturing the print job',
+      (tester) async {
+    Uint8List? printed;
+    await pumpWithDoc(tester,
+        printDocument: ({required bytes, required title}) async {
+      printed = bytes;
+    });
+    await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    final session =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    session
+      ..tool = PdfEditTool.ink
+      ..inkCommitDelay = const Duration(seconds: 5)
+      ..color = const Color(0xFFFF0000);
+    session.preferences.strokeWidth = 10;
+    session.addInkStroke(0, [(100, 600), (500, 600)]);
+    expect(session.hasPendingInk, isTrue);
+    expect(session.document.page(0).annotations, isEmpty);
+    try {
+      await tester.pump();
+      await printShortcut(tester);
+      final preview =
+          tester.widget<PrintPreviewDialog>(find.byType(PrintPreviewDialog));
+      expect(preview.document.page(0).annotations.single.subtype, 'Ink');
+      expect(session.hasPendingInk, isFalse);
+      expect(session.tool, PdfEditTool.ink);
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final image = await PdfPageRenderer.renderImage(
+            PdfDocument.open(printed!).page(0));
+        try {
+          final pixels = (await image.toByteData())!;
+          final offset = (192 * image.width + 300) * 4;
+          expect([
+            pixels.getUint8(offset),
+            pixels.getUint8(offset + 1),
+            pixels.getUint8(offset + 2)
+          ], [
+            255,
+            0,
+            0
+          ]);
+        } finally {
+          image.dispose();
+        }
+      });
+    } finally {
+      session.discardInk();
+    }
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+  testWidgets(
+      'print shortcut commits focused inline text before capturing the job',
+      (tester) async {
+    Uint8List? printed;
+    await pumpWithDoc(tester,
+        printDocument: ({required bytes, required title}) async {
+      printed = bytes;
+    });
+    final session =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    session
+      ..tool = PdfEditTool.freeText
+      ..addFreeText(0, const PdfRect(100, 600, 400, 650), 'Original')
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+    expect(session.requestEditSelectedTextInline(), isTrue);
+    await tester.pump();
+    await tester.pump();
+    final editor = find.byKey(const ValueKey('pdf-freetext-editor'));
+    expect(editor, findsOneWidget);
+    await tester.enterText(editor, 'Ready for print');
+    expect(session.isEditingText, isTrue);
+    expect(session.document.page(0).annotations.single.contents, 'Original');
+    final activeTool = session.tool;
+
+    await printShortcut(tester);
+
+    final preview =
+        tester.widget<PrintPreviewDialog>(find.byType(PrintPreviewDialog));
+    expect(
+        PdfDocument.open(preview.document.cos.bytes)
+            .page(0)
+            .annotations
+            .single
+            .contents,
+        'Ready for print');
+    expect(session.document.page(0).annotations.single.contents,
+        'Ready for print');
+    expect(session.isEditingText, isFalse);
+    expect(session.tool, activeTool);
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.pumpAndSettle();
+    expect(PdfTextExtractor.extract(PdfDocument.open(printed!), 0).text,
+        contains('Ready for print'));
+  },
+      variant:
+          TargetPlatformVariant({TargetPlatform.linux, TargetPlatform.macOS}));
 
   testWidgets('Ctrl+P prints the active document', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
