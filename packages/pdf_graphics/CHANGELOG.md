@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.3.0
+
+- Align dependency constraints with the dart-pdf 4.3.0 package suite.
+
 ## 4.2.0
 
 - Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public

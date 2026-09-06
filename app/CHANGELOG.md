@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 4.3.0
+
+- Split PDFs into separate documents, erase page content with rectangle or polygon
+  selections, and exchange vector snapshots through the desktop clipboard.
+- Print with page ranges, scaling, multiple pages per sheet, and booklet layouts.
 
 - Hide shortcut hints and shortcut settings on Android and iOS when no physical
   keyboard is connected, updating menus and tooltips as keyboards attach or detach.

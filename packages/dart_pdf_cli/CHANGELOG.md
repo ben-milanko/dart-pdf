@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Align dependency constraints with the dart-pdf 4.3.0 package suite.
+
 ## 0.1.5
 
 - Align the command-line and MCP sidecar with the 4.2.0 package suite. No

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Align dependency constraints with the dart-pdf 4.3.0 package suite.
+
 ## 0.3.1
 
 - Report full-page raster warm-up support to `dart_pdf_editor` via the new
