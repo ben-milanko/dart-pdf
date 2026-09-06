@@ -1,9 +1,51 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
+import 'package:dart_pdf_editor_app/recents.dart';
+import 'package:dart_pdf_editor_app/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  for (final region in ['AU', 'GB', 'US']) {
+    testWidgets('settings license label follows English $region',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = PdfEditingPreferences();
+      final recents = RecentsStore();
+      addTearDown(prefs.dispose);
+      addTearDown(recents.dispose);
+      await prefs.ready;
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale('en', region),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: Builder(builder: (context) {
+          return TextButton(
+            onPressed: () =>
+                showAppSettings(context, prefs: prefs, recents: recents),
+            child: const Text('Settings'),
+          );
+        })),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      // Cache usage reads IndexedDB in browsers; its unrelated progress spinner
+      // need not settle for the Settings route and licence link to be ready.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final tile = find.byKey(const ValueKey('settings-licenses'));
+      await tester.ensureVisible(tile);
+      expect(
+          find.descendant(
+              of: tile,
+              matching: find
+                  .text(region == 'US' ? 'View licenses' : 'View licences')),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final region in ['AU', 'GB', 'US', '']) {
     testWidgets('app and editor follow device English $region', (tester) async {
       final british = region == 'AU' || region == 'GB';
