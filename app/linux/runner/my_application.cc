@@ -816,6 +816,7 @@ struct SnapshotClipboardData {
 };
 static SnapshotClipboardData* local_snapshot = nullptr;
 static gint64 clipboard_generation = 1;
+static gint64 local_copy_generation = 0;
 struct PendingPdfRead {
   FlMethodCall* call;
   gint64 generation;
@@ -878,8 +879,11 @@ static void image_clipboard_method_call_cb(FlMethodChannel*, FlMethodCall* call,
     }
     g_autoptr(FlValue) result = fl_value_new_bool(copied);
     fl_method_call_respond_success(call, result, nullptr);
+  } else if (strcmp(method, "markLocalCopy") == 0) {
+    local_copy_generation = clipboard_generation;
+    fl_method_call_respond_success(call, nullptr, nullptr);
   } else if (strcmp(method, "readPdf") == 0) {
-    if (local_snapshot != nullptr) {
+    if (local_snapshot != nullptr || local_copy_generation == clipboard_generation) {
       fl_method_call_respond_success(call, nullptr, nullptr);
       return;
     }

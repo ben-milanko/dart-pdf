@@ -28,6 +28,8 @@ std::optional<std::vector<uint8_t>> ReadImageFromClipboard(HWND owner);
 // this process's own write, preserving in-app repeat paste and object reuse.
 bool CopySnapshotToClipboard(HWND owner, const std::vector<uint8_t>& pdf,
                              const std::vector<uint8_t>& png);
+void MarkLocalClipboardCopy();
+
 struct ClipboardPdf {
   std::vector<uint8_t> bytes;
   DWORD sequence;

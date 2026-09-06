@@ -61,3 +61,16 @@ Future<PdfClipboardPdf?> readPdfFromClipboard() async {
     return null;
   }
 }
+
+/// Records which OS clipboard revision a local annotation copy supersedes.
+/// This changes no system clipboard data; unsupported platforms ignore it.
+Future<void> markLocalClipboardCopy() async {
+  if (!supportsPdfClipboard) return;
+  try {
+    await _channel.invokeMethod<void>('markLocalCopy');
+  } on PlatformException {
+    // Clipboard access can be denied without disabling in-app copy/paste.
+  } on MissingPluginException {
+    // Older runners and mobile keep the in-app clipboard behavior.
+  }
+}

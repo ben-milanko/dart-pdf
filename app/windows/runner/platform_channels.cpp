@@ -275,6 +275,9 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
           }
           result->Success(flutter::EncodableValue(
               CopyPngToClipboard(owner, *bytes)));
+        } else if (call.method_name() == "markLocalCopy") {
+          MarkLocalClipboardCopy();
+          result->Success();
         } else if (call.method_name() == "copySnapshot") {
           const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
           const auto* pdf_value = args ? Lookup(*args, "pdf") : nullptr;

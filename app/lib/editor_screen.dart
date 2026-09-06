@@ -376,9 +376,16 @@ class _EditorScreenState extends State<EditorScreen>
   bool _readOnly = false;
   bool _digitallySigning = false;
 
+  void _onLocalAnnotationCopy() {
+    if (PdfAnnotationSnapshotClipboard.instance.isNotEmpty) {
+      unawaited(markLocalClipboardCopy());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    PdfAnnotationSnapshotClipboard.instance.addListener(_onLocalAnnotationCopy);
     WidgetsBinding.instance.addObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
@@ -583,6 +590,8 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    PdfAnnotationSnapshotClipboard.instance
+        .removeListener(_onLocalAnnotationCopy);
     _registeredTabDragCoordinator
       ?..removeListener(_syncDestinationTabDragOverlay)
       ..unregister(this);

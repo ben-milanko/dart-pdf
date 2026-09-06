@@ -257,6 +257,11 @@ class MainFlutterWindow: NSWindow {
       name: "dev.milanko.dartpdf/image_clipboard",
       binaryMessenger: binaryMessenger)
     imageClipboardChannel.setMethodCallHandler { (call, result) in
+      if call.method == "markLocalCopy" {
+        SnapshotClipboard.shared.markLocalCopy()
+        result(nil)
+        return
+      }
       if call.method == "copySnapshot" {
         guard let args = call.arguments as? [String: Any],
               let pdf = args["pdf"] as? FlutterStandardTypedData,

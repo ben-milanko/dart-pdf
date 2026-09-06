@@ -14,6 +14,7 @@ export 'image_clipboard_io.dart'
         copyPngToClipboard,
         copySnapshotToClipboard,
         readPdfFromClipboard,
+        markLocalClipboardCopy,
         readImageFromClipboard,
         readTextFromClipboard;
 

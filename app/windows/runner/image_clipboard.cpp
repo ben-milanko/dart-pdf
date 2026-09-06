@@ -282,6 +282,10 @@ bool CopySnapshotToClipboard(HWND owner, const std::vector<uint8_t>& pdf,
   return copied;
 }
 
+void MarkLocalClipboardCopy() {
+  local_snapshot_sequence = ::GetClipboardSequenceNumber();
+}
+
 std::optional<ClipboardPdf> ReadExternalPdfFromClipboard(HWND owner) {
   ClipboardGuard clipboard(owner);
   if (!clipboard.open()) return std::nullopt;

@@ -19,6 +19,7 @@ void main() {
     // controllers share the process-wide snapshot clipboard by default; start
     // each test from empty so one test's capture can't leak into the next.
     PdfSnapshotClipboard.instance.clear();
+    PdfAnnotationSnapshotClipboard.instance.clear();
   });
 
   // A throwaway PdfSnapshot whose pngBytes are the only field the handler reads.
@@ -222,6 +223,39 @@ void main() {
     expect(calls, 1);
     expect(read, 'Native clipboard text');
   });
+
+  testWidgets(
+      'local annotation Copy records native precedence without writing bytes',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = PdfEditingPreferences();
+    addTearDown(prefs.dispose);
+    const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
+    final calls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      calls.add(call.method);
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildMultiPagePdf(1), title: 'Copy.pdf'),
+    )));
+    await tester.pumpAndSettle();
+    final editing = tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+    editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+    editing.selectAnnotation(0, 0);
+    editing.copySelectedAnnotations();
+    await tester.pumpAndSettle();
+    expect(calls, ['markLocalCopy']);
+    editing.pasteSnapshotBytes(buildMultiPagePdf(1), 0);
+    await tester.pumpAndSettle();
+    expect(calls, ['markLocalCopy'],
+        reason: 'an external import is not a local copy');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets(
       'EditorScreen wires both desktop clipboard directions through the shell',

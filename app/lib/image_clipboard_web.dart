@@ -94,3 +94,5 @@ Future<bool> copySnapshotToClipboard(Uint8List pdf, Uint8List png) =>
 Future<PdfClipboardPdf?> readPdfFromClipboard() async => null;
 
 const supportsPdfClipboard = false;
+
+Future<void> markLocalClipboardCopy() async {}
