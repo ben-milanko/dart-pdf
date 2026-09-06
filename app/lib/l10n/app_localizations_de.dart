@@ -1146,4 +1146,195 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Zwischengespeicherte Dokumente konnten nicht gelöscht werden. Erneut versuchen.';
+
+  @override
+  String get printOptionsPrinter => 'Drucker';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'Wählen Sie im anschließenden Systemdruckdialog den Drucker, das Papierfach, Farbe, beidseitigen Druck und die Geräteeigenschaften. Lassen Sie die Skalierung bei 100 % und die Kopienanzahl bei 1, um das hier angezeigte Layout zu verwenden.';
+
+  @override
+  String get printOptionsPages => 'Seiten';
+
+  @override
+  String get printOptionsSelected => 'Ausgewählt';
+
+  @override
+  String get printOptionsPageRange => 'Seiten (zum Beispiel 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Dateien hinzufügen…';
+
+  @override
+  String get printOptionsAddFailed =>
+      'Die ausgewählten Dateien konnten nicht hinzugefügt werden.';
+
+  @override
+  String get printOptionsGetWindow => 'Bereich auswählen';
+
+  @override
+  String get printOptionsClearWindow => 'Bereich aufheben';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Ziehen Sie auf dieser Originalseite ein Rechteck auf, um den Druckbereich auszuwählen.';
+
+  @override
+  String get printOptionsPaper => 'Papier';
+
+  @override
+  String get printOptionsPaperSize => 'Papierformat';
+
+  @override
+  String get printOptionsPageSize => 'Seitenformat des Dokuments verwenden';
+
+  @override
+  String get printOptionsOrientation => 'Ausrichtung';
+
+  @override
+  String get printOptionsAuto => 'Automatisch';
+
+  @override
+  String get printOptionsPortrait => 'Hochformat';
+
+  @override
+  String get printOptionsLandscape => 'Querformat';
+
+  @override
+  String get printOptionsCopies => 'Kopien';
+
+  @override
+  String get printOptionsCollate => 'Sortieren';
+
+  @override
+  String get printOptionsReverse => 'Umgekehrte Seitenreihenfolge';
+
+  @override
+  String get printOptionsLayout => 'Seitenlayout';
+
+  @override
+  String get printOptionsScaling => 'Seitenskalierung';
+
+  @override
+  String get printOptionsScaleNone => 'Keine (tatsächliche Größe)';
+
+  @override
+  String get printOptionsFitPaper => 'An Papier anpassen';
+
+  @override
+  String get printOptionsReducePaper => 'Auf Papiergröße verkleinern';
+
+  @override
+  String get printOptionsFitMargins => 'An Seitenränder anpassen';
+
+  @override
+  String get printOptionsReduceMargins => 'Auf Seitenränder verkleinern';
+
+  @override
+  String get printOptionsCustomScale => 'Benutzerdefinierte Skalierung';
+
+  @override
+  String get printOptionsMultiple => 'Mehrere Seiten pro Blatt';
+
+  @override
+  String get printOptionsScalePercent => 'Skalierung (%)';
+
+  @override
+  String get printOptionsMargin => 'Seitenränder (pt)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Seiten pro Blatt';
+
+  @override
+  String get printOptionsPageOrder => 'Seitenreihenfolge';
+
+  @override
+  String get printOptionsHorizontal => 'Horizontal';
+
+  @override
+  String get printOptionsHorizontalReverse => 'Horizontal umgekehrt';
+
+  @override
+  String get printOptionsVertical => 'Vertikal';
+
+  @override
+  String get printOptionsVerticalReverse => 'Vertikal umgekehrt';
+
+  @override
+  String get printOptionsBorder => 'Seitenrahmen drucken';
+
+  @override
+  String get printOptionsRotation => 'Drehung (im Uhrzeigersinn)';
+
+  @override
+  String get printOptionsNoRotation => 'Keine';
+
+  @override
+  String get printOptionsCenter => 'Auf Papier zentrieren';
+
+  @override
+  String get printOptionsOffsetX => 'Versatz nach rechts (pt)';
+
+  @override
+  String get printOptionsOffsetY => 'Versatz nach unten (pt)';
+
+  @override
+  String get printOptionsContents => 'Druckinhalt';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Dokument und Anmerkungen';
+
+  @override
+  String get printOptionsDocumentOnly => 'Nur Dokument';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Nur Anmerkungen';
+
+  @override
+  String get printOptionsDimPage => 'Seiteninhalt abschwächen';
+
+  @override
+  String get printOptionsDimMarkups => 'Anmerkungen abschwächen';
+
+  @override
+  String get printOptionsHyperlinks => 'Sichtbare Hyperlinks drucken';
+
+  @override
+  String get printOptionsDefaults => 'Standardwerte';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Geben Sie vor dem Drucken gültige Zahlen ein.';
+
+  @override
+  String get printOptionsInvalidValue => 'Ungültiger Wert';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Die roten Linien zeigen die Seitenränder an und werden nicht gedruckt.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Bereich: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Original: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Blatt: $width × $height pt';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Blatt $sheet von $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Dieses Layout konnte nicht erstellt werden. Prüfen Sie Papierformat, Seitenränder und Skalierung.';
 }

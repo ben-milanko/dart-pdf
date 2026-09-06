@@ -300,14 +300,20 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
             std::get_if<flutter::EncodableMap>(call.arguments());
         if (call.method_name() == "beginJob") {
           std::string name = "Document";
+          bool use_document_page_size = false;
           if (args != nullptr) {
+            if (const auto* value = Lookup(*args, "useDocumentPageSize")) {
+              if (const auto* enabled = std::get_if<bool>(value)) {
+                use_document_page_size = *enabled;
+              }
+            }
             if (const auto* value = Lookup(*args, "name")) {
               if (const auto* text = std::get_if<std::string>(value)) {
                 if (!text->empty()) name = *text;
               }
             }
           }
-          native_printer_.Begin(Utf16FromUtf8(name));
+          native_printer_.Begin(Utf16FromUtf8(name), use_document_page_size);
           result->Success(flutter::EncodableValue(flutter::EncodableMap{
               {flutter::EncodableValue("dpi"), flutter::EncodableValue(300)},
               {flutter::EncodableValue("vector"),

@@ -1144,4 +1144,196 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get settingsCacheClearFailed =>
       'Не удалось очистить кэш документов. Повторите попытку.';
+
+  @override
+  String get printOptionsPrinter => 'Принтер';
+
+  @override
+  String get printOptionsNativePrinter =>
+      'В следующем системном диалоге печати выберите принтер, лоток для бумаги, цвет, двустороннюю печать и свойства устройства. Оставьте масштаб 100% и число копий 1, чтобы использовать показанный здесь макет.';
+
+  @override
+  String get printOptionsPages => 'Страницы';
+
+  @override
+  String get printOptionsSelected => 'Выбранные';
+
+  @override
+  String get printOptionsPageRange => 'Страницы (например, 1, 3-5)';
+
+  @override
+  String get printOptionsAddFiles => 'Добавить файлы…';
+
+  @override
+  String get printOptionsAddFailed => 'Не удалось добавить выбранные файлы.';
+
+  @override
+  String get printOptionsGetWindow => 'Выбрать область';
+
+  @override
+  String get printOptionsClearWindow => 'Сбросить область';
+
+  @override
+  String get printOptionsWindowHint =>
+      'Выделите прямоугольник на исходной странице, чтобы выбрать область для печати.';
+
+  @override
+  String get printOptionsPaper => 'Бумага';
+
+  @override
+  String get printOptionsPaperSize => 'Размер бумаги';
+
+  @override
+  String get printOptionsPageSize => 'Использовать размер страницы документа';
+
+  @override
+  String get printOptionsOrientation => 'Ориентация';
+
+  @override
+  String get printOptionsAuto => 'Автоматически';
+
+  @override
+  String get printOptionsPortrait => 'Книжная';
+
+  @override
+  String get printOptionsLandscape => 'Альбомная';
+
+  @override
+  String get printOptionsCopies => 'Копии';
+
+  @override
+  String get printOptionsCollate => 'Разобрать по копиям';
+
+  @override
+  String get printOptionsReverse => 'Обратный порядок страниц';
+
+  @override
+  String get printOptionsLayout => 'Макет страницы';
+
+  @override
+  String get printOptionsScaling => 'Масштабирование страницы';
+
+  @override
+  String get printOptionsScaleNone =>
+      'Без масштабирования (фактический размер)';
+
+  @override
+  String get printOptionsFitPaper => 'Подогнать под размер бумаги';
+
+  @override
+  String get printOptionsReducePaper => 'Уменьшить до размера бумаги';
+
+  @override
+  String get printOptionsFitMargins => 'Подогнать по полям';
+
+  @override
+  String get printOptionsReduceMargins => 'Уменьшить до полей';
+
+  @override
+  String get printOptionsCustomScale => 'Произвольный масштаб';
+
+  @override
+  String get printOptionsMultiple => 'Несколько страниц на листе';
+
+  @override
+  String get printOptionsScalePercent => 'Масштаб (%)';
+
+  @override
+  String get printOptionsMargin => 'Поля (пт)';
+
+  @override
+  String get printOptionsPagesPerSheet => 'Страниц на листе';
+
+  @override
+  String get printOptionsPageOrder => 'Порядок страниц';
+
+  @override
+  String get printOptionsHorizontal => 'По горизонтали';
+
+  @override
+  String get printOptionsHorizontalReverse =>
+      'По горизонтали в обратном порядке';
+
+  @override
+  String get printOptionsVertical => 'По вертикали';
+
+  @override
+  String get printOptionsVerticalReverse => 'По вертикали в обратном порядке';
+
+  @override
+  String get printOptionsBorder => 'Печатать рамки страниц';
+
+  @override
+  String get printOptionsRotation => 'Поворот (по часовой стрелке)';
+
+  @override
+  String get printOptionsNoRotation => 'Нет';
+
+  @override
+  String get printOptionsCenter => 'По центру листа';
+
+  @override
+  String get printOptionsOffsetX => 'Смещение вправо (пт)';
+
+  @override
+  String get printOptionsOffsetY => 'Смещение вниз (пт)';
+
+  @override
+  String get printOptionsContents => 'Содержимое для печати';
+
+  @override
+  String get printOptionsDocumentAndMarkups => 'Документ и аннотации';
+
+  @override
+  String get printOptionsDocumentOnly => 'Только документ';
+
+  @override
+  String get printOptionsMarkupsOnly => 'Только аннотации';
+
+  @override
+  String get printOptionsDimPage => 'Осветлить содержимое страницы';
+
+  @override
+  String get printOptionsDimMarkups => 'Осветлить аннотации';
+
+  @override
+  String get printOptionsHyperlinks => 'Печатать видимые гиперссылки';
+
+  @override
+  String get printOptionsDefaults => 'По умолчанию';
+
+  @override
+  String get printOptionsInvalidNumber =>
+      'Перед печатью введите допустимые числа.';
+
+  @override
+  String get printOptionsInvalidValue => 'Недопустимое значение';
+
+  @override
+  String get printOptionsMarginGuide =>
+      'Красные линии показывают поля и не выводятся на печать.';
+
+  @override
+  String printOptionsAreaSize(String width, String height) {
+    return 'Область: $width × $height пт';
+  }
+
+  @override
+  String printOptionsSourceSize(String width, String height) {
+    return 'Источник: $width × $height пт';
+  }
+
+  @override
+  String printOptionsSheetSize(String width, String height) {
+    return 'Лист: $width × $height пт';
+  }
+
+  @override
+  String printOptionsSheetOf(int sheet, int total) {
+    return 'Лист $sheet из $total';
+  }
+
+  @override
+  String get printOptionsInvalidLayout =>
+      'Не удалось подготовить этот макет. Проверьте размер бумаги, поля и масштаб.';
 }

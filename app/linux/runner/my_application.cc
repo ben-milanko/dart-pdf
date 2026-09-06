@@ -41,6 +41,7 @@ struct _MyApplication {
   FlMethodChannel* window_geometry_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
   char* print_job_name;
+  gboolean use_document_page_size;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -289,19 +290,25 @@ void vp_replay_image(VpReader* r, cairo_t* cr) {
 // Replays one page's op stream onto |cr|, fit-and-centred into a page of
 // |page_w| x |page_h| points. Returns false on a bad header.
 bool draw_vector_page(cairo_t* cr, const guint8* data, gsize size,
-                      double page_w, double page_h) {
+                      double page_w, double page_h,
+                      bool use_document_page_size) {
+  if (size < 12) return false;
   VpReader r{data, data + size};
   if (r.U8() != 'V' || r.U8() != 'P' || r.U8() != 'R' || r.U8() != 1) {
     return false;
   }
   const double doc_w = r.F32();
   const double doc_h = r.F32();
-  if (!r.ok || doc_w <= 0 || doc_h <= 0) return false;
+  if (!r.ok || !std::isfinite(doc_w) || !std::isfinite(doc_h) ||
+      doc_w <= 0 || doc_h <= 0) return false;
 
-  const double fit = MIN(page_w / doc_w, page_h / doc_h);
+  const double fit = use_document_page_size
+                         ? 1.0 : MIN(page_w / doc_w, page_h / doc_h);
   cairo_save(cr);
-  cairo_translate(cr, (page_w - doc_w * fit) / 2.0,
-                  (page_h - doc_h * fit) / 2.0);
+  if (!use_document_page_size) {
+    cairo_translate(cr, (page_w - doc_w * fit) / 2.0,
+                    (page_h - doc_h * fit) / 2.0);
+  }
   cairo_scale(cr, fit, fit);
 
   while (r.ok && r.p < r.end) {
@@ -344,6 +351,50 @@ bool is_vector_page(gconstpointer data, gsize size) {
   return b[0] == 'V' && b[1] == 'P' && b[2] == 'R' && b[3] == 1;
 }
 
+bool vector_page_size(GBytes* bytes, double* width, double* height) {
+  gsize size = 0;
+  gconstpointer data = g_bytes_get_data(bytes, &size);
+  if (size < 12 || !is_vector_page(data, size)) return false;
+  const auto* b = static_cast<const guint8*>(data);
+  VpReader r{b + 4, b + size};
+  *width = r.F32();
+  *height = r.F32();
+  return r.ok && std::isfinite(*width) && std::isfinite(*height) &&
+         *width > 0 && *height > 0;
+}
+
+GtkPaperSize* paper_for_dimensions(double width, double height) {
+  const double short_side = MIN(width, height);
+  const double long_side = MAX(width, height);
+  // Keep named tray media recognizable to CUPS instead of advertising every
+  // standard sheet as a custom form. Allow 0.1 mm for the f32 stream header.
+  const char* const standard_names[] = {
+      "iso_a0", "iso_a1", "iso_a2", "iso_a3", "iso_a4", "iso_a5", "iso_a6",
+      "na_letter", "na_legal", "na_ledger",
+  };
+  for (const char* name : standard_names) {
+    GtkPaperSize* paper = gtk_paper_size_new(name);
+    if (std::abs(gtk_paper_size_get_width(paper, GTK_UNIT_POINTS) - short_side) <
+            72.0 / 254.0 &&
+        std::abs(gtk_paper_size_get_height(paper, GTK_UNIT_POINTS) - long_side) <
+            72.0 / 254.0) {
+      return paper;
+    }
+    gtk_paper_size_free(paper);
+  }
+  // gtk_paper_size_is_equal compares custom papers by NAME, not dimensions.
+  // Give different media distinct names so mixed-size sheets do not compare
+  // equal. Locale-independent round-trip strings keep the identity stable.
+  char width_name[G_ASCII_DTOSTR_BUF_SIZE];
+  char height_name[G_ASCII_DTOSTR_BUF_SIZE];
+  g_ascii_dtostr(width_name, sizeof(width_name), short_side);
+  g_ascii_dtostr(height_name, sizeof(height_name), long_side);
+  g_autofree char* name =
+      g_strdup_printf("dartpdf-sheet-%sx%s", width_name, height_name);
+  return gtk_paper_size_new_custom(name, "Document sheet", short_side,
+                                    long_side, GTK_UNIT_POINTS);
+}
+
 }  // namespace
 
 // Draws one accumulated page image onto the print context, aspect-fitted and
@@ -367,7 +418,8 @@ static void print_draw_page_cb(GtkPrintOperation* operation,
     cairo_t* cr = gtk_print_context_get_cairo_context(context);
     draw_vector_page(cr, static_cast<const guint8*>(data), size,
                      gtk_print_context_get_width(context),
-                     gtk_print_context_get_height(context));
+                     gtk_print_context_get_height(context),
+                     self->use_document_page_size);
     return;
   }
 
@@ -402,6 +454,32 @@ static void print_draw_page_cb(GtkPrintOperation* operation,
   cairo_restore(cr);
 }
 
+// Prepared stream coordinates already describe the physical sheet. GTK calls
+// this before each page, allowing a mixed-size PDF to choose matching media
+// without applying another fit-to-printable-area transform.
+static void print_page_setup_cb(GtkPrintOperation* operation,
+                                GtkPrintContext* context, gint page_nr,
+                                GtkPageSetup* setup, gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  if (!self->use_document_page_size || self->print_pages == nullptr ||
+      page_nr < 0 || static_cast<guint>(page_nr) >= self->print_pages->len) {
+    return;
+  }
+  auto* bytes = static_cast<GBytes*>(
+      g_ptr_array_index(self->print_pages, page_nr));
+  double width = 0, height = 0;
+  if (!vector_page_size(bytes, &width, &height)) return;
+  GtkPaperSize* paper = paper_for_dimensions(width, height);
+  gtk_page_setup_set_paper_size(setup, paper);
+  gtk_paper_size_free(paper);
+  gtk_page_setup_set_orientation(setup, width > height
+      ? GTK_PAGE_ORIENTATION_LANDSCAPE : GTK_PAGE_ORIENTATION_PORTRAIT);
+  gtk_page_setup_set_top_margin(setup, 0, GTK_UNIT_POINTS);
+  gtk_page_setup_set_bottom_margin(setup, 0, GTK_UNIT_POINTS);
+  gtk_page_setup_set_left_margin(setup, 0, GTK_UNIT_POINTS);
+  gtk_page_setup_set_right_margin(setup, 0, GTK_UNIT_POINTS);
+}
+
 // Shows the print dialog and spools the accumulated pages via GTK. Returns
 // FALSE on cancel or error. Clears the job either way.
 static gboolean run_print_job(MyApplication* self) {
@@ -415,6 +493,27 @@ static gboolean run_print_job(MyApplication* self) {
                                                    ? self->print_job_name
                                                    : "Document");
   g_signal_connect(operation, "draw-page", G_CALLBACK(print_draw_page_cb), self);
+  if (self->use_document_page_size) {
+    gtk_print_operation_set_unit(operation, GTK_UNIT_POINTS);
+    gtk_print_operation_set_use_full_page(operation, TRUE);
+    GtkPageSetup* setup = gtk_page_setup_new();
+    print_page_setup_cb(operation, nullptr, 0, setup, self);
+    gtk_print_operation_set_default_page_setup(operation, setup);
+    g_object_unref(setup);
+    g_signal_connect(operation, "request-page-setup",
+                     G_CALLBACK(print_page_setup_cb), self);
+    // Page selection, order, copies and n-up were composed in Dart already.
+    GtkPrintSettings* settings = gtk_print_settings_new();
+    gtk_print_settings_set_n_copies(settings, 1);
+    gtk_print_settings_set_collate(settings, FALSE);
+    gtk_print_settings_set_reverse(settings, FALSE);
+    gtk_print_settings_set_scale(settings, 100);
+    gtk_print_settings_set_number_up(settings, 1);
+    gtk_print_settings_set_page_set(settings, GTK_PAGE_SET_ALL);
+    gtk_print_settings_set_print_pages(settings, GTK_PRINT_PAGES_ALL);
+    gtk_print_operation_set_print_settings(operation, settings);
+    g_object_unref(settings);
+  }
 
   g_autoptr(GError) error = nullptr;
   GtkPrintOperationResult res = gtk_print_operation_run(
@@ -441,6 +540,11 @@ static void native_print_method_call_cb(FlMethodChannel* channel,
   if (strcmp(method, "beginJob") == 0) {
     clear_print_pages(self);
     g_clear_pointer(&self->print_job_name, g_free);
+    FlValue* prepared = is_map
+        ? fl_value_lookup_string(args, "useDocumentPageSize") : nullptr;
+    self->use_document_page_size = prepared != nullptr &&
+        fl_value_get_type(prepared) == FL_VALUE_TYPE_BOOL &&
+        fl_value_get_bool(prepared);
     FlValue* name = is_map ? fl_value_lookup_string(args, "name") : nullptr;
     self->print_job_name =
         (name != nullptr && fl_value_get_type(name) == FL_VALUE_TYPE_STRING)

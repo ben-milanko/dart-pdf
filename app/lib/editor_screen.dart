@@ -35,6 +35,7 @@ import 'ocr.dart';
 import 'ocr_status_label.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
+import 'print_composer.dart';
 import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
@@ -144,8 +145,8 @@ class EditorScreen extends StatefulWidget {
   final bool autoCheckUpdates;
 
   /// Override for the print action. Tests inject a fake to assert the menu and
-  /// shortcut wiring without the real `printing` plugin (its method channel is
-  /// unavailable under flutter_test). Production leaves this null and the screen
+  /// shortcut wiring without the native printer's platform channel.
+  /// Production leaves this null and the screen
   /// falls back to [printPdfBytes].
   final PdfPrinter? printDocument;
 
@@ -2675,35 +2676,29 @@ class _EditorScreenState extends State<EditorScreen>
   /// the web). The current revision is printed, so unsaved edits are included.
   /// A failed or unavailable backend surfaces as a toast rather than throwing.
   ///
-  /// Where the platform's print flow has no preview of its own (Windows and
-  /// Linux - see [platformProvidesPrintPreview]), DartPDF previews the job
-  /// first and prints the page range chosen there. A narrowed range prints an
-  /// extract of the document rather than the whole file, which is also how the
-  /// range reaches the platforms whose print path takes a whole PDF.
+  /// The app previews and prepares the chosen physical sheets on every
+  /// platform, so page ranges, scaling, markup choices and sheet layout also
+  /// work with backends that accept only a complete PDF.
   Future<void> _print(DocumentTab tab) async {
     final session = tab.session;
     if (session == null) return;
-    var bytes = session.bytes;
     try {
-      if (!platformProvidesPrintPreview()) {
-        final pages = await showPrintPreviewDialog(
-          context,
-          document: session.document,
-          title: tab.title,
-          currentPage: tab.viewer?.currentPage ?? 0,
-        );
-        if (pages == null || !mounted || !_tabs.contains(tab)) return;
-        // The preview is modal, but the session stays the source of truth for
-        // what prints - re-read it rather than trusting the pre-dialog bytes.
-        final document = session.document;
-        final selection = pages
-            .where((page) => page >= 0 && page < document.pageCount)
-            .toList();
-        if (selection.isEmpty) return;
-        bytes = selection.length == document.pageCount
-            ? session.bytes
-            : document.extractPages(selection);
-      }
+      // Finish visible drafts before the preview detaches its print source.
+      // Keyboard shortcuts can arrive while inline text still owns focus,
+      // and recently lifted ink strokes may still await their commit timer.
+      FocusManager.instance.primaryFocus?.unfocus();
+      FocusManager.instance.applyFocusChangesIfNeeded();
+      session.finishInk();
+      final job = await showPrintPreviewDialog(
+        context,
+        document: session.document,
+        title: tab.title,
+        currentPage: tab.viewer?.currentPage ?? 0,
+        selectedPages: session.selectedPages,
+        addFiles: _pickPrintFiles,
+      );
+      if (job == null || !mounted || !_tabs.contains(tab)) return;
+      final bytes = preparePrintDocument(job.document, job.settings);
       final injected = widget.printDocument;
       if (injected != null) {
         await injected(bytes: bytes, title: tab.title);
@@ -2715,10 +2710,25 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  /// Adds files to this print job without opening tabs or editing the source.
+  Future<List<PdfDocument>> _pickPrintFiles() async {
+    final files = await pickPdfFiles(appL10n(context).fileTypePdf);
+    final documents = <PdfDocument>[];
+    for (final file in files) {
+      final document = PdfDocument.open(await file.readAsBytes());
+      // Opening is lazy: reject malformed page trees here, before the dialog
+      // merges anything into its temporary batch.
+      if (document.pageCount == 0) {
+        throw StateError('The selected PDF has no printable pages.');
+      }
+      documents.add(document);
+    }
+    return documents;
+  }
+
   /// Runs [printPdfBytes] with a modal progress dialog that tracks page
-  /// rendering. The print path rasterises every page up front, which is slow
-  /// for large documents, so we surface "page X of Y" progress rather than
-  /// appearing frozen.
+  /// conversion. Desktop runners receive drawing operations one page at a
+  /// time, so large jobs report their progress before opening the OS dialog.
   ///
   /// The dialog appears only for multi-page (slow) jobs - a one/two-page print
   /// finishes too fast to be worth a flash - and is dismissed once rendering
@@ -2738,6 +2748,7 @@ class _EditorScreenState extends State<EditorScreen>
       await printPdfBytes(
         bytes: bytes,
         title: title,
+        useDocumentPageSize: true,
         onProgress: (rendered, total) {
           progress.value = (rendered, total);
           if (total > _printProgressThreshold &&

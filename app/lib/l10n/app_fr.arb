@@ -285,5 +285,104 @@
   "settingsCacheExplanation": "Les fichiers de plus de {limit} MiB ne sont pas mis en cache. La suppression conserve les fichiers récents, les documents ouverts et les modifications non enregistrées ; les fichiers en cache devront être sélectionnés à nouveau pour les rouvrir.",
   "settingsClearCachedDocuments": "Effacer les documents en cache",
   "settingsCacheUnavailable": "Taille du cache indisponible",
-  "settingsCacheClearFailed": "Impossible d’effacer les documents en cache. Réessayez."
+  "settingsCacheClearFailed": "Impossible d’effacer les documents en cache. Réessayez.",
+  "printOptionsPrinter": "Imprimante",
+  "printOptionsNativePrinter": "Choisissez l’imprimante, le bac à papier, la couleur, le recto verso et les propriétés du périphérique dans la boîte de dialogue d’impression du système qui s’ouvrira ensuite. Conservez une échelle de 100 % et une seule copie pour utiliser la mise en page affichée ici.",
+  "printOptionsPages": "Pages",
+  "printOptionsSelected": "Sélectionnées",
+  "printOptionsPageRange": "Pages (par exemple, 1, 3-5)",
+  "printOptionsAddFiles": "Ajouter des fichiers…",
+  "printOptionsAddFailed": "Impossible d’ajouter les fichiers sélectionnés.",
+  "printOptionsGetWindow": "Définir la zone",
+  "printOptionsClearWindow": "Effacer la zone",
+  "printOptionsWindowHint": "Tracez un rectangle sur cette page d’origine pour choisir la zone à imprimer.",
+  "printOptionsPaper": "Papier",
+  "printOptionsPaperSize": "Format du papier",
+  "printOptionsPageSize": "Utiliser le format de page du document",
+  "printOptionsOrientation": "Orientation",
+  "printOptionsAuto": "Automatique",
+  "printOptionsPortrait": "Portrait",
+  "printOptionsLandscape": "Paysage",
+  "printOptionsCopies": "Copies",
+  "printOptionsCollate": "Assembler",
+  "printOptionsReverse": "Inverser l’ordre des pages",
+  "printOptionsLayout": "Mise en page",
+  "printOptionsScaling": "Mise à l’échelle",
+  "printOptionsScaleNone": "Aucune (taille réelle)",
+  "printOptionsFitPaper": "Ajuster au papier",
+  "printOptionsReducePaper": "Réduire au format du papier",
+  "printOptionsFitMargins": "Ajuster aux marges",
+  "printOptionsReduceMargins": "Réduire aux marges",
+  "printOptionsCustomScale": "Échelle personnalisée",
+  "printOptionsMultiple": "Plusieurs pages par feuille",
+  "printOptionsScalePercent": "Échelle (%)",
+  "printOptionsMargin": "Marges (pt)",
+  "printOptionsPagesPerSheet": "Pages par feuille",
+  "printOptionsPageOrder": "Ordre des pages",
+  "printOptionsHorizontal": "Horizontal",
+  "printOptionsHorizontalReverse": "Horizontal inversé",
+  "printOptionsVertical": "Vertical",
+  "printOptionsVerticalReverse": "Vertical inversé",
+  "printOptionsBorder": "Imprimer les bordures de page",
+  "printOptionsRotation": "Rotation (sens horaire)",
+  "printOptionsNoRotation": "Aucune",
+  "printOptionsCenter": "Centrer sur le papier",
+  "printOptionsOffsetX": "Décalage vers la droite (pt)",
+  "printOptionsOffsetY": "Décalage vers le bas (pt)",
+  "printOptionsContents": "Contenu à imprimer",
+  "printOptionsDocumentAndMarkups": "Document et annotations",
+  "printOptionsDocumentOnly": "Document uniquement",
+  "printOptionsMarkupsOnly": "Annotations uniquement",
+  "printOptionsDimPage": "Atténuer le contenu de la page",
+  "printOptionsDimMarkups": "Atténuer les annotations",
+  "printOptionsHyperlinks": "Imprimer les hyperliens visibles",
+  "printOptionsDefaults": "Valeurs par défaut",
+  "printOptionsInvalidNumber": "Saisissez des nombres valides avant d’imprimer.",
+  "printOptionsInvalidValue": "Valeur non valide",
+  "printOptionsMarginGuide": "Les lignes rouges indiquent les marges et ne sont pas imprimées.",
+  "printOptionsAreaSize": "Zone : {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Original : {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Feuille : {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Feuille {sheet} sur {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "Impossible de préparer cette mise en page. Vérifiez le format du papier, les marges et l’échelle."
 }

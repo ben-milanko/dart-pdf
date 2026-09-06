@@ -47,10 +47,17 @@ class PdfMerger {
 }
 
 extension on PdfEditor {
-  void _mergeImportedDocumentData(_PageImporter importer) {
+  void _mergeImportedDocumentData(_PageImporter importer,
+      {required bool intoEmpty}) {
     _mergeFormFields(importer);
     _mergeNamedDestinations(importer);
+    _mergeOptionalContent(importer);
     final source = importer.source;
+    final intents = source.catalog['OutputIntents'];
+    if (intoEmpty && intents != null) {
+      document.catalog['OutputIntents'] = importer.copyValue(intents);
+      _updater.markChanged(document.catalog);
+    }
     final outlines = source.cos.resolve(source.catalog['Outlines']);
     if (outlines is CosDictionary && outlines.containsKey('First')) {
       final root = _ensureOutlineRoot();
@@ -59,6 +66,86 @@ extension on PdfEditor {
       _relinkOutlineChildren(root, [..._outlineChildren(root), ...imported]);
       _recountOutline(root);
     }
+  }
+
+  /// Each input's default layer state belongs to that document's group
+  /// namespace. Make it explicit before combining the groups, and restrict
+  /// automatic usage applications to the groups they originally governed.
+  /// Otherwise an imported BaseState OFF turns on under the destination's
+  /// ON default, or an /AS entry with no /OCGs starts affecting other inputs.
+  void _mergeOptionalContent(_PageImporter importer) {
+    final source = importer.source.cos;
+    final incoming = source.resolve(importer.source.catalog['OCProperties']);
+    if (incoming is! CosDictionary) return;
+    final cos = document.cos;
+    final previous = cos.resolve(document.catalog['OCProperties']);
+    final groups = <CosObject>[];
+    final on = <CosObject>[];
+    final off = <CosObject>[];
+    final applications = <CosObject>[];
+
+    void append(CosDocument owner, CosDictionary properties,
+        CosObject Function(CosObject) copy) {
+      final defaults = owner.resolve(properties['D']);
+      final config = defaults is CosDictionary ? defaults : CosDictionary();
+      final states = Map<CosDictionary, (CosObject, bool)>.identity();
+
+      List<CosObject> items(CosObject? raw) {
+        final value = owner.resolve(raw);
+        return value is CosArray ? value.items : const [];
+      }
+
+      void register(Iterable<CosObject> values, bool visible) {
+        for (final value in values) {
+          final group = owner.resolve(value);
+          if (group is CosDictionary) states[group] = (value, visible);
+        }
+      }
+
+      register(items(properties['OCGs']),
+          owner.resolve(config['BaseState']) != const CosName('OFF'));
+      register(items(config['ON']), true);
+      register(items(config['OFF']), false);
+      for (final (value, visible) in states.values) {
+        final mapped = copy(value);
+        groups.add(mapped);
+        (visible ? on : off).add(mapped);
+      }
+      for (final item in items(config['AS'])) {
+        final application = owner.resolve(item);
+        if (application is! CosDictionary) continue;
+        final targets = items(application['OCGs']);
+        applications.add(CosDictionary({
+          for (final entry in application.entries.entries)
+            if (entry.key != 'OCGs') entry.key: copy(entry.value),
+          // Missing or empty means all groups in this input, not all groups
+          // in the eventual merged document (§8.11.4.5).
+          'OCGs': CosArray([
+            for (final group in targets.isEmpty
+                ? states.values.map((entry) => entry.$1)
+                : targets)
+              copy(group),
+          ]),
+        }));
+      }
+    }
+
+    if (previous is CosDictionary) append(cos, previous, (value) => value);
+    append(source, incoming, importer.copyValue);
+    final oldDefaults =
+        previous is CosDictionary ? cos.resolve(previous['D']) : null;
+    document.catalog['OCProperties'] = CosDictionary({
+      if (previous is CosDictionary) ...previous.entries,
+      'OCGs': CosArray(groups),
+      'D': CosDictionary({
+        if (oldDefaults is CosDictionary) ...oldDefaults.entries,
+        'BaseState': const CosName('OFF'),
+        'ON': CosArray(on),
+        'OFF': CosArray(off),
+        if (applications.isNotEmpty) 'AS': CosArray(applications),
+      }),
+    });
+    _updater.markChanged(document.catalog);
   }
 
   void _mergeFormFields(_PageImporter importer) {

@@ -30,7 +30,8 @@ class NativePrinter {
 
   // Starts (or restarts) a job named |document_name|, discarding any pages
   // held from a previous, unfinished job.
-  void Begin(const std::wstring& document_name);
+  void Begin(const std::wstring& document_name,
+             bool use_document_page_size = false);
 
   // Appends one page's encoded image bytes (JPEG or PNG - WIC detects the
   // format at print time). Returns true; pages are decoded lazily in End().
@@ -57,6 +58,7 @@ class NativePrinter {
 
   std::wstring doc_name_;
   std::vector<Page> pages_;
+  bool use_document_page_size_ = false;
 };
 
 #endif  // RUNNER_NATIVE_PRINT_H_

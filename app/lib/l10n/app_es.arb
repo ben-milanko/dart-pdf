@@ -285,5 +285,104 @@
   "settingsCacheExplanation": "Los archivos de más de {limit} MiB no se guardan en caché. Al borrar se conservan la lista de recientes, los documentos abiertos y los cambios sin guardar; tendrás que seleccionar de nuevo los archivos para abrirlos.",
   "settingsClearCachedDocuments": "Borrar documentos en caché",
   "settingsCacheUnavailable": "Tamaño de caché no disponible",
-  "settingsCacheClearFailed": "No se pudieron borrar los documentos en caché. Inténtalo de nuevo."
+  "settingsCacheClearFailed": "No se pudieron borrar los documentos en caché. Inténtalo de nuevo.",
+  "printOptionsPrinter": "Impresora",
+  "printOptionsNativePrinter": "Elija la impresora, la bandeja de papel, el color, la impresión a doble cara y las propiedades del dispositivo en el siguiente diálogo de impresión del sistema. Mantenga la escala al 100 % y las copias en 1 para usar el diseño que se muestra aquí.",
+  "printOptionsPages": "Páginas",
+  "printOptionsSelected": "Seleccionadas",
+  "printOptionsPageRange": "Páginas (por ejemplo, 1, 3-5)",
+  "printOptionsAddFiles": "Añadir archivos…",
+  "printOptionsAddFailed": "No se pudieron añadir los archivos seleccionados.",
+  "printOptionsGetWindow": "Seleccionar área",
+  "printOptionsClearWindow": "Borrar área",
+  "printOptionsWindowHint": "Arrastre un rectángulo sobre esta página original para elegir el área que desea imprimir.",
+  "printOptionsPaper": "Papel",
+  "printOptionsPaperSize": "Tamaño del papel",
+  "printOptionsPageSize": "Usar el tamaño de página del documento",
+  "printOptionsOrientation": "Orientación",
+  "printOptionsAuto": "Automática",
+  "printOptionsPortrait": "Vertical",
+  "printOptionsLandscape": "Horizontal",
+  "printOptionsCopies": "Copias",
+  "printOptionsCollate": "Intercalar",
+  "printOptionsReverse": "Invertir el orden de las páginas",
+  "printOptionsLayout": "Diseño de página",
+  "printOptionsScaling": "Escala de página",
+  "printOptionsScaleNone": "Ninguna (tamaño real)",
+  "printOptionsFitPaper": "Ajustar al papel",
+  "printOptionsReducePaper": "Reducir al tamaño del papel",
+  "printOptionsFitMargins": "Ajustar a los márgenes",
+  "printOptionsReduceMargins": "Reducir a los márgenes",
+  "printOptionsCustomScale": "Escala personalizada",
+  "printOptionsMultiple": "Varias páginas por hoja",
+  "printOptionsScalePercent": "Escala (%)",
+  "printOptionsMargin": "Márgenes (pt)",
+  "printOptionsPagesPerSheet": "Páginas por hoja",
+  "printOptionsPageOrder": "Orden de las páginas",
+  "printOptionsHorizontal": "Horizontal",
+  "printOptionsHorizontalReverse": "Horizontal invertido",
+  "printOptionsVertical": "Vertical",
+  "printOptionsVerticalReverse": "Vertical invertido",
+  "printOptionsBorder": "Imprimir bordes de página",
+  "printOptionsRotation": "Rotación (sentido horario)",
+  "printOptionsNoRotation": "Ninguna",
+  "printOptionsCenter": "Centrar en el papel",
+  "printOptionsOffsetX": "Desplazamiento a la derecha (pt)",
+  "printOptionsOffsetY": "Desplazamiento hacia abajo (pt)",
+  "printOptionsContents": "Contenido de impresión",
+  "printOptionsDocumentAndMarkups": "Documento y anotaciones",
+  "printOptionsDocumentOnly": "Solo documento",
+  "printOptionsMarkupsOnly": "Solo anotaciones",
+  "printOptionsDimPage": "Atenuar el contenido de la página",
+  "printOptionsDimMarkups": "Atenuar las anotaciones",
+  "printOptionsHyperlinks": "Imprimir hipervínculos visibles",
+  "printOptionsDefaults": "Valores predeterminados",
+  "printOptionsInvalidNumber": "Introduzca números válidos antes de imprimir.",
+  "printOptionsInvalidValue": "Valor no válido",
+  "printOptionsMarginGuide": "Las líneas rojas muestran los márgenes; no se imprimen.",
+  "printOptionsAreaSize": "Área: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Original: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Hoja: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Hoja {sheet} de {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "No se pudo preparar este diseño. Compruebe el tamaño del papel, los márgenes y la escala."
 }

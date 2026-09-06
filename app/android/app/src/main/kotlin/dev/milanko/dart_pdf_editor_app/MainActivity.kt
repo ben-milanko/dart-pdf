@@ -28,6 +28,7 @@ import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 /// Forwards PDFs the OS opens in the app - a Files "open", a download tap, or a
 /// share - to the Dart `IncomingFileService` over a single method channel.
@@ -92,7 +93,12 @@ class MainActivity : FlutterActivity() {
                         if (pdf == null) {
                             result.error("bad_args", "printPdf expects pdf bytes", null)
                         } else {
-                            result.success(printPdf(pdf, call.argument<String>("name") ?: "Document"))
+                            result.success(printPdf(
+                                pdf, call.argument<String>("name") ?: "Document",
+                                call.argument<Boolean>("useDocumentPageSize") == true,
+                                call.argument<Number>("pageWidth")?.toDouble(),
+                                call.argument<Number>("pageHeight")?.toDouble()
+                            ))
                         }
                     }
                     else -> result.notImplemented()
@@ -352,13 +358,30 @@ class MainActivity : FlutterActivity() {
 
     /// Hands the whole PDF to Android's print framework, which renders it.
     /// Returns false when the print service is unavailable.
-    private fun printPdf(pdf: ByteArray, name: String): Boolean {
+    private fun printPdf(
+        pdf: ByteArray, name: String, useDocumentPageSize: Boolean = false,
+        pageWidth: Double? = null, pageHeight: Double? = null
+    ): Boolean {
         val printManager =
             getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return false
+        val attributes = PrintAttributes.Builder()
+        if (useDocumentPageSize && pageWidth != null && pageHeight != null &&
+            pageWidth.isFinite() && pageHeight.isFinite() &&
+            pageWidth > 0 && pageHeight > 0) {
+            // Android expresses media in thousandths of an inch. The adapter
+            // writes the already composed PDF verbatim; these are defaults for
+            // the print service, which still negotiates supported printer media.
+            attributes.setMediaSize(PrintAttributes.MediaSize(
+                "dartpdf-sheet", "Document sheet",
+                (pageWidth * 1000 / 72).roundToInt().coerceAtLeast(1),
+                (pageHeight * 1000 / 72).roundToInt().coerceAtLeast(1)
+            ))
+            attributes.setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+        }
         printManager.print(
             name,
             PdfBytesPrintAdapter(pdf, name),
-            PrintAttributes.Builder().build()
+            attributes.build()
         )
         return true
     }
