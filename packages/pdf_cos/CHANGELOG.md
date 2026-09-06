@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.3.0
 
 - Recompress Flate streams losslessly in `CosCompactor`, retaining predictor
   data and parameters. Preserve cyclic indirect arrays and PDF 2.0 headers.

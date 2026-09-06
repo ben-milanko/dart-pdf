@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.3.0
 
 - Add `PdfVectorSnapshot.toPdfBytes` and `fromPdfBytes` for detached, single-page
   PDF interchange with embedded resources and baked page rotation.

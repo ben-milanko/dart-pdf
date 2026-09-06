@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.3.0
 
 - Add `PdfKeyboardAvailability` so hosts can hide shortcut hints and shortcut
   settings when a physical keyboard is unavailable. Shortcut bindings stay active.

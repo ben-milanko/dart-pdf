@@ -1,6 +1,6 @@
 New in 4.3.0
 
-- Reduce PDF file size with new optimization presets.
+- Reduce PDF file size with new optimisation presets.
 - Merge and split documents, and erase selected page content.
 - Find tools quickly with the command palette.
 - Choose more print layouts and page options.
