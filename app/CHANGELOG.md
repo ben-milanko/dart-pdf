@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Hide shortcut hints and shortcut settings on Android and iOS when no physical
+  keyboard is connected, updating menus and tooltips as keyboards attach or detach.
+- Separate panel buttons from Settings and Reflow in the mobile Controls menu.
+- Rename a PDF on Android and iOS by tapping its title (the active tab on
+  tablets). Keep the new name in Recent files, session recovery, and sharing.
+- Fix Android document scanning failing before the camera opens in release
+  builds. Preserve ML Kit's reflection constructors during code shrinking and
+  check the packaged APK before publishing release artifacts.
 - Submit dialogs with Enter or numpad Enter; use Shift+Enter for multiline text.
   Keep validation, disabled actions, and keyboard-focused Cancel buttons intact.
 - Apply US and UK/Australian English spellings consistently across app dialogs,

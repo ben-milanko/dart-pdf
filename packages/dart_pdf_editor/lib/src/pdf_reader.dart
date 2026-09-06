@@ -532,6 +532,7 @@ class _PdfReaderState extends State<PdfReader> {
                   ),
                   if (features.thumbnails)
                     PdfShellControlItem(
+                      group: PdfShellControlGroup.panels,
                       key: const ValueKey('pdf-shell-thumbnails-toggle'),
                       icon: Icons.grid_view,
                       label: pdfL10n(context).shellPanelPages,
@@ -541,6 +542,7 @@ class _PdfReaderState extends State<PdfReader> {
                     ),
                   if (features.bookmarks)
                     PdfShellControlItem(
+                      group: PdfShellControlGroup.panels,
                       key: const ValueKey('pdf-shell-bookmarks-toggle'),
                       icon: Icons.bookmarks_outlined,
                       label: pdfL10n(context).shellPanelBookmarks,

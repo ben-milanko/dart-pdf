@@ -203,7 +203,8 @@ class DocumentTab {
         isLoading = false;
 
   /// The filename shown by the tab. Save As updates it to the chosen file's
-  /// name while keeping this tab's editing and viewer sessions alive.
+  /// name; mobile title taps rename the app's copy and its share filename.
+  /// Both keep this tab's editing and viewer sessions alive.
   String title;
   final String? error;
   final bool isLoading;

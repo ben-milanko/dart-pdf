@@ -149,6 +149,23 @@ class RecentsStore extends ChangeNotifier {
     await _persist();
   }
 
+  /// Updates a document's display/share name, preserving its source and order.
+  Future<void> rename(String id, String title) async {
+    final index = _items.indexWhere((entry) => entry.id == id);
+    if (index < 0 || _items[index].title == title) return;
+    final entry = _items[index];
+    _items[index] = RecentFile(
+      title: title,
+      path: entry.path,
+      cachePath: entry.cachePath,
+      cacheAvailable: entry.cacheAvailable,
+      bookmark: entry.bookmark,
+      openedAt: entry.openedAt,
+    );
+    notifyListeners();
+    await _persist();
+  }
+
   Future<void> clear() async {
     _items.clear();
     notifyListeners();

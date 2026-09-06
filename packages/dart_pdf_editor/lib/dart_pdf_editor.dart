@@ -108,6 +108,7 @@ export 'src/search_panel.dart';
 export 'src/search_field_style.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';
+export 'src/keyboard_availability.dart';
 export 'src/tile_layer.dart';
 export 'src/tile_raster_backend.dart';
 export 'src/tile_store.dart';

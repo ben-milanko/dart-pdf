@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `PdfKeyboardAvailability` so hosts can hide shortcut hints and shortcut
+  settings when a physical keyboard is unavailable. Shortcut bindings stay active.
+- Group mobile Controls into View and Panels sections in both shells, keeping
+  Settings and Reflow with view controls and allowing the sheet to scroll.
 - Add `PdfDialogSubmit` to mark a `showPdfDialog` primary button for Enter and
   numpad Enter submission. Wire the stock editing dialogs to it, preserving
   validation, IME composition, Shift+Enter, and keyboard-focused buttons.

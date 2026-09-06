@@ -11,6 +11,7 @@ import 'editing/editing_preferences.dart';
 import 'editing/editing_toolbar.dart' show showPdfEditingGuidesDialog;
 import 'editing/tool_shortcuts.dart';
 import 'l10n/pdf_l10n.dart';
+import 'keyboard_availability.dart';
 import 'pdf_viewer.dart';
 import 'scrollbar.dart';
 import 'search_field_style.dart';
@@ -958,6 +959,8 @@ bool pdfShellShowThumbnailSidebar(
       (!compact || preferences.hasShowThumbnailSidebarPreference);
 }
 
+enum PdfShellControlGroup { view, panels, actions }
+
 /// A right-side shell control that collapses into the mobile Controls sheet.
 class PdfShellControlItem {
   const PdfShellControlItem({
@@ -965,6 +968,7 @@ class PdfShellControlItem {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.group = PdfShellControlGroup.view,
     this.selected = false,
     this.enabled = true,
   });
@@ -973,6 +977,7 @@ class PdfShellControlItem {
   final IconData icon;
   final String label;
   final VoidCallback onPressed;
+  final PdfShellControlGroup group;
   final bool selected;
   final bool enabled;
 }
@@ -1022,17 +1027,28 @@ class PdfShellBar extends StatelessWidget {
   final List<Widget> compactSheetChildren;
 
   Future<void> _showControls(BuildContext context) {
-    final controls = compactControls;
+    final viewControls = compactControls
+        .where((control) => control.group == PdfShellControlGroup.view)
+        .toList();
+    final panels = compactControls
+        .where((control) => control.group == PdfShellControlGroup.panels)
+        .toList();
+    final actions = compactControls
+        .where((control) => control.group == PdfShellControlGroup.actions)
+        .toList();
     final children = compactSheetChildren;
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+      ),
       builder: (context) => _ShellControlsSheetScope(
         close: () => Navigator.of(context).maybePop(),
         child: SafeArea(
           top: false,
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1047,37 +1063,25 @@ class PdfShellBar extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                if (children.isNotEmpty) ...[
+                if (children.isNotEmpty || viewControls.isNotEmpty) ...[
                   _ShellSheetSectionLabel(pdfL10n(context).shellSectionView),
                   const SizedBox(height: 10),
                   for (final child in children) child,
+                  if (viewControls.isNotEmpty)
+                    _ShellControlGrid(controls: viewControls),
                   const SizedBox(height: 14),
                 ],
-                if (controls.isNotEmpty) ...[
-                  _ShellSheetSectionLabel(pdfL10n(context).shellSectionShell),
+                if (panels.isNotEmpty) ...[
+                  _ShellSheetSectionLabel(pdfL10n(context).shellPanels),
                   const SizedBox(height: 10),
-                  GridView.count(
-                    crossAxisCount: 4,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: 1.15,
-                    mainAxisSpacing: 6,
-                    crossAxisSpacing: 6,
-                    children: [
-                      for (final control in controls)
-                        _ShellControlTile(
-                          key: control.key,
-                          icon: control.icon,
-                          label: control.label,
-                          active: control.selected,
-                          enabled: control.enabled,
-                          onTap: () {
-                            Navigator.of(context).pop();
-                            control.onPressed();
-                          },
-                        ),
-                    ],
-                  ),
+                  _ShellControlGrid(controls: panels),
+                ],
+                if (actions.isNotEmpty) ...[
+                  if (children.isNotEmpty ||
+                      viewControls.isNotEmpty ||
+                      panels.isNotEmpty)
+                    const Divider(height: 28),
+                  _ShellControlGrid(controls: actions),
                 ],
               ],
             ),
@@ -1273,6 +1277,37 @@ class _ShellSheetSectionLabel extends StatelessWidget {
               .onSurfaceVariant
               .withValues(alpha: 0.72),
         ),
+      );
+}
+
+class _ShellControlGrid extends StatelessWidget {
+  const _ShellControlGrid({required this.controls});
+
+  final List<PdfShellControlItem> controls;
+
+  @override
+  Widget build(BuildContext context) => GridView.count(
+        crossAxisCount: 4,
+        shrinkWrap: true,
+        padding: EdgeInsets.zero,
+        physics: const NeverScrollableScrollPhysics(),
+        childAspectRatio: 1.15,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        children: [
+          for (final control in controls)
+            _ShellControlTile(
+              key: control.key,
+              icon: control.icon,
+              label: control.label,
+              active: control.selected,
+              enabled: control.enabled,
+              onTap: () {
+                Navigator.of(context).pop();
+                control.onPressed();
+              },
+            ),
+        ],
       );
 }
 
@@ -1864,7 +1899,9 @@ Future<void> showPdfShellViewOptionsSheet(
                   ),
                   onTap: onAuthorPressed,
                 ),
-              if (toolShortcuts != null && onToolShortcutsChanged != null)
+              if (PdfKeyboardAvailability.of(context) &&
+                  toolShortcuts != null &&
+                  onToolShortcutsChanged != null)
                 ListTile(
                   key: const ValueKey('pdf-shell-shortcuts'),
                   leading: const Icon(Icons.keyboard_outlined),
@@ -2045,18 +2082,41 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             ),
           ),
         if (toolShortcuts != null && onToolShortcutsChanged != null)
-          PopupMenuItem(
-            key: const ValueKey('pdf-shell-shortcuts'),
-            value: _ViewOption.shortcuts,
-            child: ListTile(
-              leading: const Icon(Icons.keyboard_outlined),
-              title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
+          const _KeyboardShortcutMenuItem(),
       ],
     );
   }
+}
+
+// PopupMenuButton builds its entries only when opening. Read availability
+// inside the mounted entry so an open tablet menu also tracks keyboard changes.
+class _KeyboardShortcutMenuItem extends PopupMenuEntry<_ViewOption> {
+  const _KeyboardShortcutMenuItem();
+
+  @override
+  double get height => kMinInteractiveDimension;
+
+  @override
+  bool represents(_ViewOption? value) => value == _ViewOption.shortcuts;
+
+  @override
+  State<_KeyboardShortcutMenuItem> createState() =>
+      _KeyboardShortcutMenuItemState();
+}
+
+class _KeyboardShortcutMenuItemState extends State<_KeyboardShortcutMenuItem> {
+  @override
+  Widget build(BuildContext context) => PdfKeyboardAvailability.of(context)
+      ? PopupMenuItem<_ViewOption>(
+          key: const ValueKey('pdf-shell-shortcuts'),
+          value: _ViewOption.shortcuts,
+          child: ListTile(
+            leading: const Icon(Icons.keyboard_outlined),
+            title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
+            contentPadding: EdgeInsets.zero,
+          ),
+        )
+      : const SizedBox.shrink();
 }
 
 /// One item in the shell's grouped panel switch.

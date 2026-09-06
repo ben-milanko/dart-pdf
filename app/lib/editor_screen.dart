@@ -42,6 +42,7 @@ import 'printing.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
 import 'reduce_file_size.dart';
+import 'rename_document.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
 import 'tab_drag.dart';
@@ -2562,6 +2563,30 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  /// Mobile picks are app-managed copies; their title is the share filename.
+  /// Keep the live edit session and its saved baseline while renaming the copy.
+  Future<void> _renameDocument(DocumentTab tab) async {
+    if (!_usesMobileShare || tab.session == null) return;
+    final name = await showRenameDocumentDialog(context, tab.title);
+    if (!mounted || !_tabs.contains(tab) || name == null || name == tab.title) {
+      return;
+    }
+    final oldTitle = tab.title;
+    setState(() => tab.title = name);
+    _autosave.noteMetadataChanged(tab);
+    unawaited(_persistSession());
+    // Update existing metadata immediately. A pending initial snapshot reads
+    // tab.title when it records its Recent entry, so it also gets the new name.
+    unawaited(_recents.rename(
+        tab.originPath ?? tab.cachePath ?? oldTitle, tab.title));
+    if (tab.originPath == null && tab.cachePath == null && canCacheRecentPdfs) {
+      // New scans have no source snapshot yet. Give the renamed copy a
+      // reusable source for Recent files and session restoration too.
+      await _snapshotOpenedDocument(tab, tab.session!.bytes);
+      if (mounted && _tabs.contains(tab)) _autosave.noteMetadataChanged(tab);
+    }
+  }
+
   // --- printing ------------------------------------------------------------
 
   Future<void> _reduceFileSize(DocumentTab tab) async {
@@ -3016,49 +3041,56 @@ class _EditorScreenState extends State<EditorScreen>
     bool middleEllipsis = false,
     bool hidePdfExtension = false,
   }) =>
-      ListTile(
-        leading: Icon(icon),
-        title: middleEllipsis
-            ? MiddleEllipsisText(
-                title,
-                hidePdfExtension: hidePdfExtension,
-              )
-            : Text(title, overflow: overflow),
-        subtitle: subtitle,
-        trailing: trailing ??
-            (shortcut == null
-                ? null
-                : Text(
-                    shortcut,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  )),
-        contentPadding: EdgeInsets.zero,
-        minTileHeight: _usesCompactAppMenu
-            ? subtitle == null
-                ? _compactAppMenuItemHeight
-                : _compactRecentMenuItemHeight
-            : null,
-        minVerticalPadding: _usesCompactAppMenu ? 0 : null,
-      );
+      Builder(
+          builder: (context) => ListTile(
+                leading: Icon(icon),
+                title: middleEllipsis
+                    ? MiddleEllipsisText(
+                        title,
+                        hidePdfExtension: hidePdfExtension,
+                      )
+                    : Text(title, overflow: overflow),
+                subtitle: subtitle,
+                trailing: trailing ??
+                    (shortcut == null || !PdfKeyboardAvailability.of(context)
+                        ? null
+                        : Text(
+                            shortcut,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                          )),
+                contentPadding: EdgeInsets.zero,
+                minTileHeight: _usesCompactAppMenu
+                    ? subtitle == null
+                        ? _compactAppMenuItemHeight
+                        : _compactRecentMenuItemHeight
+                    : null,
+                minVerticalPadding: _usesCompactAppMenu ? 0 : null,
+              ));
 
   List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
       BuildContext menuContext) {
     final recents = _recentMenuEntries();
-    final trailing = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          _menuShortcut('O', shift: true),
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-        ),
-        const SizedBox(width: 12),
-        const Icon(Icons.arrow_right),
-      ],
-    );
+    final trailing = Builder(
+        builder: (context) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (PdfKeyboardAvailability.of(context)) ...[
+                  Text(
+                    _menuShortcut('O', shift: true),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                const Icon(Icons.arrow_right),
+              ],
+            ));
     return [
       PopupMenuItem<VoidCallback>(
         height: _appMenuItemHeight(),
@@ -3996,6 +4028,26 @@ class _EditorScreenState extends State<EditorScreen>
       tab?.title.isEmpty ?? true ? appL10n(context).editorUntitled : tab!.title,
       hidePdfExtension: tab?.title.isNotEmpty ?? false,
     );
+    if (_usesMobileShare && tab?.session != null) {
+      title = Semantics(
+        button: true,
+        child: Tooltip(
+          message: appL10n(context).rename,
+          child: InkWell(
+            key: const ValueKey('mobile-document-title'),
+            onTap: () => unawaited(_renameDocument(tab!)),
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(minHeight: kMinInteractiveDimension),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: title,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (_nativeTabDragging && tab?.session != null) {
       title = _buildNativeTabDragSource(tab!, title);
     }
@@ -4490,7 +4542,13 @@ class _EditorScreenState extends State<EditorScreen>
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => setState(() => _activeIndex = index),
+          onTap: () {
+            if (selected && _usesMobileShare && tab.session != null) {
+              unawaited(_renameDocument(tab));
+            } else {
+              setState(() => _activeIndex = index);
+            }
+          },
           onSecondaryTapUp: (details) =>
               _showTabMenu(index, details.globalPosition),
           child: Padding(

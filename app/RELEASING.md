@@ -57,6 +57,20 @@ not the next rolling build.
 > release builds use the app's configured compile SDK and should be verified
 > before each Play upload.
 
+For Android, also build the release APK and run the scanner packaging check
+from the repository root before uploading a bundle:
+
+```sh
+cd app
+fvm flutter build apk --release
+cd ..
+python3 tool/check_android_scanner.py app/build/app/outputs/flutter-apk/app-release.apk
+```
+
+This checks ML Kit's manifest-registered constructors in the minified DEX.
+Debug builds and Flutter tests cannot detect release shrinking breaking scanner
+initialization. CI runs the same check before uploading Android artifacts.
+
 ## In-app update checker
 
 The app checks these Releases for a newer build (`app/lib/update.dart`,
