@@ -8,6 +8,7 @@ export 'src/attachment.dart';
 export 'src/blank_document.dart';
 export 'src/cache_store.dart';
 export 'src/comments.dart';
+export 'src/compressor.dart';
 export 'src/conformance.dart';
 export 'src/content_elements.dart';
 export 'src/content_writer.dart';

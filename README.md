@@ -74,6 +74,17 @@ the current page. Dropping PDFs on the thumbnail strip inserts at the marked
 position; dropping on the document offers **Insert pages** to append them.
 Each inserted file is one undo step and uses the existing save/recovery session.
 
+## Reduce file size
+
+In DartPDF, choose **Reduce file size…** from the app menu. Start with
+**Lossless**, or choose **Screen**, **eBook**, or **Print** to trade image
+resolution for a smaller file. Advanced settings control individual passes,
+target DPI, and JPEG quality. Review the before/after sizes and category
+breakdown, then **Save copy** using the platform's save/download/share flow.
+
+The library exposes the same optimiser through `PdfCompressor.optimize` and
+`PdfEditor.compress`. See [compression options and supported content](packages/pdf_document/README.md#reduce-file-size).
+
 ## Performance
 
 **The default viewer has not reached PDFium interaction parity yet.** The most

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `PdfCompressor.optimize` and expand `PdfEditor.compress` with independent
+  lossless cleanup, resource deduplication, TrueType/CFF font subsetting, and
+  opt-in DPI/JPEG image optimisation. Include presets and exact per-pass size
+  reports; preserve unsupported content and never return a larger file.
+- Refuse incomplete/encrypted sources and require explicit signature
+  invalidation when optimising a signed copy.
 - Add `PdfMerger.merge` for bytes-only merging with per-input passwords.
 - Preserve imported AcroForm fields, default font resources, named destinations,
   and outline hierarchies; rename collisions and remap internal page targets.

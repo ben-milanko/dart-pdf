@@ -1154,6 +1154,136 @@ class AppLocalizationsAr extends AppLocalizations {
       'تعذر مسح المستندات المخزنة مؤقتًا. حاول مجددًا.';
 
   @override
+  String get editorMenuReduceFileSize => 'تقليل حجم الملف…';
+
+  @override
+  String get reduceSizeTitle => 'تقليل حجم الملف';
+
+  @override
+  String get reduceSizeDescription =>
+      'حسّن المستند الحالي، وراجع المساحة الموفرة، ثم احفظ نسخة أصغر.';
+
+  @override
+  String get reduceSizePreset => 'إعداد مسبق';
+
+  @override
+  String get reduceSizeLossless => 'دون فقدان — الحفاظ على جودة الصور';
+
+  @override
+  String get reduceSizeScreen => 'الشاشة — 72 DPI، جودة JPEG ‏60';
+
+  @override
+  String get reduceSizeEbook => 'كتاب إلكتروني — 150 DPI، جودة JPEG ‏75';
+
+  @override
+  String get reduceSizePrinter => 'الطباعة — 300 DPI، جودة JPEG ‏90';
+
+  @override
+  String get reduceSizeLosslessHint => 'تبقى دقة الصور وجودتها كما هي.';
+
+  @override
+  String get reduceSizeLossyHint =>
+      'قد تُصغّر الصور التي تتجاوز الدقة المستهدفة وتُرمّز بصيغة JPEG. قد تُفقد التفاصيل الدقيقة؛ بينما يبقى النص والرسومات المتجهة واضحة.';
+
+  @override
+  String get reduceSizeAdvanced => 'إعدادات متقدمة';
+
+  @override
+  String get reduceSizeRecompress => 'إعادة ضغط تدفقات البيانات';
+
+  @override
+  String get reduceSizeUnusedResources => 'إزالة الموارد غير المستخدمة';
+
+  @override
+  String get reduceSizeDeduplicate => 'دمج الكائنات المكررة';
+
+  @override
+  String get reduceSizeSubsetFonts =>
+      'تقليص الخطوط المضمنة إلى المحارف المستخدمة';
+
+  @override
+  String get reduceSizeDpi => 'الدقة المستهدفة للصور';
+
+  @override
+  String get reduceSizeKeepImages => 'الاحتفاظ بالصور الأصلية (دون فقدان)';
+
+  @override
+  String reduceSizeJpegQuality(int quality) {
+    return 'جودة JPEG: ‏$quality';
+  }
+
+  @override
+  String get reduceSizeSignaturesNotice =>
+      'إعادة كتابة ملف PDF الموقّع هذا تُبطل توقيعاته الرقمية في النسخة المحفوظة.';
+
+  @override
+  String get reduceSizeInvalidateSignatures =>
+      'السماح بإبطال التوقيعات في هذه النسخة';
+
+  @override
+  String get reduceSizeEncrypted => 'لا يمكن تحسين ملفات PDF المشفرة.';
+
+  @override
+  String get reduceSizeIncomplete =>
+      'انتظر حتى يكتمل تحميل المستند قبل تقليل حجمه.';
+
+  @override
+  String get reduceSizeRun => 'تحسين';
+
+  @override
+  String get reduceSizeRunning => 'جارٍ تحسين المستند…';
+
+  @override
+  String reduceSizeFailed(String error) {
+    return 'تعذر تحسين ملف PDF هذا: $error';
+  }
+
+  @override
+  String reduceSizeSaveFailed(String error) {
+    return 'تعذر حفظ النسخة: $error';
+  }
+
+  @override
+  String get reduceSizeSaveCopy => 'حفظ نسخة…';
+
+  @override
+  String get reduceSizeChangeSettings => 'تغيير الإعدادات';
+
+  @override
+  String get reduceSizeBefore => 'الحجم الأصلي';
+
+  @override
+  String get reduceSizeAfter => 'الحجم بعد التحسين';
+
+  @override
+  String get reduceSizeSavings => 'المساحة الموفرة';
+
+  @override
+  String get reduceSizeNoSavings =>
+      'هذا المستند مضغوط بالفعل بهذه الإعدادات. تم الاحتفاظ بالبيانات الأصلية.';
+
+  @override
+  String get reduceSizeReportHint => 'البايتات الموفرة في كل خطوة تحسين:';
+
+  @override
+  String get reduceSizeStructure => 'بنية المستند';
+
+  @override
+  String get reduceSizeResources => 'الموارد غير المستخدمة';
+
+  @override
+  String get reduceSizeFonts => 'الخطوط المضمنة';
+
+  @override
+  String get reduceSizeImages => 'الصور';
+
+  @override
+  String get reduceSizeDuplicates => 'الكائنات المكررة';
+
+  @override
+  String get reduceSizeCustom => 'إعدادات مخصصة';
+
+  @override
   String get printOptionsPrinter => 'الطابعة';
 
   @override

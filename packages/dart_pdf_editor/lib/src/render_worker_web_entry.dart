@@ -12,6 +12,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
+import 'compression_worker_protocol.dart';
 import 'font_substitution.dart';
 import 'region_replay_index.dart';
 import 'jpeg_accelerator.dart';
@@ -157,6 +158,12 @@ bool _presentPageSurfaceBitmap(
 /// full wiring.
 ///
 /// Protocol (mirrors the native isolate backend):
+/// - `{kind:'compressionHello'}` → `{kind:'compressionReady', version:1}`.
+/// - `{kind:'compress', bytes:ArrayBuffer, options:String}` →
+///   `{kind:'compressionStarted'}` followed by
+///   `{kind:'compressionResult', bytes:ArrayBuffer, report:String}` or
+///   `{kind:'compressionError', error:String}`. These standalone requests need
+///   no `init`; clients use a dedicated worker and terminate it to cancel.
 /// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared, populatedRanges?}` → opens the
 ///   document, replies `{kind:'ready', shared}`.
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
@@ -201,6 +208,46 @@ void runPdfRenderWorker() {
     final data = event.data as JSObject?;
     if (data == null) return;
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
+
+    if (kind == 'compressionHello') {
+      scope.postMessage(JSObject()
+        ..setProperty('kind'.toJS, 'compressionReady'.toJS)
+        ..setProperty('version'.toJS, compressionWorkerProtocolVersion.toJS));
+      return;
+    }
+
+    if (kind == 'compress') {
+      try {
+        final buffer = data.getProperty('bytes'.toJS) as JSArrayBuffer?;
+        final options = data.getProperty('options'.toJS) as JSString?;
+        if (buffer == null || options == null) {
+          throw const FormatException('Missing compression bytes or options.');
+        }
+        final bytes = buffer.toDart.asUint8List();
+        final compressionOptions = compressionOptionsFromJson(options.toDart);
+        scope.postMessage(
+          JSObject()..setProperty('kind'.toJS, 'compressionStarted'.toJS),
+        );
+        final result = PdfCompressor.optimize(
+          PdfDocument.open(bytes),
+          options: compressionOptions,
+        );
+        final report = compressionReportToJson(result);
+        final out = _tightTransferBuffer(result.bytes);
+        scope.postMessage(
+          JSObject()
+            ..setProperty('kind'.toJS, 'compressionResult'.toJS)
+            ..setProperty('bytes'.toJS, out)
+            ..setProperty('report'.toJS, report.toJS),
+          <JSAny>[out].toJS,
+        );
+      } catch (error) {
+        scope.postMessage(JSObject()
+          ..setProperty('kind'.toJS, 'compressionError'.toJS)
+          ..setProperty('error'.toJS, error.toString().toJS));
+      }
+      return;
+    }
 
     if (kind == 'init') {
       // Extract AND open inside the try: a malformed transfer (the cast or the
