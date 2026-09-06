@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix Android document scanning failing before the camera opens in release
+  builds. Preserve ML Kit's reflection constructors during code shrinking and
+  check the packaged APK before publishing release artifacts.
 - Apply US and UK/Australian English spellings consistently across app dialogs,
   editor controls and OCR messages, with CI checks for regional bundle drift.
 - Keep the browser responsive during PDF optimisation with a dedicated worker;
