@@ -20,7 +20,11 @@ extension PdfFormStyling on PdfEditor {
   /// the box (the §12.7.3.3 auto-size convention). [color] is `0xRRGGBB`.
   /// [align] writes /Q (left/centre/right). [multiline] toggles the /Ff
   /// multiline flag (bit 13). Throws when [field] isn't a text field or is
-  /// read-only.
+  /// read-only. [verticalAlignment] saves placement of the complete wrapped
+  /// block; null leaves the saved preference unchanged. See
+  /// [PdfFormField.textVerticalAlignment] for its private storage format and
+  /// interoperability limits. Use [PdfFormFilling.clearTextFieldVerticalAlignment]
+  /// to restore legacy placement.
   void setTextFieldStyle(
     PdfFormField field, {
     PdfTextFont? font,
@@ -29,6 +33,7 @@ extension PdfFormStyling on PdfEditor {
     int? color,
     PdfTextAlign? align,
     bool? multiline,
+    PdfFormTextVerticalAlignment? verticalAlignment,
   }) {
     _checkFillable(field, const {PdfFieldType.text});
 
@@ -38,6 +43,7 @@ extension PdfFormStyling on PdfEditor {
           : field.flags & ~PdfFormField.multilineFlag);
     }
     if (align != null) field.dict['Q'] = CosInteger(align.quadding);
+    _setTextVerticalAlignment(field, verticalAlignment);
 
     if (font != null || fontSize != null || autoSize != null || color != null) {
       final current = _parseDefaultAppearance(field.defaultAppearance);

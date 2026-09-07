@@ -20,6 +20,21 @@ enum PdfFieldType {
   unknown,
 }
 
+/// Vertical placement of a text field's complete wrapped block.
+///
+/// This is a dart-pdf appearance preference, not a standard AcroForm entry.
+/// It is independent of horizontal quadding and the multiline flag.
+enum PdfFormTextVerticalAlignment {
+  /// Place the first line at the top padding.
+  top,
+
+  /// Centre the complete block within the padded widget.
+  center,
+
+  /// Place the bottom of the complete block at the bottom padding.
+  bottom,
+}
+
 /// The document's interactive form (§12.7.2): the catalog's /AcroForm
 /// dictionary plus the field tree hanging off /Fields.
 class PdfAcroForm {
@@ -371,9 +386,8 @@ class PdfFormField {
 
   PdfFieldType get type => switch (fieldTypeName) {
         'Tx' => PdfFieldType.text,
-        'Ch' => flags & comboFlag != 0
-            ? PdfFieldType.comboBox
-            : PdfFieldType.listBox,
+        'Ch' =>
+          flags & comboFlag != 0 ? PdfFieldType.comboBox : PdfFieldType.listBox,
         'Btn' => flags & pushButtonFlag != 0
             ? PdfFieldType.pushButton
             : flags & radioFlag != 0
@@ -396,6 +410,26 @@ class PdfFormField {
   bool get isRequired => flags & requiredFlag != 0;
   bool get isMultiline => flags & multilineFlag != 0;
   bool get isPassword => flags & passwordFlag != 0;
+
+  /// The saved dart-pdf vertical alignment, or null for legacy placement
+  /// (top for multiline fields, ascent-centred for single-line fields).
+  ///
+  /// Stored as a text string in the private /DartPdfTextVerticalAlignment
+  /// entry on this terminal field, applying to all its widgets. It is not
+  /// inherited from parent fields. Unknown values and malformed entries are
+  /// ignored. Other editors may ignore or remove this private preference
+  /// when they regenerate appearances; /Q remains horizontal alignment.
+  PdfFormTextVerticalAlignment? get textVerticalAlignment {
+    if (type != PdfFieldType.text) return null;
+    final raw = _cos.resolve(dict['DartPdfTextVerticalAlignment']);
+    if (raw is! CosString) return null;
+    return switch (raw.text) {
+      'top' => PdfFormTextVerticalAlignment.top,
+      'center' => PdfFormTextVerticalAlignment.center,
+      'bottom' => PdfFormTextVerticalAlignment.bottom,
+      _ => null,
+    };
+  }
 
   /// /Q quadding: 0 left (default), 1 centered, 2 right.
   int get quadding {
