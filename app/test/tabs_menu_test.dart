@@ -8,6 +8,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
 
@@ -514,6 +515,50 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsOneWidget);
     expect(find.text('Open in Finder'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('reveal follows a Save As to a new folder', (tester) async {
+    // The reveal has to name where the document lives *now*: after a Save As
+    // the tab's origin moves with it, and the menu must not point back at the
+    // file it was opened from.
+    const fileAccess = MethodChannel('dev.milanko.dartpdf/file_access');
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(fileAccess,
+        (call) async {
+      calls.add(call);
+      // A bookmark for the new path on macOS; unused (and unasked) elsewhere.
+      return call.method == 'bookmarkForPath'
+          ? Uint8List.fromList([1, 2, 3])
+          : true;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(fileAccess, null));
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        saveDocumentAs: (context, bytes, name) async =>
+            SaveResult.saved('/Users/ben/Desktop/copy.pdf'),
+      ),
+    ));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf', path: '/Users/ben/Documents/alpha.pdf');
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-save-as')));
+    await tester.pumpAndSettle();
+    expect(tabTitle('copy.pdf'), findsOneWidget);
+
+    calls.clear();
+    await rightClickTab(tester, 'copy.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-open-folder')));
+    await tester.pumpAndSettle();
+
+    final reveal = calls.singleWhere((call) => call.method == 'revealFile');
+    expect((reveal.arguments as Map)['path'], '/Users/ben/Desktop/copy.pdf');
+  },
+      variant: const TargetPlatformVariant(
+          <TargetPlatform>{TargetPlatform.macOS, TargetPlatform.windows}));
 
   testWidgets('right-click hides folder action for memory-only tabs',
       (tester) async {

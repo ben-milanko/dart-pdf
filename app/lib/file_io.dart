@@ -15,8 +15,10 @@ import 'pdf_mobile_source.dart';
 import 'web_file_picker_stub.dart'
     if (dart.library.js_interop) 'web_file_picker.dart';
 
-const _macosFileAccessChannel =
-    MethodChannel('dev.milanko.dartpdf/file_access');
+/// The runner channel for file operations the Flutter side cannot do itself:
+/// macOS security-scoped bookmarks and reads, and revealing a file in the
+/// platform file manager (macOS and Windows).
+const _fileAccessChannel = MethodChannel('dev.milanko.dartpdf/file_access');
 
 // The `label` shows in the native desktop file dialog's type-filter dropdown,
 // so it is localized: the callers (which have a BuildContext) pass the resolved
@@ -188,6 +190,9 @@ String? originPathForPickedFile(XFile file) => (!kIsWeb &&
 bool get _isMacOSDesktop =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 
+bool get _isWindowsDesktop =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
 /// Creates a security-scoped bookmark for [path] on macOS.
 ///
 /// Returns null on other platforms, when [path] is absent, or when the native
@@ -196,7 +201,7 @@ bool get _isMacOSDesktop =>
 Future<String?> securityBookmarkForPath(String? path) async {
   if (!_isMacOSDesktop || path == null || path.isEmpty) return null;
   try {
-    final data = await _macosFileAccessChannel.invokeMethod<Uint8List>(
+    final data = await _fileAccessChannel.invokeMethod<Uint8List>(
       'bookmarkForPath',
       {'path': path},
     );
@@ -330,7 +335,7 @@ Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
   if (cached != null) return cached;
   if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
     try {
-      final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(
+      final bytes = await _fileAccessChannel.invokeMethod<Uint8List>(
         'readFile',
         {'path': path, 'bookmark': bookmark},
       );
@@ -413,26 +418,37 @@ String? containingFolderPath(String path) {
   return trimmed.substring(0, index);
 }
 
-/// Reveals [path] in Finder, or opens its containing folder in File Explorer /
-/// the Linux file manager. Returns false when there is no usable origin path
-/// or the platform refuses to launch it.
+/// Reveals [path] in the platform file manager - Finder and File Explorer
+/// select the file itself, the Linux file manager gets its containing folder.
+/// Returns false when there is no usable origin path or the platform refuses
+/// the request.
 ///
 /// Finder needs the selected file rather than its parent directory: a
 /// sandboxed macOS app can hold a security-scoped grant for a OneDrive file
 /// without having access to the file's containing folder. [bookmark]
 /// reactivates that grant while Finder handles the reveal request.
+///
+/// Windows goes through the runner
+/// (`SHOpenFolderAndSelectItems`, windows/runner/file_dialogs.cpp) instead of
+/// shell-executing a `file:` URL for the folder. Asking the shell to "open" a
+/// folder URL is a navigation request that Explorer is free to serve from a
+/// window it already has - with the default "open each folder in the same
+/// window" it hands back whatever that window was showing, so a document saved
+/// somewhere new appeared to reveal its *old* location. Selecting the file is
+/// unambiguous, points at the file the user just saved, and matches what
+/// Finder already does. A runner without the method (an older build) falls
+/// back to the folder launch below rather than failing.
 Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
   if (!supportsOpenContainingFolder || path == null) return false;
   final folder = containingFolderPath(path);
   if (folder == null) return false;
   if (_isMacOSDesktop) {
     try {
-      return await _macosFileAccessChannel.invokeMethod<bool>(
+      return await _fileAccessChannel.invokeMethod<bool>(
             'revealFile',
             {
               'path': path,
-              if (bookmark != null && bookmark.isNotEmpty)
-                'bookmark': bookmark,
+              if (bookmark != null && bookmark.isNotEmpty) 'bookmark': bookmark,
             },
           ) ??
           false;
@@ -442,7 +458,28 @@ Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
       return false;
     }
   }
-  return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
+  if (_isWindowsDesktop) {
+    try {
+      final revealed = await _fileAccessChannel.invokeMethod<bool>(
+        'revealFile',
+        {'path': path},
+      );
+      if (revealed ?? false) return true;
+    } on MissingPluginException {
+      // No reveal in this runner; the folder launch below still works.
+    } catch (_) {
+      // Explorer refused the selection (a deleted file, a shell that cannot
+      // parse the path) - opening the folder is still better than nothing.
+    }
+  }
+  // `Uri.file` picks its separator rules from the *host* by default, which is
+  // the process running the code rather than the platform being targeted -
+  // fine in production, wrong under a test that overrides the platform. Say
+  // which shape [folder] has.
+  return launchUrl(
+    Uri.file(folder, windows: _isWindowsDesktop),
+    mode: LaunchMode.externalApplication,
+  );
 }
 
 /// Whether the current platform supports overwriting a file in place by path.
@@ -468,7 +505,7 @@ Future<SaveResult> saveBytesToPath(
   try {
     if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
       try {
-        final ok = await _macosFileAccessChannel.invokeMethod<bool>(
+        final ok = await _fileAccessChannel.invokeMethod<bool>(
           'writeFile',
           {'path': path, 'bookmark': bookmark, 'bytes': bytes},
         );

@@ -46,6 +46,8 @@ class DartPdfPlatformChannels {
       native_print_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       file_dialog_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      file_access_channel_;
   std::unique_ptr<DartPdfWindowsDropService> windows_drop_service_;
   NativePrinter native_printer_;
 };

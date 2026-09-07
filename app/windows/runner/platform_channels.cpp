@@ -26,6 +26,8 @@ constexpr char kWindowGeometryChannelName[] =
     "dev.milanko.dartpdf/window_geometry";
 constexpr char kFileDialogChannelName[] =
     "dev.milanko.dartpdf/file_dialogs";
+constexpr char kFileAccessChannelName[] =
+    "dev.milanko.dartpdf/file_access";
 
 const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
                                       const char* key) {
@@ -426,6 +428,34 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
           return;
         }
         result->Success(DialogPayload(dialog));
+      });
+
+  // Revealing a saved document in File Explorer. url_launcher can only ask the
+  // shell to "open" the containing folder, which Explorer is free to serve
+  // from a window it already has - so a document saved to a new folder could
+  // surface the one the user was looking at before. Naming the item leaves
+  // nothing to guess, and selects the file the way Finder does on macOS (the
+  // Dart side shares that channel's `revealFile`; see lib/file_io.dart).
+  file_access_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kFileAccessChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  file_access_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "revealFile") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        const std::wstring path = OptionalString(args, "path");
+        if (path.empty()) {
+          result->Error("bad_args", "revealFile expects a path");
+          return;
+        }
+        result->Success(
+            flutter::EncodableValue(dart_pdf::RevealFileInExplorer(path)));
       });
 }
 
