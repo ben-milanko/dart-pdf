@@ -23,8 +23,8 @@ extension PdfFormStyling on PdfEditor {
   /// read-only. [verticalAlignment] saves placement of the complete wrapped
   /// block; null leaves the saved preference unchanged. See
   /// [PdfFormField.textVerticalAlignment] for its private storage format and
-  /// interoperability limits. Use [PdfFormFilling.clearTextFieldVerticalAlignment]
-  /// to restore legacy placement.
+  /// interoperability limits. Pass [PdfFormTextVerticalAlignment.legacy] to
+  /// clear the preference together with other style changes in one edit.
   void setTextFieldStyle(
     PdfFormField field, {
     PdfTextFont? font,

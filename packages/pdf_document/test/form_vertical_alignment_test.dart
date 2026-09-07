@@ -35,21 +35,6 @@ List<(double, double)> _baselines(String content) {
 }
 
 void main() {
-  test('explicit baseline overrides vertical mode and preserves line spacing',
-      () {
-    final w = ContentWriter();
-    writePdfTextBox(w, const PdfRect(10, 20, 110, 70), ['a', 'b'],
-        font: PdfStandardFont.helvetica,
-        fontSize: 10,
-        align: PdfTextAlign.left,
-        padding: 3,
-        lineHeight: 12,
-        vAlign: PdfTextBoxVAlign.centerLine,
-        firstBaselineY: 42);
-    expect(
-        _baselines(latin1.decode(w.takeBytes())), [(13.0, 42.0), (13.0, 30.0)]);
-  });
-
   for (final multiline in [false, true]) {
     test('no preference preserves legacy placement (multiline=$multiline)', () {
       final (editor, field) = _fixture(multiline: multiline);
@@ -71,13 +56,18 @@ void main() {
               verticalAlignment: alignment);
           final out = PdfDocument.open(editor.save());
           final saved = _field(out);
-          expect(saved.textVerticalAlignment, alignment);
+          expect(
+              saved.textVerticalAlignment,
+              alignment == PdfFormTextVerticalAlignment.legacy
+                  ? isNull
+                  : alignment);
           expect(saved.isMultiline, multiline);
           expect(saved.quadding, horizontal.quadding);
           expect(saved.widgetRect(0), const PdfRect(100, 200, 300, 260));
           expect(PdfAcroForm.of(out)!.needsAppearances, isFalse);
           final positions = _baselines(_appearance(out, saved));
           final expectedY = switch (alignment) {
+            PdfFormTextVerticalAlignment.legacy => multiline ? 50.82 : 26.41,
             PdfFormTextVerticalAlignment.top => 50.82,
             PdfFormTextVerticalAlignment.center => multiline ? 33.57 : 27.82,
             PdfFormTextVerticalAlignment.bottom => multiline ? 16.32 : 4.82,
@@ -150,6 +140,63 @@ void main() {
       expect(_baselines(_appearance(out, saved)).first.$2,
           closeTo(multiline ? 50.82 : 26.41, 0.001));
     });
+  }
+
+  for (final multiline in [false, true]) {
+    for (final style in [false, true]) {
+      test(
+          'legacy clears during ${style ? "style" : "fill"} (multiline=$multiline)',
+          () {
+        final (editor, field) = _fixture(multiline: multiline);
+        editor.setTextValue(field, 'old',
+            verticalAlignment: PdfFormTextVerticalAlignment.bottom);
+        final reopened = PdfEditor(PdfDocument.open(editor.save()));
+        final target = _field(reopened.document);
+        if (style) {
+          reopened.setTextFieldStyle(target,
+              color: 0xFF0000,
+              verticalAlignment: PdfFormTextVerticalAlignment.legacy);
+        } else {
+          reopened.setTextValue(target, 'new',
+              verticalAlignment: PdfFormTextVerticalAlignment.legacy);
+        }
+        final out = PdfDocument.open(reopened.save());
+        final saved = _field(out);
+        expect(saved.dict.containsKey(_key), isFalse);
+        expect(saved.textVerticalAlignment, isNull);
+        expect(saved.value, style ? 'old' : 'new');
+        if (style) expect(saved.appearanceColor, 0xFF0000);
+        expect(_baselines(_appearance(out, saved)).first.$2,
+            closeTo(multiline ? 50.82 : 26.41, 0.001));
+      });
+    }
+  }
+
+  for (final mode in [
+    PdfTextBoxVAlign.centerBlock,
+    PdfTextBoxVAlign.bottomBlock
+  ]) {
+    for (final clamp in [false, true]) {
+      test('shared $mode overflow clamp=$clamp', () {
+        final w = ContentWriter();
+        writePdfTextBox(w, const PdfRect(10, 20, 110, 40), ['a', 'b', 'c'],
+            font: PdfStandardFont.helvetica,
+            fontSize: 10,
+            align: PdfTextAlign.left,
+            padding: 3,
+            lineHeight: 12,
+            vAlign: mode,
+            clampVerticalAlign: clamp);
+        final positions = _baselines(latin1.decode(w.takeBytes()));
+        final expected = clamp
+            ? 29.82
+            : mode == PdfTextBoxVAlign.centerBlock
+                ? 39.82
+                : 49.82;
+        expect(positions.first.$2, closeTo(expected, 0.001));
+        expect(positions.first.$2 - positions.last.$2, closeTo(24, 0.001));
+      });
+    }
   }
 
   test('malformed and unknown metadata is ignored and preserved on refill', () {

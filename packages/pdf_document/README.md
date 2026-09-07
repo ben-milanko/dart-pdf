@@ -73,7 +73,11 @@ editor.setTextFieldStyle(field,
 // Omitted/null alignment retains the preference, including after reopening.
 editor.setTextValue(field, 'A later value');
 print(field.textVerticalAlignment);
-editor.clearTextFieldVerticalAlignment(field); // restore legacy placement
+// Clear the preference while restyling, with one appearance regeneration.
+editor.setTextFieldStyle(field, color: 0x000000,
+    verticalAlignment: PdfFormTextVerticalAlignment.legacy);
+// Or clear it alone:
+editor.clearTextFieldVerticalAlignment(field);
 ```
 
 `top`, `center`, and `bottom` position the whole block after wrapping and
@@ -93,7 +97,7 @@ existing `DartPdf…` metadata convention. It is stored as a PDF text string
 text-field dictionary, applies to all that field's widgets, and is not
 inherited from parent fields. Absent, unknown or malformed values use legacy
 placement; ordinary fills preserve unknown metadata. Clearing removes the
-entry. Changing value, style, size or rotation regenerates appearances using
+entry; `legacy` is never stored and the getter returns null. Changing value, style, size or rotation regenerates appearances using
 the saved preference.
 
 This key is not a standard PDF property or a claim of a registered developer

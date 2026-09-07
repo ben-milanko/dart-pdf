@@ -25,6 +25,11 @@ enum PdfFieldType {
 /// This is a dart-pdf appearance preference, not a standard AcroForm entry.
 /// It is independent of horizontal quadding and the multiline flag.
 enum PdfFormTextVerticalAlignment {
+  /// Remove the saved preference and restore the multiline-dependent default.
+  /// This command is never stored; [PdfFormField.textVerticalAlignment] then
+  /// returns null.
+  legacy,
+
   /// Place the first line at the top padding.
   top,
 
@@ -386,8 +391,9 @@ class PdfFormField {
 
   PdfFieldType get type => switch (fieldTypeName) {
         'Tx' => PdfFieldType.text,
-        'Ch' =>
-          flags & comboFlag != 0 ? PdfFieldType.comboBox : PdfFieldType.listBox,
+        'Ch' => flags & comboFlag != 0
+            ? PdfFieldType.comboBox
+            : PdfFieldType.listBox,
         'Btn' => flags & pushButtonFlag != 0
             ? PdfFieldType.pushButton
             : flags & radioFlag != 0

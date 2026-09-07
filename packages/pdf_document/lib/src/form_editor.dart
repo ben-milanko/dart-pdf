@@ -20,7 +20,8 @@ extension PdfFormFilling on PdfEditor {
   ///
   /// [verticalAlignment] saves a dart-pdf vertical placement preference for
   /// the whole wrapped block. Null retains the saved preference, or the
-  /// legacy placement when none is saved. See
+  /// legacy placement when none is saved. Pass
+  /// [PdfFormTextVerticalAlignment.legacy] to clear it in the same edit. See
   /// [PdfFormField.textVerticalAlignment] for interoperability limits.
   ///
   /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
@@ -51,14 +52,16 @@ extension PdfFormFilling on PdfEditor {
   /// using legacy placement, without changing the value or multiline flag.
   void clearTextFieldVerticalAlignment(PdfFormField field) {
     _checkFillable(field, const {PdfFieldType.text});
-    field.dict.entries.remove('DartPdfTextVerticalAlignment');
+    _setTextVerticalAlignment(field, PdfFormTextVerticalAlignment.legacy);
     _regenerateVariableText(field, field.value ?? '');
     _finishFieldEdit(field);
   }
 
   void _setTextVerticalAlignment(
       PdfFormField field, PdfFormTextVerticalAlignment? alignment) {
-    if (alignment != null) {
+    if (alignment == PdfFormTextVerticalAlignment.legacy) {
+      field.dict.entries.remove('DartPdfTextVerticalAlignment');
+    } else if (alignment != null) {
       field.dict['DartPdfTextVerticalAlignment'] =
           CosString.fromText(alignment.name);
     }
@@ -552,21 +555,6 @@ extension PdfFormFilling on PdfEditor {
         lines = [single];
       }
 
-      double? firstBaselineY;
-      if (verticalAlignment != null) {
-        // Match the shared centre-block metric: em-height lines separated
-        // by the existing leading, with no extra leading outside the block.
-        // Clamp overflowing blocks to the top so the beginning stays visible.
-        final blockHeight = size + (lines.length - 1) * size * lineFactor;
-        final spare = math.max(0.0, visual.height - 2 * pad - blockHeight);
-        final offset = switch (verticalAlignment) {
-          PdfFormTextVerticalAlignment.top => 0.0,
-          PdfFormTextVerticalAlignment.center => spare / 2,
-          PdfFormTextVerticalAlignment.bottom => spare,
-        };
-        firstBaselineY = visual.top - pad - offset - size * font.ascent / 1000;
-      }
-
       final resolvedDirection = field.quadding == 2
           ? PdfTextDirection.rtl
           : textDirection.resolve(rawText);
@@ -596,8 +584,15 @@ extension PdfFormFilling on PdfEditor {
         align: align,
         padding: pad,
         lineHeight: size * lineFactor,
-        vAlign: multiline ? PdfTextBoxVAlign.top : PdfTextBoxVAlign.centerLine,
-        firstBaselineY: firstBaselineY,
+        vAlign: switch (verticalAlignment) {
+          PdfFormTextVerticalAlignment.top => PdfTextBoxVAlign.top,
+          PdfFormTextVerticalAlignment.center => PdfTextBoxVAlign.centerBlock,
+          PdfFormTextVerticalAlignment.bottom => PdfTextBoxVAlign.bottomBlock,
+          PdfFormTextVerticalAlignment.legacy ||
+          null =>
+            multiline ? PdfTextBoxVAlign.top : PdfTextBoxVAlign.centerLine,
+        },
+        clampVerticalAlign: verticalAlignment != null,
         clip: false,
         clampAlign: true,
         measureLine: (s) => measure(s, size),
