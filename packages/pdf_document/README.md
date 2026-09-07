@@ -57,6 +57,52 @@ editor.addFreeText(0, const PdfRect(72, 600, 280, 660), 'Reviewed.');
 final saved = editor.save(); // incremental update
 ```
 
+## Text-field vertical alignment
+
+Vertical placement is independent of wrapping and horizontal `align` / `/Q`:
+
+```dart
+editor.setTextValue(field, 'First line\nSecond line',
+    multiline: true,
+    verticalAlignment: PdfFormTextVerticalAlignment.center);
+
+// Save a template preference without changing its value.
+editor.setTextFieldStyle(field,
+    verticalAlignment: PdfFormTextVerticalAlignment.bottom);
+
+// Omitted/null alignment retains the preference, including after reopening.
+editor.setTextValue(field, 'A later value');
+print(field.textVerticalAlignment);
+editor.clearTextFieldVerticalAlignment(field); // restore legacy placement
+```
+
+`top`, `center`, and `bottom` position the whole block after wrapping and
+font auto-sizing, inside the existing 2-point padding. Each line occupies an
+em-height box with the existing 1.15-times-font-size baseline spacing; there
+is no extra leading before the first or after the last line. If the block
+cannot fit, it is top anchored and clipped so its beginning stays visible.
+Existing font sizes, auto-size limits and long-word clipping are unchanged.
+With no saved preference, multiline fields retain top placement and single-line
+fields retain their existing ascent-centred placement. Explicit `center`
+centres the em-height block even for a single line, so its baseline can differ
+slightly from legacy single-line placement.
+
+The preference is a **dart-pdf private extension**, following the library's
+existing `DartPdf…` metadata convention. It is stored as a PDF text string
+(`top`, `center`, or `bottom`) in `/DartPdfTextVerticalAlignment` on the terminal
+text-field dictionary, applies to all that field's widgets, and is not
+inherited from parent fields. Absent, unknown or malformed values use legacy
+placement; ordinary fills preserve unknown metadata. Clearing removes the
+entry. Changing value, style, size or rotation regenerates appearances using
+the saved preference.
+
+This key is not a standard PDF property or a claim of a registered developer
+prefix. `/Q` remains horizontal justification. Standard `/AP` appearances
+carry the visible result for other viewers, but editors that do not understand
+the private preference can replace the placement when editing or regenerating
+appearances, and may discard the metadata. A flattened export retains the
+painted placement but no longer has editable fields.
+
 ## Reduce file size
 
 ```dart
