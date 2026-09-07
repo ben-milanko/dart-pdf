@@ -110,9 +110,20 @@ void main() {
     testWidgets('Windows falls back to the folder without a runner reveal',
         (tester) async {
       final launched = _mockUrlLauncher();
-      // An older runner has no reveal method; a null reply is what the channel
-      // turns into MissingPluginException.
-      _mockFileAccess((call) async => null);
+      // A Dart build running against a runner that predates the reveal.
+      _mockFileAccess((call) async => throw MissingPluginException());
+
+      expect(
+          await openContainingFolder(r'C:\Users\ben\Desktop\copy.pdf'), isTrue);
+
+      expect(launched, [r'file:///C:/Users/ben/Desktop']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('Windows falls back to the folder when the reveal errors',
+        (tester) async {
+      final launched = _mockUrlLauncher();
+      // The shell could not parse the item - deleted between save and click.
+      _mockFileAccess((call) async => throw PlatformException(code: 'failed'));
 
       expect(
           await openContainingFolder(r'C:\Users\ben\Desktop\copy.pdf'), isTrue);
