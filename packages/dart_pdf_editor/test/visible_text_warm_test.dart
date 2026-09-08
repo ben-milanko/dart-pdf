@@ -12,6 +12,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 class _TextWorker extends PdfRenderWorker {
   final requests =
       <({int page, int priority, Completer<PdfPageText?> reply})>[];
+  final promotions = <({int page, int priority})>[];
 
   @override
   bool get isActive => true;
@@ -21,6 +22,11 @@ class _TextWorker extends PdfRenderWorker {
     final reply = Completer<PdfPageText?>();
     requests.add((page: pageIndex, priority: priority, reply: reply));
     return reply.future;
+  }
+
+  @override
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) {
+    promotions.add((page: pageIndex, priority: priority));
   }
 
   @override
@@ -58,20 +64,21 @@ void main() {
     for (var i = 0; i < 80 && !ready(); i++) {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 25));
     }
     expect(ready(), isTrue);
   }
 
   Widget viewer(PdfDocument document, PdfViewerController controller,
           _TextWorker worker,
-          {PdfEditingController? editing}) =>
+          {PdfEditingController? editing, bool active = true}) =>
       MaterialApp(
         home: Scaffold(
           body: PdfViewer(
             document: editing == null ? document : null,
             editing: editing,
             controller: controller,
+            active: active,
             renderWorker: worker,
             autoRenderWorker: false,
             initialFit: PdfViewerFit.width,
@@ -102,6 +109,8 @@ void main() {
     await tester.pump();
     expect(worker.requests, hasLength(1),
         reason: 'foreground search shares the already-pending text warm');
+    expect(worker.promotions, contains((page: 0, priority: 0)),
+        reason: 'sharing a speculative request preserves foreground priority');
     worker.requests.single.reply.complete(result);
     await tester.pump();
     await search;
@@ -116,6 +125,62 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(localExtractions(), 0);
     expect(worker.requests, hasLength(1));
+  });
+
+  testWidgets('text warm waits for a quiet viewport after rendering',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(3));
+    final controller = PdfViewerController();
+    final worker = _TextWorker();
+    addTearDown(controller.dispose);
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    await tester.pumpWidget(viewer(document, controller, worker));
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(0) && !controller.isPageRenderBusy);
+    expect(worker.requests, isEmpty,
+        reason: 'first paint must not immediately start an uncancellable walk');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(worker.requests, isEmpty);
+
+    // Keep scrolling past the original idle deadline. The timer must be
+    // cancelled, and the settled viewport must get a new quiet window.
+    for (var i = 0; i < 3; i++) {
+      tester.binding.handlePointerEvent(const PointerScrollEvent(
+        position: Offset(450, 400),
+        scrollDelta: Offset(0, 20),
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(worker.requests, isEmpty);
+    }
+    await pumpUntil(tester, () => worker.requests.isNotEmpty);
+    expect(worker.requests.single.page, controller.currentPage);
+    worker.requests.single.reply.complete(null);
+    await tester.pump(const Duration(seconds: 1));
+    expect(localExtractions(), 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('deactivation and disposal cancel pending text warm timers',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final controller = PdfViewerController();
+    final worker = _TextWorker();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(viewer(document, controller, worker));
+    await pumpUntil(tester,
+        () => controller.isPageRasterReady(0) && !controller.isPageRenderBusy);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester
+        .pumpWidget(viewer(document, controller, worker, active: false));
+    await tester.pump(const Duration(seconds: 1));
+    expect(worker.requests, isEmpty);
+
+    await tester.pumpWidget(viewer(document, controller, worker));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(worker.requests, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+    expect(worker.requests, isEmpty);
   });
 
   testWidgets('declined speculative extraction never falls back locally',

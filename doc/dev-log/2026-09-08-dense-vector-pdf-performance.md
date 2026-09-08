@@ -16,8 +16,10 @@ Three changes address measured costs:
   budget and a 65,536-entry cap, participates in global memory-pressure
   eviction, and releases its cache on disposal. Direct interpretation does
   not retain one-shot paths.
-- After a heavy visible page paints, the viewer prepares its text through the
-  worker, one focused page at a time. Search shares pending requests, stale
+- After a heavy visible page paints and the viewport/render scheduler stays
+  idle for 500 ms, the viewer prepares its text through the worker, one focused
+  page at a time. Motion cancels the pending warm. Search shares pending
+  requests and promotes them to foreground priority; stale
   revision replies cannot populate the current cache, and speculative failure
   never falls back to the UI isolate. A gesture made before warming completes
   can still pay the existing synchronous extraction cost.
@@ -72,3 +74,7 @@ Validation completed:
   dashed strokes, clipping, eviction, and memory pressure.
 - Ghent and PDF.js interpretation corpora: 225 tests.
 - Ghent and PDF.js rendering corpora: 218 tests; no baseline updates.
+
+PR review follow-up: idle-window cancellation and native/browser priority
+promotion have regression coverage. Worker queue promotion forwards through
+both cache and pool wrappers without launching a duplicate extraction.

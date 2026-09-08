@@ -2108,7 +2108,8 @@ class _PdfViewerState extends State<PdfViewer>
   // A failed warm should not retry on every frame, or retain an old document.
   WeakReference<PdfPage>? _textWarmAttempt;
   bool _textWarmRunning = false;
-  bool _textWarmScheduled = false;
+  Timer? _textWarmTimer;
+  static const _textWarmIdleDelay = Duration(milliseconds: 500);
   final PdfPageObjectCache<List<PdfAnnotation>> _annotCache =
       PdfPageObjectCache();
   final PdfPageObjectCache<List<PdfAnnotation>> _visibleAnnotCache =
@@ -2191,6 +2192,7 @@ class _PdfViewerState extends State<PdfViewer>
       _setSlowScrollRasterWarmDirection(0);
     }
     _renderScheduler.parked = !widget.active;
+    _scheduleVisibleTextWarm();
   }
 
   /// Releases settled render work only after this frame has rebuilt the page
@@ -2213,6 +2215,7 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _beginMotionRenderHold() {
     _cancelPreviewPrerenderSchedule();
+    _cancelVisibleTextWarm();
     _motionHoldReleaseTimer?.cancel();
     _motionHoldReleaseTimer = null;
     _renderScheduler.slowMotion = false;
@@ -2575,6 +2578,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// that notification as the wake-up edge instead.
   void _onRenderSchedulerActivity() {
     _scheduleRasterWarm();
+    _scheduleVisibleTextWarm();
     if (_renderScheduler.busy) {
       _tileBackendWarmUpTimer?.cancel();
       _tileBackendWarmUpTimer = null;
@@ -2951,6 +2955,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// window; releasing then started a 200-500 ms CAD raster in the middle of
   /// an otherwise continuous wheel stream.
   void _onScrollForDetail() {
+    _cancelVisibleTextWarm();
     _trackScrollVelocity();
     // the scheduler drains held pages nearest the viewport first
     _renderScheduler.focus = _jumpFocusPage ?? _controller.currentPage;
@@ -4181,6 +4186,7 @@ class _PdfViewerState extends State<PdfViewer>
       _slowScrollRasterWarmGeneration++;
       _scheduleTileBackendWarmUp();
     }
+    _scheduleVisibleTextWarm();
   }
 
   /// The revision controller notified. It owns the document revisions, so a
@@ -4199,6 +4205,7 @@ class _PdfViewerState extends State<PdfViewer>
     } else {
       setState(() {});
     }
+    _scheduleVisibleTextWarm();
   }
 
   /// Reconciles cached state to a document swap - from [_loadedDocument] to
@@ -4211,6 +4218,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// document/controller) and from [_onRevisionControllerChanged] (a new
   /// revision with no host rebuild).
   void _swapDocument({bool preserveRevisionViewport = false}) {
+    _cancelVisibleTextWarm();
     final reconcileClock = Stopwatch()..start();
     final document = _document;
     if (preserveRevisionViewport &&
@@ -5009,6 +5017,7 @@ class _PdfViewerState extends State<PdfViewer>
   void dispose() {
     _commandWarmGeneration++;
     _slowScrollRasterWarmGeneration++;
+    _cancelVisibleTextWarm();
     // A namespace is private to this State and cannot be reused after dispose.
     // Retire it explicitly so the process-wide store neither lands an old
     // asynchronous raster nor retains an unreachable viewer token.
@@ -5727,7 +5736,10 @@ class _PdfViewerState extends State<PdfViewer>
       {int priority = 0}) {
     final key = (document, page);
     final existing = _workerTextRequests[key];
-    if (existing != null) return existing;
+    if (existing != null) {
+      worker.promoteTextExtraction(index, priority: priority);
+      return existing;
+    }
     final request = Future<PdfPageText?>.sync(
       () => worker.extractText(index, priority: priority),
     ).onError((error, stackTrace) => null);
@@ -5740,15 +5752,27 @@ class _PdfViewerState extends State<PdfViewer>
     return request;
   }
 
+  bool get _visibleTextWarmIdle =>
+      mounted &&
+      widget.active &&
+      !_renderScheduler.busy &&
+      !_motionRenderHoldActive &&
+      !(_settleTimer?.isActive ?? false);
+
+  void _cancelVisibleTextWarm() {
+    _textWarmTimer?.cancel();
+    _textWarmTimer = null;
+  }
+
   /// Warm only the focused, already-painted heavy page, one at a time. A
   /// mouse grab-pan tests for text before choosing its gesture; leaving text
   /// cold until that press causes another full synchronous content walk.
-  /// Submit the ready frame first, then let the worker prepare that hit test.
+  /// The worker's text walk cannot yield to an urgent render, so wait for a
+  /// quiet viewport and idle render scheduler before preparing that hit test.
   void _scheduleVisibleTextWarm() {
-    if (_textWarmScheduled ||
-        _textWarmRunning ||
-        !mounted ||
-        !widget.active ||
+    _cancelVisibleTextWarm();
+    if (_textWarmRunning ||
+        !_visibleTextWarmIdle ||
         _pages.isEmpty ||
         !(_effectiveRenderWorker?.isActive ?? false)) {
       return;
@@ -5761,16 +5785,14 @@ class _PdfViewerState extends State<PdfViewer>
         page.rawContentLength <= PdfViewer.hoverTextExtractMaxRawContentBytes) {
       return;
     }
-    _textWarmScheduled = true;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      _textWarmScheduled = false;
-      if (mounted) unawaited(_warmVisiblePageText());
+    _textWarmTimer = Timer(_textWarmIdleDelay, () {
+      _textWarmTimer = null;
+      if (_visibleTextWarmIdle) unawaited(_warmVisiblePageText());
     });
-    SchedulerBinding.instance.scheduleFrame();
   }
 
   Future<void> _warmVisiblePageText() async {
-    if (_textWarmRunning || !mounted || !widget.active || _pages.isEmpty) {
+    if (_textWarmRunning || !_visibleTextWarmIdle || _pages.isEmpty) {
       return;
     }
     final index = _controller.currentPage;

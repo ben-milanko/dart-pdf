@@ -379,6 +379,20 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 
   @override
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) {
+    var changed = false;
+    for (final request in [if (_inFlight != null) _inFlight!, ..._queue]) {
+      if (request.kind == _RequestKind.extractText &&
+          request.pageIndex == pageIndex &&
+          priority < request.priority) {
+        request.priority = priority;
+        changed = true;
+      }
+    }
+    if (changed) _pump();
+  }
+
+  @override
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest.extractText(priority, _seq++, pageIndex);
@@ -708,7 +722,7 @@ class _PendingRequest {
         onPartialBytes = null;
 
   final _RequestKind kind;
-  final int priority;
+  int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;

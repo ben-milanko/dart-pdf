@@ -580,6 +580,20 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 
   @override
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) {
+    var changed = false;
+    for (final request in [if (_inFlight != null) _inFlight!, ..._queue]) {
+      if (request.kind == _WebRequestKind.extractText &&
+          request.pageIndex == pageIndex &&
+          priority < request.priority) {
+        request.priority = priority;
+        changed = true;
+      }
+    }
+    if (changed) _pump();
+  }
+
+  @override
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
     if (_disposed || _failed) return null;
     final request = _WebPending.extractText(priority, _seq++, pageIndex);
@@ -1062,7 +1076,7 @@ class _WebPending {
         onPartialBytes = null;
 
   final _WebRequestKind kind;
-  final int priority;
+  int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;
