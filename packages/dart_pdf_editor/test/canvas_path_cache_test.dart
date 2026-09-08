@@ -46,8 +46,8 @@ void main() {
     addTearDown(cache.dispose);
     final a = cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new);
     cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
-    expect(
-        cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new), isNot(same(a)));
+    expect(cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new), same(a),
+        reason: 'a full cache retains its reusable subset');
 
     final tiny = PdfCanvasPathCache(maxWeight: 1);
     addTearDown(tiny.dispose);
@@ -55,6 +55,76 @@ void main() {
     expect(tiny.pathFor(path, PdfFillRule.nonzero, ui.Path.new),
         isNot(same(large)),
         reason: 'oversize paths must be returned uncached');
+  });
+
+  test('repeated scans past the entry cap keep admitted paths warm', () {
+    final cache = PdfCanvasPathCache(maxEntries: 2);
+    addTearDown(cache.dispose);
+    final sources = List.generate(4, (_) => PdfPath(path.segments));
+    final builds = List.filled(4, 0);
+    final initial = <ui.Path>[];
+    for (var scan = 0; scan < 3; scan++) {
+      for (var i = 0; i < sources.length; i++) {
+        final result = cache.pathFor(sources[i], PdfFillRule.nonzero, () {
+          builds[i]++;
+          return ui.Path();
+        });
+        if (scan == 0) {
+          initial.add(result);
+        } else {
+          expect(result, i < 2 ? same(initial[i]) : isNot(same(initial[i])));
+        }
+      }
+    }
+    expect(builds, [1, 1, 3, 3]);
+  });
+
+  test('weight admission preserves the subset and fills smaller free slots',
+      () {
+    // The first path weighs 512; the next 320 cannot fit, but the final 224
+    // can. Total retained weight reaches 736 without evicting the first path.
+    final sources = [
+      path,
+      PdfPath(path.segments.take(4).toList()),
+      PdfPath(path.segments.take(1).toList()),
+    ];
+    final cache = PdfCanvasPathCache(maxEntries: 2, maxWeight: 736);
+    addTearDown(cache.dispose);
+    final builds = List.filled(3, 0);
+    for (var scan = 0; scan < 3; scan++) {
+      for (var i = 0; i < sources.length; i++) {
+        cache.pathFor(sources[i], PdfFillRule.nonzero, () {
+          builds[i]++;
+          return ui.Path();
+        });
+      }
+    }
+    expect(builds, [1, 3, 1]);
+    final occupancy = PdfCacheRegistry.instance
+        .snapshot()
+        .singleWhere((entry) => entry.label == 'canvas-paths');
+    expect(occupancy.length, 2);
+    expect(occupancy.weight, 736);
+    expect(occupancy.evictions, 0);
+  });
+
+  test('pressure reopens admission and disposal leaves all paths uncached', () {
+    final cache = PdfCanvasPathCache(maxEntries: 1);
+    addTearDown(cache.dispose);
+    final first = cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new);
+    final declined = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    PdfCacheRegistry.instance.handleMemoryPressure();
+    final replacement = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    expect(replacement, isNot(same(declined)));
+    expect(cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new),
+        same(replacement));
+    expect(cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new),
+        isNot(same(first)));
+    cache.dispose();
+    final uncached = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    expect(uncached, isNot(same(replacement)));
+    expect(cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new),
+        isNot(same(uncached)));
   });
 
   testWidgets('retained paths keep fills, dashes and clips exact across zooms',

@@ -15,7 +15,9 @@ Three changes address measured costs:
   drawing order remain unchanged. Each scene has a 32 MiB estimated geometry
   budget and a 65,536-entry cap, participates in global memory-pressure
   eviction, and releases its cache on disposal. Direct interpretation does
-  not retain one-shot paths.
+  not retain one-shot paths. Once a path would exceed either limit it is
+  returned uncached, preserving a reusable subset for repeated scans of pages
+  larger than the cache.
 - After a heavy visible page paints and the viewport/render scheduler stays
   idle for 500 ms, the viewer prepares its text through the worker, one focused
   page at a time. Motion cancels the pending warm. Search shares pending
@@ -33,13 +35,15 @@ readback; these are renderer measurements, not browser or full-app latency.
 
 | Scale | Rebuild paths | Reuse paths | Raster before | Raster after |
 | --- | ---: | ---: | ---: | ---: |
-| 2× | 103.76 | 64.25 | 87.70 | 85.34 |
-| 4× | 102.74 | 61.59 | 102.88 | 103.52 |
-| 8× | 96.56 | 63.26 | 128.97 | 128.74 |
+| 2× | 102.56 | 57.31 | 86.21 | 84.84 |
+| 4× | 99.23 | 54.85 | 101.71 | 97.43 |
+| 8× | 108.75 | 55.44 | 126.54 | 125.43 |
 
-At 4×, replay work falls 40%, and replay plus raster falls from approximately
-206 ms to 165 ms (20%). Raster cost is unchanged. The scene retained 47,620
-paths, estimated at 30,571,520 bytes, with zero evictions during this run.
+At 4×, replay work falls 45%, and replay plus raster falls from approximately
+201 ms to 152 ms (24%). Most of the gain is in replay; rasterization remains
+the larger phase. The scene retained 47,620 paths, estimated at 30,571,520
+bytes, with zero evictions during this final run, which includes the cache
+follow-up below.
 
 A separate same-process streaming-parser A/B, alternating the original and
 optimized lexer for ten runs each, improved median parsing from 246.46 ms to
@@ -78,3 +82,41 @@ Validation completed:
 PR review follow-up: idle-window cancellation and native/browser priority
 promotion have regression coverage. Worker queue promotion forwards through
 both cache and pool wrappers without launching a duplicate extraction.
+
+The wide-CAD regression also exposed quadratic eviction in the shared cache:
+finding the newest map key scanned the entire cache, and finding the oldest
+scanned deleted slots. A linked recency list now keeps ordinary touches and
+evictions constant-time. In a local overflow microbenchmark, 32,768 insertions
+at capacities of 8,192, 16,384, and 32,768 took 1,210–3,361 ms before and 5–8 ms
+after. Memory limits and resource ownership are unchanged. Focused tests cover
+repeated turnovers, nullable keys, remap collisions, and reentrant builders.
+
+A synthetic 160,001-command replay visits 88,084 native paths, beyond the
+65,536-entry limit. Stable admission retains that many paths with no churn:
+458,752 hits and zero evictions across the measured replays. Cached replay
+measured 1,113.3 ms versus 1,131.9 ms uncached (1.6% less), with 2.5% less
+replay plus raster time and identical pixels. The small gain on this oversized
+case is expected: the unretained geometry still has to be rebuilt.
+
+## Follow-up opportunities
+
+The strongest next candidate is selective replay around transparency groups.
+This file's 24 groups and 16 soft masks currently make `PdfRegionReplayIndex`
+reject the whole transcript, disabling viewport culling and cached tiles. A
+probe found only four outermost group spans, containing 228 of 171,406 raw
+commands. Indexing balanced groups as indivisible units could retain their
+compositing semantics while culling the rest of the drawing. Their bounds must
+include mask subcommands and all paint effects; the probe's ordinary paint
+bounds are not sufficient. This improvement has not been implemented or timed.
+
+Text preparation could reuse extraction-ready runs from the original worker
+recording instead of interpreting the page again. It must preserve character
+advances, bidi ordering and invisible text, and exclude annotation appearances
+and mask-only content. Warming currently hides the repeated walk after the
+result is ready; it does not eliminate it.
+
+Rasterization remains approximately 100 ms at 4×. Profiling the soft-mask
+layers could establish whether explicit conservative bounds or reusable mask
+surfaces help. Their small painted footprints suggest an opportunity, but the
+raster engine may already infer tight bounds, so a measured comparison is
+needed before changing compositing.

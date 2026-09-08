@@ -10,6 +10,9 @@ import 'budgeted_cache.dart';
 /// zoom stalls the UI isolate. These paths contain page-space geometry only;
 /// transforms, paints, dashes, and clipping still run in their original order.
 /// Never mutate either the source geometry or a returned path while retained.
+/// Once full, the cache preserves its admitted subset: cycling an immutable
+/// transcript larger than an LRU would otherwise evict every path before its
+/// next use. Memory-pressure eviction reopens admission as space becomes free.
 class PdfCanvasPathCache {
   PdfCanvasPathCache({int maxWeight = 32 << 20, int maxEntries = 65536})
       : _paths = PdfBudgetedCache<(PdfPath, PdfFillRule), _CanvasPath>(
@@ -31,7 +34,11 @@ class PdfCanvasPathCache {
     // Conservative estimate: a cubic needs six float32 coordinates and a
     // verb, plus per-path native/Dart/map overhead. Count is capped separately
     // because short paths also dominate some CAD exports.
-    _paths.put(key, _CanvasPath(path, 192 + source.segmentCount * 32));
+    final weight = 192 + source.segmentCount * 32;
+    if (_paths.length < _paths.maxEntries! &&
+        weight <= _paths.maxWeight - _paths.weight) {
+      _paths.put(key, _CanvasPath(path, weight));
+    }
     return path;
   }
 
