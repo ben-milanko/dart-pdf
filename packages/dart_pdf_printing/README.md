@@ -137,7 +137,7 @@ MaterialApp(
 | iOS / iPadOS | UIKit / AirPrint | iOS 15+; the plugin anchors the iPad popover to the registrar's view controller. |
 | Android | Android PrintManager | API 24+; requires an attached Activity and a system print service. |
 | Windows | GDI vector replay with direct queue selection | Normal Flutter Windows build tools; no downloaded native PDF library. |
-| Linux | GTK / Cairo vector replay | GTK 3 development libraries, as required by Flutter Linux. |
+| Linux | GTK / Cairo vector replay | Flutter's GTK 3 toolchain plus `libsecret-1-dev` and `libjsoncpp-dev` for the editor's dependencies. |
 | Web | Browser PDF viewer and print dialog | Browser must support inline PDF printing and permit the print action. |
 
 For sandboxed macOS hosts, add this inside the `<dict>` in both
