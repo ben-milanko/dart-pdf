@@ -28,8 +28,10 @@ void main() {
   // A box centred in the viewport at fit-width, so it stays on screen when
   // the transform magnifies about the viewport centre: an 800x800 logical
   // viewport over a 612x792 page shows the top 612pt, centred on (306, 486).
-  const rect = PdfRect(291, 477, 321, 494.7585);
-  const rectWidth = 321 - 291.0;
+  // Keep both line ends inside the window at the requested 40 px/pt. The
+  // former 30pt box relied on the viewer silently clamping that request.
+  const rect = PdfRect(294, 477, 318, 494.7585);
+  const rectWidth = 318 - 294.0;
   const fontSize = 8.0;
   const text = 'UB';
 
@@ -40,6 +42,9 @@ void main() {
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
     addTearDown(viewer.dispose);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: RepaintBoundary(
@@ -164,6 +169,7 @@ void main() {
     await tester.pump();
     viewer.setZoom(zoom);
     await tester.pump();
+    expect(viewer.zoom, closeTo(zoom, .001));
     expect(editing.requestEditSelectedTextInline(), isTrue);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
@@ -185,14 +191,15 @@ void main() {
     // everything is read inside the box and inside the window, clear of the
     // chrome border and of the viewer's scrollbar gutter
     final view = tester.view;
-    final screen = Rect.fromLTWH(0, 0,
+    final screen = Rect.fromLTWH(
+        0,
+        0,
         view.physicalSize.width / view.devicePixelRatio - 20,
         view.physicalSize.height / view.devicePixelRatio);
     // the box interior, for the wash colour
     final wash = box.deflate(4).intersect(screen);
     // the line's own band, for the ink
-    final region = Rect.fromPoints(
-            render.localToGlobal(Offset.zero),
+    final region = Rect.fromPoints(render.localToGlobal(Offset.zero),
             render.localToGlobal(render.size.bottomRight(Offset.zero)))
         .intersect(wash);
 
@@ -226,10 +233,10 @@ void main() {
 
   group('the inline free-text caret at deep zoom', () {
     for (final align in PdfTextAlign.values) {
-      // 4 px/pt is an ordinary reading zoom; the deep one is the viewer's
-      // ceiling, where a constant in layout pixels turns into a visible gap
+      // At 40 px/pt a constant in layout pixels becomes a visible gap.
       for (final zoom in const <double>[4, 40]) {
-        testWidgets('$align free text: painted caret hugs the glyphs at '
+        testWidgets(
+            '$align free text: painted caret hugs the glyphs at '
             '${zoom.toInt()} px/pt', (tester) async {
           tester.view.physicalSize = const Size(1600, 1600);
           tester.view.devicePixelRatio = 2;

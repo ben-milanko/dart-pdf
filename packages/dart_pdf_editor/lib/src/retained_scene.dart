@@ -172,16 +172,12 @@ class PdfRetainedScene {
   /// a huge unit count would cost O(N) per tile.
   static int spatialRegionReplayMaxCommands = 250000;
 
-  /// Escalate to a uniform-grid spatial index for transcripts ABOVE the linear
-  /// [spatialRegionReplayMaxCommands] ceiling, up to [spatialGridReplayMaxCommands].
-  ///
-  /// Below the linear ceiling nothing changes: the flat per-op scan is cheap
-  /// enough. Above it, the historical behaviour was to give up on culling and
-  /// full-replay the whole transcript into every tile — catastrophic on a dense
-  /// CAD page (a 256px tile replaying ~850k commands, ~260ms, on the UI
-  /// isolate). The grid makes region replay O(candidates) instead, so those
-  /// pages become pannable. On by default because it only ever REPLACES the
-  /// full-transcript fallback — it never changes a page that already culled.
+  /// Use a uniform-grid spatial index on dense transcripts, starting at
+  /// [pdfDetailRegionGridMinCommands]. It avoids scanning every paint for tiny
+  /// high-zoom tiles. Above [spatialRegionReplayMaxCommands], the grid also
+  /// extends the supported transcript size to [spatialGridReplayMaxCommands].
+  /// Turning this off retains the linear index below its ceiling and full
+  /// replay above it.
   static bool spatialGridReplay = true;
   static int spatialGridReplayMaxCommands = 4000000;
 
@@ -242,11 +238,60 @@ class PdfRetainedScene {
   }
 
   /// Whether region rasters ([rasterizeRegion]) can be spatially culled to the
-  /// requested bounds rather than replaying the whole transcript. False when a
-  /// transparency group or soft mask spans the page (splitting one would change
-  /// its isolated compositing) - the [PdfTileStore] tile path leaves such pages
-  /// on the legacy full-page raster to avoid per-tile full-transcript replays.
+  /// requested bounds rather than replaying the whole transcript. Balanced
+  /// compositing groups remain atomic. Unsupported state stays on the legacy
+  /// detail path to avoid per-tile full-transcript replays.
   bool get supportsRegionRaster => _ensureRegionIndex().supported;
+
+  /// Whether small cached tiles can replay this scene without repeatedly
+  /// walking a large indivisible compositing group. Such groups can still use
+  /// selective [rasterizeRegion] for one viewport-sized detail patch. The
+  /// per-group budget includes nested masks and repeated tiled-cell work.
+  bool get supportsTiledRegionRaster {
+    final index = _ensureRegionIndex();
+    if (!index.supported) return false;
+    return _atomicGroupsFitTileBudget ??= _checkAtomicTileBudget(index);
+  }
+
+  bool? _atomicGroupsFitTileBudget;
+  static const _maxAtomicTileCommands = 1024;
+
+  bool _checkAtomicTileBudget(PdfRegionReplayIndex index) {
+    if (index.maxAtomicCommandSpan > _maxAtomicTileCommands) return false;
+    final nestedCosts = Map<List<PdfRenderCommand>, int>.identity();
+    late int Function(PdfRenderCommand command) commandCost;
+    int listCost(List<PdfRenderCommand> commands) =>
+        nestedCosts.putIfAbsent(commands, () {
+          var cost = 0;
+          for (final command in commands) {
+            cost += commandCost(command);
+            if (cost > _maxAtomicTileCommands) break;
+          }
+          return cost;
+        });
+    commandCost = (command) => switch (command) {
+          PdfEndSoftMaskedCommand(:final maskCommands) =>
+            1 + listCost(maskCommands),
+          PdfDrawTiledCellCommand(:final cellCommands, :final originsX) =>
+            originsX.isEmpty
+                ? 1
+                : 1 +
+                    math.min(_maxAtomicTileCommands + 1,
+                        originsX.length * math.max(1, listCost(cellCommands))),
+          _ => 1,
+        };
+    for (final unit in index.units) {
+      // Only compositing ranges gain tile eligibility here; ordinary paint
+      // units (including single tiled cells) keep their existing policy.
+      if (unit.endCommandIndex == unit.commandIndex + 1) continue;
+      var cost = 0;
+      for (var i = unit.commandIndex; i < unit.endCommandIndex; i++) {
+        cost += commandCost(commands[i]);
+        if (cost > _maxAtomicTileCommands) return false;
+      }
+    }
+    return true;
+  }
 
   /// Approximate bytes of the decoded images this scene retains for replay
   /// (RGBA, width*height*4). Counted against the live-raster budget (#405): a
@@ -737,11 +782,10 @@ class PdfRetainedScene {
   ///
   /// [rasterRegion] uses the same page-point, y-down space as
   /// [rasterizeRegion]. Each returned unit carries its command index plus the
-  /// clip and blend state active at that command. Null means the scene cannot
-  /// be split safely (for example, it contains an isolated group or soft
-  /// mask), so a backend must decline the scene and let the Canvas fallback
-  /// render it whole. An empty list means the supported region is genuinely
-  /// blank.
+  /// clip and blend state active at that command. A group is a complete command
+  /// range and must remain indivisible. Null means the scene cannot be indexed
+  /// safely, so a backend must decline it and use full replay. An empty list
+  /// means the supported region is genuinely blank.
   List<PdfRegionReplayUnit>? selectRegion(Rect rasterRegion) {
     assert(!_disposed, 'selectRegion after dispose');
     final index = _ensureRegionIndex();
@@ -752,18 +796,20 @@ class PdfRetainedScene {
   }
 
   /// The `(maxCommands, buildGrid)` the region index builds under for this
-  /// transcript, given the current escalation policy. Below the linear ceiling:
-  /// the flat per-op scan (unchanged). Above it: escalate to the grid rather
-  /// than falling back to full-transcript replay. Shared by the in-isolate
+  /// transcript, given the current escalation policy. Dense transcripts use
+  /// the grid before reaching the linear retention ceiling: at extreme zoom a
+  /// tile covers only a few page points, so scanning tens of thousands of units
+  /// per tile wastes most of the query work. Shared by the in-isolate
   /// build ([_ensureRegionIndex]) and the worker request ([warmRegionIndex]) so
   /// both bin the transcript identically — the worker re-records a byte-for-byte
   /// identical transcript, so the same parameters produce an index whose unit
   /// indices line up with this scene's [commands].
   ({int maxCommands, bool buildGrid}) get _regionIndexBuildParams {
     final overLinear = commands.length > spatialRegionReplayMaxCommands;
-    final useGrid = spatialGridReplay && overLinear;
+    final useGrid = spatialGridReplay &&
+        (overLinear || commands.length >= pdfDetailRegionGridMinCommands);
     return (
-      maxCommands: useGrid
+      maxCommands: overLinear && useGrid
           ? spatialGridReplayMaxCommands
           : spatialRegionReplayMaxCommands,
       buildGrid: useGrid,

@@ -59,6 +59,7 @@ export 'annotation_tap.dart'
     show PdfAnnotationTapDetails, PdfAnnotationTapHandler;
 
 const double _defaultMaxZoom = 24;
+const double _defaultMaxDisplayZoom = 100;
 
 // Clipboard revisions are shared across viewer windows just like the snapshot
 // holder. Weak keys keep private clipboard lifetimes independent of this cache.
@@ -1320,7 +1321,7 @@ class PdfViewer extends StatefulWidget {
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
     this.minZoom = 0.25,
-    this.maxZoom = _defaultMaxZoom,
+    double? maxZoom,
     this.doubleTapZoom = 2.5,
     this.backgroundColor,
     this.pageColor = const Color(0xFFFFFFFF),
@@ -1344,7 +1345,9 @@ class PdfViewer extends StatefulWidget {
     this.textCache,
     this.documentId,
     this.active = true,
-  }) : assert(
+  })  : maxZoom = maxZoom ?? _defaultMaxZoom,
+        _hasCustomMaxZoom = maxZoom != null,
+        assert(
             document != null ||
                 editing != null ||
                 (formController != null && interactiveForms),
@@ -1711,10 +1714,13 @@ class PdfViewer extends StatefulWidget {
   /// each PDF point tiny on screen, and the deep-zoom detail patch keeps the
   /// visible slice sharp without forcing a full-page raster at this scale.
   ///
-  /// When the default is used on a narrow viewport, the viewer may lift the
-  /// internal fit-width multiplier so the actual-size cap still reaches at
-  /// least 2400%. Custom [maxZoom] values are respected exactly.
+  /// When omitted, the viewer lifts the internal fit-width multiplier as
+  /// needed so the actual-size cap reaches at least 10000%, independently of
+  /// the viewport width or open side panels. Explicit values retain their
+  /// existing fit-width limits: 24 keeps its minimum actual-size cap of 2400%,
+  /// and all other values are respected exactly as fit-width multiples.
   final double maxZoom;
+  final bool _hasCustomMaxZoom;
   final double doubleTapZoom;
 
   /// The canvas color around and between the pages. Defaults to a
@@ -5118,17 +5124,20 @@ class _PdfViewerState extends State<PdfViewer>
       ? 1
       : _crossView / _maxCrossPoint;
 
-  /// Gesture/controller zoom clamps are expressed as fit multiples. On small
-  /// viewports the fit scale is less than actual size, so the stock 24x cap
-  /// used to top out below 2400% actual size. Keep the default generous
-  /// there without changing explicit host caps.
+  /// Gesture/controller zoom clamps are expressed as fit multiples. Keep
+  /// 10000% actual size reachable at the default on any viewport, including
+  /// when side panels reduce its width, without changing explicit host caps.
   double get _effectiveMaxZoom {
-    if (widget.maxZoom != _defaultMaxZoom) return widget.maxZoom;
-    final fit = _fitScale;
-    if (!fit.isFinite || fit <= 0 || fit >= 1) {
+    if (widget._hasCustomMaxZoom && widget.maxZoom != _defaultMaxZoom) {
       return widget.maxZoom;
     }
-    return math.max(widget.maxZoom, _defaultMaxZoom / fit);
+    final fit = _fitScale;
+    if (!fit.isFinite || fit <= 0) {
+      return widget.maxZoom;
+    }
+    final minimumDisplayZoom =
+        widget._hasCustomMaxZoom ? _defaultMaxZoom : _defaultMaxDisplayZoom;
+    return math.max(widget.maxZoom, minimumDisplayZoom / fit);
   }
 
   /// The on-screen scale the user sees, in logical pixels per PDF point,

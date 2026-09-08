@@ -45,9 +45,9 @@ class PdfWorkerTranscript {
 
   /// Selects a compact, document-backed transcript for one detail region.
   List<PdfRenderCommand> commandsForDetail(PdfRect region) {
-    final buildGrid = wireCommands.length > pdfDetailRegionLinearMaxCommands;
+    final buildGrid = wireCommands.length >= pdfDetailRegionGridMinCommands;
     final index = regionIndex(
-      maxCommands: buildGrid
+      maxCommands: wireCommands.length > pdfDetailRegionLinearMaxCommands
           ? pdfDetailRegionGridMaxCommands
           : pdfDetailRegionLinearMaxCommands,
       buildGrid: buildGrid,

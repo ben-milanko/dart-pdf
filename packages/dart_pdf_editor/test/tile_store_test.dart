@@ -153,6 +153,16 @@ void main() {
         expect(ladder.rungAtOrAbove(ladder.ratioFor(rung)), rung);
       }
     });
+
+    test('default ladder keeps 10000% sharp on high-density displays', () {
+      const ladder = PdfTileZoomLadder();
+      for (final devicePixelRatio in [1.0, 2.0, 3.0, 4.0, 5.0]) {
+        final desiredRatio = 100 * devicePixelRatio;
+        final ratio = ladder.ratioFor(ladder.rungAtOrAbove(desiredRatio));
+        expect(ratio, greaterThanOrEqualTo(desiredRatio));
+        expect(ratio, lessThan(desiredRatio * math.sqrt(2)));
+      }
+    });
   });
 
   group('PdfTileStore.viewFor', () {

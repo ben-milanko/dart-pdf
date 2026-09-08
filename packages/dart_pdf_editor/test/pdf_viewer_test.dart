@@ -1066,7 +1066,7 @@ void main() {
     expect(controller.zoom, greaterThan(6));
   });
 
-  testWidgets('default max zoom keeps 2400% available on phone-width views',
+  testWidgets('default max zoom keeps 10000% available on phone-width views',
       (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
@@ -1078,11 +1078,11 @@ void main() {
 
     final interactiveViewer =
         tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
-    expect(interactiveViewer.maxScale, closeTo(24 / phoneFitWidth, 0.001));
+    expect(interactiveViewer.maxScale, closeTo(100 / phoneFitWidth, 0.001));
 
-    controller.setZoom(24);
+    controller.setZoom(100);
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, closeTo(24, 0.01));
+    expect(controller.zoom, closeTo(100, 0.01));
   });
 
   testWidgets('controller zoom settles page rendering immediately',

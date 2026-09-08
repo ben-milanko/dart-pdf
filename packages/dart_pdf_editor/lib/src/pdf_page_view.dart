@@ -4676,8 +4676,8 @@ class _PdfPageViewState extends State<PdfPageView>
 
   /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
   /// detail for this page: the flag is on and the retained scene is
-  /// region-cullable (soft-mask/group spans keep the legacy single-patch
-  /// path).
+  /// region-cullable with bounded atomic groups. Large indivisible compositing
+  /// groups keep a single detail patch to avoid replaying them for every tile.
   ///
   /// A vector-only progressive scene is eligible too - on the dense CAD pages
   /// the pyramid targets, the full image-bearing record may never land during
@@ -4701,11 +4701,14 @@ class _PdfPageViewState extends State<PdfPageView>
     // UI isolate: defer the tile path until the warmed index is resident (built
     // on the render worker when eligible - see [_warmRegionIndexIfNeeded]).
     // Until then the base raster / single detail patch covers the view. Pages
-    // below the grid ceiling keep the cheap synchronous linear build.
+    // below the grid threshold keep the cheap synchronous linear build.
     if (scene.regionIndexBuildIsHeavy && !scene.debugHasRegionReplayIndex) {
       return 'index-warming';
     }
-    return scene.supportsRegionRaster ? 'active' : 'unsupported-scene';
+    if (!scene.supportsRegionRaster) return 'unsupported-scene';
+    return scene.supportsTiledRegionRaster
+        ? 'active'
+        : 'large-compositing-group';
   }
 
   /// Kicks the region-replay index build onto the render worker when the page
