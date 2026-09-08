@@ -70,9 +70,9 @@ NativePrinter::Options PrintOptions(const flutter::EncodableMap* args) {
     if (const auto* color = std::get_if<bool>(value)) options.color = *color;
   }
   const std::wstring duplex = OptionalString(args, "duplex");
-  if (duplex == L"simplex") options.duplex = DMDUP_SIMPLEX;
-  if (duplex == L"longEdge") options.duplex = DMDUP_VERTICAL;
-  if (duplex == L"shortEdge") options.duplex = DMDUP_HORIZONTAL;
+  if (duplex == L"simplex") options.duplex = static_cast<short>(DMDUP_SIMPLEX);
+  if (duplex == L"longEdge") options.duplex = static_cast<short>(DMDUP_VERTICAL);
+  if (duplex == L"shortEdge") options.duplex = static_cast<short>(DMDUP_HORIZONTAL);
   if (const auto* value = Lookup(*args, "tray")) {
     const auto tray = Integer(*value);
     if (tray.has_value() && *tray >= 0 && *tray <= 32767) {
