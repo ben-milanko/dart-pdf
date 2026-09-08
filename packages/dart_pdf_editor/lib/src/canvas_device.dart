@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'budgeted_cache.dart';
+import 'canvas_path_cache.dart';
 import 'font_substitution.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
@@ -48,7 +49,12 @@ class CanvasPdfDevice
         PdfTiledCellSink,
         PdfTextBatchSink,
         PdfTransparencyGroupDevice {
-  CanvasPdfDevice(this.canvas, {this.images = const {}, this.pixelRatio = 1});
+  CanvasPdfDevice(this.canvas,
+      {this.images = const {}, this.pixelRatio = 1, this.pathCache});
+
+  /// Reuses native path geometry when replaying an immutable retained scene.
+  /// Direct interpretation leaves this null because its paths are one-shot.
+  final PdfCanvasPathCache? pathCache;
 
   final Canvas canvas;
 
@@ -597,7 +603,7 @@ class CanvasPdfDevice
   @override
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
     canvas.drawPath(
-      _toUiPath(path, rule),
+      _cachedUiPath(path, rule),
       _solidFillPaint(color, alpha),
     );
   }
@@ -606,7 +612,7 @@ class CanvasPdfDevice
   void fillPathGradient(
       PdfPath path, PdfFillRule rule, PdfGradient gradient, double alpha) {
     canvas.drawPath(
-      _toUiPath(path, rule),
+      _cachedUiPath(path, rule),
       Paint()
         ..shader = _shaderFor(gradient)
         ..blendMode = _fillElementBlend
@@ -673,7 +679,7 @@ class CanvasPdfDevice
         }
       }
     }
-    var uiPath = _toUiPath(path, PdfFillRule.nonzero);
+    var uiPath = _cachedUiPath(path, PdfFillRule.nonzero);
     if (stroke.dashArray.any((d) => d > 0)) {
       uiPath = _dashPath(uiPath, stroke.dashArray, stroke.dashPhase);
     }
@@ -830,7 +836,7 @@ class CanvasPdfDevice
     if (rect != null) {
       canvas.clipRect(rect, doAntiAlias: false);
     } else {
-      canvas.clipPath(_toUiPath(path, rule), doAntiAlias: false);
+      canvas.clipPath(_cachedUiPath(path, rule), doAntiAlias: false);
     }
   }
 
@@ -1856,6 +1862,10 @@ class CanvasPdfDevice
         : ui.Gradient.linear(Offset(c[0], c[1]), Offset(c[2], c[3]), colors,
             stops, TileMode.clamp, matrix);
   }
+
+  ui.Path _cachedUiPath(PdfPath path, PdfFillRule rule) =>
+      pathCache?.pathFor(path, rule, () => _toUiPath(path, rule)) ??
+      _toUiPath(path, rule);
 
   static ui.Path _toUiPath(PdfPath path, PdfFillRule rule) {
     final out = _emptyUiPath(rule);

@@ -60,6 +60,49 @@ void main() {
           double.parse('123456789.0123456789'));
     });
 
+    test('numeric fast and fallback paths preserve token boundaries', () {
+      for (final source in [
+        '.000068328212',
+        '-.0017587801',
+        '999999999999999.', // last exact fast-path real
+        '9999999999999999.', // first fallback real
+        '.000000000000001',
+        '.0000000000000001',
+        '-9223372036854775808', // int64 minimum needs the fallback
+        '+000000000000000017',
+        '00000000000000000017',
+      ]) {
+        final lexer = CosLexer(ascii('$source/Next'));
+        final token = lexer.nextToken();
+        expect(token.value,
+            source.contains('.') ? double.parse(source) : int.parse(source),
+            reason: source);
+        expect(lexer.position, source.length, reason: source);
+        expect(lexer.nextToken().textValue, 'Next', reason: source);
+      }
+    });
+
+    test('real signed zero and permissive bare-dot syntax survive', () {
+      for (final source in ['-0.', '-.0', '-0.0000000000000000', '-.']) {
+        final token = lex(source);
+        expect(token.type, CosTokenType.real, reason: source);
+        expect(token.realValue, 0, reason: source);
+        expect(token.realValue.isNegative, isTrue, reason: source);
+      }
+      expect(lex('.').realValue, 0);
+      expect(lex('+.').realValue, 0);
+    });
+
+    test('malformed numeric tokens consume all signs and dots', () {
+      for (final source in ['1.2.3', '1.-2', '.1+2', '++1', '+', '-']) {
+        final lexer = CosLexer(ascii('$source/Next'));
+        expect(() => lexer.nextToken(), throwsA(isA<CosParseException>()),
+            reason: source);
+        expect(lexer.position, source.length, reason: source);
+        expect(lexer.nextToken().textValue, 'Next', reason: source);
+      }
+    });
+
     test('large integers parse exactly, matching int.tryParse', () {
       // The direct byte parser handles ≤18-digit mantissas; longer ones (incl.
       // the 19-digit int64 max) must fall back to the exact string path.

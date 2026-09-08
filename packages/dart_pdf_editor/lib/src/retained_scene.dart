@@ -24,6 +24,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'banded_transcript.dart';
 import 'canvas_device.dart';
+import 'canvas_path_cache.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
 import 'renderer.dart';
@@ -146,6 +147,11 @@ class PdfRetainedScene {
   /// annotations, rotation). A different plan needs a new recording -
   /// annotations are baked into [commands].
   final PdfPageRenderPlan plan;
+
+  // Native geometry is scale-independent. Keep it beside the transcript so
+  // every zoom/tile replay avoids rebuilding the same path verbs on the UI
+  // thread. The cache is bounded, pressure-aware, and dies with this scene.
+  PdfCanvasPathCache? _pathCache;
 
   /// The interpreter's transcript of the page, in paint order.
   final List<PdfRenderCommand> commands;
@@ -699,7 +705,8 @@ class PdfRetainedScene {
 
   void _replayOnto(Canvas canvas, {Rect? rasterRegion}) {
     PdfPageRenderer.preparePageCanvas(canvas, page, plan);
-    final device = CanvasPdfDevice(canvas, images: _images);
+    final device = CanvasPdfDevice(canvas,
+        images: _images, pathCache: _pathCache ??= PdfCanvasPathCache());
     if (rasterRegion != null && spatialRegionReplay) {
       final index = _ensureRegionIndex();
       final pageRegion = _pageSpaceRegion(rasterRegion);
@@ -1084,6 +1091,8 @@ class PdfRetainedScene {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _pathCache?.dispose();
+    _pathCache = null;
     _regionIndex = null;
     _bands = null;
     // An accelerated backend normally drops worker-carried RGBA immediately
