@@ -11,7 +11,6 @@
 #include <string>
 
 #include "file_dialogs.h"
-#include "native_print.h"
 
 class DartPdfWindowsDropService;
 
@@ -43,13 +42,10 @@ class DartPdfPlatformChannels {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       image_clipboard_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
-      native_print_channel_;
-  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       file_dialog_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       file_access_channel_;
   std::unique_ptr<DartPdfWindowsDropService> windows_drop_service_;
-  NativePrinter native_printer_;
 };
 
 #endif  // RUNNER_PLATFORM_CHANNELS_H_

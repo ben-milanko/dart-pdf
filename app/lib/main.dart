@@ -4,6 +4,7 @@ import 'dart:async';
 // deferred app.dart loading unit (the splash), and importing the entry here
 // would drag the whole editor stack into the initial web download that the
 // deferred split exists to keep small.
+import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show DartPdfEditorLocalizations;
 import 'package:dart_pdf_editor/perf_log.dart';
@@ -108,6 +109,7 @@ class _DeferredAppState extends State<_DeferredApp> {
       localizationsDelegates: const [
         ...AppLocalizations.localizationsDelegates,
         DartPdfEditorLocalizations.delegate,
+        DartPdfPrintingLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),

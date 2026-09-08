@@ -1,6 +1,7 @@
 // The Print action is wired into the DartPDF app menu (and ⌘P / Ctrl+P) when a
 // document is open. The native printer needs platform channels, so
 // these tests inject a fake printer to assert the wiring end to end.
+import 'package:dart_pdf_printing/dart_pdf_printing.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -13,16 +14,11 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
-import 'package:dart_pdf_editor_app/printing.dart';
-import 'package:dart_pdf_editor_app/print_preview_dialog.dart';
-import 'package:dart_pdf_editor_app/print_preferences.dart';
-import 'package:dart_pdf_editor_app/print_printer.dart';
-import 'package:dart_pdf_editor_app/print_settings.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
-  const printChannel = MethodChannel('dev.milanko.dartpdf/native_print');
+  const printChannel = MethodChannel('dev.milanko.dart_pdf_printing');
   final printCalls = <MethodCall>[];
 
   setUp(() {

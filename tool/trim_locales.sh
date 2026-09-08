@@ -41,6 +41,7 @@ fi
 # arb files are  <arb-prefix>_<locale>.arb  and gen-l10n emits
 # <generated-prefix>.dart (the delegate) + <generated-prefix>_<locale>.dart.
 BUNDLES=(
+  "packages/dart_pdf_printing|dart_pdf_printing|dart_pdf_printing_localizations"
   "packages/dart_pdf_editor|dart_pdf_editor|dart_pdf_editor_localizations"
   "app|app|app_localizations"
   "packages/dart_pdf_editor/example|app|app_localizations"

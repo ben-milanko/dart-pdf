@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 const englishBundles = [
+  'packages/dart_pdf_printing/lib/l10n/dart_pdf_printing',
   'app/lib/l10n/app',
   'packages/dart_pdf_editor/lib/l10n/dart_pdf_editor',
   'packages/dart_pdf_editor/example/lib/l10n/app',

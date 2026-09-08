@@ -1,3 +1,4 @@
+import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 import 'package:dart_pdf_editor_app/recents.dart';
@@ -110,6 +111,7 @@ Widget _host({Locale? locale}) => MaterialApp(
       localizationsDelegates: const [
         ...AppLocalizations.localizationsDelegates,
         DartPdfEditorLocalizations.delegate,
+        DartPdfPrintingLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
       home: Builder(builder: (context) {
@@ -117,7 +119,7 @@ Widget _host({Locale? locale}) => MaterialApp(
         final editor = DartPdfEditorLocalizations.of(context)!;
         return Scaffold(
             body: Column(children: [
-          Text(app.printOptionsCenter),
+          Text(DartPdfPrintingLocalizations.of(context)!.printOptionsCenter),
           Text(app.ocrCancelled),
           Text(app.ocrCancelledAfterSpans(2)),
           Text(app.ocrBrowserInitFailed),

@@ -5,6 +5,7 @@
 import FlutterMacOS
 import Foundation
 
+import dart_pdf_printing
 import desktop_drop
 import file_selector_macos
 import flutter_doc_scanner
@@ -15,6 +16,7 @@ import shared_preferences_foundation
 import url_launcher_macos
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
+  DartPdfPrintingPlugin.register(with: registry.registrar(forPlugin: "DartPdfPrintingPlugin"))
   DesktopDropPlugin.register(with: registry.registrar(forPlugin: "DesktopDropPlugin"))
   FileSelectorPlugin.register(with: registry.registrar(forPlugin: "FileSelectorPlugin"))
   FlutterDocScannerPlugin.register(with: registry.registrar(forPlugin: "FlutterDocScannerPlugin"))

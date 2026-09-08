@@ -29,6 +29,7 @@ PACKAGES=(
   "pdf_graphics:packages/pdf_graphics"
   "dart_pdf_cli:packages/dart_pdf_cli"
   "dart_pdf_editor:packages/dart_pdf_editor"
+  "dart_pdf_printing:packages/dart_pdf_printing"
   "dart_pdf_editor_flutter_gpu:packages/dart_pdf_editor_flutter_gpu"
   "dart_pdf_editor_assets:packages/dart_pdf_editor_assets"
   "pdf_ocr_vlm:packages/pdf_ocr_vlm"

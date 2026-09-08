@@ -25,6 +25,7 @@ import 'dart:io';
 /// The localization bundles: each is a directory holding
 /// `<prefix>_<locale>.arb` files with `<prefix>_en.arb` as the template.
 const _bundles = <({String dir, String prefix})>[
+  (dir: 'packages/dart_pdf_printing/lib/l10n', prefix: 'dart_pdf_printing'),
   (dir: 'packages/dart_pdf_editor/lib/l10n', prefix: 'dart_pdf_editor'),
   (dir: 'app/lib/l10n', prefix: 'app'),
   (dir: 'packages/dart_pdf_editor/example/lib/l10n', prefix: 'app'),
@@ -65,8 +66,7 @@ void main() {
     for (final entity in dir.listSync()) {
       if (entity is! File) continue;
       final name = entity.uri.pathSegments.last;
-      final match =
-          RegExp('^${bundle.prefix}_(.+)\\.arb\$').firstMatch(name);
+      final match = RegExp('^${bundle.prefix}_(.+)\\.arb\$').firstMatch(name);
       if (match == null) continue;
       final locale = match.group(1)!;
       if (locale == 'en') continue; // the template itself
@@ -138,8 +138,10 @@ Map<String, dynamic>? _readArb(File file, List<String> problems) {
 
 /// The translatable message keys in [arb] - everything that isn't `@`-prefixed
 /// metadata (`@@locale`, `@keyName`).
-Set<String> _messageKeys(Map<String, dynamic> arb) =>
-    {for (final key in arb.keys) if (!key.startsWith('@')) key};
+Set<String> _messageKeys(Map<String, dynamic> arb) => {
+      for (final key in arb.keys)
+        if (!key.startsWith('@')) key
+    };
 
 /// The interpolation placeholder names referenced in [value].
 ///

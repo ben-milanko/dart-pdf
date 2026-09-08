@@ -158,6 +158,10 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Test dart_pdf_printing
+        working-directory: packages/dart_pdf_printing
+        run: flutter test
+
       - name: Test DartPDF app
         working-directory: app
         run: flutter test --coverage
@@ -795,3 +799,37 @@ jobs:
             }
           }
           Write-Host 'msix_config OK'
+
+  print-plugin-registration:
+    name: Print plugin / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+      - name: Install GTK and virtual display
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev ninja-build xvfb
+      - name: Resolve workspace packages
+        run: flutter pub get
+      - name: Test a fresh desktop host
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            xvfb-run -a tool/test_print_plugin.sh "${{ matrix.platform }}"
+          else
+            tool/test_print_plugin.sh "${{ matrix.platform }}"
+          fi
