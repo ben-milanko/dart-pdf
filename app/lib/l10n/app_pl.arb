@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Ustawienia niestandardowe",
   "printOptionsPrinter": "Drukarka",
   "printOptionsNativePrinter": "W następnym, systemowym oknie drukowania wybierz drukarkę, podajnik papieru, kolor, druk dwustronny i właściwości urządzenia. Pozostaw skalę 100% i liczbę kopii 1, aby użyć widocznego tutaj układu.",
+  "printOptionsChoosePrinter": "Wybierz drukarkę",
+  "printOptionsNoPrinters": "Nie ma zainstalowanych drukarek. Dodaj drukarkę w Ustawieniach systemu Windows i spróbuj ponownie.",
+  "printOptionsPrinterUnavailable": "Zapisana drukarka „{printer}” jest niedostępna. Wybierz drukarkę, aby kontynuować.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Nie udało się wczytać ustawień drukarki. Sprawdź połączenie z drukarką i spróbuj ponownie.",
+  "printOptionsRetry": "Ponów próbę",
+  "printOptionsColor": "Kolor",
+  "printOptionsGrayscale": "Czarno-białe",
+  "printOptionsDuplex": "Druk dwustronny",
+  "printOptionsSimplex": "Jednostronnie",
+  "printOptionsLongEdge": "Odwracaj przy długiej krawędzi",
+  "printOptionsShortEdge": "Odwracaj przy krótkiej krawędzi",
+  "printOptionsTray": "Podajnik papieru",
+  "printOptionsDefaultTray": "Domyślne ustawienie drukarki",
+  "printOptionsProperties": "Właściwości drukarki…",
+  "printOptionsDirectPrinter": "Drukuj wysyła to zadanie bezpośrednio do wybranej drukarki.",
+  "printOptionsPropertiesError": "Nie udało się otworzyć właściwości drukarki.",
+  "printOptionsLoadingPrinters": "Wczytywanie drukarek…",
   "printOptionsPages": "Strony",
   "printOptionsSelected": "Zaznaczone",
   "printOptionsPageRange": "Strony (na przykład 1, 3-5)",

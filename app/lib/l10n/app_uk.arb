@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Власні налаштування",
   "printOptionsPrinter": "Принтер",
   "printOptionsNativePrinter": "У наступному системному діалозі друку виберіть принтер, лоток для паперу, колір, двосторонній друк і властивості пристрою. Залиште масштаб 100% і кількість копій 1, щоб використати показаний тут макет.",
+  "printOptionsChoosePrinter": "Виберіть принтер",
+  "printOptionsNoPrinters": "Принтери не встановлено. Додайте принтер у параметрах Windows і повторіть спробу.",
+  "printOptionsPrinterUnavailable": "Збережений принтер «{printer}» недоступний. Виберіть принтер, щоб продовжити.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Не вдалося завантажити налаштування принтера. Перевірте підключення принтера й повторіть спробу.",
+  "printOptionsRetry": "Спробувати ще раз",
+  "printOptionsColor": "Кольоровий",
+  "printOptionsGrayscale": "Чорно-білий",
+  "printOptionsDuplex": "Двосторонній друк",
+  "printOptionsSimplex": "Односторонній",
+  "printOptionsLongEdge": "Перегортати вздовж довгого краю",
+  "printOptionsShortEdge": "Перегортати вздовж короткого краю",
+  "printOptionsTray": "Лоток для паперу",
+  "printOptionsDefaultTray": "Типові налаштування принтера",
+  "printOptionsProperties": "Властивості принтера…",
+  "printOptionsDirectPrinter": "Кнопка «Друк» надсилає це завдання безпосередньо на вибраний принтер.",
+  "printOptionsPropertiesError": "Не вдалося відкрити властивості принтера.",
+  "printOptionsLoadingPrinters": "Завантаження принтерів…",
   "printOptionsPages": "Сторінки",
   "printOptionsSelected": "Вибрані",
   "printOptionsPageRange": "Сторінки (наприклад, 1, 3-5)",

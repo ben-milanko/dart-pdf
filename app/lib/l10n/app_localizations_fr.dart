@@ -1288,6 +1288,63 @@ class AppLocalizationsFr extends AppLocalizations {
       'Choisissez l’imprimante, le bac à papier, la couleur, le recto verso et les propriétés du périphérique dans la boîte de dialogue d’impression du système qui s’ouvrira ensuite. Conservez une échelle de 100 % et une seule copie pour utiliser la mise en page affichée ici.';
 
   @override
+  String get printOptionsChoosePrinter => 'Choisir une imprimante';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Aucune imprimante n’est installée. Ajoutez une imprimante dans les Paramètres Windows, puis réessayez.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'L’imprimante enregistrée « $printer » n’est pas disponible. Choisissez une imprimante pour continuer.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Impossible de charger les paramètres de l’imprimante. Vérifiez la connexion de l’imprimante et réessayez.';
+
+  @override
+  String get printOptionsRetry => 'Réessayer';
+
+  @override
+  String get printOptionsColor => 'Couleur';
+
+  @override
+  String get printOptionsGrayscale => 'Noir et blanc';
+
+  @override
+  String get printOptionsDuplex => 'Impression recto verso';
+
+  @override
+  String get printOptionsSimplex => 'Recto uniquement';
+
+  @override
+  String get printOptionsLongEdge => 'Retourner sur le bord long';
+
+  @override
+  String get printOptionsShortEdge => 'Retourner sur le bord court';
+
+  @override
+  String get printOptionsTray => 'Bac à papier';
+
+  @override
+  String get printOptionsDefaultTray => 'Valeur par défaut de l’imprimante';
+
+  @override
+  String get printOptionsProperties => 'Propriétés de l’imprimante…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Imprimer envoie ce travail directement à l’imprimante sélectionnée.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Impossible d’ouvrir les propriétés de l’imprimante.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Chargement des imprimantes…';
+
+  @override
   String get printOptionsPages => 'Pages';
 
   @override

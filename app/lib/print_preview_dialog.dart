@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -12,13 +14,17 @@ import 'l10n/app_localizations.dart';
 import 'middle_ellipsis_text.dart';
 import 'print_settings.dart';
 import 'print_composer.dart';
+import 'print_preferences.dart';
+import 'print_printer.dart';
 
 /// The source document and options confirmed for this print job.
 class PrintPreviewResult {
-  const PrintPreviewResult({required this.document, required this.settings});
+  const PrintPreviewResult(
+      {required this.document, required this.settings, this.destination});
 
   final PdfDocument document;
   final PrintSettings settings;
+  final PrintDestination? destination;
 }
 
 /// Which pages a print job covers.
@@ -50,7 +56,7 @@ List<int>? parsePrintPageRange(String input, int pageCount) {
   return result.isEmpty ? null : result.toList();
 }
 
-/// Shows the same composed sheets that are sent to the system print dialog.
+/// Shows the same composed sheets that are sent to the printer.
 Future<PrintPreviewResult?> showPrintPreviewDialog(
   BuildContext context, {
   required PdfDocument document,
@@ -71,8 +77,8 @@ Future<PrintPreviewResult?> showPrintPreviewDialog(
       ),
     );
 
-/// Document-level print settings, with native printer controls in the next
-/// dialog. Adding files creates a separate print document.
+/// Print settings and, on Windows, destination printer controls. Adding files
+/// creates a separate print document.
 class PrintPreviewDialog extends StatefulWidget {
   const PrintPreviewDialog({
     super.key,
@@ -112,6 +118,23 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   String? _error;
   (PdfDocument, PrintSettings, int)? _previewFor;
   PdfDocument? _previewDocument;
+  PrintPreferences? _preferences;
+  bool _loadingPreferences = true;
+  List<PrintPrinter> _printers = const [];
+  String? _printer;
+  PrintPrinterSettings? _printerSettings;
+  PrintDestination? _destination;
+  bool _loadingPrinters = false;
+  bool _loadingPrinter = false;
+  String? _printerError;
+  String? _missingPrinter;
+  int _printerRequest = 0;
+
+  bool get _directWindows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  bool get _printerReady =>
+      !_directWindows ||
+      (!_loadingPrinters && !_loadingPrinter && _destination != null);
 
   int get _pageCount => _document.pageCount;
   List<int> get _allPages => List.generate(_pageCount, (i) => i);
@@ -130,6 +153,155 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     super.initState();
     _previewSlot = _currentPage;
     _rangeInput.text = '${_currentPage + 1}-$_pageCount';
+    unawaited(_loadPreferences());
+  }
+
+  Future<void> _loadPreferences() async {
+    final preferences = await PrintPreferences.load();
+    if (!mounted) return;
+    setState(() {
+      _preferences = preferences;
+      _range = PrintPageRange.values
+              .where((value) => value.name == preferences.range)
+              .firstOrNull ??
+          PrintPageRange.all;
+      _rangeInput.text = preferences.customRange ?? _rangeInput.text;
+      _settings = preferences.settingsFor(_pages);
+      _rangeInvalid = _pages.isEmpty;
+      if (_range == PrintPageRange.current) _previewSlot = 0;
+      _clampPreview();
+      _loadingPreferences = false;
+    });
+    if (_directWindows) await _loadPrinters();
+  }
+
+  void _savePreferences() {
+    final preferences = _preferences;
+    if (preferences != null) {
+      unawaited(preferences.saveSettings(_settings,
+          range: _range.name, customRange: _rangeInput.text));
+    }
+  }
+
+  Future<void> _loadPrinters() async {
+    final request = ++_printerRequest;
+    setState(() {
+      _loadingPrinters = true;
+      _loadingPrinter = false;
+      _destination = null;
+      _printerSettings = null;
+      _printerError = null;
+      _missingPrinter = null;
+    });
+    try {
+      final printers = await listPrintPrinters();
+      if (!mounted || request != _printerRequest) return;
+      final saved = _preferences?.printer;
+      final savedExists = printers.any((printer) => printer.name == saved);
+      final name = saved != null
+          ? (savedExists ? saved : null)
+          : printers.where((printer) => printer.isDefault).firstOrNull?.name;
+      setState(() {
+        _printers = printers;
+        _printer = name;
+        _loadingPrinters = false;
+        _missingPrinter = saved != null && !savedExists ? saved : null;
+        if (printers.isEmpty) {
+          _printerError = appL10n(context).printOptionsNoPrinters;
+        }
+      });
+      if (name != null) await _selectPrinter(name);
+    } catch (_) {
+      if (!mounted || request != _printerRequest) return;
+      setState(() {
+        _loadingPrinters = false;
+        _printerError = appL10n(context).printOptionsPrinterError;
+      });
+    }
+  }
+
+  Future<void> _selectPrinter(String name) async {
+    final request = ++_printerRequest;
+    setState(() {
+      _printer = name;
+      _destination = null;
+      _printerSettings = null;
+      _loadingPrinter = true;
+      _printerError = null;
+      _missingPrinter = null;
+    });
+    unawaited(_preferences!.selectPrinter(name));
+    try {
+      final settings = await loadPrintPrinterSettings(name);
+      if (!mounted || request != _printerRequest) return;
+      _acceptPrinterSettings(
+          name, settings, _preferences!.destinationFor(name));
+    } catch (_) {
+      if (!mounted || request != _printerRequest) return;
+      setState(() {
+        _loadingPrinter = false;
+        _printerError = appL10n(context).printOptionsPrinterError;
+      });
+    }
+  }
+
+  void _acceptPrinterSettings(
+      String name, PrintPrinterSettings settings, PrintDestination? saved) {
+    final tray = saved?.tray ?? settings.tray;
+    final defaultTray = settings.trays.any((item) => item.id == settings.tray)
+        ? settings.tray
+        : 0;
+    final destination = PrintDestination(
+      printer: name,
+      color: settings.supportsColor && (saved?.color ?? settings.color),
+      duplex: settings.supportsDuplex
+          ? saved?.duplex ?? settings.duplex
+          : PrintDuplex.simplex,
+      tray: tray == 0 || settings.trays.any((item) => item.id == tray)
+          ? tray
+          : defaultTray,
+    );
+    setState(() {
+      _printerSettings = settings;
+      _destination = destination;
+      _loadingPrinter = false;
+      _printerError = null;
+    });
+    unawaited(_preferences!.saveDestination(destination));
+  }
+
+  void _changeDestination({bool? color, PrintDuplex? duplex, int? tray}) {
+    final current = _destination!;
+    final destination = PrintDestination(
+        printer: current.printer,
+        color: color ?? current.color,
+        duplex: duplex ?? current.duplex,
+        tray: tray ?? current.tray);
+    setState(() => _destination = destination);
+    unawaited(_preferences!.saveDestination(destination));
+  }
+
+  Future<void> _printerProperties() async {
+    final name = _printer!;
+    final previous = _destination;
+    final request = ++_printerRequest;
+    setState(() => _loadingPrinter = true);
+    try {
+      final settings =
+          await showPrintPrinterProperties(name, settings: previous);
+      if (!mounted || request != _printerRequest) return;
+      if (settings != null) {
+        _acceptPrinterSettings(name, settings, null);
+      } else {
+        setState(() => _loadingPrinter = false);
+      }
+    } catch (_) {
+      if (!mounted || request != _printerRequest) return;
+      setState(() {
+        _loadingPrinter = false;
+        _printerError = appL10n(context).printOptionsPropertiesError;
+      });
+    }
   }
 
   @override
@@ -155,6 +327,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       _error = null;
       _clampPreview();
     });
+    _savePreferences();
   }
 
   void _setRange(PrintPageRange range) {
@@ -168,6 +341,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       if (range == PrintPageRange.current) _previewSlot = 0;
       _clampPreview();
     });
+    _savePreferences();
   }
 
   void _clampPreview() {
@@ -178,6 +352,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   void _defaults() {
     setState(() {
       _range = PrintPageRange.all;
+      _rangeInput.text = '${_currentPage + 1}-$_pageCount';
       _settings = PrintSettings(pages: _allPages);
       _previewSlot = _currentPage;
       _rangeInvalid = false;
@@ -194,6 +369,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         };
       }
     });
+    _savePreferences();
   }
 
   Future<void> _addFiles() async {
@@ -218,6 +394,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   }
 
   void _print() {
+    if (_loadingPreferences || !_printerReady) return;
     if (_settings.pages.isEmpty || _invalidNumbers.isNotEmpty) {
       setState(() => _rangeInvalid = _settings.pages.isEmpty);
       return;
@@ -232,8 +409,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       setState(() => _error = appL10n(context).printOptionsInvalidLayout);
       return;
     }
-    Navigator.of(context)
-        .pop(PrintPreviewResult(document: _document, settings: _settings));
+    Navigator.of(context).pop(PrintPreviewResult(
+        document: _document, settings: _settings, destination: _destination));
   }
 
   PdfDocument? _sheet() {
@@ -262,7 +439,9 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         (media.size.width - (narrow ? 24 : 48)).clamp(0, 1160),
         (media.size.height - media.viewInsets.bottom - (narrow ? 24 : 48))
             .clamp(0, 860));
-    final options = _options(l10n);
+    final options = _loadingPreferences
+        ? const Center(child: CircularProgressIndicator())
+        : _options(l10n);
     final preview = _preview(l10n);
     return Dialog(
       key: const ValueKey('print-preview-dialog'),
@@ -344,7 +523,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                       children: [
                         TextButton(
                             key: const ValueKey('print-options-defaults'),
-                            onPressed: _defaults,
+                            onPressed: _loadingPreferences ? null : _defaults,
                             child: Text(l10n.printOptionsDefaults)),
                         Row(mainAxisSize: MainAxisSize.min, children: [
                           TextButton(
@@ -355,7 +534,11 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                           PdfDialogSubmit(
                               child: FilledButton(
                                   key: const ValueKey('print-preview-print'),
-                                  onPressed: _addingFiles ? null : _print,
+                                  onPressed: _addingFiles ||
+                                          _loadingPreferences ||
+                                          !_printerReady
+                                      ? null
+                                      : _print,
                                   child: Text(l10n.printPreviewPrint))),
                         ]),
                       ]),
@@ -376,8 +559,9 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         ]),
       );
 
-  Widget _dropdown<T>(String key, String label, T value, Map<T, String> options,
-          ValueChanged<T> changed) =>
+  Widget _dropdown<T>(String key, String label, T? value,
+          Map<T, String> options, ValueChanged<T> changed,
+          {String? hint}) =>
       Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: InputDecorator(
@@ -389,6 +573,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
               child: DropdownButton<T>(
             key: ValueKey('print-options-$key'),
             value: value,
+            hint: hint == null ? null : Text(hint),
             isExpanded: true,
             isDense: true,
             items: [
@@ -466,18 +651,108 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       ? value.toInt().toString()
       : value.toStringAsFixed(1);
 
+  Widget _printerOptions(AppLocalizations l10n) {
+    if (!_directWindows) {
+      return _section(l10n.printOptionsPrinter, [
+        Text(l10n.printOptionsNativePrinter,
+            style: Theme.of(context).textTheme.bodySmall),
+      ]);
+    }
+    final destination = _destination;
+    final settings = _printerSettings;
+    return _section(l10n.printOptionsPrinter, [
+      Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(l10n.printOptionsDirectPrinter,
+              style: Theme.of(context).textTheme.bodySmall)),
+      if (_loadingPrinters)
+        LinearProgressIndicator(
+            key: const ValueKey('print-printers-loading'),
+            semanticsLabel: l10n.printOptionsLoadingPrinters),
+      if (_printers.isNotEmpty)
+        _dropdown<String>(
+            'printer',
+            l10n.printOptionsPrinter,
+            _printer,
+            {for (final printer in _printers) printer.name: printer.name},
+            (value) => unawaited(_selectPrinter(value)),
+            hint: l10n.printOptionsChoosePrinter),
+      if (_missingPrinter != null)
+        Text(l10n.printOptionsPrinterUnavailable(_missingPrinter!),
+            key: const ValueKey('print-printer-missing'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      if (_printerError != null)
+        Text(_printerError!,
+            key: const ValueKey('print-printer-error'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      if (_loadingPrinter)
+        LinearProgressIndicator(
+            key: const ValueKey('print-printer-loading'),
+            semanticsLabel: l10n.printOptionsLoadingPrinters),
+      if (settings != null && destination != null)
+        AbsorbPointer(
+            absorbing: _loadingPrinter,
+            child: Column(children: [
+              _dropdown<bool>(
+                  'color',
+                  l10n.printOptionsColor,
+                  destination.color,
+                  {
+                    if (settings.supportsColor) true: l10n.printOptionsColor,
+                    false: l10n.printOptionsGrayscale
+                  },
+                  (value) => _changeDestination(color: value)),
+              _dropdown<PrintDuplex>(
+                  'duplex',
+                  l10n.printOptionsDuplex,
+                  destination.duplex,
+                  {
+                    PrintDuplex.simplex: l10n.printOptionsSimplex,
+                    if (settings.supportsDuplex) ...{
+                      PrintDuplex.longEdge: l10n.printOptionsLongEdge,
+                      PrintDuplex.shortEdge: l10n.printOptionsShortEdge,
+                    }
+                  },
+                  (value) => _changeDestination(duplex: value)),
+              _dropdown<int>(
+                  'tray',
+                  l10n.printOptionsTray,
+                  destination.tray,
+                  {
+                    0: l10n.printOptionsDefaultTray,
+                    for (final tray in settings.trays) tray.id: tray.name,
+                  },
+                  (value) => _changeDestination(tray: value)),
+            ])),
+      Wrap(spacing: 8, children: [
+        TextButton.icon(
+            key: const ValueKey('print-printer-retry'),
+            onPressed: _loadingPrinters || _loadingPrinter
+                ? null
+                : () => unawaited(_loadPrinters()),
+            icon: const Icon(Icons.refresh),
+            label: Text(l10n.printOptionsRetry)),
+        if (destination != null)
+          TextButton(
+              key: const ValueKey('print-printer-properties'),
+              onPressed: _loadingPrinter
+                  ? null
+                  : () => unawaited(_printerProperties()),
+              child: Text(l10n.printOptionsProperties)),
+      ]),
+    ]);
+  }
+
   Widget _options(AppLocalizations l10n) =>
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _section(l10n.printOptionsPrinter, [
-          Text(l10n.printOptionsNativePrinter,
-              style: Theme.of(context).textTheme.bodySmall),
-        ]),
+        _printerOptions(l10n),
         _section(l10n.printOptionsPages, [
           Wrap(spacing: 8, runSpacing: 4, children: [
             for (final entry in {
               PrintPageRange.all: l10n.printPreviewAll,
               PrintPageRange.current: l10n.printPreviewCurrent,
-              if (_selectedPages.isNotEmpty)
+              if (_selectedPages.isNotEmpty ||
+                  _range == PrintPageRange.selected)
                 PrintPageRange.selected: l10n.printOptionsSelected,
               PrintPageRange.custom: l10n.printPreviewRange,
             }.entries)

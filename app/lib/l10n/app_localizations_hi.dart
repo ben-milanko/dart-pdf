@@ -1268,6 +1268,62 @@ class AppLocalizationsHi extends AppLocalizations {
       'अगले सिस्टम प्रिंट संवाद में प्रिंटर, पेपर ट्रे, रंग, दोतरफ़ा प्रिंटिंग और डिवाइस के गुण चुनें। यहाँ दिखाए गए लेआउट का उपयोग करने के लिए स्केल 100% और प्रतियों की संख्या 1 ही रखें।';
 
   @override
+  String get printOptionsChoosePrinter => 'प्रिंटर चुनें';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'कोई प्रिंटर इंस्टॉल नहीं है। Windows सेटिंग्स में प्रिंटर जोड़ें, फिर दोबारा कोशिश करें।';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'सहेजा गया प्रिंटर “$printer” उपलब्ध नहीं है। जारी रखने के लिए प्रिंटर चुनें।';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'प्रिंटर सेटिंग्स लोड नहीं हो सकीं। प्रिंटर का कनेक्शन जाँचें और दोबारा कोशिश करें।';
+
+  @override
+  String get printOptionsRetry => 'फिर कोशिश करें';
+
+  @override
+  String get printOptionsColor => 'रंगीन';
+
+  @override
+  String get printOptionsGrayscale => 'श्वेत-श्याम';
+
+  @override
+  String get printOptionsDuplex => 'दोनों तरफ़ प्रिंट करें';
+
+  @override
+  String get printOptionsSimplex => 'एक तरफ़';
+
+  @override
+  String get printOptionsLongEdge => 'लंबे किनारे पर पलटें';
+
+  @override
+  String get printOptionsShortEdge => 'छोटे किनारे पर पलटें';
+
+  @override
+  String get printOptionsTray => 'पेपर ट्रे';
+
+  @override
+  String get printOptionsDefaultTray => 'प्रिंटर का डिफ़ॉल्ट';
+
+  @override
+  String get printOptionsProperties => 'प्रिंटर गुण…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'प्रिंट दबाने पर यह कार्य सीधे चुने गए प्रिंटर को भेजा जाता है।';
+
+  @override
+  String get printOptionsPropertiesError => 'प्रिंटर गुण नहीं खोले जा सके।';
+
+  @override
+  String get printOptionsLoadingPrinters => 'प्रिंटर लोड हो रहे हैं…';
+
+  @override
   String get printOptionsPages => 'पृष्ठ';
 
   @override

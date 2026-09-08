@@ -6,7 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'print_settings.dart';
 
-/// Number of physical sheets before copies are expanded.
+/// Number of printed sides before duplex pairing and copies are expanded.
 int printSheetCount(PrintSettings settings) {
   final perSheet =
       settings.scaling == PrintScaling.multiple ? settings.pagesPerSheet : 1;
@@ -45,10 +45,13 @@ void validatePrintSettings(PdfDocument document, PrintSettings settings) {
 /// The result has no interactive annotations: printable appearances have
 /// already been painted with print visibility semantics, including NoView.
 /// [sheetIndex] selects one sheet before copies, for an inexpensive preview.
+/// [twoSided] groups front/back pairs before expanding copies. Blank backs
+/// keep odd copies and changes of paper size on separate physical sheets.
 Uint8List preparePrintDocument(
   PdfDocument document,
   PrintSettings settings, {
   bool includeCopies = true,
+  bool twoSided = false,
   int? sheetIndex,
 }) {
   if (sheetIndex == null) {
@@ -76,6 +79,28 @@ Uint8List preparePrintDocument(
     )));
   }
   final copies = includeCopies && sheetIndex == null ? settings.copies : 1;
+  if (twoSided && sheetIndex == null) {
+    final pairs = <List<CosDictionary>>[];
+    for (var i = 0; i < sheets.length;) {
+      final front = sheets[i++];
+      final samePaper = i < sheets.length &&
+          front['MediaBox'].toString() == sheets[i]['MediaBox'].toString();
+      final back = samePaper
+          ? sheets[i++]
+          : CosDictionary({
+              'Type': const CosName('Page'),
+              'MediaBox': front['MediaBox']!,
+              'Resources': CosDictionary(),
+            });
+      pairs.add([front, back]);
+    }
+    return composer.finish(settings.collate
+        ? [for (var copy = 0; copy < copies; copy++) ...pairs.expand((p) => p)]
+        : [
+            for (final pair in pairs)
+              for (var copy = 0; copy < copies; copy++) ...pair,
+          ]);
+  }
   final ordered = settings.collate
       ? [for (var copy = 0; copy < copies; copy++) ...sheets]
       : [

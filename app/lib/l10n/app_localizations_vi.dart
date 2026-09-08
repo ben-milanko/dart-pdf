@@ -1269,6 +1269,62 @@ class AppLocalizationsVi extends AppLocalizations {
       'Trong hộp thoại in của hệ thống tiếp theo, hãy chọn máy in, khay giấy, màu, chế độ in hai mặt và thuộc tính thiết bị. Giữ tỷ lệ ở 100% và số bản sao là 1 để sử dụng bố cục hiển thị ở đây.';
 
   @override
+  String get printOptionsChoosePrinter => 'Chọn máy in';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Chưa cài đặt máy in nào. Thêm máy in trong Cài đặt Windows rồi thử lại.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'Máy in đã lưu “$printer” không khả dụng. Chọn máy in để tiếp tục.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Không thể tải cài đặt máy in. Kiểm tra kết nối máy in rồi thử lại.';
+
+  @override
+  String get printOptionsRetry => 'Thử lại';
+
+  @override
+  String get printOptionsColor => 'Màu';
+
+  @override
+  String get printOptionsGrayscale => 'Đen trắng';
+
+  @override
+  String get printOptionsDuplex => 'In hai mặt';
+
+  @override
+  String get printOptionsSimplex => 'Một mặt';
+
+  @override
+  String get printOptionsLongEdge => 'Lật theo cạnh dài';
+
+  @override
+  String get printOptionsShortEdge => 'Lật theo cạnh ngắn';
+
+  @override
+  String get printOptionsTray => 'Khay giấy';
+
+  @override
+  String get printOptionsDefaultTray => 'Mặc định của máy in';
+
+  @override
+  String get printOptionsProperties => 'Thuộc tính máy in…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'In sẽ gửi lệnh in này trực tiếp đến máy in đã chọn.';
+
+  @override
+  String get printOptionsPropertiesError => 'Không thể mở thuộc tính máy in.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Đang tải máy in…';
+
+  @override
   String get printOptionsPages => 'Trang';
 
   @override

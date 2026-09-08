@@ -1283,6 +1283,63 @@ class AppLocalizationsIt extends AppLocalizations {
       'Scegli la stampante, il vassoio carta, il colore, la stampa fronte-retro e le proprietà del dispositivo nella successiva finestra di stampa del sistema. Mantieni la scala al 100% e il numero di copie a 1 per usare l’impaginazione mostrata qui.';
 
   @override
+  String get printOptionsChoosePrinter => 'Scegli una stampante';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Nessuna stampante installata. Aggiungi una stampante nelle Impostazioni di Windows, quindi riprova.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'La stampante salvata «$printer» non è disponibile. Scegli una stampante per continuare.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Impossibile caricare le impostazioni della stampante. Controlla il collegamento della stampante e riprova.';
+
+  @override
+  String get printOptionsRetry => 'Riprova';
+
+  @override
+  String get printOptionsColor => 'Colore';
+
+  @override
+  String get printOptionsGrayscale => 'Bianco e nero';
+
+  @override
+  String get printOptionsDuplex => 'Stampa fronte/retro';
+
+  @override
+  String get printOptionsSimplex => 'Solo fronte';
+
+  @override
+  String get printOptionsLongEdge => 'Capovolgi sul lato lungo';
+
+  @override
+  String get printOptionsShortEdge => 'Capovolgi sul lato corto';
+
+  @override
+  String get printOptionsTray => 'Vassoio carta';
+
+  @override
+  String get printOptionsDefaultTray => 'Predefinito della stampante';
+
+  @override
+  String get printOptionsProperties => 'Proprietà stampante…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Stampa invia questo lavoro direttamente alla stampante selezionata.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Impossibile aprire le proprietà della stampante.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Caricamento delle stampanti…';
+
+  @override
   String get printOptionsPages => 'Pagine';
 
   @override

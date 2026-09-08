@@ -38,6 +38,7 @@ import 'pdf_cache.dart';
 import 'print_composer.dart';
 import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
+import 'print_printer.dart';
 import 'printing.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
@@ -2753,8 +2754,8 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// Hands the active document to the OS print system (the app's own
-  /// `native_print` channel - the OS dialog on desktop/mobile, browser print on
-  /// the web). The current revision is printed, so unsaved edits are included.
+  /// `native_print` channel - direct to the chosen Windows queue, the OS dialog
+  /// elsewhere, browser print on web). Unsaved edits are included.
   /// A failed or unavailable backend surfaces as a toast rather than throwing.
   ///
   /// The app previews and prepares the chosen physical sheets on every
@@ -2779,12 +2780,14 @@ class _EditorScreenState extends State<EditorScreen>
         addFiles: _pickPrintFiles,
       );
       if (job == null || !mounted || !_tabs.contains(tab)) return;
-      final bytes = preparePrintDocument(job.document, job.settings);
+      final bytes = preparePrintDocument(job.document, job.settings,
+          twoSided: job.destination != null &&
+              job.destination!.duplex != PrintDuplex.simplex);
       final injected = widget.printDocument;
       if (injected != null) {
         await injected(bytes: bytes, title: tab.title);
       } else {
-        await _printWithProgress(bytes, tab.title);
+        await _printWithProgress(bytes, tab.title, job.destination);
       }
     } catch (_) {
       if (mounted) _toast(appL10n(context).editorCouldNotPrint(tab.title));
@@ -2809,12 +2812,13 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Runs [printPdfBytes] with a modal progress dialog that tracks page
   /// conversion. Desktop runners receive drawing operations one page at a
-  /// time, so large jobs report their progress before opening the OS dialog.
+  /// time, so large jobs report their progress before submitting the job.
   ///
   /// The dialog appears only for multi-page (slow) jobs - a one/two-page print
   /// finishes too fast to be worth a flash - and is dismissed once rendering
-  /// finishes, before the OS print dialog opens.
-  Future<void> _printWithProgress(Uint8List bytes, String title) async {
+  /// finishes, before submission or any platform-owned print UI.
+  Future<void> _printWithProgress(
+      Uint8List bytes, String title, PrintDestination? destination) async {
     final progress = ValueNotifier<(int, int)?>(null);
     final navigator = Navigator.of(context, rootNavigator: true);
     var dialogShown = false;
@@ -2830,6 +2834,7 @@ class _EditorScreenState extends State<EditorScreen>
         bytes: bytes,
         title: title,
         useDocumentPageSize: true,
+        destination: destination,
         onProgress: (rendered, total) {
           progress.value = (rendered, total);
           if (total > _printProgressThreshold &&
@@ -2844,7 +2849,7 @@ class _EditorScreenState extends State<EditorScreen>
               builder: (_) => PrintProgressDialog(progress: progress),
             ));
           }
-          // Rendering done: drop the dialog before the OS print dialog opens.
+          // Rendering done: drop the preparation UI before job submission.
           if (rendered >= total && mounted) dismiss();
         },
       );

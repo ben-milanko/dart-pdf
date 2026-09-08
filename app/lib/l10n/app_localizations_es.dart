@@ -1283,6 +1283,63 @@ class AppLocalizationsEs extends AppLocalizations {
       'Elija la impresora, la bandeja de papel, el color, la impresión a doble cara y las propiedades del dispositivo en el siguiente diálogo de impresión del sistema. Mantenga la escala al 100 % y las copias en 1 para usar el diseño que se muestra aquí.';
 
   @override
+  String get printOptionsChoosePrinter => 'Elegir una impresora';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'No hay impresoras instaladas. Añade una impresora en la Configuración de Windows y vuelve a intentarlo.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'La impresora guardada «$printer» no está disponible. Elige una impresora para continuar.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'No se pudo cargar la configuración de la impresora. Comprueba la conexión de la impresora y vuelve a intentarlo.';
+
+  @override
+  String get printOptionsRetry => 'Reintentar';
+
+  @override
+  String get printOptionsColor => 'Color';
+
+  @override
+  String get printOptionsGrayscale => 'Blanco y negro';
+
+  @override
+  String get printOptionsDuplex => 'Impresión a doble cara';
+
+  @override
+  String get printOptionsSimplex => 'Una cara';
+
+  @override
+  String get printOptionsLongEdge => 'Voltear por el borde largo';
+
+  @override
+  String get printOptionsShortEdge => 'Voltear por el borde corto';
+
+  @override
+  String get printOptionsTray => 'Bandeja de papel';
+
+  @override
+  String get printOptionsDefaultTray => 'Predeterminado de la impresora';
+
+  @override
+  String get printOptionsProperties => 'Propiedades de la impresora…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Imprimir envía este trabajo directamente a la impresora seleccionada.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'No se pudieron abrir las propiedades de la impresora.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Cargando impresoras…';
+
+  @override
   String get printOptionsPages => 'Páginas';
 
   @override

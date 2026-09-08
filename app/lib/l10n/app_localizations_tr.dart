@@ -1268,6 +1268,62 @@ class AppLocalizationsTr extends AppLocalizations {
       'Bir sonraki sistem yazdırma iletişim kutusunda yazıcıyı, kağıt tepsisini, rengi, çift taraflı yazdırmayı ve aygıt özelliklerini seçin. Burada gösterilen düzeni kullanmak için ölçeği %100 ve kopya sayısını 1 olarak bırakın.';
 
   @override
+  String get printOptionsChoosePrinter => 'Yazıcı seçin';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Yüklü yazıcı yok. Windows Ayarları’ndan bir yazıcı ekleyip yeniden deneyin.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'Kayıtlı “$printer” yazıcısı kullanılamıyor. Devam etmek için bir yazıcı seçin.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Yazıcı ayarları yüklenemedi. Yazıcı bağlantısını kontrol edip yeniden deneyin.';
+
+  @override
+  String get printOptionsRetry => 'Yeniden dene';
+
+  @override
+  String get printOptionsColor => 'Renkli';
+
+  @override
+  String get printOptionsGrayscale => 'Siyah beyaz';
+
+  @override
+  String get printOptionsDuplex => 'Çift taraflı yazdırma';
+
+  @override
+  String get printOptionsSimplex => 'Tek taraflı';
+
+  @override
+  String get printOptionsLongEdge => 'Uzun kenardan çevir';
+
+  @override
+  String get printOptionsShortEdge => 'Kısa kenardan çevir';
+
+  @override
+  String get printOptionsTray => 'Kağıt tepsisi';
+
+  @override
+  String get printOptionsDefaultTray => 'Yazıcı varsayılanı';
+
+  @override
+  String get printOptionsProperties => 'Yazıcı özellikleri…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Yazdır, bu işi doğrudan seçili yazıcıya gönderir.';
+
+  @override
+  String get printOptionsPropertiesError => 'Yazıcı özellikleri açılamadı.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Yazıcılar yükleniyor…';
+
+  @override
   String get printOptionsPages => 'Sayfalar';
 
   @override

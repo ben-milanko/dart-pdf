@@ -327,6 +327,30 @@
   "reduceSizeCustom": "自訂設定",
   "printOptionsPrinter": "印表機",
   "printOptionsNativePrinter": "在接下來的系統列印對話方塊中選擇印表機、紙匣、色彩、雙面列印及裝置屬性。請將縮放比例維持在 100%，份數維持為 1，以使用此處顯示的版面配置。",
+  "printOptionsChoosePrinter": "選擇印表機",
+  "printOptionsNoPrinters": "尚未安裝印表機。請在 Windows 設定中新增印表機，然後重試。",
+  "printOptionsPrinterUnavailable": "已儲存的印表機「{printer}」無法使用。請選擇印表機以繼續。",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "無法載入印表機設定。請檢查印表機連線，然後重試。",
+  "printOptionsRetry": "重試",
+  "printOptionsColor": "彩色",
+  "printOptionsGrayscale": "黑白",
+  "printOptionsDuplex": "雙面列印",
+  "printOptionsSimplex": "單面",
+  "printOptionsLongEdge": "長邊翻轉",
+  "printOptionsShortEdge": "短邊翻轉",
+  "printOptionsTray": "紙匣",
+  "printOptionsDefaultTray": "印表機預設值",
+  "printOptionsProperties": "印表機內容…",
+  "printOptionsDirectPrinter": "按下「列印」會將此工作直接傳送至所選印表機。",
+  "printOptionsPropertiesError": "無法開啟印表機內容。",
+  "printOptionsLoadingPrinters": "正在載入印表機…",
   "printOptionsPages": "頁面",
   "printOptionsSelected": "所選頁面",
   "printOptionsPageRange": "頁碼（例如 1, 3-5）",

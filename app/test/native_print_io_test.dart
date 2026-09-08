@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'package:dart_pdf_editor_app/native_print_io.dart';
+import 'package:dart_pdf_editor_app/print_printer.dart';
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,83 @@ void main() {
   final messenger = binding.defaultBinaryMessenger;
 
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+  testWidgets('an explicit printer goes straight to the selected Windows queue',
+      (tester) async {
+    await tester.runAsync(() async {
+      final methods = <String>[];
+      Map? options;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        methods.add(call.method);
+        if (call.method == 'beginJob') {
+          options = call.arguments as Map;
+          return {'vector': true};
+        }
+        return true;
+      });
+      await printDocumentPages(
+        buildMultiPagePdf(1),
+        name: 'Direct',
+        useDocumentPageSize: true,
+        destination: const PrintDestination(
+          printer: 'Office printer',
+          color: false,
+          duplex: PrintDuplex.longEdge,
+          tray: 7,
+        ),
+      );
+      expect(methods, ['beginJob', 'printPageVector', 'endJob']);
+      expect(options, containsPair('printer', 'Office printer'));
+      expect(options, containsPair('color', false));
+      expect(options, containsPair('duplex', 'longEdge'));
+      expect(options, containsPair('tray', 7));
+      expect(options, containsPair('pageWidth', 612));
+      expect(options, containsPair('pageHeight', 792));
+    });
+  });
+
+  test('an unavailable selected printer never falls back to a print dialog',
+      () async {
+    final methods = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      methods.add(call.method);
+      throw PlatformException(code: 'print_failed', message: 'Printer removed');
+    });
+    await expectLater(
+      printDocumentPages(
+        buildMultiPagePdf(1),
+        name: 'Direct',
+        destination: const PrintDestination(printer: 'Removed printer'),
+      ),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(methods, ['beginJob']);
+  });
+
+  testWidgets('direct spooling failures are reported and the job is discarded',
+      (tester) async {
+    await tester.runAsync(() async {
+      final methods = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        methods.add(call.method);
+        if (call.method == 'beginJob') return {'vector': true};
+        if (call.method == 'endJob') {
+          throw PlatformException(
+              code: 'print_failed', message: 'Spool failure');
+        }
+        return true;
+      });
+      await expectLater(
+        printDocumentPages(
+          buildMultiPagePdf(1),
+          name: 'Direct',
+          destination: const PrintDestination(printer: 'Office printer'),
+        ),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(methods, ['beginJob', 'printPageVector', 'endJob', 'cancelJob']);
+    });
+  });
 
   test('prints the PDF as vector via printPdf when supported', () async {
     Uint8List? sentPdf;

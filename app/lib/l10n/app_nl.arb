@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Aangepaste instellingen",
   "printOptionsPrinter": "Printer",
   "printOptionsNativePrinter": "Kies hierna de printer, papierlade, kleur, dubbelzijdig afdrukken en apparaateigenschappen in het afdrukvenster van het systeem. Laat de schaal op 100% en het aantal exemplaren op 1 staan om de indeling uit dit voorbeeld te gebruiken.",
+  "printOptionsChoosePrinter": "Een printer kiezen",
+  "printOptionsNoPrinters": "Er zijn geen printers geïnstalleerd. Voeg een printer toe in Windows-instellingen en probeer het opnieuw.",
+  "printOptionsPrinterUnavailable": "De opgeslagen printer “{printer}” is niet beschikbaar. Kies een printer om door te gaan.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "De printerinstellingen konden niet worden geladen. Controleer de printerverbinding en probeer het opnieuw.",
+  "printOptionsRetry": "Opnieuw proberen",
+  "printOptionsColor": "Kleur",
+  "printOptionsGrayscale": "Zwart-wit",
+  "printOptionsDuplex": "Dubbelzijdig afdrukken",
+  "printOptionsSimplex": "Enkelzijdig",
+  "printOptionsLongEdge": "Omslaan over lange zijde",
+  "printOptionsShortEdge": "Omslaan over korte zijde",
+  "printOptionsTray": "Papierlade",
+  "printOptionsDefaultTray": "Printerstandaard",
+  "printOptionsProperties": "Printereigenschappen…",
+  "printOptionsDirectPrinter": "Afdrukken stuurt deze taak rechtstreeks naar de geselecteerde printer.",
+  "printOptionsPropertiesError": "De printereigenschappen konden niet worden geopend.",
+  "printOptionsLoadingPrinters": "Printers laden…",
   "printOptionsPages": "Pagina's",
   "printOptionsSelected": "Geselecteerd",
   "printOptionsPageRange": "Pagina's (bijvoorbeeld 1, 3-5)",

@@ -1275,6 +1275,63 @@ class AppLocalizationsId extends AppLocalizations {
       'Pilih printer, baki kertas, warna, pencetakan dua sisi, dan properti perangkat pada dialog cetak sistem berikutnya. Biarkan skala pada 100% dan jumlah salinan pada 1 untuk menggunakan tata letak yang ditampilkan di sini.';
 
   @override
+  String get printOptionsChoosePrinter => 'Pilih printer';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Tidak ada printer yang terinstal. Tambahkan printer di Pengaturan Windows, lalu coba lagi.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'Printer tersimpan “$printer” tidak tersedia. Pilih printer untuk melanjutkan.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Tidak dapat memuat pengaturan printer. Periksa koneksi printer dan coba lagi.';
+
+  @override
+  String get printOptionsRetry => 'Coba lagi';
+
+  @override
+  String get printOptionsColor => 'Warna';
+
+  @override
+  String get printOptionsGrayscale => 'Hitam putih';
+
+  @override
+  String get printOptionsDuplex => 'Pencetakan dua sisi';
+
+  @override
+  String get printOptionsSimplex => 'Satu sisi';
+
+  @override
+  String get printOptionsLongEdge => 'Balik pada sisi panjang';
+
+  @override
+  String get printOptionsShortEdge => 'Balik pada sisi pendek';
+
+  @override
+  String get printOptionsTray => 'Baki kertas';
+
+  @override
+  String get printOptionsDefaultTray => 'Default printer';
+
+  @override
+  String get printOptionsProperties => 'Properti printer…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Cetak mengirim pekerjaan ini langsung ke printer yang dipilih.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Tidak dapat membuka properti printer.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Memuat printer…';
+
+  @override
   String get printOptionsPages => 'Halaman';
 
   @override

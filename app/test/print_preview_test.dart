@@ -3,6 +3,7 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -17,6 +18,8 @@ import 'package:dart_pdf_editor_app/print_settings.dart';
 import 'package:dart_pdf_editor_app/print_composer.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   test('page range parser validates every component and preserves order', () {
     expect(parsePrintPageRange('1, 3-5, 3', 5), [0, 2, 3, 4]);
     expect(parsePrintPageRange('5-3,1', 5), [4, 3, 2, 0]);
@@ -460,8 +463,27 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       prefs = PdfEditingPreferences();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              const MethodChannel('dev.milanko.dartpdf/native_print'),
+              (call) async => switch (call.method) {
+                    'listPrinters' => [
+                        {'name': 'Office', 'isDefault': true}
+                      ],
+                    'printerSettings' => {
+                        'color': true,
+                        'duplex': 'simplex',
+                        'tray': 0,
+                      },
+                    _ => null,
+                  });
     });
-    tearDown(() => prefs.dispose());
+    tearDown(() {
+      prefs.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              const MethodChannel('dev.milanko.dartpdf/native_print'), null);
+    });
 
     /// Runs [body] as Windows, where the OS print dialog previews nothing.
     /// The override has to be undone inside the test body - the framework
@@ -500,8 +522,7 @@ void main() {
       return () => printed;
     }
 
-    testWidgets('Print opens the preview before the OS print dialog',
-        (tester) async {
+    testWidgets('Print opens the preview before printing', (tester) async {
       await onWindows(() async {
         final printed = await tapPrint(tester);
 

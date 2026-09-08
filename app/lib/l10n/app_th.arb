@@ -327,6 +327,30 @@
   "reduceSizeCustom": "การตั้งค่าแบบกำหนดเอง",
   "printOptionsPrinter": "เครื่องพิมพ์",
   "printOptionsNativePrinter": "เลือกเครื่องพิมพ์ ถาดกระดาษ สี การพิมพ์สองหน้า และคุณสมบัติอุปกรณ์ในกล่องโต้ตอบการพิมพ์ของระบบที่จะแสดงถัดไป คงมาตราส่วนไว้ที่ 100% และจำนวนสำเนาไว้ที่ 1 เพื่อใช้เค้าโครงที่แสดงที่นี่",
+  "printOptionsChoosePrinter": "เลือกเครื่องพิมพ์",
+  "printOptionsNoPrinters": "ยังไม่ได้ติดตั้งเครื่องพิมพ์ เพิ่มเครื่องพิมพ์ในการตั้งค่า Windows แล้วลองอีกครั้ง",
+  "printOptionsPrinterUnavailable": "เครื่องพิมพ์ที่บันทึกไว้ “{printer}” ไม่พร้อมใช้งาน เลือกเครื่องพิมพ์เพื่อดำเนินการต่อ",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "ไม่สามารถโหลดการตั้งค่าเครื่องพิมพ์ได้ ตรวจสอบการเชื่อมต่อเครื่องพิมพ์แล้วลองอีกครั้ง",
+  "printOptionsRetry": "ลองอีกครั้ง",
+  "printOptionsColor": "สี",
+  "printOptionsGrayscale": "ขาวดำ",
+  "printOptionsDuplex": "พิมพ์สองหน้า",
+  "printOptionsSimplex": "หน้าเดียว",
+  "printOptionsLongEdge": "พลิกด้านยาว",
+  "printOptionsShortEdge": "พลิกด้านสั้น",
+  "printOptionsTray": "ถาดกระดาษ",
+  "printOptionsDefaultTray": "ค่าเริ่มต้นของเครื่องพิมพ์",
+  "printOptionsProperties": "คุณสมบัติเครื่องพิมพ์…",
+  "printOptionsDirectPrinter": "ปุ่มพิมพ์จะส่งงานนี้ไปยังเครื่องพิมพ์ที่เลือกโดยตรง",
+  "printOptionsPropertiesError": "ไม่สามารถเปิดคุณสมบัติเครื่องพิมพ์ได้",
+  "printOptionsLoadingPrinters": "กำลังโหลดเครื่องพิมพ์…",
   "printOptionsPages": "หน้า",
   "printOptionsSelected": "ที่เลือก",
   "printOptionsPageRange": "หน้า (ตัวอย่างเช่น 1, 3-5)",

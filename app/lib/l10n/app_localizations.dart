@@ -2097,6 +2097,108 @@ abstract class AppLocalizations {
   /// **'Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.'**
   String get printOptionsNativePrinter;
 
+  /// Placeholder asking the user to select the printer for direct Windows printing.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a printer'**
+  String get printOptionsChoosePrinter;
+
+  /// Empty state when Windows has no installed printers, with recovery instructions.
+  ///
+  /// In en, this message translates to:
+  /// **'No printers are installed. Add a printer in Windows Settings, then retry.'**
+  String get printOptionsNoPrinters;
+
+  /// Error when the printer saved in print preferences is no longer available.
+  ///
+  /// In en, this message translates to:
+  /// **'The saved printer \"{printer}\" is unavailable. Choose a printer to continue.'**
+  String printOptionsPrinterUnavailable(String printer);
+
+  /// Error when printer settings cannot be read, with connection and retry advice.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load printer settings. Check the printer connection and retry.'**
+  String get printOptionsPrinterError;
+
+  /// Button that retries loading the installed printers and their settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get printOptionsRetry;
+
+  /// Option for printing the document in color.
+  ///
+  /// In en, this message translates to:
+  /// **'Color'**
+  String get printOptionsColor;
+
+  /// Option for printing the document in black and white.
+  ///
+  /// In en, this message translates to:
+  /// **'Black and white'**
+  String get printOptionsGrayscale;
+
+  /// Label for the printer duplex mode selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Two-sided printing'**
+  String get printOptionsDuplex;
+
+  /// Option for printing on only one side of each sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'One-sided'**
+  String get printOptionsSimplex;
+
+  /// Duplex printing option that flips sheets along the long edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Flip on long edge'**
+  String get printOptionsLongEdge;
+
+  /// Duplex printing option that flips sheets along the short edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Flip on short edge'**
+  String get printOptionsShortEdge;
+
+  /// Label for the printer paper tray selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Paper tray'**
+  String get printOptionsTray;
+
+  /// Paper tray option that uses the printer default.
+  ///
+  /// In en, this message translates to:
+  /// **'Printer default'**
+  String get printOptionsDefaultTray;
+
+  /// Button that opens the selected Windows printer driver properties.
+  ///
+  /// In en, this message translates to:
+  /// **'Printer properties…'**
+  String get printOptionsProperties;
+
+  /// Explains that the Print button sends the job directly to the selected printer.
+  ///
+  /// In en, this message translates to:
+  /// **'Print sends this job directly to the selected printer.'**
+  String get printOptionsDirectPrinter;
+
+  /// Error when the Windows printer driver properties cannot be opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open printer properties.'**
+  String get printOptionsPropertiesError;
+
+  /// Status while Windows printers are being loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading printers…'**
+  String get printOptionsLoadingPrinters;
+
   /// Print settings dialog: Pages
   ///
   /// In en, this message translates to:

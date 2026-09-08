@@ -1264,6 +1264,63 @@ class AppLocalizationsEn extends AppLocalizations {
       'Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.';
 
   @override
+  String get printOptionsChoosePrinter => 'Choose a printer';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'No printers are installed. Add a printer in Windows Settings, then retry.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'The saved printer \"$printer\" is unavailable. Choose a printer to continue.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Could not load printer settings. Check the printer connection and retry.';
+
+  @override
+  String get printOptionsRetry => 'Retry';
+
+  @override
+  String get printOptionsColor => 'Color';
+
+  @override
+  String get printOptionsGrayscale => 'Black and white';
+
+  @override
+  String get printOptionsDuplex => 'Two-sided printing';
+
+  @override
+  String get printOptionsSimplex => 'One-sided';
+
+  @override
+  String get printOptionsLongEdge => 'Flip on long edge';
+
+  @override
+  String get printOptionsShortEdge => 'Flip on short edge';
+
+  @override
+  String get printOptionsTray => 'Paper tray';
+
+  @override
+  String get printOptionsDefaultTray => 'Printer default';
+
+  @override
+  String get printOptionsProperties => 'Printer properties…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Print sends this job directly to the selected printer.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Could not open printer properties.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Loading printers…';
+
+  @override
   String get printOptionsPages => 'Pages';
 
   @override
@@ -2707,6 +2764,63 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
       'Choose the printer, paper tray, colour, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.';
 
   @override
+  String get printOptionsChoosePrinter => 'Choose a printer';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'No printers are installed. Add a printer in Windows Settings, then retry.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'The saved printer \"$printer\" is unavailable. Choose a printer to continue.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Could not load printer settings. Check the printer connection and retry.';
+
+  @override
+  String get printOptionsRetry => 'Retry';
+
+  @override
+  String get printOptionsColor => 'Colour';
+
+  @override
+  String get printOptionsGrayscale => 'Black and white';
+
+  @override
+  String get printOptionsDuplex => 'Two-sided printing';
+
+  @override
+  String get printOptionsSimplex => 'One-sided';
+
+  @override
+  String get printOptionsLongEdge => 'Flip on long edge';
+
+  @override
+  String get printOptionsShortEdge => 'Flip on short edge';
+
+  @override
+  String get printOptionsTray => 'Paper tray';
+
+  @override
+  String get printOptionsDefaultTray => 'Printer default';
+
+  @override
+  String get printOptionsProperties => 'Printer properties…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Print sends this job directly to the selected printer.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Could not open printer properties.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Loading printers…';
+
+  @override
   String get printOptionsPages => 'Pages';
 
   @override
@@ -4148,6 +4262,63 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get printOptionsNativePrinter =>
       'Choose the printer, paper tray, colour, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here.';
+
+  @override
+  String get printOptionsChoosePrinter => 'Choose a printer';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'No printers are installed. Add a printer in Windows Settings, then retry.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'The saved printer \"$printer\" is unavailable. Choose a printer to continue.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Could not load printer settings. Check the printer connection and retry.';
+
+  @override
+  String get printOptionsRetry => 'Retry';
+
+  @override
+  String get printOptionsColor => 'Colour';
+
+  @override
+  String get printOptionsGrayscale => 'Black and white';
+
+  @override
+  String get printOptionsDuplex => 'Two-sided printing';
+
+  @override
+  String get printOptionsSimplex => 'One-sided';
+
+  @override
+  String get printOptionsLongEdge => 'Flip on long edge';
+
+  @override
+  String get printOptionsShortEdge => 'Flip on short edge';
+
+  @override
+  String get printOptionsTray => 'Paper tray';
+
+  @override
+  String get printOptionsDefaultTray => 'Printer default';
+
+  @override
+  String get printOptionsProperties => 'Printer properties…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Print sends this job directly to the selected printer.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Could not open printer properties.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Loading printers…';
 
   @override
   String get printOptionsPages => 'Pages';

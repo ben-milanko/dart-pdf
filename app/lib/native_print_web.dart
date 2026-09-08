@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
+import 'print_printer.dart';
+
 /// Prints the PDF [pdfBytes] in a browser without any bundled PDF engine.
 ///
 /// The PDF is loaded into a hidden iframe as a `blob:` URL and printed with the
@@ -21,6 +23,7 @@ Future<void> printDocumentPages(
   required String name,
   void Function(int rendered, int total)? onProgress,
   bool useDocumentPageSize = false,
+  PrintDestination? destination,
 }) async {
   final blob = web.Blob(
     <JSUint8Array>[pdfBytes.toJS].toJS,

@@ -11,9 +11,13 @@ import 'package:dart_pdf_editor_app/print_settings.dart';
 
 void main() {
   PdfDocument prepare(PdfDocument source, PrintSettings settings,
-          {bool includeCopies = true, int? sheetIndex}) =>
+          {bool includeCopies = true,
+          bool twoSided = false,
+          int? sheetIndex}) =>
       PdfDocument.open(preparePrintDocument(source, settings,
-          includeCopies: includeCopies, sheetIndex: sheetIndex));
+          includeCopies: includeCopies,
+          twoSided: twoSided,
+          sheetIndex: sheetIndex));
 
   List<String> texts(PdfDocument document) => [
         for (var page = 0; page < document.pageCount; page++)
@@ -69,6 +73,68 @@ void main() {
     expect(texts(preview).single, texts(full)[3]);
     expect(preview.page(0).cropBox, full.page(3).cropBox);
     expect(preview.page(0).contentBytes(), full.page(3).contentBytes());
+  });
+
+  test('collated duplex copies start on a fresh sheet after an odd last page',
+      () {
+    final source = PdfDocument.open(buildMultiPagePdf(3));
+    final output = prepare(source, PrintSettings(pages: [0, 1, 2], copies: 2),
+        twoSided: true);
+    expect(texts(output),
+        ['Page 1', 'Page 2', 'Page 3', '', 'Page 1', 'Page 2', 'Page 3', '']);
+    expect(output.page(3).cropBox, output.page(2).cropBox);
+    expect(output.page(7).cropBox, output.page(6).cropBox);
+  });
+
+  test('uncollated duplex duplicates front/back pairs together', () {
+    final source = PdfDocument.open(buildMultiPagePdf(4));
+    final output = prepare(
+        source, PrintSettings(pages: [0, 1, 2, 3], copies: 2, collate: false),
+        twoSided: true);
+    expect(texts(output), [
+      'Page 1',
+      'Page 2',
+      'Page 1',
+      'Page 2',
+      'Page 3',
+      'Page 4',
+      'Page 3',
+      'Page 4'
+    ]);
+  });
+
+  test('duplex pairing follows n-up layout and reversed page order', () {
+    final source = PdfDocument.open(buildMultiPagePdf(5));
+    final settings = PrintSettings(
+        pages: [0, 1, 2, 3, 4],
+        scaling: PrintScaling.multiple,
+        pagesPerSheet: 2,
+        copies: 2,
+        collate: false,
+        reverse: true);
+    final output = texts(prepare(source, settings, twoSided: true));
+    expect(output, hasLength(8));
+    expect(output[0], contains('Page 5'));
+    expect(output[0], contains('Page 4'));
+    expect(output[1], contains('Page 3'));
+    expect(output[1], contains('Page 2'));
+    expect(output.sublist(2, 4), output.sublist(0, 2));
+    expect(output.sublist(4), ['Page 1', '', 'Page 1', '']);
+    final preview = prepare(source, settings, twoSided: true, sheetIndex: 2);
+    expect(texts(preview), ['Page 1']);
+  });
+
+  test('duplex paper-size changes start a new sheet with a matching blank back',
+      () {
+    final source = PdfDocument.open(buildVariedHeightPdf(3));
+    final output =
+        prepare(source, PrintSettings(pages: [0, 1, 2]), twoSided: true);
+    expect(output.pageCount, 6);
+    for (var i = 0; i < 3; i++) {
+      expect(output.page(i * 2).cropBox, source.page(i).cropBox);
+      expect(output.page(i * 2 + 1).cropBox, output.page(i * 2).cropBox);
+      expect(texts(output)[i * 2 + 1], isEmpty);
+    }
   });
 
   test('n-up reading directions position pages in the expected cells', () {

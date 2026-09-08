@@ -327,6 +327,30 @@
   "reduceSizeCustom": "إعدادات مخصصة",
   "printOptionsPrinter": "الطابعة",
   "printOptionsNativePrinter": "اختر الطابعة ودرج الورق والألوان والطباعة على الوجهين وخصائص الجهاز في مربع حوار الطباعة الخاص بالنظام الذي سيظهر بعد ذلك. اترك المقياس عند 100% وعدد النسخ عند 1 لاستخدام التخطيط المعروض هنا.",
+  "printOptionsChoosePrinter": "اختيار طابعة",
+  "printOptionsNoPrinters": "لا توجد طابعات مثبتة. أضف طابعة في إعدادات Windows، ثم أعد المحاولة.",
+  "printOptionsPrinterUnavailable": "الطابعة المحفوظة «{printer}» غير متاحة. اختر طابعة للمتابعة.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "تعذّر تحميل إعدادات الطابعة. تحقق من اتصال الطابعة وأعد المحاولة.",
+  "printOptionsRetry": "إعادة المحاولة",
+  "printOptionsColor": "ألوان",
+  "printOptionsGrayscale": "أبيض وأسود",
+  "printOptionsDuplex": "طباعة على الوجهين",
+  "printOptionsSimplex": "وجه واحد",
+  "printOptionsLongEdge": "قلب على الحافة الطويلة",
+  "printOptionsShortEdge": "قلب على الحافة القصيرة",
+  "printOptionsTray": "درج الورق",
+  "printOptionsDefaultTray": "الإعداد الافتراضي للطابعة",
+  "printOptionsProperties": "خصائص الطابعة…",
+  "printOptionsDirectPrinter": "يرسل زر الطباعة هذه المهمة مباشرة إلى الطابعة المحددة.",
+  "printOptionsPropertiesError": "تعذّر فتح خصائص الطابعة.",
+  "printOptionsLoadingPrinters": "جارٍ تحميل الطابعات…",
   "printOptionsPages": "الصفحات",
   "printOptionsSelected": "المحددة",
   "printOptionsPageRange": "الصفحات (مثلاً: 1, 3-5)",

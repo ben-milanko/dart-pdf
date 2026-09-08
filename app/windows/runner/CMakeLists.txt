@@ -42,8 +42,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 # image_clipboard.cpp: WIC (PNG<->DIB) plus COM stream helpers.
 target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib" "ole32.lib")
 # native_print.cpp: the print dialog (comdlg32), persisted settings (advapi32),
-# and GDI blitting (gdi32).
-target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "advapi32.lib" "gdi32.lib")
+# printer enumeration/driver settings (winspool), and GDI blitting (gdi32).
+target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "advapi32.lib" "gdi32.lib" "winspool.lib")
 # file_dialogs.cpp: the common-item open/save dialogs (IFileDialog lives in
 # shell32; ole32 is already linked above for COM itself).
 target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")

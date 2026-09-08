@@ -1,6 +1,7 @@
 #include "native_print.h"
 
 #include <commdlg.h>
+#include <winspool.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 
@@ -8,27 +9,131 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// PrintDlgEx owns the familiar Windows print-preview/settings surface. Keep
-// the opaque blocks it returns in HKCU: DEVMODE contains paper, orientation,
-// colour, duplex, copies, etc.; DEVNAMES identifies the selected printer.
-// Feeding both blocks into the next dialog also makes the choices survive an
-// application restart, rather than resetting them on every Ctrl+P.
+// Keep complete, application-local DEVMODEs in HKCU so driver-specific
+// preferences survive restarts. The old shared blocks remain readable for
+// migration and for legacy callers that still request the system print dialog.
 constexpr wchar_t kPrintSettingsKey[] =
     L"Software\\Milanko\\DartPDF\\PrintSettings";
 constexpr wchar_t kDevModeValue[] = L"DevMode";
 constexpr wchar_t kDevNamesValue[] = L"DevNames";
+constexpr wchar_t kPrinterSettingsKey[] =
+    L"Software\\Milanko\\DartPDF\\PrintSettings\\Printers";
+
+bool Fail(std::string* error, const char* operation) {
+  *error = std::string(operation) + " (Windows error " +
+           std::to_string(::GetLastError()) + ").";
+  return false;
+}
+
+bool ValidMode(const std::vector<uint8_t>& bytes) {
+  if (bytes.size() < sizeof(DEVMODEW)) return false;
+  const auto* mode = reinterpret_cast<const DEVMODEW*>(bytes.data());
+  return mode->dmSize >= sizeof(DEVMODEW) &&
+         static_cast<size_t>(mode->dmSize) + mode->dmDriverExtra <= bytes.size();
+}
+
+std::vector<uint8_t> LoadSavedMode(const std::wstring& printer) {
+  DWORD size = 0;
+  if (::RegGetValueW(HKEY_CURRENT_USER, kPrinterSettingsKey, printer.c_str(),
+                    RRF_RT_REG_BINARY, nullptr, nullptr, &size) != ERROR_SUCCESS ||
+      size < sizeof(DEVMODEW) || size > 4 * 1024 * 1024) return {};
+  std::vector<uint8_t> bytes(size);
+  if (::RegGetValueW(HKEY_CURRENT_USER, kPrinterSettingsKey, printer.c_str(),
+                    RRF_RT_REG_BINARY, nullptr, bytes.data(), &size) !=
+          ERROR_SUCCESS || !ValidMode(bytes)) return {};
+  return bytes;
+}
+
+bool SaveMode(const std::wstring& printer, const std::vector<uint8_t>& bytes,
+              std::string* error) {
+  HKEY key = nullptr;
+  LSTATUS status = ::RegCreateKeyExW(
+      HKEY_CURRENT_USER, kPrinterSettingsKey, 0, nullptr, 0, KEY_SET_VALUE,
+      nullptr, &key, nullptr);
+  if (status == ERROR_SUCCESS) {
+    status = ::RegSetValueExW(key, printer.c_str(), 0, REG_BINARY, bytes.data(),
+                            static_cast<DWORD>(bytes.size()));
+    ::RegCloseKey(key);
+  }
+  if (status == ERROR_SUCCESS) return true;
+  ::SetLastError(status);
+  return Fail(error, "Could not save printer preferences");
+}
+
+// OpenPrinter and DocumentProperties can fail when a remembered printer has
+// been removed. Never silently route that job to a different/default printer.
+class PrinterDriver {
+ public:
+  ~PrinterDriver() { if (handle_ != nullptr) ::ClosePrinter(handle_); }
+
+  bool Open(const std::wstring& name, std::string* error) {
+    name_ = name;
+    if (!::OpenPrinterW(name_.data(), &handle_, nullptr)) {
+      return Fail(error, "Could not open the selected printer");
+    }
+    return true;
+  }
+
+  bool DefaultMode(std::vector<uint8_t>* bytes, std::string* error) const {
+    std::wstring name = name_;
+    const LONG size = ::DocumentPropertiesW(nullptr, handle_, name.data(),
+                                            nullptr, nullptr, 0);
+    if (size < static_cast<LONG>(sizeof(DEVMODEW)) || size > 4 * 1024 * 1024) {
+      return Fail(error, "Could not read printer preferences");
+    }
+    bytes->resize(static_cast<size_t>(size));
+    const LONG result = ::DocumentPropertiesW(
+        nullptr, handle_, name.data(),
+        reinterpret_cast<DEVMODEW*>(bytes->data()), nullptr, DM_OUT_BUFFER);
+    if (result != IDOK || !ValidMode(*bytes)) {
+      return Fail(error, "Could not read printer preferences");
+    }
+    return true;
+  }
+
+  bool Merge(HWND owner, const std::vector<uint8_t>& input, bool prompt,
+             std::vector<uint8_t>* output, std::string* error) const {
+    if (!DefaultMode(output, error)) return false;
+    std::wstring name = name_;
+    const LONG result = ::DocumentPropertiesW(
+        owner, handle_, name.data(),
+        reinterpret_cast<DEVMODEW*>(output->data()),
+        reinterpret_cast<DEVMODEW*>(const_cast<uint8_t*>(input.data())),
+        DM_IN_BUFFER | DM_OUT_BUFFER | (prompt ? DM_IN_PROMPT : 0));
+    if (prompt && result == IDCANCEL) return false;
+    if (result != IDOK || !ValidMode(*output)) {
+      return Fail(error, "The printer could not apply its preferences");
+    }
+    return true;
+  }
+
+  std::wstring Port() const {
+    DWORD size = 0;
+    ::GetPrinterW(handle_, 2, nullptr, 0, &size);
+    if (size == 0) return {};
+    std::vector<uint8_t> bytes(size);
+    if (!::GetPrinterW(handle_, 2, bytes.data(), size, &size)) return {};
+    const auto* info = reinterpret_cast<const PRINTER_INFO_2W*>(bytes.data());
+    return info->pPortName == nullptr ? L"" : info->pPortName;
+  }
+
+ private:
+  HANDLE handle_ = nullptr;
+  std::wstring name_;
+};
 
 HGLOBAL LoadPrintBlock(const wchar_t* value_name) {
   DWORD type = 0;
   DWORD size = 0;
   if (::RegGetValueW(HKEY_CURRENT_USER, kPrintSettingsKey, value_name,
                      RRF_RT_REG_BINARY, &type, nullptr, &size) != ERROR_SUCCESS ||
-      size == 0 || size > static_cast<DWORD>(std::numeric_limits<int>::max())) {
+      size == 0 || size > 4 * 1024 * 1024) {
     return nullptr;
   }
   HGLOBAL block = ::GlobalAlloc(GMEM_MOVEABLE, size);
@@ -68,6 +173,124 @@ void SavePrintBlock(const wchar_t* value_name, HGLOBAL block) {
 void FreePrintDialogBlocks(HGLOBAL dev_mode, HGLOBAL dev_names) {
   if (dev_mode != nullptr) ::GlobalFree(dev_mode);
   if (dev_names != nullptr) ::GlobalFree(dev_names);
+}
+
+std::vector<uint8_t> LegacyMode(const std::wstring& printer) {
+  HGLOBAL names_block = LoadPrintBlock(kDevNamesValue);
+  HGLOBAL mode_block = LoadPrintBlock(kDevModeValue);
+  std::vector<uint8_t> result;
+  const auto* names = static_cast<const DEVNAMES*>(::GlobalLock(names_block));
+  const SIZE_T names_size = names_block == nullptr ? 0 : ::GlobalSize(names_block);
+  if (names != nullptr && names_size >= sizeof(DEVNAMES)) {
+    const size_t offset = names->wDeviceOffset;
+    const size_t chars = names_size / sizeof(wchar_t);
+    const auto* data = reinterpret_cast<const wchar_t*>(names);
+    if (offset >= sizeof(DEVNAMES) / sizeof(wchar_t) && offset < chars) {
+      const size_t length = ::wcsnlen(data + offset, chars - offset);
+      if (length < chars - offset &&
+          printer == std::wstring(data + offset, length)) {
+        const auto* mode = static_cast<const uint8_t*>(::GlobalLock(mode_block));
+        if (mode != nullptr) {
+          result.assign(mode, mode + ::GlobalSize(mode_block));
+          ::GlobalUnlock(mode_block);
+        }
+      }
+    }
+  }
+  if (names != nullptr) ::GlobalUnlock(names_block);
+  FreePrintDialogBlocks(mode_block, names_block);
+  return ValidMode(result) ? result : std::vector<uint8_t>{};
+}
+
+bool LoadMode(const PrinterDriver& driver, const std::wstring& printer,
+              std::vector<uint8_t>* bytes, std::string* error) {
+  if (!driver.DefaultMode(bytes, error)) return false;
+  auto saved = LoadSavedMode(printer);
+  if (saved.empty()) saved = LegacyMode(printer);
+  if (saved.empty()) return true;
+  const auto* current = reinterpret_cast<const DEVMODEW*>(bytes->data());
+  const auto* previous = reinterpret_cast<const DEVMODEW*>(saved.data());
+  if (current->dmDriverVersion != previous->dmDriverVersion ||
+      current->dmSpecVersion != previous->dmSpecVersion ||
+      current->dmSize != previous->dmSize ||
+      current->dmDriverExtra != previous->dmDriverExtra) {
+    // A driver update can change the opaque tail's format. Migrate the public
+    // preferences into its freshly initialized private data in that case.
+    DEVMODEW portable = *previous;
+    portable.dmSpecVersion = current->dmSpecVersion;
+    portable.dmDriverVersion = current->dmDriverVersion;
+    portable.dmSize = current->dmSize;
+    portable.dmDriverExtra = current->dmDriverExtra;
+    std::memcpy(portable.dmDeviceName, current->dmDeviceName,
+                sizeof(portable.dmDeviceName));
+    std::memcpy(bytes->data(), &portable, sizeof(portable));
+    saved = *bytes;
+  }
+  return driver.Merge(nullptr, saved, false, bytes, error);
+}
+
+bool ApplyOptions(const PrinterDriver& driver,
+                  const NativePrinter::Options& options,
+                  std::vector<uint8_t>* bytes, std::string* error) {
+  auto* mode = reinterpret_cast<DEVMODEW*>(bytes->data());
+  if (options.color.has_value()) {
+    mode->dmFields |= DM_COLOR;
+    mode->dmColor = *options.color ? DMCOLOR_COLOR : DMCOLOR_MONOCHROME;
+  }
+  if (options.duplex.has_value()) {
+    mode->dmFields |= DM_DUPLEX;
+    mode->dmDuplex = *options.duplex;
+  }
+  if (options.tray.has_value()) {
+    if (*options.tray == 0) {
+      // "Printer default" must undo a previously saved explicit tray choice.
+      // Merely omitting the option would keep that old choice in the DEVMODE.
+      std::vector<uint8_t> defaults;
+      if (!driver.DefaultMode(&defaults, error)) return false;
+      const auto* original = reinterpret_cast<const DEVMODEW*>(defaults.data());
+      mode->dmFields = (mode->dmFields & ~DM_DEFAULTSOURCE) |
+                       (original->dmFields & DM_DEFAULTSOURCE);
+      mode->dmDefaultSource = original->dmDefaultSource;
+    } else {
+      mode->dmFields |= DM_DEFAULTSOURCE;
+      mode->dmDefaultSource = *options.tray;
+    }
+  }
+  return true;
+}
+
+NativePrinter::Settings DescribeSettings(
+    const PrinterDriver& driver, const std::wstring& printer,
+    const std::vector<uint8_t>& bytes) {
+  const auto* mode = reinterpret_cast<const DEVMODEW*>(bytes.data());
+  const std::wstring port = driver.Port();
+  auto capability = [&](WORD id, wchar_t* output = nullptr) {
+    return ::DeviceCapabilitiesW(printer.c_str(), port.c_str(), id, output, mode);
+  };
+  NativePrinter::Settings settings;
+  settings.supports_color = capability(DC_COLORDEVICE) == 1;
+  settings.supports_duplex = capability(DC_DUPLEX) == 1;
+  settings.color = settings.supports_color &&
+                   (mode->dmFields & DM_COLOR) != 0 && mode->dmColor == DMCOLOR_COLOR;
+  if ((mode->dmFields & DM_DUPLEX) != 0 &&
+      (mode->dmDuplex == DMDUP_VERTICAL || mode->dmDuplex == DMDUP_HORIZONTAL)) {
+    settings.duplex = mode->dmDuplex;
+  }
+  if ((mode->dmFields & DM_DEFAULTSOURCE) != 0) settings.tray = mode->dmDefaultSource;
+  const int bins = capability(DC_BINS);
+  const int names = capability(DC_BINNAMES);
+  if (bins > 0 && bins <= 1024 && bins == names) {
+    std::vector<WORD> ids(static_cast<size_t>(bins));
+    std::vector<wchar_t> labels(static_cast<size_t>(bins) * 24);
+    if (capability(DC_BINS, reinterpret_cast<wchar_t*>(ids.data())) == bins &&
+        capability(DC_BINNAMES, labels.data()) == bins) {
+      for (int i = 0; i < bins; ++i) {
+        const wchar_t* label = labels.data() + static_cast<size_t>(i) * 24;
+        settings.trays.push_back({ids[i], std::wstring(label, ::wcsnlen(label, 24))});
+      }
+    }
+  }
+  return settings;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +409,19 @@ bool SetPreparedSheet(DEVMODEW* mode, double width, double height) {
   mode->dmCollate = DMCOLLATE_FALSE;
   mode->dmNup = DMNUP_ONEUP;
   return true;
+}
+
+bool MatchesPreparedSheet(HDC hdc, double width, double height) {
+  const int dpi_x = ::GetDeviceCaps(hdc, LOGPIXELSX);
+  const int dpi_y = ::GetDeviceCaps(hdc, LOGPIXELSY);
+  if (dpi_x <= 0 || dpi_y <= 0) return false;
+  const double physical_width = ::GetDeviceCaps(hdc, PHYSICALWIDTH) * 72.0 / dpi_x;
+  const double physical_height = ::GetDeviceCaps(hdc, PHYSICALHEIGHT) * 72.0 / dpi_y;
+  // Drivers may return success while normalizing an unsupported custom/A0/A3
+  // sheet to their default paper. Printing prepared points 1:1 would clip it.
+  // Allow rounding between PDF points, tenths of mm, and whole device pixels.
+  return std::abs(width - physical_width) <= 2 &&
+         std::abs(height - physical_height) <= 2;
 }
 
 COLORREF ReadRgb(StreamReader* r, uint8_t* alpha) {
@@ -495,7 +731,7 @@ bool RenderVectorPage(HDC hdc, const std::vector<uint8_t>& stream,
     }
   }
   const bool page_ok = ::EndPage(hdc) > 0;
-  return page_ok;
+  return r.ok && page_ok;
 }
 
 // Decodes encoded |bytes| (JPEG or PNG - WIC detects the container) into
@@ -568,18 +804,81 @@ bool BlitPage(HDC hdc, UINT width, UINT height,
   const int result = ::StretchDIBits(
       hdc, off_x, off_y, draw_w, draw_h, 0, 0, static_cast<int>(width),
       static_cast<int>(height), bgra.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
-  const bool blitted = result != GDI_ERROR && result != 0;
+  const bool blitted = result != static_cast<int>(GDI_ERROR) && result != 0;
   const bool page_ok = ::EndPage(hdc) > 0;  // must run to keep the DC sane
   return blitted && page_ok;
 }
 
 }  // namespace
 
-void NativePrinter::Begin(const std::wstring& document_name,
-                           bool use_document_page_size) {
+bool NativePrinter::ListPrinters(std::vector<Destination>* printers) {
+  error_.clear();
+  printers->clear();
+  const DWORD flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+  DWORD needed = 0, count = 0;
+  ::SetLastError(ERROR_SUCCESS);
+  ::EnumPrintersW(flags, nullptr, 4, nullptr, 0, &needed, &count);
+  if (needed == 0) {
+    return ::GetLastError() == ERROR_SUCCESS ||
+           Fail(&error_, "Could not list installed printers");
+  }
+  std::vector<uint8_t> bytes(needed);
+  if (!::EnumPrintersW(flags, nullptr, 4, bytes.data(), needed, &needed, &count)) {
+    return Fail(&error_, "Could not list installed printers");
+  }
+  DWORD chars = 0;
+  ::GetDefaultPrinterW(nullptr, &chars);
+  std::wstring default_printer(chars, L'\0');
+  if (chars != 0 && ::GetDefaultPrinterW(default_printer.data(), &chars)) {
+    default_printer.resize(::wcslen(default_printer.c_str()));
+  } else {
+    default_printer.clear();
+  }
+  const auto* entries = reinterpret_cast<const PRINTER_INFO_4W*>(bytes.data());
+  for (DWORD i = 0; i < count; ++i) {
+    if (entries[i].pPrinterName != nullptr) {
+      const std::wstring name(entries[i].pPrinterName);
+      printers->push_back({name, name == default_printer});
+    }
+  }
+  return true;
+}
+
+bool NativePrinter::PrinterSettings(HWND owner, const Options& options,
+                                    bool show_properties, Settings* settings) {
+  error_.clear();
+  PrinterDriver driver;
+  std::vector<uint8_t> mode;
+  if (!driver.Open(options.printer, &error_) ||
+      !LoadMode(driver, options.printer, &mode, &error_)) return false;
+  if (show_properties) {
+    if (!ApplyOptions(driver, options, &mode, &error_)) return false;
+    std::vector<uint8_t> updated;
+    if (!driver.Merge(owner, mode, true, &updated, &error_) ||
+        !SaveMode(options.printer, updated, &error_)) return false;
+    mode = std::move(updated);
+  }
+  *settings = DescribeSettings(driver, options.printer, mode);
+  return true;
+}
+
+bool NativePrinter::Begin(const std::wstring& document_name,
+                          bool use_document_page_size, const Options& options) {
+  Cancel();
+  error_.clear();
+  if (!options.printer.empty()) {
+    PrinterDriver driver;
+    std::vector<uint8_t> mode;
+    if (!driver.Open(options.printer, &error_) ||
+        !LoadMode(driver, options.printer, &mode, &error_)) return false;
+    if (!ApplyOptions(driver, options, &mode, &error_)) return false;
+    if (!driver.Merge(nullptr, mode, false, &driver_mode_, &error_) ||
+        !SaveMode(options.printer, driver_mode_, &error_)) return false;
+  }
   doc_name_ = document_name;
-  pages_.clear();
+  printer_ = options.printer;
   use_document_page_size_ = use_document_page_size;
+  return true;
 }
 
 bool NativePrinter::AddPage(const std::vector<uint8_t>& image) {
@@ -601,94 +900,139 @@ bool NativePrinter::End(HWND owner) {
   doc_name_.clear();
   const bool prepared = use_document_page_size_;
   use_document_page_size_ = false;
-  if (pages.empty()) return false;
+  const std::wstring printer = std::move(printer_);
+  std::vector<uint8_t> selected_mode = std::move(driver_mode_);
+  error_.clear();
+  if (pages.empty()) {
+    error_ = "There are no pages to print.";
+    return false;
+  }
 
-  PRINTDLGEXW pd = {};
-  pd.lStructSize = sizeof(pd);
-  pd.hwndOwner = owner;
-  pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION |
-             PD_USEDEVMODECOPIESANDCOLLATE;
-  pd.nStartPage = START_PAGE_GENERAL;
-  pd.hDevMode = LoadPrintBlock(kDevModeValue);
-  pd.hDevNames = LoadPrintBlock(kDevNamesValue);
-  pd.nCopies = 1;
-  if (prepared) {
-    // Without a saved printer, fetch the system default's DEVMODE so the
-    // dialog starts on the prepared paper size on the very first print too.
-    if (pd.hDevMode == nullptr) {
-      FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
-      pd.hDevNames = nullptr;
-      PRINTDLGW defaults = {};
-      defaults.lStructSize = sizeof(defaults);
-      defaults.Flags = PD_RETURNDEFAULT;
-      if (::PrintDlgW(&defaults)) {
-        pd.hDevMode = defaults.hDevMode;
-        pd.hDevNames = defaults.hDevNames;
-      } else {
-        FreePrintDialogBlocks(defaults.hDevMode, defaults.hDevNames);
-      }
-    }
-    double width = 0, height = 0;
-    if (pd.hDevMode != nullptr && pages.front().is_vector &&
-        VectorPageSize(pages.front().bytes, &width, &height)) {
-      auto* mode = static_cast<DEVMODEW*>(::GlobalLock(pd.hDevMode));
-      SetPreparedSheet(mode, width, height);
-      if (mode != nullptr) ::GlobalUnlock(pd.hDevMode);
-    }
-  }
-  // Use the extended Windows print UI rather than the legacy PrintDlg. Besides
-  // being the preview-capable system surface on current Windows releases, it
-  // distinguishes Print from Apply and Cancel. Persist Apply too: changing a
-  // preference and closing the dialog should still affect the next print.
-  const HRESULT dialog_result = ::PrintDlgExW(&pd);
-  if (SUCCEEDED(dialog_result) &&
-      (pd.dwResultAction == PD_RESULT_PRINT ||
-       pd.dwResultAction == PD_RESULT_APPLY)) {
-    SavePrintBlock(kDevModeValue, pd.hDevMode);
-    SavePrintBlock(kDevNamesValue, pd.hDevNames);
-  }
-  if (FAILED(dialog_result) || pd.dwResultAction != PD_RESULT_PRINT) {
-    if (pd.hDC != nullptr) ::DeleteDC(pd.hDC);
-    FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
-    return false;
-  }
-  // Keep the full selected driver's DEVMODE for per-page media changes. Its
-  // private trailing bytes are required by many printer drivers.
-  std::vector<uint8_t> selected_mode;
-  if (prepared && pd.hDevMode != nullptr) {
-    const auto* mode = static_cast<const DEVMODEW*>(::GlobalLock(pd.hDevMode));
-    const SIZE_T available = ::GlobalSize(pd.hDevMode);
-    if (mode != nullptr && available >= sizeof(DEVMODEW) &&
-        mode->dmSize >= sizeof(DEVMODEW) &&
-        static_cast<SIZE_T>(mode->dmSize) + mode->dmDriverExtra <= available) {
-      const auto* bytes = reinterpret_cast<const uint8_t*>(mode);
-      selected_mode.assign(bytes, bytes + mode->dmSize + mode->dmDriverExtra);
-    }
-    if (mode != nullptr) ::GlobalUnlock(pd.hDevMode);
-  }
-  FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
-  HDC hdc = pd.hDC;
-  if (hdc == nullptr) return false;
-  if (prepared && selected_mode.empty()) {
-    ::DeleteDC(hdc);
-    return false;
-  }
-  double configured_width = 0, configured_height = 0;
-  if (prepared && pages.front().is_vector) {
-    auto* mode = reinterpret_cast<DEVMODEW*>(selected_mode.data());
-    if (!VectorPageSize(pages.front().bytes, &configured_width, &configured_height) ||
-        !SetPreparedSheet(mode, configured_width, configured_height)) {
-      ::DeleteDC(hdc);
+  HDC hdc = nullptr;
+  bool print_to_file = false;
+  PrinterDriver direct_driver;
+  if (!printer.empty()) {
+    if (!direct_driver.Open(printer, &error_)) return false;
+    if (!ValidMode(selected_mode)) {
+      error_ = "The selected printer's preferences are unavailable.";
       return false;
     }
+    hdc = ::CreateDCW(L"WINSPOOL", printer.c_str(), nullptr,
+                     reinterpret_cast<DEVMODEW*>(selected_mode.data()));
+  } else {
+    PRINTDLGEXW pd = {};
+    pd.lStructSize = sizeof(pd);
+    pd.hwndOwner = owner;
+    pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION |
+               PD_USEDEVMODECOPIESANDCOLLATE;
+    pd.nStartPage = START_PAGE_GENERAL;
+    pd.hDevMode = LoadPrintBlock(kDevModeValue);
+    pd.hDevNames = LoadPrintBlock(kDevNamesValue);
+    pd.nCopies = 1;
+    if (prepared) {
+      // Without a saved printer, fetch the system default's DEVMODE so the
+      // dialog starts on the prepared paper size on the very first print too.
+      if (pd.hDevMode == nullptr) {
+        FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
+        pd.hDevNames = nullptr;
+        PRINTDLGW defaults = {};
+        defaults.lStructSize = sizeof(defaults);
+        defaults.Flags = PD_RETURNDEFAULT;
+        if (::PrintDlgW(&defaults)) {
+          pd.hDevMode = defaults.hDevMode;
+          pd.hDevNames = defaults.hDevNames;
+        } else {
+          FreePrintDialogBlocks(defaults.hDevMode, defaults.hDevNames);
+        }
+      }
+      double width = 0, height = 0;
+      if (pd.hDevMode != nullptr && pages.front().is_vector &&
+          VectorPageSize(pages.front().bytes, &width, &height)) {
+        auto* mode = static_cast<DEVMODEW*>(::GlobalLock(pd.hDevMode));
+        SetPreparedSheet(mode, width, height);
+        if (mode != nullptr) ::GlobalUnlock(pd.hDevMode);
+      }
+    }
+    // Use the extended Windows print UI rather than the legacy PrintDlg. Besides
+    // being the preview-capable system surface on current Windows releases, it
+    // distinguishes Print from Apply and Cancel. Persist Apply too: changing a
+    // preference and closing the dialog should still affect the next print.
+    const HRESULT dialog_result = ::PrintDlgExW(&pd);
+    if (SUCCEEDED(dialog_result) &&
+        (pd.dwResultAction == PD_RESULT_PRINT ||
+         pd.dwResultAction == PD_RESULT_APPLY)) {
+      SavePrintBlock(kDevModeValue, pd.hDevMode);
+      SavePrintBlock(kDevNamesValue, pd.hDevNames);
+    }
+    if (FAILED(dialog_result) || pd.dwResultAction != PD_RESULT_PRINT) {
+      if (pd.hDC != nullptr) ::DeleteDC(pd.hDC);
+      FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
+      if (FAILED(dialog_result)) {
+        error_ = "Could not open the Windows print dialog.";
+      }
+      return false;
+    }
+    // Keep the full selected driver's DEVMODE for per-page media changes. Its
+    // private trailing bytes are required by many printer drivers.
+    if (prepared && pd.hDevMode != nullptr) {
+      const auto* mode = static_cast<const DEVMODEW*>(::GlobalLock(pd.hDevMode));
+      const SIZE_T available = ::GlobalSize(pd.hDevMode);
+      if (mode != nullptr && available >= sizeof(DEVMODEW) &&
+          mode->dmSize >= sizeof(DEVMODEW) &&
+          static_cast<SIZE_T>(mode->dmSize) + mode->dmDriverExtra <= available) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(mode);
+        selected_mode.assign(bytes, bytes + mode->dmSize + mode->dmDriverExtra);
+      }
+      if (mode != nullptr) ::GlobalUnlock(pd.hDevMode);
+    }
+    FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
+    hdc = pd.hDC;
+    print_to_file = (pd.Flags & PD_PRINTTOFILE) != 0;
+  }
+  if (hdc == nullptr) return Fail(&error_, "Could not create the printer context");
+  if (prepared && selected_mode.empty()) {
+    ::DeleteDC(hdc);
+    error_ = "The selected printer's preferences are unavailable.";
+    return false;
+  }
+  auto configure_sheet = [&](double width, double height) {
+    if (!SetPreparedSheet(reinterpret_cast<DEVMODEW*>(selected_mode.data()),
+                          width, height)) {
+      error_ = "The prepared sheet has an unsupported paper size.";
+      return false;
+    }
+    if (!printer.empty()) {
+      std::vector<uint8_t> updated;
+      if (!direct_driver.Merge(nullptr, selected_mode, false, &updated, &error_)) {
+        return false;
+      }
+      selected_mode = std::move(updated);
+    }
+    return true;
+  };
+  double configured_width = 0, configured_height = 0;
+  if (prepared && pages.front().is_vector) {
+    if (!VectorPageSize(pages.front().bytes, &configured_width, &configured_height) ||
+        !configure_sheet(configured_width, configured_height)) {
+      ::DeleteDC(hdc);
+      if (error_.empty()) error_ = "The prepared print page is invalid.";
+      return false;
+    }
+    auto* mode = reinterpret_cast<DEVMODEW*>(selected_mode.data());
     // Apply copies=1 before StartDoc, since some drivers capture the job's
     // copy count there rather than on the first StartPage.
     const HDC updated = ::ResetDCW(hdc, mode);
     if (updated == nullptr) {
+      Fail(&error_, "The printer could not apply the requested paper size");
       ::DeleteDC(hdc);
       return false;
     }
     hdc = updated;
+    if (!MatchesPreparedSheet(hdc, configured_width, configured_height)) {
+      ::DeleteDC(hdc);
+      error_ = "The selected printer does not support the requested paper size.";
+      return false;
+    }
   }
 
   DOCINFOW di = {};
@@ -697,8 +1041,13 @@ bool NativePrinter::End(HWND owner) {
   // PrintDlgEx reports the checkbox through Flags; a printer DC alone does
   // not carry it into StartDoc. FILE: asks Windows for the output filename
   // using its localized system prompt, then writes the selected driver's data.
-  di.lpszOutput = (pd.Flags & PD_PRINTTOFILE) != 0 ? L"FILE:" : nullptr;
+  di.lpszOutput = print_to_file ? L"FILE:" : nullptr;
+  ::SetLastError(ERROR_SUCCESS);
   if (::StartDocW(hdc, &di) <= 0) {
+    if (::GetLastError() != ERROR_CANCELLED &&
+        ::GetLastError() != ERROR_PRINT_CANCELLED) {
+      Fail(&error_, "Could not start the print job");
+    }
     ::DeleteDC(hdc);
     return false;
   }
@@ -708,45 +1057,73 @@ bool NativePrinter::End(HWND owner) {
     if (page.is_vector) {
       if (prepared) {
         double width = 0, height = 0;
-        auto* mode = reinterpret_cast<DEVMODEW*>(selected_mode.data());
-        if (!VectorPageSize(page.bytes, &width, &height) ||
-            !SetPreparedSheet(mode, width, height)) {
+        if (!VectorPageSize(page.bytes, &width, &height)) {
+          error_ = "The prepared print page is invalid.";
           ok = false;
           break;
         }
         if (width != configured_width || height != configured_height) {
+          if (!configure_sheet(width, height)) {
+            ok = false;
+            break;
+          }
+          auto* mode = reinterpret_cast<DEVMODEW*>(selected_mode.data());
           // ResetDC is legal between pages and may replace the handle. Never
           // continue on failure using the preceding sheet's media size.
           const HDC updated = ::ResetDCW(hdc, mode);
           if (updated == nullptr) {
+            Fail(&error_, "The printer could not apply the requested paper size");
             ok = false;
             break;
           }
           hdc = updated;
+          if (!MatchesPreparedSheet(hdc, width, height)) {
+            error_ = "The selected printer does not support the requested paper size.";
+            ok = false;
+            break;
+          }
           configured_width = width;
           configured_height = height;
         }
       }
-      if (!RenderVectorPage(hdc, page.bytes, prepared)) ok = false;
+      if (!RenderVectorPage(hdc, page.bytes, prepared)) {
+        Fail(&error_, "Could not print a page");
+        ok = false;
+        break;
+      }
       continue;
     }
     UINT w = 0;
     UINT h = 0;
     std::vector<uint8_t> bgra;
     if (!DecodeToBgra(page.bytes, &w, &h, &bgra)) {
+      error_ = "Could not decode a print page.";
       ok = false;
-      continue;  // skip an undecodable page rather than abort the whole job
+      break;
     }
-    if (!BlitPage(hdc, w, h, bgra)) ok = false;
+    if (!BlitPage(hdc, w, h, bgra)) {
+      Fail(&error_, "Could not print a page");
+      ok = false;
+      break;
+    }
   }
 
-  const bool ended = ::EndDoc(hdc) > 0;
+  if (ok) {
+    if (::EndDoc(hdc) <= 0) {
+      Fail(&error_, "Could not finish the print job");
+      ok = false;
+    }
+  } else {
+    ::AbortDoc(hdc);
+  }
   ::DeleteDC(hdc);
-  return ok && ended;
+  return ok;
 }
 
 void NativePrinter::Cancel() {
   doc_name_.clear();
   pages_.clear();
   use_document_page_size_ = false;
+  printer_.clear();
+  driver_mode_.clear();
 }

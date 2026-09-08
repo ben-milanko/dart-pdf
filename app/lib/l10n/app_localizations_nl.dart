@@ -1281,6 +1281,63 @@ class AppLocalizationsNl extends AppLocalizations {
       'Kies hierna de printer, papierlade, kleur, dubbelzijdig afdrukken en apparaateigenschappen in het afdrukvenster van het systeem. Laat de schaal op 100% en het aantal exemplaren op 1 staan om de indeling uit dit voorbeeld te gebruiken.';
 
   @override
+  String get printOptionsChoosePrinter => 'Een printer kiezen';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Er zijn geen printers geïnstalleerd. Voeg een printer toe in Windows-instellingen en probeer het opnieuw.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'De opgeslagen printer “$printer” is niet beschikbaar. Kies een printer om door te gaan.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'De printerinstellingen konden niet worden geladen. Controleer de printerverbinding en probeer het opnieuw.';
+
+  @override
+  String get printOptionsRetry => 'Opnieuw proberen';
+
+  @override
+  String get printOptionsColor => 'Kleur';
+
+  @override
+  String get printOptionsGrayscale => 'Zwart-wit';
+
+  @override
+  String get printOptionsDuplex => 'Dubbelzijdig afdrukken';
+
+  @override
+  String get printOptionsSimplex => 'Enkelzijdig';
+
+  @override
+  String get printOptionsLongEdge => 'Omslaan over lange zijde';
+
+  @override
+  String get printOptionsShortEdge => 'Omslaan over korte zijde';
+
+  @override
+  String get printOptionsTray => 'Papierlade';
+
+  @override
+  String get printOptionsDefaultTray => 'Printerstandaard';
+
+  @override
+  String get printOptionsProperties => 'Printereigenschappen…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Afdrukken stuurt deze taak rechtstreeks naar de geselecteerde printer.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'De printereigenschappen konden niet worden geopend.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Printers laden…';
+
+  @override
   String get printOptionsPages => 'Pagina\'s';
 
   @override

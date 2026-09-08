@@ -1287,6 +1287,63 @@ class AppLocalizationsRu extends AppLocalizations {
       'В следующем системном диалоге печати выберите принтер, лоток для бумаги, цвет, двустороннюю печать и свойства устройства. Оставьте масштаб 100% и число копий 1, чтобы использовать показанный здесь макет.';
 
   @override
+  String get printOptionsChoosePrinter => 'Выберите принтер';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Принтеры не установлены. Добавьте принтер в параметрах Windows и повторите попытку.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'Сохранённый принтер «$printer» недоступен. Выберите принтер, чтобы продолжить.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Не удалось загрузить настройки принтера. Проверьте подключение принтера и повторите попытку.';
+
+  @override
+  String get printOptionsRetry => 'Повторить';
+
+  @override
+  String get printOptionsColor => 'Цветная';
+
+  @override
+  String get printOptionsGrayscale => 'Чёрно-белая';
+
+  @override
+  String get printOptionsDuplex => 'Двусторонняя печать';
+
+  @override
+  String get printOptionsSimplex => 'Односторонняя';
+
+  @override
+  String get printOptionsLongEdge => 'Переворот по длинному краю';
+
+  @override
+  String get printOptionsShortEdge => 'Переворот по короткому краю';
+
+  @override
+  String get printOptionsTray => 'Лоток для бумаги';
+
+  @override
+  String get printOptionsDefaultTray => 'По умолчанию принтера';
+
+  @override
+  String get printOptionsProperties => 'Свойства принтера…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Кнопка «Печать» отправляет это задание прямо на выбранный принтер.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Не удалось открыть свойства принтера.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Загрузка принтеров…';
+
+  @override
   String get printOptionsPages => 'Страницы';
 
   @override

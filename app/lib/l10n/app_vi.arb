@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Cài đặt tùy chỉnh",
   "printOptionsPrinter": "Máy in",
   "printOptionsNativePrinter": "Trong hộp thoại in của hệ thống tiếp theo, hãy chọn máy in, khay giấy, màu, chế độ in hai mặt và thuộc tính thiết bị. Giữ tỷ lệ ở 100% và số bản sao là 1 để sử dụng bố cục hiển thị ở đây.",
+  "printOptionsChoosePrinter": "Chọn máy in",
+  "printOptionsNoPrinters": "Chưa cài đặt máy in nào. Thêm máy in trong Cài đặt Windows rồi thử lại.",
+  "printOptionsPrinterUnavailable": "Máy in đã lưu “{printer}” không khả dụng. Chọn máy in để tiếp tục.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Không thể tải cài đặt máy in. Kiểm tra kết nối máy in rồi thử lại.",
+  "printOptionsRetry": "Thử lại",
+  "printOptionsColor": "Màu",
+  "printOptionsGrayscale": "Đen trắng",
+  "printOptionsDuplex": "In hai mặt",
+  "printOptionsSimplex": "Một mặt",
+  "printOptionsLongEdge": "Lật theo cạnh dài",
+  "printOptionsShortEdge": "Lật theo cạnh ngắn",
+  "printOptionsTray": "Khay giấy",
+  "printOptionsDefaultTray": "Mặc định của máy in",
+  "printOptionsProperties": "Thuộc tính máy in…",
+  "printOptionsDirectPrinter": "In sẽ gửi lệnh in này trực tiếp đến máy in đã chọn.",
+  "printOptionsPropertiesError": "Không thể mở thuộc tính máy in.",
+  "printOptionsLoadingPrinters": "Đang tải máy in…",
   "printOptionsPages": "Trang",
   "printOptionsSelected": "Đã chọn",
   "printOptionsPageRange": "Trang (ví dụ: 1, 3-5)",

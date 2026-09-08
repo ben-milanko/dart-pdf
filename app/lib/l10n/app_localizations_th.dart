@@ -1260,6 +1260,63 @@ class AppLocalizationsTh extends AppLocalizations {
       'เลือกเครื่องพิมพ์ ถาดกระดาษ สี การพิมพ์สองหน้า และคุณสมบัติอุปกรณ์ในกล่องโต้ตอบการพิมพ์ของระบบที่จะแสดงถัดไป คงมาตราส่วนไว้ที่ 100% และจำนวนสำเนาไว้ที่ 1 เพื่อใช้เค้าโครงที่แสดงที่นี่';
 
   @override
+  String get printOptionsChoosePrinter => 'เลือกเครื่องพิมพ์';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'ยังไม่ได้ติดตั้งเครื่องพิมพ์ เพิ่มเครื่องพิมพ์ในการตั้งค่า Windows แล้วลองอีกครั้ง';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'เครื่องพิมพ์ที่บันทึกไว้ “$printer” ไม่พร้อมใช้งาน เลือกเครื่องพิมพ์เพื่อดำเนินการต่อ';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'ไม่สามารถโหลดการตั้งค่าเครื่องพิมพ์ได้ ตรวจสอบการเชื่อมต่อเครื่องพิมพ์แล้วลองอีกครั้ง';
+
+  @override
+  String get printOptionsRetry => 'ลองอีกครั้ง';
+
+  @override
+  String get printOptionsColor => 'สี';
+
+  @override
+  String get printOptionsGrayscale => 'ขาวดำ';
+
+  @override
+  String get printOptionsDuplex => 'พิมพ์สองหน้า';
+
+  @override
+  String get printOptionsSimplex => 'หน้าเดียว';
+
+  @override
+  String get printOptionsLongEdge => 'พลิกด้านยาว';
+
+  @override
+  String get printOptionsShortEdge => 'พลิกด้านสั้น';
+
+  @override
+  String get printOptionsTray => 'ถาดกระดาษ';
+
+  @override
+  String get printOptionsDefaultTray => 'ค่าเริ่มต้นของเครื่องพิมพ์';
+
+  @override
+  String get printOptionsProperties => 'คุณสมบัติเครื่องพิมพ์…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'ปุ่มพิมพ์จะส่งงานนี้ไปยังเครื่องพิมพ์ที่เลือกโดยตรง';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'ไม่สามารถเปิดคุณสมบัติเครื่องพิมพ์ได้';
+
+  @override
+  String get printOptionsLoadingPrinters => 'กำลังโหลดเครื่องพิมพ์…';
+
+  @override
   String get printOptionsPages => 'หน้า';
 
   @override

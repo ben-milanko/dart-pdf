@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Pengaturan khusus",
   "printOptionsPrinter": "Printer",
   "printOptionsNativePrinter": "Pilih printer, baki kertas, warna, pencetakan dua sisi, dan properti perangkat pada dialog cetak sistem berikutnya. Biarkan skala pada 100% dan jumlah salinan pada 1 untuk menggunakan tata letak yang ditampilkan di sini.",
+  "printOptionsChoosePrinter": "Pilih printer",
+  "printOptionsNoPrinters": "Tidak ada printer yang terinstal. Tambahkan printer di Pengaturan Windows, lalu coba lagi.",
+  "printOptionsPrinterUnavailable": "Printer tersimpan “{printer}” tidak tersedia. Pilih printer untuk melanjutkan.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Tidak dapat memuat pengaturan printer. Periksa koneksi printer dan coba lagi.",
+  "printOptionsRetry": "Coba lagi",
+  "printOptionsColor": "Warna",
+  "printOptionsGrayscale": "Hitam putih",
+  "printOptionsDuplex": "Pencetakan dua sisi",
+  "printOptionsSimplex": "Satu sisi",
+  "printOptionsLongEdge": "Balik pada sisi panjang",
+  "printOptionsShortEdge": "Balik pada sisi pendek",
+  "printOptionsTray": "Baki kertas",
+  "printOptionsDefaultTray": "Default printer",
+  "printOptionsProperties": "Properti printer…",
+  "printOptionsDirectPrinter": "Cetak mengirim pekerjaan ini langsung ke printer yang dipilih.",
+  "printOptionsPropertiesError": "Tidak dapat membuka properti printer.",
+  "printOptionsLoadingPrinters": "Memuat printer…",
   "printOptionsPages": "Halaman",
   "printOptionsSelected": "Terpilih",
   "printOptionsPageRange": "Halaman (misalnya, 1, 3-5)",

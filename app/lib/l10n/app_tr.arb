@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Özel ayarlar",
   "printOptionsPrinter": "Yazıcı",
   "printOptionsNativePrinter": "Bir sonraki sistem yazdırma iletişim kutusunda yazıcıyı, kağıt tepsisini, rengi, çift taraflı yazdırmayı ve aygıt özelliklerini seçin. Burada gösterilen düzeni kullanmak için ölçeği %100 ve kopya sayısını 1 olarak bırakın.",
+  "printOptionsChoosePrinter": "Yazıcı seçin",
+  "printOptionsNoPrinters": "Yüklü yazıcı yok. Windows Ayarları’ndan bir yazıcı ekleyip yeniden deneyin.",
+  "printOptionsPrinterUnavailable": "Kayıtlı “{printer}” yazıcısı kullanılamıyor. Devam etmek için bir yazıcı seçin.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Yazıcı ayarları yüklenemedi. Yazıcı bağlantısını kontrol edip yeniden deneyin.",
+  "printOptionsRetry": "Yeniden dene",
+  "printOptionsColor": "Renkli",
+  "printOptionsGrayscale": "Siyah beyaz",
+  "printOptionsDuplex": "Çift taraflı yazdırma",
+  "printOptionsSimplex": "Tek taraflı",
+  "printOptionsLongEdge": "Uzun kenardan çevir",
+  "printOptionsShortEdge": "Kısa kenardan çevir",
+  "printOptionsTray": "Kağıt tepsisi",
+  "printOptionsDefaultTray": "Yazıcı varsayılanı",
+  "printOptionsProperties": "Yazıcı özellikleri…",
+  "printOptionsDirectPrinter": "Yazdır, bu işi doğrudan seçili yazıcıya gönderir.",
+  "printOptionsPropertiesError": "Yazıcı özellikleri açılamadı.",
+  "printOptionsLoadingPrinters": "Yazıcılar yükleniyor…",
   "printOptionsPages": "Sayfalar",
   "printOptionsSelected": "Seçili",
   "printOptionsPageRange": "Sayfalar (örneğin 1, 3-5)",

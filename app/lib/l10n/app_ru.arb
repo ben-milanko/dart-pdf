@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Пользовательские настройки",
   "printOptionsPrinter": "Принтер",
   "printOptionsNativePrinter": "В следующем системном диалоге печати выберите принтер, лоток для бумаги, цвет, двустороннюю печать и свойства устройства. Оставьте масштаб 100% и число копий 1, чтобы использовать показанный здесь макет.",
+  "printOptionsChoosePrinter": "Выберите принтер",
+  "printOptionsNoPrinters": "Принтеры не установлены. Добавьте принтер в параметрах Windows и повторите попытку.",
+  "printOptionsPrinterUnavailable": "Сохранённый принтер «{printer}» недоступен. Выберите принтер, чтобы продолжить.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Не удалось загрузить настройки принтера. Проверьте подключение принтера и повторите попытку.",
+  "printOptionsRetry": "Повторить",
+  "printOptionsColor": "Цветная",
+  "printOptionsGrayscale": "Чёрно-белая",
+  "printOptionsDuplex": "Двусторонняя печать",
+  "printOptionsSimplex": "Односторонняя",
+  "printOptionsLongEdge": "Переворот по длинному краю",
+  "printOptionsShortEdge": "Переворот по короткому краю",
+  "printOptionsTray": "Лоток для бумаги",
+  "printOptionsDefaultTray": "По умолчанию принтера",
+  "printOptionsProperties": "Свойства принтера…",
+  "printOptionsDirectPrinter": "Кнопка «Печать» отправляет это задание прямо на выбранный принтер.",
+  "printOptionsPropertiesError": "Не удалось открыть свойства принтера.",
+  "printOptionsLoadingPrinters": "Загрузка принтеров…",
   "printOptionsPages": "Страницы",
   "printOptionsSelected": "Выбранные",
   "printOptionsPageRange": "Страницы (например, 1, 3-5)",

@@ -1291,6 +1291,62 @@ class AppLocalizationsAr extends AppLocalizations {
       'اختر الطابعة ودرج الورق والألوان والطباعة على الوجهين وخصائص الجهاز في مربع حوار الطباعة الخاص بالنظام الذي سيظهر بعد ذلك. اترك المقياس عند 100% وعدد النسخ عند 1 لاستخدام التخطيط المعروض هنا.';
 
   @override
+  String get printOptionsChoosePrinter => 'اختيار طابعة';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'لا توجد طابعات مثبتة. أضف طابعة في إعدادات Windows، ثم أعد المحاولة.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'الطابعة المحفوظة «$printer» غير متاحة. اختر طابعة للمتابعة.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'تعذّر تحميل إعدادات الطابعة. تحقق من اتصال الطابعة وأعد المحاولة.';
+
+  @override
+  String get printOptionsRetry => 'إعادة المحاولة';
+
+  @override
+  String get printOptionsColor => 'ألوان';
+
+  @override
+  String get printOptionsGrayscale => 'أبيض وأسود';
+
+  @override
+  String get printOptionsDuplex => 'طباعة على الوجهين';
+
+  @override
+  String get printOptionsSimplex => 'وجه واحد';
+
+  @override
+  String get printOptionsLongEdge => 'قلب على الحافة الطويلة';
+
+  @override
+  String get printOptionsShortEdge => 'قلب على الحافة القصيرة';
+
+  @override
+  String get printOptionsTray => 'درج الورق';
+
+  @override
+  String get printOptionsDefaultTray => 'الإعداد الافتراضي للطابعة';
+
+  @override
+  String get printOptionsProperties => 'خصائص الطابعة…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'يرسل زر الطباعة هذه المهمة مباشرة إلى الطابعة المحددة.';
+
+  @override
+  String get printOptionsPropertiesError => 'تعذّر فتح خصائص الطابعة.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'جارٍ تحميل الطابعات…';
+
+  @override
   String get printOptionsPages => 'الصفحات';
 
   @override

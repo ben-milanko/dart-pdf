@@ -1,6 +1,8 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/services.dart';
 
+import 'print_printer.dart';
+
 /// The platform channel every native runner registers (see
 /// `windows/runner/native_print.cpp`, the macOS/iOS Swift handlers, the Android
 /// handler, and the Linux runner).
@@ -39,12 +41,15 @@ const MethodChannel _channel =
 /// nothing to render, so it never reports progress). [channel] is a test seam.
 /// [useDocumentPageSize] marks sheets already composed by the print-options
 /// dialog, so native runners preserve their physical size and placement.
+/// [destination] submits directly to that Windows queue with no system print
+/// dialog. A missing queue or spool failure propagates to the caller.
 Future<void> printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
   MethodChannel channel = _channel,
   void Function(int rendered, int total)? onProgress,
   bool useDocumentPageSize = false,
+  PrintDestination? destination,
 }) async {
   // Prepared jobs are ordinary PDFs. Tell PDF-native runners the first sheet's
   // dimensions without making Android parse or rasterise another copy. Desktop
@@ -63,17 +68,19 @@ Future<void> printDocumentPages(
           sideways ? page.cropBox.width : page.cropBox.height;
     }
   }
-  // 1. Native vector printing. A MissingPluginException means this platform
-  //    has no `printPdf` (Windows/Linux) - fall through to the desktop path.
-  try {
-    await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
-      'name': name,
-      'pdf': pdfBytes,
-      ...sheetOptions,
-    });
-    return; // printed as vector (or the user cancelled) - done
-  } on MissingPluginException {
-    // no native PDF printing here; drive the OS print system per page below
+  // An explicit Windows destination goes straight to the desktop job API.
+  // Otherwise try native PDF printing; Windows/Linux fall through below.
+  if (destination == null) {
+    try {
+      await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
+        'name': name,
+        'pdf': pdfBytes,
+        ...sheetOptions,
+      });
+      return; // printed as vector (or the user cancelled) - done
+    } on MissingPluginException {
+      // no native PDF printing here; drive the OS print system per page below
+    }
   }
 
   // 2/3. Desktop path. A MissingPluginException from beginJob means there is
@@ -83,7 +90,11 @@ Future<void> printDocumentPages(
   final document = preparedDocument ?? PdfDocument.open(pdfBytes);
   final info = await channel.invokeMapMethod<String, dynamic>(
     'beginJob',
-    <String, dynamic>{'name': name, ...sheetOptions},
+    <String, dynamic>{
+      'name': name,
+      ...sheetOptions,
+      ...?destination?.toMap(),
+    },
   );
   final vector = info?['vector'] == true;
   final dpi = _resolveDpi(info);

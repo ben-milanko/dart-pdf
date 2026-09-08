@@ -3,8 +3,10 @@
 #include <flutter/standard_method_codec.h>
 
 #include <cstdint>
+#include <exception>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -58,6 +60,104 @@ std::wstring OptionalString(const flutter::EncodableMap* args, const char* key) 
   if (value == nullptr) return std::wstring();
   const auto* text = std::get_if<std::string>(value);
   return text == nullptr ? std::wstring() : Utf16FromUtf8(*text);
+}
+
+NativePrinter::Options PrintOptions(const flutter::EncodableMap* args) {
+  NativePrinter::Options options;
+  options.printer = OptionalString(args, "printer");
+  if (args == nullptr) return options;
+  if (const auto* value = Lookup(*args, "color")) {
+    if (const auto* color = std::get_if<bool>(value)) options.color = *color;
+  }
+  const std::wstring duplex = OptionalString(args, "duplex");
+  if (duplex == L"simplex") options.duplex = DMDUP_SIMPLEX;
+  if (duplex == L"longEdge") options.duplex = DMDUP_VERTICAL;
+  if (duplex == L"shortEdge") options.duplex = DMDUP_HORIZONTAL;
+  if (const auto* value = Lookup(*args, "tray")) {
+    const auto tray = Integer(*value);
+    if (tray.has_value() && *tray >= 0 && *tray <= 32767) {
+      options.tray = static_cast<short>(*tray);
+    }
+  }
+  return options;
+}
+
+flutter::EncodableValue PrinterSettingsPayload(const NativePrinter::Settings& settings) {
+  flutter::EncodableList trays;
+  for (const auto& tray : settings.trays) {
+    trays.push_back(flutter::EncodableValue(flutter::EncodableMap{
+        {flutter::EncodableValue("id"), flutter::EncodableValue(tray.id)},
+        {flutter::EncodableValue("name"),
+         flutter::EncodableValue(Utf8FromUtf16(tray.name.c_str()))},
+    }));
+  }
+  return flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue("color"), flutter::EncodableValue(settings.color)},
+      {flutter::EncodableValue("duplex"),
+       flutter::EncodableValue(settings.duplex == DMDUP_VERTICAL ? "longEdge" :
+                               settings.duplex == DMDUP_HORIZONTAL ? "shortEdge" : "simplex")},
+      {flutter::EncodableValue("tray"), flutter::EncodableValue(settings.tray)},
+      {flutter::EncodableValue("supportsColor"), flutter::EncodableValue(settings.supports_color)},
+      {flutter::EncodableValue("supportsDuplex"), flutter::EncodableValue(settings.supports_duplex)},
+      {flutter::EncodableValue("trays"), flutter::EncodableValue(trays)},
+  });
+}
+
+// Flutter's desktop client wrapper owns the messenger reference behind each
+// MethodResult. Its reply callback is explicitly safe on any thread: it locks
+// the messenger and drops a late reply if the engine has already been destroyed
+// (client_wrapper/core_implementations.cc, ForwardToHandler). Each query owns a
+// separate NativePrinter and captures no channel service or window pointer.
+// Slow/unreachable network printer drivers therefore cannot freeze the window,
+// race a print job, or retain a dangling service when the window closes.
+void QueryPrintersAsync(
+    bool list_printers, NativePrinter::Options options,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  auto reply =
+      std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
+  try {
+    std::thread([list_printers, options = std::move(options), reply]() {
+      const HRESULT initialized = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+      if (FAILED(initialized)) {
+        reply->Error("print_failed", "Could not initialize the printer query");
+        return;
+      }
+      struct ComScope {
+        ~ComScope() { ::CoUninitialize(); }
+      } com_scope;
+      try {
+        NativePrinter printer;
+        if (list_printers) {
+          std::vector<NativePrinter::Destination> printers;
+          if (!printer.ListPrinters(&printers)) {
+            reply->Error("print_failed", printer.error());
+            return;
+          }
+          flutter::EncodableList destinations;
+          for (const auto& destination : printers) {
+            destinations.push_back(flutter::EncodableValue(flutter::EncodableMap{
+                {flutter::EncodableValue("name"),
+                 flutter::EncodableValue(Utf8FromUtf16(destination.name.c_str()))},
+                {flutter::EncodableValue("isDefault"),
+                 flutter::EncodableValue(destination.is_default)},
+            }));
+          }
+          reply->Success(flutter::EncodableValue(destinations));
+        } else {
+          NativePrinter::Settings settings;
+          if (!printer.PrinterSettings(nullptr, options, false, &settings)) {
+            reply->Error("print_failed", printer.error());
+            return;
+          }
+          reply->Success(PrinterSettingsPayload(settings));
+        }
+      } catch (const std::exception& error) {
+        reply->Error("print_failed", error.what());
+      }
+    }).detach();
+  } catch (const std::exception& error) {
+    reply->Error("print_failed", error.what());
+  }
 }
 
 // Decodes the `acceptedTypeGroups` argument: a list of
@@ -325,7 +425,32 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
                  result) {
         const auto* args =
             std::get_if<flutter::EncodableMap>(call.arguments());
-        if (call.method_name() == "beginJob") {
+        if (call.method_name() == "listPrinters") {
+          QueryPrintersAsync(true, {}, std::move(result));
+        } else if (call.method_name() == "printerSettings" ||
+                   call.method_name() == "printerProperties") {
+          const auto options = PrintOptions(args);
+          if (options.printer.empty()) {
+            result->Error("bad_args", "Printer settings require a printer name");
+            return;
+          }
+          if (call.method_name() == "printerSettings") {
+            QueryPrintersAsync(false, options, std::move(result));
+            return;
+          }
+          const HWND owner = owner_window_ ? owner_window_() : nullptr;
+          NativePrinter::Settings settings;
+          if (!native_printer_.PrinterSettings(
+                  owner, options, call.method_name() == "printerProperties", &settings)) {
+            if (native_printer_.error().empty()) {
+              result->Success();  // The driver's Preferences dialog was cancelled.
+            } else {
+              result->Error("print_failed", native_printer_.error());
+            }
+            return;
+          }
+          result->Success(PrinterSettingsPayload(settings));
+        } else if (call.method_name() == "beginJob") {
           std::string name = "Document";
           bool use_document_page_size = false;
           if (args != nullptr) {
@@ -340,7 +465,17 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
               }
             }
           }
-          native_printer_.Begin(Utf16FromUtf8(name), use_document_page_size);
+          const auto options = PrintOptions(args);
+          if (args != nullptr && Lookup(*args, "printer") != nullptr &&
+              options.printer.empty()) {
+            result->Error("bad_args", "Direct printing requires a printer name");
+            return;
+          }
+          if (!native_printer_.Begin(Utf16FromUtf8(name), use_document_page_size,
+                                     options)) {
+            result->Error("print_failed", native_printer_.error());
+            return;
+          }
           result->Success(flutter::EncodableValue(flutter::EncodableMap{
               {flutter::EncodableValue("dpi"), flutter::EncodableValue(300)},
               {flutter::EncodableValue("vector"),
@@ -375,8 +510,12 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
               flutter::EncodableValue(native_printer_.AddVectorPage(*page)));
         } else if (call.method_name() == "endJob") {
           const HWND owner = owner_window_ ? owner_window_() : nullptr;
-          result->Success(
-              flutter::EncodableValue(native_printer_.End(owner)));
+          const bool printed = native_printer_.End(owner);
+          if (!printed && !native_printer_.error().empty()) {
+            result->Error("print_failed", native_printer_.error());
+          } else {
+            result->Success(flutter::EncodableValue(printed));
+          }
         } else if (call.method_name() == "cancelJob") {
           native_printer_.Cancel();
           result->Success();

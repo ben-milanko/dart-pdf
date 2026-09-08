@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Paramètres personnalisés",
   "printOptionsPrinter": "Imprimante",
   "printOptionsNativePrinter": "Choisissez l’imprimante, le bac à papier, la couleur, le recto verso et les propriétés du périphérique dans la boîte de dialogue d’impression du système qui s’ouvrira ensuite. Conservez une échelle de 100 % et une seule copie pour utiliser la mise en page affichée ici.",
+  "printOptionsChoosePrinter": "Choisir une imprimante",
+  "printOptionsNoPrinters": "Aucune imprimante n’est installée. Ajoutez une imprimante dans les Paramètres Windows, puis réessayez.",
+  "printOptionsPrinterUnavailable": "L’imprimante enregistrée « {printer} » n’est pas disponible. Choisissez une imprimante pour continuer.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Impossible de charger les paramètres de l’imprimante. Vérifiez la connexion de l’imprimante et réessayez.",
+  "printOptionsRetry": "Réessayer",
+  "printOptionsColor": "Couleur",
+  "printOptionsGrayscale": "Noir et blanc",
+  "printOptionsDuplex": "Impression recto verso",
+  "printOptionsSimplex": "Recto uniquement",
+  "printOptionsLongEdge": "Retourner sur le bord long",
+  "printOptionsShortEdge": "Retourner sur le bord court",
+  "printOptionsTray": "Bac à papier",
+  "printOptionsDefaultTray": "Valeur par défaut de l’imprimante",
+  "printOptionsProperties": "Propriétés de l’imprimante…",
+  "printOptionsDirectPrinter": "Imprimer envoie ce travail directement à l’imprimante sélectionnée.",
+  "printOptionsPropertiesError": "Impossible d’ouvrir les propriétés de l’imprimante.",
+  "printOptionsLoadingPrinters": "Chargement des imprimantes…",
   "printOptionsPages": "Pages",
   "printOptionsSelected": "Sélectionnées",
   "printOptionsPageRange": "Pages (par exemple, 1, 3-5)",

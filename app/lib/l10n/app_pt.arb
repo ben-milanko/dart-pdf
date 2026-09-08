@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Definições personalizadas",
   "printOptionsPrinter": "Impressora",
   "printOptionsNativePrinter": "Na próxima caixa de diálogo de impressão do sistema, escolha a impressora, a bandeja de papel, a cor, a impressão frente e verso e as propriedades do dispositivo. Mantenha a escala em 100% e o número de cópias em 1 para usar o layout mostrado aqui.",
+  "printOptionsChoosePrinter": "Escolher uma impressora",
+  "printOptionsNoPrinters": "Nenhuma impressora está instalada. Adicione uma impressora nas Configurações do Windows e tente novamente.",
+  "printOptionsPrinterUnavailable": "A impressora salva “{printer}” está indisponível. Escolha uma impressora para continuar.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Não foi possível carregar as configurações da impressora. Verifique a conexão da impressora e tente novamente.",
+  "printOptionsRetry": "Tentar novamente",
+  "printOptionsColor": "Cor",
+  "printOptionsGrayscale": "Preto e branco",
+  "printOptionsDuplex": "Impressão frente e verso",
+  "printOptionsSimplex": "Um lado",
+  "printOptionsLongEdge": "Virar na borda longa",
+  "printOptionsShortEdge": "Virar na borda curta",
+  "printOptionsTray": "Bandeja de papel",
+  "printOptionsDefaultTray": "Padrão da impressora",
+  "printOptionsProperties": "Propriedades da impressora…",
+  "printOptionsDirectPrinter": "Imprimir envia este trabalho diretamente à impressora selecionada.",
+  "printOptionsPropertiesError": "Não foi possível abrir as propriedades da impressora.",
+  "printOptionsLoadingPrinters": "Carregando impressoras…",
   "printOptionsPages": "Páginas",
   "printOptionsSelected": "Selecionadas",
   "printOptionsPageRange": "Páginas (por exemplo, 1, 3-5)",

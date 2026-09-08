@@ -15,15 +15,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/printing.dart';
 import 'package:dart_pdf_editor_app/print_preview_dialog.dart';
+import 'package:dart_pdf_editor_app/print_preferences.dart';
+import 'package:dart_pdf_editor_app/print_printer.dart';
+import 'package:dart_pdf_editor_app/print_settings.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  const printChannel = MethodChannel('dev.milanko.dartpdf/native_print');
+  final printCalls = <MethodCall>[];
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     prefs = PdfEditingPreferences();
+    printCalls.clear();
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(printChannel,
+        (call) async {
+      printCalls.add(call);
+      return switch (call.method) {
+        'listPrinters' => [
+            {'name': 'Office', 'isDefault': true}
+          ],
+        'printerSettings' => {
+            'color': true,
+            'duplex': 'simplex',
+            'tray': 0,
+            'supportsColor': true,
+            'supportsDuplex': true,
+            'trays': [],
+          },
+        'beginJob' => {'vector': true},
+        'printPdf' => throw MissingPluginException(),
+        _ => true,
+      };
+    });
   });
-  tearDown(() => prefs.dispose());
+  tearDown(() {
+    prefs.dispose();
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(printChannel, null);
+  });
 
   Future<void> pumpWithDoc(
     WidgetTester tester, {
@@ -120,6 +150,67 @@ void main() {
 
     expect(find.text('Could not print Report.pdf'), findsOneWidget);
   });
+
+  testWidgets('Windows Print submits our selected destination directly',
+      (tester) async {
+    await pumpWithDoc(tester);
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-print')));
+    await tester.tap(find.byKey(const ValueKey('menu-print')));
+    await tester.pumpAndSettle();
+    expect(find.text('Office'), findsOneWidget);
+    expect(printCalls.map((call) => call.method),
+        ['listPrinters', 'printerSettings']);
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    // Desktop vector lowering yields between pages on the real event loop.
+    await tester.runAsync(() async {
+      for (var i = 0; i < 100; i++) {
+        if (printCalls.any((call) => call.method == 'endJob')) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+    final begin = printCalls.singleWhere((call) => call.method == 'beginJob');
+    expect(begin.arguments, containsPair('printer', 'Office'));
+    expect(begin.arguments, containsPair('useDocumentPageSize', true));
+    expect(printCalls.map((call) => call.method), [
+      'listPrinters',
+      'printerSettings',
+      'beginJob',
+      'printPageVector',
+      'endJob',
+    ]);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+  testWidgets('Windows duplex copies keep each copy on its own sheet',
+      (tester) async {
+    final preferences = await PrintPreferences.load();
+    await preferences.saveSettings(PrintSettings(pages: [0], copies: 2),
+        range: 'all', customRange: '1');
+    await preferences.saveDestination(const PrintDestination(
+        printer: 'Office', duplex: PrintDuplex.longEdge));
+    await pumpWithDoc(tester);
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-print')));
+    await tester.tap(find.byKey(const ValueKey('menu-print')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.runAsync(() async {
+      for (var i = 0; i < 100; i++) {
+        if (printCalls.any((call) => call.method == 'endJob')) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+    final begin = printCalls.singleWhere((call) => call.method == 'beginJob');
+    expect(begin.arguments, containsPair('duplex', 'longEdge'));
+    // One source page, two copies: front+blank, front+blank.
+    expect(printCalls.where((call) => call.method == 'printPageVector'),
+        hasLength(4));
+    expect(printCalls.last.method, 'endJob');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
 
   testWidgets(
       'thumbnail selection prints those pages and preserves the session',

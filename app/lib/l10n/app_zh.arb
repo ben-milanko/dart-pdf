@@ -327,6 +327,30 @@
   "reduceSizeCustom": "自定义设置",
   "printOptionsPrinter": "打印机",
   "printOptionsNativePrinter": "在接下来的系统打印对话框中选择打印机、纸盒、颜色、双面打印及设备属性。请将缩放比例保持为 100%，份数保持为 1，以使用此处显示的布局。",
+  "printOptionsChoosePrinter": "选择打印机",
+  "printOptionsNoPrinters": "未安装打印机。请在 Windows 设置中添加打印机，然后重试。",
+  "printOptionsPrinterUnavailable": "已保存的打印机“{printer}”不可用。请选择打印机以继续。",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "无法加载打印机设置。请检查打印机连接，然后重试。",
+  "printOptionsRetry": "重试",
+  "printOptionsColor": "彩色",
+  "printOptionsGrayscale": "黑白",
+  "printOptionsDuplex": "双面打印",
+  "printOptionsSimplex": "单面",
+  "printOptionsLongEdge": "长边翻转",
+  "printOptionsShortEdge": "短边翻转",
+  "printOptionsTray": "纸盒",
+  "printOptionsDefaultTray": "打印机默认值",
+  "printOptionsProperties": "打印机属性…",
+  "printOptionsDirectPrinter": "点击“打印”会将此任务直接发送到所选打印机。",
+  "printOptionsPropertiesError": "无法打开打印机属性。",
+  "printOptionsLoadingPrinters": "正在加载打印机…",
   "printOptionsPages": "页面",
   "printOptionsSelected": "所选页面",
   "printOptionsPageRange": "页码（例如 1, 3-5）",

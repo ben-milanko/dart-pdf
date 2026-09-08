@@ -1233,6 +1233,59 @@ class AppLocalizationsZh extends AppLocalizations {
       '在接下来的系统打印对话框中选择打印机、纸盒、颜色、双面打印及设备属性。请将缩放比例保持为 100%，份数保持为 1，以使用此处显示的布局。';
 
   @override
+  String get printOptionsChoosePrinter => '选择打印机';
+
+  @override
+  String get printOptionsNoPrinters => '未安装打印机。请在 Windows 设置中添加打印机，然后重试。';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return '已保存的打印机“$printer”不可用。请选择打印机以继续。';
+  }
+
+  @override
+  String get printOptionsPrinterError => '无法加载打印机设置。请检查打印机连接，然后重试。';
+
+  @override
+  String get printOptionsRetry => '重试';
+
+  @override
+  String get printOptionsColor => '彩色';
+
+  @override
+  String get printOptionsGrayscale => '黑白';
+
+  @override
+  String get printOptionsDuplex => '双面打印';
+
+  @override
+  String get printOptionsSimplex => '单面';
+
+  @override
+  String get printOptionsLongEdge => '长边翻转';
+
+  @override
+  String get printOptionsShortEdge => '短边翻转';
+
+  @override
+  String get printOptionsTray => '纸盒';
+
+  @override
+  String get printOptionsDefaultTray => '打印机默认值';
+
+  @override
+  String get printOptionsProperties => '打印机属性…';
+
+  @override
+  String get printOptionsDirectPrinter => '点击“打印”会将此任务直接发送到所选打印机。';
+
+  @override
+  String get printOptionsPropertiesError => '无法打开打印机属性。';
+
+  @override
+  String get printOptionsLoadingPrinters => '正在加载打印机…';
+
+  @override
   String get printOptionsPages => '页面';
 
   @override
@@ -2640,6 +2693,59 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get printOptionsNativePrinter =>
       '在接下來的系統列印對話方塊中選擇印表機、紙匣、色彩、雙面列印及裝置屬性。請將縮放比例維持在 100%，份數維持為 1，以使用此處顯示的版面配置。';
+
+  @override
+  String get printOptionsChoosePrinter => '選擇印表機';
+
+  @override
+  String get printOptionsNoPrinters => '尚未安裝印表機。請在 Windows 設定中新增印表機，然後重試。';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return '已儲存的印表機「$printer」無法使用。請選擇印表機以繼續。';
+  }
+
+  @override
+  String get printOptionsPrinterError => '無法載入印表機設定。請檢查印表機連線，然後重試。';
+
+  @override
+  String get printOptionsRetry => '重試';
+
+  @override
+  String get printOptionsColor => '彩色';
+
+  @override
+  String get printOptionsGrayscale => '黑白';
+
+  @override
+  String get printOptionsDuplex => '雙面列印';
+
+  @override
+  String get printOptionsSimplex => '單面';
+
+  @override
+  String get printOptionsLongEdge => '長邊翻轉';
+
+  @override
+  String get printOptionsShortEdge => '短邊翻轉';
+
+  @override
+  String get printOptionsTray => '紙匣';
+
+  @override
+  String get printOptionsDefaultTray => '印表機預設值';
+
+  @override
+  String get printOptionsProperties => '印表機內容…';
+
+  @override
+  String get printOptionsDirectPrinter => '按下「列印」會將此工作直接傳送至所選印表機。';
+
+  @override
+  String get printOptionsPropertiesError => '無法開啟印表機內容。';
+
+  @override
+  String get printOptionsLoadingPrinters => '正在載入印表機…';
 
   @override
   String get printOptionsPages => '頁面';

@@ -1306,6 +1306,63 @@ class AppLocalizationsPl extends AppLocalizations {
       'W następnym, systemowym oknie drukowania wybierz drukarkę, podajnik papieru, kolor, druk dwustronny i właściwości urządzenia. Pozostaw skalę 100% i liczbę kopii 1, aby użyć widocznego tutaj układu.';
 
   @override
+  String get printOptionsChoosePrinter => 'Wybierz drukarkę';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Nie ma zainstalowanych drukarek. Dodaj drukarkę w Ustawieniach systemu Windows i spróbuj ponownie.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'Zapisana drukarka „$printer” jest niedostępna. Wybierz drukarkę, aby kontynuować.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Nie udało się wczytać ustawień drukarki. Sprawdź połączenie z drukarką i spróbuj ponownie.';
+
+  @override
+  String get printOptionsRetry => 'Ponów próbę';
+
+  @override
+  String get printOptionsColor => 'Kolor';
+
+  @override
+  String get printOptionsGrayscale => 'Czarno-białe';
+
+  @override
+  String get printOptionsDuplex => 'Druk dwustronny';
+
+  @override
+  String get printOptionsSimplex => 'Jednostronnie';
+
+  @override
+  String get printOptionsLongEdge => 'Odwracaj przy długiej krawędzi';
+
+  @override
+  String get printOptionsShortEdge => 'Odwracaj przy krótkiej krawędzi';
+
+  @override
+  String get printOptionsTray => 'Podajnik papieru';
+
+  @override
+  String get printOptionsDefaultTray => 'Domyślne ustawienie drukarki';
+
+  @override
+  String get printOptionsProperties => 'Właściwości drukarki…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Drukuj wysyła to zadanie bezpośrednio do wybranej drukarki.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Nie udało się otworzyć właściwości drukarki.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Wczytywanie drukarek…';
+
+  @override
   String get printOptionsPages => 'Strony';
 
   @override

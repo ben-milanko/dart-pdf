@@ -1241,6 +1241,61 @@ class AppLocalizationsKo extends AppLocalizations {
       '다음에 표시되는 시스템 인쇄 대화상자에서 프린터, 용지함, 컬러, 양면 인쇄 및 장치 속성을 선택하세요. 여기에 표시된 레이아웃을 사용하려면 배율은 100%, 부수는 1로 유지하세요.';
 
   @override
+  String get printOptionsChoosePrinter => '프린터 선택';
+
+  @override
+  String get printOptionsNoPrinters =>
+      '설치된 프린터가 없습니다. Windows 설정에서 프린터를 추가한 후 다시 시도하세요.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return '저장된 프린터 “$printer”을(를) 사용할 수 없습니다. 계속하려면 프린터를 선택하세요.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      '프린터 설정을 불러올 수 없습니다. 프린터 연결을 확인하고 다시 시도하세요.';
+
+  @override
+  String get printOptionsRetry => '다시 시도';
+
+  @override
+  String get printOptionsColor => '컬러';
+
+  @override
+  String get printOptionsGrayscale => '흑백';
+
+  @override
+  String get printOptionsDuplex => '양면 인쇄';
+
+  @override
+  String get printOptionsSimplex => '단면';
+
+  @override
+  String get printOptionsLongEdge => '긴 쪽으로 넘기기';
+
+  @override
+  String get printOptionsShortEdge => '짧은 쪽으로 넘기기';
+
+  @override
+  String get printOptionsTray => '용지함';
+
+  @override
+  String get printOptionsDefaultTray => '프린터 기본값';
+
+  @override
+  String get printOptionsProperties => '프린터 속성…';
+
+  @override
+  String get printOptionsDirectPrinter => '인쇄를 누르면 선택한 프린터로 이 작업을 바로 보냅니다.';
+
+  @override
+  String get printOptionsPropertiesError => '프린터 속성을 열 수 없습니다.';
+
+  @override
+  String get printOptionsLoadingPrinters => '프린터 불러오는 중…';
+
+  @override
   String get printOptionsPages => '페이지';
 
   @override

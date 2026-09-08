@@ -327,6 +327,30 @@
   "reduceSizeCustom": "Impostazioni personalizzate",
   "printOptionsPrinter": "Stampante",
   "printOptionsNativePrinter": "Scegli la stampante, il vassoio carta, il colore, la stampa fronte-retro e le proprietà del dispositivo nella successiva finestra di stampa del sistema. Mantieni la scala al 100% e il numero di copie a 1 per usare l’impaginazione mostrata qui.",
+  "printOptionsChoosePrinter": "Scegli una stampante",
+  "printOptionsNoPrinters": "Nessuna stampante installata. Aggiungi una stampante nelle Impostazioni di Windows, quindi riprova.",
+  "printOptionsPrinterUnavailable": "La stampante salvata «{printer}» non è disponibile. Scegli una stampante per continuare.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Impossibile caricare le impostazioni della stampante. Controlla il collegamento della stampante e riprova.",
+  "printOptionsRetry": "Riprova",
+  "printOptionsColor": "Colore",
+  "printOptionsGrayscale": "Bianco e nero",
+  "printOptionsDuplex": "Stampa fronte/retro",
+  "printOptionsSimplex": "Solo fronte",
+  "printOptionsLongEdge": "Capovolgi sul lato lungo",
+  "printOptionsShortEdge": "Capovolgi sul lato corto",
+  "printOptionsTray": "Vassoio carta",
+  "printOptionsDefaultTray": "Predefinito della stampante",
+  "printOptionsProperties": "Proprietà stampante…",
+  "printOptionsDirectPrinter": "Stampa invia questo lavoro direttamente alla stampante selezionata.",
+  "printOptionsPropertiesError": "Impossibile aprire le proprietà della stampante.",
+  "printOptionsLoadingPrinters": "Caricamento delle stampanti…",
   "printOptionsPages": "Pagine",
   "printOptionsSelected": "Selezionate",
   "printOptionsPageRange": "Pagine (ad esempio, 1, 3-5)",

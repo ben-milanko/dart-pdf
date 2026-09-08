@@ -1241,6 +1241,61 @@ class AppLocalizationsJa extends AppLocalizations {
       '次に表示されるシステムの印刷ダイアログで、プリンター、給紙トレイ、カラー、両面印刷、プリンターのプロパティを選択します。ここに表示されているレイアウトを使用するには、倍率を100%、部数を1のままにしてください。';
 
   @override
+  String get printOptionsChoosePrinter => 'プリンターを選択';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'プリンターがインストールされていません。Windows の設定でプリンターを追加してから、再試行してください。';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return '保存されたプリンター「$printer」は利用できません。続行するにはプリンターを選択してください。';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'プリンターの設定を読み込めませんでした。プリンターの接続を確認して再試行してください。';
+
+  @override
+  String get printOptionsRetry => '再試行';
+
+  @override
+  String get printOptionsColor => 'カラー';
+
+  @override
+  String get printOptionsGrayscale => '白黒';
+
+  @override
+  String get printOptionsDuplex => '両面印刷';
+
+  @override
+  String get printOptionsSimplex => '片面';
+
+  @override
+  String get printOptionsLongEdge => '長辺とじ';
+
+  @override
+  String get printOptionsShortEdge => '短辺とじ';
+
+  @override
+  String get printOptionsTray => '給紙トレイ';
+
+  @override
+  String get printOptionsDefaultTray => 'プリンターの既定値';
+
+  @override
+  String get printOptionsProperties => 'プリンターのプロパティ…';
+
+  @override
+  String get printOptionsDirectPrinter => '「印刷」を押すと、選択したプリンターにこのジョブが直接送信されます。';
+
+  @override
+  String get printOptionsPropertiesError => 'プリンターのプロパティを開けませんでした。';
+
+  @override
+  String get printOptionsLoadingPrinters => 'プリンターを読み込み中…';
+
+  @override
   String get printOptionsPages => 'ページ';
 
   @override

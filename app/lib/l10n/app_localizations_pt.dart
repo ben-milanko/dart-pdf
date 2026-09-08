@@ -1281,6 +1281,63 @@ class AppLocalizationsPt extends AppLocalizations {
       'Na próxima caixa de diálogo de impressão do sistema, escolha a impressora, a bandeja de papel, a cor, a impressão frente e verso e as propriedades do dispositivo. Mantenha a escala em 100% e o número de cópias em 1 para usar o layout mostrado aqui.';
 
   @override
+  String get printOptionsChoosePrinter => 'Escolher uma impressora';
+
+  @override
+  String get printOptionsNoPrinters =>
+      'Nenhuma impressora está instalada. Adicione uma impressora nas Configurações do Windows e tente novamente.';
+
+  @override
+  String printOptionsPrinterUnavailable(String printer) {
+    return 'A impressora salva “$printer” está indisponível. Escolha uma impressora para continuar.';
+  }
+
+  @override
+  String get printOptionsPrinterError =>
+      'Não foi possível carregar as configurações da impressora. Verifique a conexão da impressora e tente novamente.';
+
+  @override
+  String get printOptionsRetry => 'Tentar novamente';
+
+  @override
+  String get printOptionsColor => 'Cor';
+
+  @override
+  String get printOptionsGrayscale => 'Preto e branco';
+
+  @override
+  String get printOptionsDuplex => 'Impressão frente e verso';
+
+  @override
+  String get printOptionsSimplex => 'Um lado';
+
+  @override
+  String get printOptionsLongEdge => 'Virar na borda longa';
+
+  @override
+  String get printOptionsShortEdge => 'Virar na borda curta';
+
+  @override
+  String get printOptionsTray => 'Bandeja de papel';
+
+  @override
+  String get printOptionsDefaultTray => 'Padrão da impressora';
+
+  @override
+  String get printOptionsProperties => 'Propriedades da impressora…';
+
+  @override
+  String get printOptionsDirectPrinter =>
+      'Imprimir envia este trabalho diretamente à impressora selecionada.';
+
+  @override
+  String get printOptionsPropertiesError =>
+      'Não foi possível abrir as propriedades da impressora.';
+
+  @override
+  String get printOptionsLoadingPrinters => 'Carregando impressoras…';
+
+  @override
   String get printOptionsPages => 'Páginas';
 
   @override

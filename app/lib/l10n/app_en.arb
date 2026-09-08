@@ -1693,6 +1693,79 @@
   "@printOptionsNativePrinter": {
     "description": "Print settings dialog: Choose the printer, paper tray, color, duplex and device properties in the system print dialog next. Keep its scale at 100% and copies at 1 to use the layout shown here."
   },
+  "printOptionsChoosePrinter": "Choose a printer",
+  "@printOptionsChoosePrinter": {
+    "description": "Placeholder asking the user to select the printer for direct Windows printing."
+  },
+  "printOptionsNoPrinters": "No printers are installed. Add a printer in Windows Settings, then retry.",
+  "@printOptionsNoPrinters": {
+    "description": "Empty state when Windows has no installed printers, with recovery instructions."
+  },
+  "printOptionsPrinterUnavailable": "The saved printer \"{printer}\" is unavailable. Choose a printer to continue.",
+  "@printOptionsPrinterUnavailable": {
+    "description": "Error when the printer saved in print preferences is no longer available.",
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Could not load printer settings. Check the printer connection and retry.",
+  "@printOptionsPrinterError": {
+    "description": "Error when printer settings cannot be read, with connection and retry advice."
+  },
+  "printOptionsRetry": "Retry",
+  "@printOptionsRetry": {
+    "description": "Button that retries loading the installed printers and their settings."
+  },
+  "printOptionsColor": "Color",
+  "@printOptionsColor": {
+    "description": "Option for printing the document in color."
+  },
+  "printOptionsGrayscale": "Black and white",
+  "@printOptionsGrayscale": {
+    "description": "Option for printing the document in black and white."
+  },
+  "printOptionsDuplex": "Two-sided printing",
+  "@printOptionsDuplex": {
+    "description": "Label for the printer duplex mode selector."
+  },
+  "printOptionsSimplex": "One-sided",
+  "@printOptionsSimplex": {
+    "description": "Option for printing on only one side of each sheet."
+  },
+  "printOptionsLongEdge": "Flip on long edge",
+  "@printOptionsLongEdge": {
+    "description": "Duplex printing option that flips sheets along the long edge."
+  },
+  "printOptionsShortEdge": "Flip on short edge",
+  "@printOptionsShortEdge": {
+    "description": "Duplex printing option that flips sheets along the short edge."
+  },
+  "printOptionsTray": "Paper tray",
+  "@printOptionsTray": {
+    "description": "Label for the printer paper tray selector."
+  },
+  "printOptionsDefaultTray": "Printer default",
+  "@printOptionsDefaultTray": {
+    "description": "Paper tray option that uses the printer default."
+  },
+  "printOptionsProperties": "Printer properties…",
+  "@printOptionsProperties": {
+    "description": "Button that opens the selected Windows printer driver properties."
+  },
+  "printOptionsDirectPrinter": "Print sends this job directly to the selected printer.",
+  "@printOptionsDirectPrinter": {
+    "description": "Explains that the Print button sends the job directly to the selected printer."
+  },
+  "printOptionsPropertiesError": "Could not open printer properties.",
+  "@printOptionsPropertiesError": {
+    "description": "Error when the Windows printer driver properties cannot be opened."
+  },
+  "printOptionsLoadingPrinters": "Loading printers…",
+  "@printOptionsLoadingPrinters": {
+    "description": "Status while Windows printers are being loaded."
+  },
   "printOptionsPages": "Pages",
   "@printOptionsPages": {
     "description": "Print settings dialog: Pages"

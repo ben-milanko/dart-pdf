@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'native_print.dart';
+import 'print_printer.dart';
 
 /// Signature for the app's "Print…" action: hands a PDF's [bytes] to the
 /// platform print system under a job [title]. Injectable through
@@ -31,17 +32,21 @@ typedef PdfPrinter = Future<void> Function({
 /// options: native desktop backends print points at their physical size rather
 /// than fitting the finished sheet again. Mobile and browser print services
 /// retain final control over the printer's supported media.
+/// [destination] bypasses the Windows system print dialog and submits to the
+/// queue selected in the app's own print options.
 Future<void> printPdfBytes({
   required Uint8List bytes,
   required String title,
   void Function(int rendered, int total)? onProgress,
   bool useDocumentPageSize = false,
+  PrintDestination? destination,
 }) async {
   await printDocumentPages(
     bytes,
     name: printJobName(title),
     onProgress: onProgress,
     useDocumentPageSize: useDocumentPageSize,
+    destination: destination,
   );
 }
 
