@@ -6,6 +6,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'budgeted_cache.dart';
 import 'region_replay_index.dart';
 import 'render_trace.dart';
+import 'render_worker_text_cache.dart';
 
 // The worker fills its half of the unified [PdfRenderTrace]; re-exported so
 // callers importing this file keep seeing [PdfWorkerPhaseTimings] (now an alias
@@ -211,11 +212,15 @@ class PdfWorkerTranscriptCache {
     this.capacity = 4,
     this.maxRetainedCommands = 250000,
     this.deduplicateCommands = true,
+    PdfWorkerTextCache? textCache,
     int? resumeChunkOperations,
   })  : assert(capacity > 0),
         assert(maxRetainedCommands > 0),
         assert(resumeChunkOperations == null || resumeChunkOperations > 0),
-        _resumeChunk = resumeChunkOperations ?? _resumeRecordChunkOperations;
+        _resumeChunk = resumeChunkOperations ?? _resumeRecordChunkOperations,
+        textCache = textCache ?? PdfWorkerTextCache();
+
+  final PdfWorkerTextCache textCache;
 
   final int capacity;
   final int maxRetainedCommands;
@@ -287,7 +292,11 @@ class PdfWorkerTranscriptCache {
     if (entry == null) {
       final page = document.page(pageIndex);
       final recorder = RecordingPdfDevice();
-      final interpreter = PdfInterpreter(cos: document.cos, device: recorder);
+      final interpreter = PdfInterpreter(
+        cos: document.cos,
+        device: recorder,
+        collectCharOffsets: true,
+      );
       final walk = interpreter.beginPageContent(page, page.contentBytes());
       entry = _SuspendedTranscriptWalk(
           pageIndex, annotations, page, recorder, interpreter, walk);
@@ -344,7 +353,9 @@ class PdfWorkerTranscriptCache {
       streamClock.stop();
       timings!.streamUs += streamClock.elapsedMicroseconds;
     }
+    if (token.cancelled) throw const PdfCancelledException();
     final interpretClock = timings == null ? null : (Stopwatch()..start());
+    textCache.record(pageIndex, entry.recorder.commands);
     if (annotations) entry.interpreter.drawAnnotations(entry.page);
     if (interpretClock != null) {
       interpretClock.stop();
@@ -390,6 +401,7 @@ class PdfWorkerTranscriptCache {
 
   void clear() {
     _entries.clear();
+    textCache.evictPages(null);
     _evictSuspended(null);
   }
 
@@ -399,6 +411,7 @@ class PdfWorkerTranscriptCache {
   /// every other page's stays warm across the edit boundary. A suspended record
   /// walks the old document too, so it follows the same eviction (#530).
   void evictPages(Set<int>? pages) {
+    textCache.evictPages(pages);
     if (pages == null) {
       _entries.clear();
     } else {
