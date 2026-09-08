@@ -6,7 +6,8 @@ import 'package:dart_pdf_editor/src/region_replay_index.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
-import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+import 'fixtures/high_zoom_pdf.dart';
 
 PdfPath _rect(double l, double b, double r, double t) => PdfPath([
       PdfMoveTo(l, b),
@@ -183,7 +184,7 @@ void main() {
   testWidgets('nested masks, knockout and clips retain exact high-zoom pixels',
       (tester) async {
     await tester.runAsync(() async {
-      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final page = PdfDocument.open(buildHighZoomPagePdf()).page(0);
       final commands = <PdfRenderCommand>[
         _fill(0, 0, 612, 792, const PdfColor(.7, .85, 1)),
         const PdfSaveCommand(),

@@ -3,12 +3,13 @@ import 'dart:math' as math;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+import 'fixtures/high_zoom_pdf.dart';
 
 void main() {
   testWidgets('default zoom reaches 10000% with desktop side panels',
       (tester) async {
-    final document = PdfDocument.open(buildMultiPagePdf(1));
+    final document = PdfDocument.open(buildHighZoomPagePdf());
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
 
@@ -55,7 +56,7 @@ void main() {
         await tester.pumpWidget(MaterialApp(
           home: Scaffold(
             body: PdfViewer(
-              document: PdfDocument.open(buildMultiPagePdf(1)),
+              document: PdfDocument.open(buildHighZoomPagePdf()),
               controller: controller,
               maxZoom: maxZoom,
               pagePreviews: false,

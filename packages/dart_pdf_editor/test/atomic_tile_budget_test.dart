@@ -6,7 +6,8 @@ import 'package:dart_pdf_editor/src/region_replay_index.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
-import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+import 'fixtures/high_zoom_pdf.dart';
 
 const _paint = PdfFillPathCommand(
     PdfPath([
@@ -38,7 +39,7 @@ void main() {
   testWidgets('large groups keep selective patches without enabling tiles',
       (tester) async {
     await tester.runAsync(() async {
-      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final page = PdfDocument.open(buildHighZoomPagePdf()).page(0);
       for (final (paints, tiled) in [(40, true), (1022, true), (1023, false)]) {
         final scene = await PdfRetainedScene.fromCommands(page, _group(paints),
             includeImages: false);
@@ -66,7 +67,7 @@ void main() {
   testWidgets('tile budget counts nested mask and cell commands',
       (tester) async {
     await tester.runAsync(() async {
-      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final page = PdfDocument.open(buildHighZoomPagePdf()).page(0);
       final mask = List<PdfRenderCommand>.filled(1024, _paint);
       final cases = <List<PdfRenderCommand>>[
         [
