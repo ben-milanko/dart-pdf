@@ -6228,7 +6228,7 @@ extension PdfAnnotationEditing on PdfEditor {
           'BaseFont': CosName(baseFont),
           'Encoding': const CosName('WinAnsiEncoding'),
           'FirstChar': const CosInteger(32),
-          'LastChar': const CosInteger(126),
+          'LastChar': const CosInteger(255),
           'Widths': CosArray([for (final w in widths) CosInteger(w)]),
         }),
       });
