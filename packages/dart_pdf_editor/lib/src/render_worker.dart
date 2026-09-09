@@ -537,6 +537,13 @@ abstract class PdfRenderWorker {
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async =>
       null;
 
+  /// Raises the priority of an existing text extraction without submitting
+  /// another walk. A foreground search uses this when it joins speculative
+  /// text preparation. Lower numbers are more urgent; this never demotes work
+  /// or starts an extraction when none is pending. Custom backends may ignore
+  /// the hint. Both built-in worker backends update queued/in-flight requests.
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) {}
+
   /// Whether this backend can bind a browser-owned zero-copy page surface.
   ///
   /// True only for a live Web Worker (and wrappers/pools containing one).
@@ -1099,6 +1106,15 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) =>
       _workers[_workerForPage(pageIndex, priority: priority)]
           .extractText(pageIndex, priority: priority);
+
+  @override
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) {
+    // Text preparation can have background affinity. Do not route again at
+    // foreground priority: find the existing request without moving it.
+    for (final worker in _workers) {
+      worker.promoteTextExtraction(pageIndex, priority: priority);
+    }
+  }
 
   @override
   bool get supportsRevisionUpdate =>
@@ -1665,6 +1681,10 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   @override
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) =>
       _inner.extractText(pageIndex, priority: priority);
+
+  @override
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) =>
+      _inner.promoteTextExtraction(pageIndex, priority: priority);
 
   @override
   void dispose() {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.4.0
+
+- Align dependency constraints with the dart-pdf 4.4.0 package suite.
+
 ## 4.3.0
 
 - Align dependency constraints with the dart-pdf 4.3.0 package suite.

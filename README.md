@@ -121,8 +121,8 @@ Reproducible offline harnesses and file-by-file diffs live in
 
 ## Architecture
 
-Strictly layered packages; `dart:ui` is only allowed in `dart_pdf_editor`, so
-the core runs on servers and in plain Dart tests. Published packages use their
+Strictly layered packages; Flutter and `dart:ui` stay in the editor and its
+optional Flutter companions, so the core runs on servers and in plain Dart tests. Published packages use their
 directory name on pub.dev.
 
 | Package | pub.dev | Role |
@@ -132,6 +132,7 @@ directory name on pub.dev.
 | [`pdf_graphics`](packages/pdf_graphics) | [![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics) | Content-stream interpreter, device interface, font engine, ICC color, text extraction. |
 | [`dart_pdf_cli`](packages/dart_pdf_cli) | — | Pure-Dart `dartpdf` command line and stdio MCP server for bounded document inspection, text extraction, form listing, and annotation listing. |
 | [`dart_pdf_editor`](packages/dart_pdf_editor) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer and editing UI: canvas device, `PdfViewer`, tools, panels, forms. |
+| [`dart_pdf_printing`](packages/dart_pdf_printing) | Initial release pending | Optional print preview, sheet layout and native system printing on all six Flutter platforms. |
 | [`dart_pdf_editor_flutter_gpu`](packages/dart_pdf_editor_flutter_gpu) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_flutter_gpu.svg)](https://pub.dev/packages/dart_pdf_editor_flutter_gpu) | Experimental opt-in Impeller/`flutter_gpu` tile renderer for supported native targets, with exact Canvas fallback for unsupported pages. |
 | [`dart_pdf_editor_assets`](packages/dart_pdf_editor_assets) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_assets.svg)](https://pub.dev/packages/dart_pdf_editor_assets) | Optional bundled editor fonts + web render worker (~1.8 MB package download); depend on it and call `registerBundledEditorAssets()` for the full editor, omit for a size-minimal viewer. |
 | [`pdf_ocr_ondevice`](packages/pdf_ocr_ondevice) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_ondevice.svg)](https://pub.dev/packages/pdf_ocr_ondevice) | Optional on-device OCR engine for native Flutter apps; downloads a small PP-OCR model once and adds searchable text layers offline. |

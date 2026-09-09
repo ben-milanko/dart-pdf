@@ -63,6 +63,13 @@ class PdfBandedTranscript {
     final idx = index ??
         PdfRegionReplayIndex.build(commands, maxCommands: commands.length);
     if (!idx.supported) return null;
+    // Bands currently retain one command per unit. Region replay also accepts
+    // atomic group ranges; keep those scenes on its complete-transcript path
+    // until bands can own every command in the range, never just the opener.
+    if (idx.units
+        .any((unit) => unit.endCommandIndex != unit.commandIndex + 1)) {
+      return null;
+    }
 
     final extent = idx.xExtent;
     // A page with no drawable units (blank, or everything clipped away) still

@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.4.0
+
+- Add `RecordedText`, a text-only snapshot a device can retain while it records
+  a page, so selection and search reuse that walk instead of interpreting the
+  content stream a second time. Extraction applies the existing separator, bidi
+  and geometry logic to the snapshot.
+- Stop stretching substituted glyphs across their character spacing, so a
+  fallback glyph keeps its own advance.
+
 ## 4.3.0
 
 - Align dependency constraints with the dart-pdf 4.3.0 package suite.

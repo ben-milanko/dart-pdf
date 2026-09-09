@@ -20,6 +20,30 @@ import 'package:web/web.dart' as web;
 import 'fixtures/sparse_worker_pdf.dart';
 
 void main() {
+  test('web search promotes pending text ahead of queued renders', () async {
+    final oldUrl = pdfRenderWorkerScriptUrl;
+    pdfRenderWorkerScriptUrl = '${Uri.base.origin}'
+        '/packages/dart_pdf_editor/src/sparse_test_worker.js';
+    addTearDown(() => pdfRenderWorkerScriptUrl = oldUrl);
+    final worker = PdfRenderWorker.startUncached(sparseWorkerPdf().bytes);
+    addTearDown(worker.dispose);
+    final order = <String>[];
+    final pending = <Future<void>>[
+      worker.record(0, priority: -1).then((_) => order.add('first')),
+      for (var i = 0; i < 3; i++)
+        worker.record(0, priority: 1).then((_) => order.add('record$i')),
+      worker.extractText(2, priority: 3).then((text) {
+        expect(text!.text, contains('Page 3'));
+        order.add('text');
+      }),
+    ];
+    worker.promoteTextExtraction(2);
+    worker.promoteTextExtraction(2, priority: 9);
+    await Future.wait(pending);
+    expect(order, hasLength(5));
+    expect(order.indexOf('text'), 1);
+  });
+
   for (final shared in [false, true]) {
     test('web worker preserves sparse ranges (shared=$shared)', () async {
       final oldUrl = pdfRenderWorkerScriptUrl;

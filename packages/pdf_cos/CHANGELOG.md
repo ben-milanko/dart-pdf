@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.4.0
+
+- Accumulate numeric values in the lexer while scanning their boundaries,
+  removing a second byte pass over every number. Integer and decimal precision
+  limits and malformed-input fallback behaviour are unchanged.
+
 ## 4.3.0
 
 - Recompress Flate streams losslessly in `CosCompactor`, retaining predictor

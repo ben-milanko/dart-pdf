@@ -139,8 +139,13 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
         outline = face.outlineForGlyph(glyphId);
         final advance = face.advanceForGlyph(glyphId);
         if (outline == null || advance == null || advance <= 0) return null;
+        // The width the PDF gives this glyph, not the pen's step across it:
+        // the step carries the run's Tc, and copy-fitting shapes to it
+        // stretches a widely spaced digit to fill its gap.
+        final pdfWidth = run.glyphWidthAt(index, length);
+        if (pdfWidth == null) return null;
         naturalAdvance += advance;
-        pdfAdvance += offsets[index + length] - offsets[index];
+        pdfAdvance += pdfWidth;
       }
       resolved.add(_ResolvedGlyph(index, length, outline));
       index += length;

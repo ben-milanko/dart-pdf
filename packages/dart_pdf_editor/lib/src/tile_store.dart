@@ -77,7 +77,7 @@ class PdfTileZoomLadder {
   const PdfTileZoomLadder({
     this.stepsPerOctave = 2,
     this.minRung = -8,
-    this.maxRung = 16,
+    this.maxRung = 18,
   })  : assert(stepsPerOctave >= 1),
         assert(minRung <= 0 && maxRung >= 0);
 
@@ -87,6 +87,9 @@ class PdfTileZoomLadder {
   /// Clamp bounds so a degenerate desired ratio can't select an absurd bucket
   /// (ratio floor 0.05 / a huge accidental zoom). minRung ratio ≈ 2^(min/steps).
   final int minRung;
+
+  /// Highest resolution bucket. The default is 512 physical pixels per PDF
+  /// point, keeping a 10000% view sharp at device pixel ratios up to 5.
   final int maxRung;
 
   /// The rung whose ratio is nearest [ratio] (in log space), clamped.

@@ -88,9 +88,100 @@ void main() {
       });
     }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
+    testWidgets('Windows selects the file through the runner', (tester) async {
+      final calls = <MethodCall>[];
+      final launched = _mockUrlLauncher();
+      _mockFileAccess((call) async {
+        calls.add(call);
+        return true;
+      });
+
+      expect(
+          await openContainingFolder(r'C:\Users\ben\Desktop\copy.pdf'), isTrue);
+
+      expect(calls.single.method, 'revealFile');
+      expect(
+          calls.single.arguments, {'path': r'C:\Users\ben\Desktop\copy.pdf'});
+      // Naming the item is the whole point: no folder URL is launched, so
+      // Explorer cannot answer with a window it already had open elsewhere.
+      expect(launched, isEmpty);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('Windows falls back to the folder without a runner reveal',
+        (tester) async {
+      final launched = _mockUrlLauncher();
+      // A Dart build running against a runner that predates the reveal.
+      _mockFileAccess((call) async => throw MissingPluginException());
+
+      expect(
+          await openContainingFolder(r'C:\Users\ben\Desktop\copy.pdf'), isTrue);
+
+      expect(launched, [r'file:///C:/Users/ben/Desktop']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('Windows falls back to the folder when the reveal errors',
+        (tester) async {
+      final launched = _mockUrlLauncher();
+      // The shell could not parse the item - deleted between save and click.
+      _mockFileAccess((call) async => throw PlatformException(code: 'failed'));
+
+      expect(
+          await openContainingFolder(r'C:\Users\ben\Desktop\copy.pdf'), isTrue);
+
+      expect(launched, [r'file:///C:/Users/ben/Desktop']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('Windows falls back to the folder when Explorer refuses',
+        (tester) async {
+      final launched = _mockUrlLauncher();
+      _mockFileAccess((call) async => false);
+
+      expect(
+          await openContainingFolder(r'C:\Users\ben\Desktop\copy.pdf'), isTrue);
+
+      expect(launched, [r'file:///C:/Users/ben/Desktop']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('Linux opens the containing folder', (tester) async {
+      final launched = _mockUrlLauncher();
+
+      expect(await openContainingFolder('/home/ben/Desktop/copy.pdf'), isTrue);
+
+      expect(launched, ['file:///home/ben/Desktop']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
     testWidgets('returns false on unsupported platforms before launching',
         (tester) async {
       expect(await openContainingFolder('/Users/ben/file.pdf'), isFalse);
     }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   });
+}
+
+/// Records the URLs `launchUrl` is handed, reporting success.
+List<String> _mockUrlLauncher() {
+  final launched = <String>[];
+  const channel = MethodChannel('plugins.flutter.io/url_launcher');
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, (call) async {
+    if (call.method == 'launch') {
+      launched.add((call.arguments as Map)['url'] as String);
+    }
+    return true;
+  });
+  addTearDown(() => TestDefaultBinaryMessengerBinding
+      .instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, null));
+  return launched;
+}
+
+/// Answers the runner's file-access channel with [handler]. The channel must
+/// always be handled: an unmocked one leaves the reply pending forever under
+/// flutter_test, so a "no such method" runner is a handler returning null.
+void _mockFileAccess(Future<Object?> Function(MethodCall call) handler) {
+  const channel = MethodChannel('dev.milanko.dartpdf/file_access');
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, handler);
+  addTearDown(() => TestDefaultBinaryMessengerBinding
+      .instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, null));
 }

@@ -438,6 +438,30 @@ void main() {
       }
     });
 
+    test('glyphWidthAt takes the spacing back off the pen step', () {
+      // The pen step across a glyph is its own width plus the Tc that follows
+      // it (plus the Tw after a space). A device substituting a system font
+      // sizes its glyphs against the width the document gives them, so it
+      // needs the step without that spacing - sizing to the step is what drew
+      // a `15.137 Tc` table digit four times too wide.
+      final run = interpret('BT /F1 24 Tf 5 Tc 10 Tw 72 720 Td (ab cd) Tj ET')
+          .texts
+          .single;
+      // in em, as the offsets are (the run transform carries the 24pt size)
+      double width(int i) => run.glyphWidthAt(i, 1)! * 24;
+      expect(width(0), closeTo(measureHelvetica('a', 24), 1e-9));
+      expect(width(1), closeTo(measureHelvetica('b', 24), 1e-9));
+      expect(width(2), closeTo(measureHelvetica(' ', 24), 1e-9),
+          reason: 'the space is charged both its Tc and its Tw');
+      expect(width(4), closeTo(measureHelvetica('d', 24), 1e-9),
+          reason: 'the last glyph is charged the Tc that follows it too');
+      expect(run.glyphWidthAt(0, 2)! * 24,
+          closeTo(measureHelvetica('ab', 24) + 5, 1e-9),
+          reason: 'a multi-character span keeps its interior spacing');
+      expect(run.glyphWidthAt(5, 1), isNull, reason: 'past the last glyph');
+      expect(run.glyphWidthAt(0, 0), isNull);
+    });
+
     test('an embedded run pays for no offset table (#649)', () {
       // Its glyph list already carries the same positions, so collecting them
       // again would be a list per run for nothing.

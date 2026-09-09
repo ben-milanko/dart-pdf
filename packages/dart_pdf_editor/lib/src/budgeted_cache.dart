@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 
 /// One bounded, least-recently-used cache that every in-package cache is built
@@ -5,10 +6,10 @@ import 'dart:math' as math;
 /// place instead of being re-derived - subtly differently, and with a fresh
 /// off-by-one each time - at six call sites.
 ///
-/// A plain Dart map is insertion-ordered, so its first key is the
-/// least-recently used; a lookup or store does a remove-then-reinsert to move
-/// the entry to the most-recently-used end. Two independent bounds cap growth,
-/// either or both of which a call site may leave off:
+/// A key map provides lookups and a linked list tracks recency, so touching an
+/// entry or evicting the oldest one takes constant time even when the cache is
+/// full. Two independent bounds cap growth, either or both of which a call site
+/// may leave off:
 ///
 ///  * a **weight budget** ([maxWeight]) measured in whatever unit the
 ///    [weigher] returns - decoded image bytes, exact-raster pixels, retained
@@ -86,8 +87,11 @@ class PdfBudgetedCache<K, V> {
 
   int _maxWeight;
 
-  // LinkedHashMap insertion order is the LRU order.
-  final Map<K, _Entry<V>> _entries = {};
+  // Keep recency separately: Map.keys.last traverses the whole map, and even
+  // Map.keys.first scans deleted slots after repeated evictions. Dense path
+  // caches turn both into quadratic work once their entry budget is full.
+  final Map<K, _Entry<K, V>> _entries = {};
+  LinkedList<_Entry<K, V>> _recency = LinkedList();
   int _weight = 0;
   bool _disposed = false;
   int _hits = 0;
@@ -134,7 +138,7 @@ class PdfBudgetedCache<K, V> {
         protectMostRecent: protectMostRecent,
       );
       if (victim == null) break;
-      _removeEntry(victim, eviction: true);
+      _removeEntry(victim.key, eviction: true);
     }
   }
 
@@ -145,10 +149,10 @@ class PdfBudgetedCache<K, V> {
   int get length => _entries.length;
 
   /// The retained values, least-recently used first.
-  Iterable<V> get values => _entries.values.map((e) => e.value);
+  Iterable<V> get values => _recency.map((e) => e.value);
 
   /// The retained keys, least-recently used first.
-  Iterable<K> get keys => _entries.keys;
+  Iterable<K> get keys => _recency.map((e) => e.key);
 
   /// Lookups served from a retained value.
   int get hits => _hits;
@@ -174,13 +178,13 @@ class PdfBudgetedCache<K, V> {
   /// The value for [key] - a clone when a [cloner] was supplied, else the
   /// stored value - moved to most-recently-used, or null on a miss.
   V? take(K key) {
-    final entry = _entries.remove(key);
+    final entry = _entries[key];
     if (entry == null) {
       _misses++;
       return null;
     }
     _hits++;
-    _entries[key] = entry; // touch → most-recently-used
+    _touch(entry);
     final cloner = _cloner;
     return cloner == null ? entry.value : cloner(entry.value);
   }
@@ -201,7 +205,9 @@ class PdfBudgetedCache<K, V> {
       return value;
     }
     _removeEntry(key);
-    _entries[key] = _Entry(value, weight);
+    final entry = _Entry(key, value, weight);
+    _entries[key] = entry;
+    _recency.add(entry);
     _weight += weight;
     _trim();
     if (_clearsUnderMemoryPressure && weight > 0) {
@@ -237,20 +243,32 @@ class PdfBudgetedCache<K, V> {
   /// process-wide text-layout cache) is never disposed, so this path is a
   /// documented contract rather than a live one.
   V getOrAdd(K key, V Function() ifAbsent) {
-    final entry = _entries.remove(key);
+    final entry = _entries[key];
     if (entry != null) {
       _hits++;
-      _entries[key] = entry;
+      _touch(entry);
       return entry.value;
     }
     _misses++;
     final value = ifAbsent();
     if (_disposed) return value;
+    final inserted = _entries[key];
+    if (inserted != null && identical(inserted.value, value)) {
+      // A builder can store and return the same resource. It is already owned
+      // by this cache; replacing it would dispose the value we are returning.
+      _touch(inserted);
+      return value;
+    }
     final weight = _weigher?.call(value) ?? 0;
     if (_rejectOversize && _hasWeightBudget && weight > _maxWeight) {
       return value;
     }
-    _entries[key] = _Entry(value, weight);
+    // The builder may have populated this key reentrantly. Its displaced
+    // value must leave both the lookup map and recency list before replacement.
+    _removeEntry(key);
+    final added = _Entry(key, value, weight);
+    _entries[key] = added;
+    _recency.add(added);
     _weight += weight;
     _trim();
     if (_clearsUnderMemoryPressure && weight > 0) {
@@ -267,7 +285,7 @@ class PdfBudgetedCache<K, V> {
   /// the pages an incremental revision changed instead of clearing the whole
   /// cache. Counters and every non-matching entry are untouched.
   void evictWhere(bool Function(K key) test) {
-    final doomed = _entries.keys.where(test).toList();
+    final doomed = keys.where(test).toList();
     for (final key in doomed) {
       _removeEntry(key);
     }
@@ -282,29 +300,35 @@ class PdfBudgetedCache<K, V> {
   /// wins and the displaced value is disposed.
   void remapKeys(K Function(K key) keyFor) {
     if (_disposed || _entries.isEmpty) return;
-    final remapped = <K, _Entry<V>>{};
-    for (final entry in _entries.entries) {
+    final remapped = <K, _Entry<K, V>>{};
+    final recency = LinkedList<_Entry<K, V>>();
+    for (final entry in _recency) {
       final key = keyFor(entry.key);
       final displaced = remapped.remove(key);
       if (displaced != null) {
+        displaced.unlink();
         _weight -= displaced.weight;
         _disposer?.call(displaced.value);
       }
-      remapped[key] = entry.value;
+      final replacement = _Entry(key, entry.value, entry.weight);
+      remapped[key] = replacement;
+      recency.add(replacement);
     }
     _entries
       ..clear()
       ..addAll(remapped);
+    _recency = recency;
   }
 
   /// Empties the cache, disposing every retained value. Counters survive - a
   /// clear is a cache operation, not a fresh measurement. Any clones already
   /// handed out are unaffected.
   void clear() {
-    for (final entry in _entries.values) {
+    for (final entry in _recency) {
       _disposer?.call(entry.value);
     }
     _entries.clear();
+    _recency.clear();
     _weight = 0;
   }
 
@@ -329,12 +353,19 @@ class PdfBudgetedCache<K, V> {
   void _removeEntry(K key, {bool eviction = false}) {
     final entry = _entries.remove(key);
     if (entry == null) return;
+    entry.unlink();
     _weight -= entry.weight;
     if (eviction) {
       _evictions++;
       _onEvicted?.call(key, entry.value);
     }
     _disposer?.call(entry.value);
+  }
+
+  void _touch(_Entry<K, V> entry) {
+    if (identical(entry, _recency.last)) return;
+    entry.unlink();
+    _recency.add(entry);
   }
 
   void _trim() {
@@ -347,7 +378,7 @@ class PdfBudgetedCache<K, V> {
       while (_weight > _maxWeight) {
         final victim = _oldestEvictable(requireWeight: true);
         if (victim == null) break;
-        _removeEntry(victim, eviction: true);
+        _removeEntry(victim.key, eviction: true);
       }
     }
     // Count cap: evict the least-recently-used entries - weight-0 or not -
@@ -355,36 +386,34 @@ class PdfBudgetedCache<K, V> {
     final maxEntries = _maxEntries;
     if (maxEntries != null) {
       while (_entries.length > maxEntries) {
-        final oldest = _entries.keys.first;
-        if (oldest == _protectedKey) break;
-        _removeEntry(oldest, eviction: true);
+        // maxEntries is at least one, so an overflowing list's first entry
+        // cannot also be its protected, most-recently-used last entry.
+        _removeEntry(_recency.first.key, eviction: true);
       }
     }
   }
 
-  /// The most-recently-used key - the one eviction always protects. Null only
-  /// when the cache is empty.
-  K? get _protectedKey => _entries.isEmpty ? null : _entries.keys.last;
-
   /// The least-recently-used key eligible for weight eviction: the oldest whose
   /// weight is non-zero (when [requireWeight]) and that is not the protected
   /// most-recently-used entry. Null when no such entry exists.
-  K? _oldestEvictable({
+  _Entry<K, V>? _oldestEvictable({
     required bool requireWeight,
     bool protectMostRecent = true,
   }) {
-    final protikey = protectMostRecent ? _protectedKey : null;
-    for (final entry in _entries.entries) {
-      if (entry.key == protikey) continue;
-      if (requireWeight && entry.value.weight == 0) continue;
-      return entry.key;
+    if (_recency.isEmpty) return null;
+    final protected = protectMostRecent ? _recency.last : null;
+    for (final entry in _recency) {
+      if (identical(entry, protected)) break;
+      if (requireWeight && entry.weight == 0) continue;
+      return entry;
     }
     return null;
   }
 }
 
-class _Entry<V> {
-  _Entry(this.value, this.weight);
+final class _Entry<K, V> extends LinkedListEntry<_Entry<K, V>> {
+  _Entry(this.key, this.value, this.weight);
+  final K key;
   final V value;
   final int weight;
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Stop stretching substituted glyphs across their character spacing in the
+  outliner, matching the raster path.
+
 ## 0.3.2
 
 - Align dependency constraints with the dart-pdf 4.3.0 package suite.

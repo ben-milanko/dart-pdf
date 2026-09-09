@@ -779,8 +779,8 @@ void runPdfRenderWorker() {
     if (kind == 'extractText') {
       final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
       final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
-      // Text extraction has no cancellation seam and runs synchronously; it
-      // still lands off the UI thread here, which is the point (#396).
+      // Reuse exact metadata captured during a complete page recording. A miss
+      // still extracts synchronously off the UI thread (#396).
       activeToken = null;
       activeRequestId = id;
       () async {
@@ -791,7 +791,8 @@ void runPdfRenderWorker() {
         final doc = document;
         try {
           if (doc != null && page >= 0 && page < doc.pageCount) {
-            out = serializePageText(PdfTextExtractor.extract(doc, page));
+            out = serializePageText(transcriptCache.textCache.extract(page) ??
+                PdfTextExtractor.extract(doc, page));
           }
         } catch (e, st) {
           out = null;
@@ -1055,6 +1056,7 @@ Future<Uint8List?> _recordPageAsync(
       cos: document.cos,
       device: recorder,
       cancellation: token,
+      collectCharOffsets: previewOperationLimit == null,
     );
     final streamClock = timings == null ? null : (Stopwatch()..start());
     await interpreter.drawPageContentAsync(
@@ -1067,7 +1069,11 @@ Future<Uint8List?> _recordPageAsync(
       streamClock.stop();
       timings!.streamUs += streamClock.elapsedMicroseconds;
     }
+    if (token.cancelled) throw const PdfCancelledException();
     final interpretClock = timings == null ? null : (Stopwatch()..start());
+    if (previewOperationLimit == null) {
+      cache.textCache.record(pageIndex, recorder.commands);
+    }
     if (annotations) interpreter.drawAnnotations(page);
     if (interpretClock != null) {
       interpretClock.stop();

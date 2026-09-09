@@ -512,3 +512,13 @@ pasted, subsequent local annotation copies take precedence until it changes.
 The app includes native PDF/PNG transport on macOS, Windows, and Linux;
 mobile and web use the PNG fallback. Direct imports can use
 `editing.pasteSnapshotBytes(pdfBytes, pageIndex, at: (x, y))`.
+
+## Optional printing
+
+Add [`dart_pdf_printing`](../dart_pdf_printing) for the DartPDF print preview,
+page ranges, paper/layout settings, n-up, markup controls and native system
+printing on Android, iOS, macOS, Windows, Linux and web. It registers as a
+Flutter plugin; applications that omit it keep the viewer's dependency graph
+unchanged. Call `printPdfWithPreview(context, document: document, title: title)`
+from your Print button. See the companion package's setup and example,
+including the macOS sandbox printing entitlement.

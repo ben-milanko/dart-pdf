@@ -11,7 +11,6 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "image_clipboard.cpp"
   "main.cpp"
-  "native_print.cpp"
   "platform_channels.cpp"
   "utils.cpp"
   "windows_drop.cpp"
@@ -39,11 +38,10 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# win32_window.cpp reads the Windows light/dark preference from the registry.
+target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib")
 # image_clipboard.cpp: WIC (PNG<->DIB) plus COM stream helpers.
 target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib" "ole32.lib")
-# native_print.cpp: the print dialog (comdlg32), persisted settings (advapi32),
-# and GDI blitting (gdi32).
-target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "advapi32.lib" "gdi32.lib")
 # file_dialogs.cpp: the common-item open/save dialogs (IFileDialog lives in
 # shell32; ole32 is already linked above for COM itself).
 target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")

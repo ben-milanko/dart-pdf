@@ -14,8 +14,10 @@ name: Release Windows Store
 # documented in app/packaging/msstore/README.md.
 
 on:
-  push:
-    tags: ['app-v*']
+  # The app-v* tag trigger is retired: Storeflight's microsoft_store lane
+  # (.github/workflows/storeflight.yml) now submits this destination, and two
+  # submissions of one build collide in Partner Center. Dispatch manually to
+  # fall back to this path.
   workflow_dispatch:
     inputs:
       version:

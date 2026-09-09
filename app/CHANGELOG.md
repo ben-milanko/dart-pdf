@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.4.0
+
+- Print directly on Windows from the app's own preview: choose the printer,
+  colour, two-sided printing and paper source there, open the driver's advanced
+  properties when needed, and go straight to the queue with no second Windows
+  dialog. Print settings are remembered between jobs.
+- Move printing into the optional `dart_pdf_printing` plugin, so a host that
+  does not print no longer carries the native code for it.
+- Zoom to 10000%, with 3000%, 5000% and 10000% presets. Dense engineering
+  drawings stay responsive at extreme zoom: a small viewport now replays only
+  the commands it needs, even on pages that use transparency groups or soft
+  masks.
+- Open and scroll dense vector drawings faster, and prepare text for selection
+  and search from the render worker's own pass over the page rather than a
+  second one.
+- Add persistent vertical alignment for text form fields.
+- Reveal the saved file in File Explorer after a Save As on Windows.
+- Stop stretching substituted glyphs across their character spacing, so text
+  drawn with a fallback font keeps its intended spacing.
+
 ## 4.3.0
 
 - Split PDFs into separate documents, erase page content with rectangle or polygon

@@ -1,5 +1,6 @@
 #include "file_dialogs.h"
 
+#include <shlobj.h>
 #include <shobjidl.h>
 #include <windows.h>
 
@@ -172,6 +173,19 @@ FileDialogResult ShowOpenFileDialog(HWND owner,
 FileDialogResult ShowSaveFileDialog(HWND owner,
                                     const FileDialogRequest& request) {
   return ShowDialog(owner, request, /*save=*/true);
+}
+
+bool RevealFileInExplorer(const std::wstring& path) {
+  if (path.empty()) return false;
+  // ILCreateFromPathW resolves the path against the shell namespace, so a
+  // stale or non-filesystem path fails here rather than opening the wrong
+  // window. COM is already initialised (STA) on the platform thread by
+  // main.cpp, which is where channel calls land.
+  PIDLIST_ABSOLUTE item = ::ILCreateFromPathW(path.c_str());
+  if (item == nullptr) return false;
+  const HRESULT hr = ::SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
+  ::ILFree(item);
+  return SUCCEEDED(hr);
 }
 
 }  // namespace dart_pdf

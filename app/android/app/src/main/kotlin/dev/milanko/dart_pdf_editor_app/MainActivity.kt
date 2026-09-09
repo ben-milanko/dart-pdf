@@ -12,13 +12,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.CancellationSignal
-import android.os.ParcelFileDescriptor
-import android.print.PageRange
-import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentInfo
-import android.print.PrintManager
 import android.provider.OpenableColumns
 import android.system.ErrnoException
 import android.system.Os
@@ -33,14 +26,12 @@ import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
-import kotlin.math.roundToInt
 
 /// Forwards PDFs the OS opens in the app - a Files "open", a download tap, or a
 /// share - to the Dart `IncomingFileService` over a single method channel.
 class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private val channelName = "dev.milanko.dartpdf/incoming"
     private val imageClipboardChannelName = "dev.milanko.dartpdf/image_clipboard"
-    private val nativePrintChannelName = "dev.milanko.dartpdf/native_print"
     private val mobileFileChannelName = "dev.milanko.dartpdf/mobile_file"
     private val memoryChannelName = "dev.milanko.dartpdf/memory"
     private var channel: MethodChannel? = null
@@ -102,29 +93,6 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
                     result.error("clipboard_error", e.message, null)
                 }
             }
-        // Print without a bundled PDF engine: the Dart side hands over the whole
-        // PDF and Android's own print framework renders its vector content,
-        // keeping text selectable.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, nativePrintChannelName)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "printPdf" -> {
-                        val pdf = call.argument<ByteArray>("pdf")
-                        if (pdf == null) {
-                            result.error("bad_args", "printPdf expects pdf bytes", null)
-                        } else {
-                            result.success(printPdf(
-                                pdf, call.argument<String>("name") ?: "Document",
-                                call.argument<Boolean>("useDocumentPageSize") == true,
-                                call.argument<Number>("pageWidth")?.toDouble(),
-                                call.argument<Number>("pageHeight")?.toDouble()
-                            ))
-                        }
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-
         // Reference-based open (#364): a custom picker that keeps the original
         // content Uri instead of copying the whole file into the sandbox, plus
         // ranged reads over that Uri so a cloud pick can first-paint from a few
@@ -400,36 +368,6 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             ?: throw FileNotFoundException("Cannot open $uri")
     }
 
-    /// Hands the whole PDF to Android's print framework, which renders it.
-    /// Returns false when the print service is unavailable.
-    private fun printPdf(
-        pdf: ByteArray, name: String, useDocumentPageSize: Boolean = false,
-        pageWidth: Double? = null, pageHeight: Double? = null
-    ): Boolean {
-        val printManager =
-            getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return false
-        val attributes = PrintAttributes.Builder()
-        if (useDocumentPageSize && pageWidth != null && pageHeight != null &&
-            pageWidth.isFinite() && pageHeight.isFinite() &&
-            pageWidth > 0 && pageHeight > 0) {
-            // Android expresses media in thousandths of an inch. The adapter
-            // writes the already composed PDF verbatim; these are defaults for
-            // the print service, which still negotiates supported printer media.
-            attributes.setMediaSize(PrintAttributes.MediaSize(
-                "dartpdf-sheet", "Document sheet",
-                (pageWidth * 1000 / 72).roundToInt().coerceAtLeast(1),
-                (pageHeight * 1000 / 72).roundToInt().coerceAtLeast(1)
-            ))
-            attributes.setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-        }
-        printManager.print(
-            name,
-            PdfBytesPrintAdapter(pdf, name),
-            attributes.build()
-        )
-        return true
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -499,46 +437,5 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             return contentResolver.openInputStream(uri)?.use { it.readBytes() }
         }
         return null
-    }
-}
-
-/// A PrintDocumentAdapter that streams the document's own PDF bytes straight to
-/// Android's print spooler, which renders the vector content itself - no
-/// re-rendering, no bundled PDF engine.
-private class PdfBytesPrintAdapter(
-    private val pdf: ByteArray,
-    private val jobName: String
-) : PrintDocumentAdapter() {
-    override fun onLayout(
-        oldAttributes: PrintAttributes?,
-        newAttributes: PrintAttributes,
-        cancellationSignal: CancellationSignal?,
-        callback: LayoutResultCallback,
-        extras: Bundle?
-    ) {
-        if (cancellationSignal?.isCanceled == true) {
-            callback.onLayoutCancelled()
-            return
-        }
-        // The page count is unknown without parsing the PDF; the framework
-        // accepts PAGE_COUNT_UNKNOWN and discovers it while rendering.
-        val info = PrintDocumentInfo.Builder("$jobName.pdf")
-            .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
-            .build()
-        callback.onLayoutFinished(info, true)
-    }
-
-    override fun onWrite(
-        pageRanges: Array<out PageRange>,
-        destination: ParcelFileDescriptor,
-        cancellationSignal: CancellationSignal?,
-        callback: WriteResultCallback
-    ) {
-        try {
-            FileOutputStream(destination.fileDescriptor).use { it.write(pdf) }
-            callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
-        } catch (e: Exception) {
-            callback.onWriteFailed(e.message)
-        }
     }
 }

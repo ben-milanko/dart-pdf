@@ -18,6 +18,12 @@ extension PdfFormFilling on PdfEditor {
   /// the appearance regenerates - pass true to let long values wrap in
   /// fields authored as single-line. Null leaves the flag alone.
   ///
+  /// [verticalAlignment] saves a dart-pdf vertical placement preference for
+  /// the whole wrapped block. Null retains the saved preference, or the
+  /// legacy placement when none is saved. Pass
+  /// [PdfFormTextVerticalAlignment.legacy] to clear it in the same edit. See
+  /// [PdfFormField.textVerticalAlignment] for interoperability limits.
+  ///
   /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
   /// generated appearance replaces characters the byte-encoded
   /// appearance fonts cannot show with spaces.
@@ -25,6 +31,7 @@ extension PdfFormFilling on PdfEditor {
     PdfFormField field,
     String value, {
     bool? multiline,
+    PdfFormTextVerticalAlignment? verticalAlignment,
     PdfTextDirection textDirection = PdfTextDirection.auto,
   }) {
     _checkFillable(field, const {PdfFieldType.text});
@@ -35,9 +42,29 @@ extension PdfFormFilling on PdfEditor {
             : field.flags & ~PdfFormField.multilineFlag,
       );
     }
+    _setTextVerticalAlignment(field, verticalAlignment);
     field.dict['V'] = CosString.fromText(value);
     _regenerateVariableText(field, value, textDirection: textDirection);
     _finishFieldEdit(field);
+  }
+
+  /// Removes the saved vertical preference and regenerates all widgets
+  /// using legacy placement, without changing the value or multiline flag.
+  void clearTextFieldVerticalAlignment(PdfFormField field) {
+    _checkFillable(field, const {PdfFieldType.text});
+    _setTextVerticalAlignment(field, PdfFormTextVerticalAlignment.legacy);
+    _regenerateVariableText(field, field.value ?? '');
+    _finishFieldEdit(field);
+  }
+
+  void _setTextVerticalAlignment(
+      PdfFormField field, PdfFormTextVerticalAlignment? alignment) {
+    if (alignment == PdfFormTextVerticalAlignment.legacy) {
+      field.dict.entries.remove('DartPdfTextVerticalAlignment');
+    } else if (alignment != null) {
+      field.dict['DartPdfTextVerticalAlignment'] =
+          CosString.fromText(alignment.name);
+    }
   }
 
   /// Fills a push-button field with an image (the conventional way PDF
@@ -457,6 +484,7 @@ extension PdfFormFilling on PdfEditor {
   }) {
     final cos = document.cos;
     final da = _parseDefaultAppearance(field.defaultAppearance);
+    final verticalAlignment = field.textVerticalAlignment;
     final fontDict = _formFont(field.form, da.fontName);
     // an embedded (Type0) /DR font shows text as 2-byte glyph ids: reparse
     // its program so the appearance can encode and measure with it. A
@@ -556,8 +584,15 @@ extension PdfFormFilling on PdfEditor {
         align: align,
         padding: pad,
         lineHeight: size * lineFactor,
-        vAlign:
+        vAlign: switch (verticalAlignment) {
+          PdfFormTextVerticalAlignment.top => PdfTextBoxVAlign.top,
+          PdfFormTextVerticalAlignment.center => PdfTextBoxVAlign.centerBlock,
+          PdfFormTextVerticalAlignment.bottom => PdfTextBoxVAlign.bottomBlock,
+          PdfFormTextVerticalAlignment.legacy ||
+          null =>
             multiline ? PdfTextBoxVAlign.top : PdfTextBoxVAlign.centerLine,
+        },
+        clampVerticalAlign: verticalAlignment != null,
         clip: false,
         clampAlign: true,
         measureLine: (s) => measure(s, size),

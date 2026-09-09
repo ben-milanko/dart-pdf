@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  dart_pdf_printing
   desktop_drop
   file_selector_linux
   flutter_doc_scanner

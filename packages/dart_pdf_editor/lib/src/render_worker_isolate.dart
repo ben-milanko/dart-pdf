@@ -18,6 +18,7 @@ import 'region_replay_index.dart';
 import 'jpeg_accelerator.dart';
 import 'render_worker.dart';
 import 'render_worker_ranges.dart';
+import 'render_worker_text_cache.dart';
 import 'render_worker_transcript_cache.dart'
     show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
 
@@ -379,6 +380,20 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 
   @override
+  void promoteTextExtraction(int pageIndex, {int priority = 0}) {
+    var changed = false;
+    for (final request in [if (_inFlight != null) _inFlight!, ..._queue]) {
+      if (request.kind == _RequestKind.extractText &&
+          request.pageIndex == pageIndex &&
+          priority < request.priority) {
+        request.priority = priority;
+        changed = true;
+      }
+    }
+    if (changed) _pump();
+  }
+
+  @override
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest.extractText(priority, _seq++, pageIndex);
@@ -708,7 +723,7 @@ class _PendingRequest {
         onPartialBytes = null;
 
   final _RequestKind kind;
-  final int priority;
+  int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;
@@ -804,7 +819,8 @@ void _workerMain(_WorkerInit init) {
     document = null; // a broken document fails every page → all local renders
   }
 
-  final binCommands = _BinCommandCache();
+  final textCache = PdfWorkerTextCache();
+  final binCommands = _BinCommandCache(textCache);
   final suspendedRecord = _SuspendedRecordCache();
 
   PdfCancellationToken? activeToken;
@@ -894,6 +910,7 @@ void _workerMain(_WorkerInit init) {
         // old document too, so it follows the same eviction.
         binCommands.evictPages(incremental ? changed : null);
         suspendedRecord.evict(incremental ? changed : null);
+        textCache.evictPages(incremental ? changed : null);
       } catch (_) {
         // Malformed update: leave the document and buffer as they were and just
         // free the worker slot below so it keeps serving other pages.
@@ -957,7 +974,7 @@ void _workerMain(_WorkerInit init) {
           buffer = await _buildRegionIndexAsync(doc, binCommands, pageIndex,
               annotations, request[4] as int, request[5] as bool, token);
         } else if (kind == 'extractText') {
-          buffer = _extractTextForWorker(doc, pageIndex);
+          buffer = _extractTextForWorker(doc, textCache, pageIndex);
         } else {
           final imagePixelRatio = request[4] as double?;
           final decodeImages = request[5] as bool;
@@ -989,6 +1006,7 @@ void _workerMain(_WorkerInit init) {
               doc,
               imageCache,
               suspendedRecord,
+              textCache,
               pageIndex,
               annotations,
               imagePixelRatio,
@@ -1026,13 +1044,14 @@ void _workerMain(_WorkerInit init) {
 }
 
 /// Extracts one page's text off the UI isolate and serializes it for the wire
-/// (#396). Synchronous - [PdfTextExtractor.extract] is a single content walk
-/// with no cancellation seam - but it runs on the worker isolate, so a heavy
-/// page's extraction no longer freezes the frame; a superseded search just
-/// discards the result. Null (a bad index) declines to a local extraction.
-Uint8List? _extractTextForWorker(PdfDocument document, int pageIndex) {
+/// (#396). A complete render supplies exact text metadata, avoiding another
+/// content walk. Cache misses still extract synchronously off the UI isolate.
+/// Null (a bad index) declines to a local extraction.
+Uint8List? _extractTextForWorker(
+    PdfDocument document, PdfWorkerTextCache textCache, int pageIndex) {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
-  return serializePageText(PdfTextExtractor.extract(document, pageIndex));
+  return serializePageText(textCache.extract(pageIndex) ??
+      PdfTextExtractor.extract(document, pageIndex));
 }
 
 /// Records one page into a serialized command buffer, yielding periodically
@@ -1048,6 +1067,7 @@ Future<Uint8List?> _recordPageAsync(
     PdfDocument document,
     PdfImageDecodeCache imageCache,
     _SuspendedRecordCache suspended,
+    PdfWorkerTextCache textCache,
     int pageIndex,
     bool annotations,
     double? imagePixelRatio,
@@ -1064,17 +1084,33 @@ Future<Uint8List?> _recordPageAsync(
   // record builds (#564 pt4). A bounded prefix (commandLimit set) stays on the
   // simple one-shot path; it is already cheap and does not stream.
   if (decodeImages || (onPartial != null && commandLimit == null)) {
-    return _recordResumablePage(document, imageCache, suspended, pageIndex,
-        annotations, imagePixelRatio, commandLimit, imageDecodeRegion, token,
-        decodeImages: decodeImages, onPartial: onPartial);
+    return _recordResumablePage(
+        document,
+        imageCache,
+        suspended,
+        textCache,
+        pageIndex,
+        annotations,
+        imagePixelRatio,
+        commandLimit,
+        imageDecodeRegion,
+        token,
+        decodeImages: decodeImages,
+        onPartial: onPartial);
   }
 
   final page = document.page(pageIndex);
   final recorder = RecordingPdfDevice();
-  final interpreter =
-      PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
+  final interpreter = PdfInterpreter(
+    cos: document.cos,
+    device: recorder,
+    cancellation: token,
+    collectCharOffsets: commandLimit == null,
+  );
   await interpreter.drawPageContentAsync(page, page.contentBytes(),
       operationLimit: commandLimit);
+  if (token.cancelled) throw const PdfCancelledException();
+  if (commandLimit == null) textCache.record(pageIndex, recorder.commands);
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
       cos: document.cos,
@@ -1120,6 +1156,7 @@ Future<Uint8List?> _recordResumablePage(
     PdfDocument document,
     PdfImageDecodeCache imageCache,
     _SuspendedRecordCache suspended,
+    PdfWorkerTextCache textCache,
     int pageIndex,
     bool annotations,
     double? imagePixelRatio,
@@ -1138,7 +1175,11 @@ Future<Uint8List?> _recordResumablePage(
   if (entry == null) {
     final page = document.page(pageIndex);
     final recorder = RecordingPdfDevice();
-    final interpreter = PdfInterpreter(cos: document.cos, device: recorder);
+    final interpreter = PdfInterpreter(
+      cos: document.cos,
+      device: recorder,
+      collectCharOffsets: true,
+    );
     final walk = interpreter.beginPageContent(page, page.contentBytes());
     entry = _SuspendedRecord(
         pageIndex, annotations, page, recorder, interpreter, walk);
@@ -1192,6 +1233,8 @@ Future<Uint8List?> _recordResumablePage(
     if (partial != null) onPartial(partial);
   }
 
+  if (token.cancelled) throw const PdfCancelledException();
+  textCache.record(pageIndex, entry.recorder.commands);
   if (annotations) entry.interpreter.drawAnnotations(entry.page);
   // A fused progressive full record uses the same content walk for first ink
   // and final pixels. Ship the complete image-free transcript before the
@@ -1466,6 +1509,9 @@ Future<Uint8List?> _buildRegionIndexAsync(
 /// and never ask for worker plans anyway. A command-slot budget supplements
 /// the two-entry cap while always retaining the most recently used page.
 class _BinCommandCache {
+  _BinCommandCache(this.textCache);
+
+  final PdfWorkerTextCache textCache;
   final _entries = <(int, bool), _BinCommandEntry>{};
   static const int _capacity = 2;
   static const int _maxRetainedCommands = 250000;
@@ -1525,8 +1571,14 @@ class _BinCommandCache {
     final page = document.page(pageIndex);
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
-        cos: document.cos, device: recorder, cancellation: token);
+      cos: document.cos,
+      device: recorder,
+      cancellation: token,
+      collectCharOffsets: true,
+    );
     await interpreter.drawPageContentAsync(page, page.contentBytes());
+    if (token.cancelled) throw const PdfCancelledException();
+    textCache.record(pageIndex, recorder.commands);
     if (annotations) interpreter.drawAnnotations(page);
     final buffer = serializeCommands(recorder.commands,
         cos: document.cos,

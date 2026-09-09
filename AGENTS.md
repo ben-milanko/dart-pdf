@@ -17,8 +17,10 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 
 `pdf_cos` ← `pdf_document` ← `pdf_graphics` ← `dart_pdf_editor`
 
-- `dart:ui` and Flutter imports are **only** allowed in `dart_pdf_editor`.
-  Everything else must run on the Dart VM (server/CLI/tests) and on the web.
+- `dart:ui` and Flutter imports belong in `dart_pdf_editor` and optional
+  Flutter companion packages (including `dart_pdf_printing`). The core
+  `pdf_cos`, `pdf_document`, and `pdf_graphics` packages must run on the
+  Dart VM (server/CLI/tests) and on the web.
 - `dart:io` is not allowed anywhere in `lib/` (web support); use
   `package:archive` for compression.
 - `pdf_cos` knows nothing about pages or rendering - only the COS object

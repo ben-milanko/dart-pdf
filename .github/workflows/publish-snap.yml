@@ -1,8 +1,9 @@
 name: Publish Snap Store
 
 on:
-  release:
-    types: [published]
+  # The release trigger is retired: Storeflight's snap lane
+  # (.github/workflows/storeflight.yml) now publishes to the Snap Store.
+  # Dispatch manually to fall back to this path.
   workflow_dispatch:
     inputs:
       version:

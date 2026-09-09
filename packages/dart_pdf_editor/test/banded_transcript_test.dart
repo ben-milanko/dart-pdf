@@ -113,10 +113,23 @@ PdfRect _pageSpaceRegion(PdfPage page, PdfPageRenderPlan plan, Rect region) {
 }
 
 void main() {
+  test('bands decline atomic groups instead of retaining only their opener',
+      () {
+    final commands = <PdfRenderCommand>[
+      const PdfBeginGroupCommand(.5, isolated: true),
+      _box(0, 400, 80, 480, const PdfColor(1, 0, 0)),
+      const PdfEndGroupCommand(),
+    ];
+    final index = PdfRegionReplayIndex.build(commands, maxCommands: 100);
+    expect(index.supported, isTrue);
+    expect(PdfBandedTranscript.build(commands, bandCount: 2, index: index),
+        isNull);
+  });
+
   testWidgets('bands partition the transcript along the X pan axis',
       (tester) async {
-    final index = PdfRegionReplayIndex.build(_wideTranscript(),
-        maxCommands: 1 << 20);
+    final index =
+        PdfRegionReplayIndex.build(_wideTranscript(), maxCommands: 1 << 20);
     expect(index.supported, isTrue);
 
     // 10 strips over the 0..1000 X extent. The histogram counts each unit once
@@ -131,8 +144,7 @@ void main() {
     expect(bands.residentBandCount, 10);
     // The wide stroke is retained by every strip it spans, so summed strip
     // lengths exceed the distinct unit count - but the byte estimate dedupes.
-    final summedUnits =
-        bands.bands.fold<int>(0, (n, b) => n + b.unitCount);
+    final summedUnits = bands.bands.fold<int>(0, (n, b) => n + b.unitCount);
     expect(summedUnits, greaterThan(index.units.length));
   });
 
@@ -141,8 +153,8 @@ void main() {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final commands = _wideTranscript();
-      final scene =
-          await PdfRetainedScene.fromCommands(page, commands, includeImages: false);
+      final scene = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: false);
       addTearDown(scene.dispose);
       final bands = PdfBandedTranscript.build(commands, bandCount: 10)!;
 
@@ -178,7 +190,8 @@ void main() {
         reason: 'evicting offscreen strips must lower retained bytes');
 
     // A viewport that pans into an evicted strip is reported as incomplete.
-    final missing = bands.missingBandsForRegion(const PdfRect(600, 0, 900, 1000));
+    final missing =
+        bands.missingBandsForRegion(const PdfRect(600, 0, 900, 1000));
     expect(missing, isNotEmpty);
   });
 
@@ -187,8 +200,8 @@ void main() {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final commands = _wideTranscript();
-      final scene =
-          await PdfRetainedScene.fromCommands(page, commands, includeImages: false);
+      final scene = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: false);
       addTearDown(scene.dispose);
       final size = const PdfPageRenderPlan().pageSize(page);
 
@@ -250,7 +263,8 @@ void main() {
     expect(bands.residentBandCount, 0);
     expect(bands.estimatedResidentBytes, 0);
     // Every strip the page covers is now missing.
-    expect(bands.missingBandsForRegion(PdfRect(bands.xMin, 0, bands.xMax, 1000)),
+    expect(
+        bands.missingBandsForRegion(PdfRect(bands.xMin, 0, bands.xMax, 1000)),
         isNotEmpty);
   });
 
@@ -285,8 +299,7 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
-      final scene = await PdfRetainedScene.fromCommands(
-          page, _wideTranscript(),
+      final scene = await PdfRetainedScene.fromCommands(page, _wideTranscript(),
           includeImages: false);
       addTearDown(scene.dispose);
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/foundation.dart';
@@ -218,6 +219,7 @@ class _DartPdfWindow extends StatelessWidget {
         localizationsDelegates: const [
           ...AppLocalizations.localizationsDelegates,
           DartPdfEditorLocalizations.delegate,
+          DartPdfPrintingLocalizations.delegate,
         ],
         supportedLocales: AppLocalizations.supportedLocales,
         // The effective locale (DevTools override, else the persisted Settings

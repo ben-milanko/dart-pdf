@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.4.0
+
+- Regenerate the bundled web render worker for dart_pdf_editor 4.4.0 and align the optional assets with the package suite.
+
 ## 4.3.0
 
 - Regenerate the bundled web render worker for dart_pdf_editor 4.3.0 and align the optional assets with the package suite.

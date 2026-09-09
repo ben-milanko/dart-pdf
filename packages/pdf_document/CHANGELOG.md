@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.4.0
+
+- Add persistent vertical alignment for text form fields. `PdfFormField`
+  carries the alignment, `form_editor` regenerates appearances with it, and it
+  survives a round trip through the document.
+
 ## 4.3.0
 
 - Add `PdfVectorSnapshot.toPdfBytes` and `fromPdfBytes` for detached, single-page

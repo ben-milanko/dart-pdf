@@ -193,6 +193,42 @@ class PdfTextRun {
   /// must fall back to interpolating across [width] when it is absent.
   final List<double>? charOffsets;
 
+  /// The width the PDF gives the glyph starting at [index] and spanning
+  /// [length] code units, in em, with this run's spacing taken back off - the
+  /// glyph's own advance rather than the pen's.
+  ///
+  /// [charOffsets] are pen positions, so a step across one glyph carries the
+  /// [letterSpacing] (and, after a space, the [wordSpacing]) that follows it.
+  /// Spacing is not shape. A device substituting a system font sizes its
+  /// glyphs by measuring them against the width the document gives them, and
+  /// measuring against the pen step instead stretches the shapes to swallow
+  /// the gap: `( 3)Tj` under a `15.137 Tc` - how a CAD export reaches the next
+  /// table column - is a digit 0.556 em wide inside a 2.24 em step, and comes
+  /// out four times too wide. Placement still uses the offsets themselves, so
+  /// the spacing stays in the geometry where it belongs.
+  ///
+  /// Returns null when there is no offset table to read, or when [index] and
+  /// [length] fall outside it. Never negative: a Tc tight enough to walk the
+  /// pen backwards clamps to 0. One character code can map to several
+  /// characters through /ToUnicode, and the interpreter splits such a code's
+  /// advance evenly across them; each piece is then charged the spacing once,
+  /// which understates a spaced ligature's pieces.
+  double? glyphWidthAt(int index, int length) {
+    final offsets = charOffsets;
+    if (offsets == null ||
+        index < 0 ||
+        length <= 0 ||
+        index + length >= offsets.length) {
+      return null;
+    }
+    var spacing = letterSpacing;
+    if (length == 1 && index < text.length && text.codeUnitAt(index) == 0x20) {
+      spacing += wordSpacing;
+    }
+    final step = offsets[index + length] - offsets[index];
+    return step > spacing ? step - spacing : 0.0;
+  }
+
   bool get hasOutlines =>
       glyphs != null && glyphs!.any((g) => g.outline != null);
 }

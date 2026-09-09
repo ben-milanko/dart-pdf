@@ -305,7 +305,7 @@ void main() {
     });
   });
 
-  testWidgets('groups and over-budget transcripts fall back to full replay',
+  testWidgets('atomic groups are selective; over-budget transcripts fall back',
       (tester) async {
     await tester.runAsync(() async {
       final previousMax = PdfRetainedScene.spatialRegionReplayMaxCommands;
@@ -335,8 +335,10 @@ void main() {
         pixelRatio: 2,
       );
       image.dispose();
-      expect(grouped.debugLastRegionReplayWasSelective, isFalse);
-      expect(grouped.debugRegionReplaySupported, isFalse);
+      expect(grouped.debugLastRegionReplayWasSelective, isTrue);
+      expect(grouped.debugRegionReplaySupported, isTrue);
+      expect(grouped.debugLastRegionReplayCommandCount, 3,
+          reason: 'the complete group is replayed as one atomic unit');
 
       // Over BOTH ceilings (linear and grid): genuine full-replay fallback.
       PdfRetainedScene.spatialRegionReplayMaxCommands = 1;

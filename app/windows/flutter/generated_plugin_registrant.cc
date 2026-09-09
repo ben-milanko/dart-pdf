@@ -6,6 +6,7 @@
 
 #include "generated_plugin_registrant.h"
 
+#include <dart_pdf_printing/dart_pdf_printing_plugin_c_api.h>
 #include <desktop_drop/desktop_drop_plugin.h>
 #include <file_selector_windows/file_selector_windows.h>
 #include <flutter_doc_scanner/flutter_doc_scanner_plugin_c_api.h>
@@ -14,6 +15,8 @@
 #include <url_launcher_windows/url_launcher_windows.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
+  DartPdfPrintingPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("DartPdfPrintingPluginCApi"));
   DesktopDropPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("DesktopDropPlugin"));
   FileSelectorWindowsRegisterWithRegistrar(

@@ -4,8 +4,9 @@ name: Publish Flatpak repository
 # published app release is the source of truth: drafts are not distributed,
 # and the release asset digest is checked before any package is signed.
 on:
-  release:
-    types: [published]
+  # The release trigger is retired: Storeflight's flatpak delivery
+  # dispatches this workflow explicitly with the release's own source sha,
+  # so a release-published trigger would publish the same version twice.
   workflow_dispatch:
     inputs:
       version:
@@ -66,10 +67,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/flatpak-input"
-          gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern dartpdf-linux-x64.tar.gz \
-            --dir "$RUNNER_TEMP/flatpak-input"
+          # The Linux tarball is attached by release-app.yml, which is a
+          # separate workflow started by the same tag, so it can still be
+          # uploading when this runs. Wait for the asset rather than reading
+          # its absence as a missing build.
+          for attempt in $(seq 1 20); do
+            if gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern dartpdf-linux-x64.tar.gz \
+              --dir "$RUNNER_TEMP/flatpak-input" 2>/dev/null; then
+              break
+            fi
+            if [[ $attempt -eq 20 ]]; then
+              echo "::error::dartpdf-linux-x64.tar.gz never appeared on" \
+                "$RELEASE_TAG after 10 minutes; release-app.yml attaches it." >&2
+              exit 1
+            fi
+            sleep 30
+          done
           expected="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
             --jq '.assets[] | select(.name == "dartpdf-linux-x64.tar.gz") | .digest')"
           actual="sha256:$(sha256sum "$RUNNER_TEMP/flatpak-input/dartpdf-linux-x64.tar.gz" | cut -d' ' -f1)"

@@ -158,6 +158,10 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Test dart_pdf_printing
+        working-directory: packages/dart_pdf_printing
+        run: flutter test
+
       - name: Test DartPDF app
         working-directory: app
         run: flutter test --coverage
@@ -674,6 +678,22 @@ jobs:
         run: >-
           flutter test --platform chrome --no-cross-origin-isolation
           test/render_worker_sparse_web_test.dart test/compression_worker_test.dart
+          test/render_worker_text_reuse_test.dart
+          --reporter expanded
+      - name: Test high-zoom tiles and atomic region replay in Chrome
+        working-directory: packages/dart_pdf_editor
+        run: >-
+          flutter test --platform chrome --no-cross-origin-isolation
+          test/high_zoom_tiles_test.dart test/high_zoom_range_test.dart
+          test/atomic_region_replay_test.dart test/atomic_tile_budget_test.dart
+          test/tile_pacing_test.dart
+          --reporter expanded
+      - name: Test high-zoom tiles and atomic region replay in Chrome
+        working-directory: packages/dart_pdf_editor
+        run: >-
+          flutter test --platform chrome --no-cross-origin-isolation
+          test/high_zoom_tiles_test.dart test/high_zoom_range_test.dart
+          test/atomic_region_replay_test.dart test/atomic_tile_budget_test.dart
           --reporter expanded
 
   # Build the Linux desktop target and validate its desktop-integration files.
@@ -795,3 +815,41 @@ jobs:
             }
           }
           Write-Host 'msix_config OK'
+
+  print-plugin-registration:
+    name: Print plugin / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+      - name: Install desktop dependencies and virtual display
+        if: runner.os == 'Linux'
+        # dart_pdf_editor includes secure storage; a fresh host needs its
+        # libsecret/jsoncpp dependencies as well as Flutter's GTK toolchain.
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libgtk-3-dev libsecret-1-dev libjsoncpp-dev ninja-build xvfb
+      - name: Resolve workspace packages
+        run: flutter pub get
+      - name: Test a fresh desktop host
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            xvfb-run -a tool/test_print_plugin.sh "${{ matrix.platform }}"
+          else
+            tool/test_print_plugin.sh "${{ matrix.platform }}"
+          fi

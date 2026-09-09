@@ -95,6 +95,18 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="4.4.0" date="2026-09-09">
+      <description>
+        <ul>
+          <li>Print directly on Windows, and keep your print settings between jobs.</li>
+          <li>Zoom in to 10000%, with presets for the closest views.</li>
+          <li>Open and scroll dense vector drawings faster.</li>
+          <li>Select and search text sooner on heavy pages.</li>
+          <li>Set vertical alignment for text form fields.</li>
+          <li>Show the saved file in File Explorer after a Save As.</li>
+        </ul>
+      </description>
+    </release>
     <release version="4.3.0" date="2026-09-06">
       <description>
         <ul>

@@ -4676,8 +4676,8 @@ class _PdfPageViewState extends State<PdfPageView>
 
   /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
   /// detail for this page: the flag is on and the retained scene is
-  /// region-cullable (soft-mask/group spans keep the legacy single-patch
-  /// path).
+  /// region-cullable with bounded atomic groups. Large indivisible compositing
+  /// groups keep a single detail patch to avoid replaying them for every tile.
   ///
   /// A vector-only progressive scene is eligible too - on the dense CAD pages
   /// the pyramid targets, the full image-bearing record may never land during
@@ -4701,11 +4701,14 @@ class _PdfPageViewState extends State<PdfPageView>
     // UI isolate: defer the tile path until the warmed index is resident (built
     // on the render worker when eligible - see [_warmRegionIndexIfNeeded]).
     // Until then the base raster / single detail patch covers the view. Pages
-    // below the grid ceiling keep the cheap synchronous linear build.
+    // below the grid threshold keep the cheap synchronous linear build.
     if (scene.regionIndexBuildIsHeavy && !scene.debugHasRegionReplayIndex) {
       return 'index-warming';
     }
-    return scene.supportsRegionRaster ? 'active' : 'unsupported-scene';
+    if (!scene.supportsRegionRaster) return 'unsupported-scene';
+    return scene.supportsTiledRegionRaster
+        ? 'active'
+        : 'large-compositing-group';
   }
 
   /// Kicks the region-replay index build onto the render worker when the page
@@ -5189,7 +5192,14 @@ class _PdfPageViewState extends State<PdfPageView>
         : null;
     final tileDetailScene = _tileDetailScene;
     final sessionCap = scheduling?.maxNewTilesPerPaint;
-    final sceneCap = scene.regionIndexBuildIsHeavy ? 1 : null;
+    // A grid is useful well below the old linear ceiling, but building that
+    // index off-thread does not imply an expensive tile replay. Keep ordinary
+    // slab batching for those medium scenes; reserve one-tile admission for
+    // transcripts that exceed the original linear retention ceiling.
+    final sceneCap =
+        scene.commands.length > PdfRetainedScene.spatialRegionReplayMaxCommands
+            ? 1
+            : null;
     final stripCap = _stripReplayScene(tileDetailScene ?? scene)
         ? PdfPageView.stripTileMaxNewTilesPerPaint
         : null;
@@ -5229,10 +5239,10 @@ class _PdfPageViewState extends State<PdfPageView>
         persistence: _tilePersistence,
         canRasterize: _tileRegionRasterizable,
         batchRasters: scheduling?.batchAdjacentTiles,
-        // A grid-indexed CAD scene can select tens of thousands of commands
-        // across one viewport slab, so it admits one tile per paint. A
-        // strip-routed scene keeps a four-tile batch: eight center-out misses
-        // formed a sparse 4x3 slab and made its oversized readback one UI-frame
+        // A CAD scene above the linear command ceiling can select tens of
+        // thousands of commands across one slab, so it admits one tile per
+        // paint. A strip-routed scene keeps a four-tile batch: eight center-out
+        // misses formed a sparse 4x3 slab and made its readback one UI-frame
         // stall. Tile completion repaints advance both paths center-out;
         // ordinary scenes retain the lower-overhead eight-tile batch.
         maxNewTilesPerPaint: maxNewTiles,

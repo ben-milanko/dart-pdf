@@ -10,6 +10,7 @@ import 'interpreter.dart';
 import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'recorded_text.dart';
 import 'shading.dart';
 
 final _bidiFormattingControls =
@@ -501,6 +502,20 @@ class PdfTextExtractor {
     }
   }
 
+  /// Reuses text from a completed page recording without interpreting again.
+  ///
+  /// Applies the same separators, bidirectional ordering, and selection
+  /// geometry as [extract]. See [PdfRecordedText.capture] for the recording
+  /// requirements and the page-content-only capture boundary.
+  static PdfPageText fromRecordedText(PdfRecordedText recorded, int pageIndex) {
+    final t0 = PdfPerf.begin();
+    try {
+      return _pageTextFrom(pageIndex, recorded.runs);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.textExtract, t0);
+    }
+  }
+
   static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
     final device = _ExtractionDevice();
     // Extraction reads geometry and Unicode, never colour, so the overprint
@@ -516,7 +531,8 @@ class PdfTextExtractor {
     return device;
   }
 
-  static PdfPageText _pageTextFrom(int pageIndex, List<PdfTextRun> deviceRuns) {
+  static PdfPageText _pageTextFrom(
+      int pageIndex, Iterable<PdfTextRun> deviceRuns) {
     final buffer = StringBuffer();
     final runs = <PdfExtractedRun>[];
     final line = <_SourceRun>[];

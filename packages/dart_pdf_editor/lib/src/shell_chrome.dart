@@ -1179,7 +1179,19 @@ class PdfShellZoomControl extends StatefulWidget {
 }
 
 class _PdfShellZoomControlState extends State<PdfShellZoomControl> {
-  static const List<double> _presets = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+  static const List<double> _presets = [
+    0.5,
+    0.75,
+    1,
+    1.25,
+    1.5,
+    2,
+    3,
+    4,
+    30,
+    50,
+    100,
+  ];
 
   @override
   void initState() {

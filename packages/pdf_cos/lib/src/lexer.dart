@@ -135,17 +135,32 @@ class CosLexer {
   }
 
   CosToken _number(int start, CosTokenBuffer? reuse) {
-    // Content streams are number-dense (every coordinate, colour, index), so
-    // this is the tokenizer's hottest path. Scan the digit/sign/dot run once
-    // and parse straight from the bytes - no per-char StringBuffer.
-    var isReal = false;
-    var p = position;
+    // Accumulate the mantissa while finding the token boundary. CAD exports
+    // contain millions of coordinates; scanning each number again to parse it
+    // needlessly doubles the byte walk on the tokenizer's hottest path.
+    var p = start;
+    final first = bytes[p];
+    final negative = first == 0x2D;
+    if (negative || first == 0x2B) p++;
+    var mantissa = 0;
+    var digits = 0;
+    var dot = -1;
+    var valid = true;
     while (p < bytes.length) {
       final b = bytes[p];
-      if (_isDigit(b) || b == 0x2B || b == 0x2D) {
-        // digit or sign
+      final digit = b - 0x30;
+      if (digit >= 0 && digit <= 9) {
+        // Eighteen decimal digits fit in int64. Longer values use the exact
+        // string fallback below; don't let their unused accumulator overflow.
+        if (digits < 18) mantissa = mantissa * 10 + digit;
+        digits++;
       } else if (b == 0x2E) {
-        isReal = true;
+        if (dot >= 0) valid = false;
+        dot = p;
+      } else if (b == 0x2B || b == 0x2D) {
+        // Embedded signs belong to the same malformed token, matching the
+        // ordinary parser's error boundary ("1-2" must not become 1 and -2).
+        valid = false;
       } else {
         break;
       }
@@ -153,100 +168,44 @@ class CosLexer {
     }
     position = p;
 
-    if (!isReal) {
-      // Parse the integer directly when it can't overflow (≤18 digits); this
-      // is bit-for-bit identical to int.tryParse over the same byte range.
-      final v = _parseIntRange(start, p);
-      if (v != null) return _token(reuse, CosTokenType.integer, start, v);
-      // Overflowing or malformed: fall back to the exact string semantics.
+    if (dot < 0) {
+      if (valid && digits > 0 && digits <= 18) {
+        return _token(reuse, CosTokenType.integer, start,
+            negative ? -mantissa : mantissa);
+      }
       final raw = String.fromCharCodes(bytes, start, p);
-      final iv = int.tryParse(raw);
-      if (iv == null) throw CosParseException('malformed number "$raw"', start);
-      return _token(reuse, CosTokenType.integer, start, iv);
+      final value = int.tryParse(raw);
+      if (value == null) {
+        throw CosParseException('malformed number "$raw"', start);
+      }
+      return _token(reuse, CosTokenType.integer, start, value);
     }
 
-    // PDF reals have no exponent (§7.3.3): sign, digits, one dot. With ≤15
-    // significant digits, digits/10^frac is one exact integer divided by one
-    // exact power of ten - a single correctly-rounded division, bit-for-bit
-    // identical to double.parse - without the string allocation. Content
-    // streams are real-dense (every coordinate), so this is hot.
-    final fast = _parseRealRange(start, p);
-    if (fast != null) return _token(reuse, CosTokenType.real, start, fast);
+    // With at most 15 digits both integers in mantissa / 10^fraction are
+    // exact doubles. One correctly-rounded division matches double.parse,
+    // including a signed zero. Longer or malformed reals retain its string
+    // semantics instead of trading precision for the fast path.
+    if (valid && digits > 0 && digits <= 15) {
+      final value = mantissa / _pow10[p - dot - 1];
+      return _token(reuse, CosTokenType.real, start, negative ? -value : value);
+    }
 
     final raw = String.fromCharCodes(bytes, start, p);
     var s = raw;
     if (s.startsWith('.')) s = '0$s';
     if (s.startsWith('-.')) s = '-0${s.substring(1)}';
     if (s.endsWith('.')) s = '${s}0';
-    final v = double.tryParse(s);
-    if (v == null) throw CosParseException('malformed number "$raw"', start);
-    return _token(reuse, CosTokenType.real, start, v);
+    final value = double.tryParse(s);
+    if (value == null) {
+      throw CosParseException('malformed number "$raw"', start);
+    }
+    return _token(reuse, CosTokenType.real, start, value);
   }
 
   static const List<double> _pow10 = [
     1.0, 10.0, 100.0, 1e3, 1e4, 1e5, 1e6, 1e7, //
     1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
   ];
-
-  /// Parses the real in `bytes[start..end)` when it is a plain
-  /// `sign? digits* ('.' digits*)?` with ≤15 total digits; null otherwise
-  /// (multiple dots, embedded signs, digit-heavy) so the caller can fall
-  /// back to the string path with identical semantics.
-  double? _parseRealRange(int start, int end) {
-    var i = start;
-    var negative = false;
-    final first = bytes[i];
-    if (first == 0x2B || first == 0x2D) {
-      negative = first == 0x2D;
-      i++;
-    }
-    var digits = 0;
-    var nDigits = 0;
-    var fracCount = 0;
-    var sawDot = false;
-    var sawDigit = false;
-    for (; i < end; i++) {
-      final b = bytes[i];
-      if (b == 0x2E) {
-        if (sawDot) return null;
-        sawDot = true;
-      } else {
-        final d = b - 0x30;
-        if (d < 0 || d > 9) return null;
-        digits = digits * 10 + d;
-        nDigits++;
-        if (sawDot) fracCount++;
-        sawDigit = true;
-      }
-    }
-    if (!sawDigit || nDigits > 15) return null;
-    final v = digits / _pow10[fracCount];
-    return negative ? -v : v;
-  }
-
-  /// Parses the integer in `bytes[start..end)` exactly as
-  /// `int.tryParse(String.fromCharCodes(bytes, start, end))` would - an
-  /// optional leading `+`/`-` then digits - but without allocating a string.
-  /// Returns null for malformed input or a mantissa long enough to risk
-  /// 64-bit overflow (≥19 digits), so the caller can fall back to the string
-  /// path with identical semantics.
-  int? _parseIntRange(int start, int end) {
-    var i = start;
-    var negative = false;
-    final first = bytes[i];
-    if (first == 0x2B || first == 0x2D) {
-      negative = first == 0x2D;
-      i++;
-    }
-    if (i >= end || end - i > 18) return null; // empty mantissa, or too long
-    var value = 0;
-    for (; i < end; i++) {
-      final d = bytes[i] - 0x30;
-      if (d < 0 || d > 9) return null; // embedded sign or junk
-      value = value * 10 + d;
-    }
-    return negative ? -value : value;
-  }
 
   CosToken _literalString(int start, CosTokenBuffer? reuse) {
     position++; // (

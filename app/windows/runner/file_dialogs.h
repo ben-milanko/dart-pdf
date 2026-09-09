@@ -51,6 +51,18 @@ FileDialogResult ShowOpenFileDialog(HWND owner,
 FileDialogResult ShowSaveFileDialog(HWND owner,
                                     const FileDialogRequest& request);
 
+// Opens |path|'s folder in File Explorer with the file itself selected, the
+// way Finder's "Reveal in Finder" behaves. Returns false when the path cannot
+// be parsed by the shell (it no longer exists, or is not a filesystem path) or
+// Explorer refuses the request, which lets the Dart side fall back to plainly
+// launching the containing folder.
+//
+// Shell-executing a `file:` URL for the folder - what url_launcher does - is a
+// navigation request Explorer may serve from a window it already has, so it
+// could surface a folder the user was looking at earlier instead of this one.
+// SHOpenFolderAndSelectItems names the item, so there is nothing to guess.
+bool RevealFileInExplorer(const std::wstring& path);
+
 }  // namespace dart_pdf
 
 #endif  // RUNNER_FILE_DIALOGS_H_

@@ -21,6 +21,7 @@ on:
       - 'pdf_graphics-v*'
       - 'dart_pdf_cli-v*'
       - 'dart_pdf_editor-v*'
+      - 'dart_pdf_printing-v*'
       - 'dart_pdf_editor_flutter_gpu-v*'
       - 'dart_pdf_editor_assets-v*'
       - 'pdf_ocr_vlm-v*'
@@ -96,6 +97,11 @@ jobs:
               package="dart_pdf_editor"
               directory="packages/dart_pdf_editor"
               version="${tag#dart_pdf_editor-v}"
+              ;;
+            dart_pdf_printing-v*)
+              package="dart_pdf_printing"
+              directory="packages/dart_pdf_printing"
+              version="${tag#dart_pdf_printing-v}"
               ;;
             dart_pdf_editor_flutter_gpu-v*)
               package="dart_pdf_editor_flutter_gpu"
@@ -278,3 +284,14 @@ jobs:
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_ondevice
+
+  publish-dart-pdf-printing:
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'dart_pdf_printing' && needs.check-publish-needed.outputs.publish_needed == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    with:
+      environment: pub.dev
+      working-directory: packages/dart_pdf_printing

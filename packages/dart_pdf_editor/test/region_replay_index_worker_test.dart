@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/region_replay_index.dart';
+import 'package:dart_pdf_editor/src/render_worker_transcript_cache.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -54,7 +55,8 @@ class _RoundTripIndexWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override
@@ -101,13 +103,37 @@ void main() {
     PdfRetainedScene.spatialRegionReplayMaxCommands = prevCeil;
   });
 
+  test('dense detail selection reuses the worker grid at the scene budget', () {
+    final commands = List<PdfRenderCommand>.generate(
+        pdfDetailRegionGridMinCommands,
+        (i) => PdfFillPathCommand(
+            PdfPath([
+              PdfMoveTo(i.toDouble(), 0),
+              PdfLineTo(i + 1.0, 0),
+              PdfLineTo(i + 1.0, 1),
+              const PdfClosePath()
+            ]),
+            const PdfColor(1, 0, 0),
+            PdfFillRule.nonzero,
+            1));
+    final transcript = PdfWorkerTranscript(commands, commands);
+    final index = transcript.regionIndex(
+        maxCommands: pdfDetailRegionLinearMaxCommands, buildGrid: true);
+    expect(index.grid, isNotNull);
+    final selected = transcript.commandsForDetail(const PdfRect(0, 0, 5, 5));
+    expect(selected.length, lessThan(100));
+    expect(
+        transcript.regionIndex(
+            maxCommands: pdfDetailRegionLinearMaxCommands, buildGrid: true),
+        same(index));
+  });
+
   testWidgets('serialized region index rasters identically to in-isolate build',
       (tester) async {
     await tester.runAsync(() async {
       var offloaded = 0;
       for (final name in _fixtures) {
-        final bytes =
-            File('../../test_corpora/pdfjs/$name').readAsBytesSync();
+        final bytes = File('../../test_corpora/pdfjs/$name').readAsBytesSync();
         final document = PdfDocument.open(Uint8List.fromList(bytes));
         if (document.pageCount == 0) continue;
         final page = document.page(0);
@@ -130,8 +156,8 @@ void main() {
             Rect.fromLTWH(0, 0, size.width * .33, size.height * .33),
             Rect.fromLTWH(size.width * .55, size.height * .1, size.width * .4,
                 size.height * .5),
-            Rect.fromLTWH(size.width * .45, size.height * .45,
-                size.width * .12, size.height * .12),
+            Rect.fromLTWH(size.width * .45, size.height * .45, size.width * .12,
+                size.height * .12),
           ];
           for (final region in regions) {
             final expected =
@@ -180,11 +206,11 @@ void main() {
         return;
       }
 
-      final local =
-          await PdfRetainedScene.fromCommands(page, commands, includeImages: true);
+      final local = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: true);
       await local.warmRegionIndex(null, pageIndex: 0); // in-isolate build
-      final offload =
-          await PdfRetainedScene.fromCommands(page, commands, includeImages: true);
+      final offload = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: true);
       await offload.warmRegionIndex(worker, pageIndex: 0); // worker build
       addTearDown(local.dispose);
       addTearDown(offload.dispose);
@@ -193,8 +219,8 @@ void main() {
           reason: 'a worker index must reconstruct as supported');
 
       final size = local.pageSize;
-      final region = Rect.fromLTWH(
-          size.width * .15, size.height * .15, size.width * .5, size.height * .5);
+      final region = Rect.fromLTWH(size.width * .15, size.height * .15,
+          size.width * .5, size.height * .5);
       final expected = await local.rasterizeRegion(region, pixelRatio: 2);
       final actual = await offload.rasterizeRegion(region, pixelRatio: 2);
       expect(offload.debugLastRegionReplayWasSelective, isTrue);
@@ -209,7 +235,7 @@ void main() {
     });
   });
 
-  testWidgets('unsupported (grouped) index round-trips its verdict',
+  testWidgets('atomic group command ranges round-trip through the worker codec',
       (tester) async {
     await tester.runAsync(() async {
       final commands = <PdfRenderCommand>[
@@ -228,11 +254,13 @@ void main() {
         const PdfEndGroupCommand(),
       ];
       final index = PdfRegionReplayIndex.build(commands, maxCommands: 1 << 20);
-      expect(index.supported, isFalse);
+      expect(index.supported, isTrue);
       final bytes = serializeRegionReplayIndex(index)!;
       final restored = deserializeRegionReplayIndex(bytes);
-      expect(restored.supported, isFalse);
-      expect(restored.units, isEmpty);
+      expect(restored.supported, isTrue);
+      expect(restored.units, hasLength(1));
+      expect(restored.units.single.commandIndex, 0);
+      expect(restored.units.single.endCommandIndex, commands.length);
     });
   });
 
@@ -255,9 +283,8 @@ void main() {
           reason: 'warm after drop rebuilds the index');
       scene.dropRegionIndex();
       // The next region raster silently rebuilds it too.
-      final image = await scene.rasterizeRegion(
-          const Rect.fromLTWH(0, 0, 100, 100),
-          pixelRatio: 1);
+      final image = await scene
+          .rasterizeRegion(const Rect.fromLTWH(0, 0, 100, 100), pixelRatio: 1);
       image.dispose();
       expect(scene.debugHasRegionReplayIndex, isTrue);
     });

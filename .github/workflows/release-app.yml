@@ -550,31 +550,55 @@ jobs:
           path: app/dartpdf-ios-unsigned.zip
 
   release:
-    needs: [setup, android, web, linux, windows, macos, ios]
+    needs: [setup, linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/app-v')
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
-        with:
-          name: DartPDF ${{ needs.setup.outputs.version }}
-          draft: true
-          # The macos-cli-* artifacts are internal slices used to create the
-          # universal sidecar; only user-facing package artifacts are released.
-          files: |
-            artifacts/android/**/*
-            artifacts/web/**/*
-            artifacts/linux/**/*
-            artifacts/windows/**/*
-            artifacts/macos/**/*
-            artifacts/ios/**/*
-          body: |
-            Standalone DartPDF ${{ needs.setup.outputs.version }}.
-
-            Artifacts are built by CI and are **unsigned** (macOS .dmg, iOS .app,
-            Windows installer/.zip) or **debug-signed** (Android, unless a release keystore
-            is configured). See `app/RELEASING.md` for signing and store upload.
+      # Storeflight owns this release: it pushes the tag, writes the notes, and
+      # attaches every platform it can build. Linux is the one it cannot - a
+      # release artifact there is a single path, and Linux ships two
+      # user-facing files - so this job contributes those and nothing else.
+      # Uploading the rest would duplicate assets under a second set of names.
+      #
+      # Waiting rather than creating matters: publishing the tag is what starts
+      # this workflow, so it can arrive before Storeflight has made the
+      # release. Creating one here would race it for ownership of the same tag.
+      - name: Wait for the Storeflight release to exist
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $RELEASE_TAG is present after ${attempt} attempt(s)."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::No release for $RELEASE_TAG after 30 minutes." \
+            "Storeflight creates it during deliver.github_release; if that" \
+            "lane did not run, publish the Linux assets with a manual" \
+            "dispatch once it has."
+          exit 1
+      - name: Attach the Linux artifacts
+        run: |
+          set -euo pipefail
+          # --clobber so a re-run replaces its own uploads instead of failing.
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" --clobber \
+            artifacts/linux/dartpdf-linux-x64.tar.gz \
+            artifacts/linux/dartpdf-linux-x86_64.AppImage
+      - name: Verify the Flatpak publisher can find its input
+        # publish-flatpak.yml downloads exactly this asset by name and checks
+        # its digest, so a rename here breaks Flatpak a step later.
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' \
+            | grep -qx 'dartpdf-linux-x64.tar.gz'

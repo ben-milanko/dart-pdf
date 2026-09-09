@@ -19,13 +19,13 @@ namespace {
 constexpr char kIncomingChannelName[] = "dev.milanko.dartpdf/incoming";
 constexpr char kImageClipboardChannelName[] =
     "dev.milanko.dartpdf/image_clipboard";
-constexpr char kNativePrintChannelName[] =
-    "dev.milanko.dartpdf/native_print";
 constexpr char kMemoryChannelName[] = "dev.milanko.dartpdf/memory";
 constexpr char kWindowGeometryChannelName[] =
     "dev.milanko.dartpdf/window_geometry";
 constexpr char kFileDialogChannelName[] =
     "dev.milanko.dartpdf/file_dialogs";
+constexpr char kFileAccessChannelName[] =
+    "dev.milanko.dartpdf/file_access";
 
 const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
                                       const char* key) {
@@ -313,76 +313,6 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
         }
       });
 
-  native_print_channel_ =
-      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
-          messenger, kNativePrintChannelName,
-          &flutter::StandardMethodCodec::GetInstance());
-  native_print_channel_->SetMethodCallHandler(
-      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
-             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
-                 result) {
-        const auto* args =
-            std::get_if<flutter::EncodableMap>(call.arguments());
-        if (call.method_name() == "beginJob") {
-          std::string name = "Document";
-          bool use_document_page_size = false;
-          if (args != nullptr) {
-            if (const auto* value = Lookup(*args, "useDocumentPageSize")) {
-              if (const auto* enabled = std::get_if<bool>(value)) {
-                use_document_page_size = *enabled;
-              }
-            }
-            if (const auto* value = Lookup(*args, "name")) {
-              if (const auto* text = std::get_if<std::string>(value)) {
-                if (!text->empty()) name = *text;
-              }
-            }
-          }
-          native_printer_.Begin(Utf16FromUtf8(name), use_document_page_size);
-          result->Success(flutter::EncodableValue(flutter::EncodableMap{
-              {flutter::EncodableValue("dpi"), flutter::EncodableValue(300)},
-              {flutter::EncodableValue("vector"),
-               flutter::EncodableValue(true)},
-          }));
-        } else if (call.method_name() == "printPage") {
-          const flutter::EncodableValue* image_value =
-              args == nullptr ? nullptr : Lookup(*args, "image");
-          const auto* image =
-              image_value == nullptr
-                  ? nullptr
-                  : std::get_if<std::vector<uint8_t>>(image_value);
-          if (image == nullptr) {
-            result->Error("bad_args", "printPage expects image bytes");
-            return;
-          }
-          result->Success(
-              flutter::EncodableValue(native_printer_.AddPage(*image)));
-        } else if (call.method_name() == "printPageVector") {
-          const flutter::EncodableValue* page_value =
-              args == nullptr ? nullptr : Lookup(*args, "page");
-          const auto* page =
-              page_value == nullptr
-                  ? nullptr
-                  : std::get_if<std::vector<uint8_t>>(page_value);
-          if (page == nullptr) {
-            result->Error("bad_args",
-                          "printPageVector expects a byte stream");
-            return;
-          }
-          result->Success(
-              flutter::EncodableValue(native_printer_.AddVectorPage(*page)));
-        } else if (call.method_name() == "endJob") {
-          const HWND owner = owner_window_ ? owner_window_() : nullptr;
-          result->Success(
-              flutter::EncodableValue(native_printer_.End(owner)));
-        } else if (call.method_name() == "cancelJob") {
-          native_printer_.Cancel();
-          result->Success();
-        } else {
-          result->NotImplemented();
-        }
-      });
-
   // Native common-item dialogs. `file_selector_windows` derives the dialog
   // owner from the registrar's implicit FlutterView, which the engine-owned
   // multi-window bootstrap deliberately does not create - the plugin then
@@ -426,6 +356,34 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
           return;
         }
         result->Success(DialogPayload(dialog));
+      });
+
+  // Revealing a saved document in File Explorer. url_launcher can only ask the
+  // shell to "open" the containing folder, which Explorer is free to serve
+  // from a window it already has - so a document saved to a new folder could
+  // surface the one the user was looking at before. Naming the item leaves
+  // nothing to guess, and selects the file the way Finder does on macOS (the
+  // Dart side shares that channel's `revealFile`; see lib/file_io.dart).
+  file_access_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kFileAccessChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  file_access_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "revealFile") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        const std::wstring path = OptionalString(args, "path");
+        if (path.empty()) {
+          result->Error("bad_args", "revealFile expects a path");
+          return;
+        }
+        result->Success(
+            flutter::EncodableValue(dart_pdf::RevealFileInExplorer(path)));
       });
 }
 

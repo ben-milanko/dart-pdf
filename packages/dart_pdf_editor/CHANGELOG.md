@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.4.0
+
+- Reach at least 10000% actual size independently of viewport width, with
+  3000%, 5000% and 10000% shell presets. Explicit host zoom caps keep their
+  previous behaviour.
+- Treat balanced compositing groups as indivisible indexed ranges, so a page
+  carrying transparency groups or soft masks no longer falls back to replaying
+  every command for a small zoomed viewport. Dense pages start using the
+  spatial grid at 32,768 commands, warmed through the render worker.
+- Cache native path geometry in the retained scene across zoom and detail
+  replays, under a 32 MiB geometry budget and a 65,536-entry cap that
+  participate in memory-pressure eviction.
+- Reuse the render worker's recorded text for selection and search, retaining
+  at most 32 pages and an estimated 16 MiB per worker. Warm a focused page's
+  text after 500 ms of viewport idle; motion cancels the pending warm.
+- Reserve one-tile-per-paint admission for pages above 250,000 commands, so an
+  ordinary indexed page can still fill the eight-tile batch.
+
 ## 4.3.0
 
 - Add `PdfKeyboardAvailability` so hosts can hide shortcut hints and shortcut

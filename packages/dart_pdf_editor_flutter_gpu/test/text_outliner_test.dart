@@ -19,6 +19,7 @@ void main() {
     List<double> offsets, {
     double width = 1.6,
     String fontName = 'Helvetica',
+    double letterSpacing = 0,
   }) =>
       PdfTextRun(
         text: text,
@@ -28,6 +29,7 @@ void main() {
         fontName: fontName,
         fontSize: 20,
         charOffsets: offsets,
+        letterSpacing: letterSpacing,
       );
 
   test('retains PDF origins and copy-fits glyph shapes uniformly', () {
@@ -54,6 +56,21 @@ void main() {
     );
     expect(firstPageX, 40);
     expect(secondPageX, 64);
+  });
+
+  test('copy-fits against the PDF glyph widths, not the spaced pen steps', () {
+    // Fixture natural advances are A=.6, B=1.0. The PDF gives them the same
+    // widths and adds a 0.5 em Tc, so the pen steps 1.1 and 1.5 em - copy-
+    // fitting to those steps would blow the outlines up by 1.44x. Only the
+    // origins take the spacing.
+    final outlined = outliner.outline(
+      run('AB', const [0, 1.1, 2.6], width: 2.6, letterSpacing: 0.5),
+    );
+    expect(outlined, isNotNull);
+    expect(outlined!.transform.a, closeTo(20, 1e-9),
+        reason: 'the glyphs keep their own width');
+    expect(outlined.charOffsets, const [0, 1.1, 2.6]);
+    expect(outlined.glyphs![1].offset, closeTo(1.1, 1e-9));
   });
 
   test('keeps whitespace as an empty placement at its PDF offset', () {

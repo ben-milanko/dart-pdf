@@ -1,0 +1,5 @@
+arb-dir: lib/l10n
+template-arb-file: dart_pdf_printing_en.arb
+output-localization-file: dart_pdf_printing_localizations.dart
+output-class: DartPdfPrintingLocalizations
+use-deferred-loading: false

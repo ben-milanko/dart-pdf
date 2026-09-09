@@ -6,6 +6,7 @@
 
 #include "generated_plugin_registrant.h"
 
+#include <dart_pdf_printing/dart_pdf_printing_plugin.h>
 #include <desktop_drop/desktop_drop_plugin.h>
 #include <file_selector_linux/file_selector_plugin.h>
 #include <flutter_doc_scanner/flutter_doc_scanner_plugin.h>
@@ -13,6 +14,9 @@
 #include <url_launcher_linux/url_launcher_plugin.h>
 
 void fl_register_plugins(FlPluginRegistry* registry) {
+  g_autoptr(FlPluginRegistrar) dart_pdf_printing_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry, "DartPdfPrintingPlugin");
+  dart_pdf_printing_plugin_register_with_registrar(dart_pdf_printing_registrar);
   g_autoptr(FlPluginRegistrar) desktop_drop_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "DesktopDropPlugin");
   desktop_drop_plugin_register_with_registrar(desktop_drop_registrar);

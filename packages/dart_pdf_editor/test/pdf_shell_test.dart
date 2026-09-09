@@ -125,6 +125,24 @@ void main() {
       expect(find.text('100%'), findsOneWidget);
     });
 
+    testWidgets('zoom menu reaches 10000% for detailed drawing inspection',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(1), controller: viewer));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-menu')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      final target = find.byKey(const ValueKey('pdf-shell-zoom-10000'));
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target, kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(viewer.zoom, closeTo(100, 0.01));
+      expect(find.text('10000%'), findsOneWidget);
+    });
+
     testWidgets('PdfReaderFeatures.none leaves just the pages', (tester) async {
       await pump(
         tester,

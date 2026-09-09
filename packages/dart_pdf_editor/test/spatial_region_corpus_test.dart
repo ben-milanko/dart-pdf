@@ -15,6 +15,11 @@ const _fixtures = <String>[
   'blendmode.pdf',
   'smaskdim.pdf',
   'knockout_isolated_overlap.pdf',
+  'smask_luminosity_oob_transfer.pdf',
+  'smask_alpha_oob_transfer.pdf',
+  'smask_alpha_oob.pdf',
+  'smask_alpha_bc.pdf',
+  'knockout_smask.pdf',
 ];
 
 void main() {
@@ -32,32 +37,46 @@ void main() {
         final scene = await PdfRetainedScene.record(document.page(0));
         try {
           final size = scene.pageSize;
-          final region = Rect.fromLTWH(
-            size.width * .2,
-            size.height * .2,
-            size.width * .6,
-            size.height * .6,
-          );
-          PdfRetainedScene.spatialRegionReplay = false;
-          final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
-          PdfRetainedScene.spatialRegionReplay = true;
-          final actual = await scene.rasterizeRegion(region, pixelRatio: 1.5);
-          try {
-            expect(actual.width, expected.width, reason: name);
-            expect(actual.height, expected.height, reason: name);
-            expect(
-              await _bytes(actual),
-              await _bytes(expected),
-              reason: '$name region pixels',
-            );
-          } finally {
-            expected.dispose();
-            actual.dispose();
-          }
-          if (scene.debugLastRegionReplayWasSelective) {
-            selective++;
-          } else {
-            fallback++;
+          final regions = <(Rect, double)>[
+            (
+              Rect.fromLTWH(
+                size.width * .2,
+                size.height * .2,
+                size.width * .6,
+                size.height * .6,
+              ),
+              1.5
+            ),
+            (
+              Rect.fromLTWH(
+                  size.width * .5 + .137, size.height * .5 + .271, 8, 6),
+              100
+            ),
+          ];
+          for (final (region, ratio) in regions) {
+            PdfRetainedScene.spatialRegionReplay = false;
+            final expected =
+                await scene.rasterizeRegion(region, pixelRatio: ratio);
+            PdfRetainedScene.spatialRegionReplay = true;
+            final actual =
+                await scene.rasterizeRegion(region, pixelRatio: ratio);
+            try {
+              expect(actual.width, expected.width, reason: name);
+              expect(actual.height, expected.height, reason: name);
+              expect(
+                await _bytes(actual),
+                await _bytes(expected),
+                reason: '$name region pixels',
+              );
+            } finally {
+              expected.dispose();
+              actual.dispose();
+            }
+            if (scene.debugLastRegionReplayWasSelective) {
+              selective++;
+            } else {
+              fallback++;
+            }
           }
         } finally {
           scene.dispose();
@@ -65,7 +84,7 @@ void main() {
       }
       expect(selective, greaterThanOrEqualTo(3));
       expect(fallback, greaterThanOrEqualTo(1),
-          reason: 'transparency groups exercise conservative full replay');
+          reason: 'unsafe state retains conservative full replay');
     });
   });
 }

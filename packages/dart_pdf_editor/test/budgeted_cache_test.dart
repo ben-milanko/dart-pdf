@@ -21,6 +21,37 @@ class _Res {
 
 void main() {
   group('count bound', () {
+    test('repeated full-cache turnovers preserve bounds and eviction order',
+        () {
+      // Native geometry can visit far more paths than its cache admits. Keep
+      // exercising eviction after several complete turnovers, where walking
+      // Map.keys.last and scanning tombstones used to dominate every insert.
+      const capacity = 8192;
+      const total = capacity * 8;
+      final cache = PdfBudgetedCache<int, int>(
+        maxEntries: capacity,
+        maxWeight: capacity,
+        weigher: (_) => 1,
+      );
+      for (var i = 0; i < total; i++) {
+        cache.put(i, i);
+      }
+      expect(cache.length, capacity);
+      expect(cache.weight, capacity);
+      expect(cache.evictions, total - capacity);
+      expect(
+          cache.keys, Iterable.generate(capacity, (i) => total - capacity + i));
+      cache.take(total - capacity);
+      cache.getOrAdd(total - capacity + 1, () => -1);
+      cache.put(total, total);
+      expect(cache.containsKey(total - capacity), isTrue);
+      expect(cache.containsKey(total - capacity + 1), isTrue);
+      expect(cache.containsKey(total - capacity + 2), isFalse);
+      cache.clear();
+      cache.put(0, 0);
+      expect(cache.keys, [0]);
+    });
+
     test('never grows past maxEntries; evicts the LRU, keeps the newest', () {
       final dropped = <int>[];
       final cache = PdfBudgetedCache<int, _Res>(
@@ -75,9 +106,52 @@ void main() {
       expect(cache.weight, 60);
       expect(dropped, isEmpty);
     });
+
+    test('remap collisions preserve touched recency for subsequent eviction',
+        () {
+      final dropped = <int>[];
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 100,
+        disposer: (r) => dropped.add(r.id),
+      );
+      for (var i = 0; i < 4; i++) {
+        cache.put(i, _Res(i));
+      }
+      cache.take(0); // 1, 2, 3, 0; collision winners are 3 and 0.
+      cache.remapKeys((key) => key % 2);
+      expect(cache.keys, [1, 0]);
+      expect(cache.values.map((r) => r.id), [3, 0]);
+      expect(dropped, [1, 2]);
+      expect(cache.weight, 2);
+      cache.take(1);
+      cache.trimToWeight(0);
+      expect(cache.keys, [1]);
+      expect(dropped, [1, 2, 0]);
+      cache.evict(1);
+      cache.put(5, _Res(5));
+      expect(cache.keys, [5]);
+    });
   });
 
   group('weight budget', () {
+    test('a null key participates in weight eviction and MRU protection', () {
+      final cache = PdfBudgetedCache<int?, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 10,
+      );
+      cache.put(null, _Res(0, weight: 10));
+      cache.put(1, _Res(1, weight: 10));
+      expect(cache.keys, [1]);
+      cache.put(null, _Res(2, weight: 20));
+      cache.trimToWeight(0);
+      expect(cache.keys, [null],
+          reason: 'the nullable MRU key stays protected');
+      cache.evict(null);
+      cache.put(3, _Res(3, weight: 10));
+      expect(cache.keys, [3]);
+    });
+
     test('evicts LRU weight-bearing entries down to the budget', () {
       final cache = PdfBudgetedCache<int, _Res>(
         weigher: (r) => r.weight,
@@ -133,7 +207,8 @@ void main() {
       // An oversize value is not stored (contrast the keep-MRU cache above).
       cache.put(1, _Res(1, weight: 500));
       expect(cache.containsKey(1), isFalse);
-      expect(cache.containsKey(0), isTrue, reason: 'the fitting entry survives');
+      expect(cache.containsKey(0), isTrue,
+          reason: 'the fitting entry survives');
       expect(cache.weight, 50);
       // A re-store of an oversize value leaves any existing entry untouched.
       cache.put(0, _Res(100, weight: 500));
@@ -143,7 +218,8 @@ void main() {
   });
 
   group('weight-0 entries', () {
-    test('the weight budget skips them but the count cap still bounds them', () {
+    test('the weight budget skips them but the count cap still bounds them',
+        () {
       // The #283 shape: image-free / vector-first buffers weigh 0, so a byte
       // budget cannot see them; only the entry cap stops one-per-page growth.
       final cache = PdfBudgetedCache<int, _Res>(
@@ -242,6 +318,55 @@ void main() {
   });
 
   group('getOrAdd', () {
+    test('a builder may insert and return the same resource without disposal',
+        () {
+      final dropped = <int>[];
+      final cache = PdfBudgetedCache<int, _Res>(
+        maxEntries: 2,
+        weigher: (r) => r.weight,
+        maxWeight: 10,
+        disposer: (r) => dropped.add(r.id),
+      );
+      final resource = _Res(1, weight: 5);
+      final result = cache.getOrAdd(1, () {
+        cache.put(1, resource);
+        cache.put(2, _Res(2, weight: 5));
+        return resource;
+      });
+      expect(result, same(resource));
+      expect(cache.keys, [2, 1]);
+      expect(cache.weight, 10);
+      expect(dropped, isEmpty);
+      cache.put(3, _Res(3, weight: 5));
+      expect(cache.keys, [1, 3]);
+      expect(dropped, [2]);
+      cache.dispose();
+      expect(dropped, [2, 1, 3]);
+    });
+
+    test('a reentrant insertion is replaced without leaving a stale LRU entry',
+        () {
+      final dropped = <int>[];
+      final cache = PdfBudgetedCache<int, _Res>(
+        maxEntries: 1,
+        weigher: (r) => r.weight,
+        maxWeight: 10,
+        disposer: (r) => dropped.add(r.id),
+      );
+      final result = cache.getOrAdd(0, () {
+        cache.put(0, _Res(1, weight: 5));
+        return _Res(2, weight: 10);
+      });
+      expect(result.id, 2);
+      expect(cache.keys, [0]);
+      expect(cache.weight, 10);
+      expect(dropped, [1]);
+      cache.put(3, _Res(3, weight: 10));
+      expect(cache.keys, [3]);
+      expect(cache.weight, 10);
+      expect(dropped, [1, 2]);
+    });
+
     test('computes once, then serves and refreshes recency without recompute',
         () {
       final cache = PdfBudgetedCache<int, _Res>(maxEntries: 3);
@@ -272,7 +397,8 @@ void main() {
       expect(cache.length, 0);
     });
 
-    test('putAndClone and getOrAdd after dispose return the value uncached', () {
+    test('putAndClone and getOrAdd after dispose return the value uncached',
+        () {
       final cache = PdfBudgetedCache<int, _Res>(
         maxEntries: 2,
         cloner: (r) => r.clone(),
@@ -381,7 +507,8 @@ void main() {
       c.put(0, _Res(0));
       expect(registry.registrationCount, before, reason: 'opted out');
       registry.handleMemoryPressure();
-      expect(c.length, 1, reason: 'pressure does not touch an unregistered cache');
+      expect(c.length, 1,
+          reason: 'pressure does not touch an unregistered cache');
     });
   });
 

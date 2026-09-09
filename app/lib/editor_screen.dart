@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_printing/dart_pdf_printing.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -35,10 +36,6 @@ import 'ocr.dart';
 import 'ocr_status_label.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
-import 'print_composer.dart';
-import 'print_preview_dialog.dart';
-import 'print_progress_dialog.dart';
-import 'printing.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
 import 'reduce_file_size.dart';
@@ -2752,9 +2749,9 @@ class _EditorScreenState extends State<EditorScreen>
     if (mounted) _toast(appL10n(context).editorSignatureRemoved);
   }
 
-  /// Hands the active document to the OS print system (the app's own
-  /// `native_print` channel - the OS dialog on desktop/mobile, browser print on
-  /// the web). The current revision is printed, so unsaved edits are included.
+  /// Prints the current revision through dart_pdf_printing: directly to the
+  /// chosen Windows queue, or through the native/browser print dialog on
+  /// other platforms. Unsaved edits are included.
   /// A failed or unavailable backend surfaces as a toast rather than throwing.
   ///
   /// The app previews and prepares the chosen physical sheets on every
@@ -2779,12 +2776,18 @@ class _EditorScreenState extends State<EditorScreen>
         addFiles: _pickPrintFiles,
       );
       if (job == null || !mounted || !_tabs.contains(tab)) return;
-      final bytes = preparePrintDocument(job.document, job.settings);
+      final bytes = preparePrintDocument(job.document, job.settings,
+          twoSided: job.destination != null &&
+              job.destination!.duplex != PrintDuplex.simplex);
       final injected = widget.printDocument;
       if (injected != null) {
         await injected(bytes: bytes, title: tab.title);
       } else {
-        await _printWithProgress(bytes, tab.title);
+        await printPdfWithProgress(context,
+            bytes: bytes,
+            title: tab.title,
+            useDocumentPageSize: true,
+            destination: job.destination);
       }
     } catch (_) {
       if (mounted) _toast(appL10n(context).editorCouldNotPrint(tab.title));
@@ -2806,57 +2809,6 @@ class _EditorScreenState extends State<EditorScreen>
     }
     return documents;
   }
-
-  /// Runs [printPdfBytes] with a modal progress dialog that tracks page
-  /// conversion. Desktop runners receive drawing operations one page at a
-  /// time, so large jobs report their progress before opening the OS dialog.
-  ///
-  /// The dialog appears only for multi-page (slow) jobs - a one/two-page print
-  /// finishes too fast to be worth a flash - and is dismissed once rendering
-  /// finishes, before the OS print dialog opens.
-  Future<void> _printWithProgress(Uint8List bytes, String title) async {
-    final progress = ValueNotifier<(int, int)?>(null);
-    final navigator = Navigator.of(context, rootNavigator: true);
-    var dialogShown = false;
-    void dismiss() {
-      if (dialogShown) {
-        dialogShown = false;
-        navigator.pop();
-      }
-    }
-
-    try {
-      await printPdfBytes(
-        bytes: bytes,
-        title: title,
-        useDocumentPageSize: true,
-        onProgress: (rendered, total) {
-          progress.value = (rendered, total);
-          if (total > _printProgressThreshold &&
-              rendered < total &&
-              !dialogShown &&
-              mounted) {
-            dialogShown = true;
-            unawaited(showPdfDialog<void>(
-              context: context,
-              barrierDismissible: false,
-              useRootNavigator: true,
-              builder: (_) => PrintProgressDialog(progress: progress),
-            ));
-          }
-          // Rendering done: drop the dialog before the OS print dialog opens.
-          if (rendered >= total && mounted) dismiss();
-        },
-      );
-    } finally {
-      if (mounted) dismiss();
-      progress.dispose();
-    }
-  }
-
-  /// A print of this many pages or fewer skips the progress dialog - it renders
-  /// fast enough that a dialog would just flash.
-  static const _printProgressThreshold = 2;
 
   /// Prints the active document, if one is open - bound to ⌘P / Ctrl+P.
   void _printActive() {

@@ -27,6 +27,9 @@ enum PdfTextBoxVAlign {
   /// panel's `centerVertical` layout.
   centerBlock,
 
+  /// The complete em-height block ends at the bottom padding.
+  bottomBlock,
+
   /// A single line centred by its ascent within the box, clamped to the top
   /// padding - single-line form fields.
   centerLine,
@@ -137,6 +140,9 @@ List<String> pdfWrapText(
 /// `q`/`Q`, any page/widget orientation transform, background and border
 /// decoration, and marked-content wrappers - and supplies the parts that vary:
 ///
+/// - [clampVerticalAlign] top-anchors overfull centre/bottom blocks at the
+///   text padding so their beginning remains visible. Defaults to false to
+///   preserve existing signature-panel placement.
 /// - [measureLine] measures a line's advance for alignment (defaults to
 ///   `font.measure`); pass a closure that folds in character spacing or
 ///   horizontal scaling when the appearance uses them.
@@ -157,6 +163,7 @@ void writePdfTextBox(
   required double padding,
   required double lineHeight,
   PdfTextBoxVAlign vAlign = PdfTextBoxVAlign.top,
+  bool clampVerticalAlign = false,
   bool clip = true,
   bool clampAlign = false,
   bool leading = false,
@@ -181,7 +188,7 @@ void writePdfTextBox(
   if (leading) writer.leading(lineHeight);
   writeColor?.call(writer);
 
-  final double firstY;
+  double firstY;
   switch (vAlign) {
     case PdfTextBoxVAlign.top:
       firstY = box.top - padding - ascentPts;
@@ -198,9 +205,21 @@ void writePdfTextBox(
           box.bottom + (box.height + lines.length * lineHeight) / 2;
       final halfLeading = math.max(0.0, (lineHeight - fontSize) / 2);
       firstY = blockTop - halfLeading - ascentPts;
+    case PdfTextBoxVAlign.bottomBlock:
+      // Leading belongs only between em-height lines. Form auto-size keeps
+      // its conservative n * lineHeight fit test, including trailing leading;
+      // placement must not add that trailing gap to the visible block.
+      final blockHeight = fontSize + (lines.length - 1) * lineHeight;
+      firstY = box.bottom + padding + blockHeight - ascentPts;
     case PdfTextBoxVAlign.centerLine:
       final centered = (box.height - ascentPts) / 2;
       firstY = box.bottom + (centered < padding ? padding : centered);
+  }
+
+  if (clampVerticalAlign &&
+      (vAlign == PdfTextBoxVAlign.centerBlock ||
+          vAlign == PdfTextBoxVAlign.bottomBlock)) {
+    firstY = math.min(firstY, box.top - padding - ascentPts);
   }
 
   final underlines = <PdfTextUnderline>[];

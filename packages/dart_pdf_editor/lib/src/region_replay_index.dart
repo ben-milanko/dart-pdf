@@ -5,8 +5,8 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 /// Serialized-index format version. Producer and consumer are the same build,
-/// shipped together, so a mismatch is a programming error (asserted on read).
-const int _regionIndexFormatVersion = 1;
+/// shipped together; older cached indices are declined in every build mode.
+const int _regionIndexFormatVersion = 2;
 
 /// Region-index policy for worker detail transcripts.
 ///
@@ -17,14 +17,15 @@ const int _regionIndexFormatVersion = 1;
 /// ordinary linear/grid escalation without importing the Flutter-facing scene
 /// into worker code.
 const int pdfDetailRegionLinearMaxCommands = 250000;
+const int pdfDetailRegionGridMinCommands = 32768;
 const int pdfDetailRegionGridMaxCommands = 4000000;
 
 /// Bounded, painter-order-preserving index for retained region replay.
 ///
-/// Each entry is one independent paint operation plus a persistent snapshot
-/// of the clips and blend mode active at that point in the command stream.
-/// Transparency/soft-mask groups remain on the full-replay path: splitting a
-/// group would change its isolated compositing semantics.
+/// Each entry is an independent paint operation or a complete balanced
+/// compositing group, plus the clips and blend mode active at its entry.
+/// Group contents stay indivisible: selecting their full command range keeps
+/// nested transparency, knockout and soft-mask compositing in painter order.
 class PdfRegionReplayIndex {
   PdfRegionReplayIndex._({
     required this.supported,
@@ -47,32 +48,48 @@ class PdfRegionReplayIndex {
       );
     }
 
+    final safety = _ReplaySafety(maxStateDepth);
+    if (!safety.supports(commands)) {
+      return PdfRegionReplayIndex._(
+        supported: false,
+        units: const [],
+        clipNodeCount: 0,
+      );
+    }
+
     final units = <PdfRegionReplayUnit>[];
     final savedClips = <PdfRegionClipState?>[];
+    final groups = <_RegionGroupFrame>[];
     PdfRegionClipState? clips;
     var blendMode = PdfBlendMode.normal;
     var clipNodes = 0;
+
+    void addBounds(int start, int end, PdfRect? bounds,
+        PdfRegionClipState? entryClips, PdfBlendMode entryBlend) {
+      if (bounds == null) return;
+      if (groups.isNotEmpty) {
+        final group = groups.last;
+        group.bounds =
+            group.bounds == null ? bounds : _union(group.bounds!, bounds);
+        return;
+      }
+      units.add(PdfRegionReplayUnit(
+        commandIndex: start,
+        endCommandIndex: end,
+        bounds: bounds,
+        clips: entryClips,
+        blendMode: entryBlend,
+      ));
+    }
 
     for (var i = 0; i < commands.length; i++) {
       final command = commands[i];
       switch (command) {
         case PdfSaveCommand():
-          if (savedClips.length >= maxStateDepth) {
-            return PdfRegionReplayIndex._(
-              supported: false,
-              units: const [],
-              clipNodeCount: clipNodes,
-            );
-          }
           savedClips.add(clips);
         case PdfRestoreCommand():
-          if (savedClips.isEmpty) {
-            return PdfRegionReplayIndex._(
-              supported: false,
-              units: const [],
-              clipNodeCount: clipNodes,
-            );
-          }
+          // The safety pass rejects restores crossing a layer boundary.
+          // Canvas save/restore does not save the device's blend-mode field.
           clips = savedClips.removeLast();
         case PdfClipPathCommand(:final path):
           final bounds = pdfRenderPathBounds(path);
@@ -88,28 +105,29 @@ class PdfRegionReplayIndex {
           clipNodes++;
         case PdfSetBlendModeCommand(:final mode):
           blendMode = mode;
+        case PdfBeginGroupCommand() || PdfBeginSoftMaskedCommand():
+          groups.add(_RegionGroupFrame(i, clips, blendMode));
+          if (command is PdfBeginSoftMaskedCommand) {
+            blendMode = PdfBlendMode.normal;
+          }
+        case PdfEndGroupCommand() || PdfEndSoftMaskedCommand():
+          final group = groups.removeLast();
+          // Both layer kinds implicitly restore their entry canvas clip.
+          // Ordinary groups leave the device blend alone; soft masks restore
+          // the blend captured before their source was reset to Normal.
+          clips = group.clips;
+          if (command is PdfEndSoftMaskedCommand) {
+            blendMode = group.blendMode;
+          }
+          addBounds(group.commandIndex, i + 1, group.bounds, group.clips,
+              group.blendMode);
         case PdfSetOverprintCommand():
-          // Unlike blend mode, the region index does not yet snapshot the
-          // three overprint fields on each unit. Selective replay would lose
-          // that persistent device state, so keep these pages on the exact
-          // full-transcript fallback.
-          return PdfRegionReplayIndex._(
-            supported: false,
-            units: const [],
-            clipNodeCount: clipNodes,
-          );
-        case PdfBeginGroupCommand() ||
-              PdfEndGroupCommand() ||
-              PdfBeginSoftMaskedCommand() ||
-              PdfEndSoftMaskedCommand():
-          return PdfRegionReplayIndex._(
-            supported: false,
-            units: const [],
-            clipNodeCount: clipNodes,
-          );
+          // Declined recursively by the safety pass; units do not snapshot
+          // persistent overprint fields, including those in mask/cell lists.
+          throw StateError('Overprint passed region replay safety validation');
         default:
           if (clips?.empty ?? false) continue;
-          var bounds = pdfRenderCommandBounds(command);
+          var bounds = safety.commandBounds(command);
           if (bounds == null) continue;
           // Raster coverage and filtered image edges can extend just beyond
           // mathematical geometry. Two page points conservatively cover a
@@ -120,20 +138,11 @@ class PdfRegionReplayIndex {
             bounds = _intersection(bounds, clipBounds);
             if (bounds == null) continue;
           }
-          units.add(PdfRegionReplayUnit(
-            commandIndex: i,
-            bounds: bounds,
-            clips: clips,
-            blendMode: blendMode,
-          ));
+          // A group's allocation BBox is not a clip. Its bounds must include
+          // all source paint, even outside the BBox or painted mask geometry:
+          // /BC and /TR can reveal source where the mask itself never painted.
+          addBounds(i, i + 1, bounds, clips, blendMode);
       }
-    }
-    if (savedClips.isNotEmpty) {
-      return PdfRegionReplayIndex._(
-        supported: false,
-        units: const [],
-        clipNodeCount: clipNodes,
-      );
     }
     final unitList = List<PdfRegionReplayUnit>.unmodifiable(units);
     return PdfRegionReplayIndex._(
@@ -157,7 +166,15 @@ class PdfRegionReplayIndex {
   /// Conservative retained-index estimate. The command geometry itself is
   /// borrowed from the scene and is not counted twice.
   int get estimatedBytes =>
-      units.length * 48 + clipNodeCount * 40 + (grid?.estimatedBytes ?? 0);
+      units.length * 56 + clipNodeCount * 40 + (grid?.estimatedBytes ?? 0);
+
+  /// Largest indivisible top-level command range selected by a region query.
+  /// A large compositing group may remain useful for single-patch culling,
+  /// while repeating the whole range for every small tile would be expensive.
+  late final int maxAtomicCommandSpan = units.fold<int>(
+      0,
+      (largest, unit) =>
+          math.max(largest, unit.endCommandIndex - unit.commandIndex));
 
   /// Page-space X span [min, max] covered by the indexed paint units, or null
   /// when nothing is drawable. This is the axis an X-strip band decomposition
@@ -222,10 +239,10 @@ class PdfRegionReplayIndex {
         commands,
         device,
         start: unit.commandIndex,
-        end: unit.commandIndex + 1,
+        end: unit.endCommandIndex,
       );
       device.restore();
-      replayed++;
+      replayed += unit.endCommandIndex - unit.commandIndex;
     }
     return replayed;
   }
@@ -273,7 +290,8 @@ class PdfRegionReplayIndex {
   ) {
     if (!supported) return commands;
     final selected = select(region);
-    if (selected.isNotEmpty && selected.last.commandIndex >= commands.length) {
+    if (selected.isNotEmpty &&
+        selected.last.endCommandIndex > commands.length) {
       return commands;
     }
     final out = <PdfRenderCommand>[];
@@ -281,7 +299,7 @@ class PdfRegionReplayIndex {
       out.add(const PdfSaveCommand());
       out.add(PdfSetBlendModeCommand(unit.blendMode));
       unit.clips?.appendCommands(out);
-      out.add(commands[unit.commandIndex]);
+      out.addAll(commands.getRange(unit.commandIndex, unit.endCommandIndex));
       out.add(const PdfRestoreCommand());
       if (out.length >= commands.length) return commands;
     }
@@ -437,10 +455,10 @@ class PdfRegionReplayGrid {
         commands,
         device,
         start: unit.commandIndex,
-        end: unit.commandIndex + 1,
+        end: unit.endCommandIndex,
       );
       device.restore();
-      replayed++;
+      replayed += unit.endCommandIndex - unit.commandIndex;
     }
     return replayed;
   }
@@ -486,12 +504,16 @@ class PdfRegionReplayGrid {
 class PdfRegionReplayUnit {
   const PdfRegionReplayUnit({
     required this.commandIndex,
+    int? endCommandIndex,
     required this.bounds,
     required this.clips,
     required this.blendMode,
-  });
+  }) : endCommandIndex = endCommandIndex ?? commandIndex + 1;
 
   final int commandIndex;
+
+  /// Exclusive end of the indivisible paint/compositing command range.
+  final int endCommandIndex;
   final PdfRect bounds;
   final PdfRegionClipState? clips;
   final PdfBlendMode blendMode;
@@ -519,6 +541,170 @@ class PdfRegionClipState {
     parent?.appendCommands(commands);
     commands.add(command);
   }
+}
+
+class _RegionGroupFrame {
+  _RegionGroupFrame(this.commandIndex, this.clips, this.blendMode);
+
+  final int commandIndex;
+  final PdfRegionClipState? clips;
+  final PdfBlendMode blendMode;
+  PdfRect? bounds;
+}
+
+/// Validate each shared command list once before exposing independent ranges.
+/// In particular, a save outside a layer cannot be restored inside it: canvas
+/// restores share one stack, while group bookkeeping uses a separate stack.
+/// Mask/cell lists are checked too, even though their paint stays indivisible.
+class _ReplaySafety {
+  _ReplaySafety(this.maxStateDepth);
+
+  final int maxStateDepth;
+  final _summaries = Map<List<PdfRenderCommand>,
+      Map<PdfBlendMode, _ReplaySafetySummary?>>.identity();
+  final _visiting = Set<List<PdfRenderCommand>>.identity();
+  final _bounds = Map<List<PdfRenderCommand>, PdfRect?>.identity();
+
+  bool supports(List<PdfRenderCommand> commands) =>
+      _summarize(commands, PdfBlendMode.normal) != null;
+
+  _ReplaySafetySummary? _summarize(
+      List<PdfRenderCommand> commands, PdfBlendMode incomingBlend) {
+    final modes = _summaries.putIfAbsent(commands, () => {});
+    if (modes.containsKey(incomingBlend)) return modes[incomingBlend];
+    // Shared lists are ordinary; cycles and excessive nested-list recursion
+    // are not. Decline before recursing so malformed input cannot overflow.
+    if (_visiting.length > maxStateDepth || !_visiting.add(commands)) {
+      return null;
+    }
+    final summary = _scan(commands, incomingBlend);
+    _visiting.remove(commands);
+    modes[incomingBlend] = summary;
+    return summary;
+  }
+
+  _ReplaySafetySummary? _scan(
+      List<PdfRenderCommand> commands, PdfBlendMode incomingBlend) {
+    final savedClips = <bool>[];
+    final groups = <_ReplaySafetyFrame>[];
+    var clipped = false;
+    // Canvas save/restore does not restore device blend, but the interpreter
+    // can emit an explicit reset after q/Q. That is safe when it matches the
+    // actual incoming mode. A shared cell may be used in several modes, so
+    // summaries include that context instead of rejecting every explicit reset.
+    var blend = incomingBlend;
+    var depth = 0;
+
+    bool includeNested(_ReplaySafetySummary? child) {
+      if (child == null) return false;
+      depth = math.max(
+          depth, savedClips.length + groups.length + 1 + child.maxDepth);
+      return depth <= maxStateDepth;
+    }
+
+    for (final command in commands) {
+      switch (command) {
+        case PdfSaveCommand():
+          savedClips.add(clipped);
+        case PdfRestoreCommand():
+          if (savedClips.isEmpty ||
+              (groups.isNotEmpty &&
+                  savedClips.length <= groups.last.saveDepth)) {
+            return null;
+          }
+          clipped = savedClips.removeLast();
+        case PdfClipPathCommand():
+          clipped = true;
+        case PdfSetBlendModeCommand(:final mode):
+          blend = mode;
+        case PdfSetOverprintCommand():
+          return null;
+        case PdfBeginGroupCommand(:final isolated, :final backdropColor):
+          // Seeded non-isolated groups clip before saving their layer and
+          // replace its backdrop. Even without a BBox here, a seed can pass
+          // through a knockout parent to a bounded child, so decline it.
+          if (!isolated && backdropColor != null) return null;
+          groups.add(
+              _ReplaySafetyFrame(false, savedClips.length, clipped, blend));
+        case PdfBeginSoftMaskedCommand():
+          groups
+              .add(_ReplaySafetyFrame(true, savedClips.length, clipped, blend));
+          blend = PdfBlendMode.normal;
+        case PdfEndGroupCommand() || PdfEndSoftMaskedCommand():
+          final masked = command is PdfEndSoftMaskedCommand;
+          if (groups.isEmpty ||
+              groups.last.masked != masked ||
+              savedClips.length != groups.last.saveDepth) {
+            return null;
+          }
+          if (command is PdfEndSoftMaskedCommand &&
+              !includeNested(
+                  _summarize(command.maskCommands, PdfBlendMode.normal))) {
+            return null;
+          }
+          final group = groups.removeLast();
+          clipped = group.clipped;
+          if (masked) blend = group.blend;
+        case PdfDrawTiledCellCommand(
+            :final cellCommands,
+            :final originsX,
+            :final originsY
+          ):
+          if (originsX.length != originsY.length) return null;
+          final cell = _summarize(cellCommands, blend);
+          if (!includeNested(cell)) return null;
+          // Canvas may expand cells directly into the parent device when a
+          // blend/knockout is active. Only cells whose state cannot escape
+          // are independent paint units in both replay paths.
+          if (cell!.clipped || cell.blend != blend) return null;
+        default:
+          break;
+      }
+      depth = math.max(depth, savedClips.length + groups.length);
+      if (depth > maxStateDepth) return null;
+    }
+    if (savedClips.isNotEmpty || groups.isNotEmpty) return null;
+    return _ReplaySafetySummary(depth, clipped, blend);
+  }
+
+  PdfRect? commandBounds(PdfRenderCommand command) {
+    if (command is! PdfDrawTiledCellCommand) {
+      return pdfRenderCommandBounds(command);
+    }
+    final cell = _listBounds(command.cellCommands);
+    return _tiledCellBounds(command, cell);
+  }
+
+  PdfRect? _listBounds(List<PdfRenderCommand> commands) {
+    if (_bounds.containsKey(commands)) return _bounds[commands];
+    PdfRect? bounds;
+    for (final command in commands) {
+      // Mask geometry does not bound source coverage: /BC or /TR can reveal
+      // the source beyond it. Group allocation hints are not clips either.
+      final next = commandBounds(command);
+      if (next != null) bounds = bounds == null ? next : _union(bounds, next);
+    }
+    _bounds[commands] = bounds;
+    return bounds;
+  }
+}
+
+class _ReplaySafetyFrame {
+  const _ReplaySafetyFrame(
+      this.masked, this.saveDepth, this.clipped, this.blend);
+
+  final bool masked;
+  final int saveDepth;
+  final bool clipped;
+  final PdfBlendMode blend;
+}
+
+class _ReplaySafetySummary {
+  const _ReplaySafetySummary(this.maxDepth, this.clipped, this.blend);
+
+  final int maxDepth;
+  final bool clipped;
+  final PdfBlendMode blend;
 }
 
 PdfRect? pdfRenderCommandBounds(PdfRenderCommand command) {
@@ -554,11 +740,7 @@ PdfRect? pdfRenderCommandBounds(PdfRenderCommand command) {
       return bounds;
     case PdfDrawImageCommand(:final request):
       return _matrixBounds(request.transform, 0, 0, 1, 1);
-    case PdfDrawTiledCellCommand(
-        :final cellCommands,
-        :final originsX,
-        :final originsY
-      ):
+    case PdfDrawTiledCellCommand(:final cellCommands):
       // Conservative: the cell's painted bounds (clip commands inside the
       // cell contribute nothing, so overrunning content is included - safe
       // for culling) swept across the origin extent. One rect for the whole
@@ -568,17 +750,7 @@ PdfRect? pdfRenderCommandBounds(PdfRenderCommand command) {
         final b = pdfRenderCommandBounds(c);
         if (b != null) cell = cell == null ? b : _union(cell, b);
       }
-      if (cell == null || originsX.isEmpty) return null;
-      var minX = originsX[0], maxX = originsX[0];
-      var minY = originsY[0], maxY = originsY[0];
-      for (var t = 1; t < originsX.length; t++) {
-        minX = math.min(minX, originsX[t]);
-        maxX = math.max(maxX, originsX[t]);
-        minY = math.min(minY, originsY[t]);
-        maxY = math.max(maxY, originsY[t]);
-      }
-      return PdfRect(cell.left + minX, cell.bottom + minY, cell.right + maxX,
-          cell.top + maxY);
+      return _tiledCellBounds(command, cell);
     case PdfSaveCommand() ||
           PdfRestoreCommand() ||
           PdfClipPathCommand() ||
@@ -590,6 +762,22 @@ PdfRect? pdfRenderCommandBounds(PdfRenderCommand command) {
           PdfEndSoftMaskedCommand():
       return null;
   }
+}
+
+PdfRect? _tiledCellBounds(PdfDrawTiledCellCommand command, PdfRect? cell) {
+  final originsX = command.originsX;
+  final originsY = command.originsY;
+  if (cell == null || originsX.isEmpty) return null;
+  var minX = originsX[0], maxX = originsX[0];
+  var minY = originsY[0], maxY = originsY[0];
+  for (var t = 1; t < originsX.length; t++) {
+    minX = math.min(minX, originsX[t]);
+    maxX = math.max(maxX, originsX[t]);
+    minY = math.min(minY, originsY[t]);
+    maxY = math.max(maxY, originsY[t]);
+  }
+  return PdfRect(
+      cell.left + minX, cell.bottom + minY, cell.right + maxX, cell.top + maxY);
 }
 
 PdfRect? _textBounds(PdfTextRun run) {
@@ -735,8 +923,8 @@ bool pdfRenderRectsIntersect(PdfRect a, PdfRect b) =>
 
 /// Serializes [index] to a portable byte buffer, or returns null when it holds
 /// content the codec declines (a clip path that fails to serialize — never in
-/// practice, clip paths carry no images). An unsupported index (a
-/// transparency/soft-mask group spanned the page, or the build hit its bounds)
+/// practice, clip paths carry no images). An unsupported index (unsafe
+/// persistent state or malformed groups, or a build that hit its bounds)
 /// serializes to a tiny "unsupported" marker so the consumer learns the worker
 /// examined the page and it is not region-cullable.
 Uint8List? serializeRegionReplayIndex(PdfRegionReplayIndex index) {
@@ -783,6 +971,7 @@ Uint8List? serializeRegionReplayIndex(PdfRegionReplayIndex index) {
   for (var i = 0; i < index.units.length; i++) {
     final unit = index.units[i];
     w.u32(unit.commandIndex);
+    w.u32(unit.endCommandIndex);
     _idxWriteRect(w, unit.bounds);
     w.i32(unitClipIndices[i]);
     w.u8(unit.blendMode.index);
@@ -810,8 +999,9 @@ Uint8List? serializeRegionReplayIndex(PdfRegionReplayIndex index) {
 PdfRegionReplayIndex deserializeRegionReplayIndex(Uint8List bytes) {
   final r = _IdxReader(bytes);
   final version = r.u8();
-  assert(version == _regionIndexFormatVersion,
-      'region index format version mismatch');
+  if (version != _regionIndexFormatVersion) {
+    throw const FormatException('Region index format version mismatch');
+  }
   final supported = r.boolean();
   final clipNodeCount = r.u32();
   if (!supported) {
@@ -845,11 +1035,16 @@ PdfRegionReplayIndex deserializeRegionReplayIndex(Uint8List bytes) {
   final unitCount = r.u32();
   final units = List<PdfRegionReplayUnit>.generate(unitCount, (_) {
     final commandIndex = r.u32();
+    final endCommandIndex = r.u32();
+    if (endCommandIndex <= commandIndex) {
+      throw const FormatException('Invalid region replay command range');
+    }
     final bounds = _idxReadRect(r);
     final clipIndex = r.i32();
     final blendMode = PdfBlendMode.values[r.u8()];
     return PdfRegionReplayUnit(
       commandIndex: commandIndex,
+      endCommandIndex: endCommandIndex,
       bounds: bounds,
       clips: clipIndex < 0 ? null : nodes[clipIndex],
       blendMode: blendMode,

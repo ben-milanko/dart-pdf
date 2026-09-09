@@ -157,6 +157,7 @@ profiles:
           - {name: pdf_graphics, path: ../packages/pdf_graphics, depends_on: [pdf_cos, pdf_document]}
           - {name: dart_pdf_cli, path: ../packages/dart_pdf_cli, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
           - {name: dart_pdf_editor, path: ../packages/dart_pdf_editor, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
+          - {name: dart_pdf_printing, path: ../packages/dart_pdf_printing, depends_on: [dart_pdf_editor, pdf_cos, pdf_document]}
           - {name: dart_pdf_editor_flutter_gpu, path: ../packages/dart_pdf_editor_flutter_gpu, depends_on: [dart_pdf_editor, pdf_cos, pdf_document, pdf_graphics]}
           - {name: dart_pdf_editor_assets, path: ../packages/dart_pdf_editor_assets, depends_on: [dart_pdf_editor]}
           - {name: pdf_ocr_vlm, path: ../packages/pdf_ocr_vlm, depends_on: [dart_pdf_editor, pdf_document]}
