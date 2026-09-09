@@ -180,6 +180,16 @@ void main() {
       expect(find.text('Installed'), findsOneWidget);
     });
 
+    testWidgets('Close dismisses it', (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Something.\n');
+      expect(find.byKey(const ValueKey('whats-new-dialog')), findsOneWidget);
+
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('whats-new-dialog')), findsNothing);
+    });
+
     testWidgets('says so rather than showing an empty sheet', (tester) async {
       await pumpDialog(tester, '# Changelog\n');
 
