@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Fuentes incrustadas",
   "reduceSizeImages": "Imágenes",
   "reduceSizeDuplicates": "Objetos duplicados",
-  "reduceSizeCustom": "Ajustes personalizados"
+  "reduceSizeCustom": "Ajustes personalizados",
+  "whatsNew": "Novedades",
+  "whatsNewInstalled": "Instalada",
+  "whatsNewUnavailable": "Las notas de la versión no están disponibles en esta compilación."
 }

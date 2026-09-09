@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Osadzone czcionki",
   "reduceSizeImages": "Obrazy",
   "reduceSizeDuplicates": "Zduplikowane obiekty",
-  "reduceSizeCustom": "Ustawienia niestandardowe"
+  "reduceSizeCustom": "Ustawienia niestandardowe",
+  "whatsNew": "Co nowego",
+  "whatsNewInstalled": "Zainstalowana",
+  "whatsNewUnavailable": "Informacje o wydaniu są niedostępne w tej kompilacji."
 }

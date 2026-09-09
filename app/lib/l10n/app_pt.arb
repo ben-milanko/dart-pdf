@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Fontes incorporadas",
   "reduceSizeImages": "Imagens",
   "reduceSizeDuplicates": "Objetos duplicados",
-  "reduceSizeCustom": "Definições personalizadas"
+  "reduceSizeCustom": "Definições personalizadas",
+  "whatsNew": "Novidades",
+  "whatsNewInstalled": "Instalada",
+  "whatsNewUnavailable": "As notas de versão não estão disponíveis nesta compilação."
 }

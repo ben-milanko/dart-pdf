@@ -136,5 +136,9 @@ flutter:
   # generated Dart is checked in so builds/CI need no extra codegen step.
   generate: true
   assets:
+    # The release notes the "What's new" dialog reads (lib/whats_new.dart).
+    # Bundling the file the release was cut from is what keeps the notes and
+    # the binary from drifting apart.
+    - CHANGELOG.md
     - web/favicon.png
     - web/icons/Icon-512.png

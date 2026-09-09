@@ -1222,4 +1222,14 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Definições personalizadas';
+
+  @override
+  String get whatsNew => 'Novidades';
+
+  @override
+  String get whatsNewInstalled => 'Instalada';
+
+  @override
+  String get whatsNewUnavailable =>
+      'As notas de versão não estão disponíveis nesta compilação.';
 }

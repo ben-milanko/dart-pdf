@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Font tertanam",
   "reduceSizeImages": "Gambar",
   "reduceSizeDuplicates": "Objek duplikat",
-  "reduceSizeCustom": "Pengaturan khusus"
+  "reduceSizeCustom": "Pengaturan khusus",
+  "whatsNew": "Yang baru",
+  "whatsNewInstalled": "Terpasang",
+  "whatsNewUnavailable": "Catatan rilis tidak tersedia di build ini."
 }

@@ -1182,4 +1182,13 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => '사용자 지정 설정';
+
+  @override
+  String get whatsNew => '새로운 기능';
+
+  @override
+  String get whatsNewInstalled => '설치됨';
+
+  @override
+  String get whatsNewUnavailable => '이 빌드에서는 릴리스 정보를 사용할 수 없습니다.';
 }

@@ -310,5 +310,8 @@
   "reduceSizeFonts": "埋め込みフォント",
   "reduceSizeImages": "画像",
   "reduceSizeDuplicates": "重複するオブジェクト",
-  "reduceSizeCustom": "カスタム設定"
+  "reduceSizeCustom": "カスタム設定",
+  "whatsNew": "新機能",
+  "whatsNewInstalled": "インストール済み",
+  "whatsNewUnavailable": "このビルドにはリリースノートがありません。"
 }

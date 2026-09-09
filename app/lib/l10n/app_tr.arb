@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Gömülü yazı tipleri",
   "reduceSizeImages": "Görüntüler",
   "reduceSizeDuplicates": "Yinelenen nesneler",
-  "reduceSizeCustom": "Özel ayarlar"
+  "reduceSizeCustom": "Özel ayarlar",
+  "whatsNew": "Yenilikler",
+  "whatsNewInstalled": "Yüklü",
+  "whatsNewUnavailable": "Bu sürümde sürüm notları kullanılamıyor."
 }

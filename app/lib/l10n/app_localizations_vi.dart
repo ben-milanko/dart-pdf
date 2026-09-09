@@ -1210,4 +1210,14 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Cài đặt tùy chỉnh';
+
+  @override
+  String get whatsNew => 'Có gì mới';
+
+  @override
+  String get whatsNewInstalled => 'Đã cài đặt';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Ghi chú phát hành không có sẵn trong bản dựng này.';
 }

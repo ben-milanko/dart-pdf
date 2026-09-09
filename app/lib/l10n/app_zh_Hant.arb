@@ -310,5 +310,8 @@
   "reduceSizeFonts": "嵌入字型",
   "reduceSizeImages": "影像",
   "reduceSizeDuplicates": "重複物件",
-  "reduceSizeCustom": "自訂設定"
+  "reduceSizeCustom": "自訂設定",
+  "whatsNew": "新功能",
+  "whatsNewInstalled": "已安裝",
+  "whatsNewUnavailable": "此版本未提供版本資訊。"
 }

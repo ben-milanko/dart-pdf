@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Font incorporati",
   "reduceSizeImages": "Immagini",
   "reduceSizeDuplicates": "Oggetti duplicati",
-  "reduceSizeCustom": "Impostazioni personalizzate"
+  "reduceSizeCustom": "Impostazioni personalizzate",
+  "whatsNew": "Novità",
+  "whatsNewInstalled": "Installata",
+  "whatsNewUnavailable": "Le note di rilascio non sono disponibili in questa build."
 }

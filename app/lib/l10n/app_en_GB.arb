@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Embedded fonts",
   "reduceSizeImages": "Images",
   "reduceSizeDuplicates": "Duplicate objects",
-  "reduceSizeCustom": "Custom settings"
+  "reduceSizeCustom": "Custom settings",
+  "whatsNew": "What's new",
+  "whatsNewInstalled": "Installed",
+  "whatsNewUnavailable": "Release notes aren't available in this build."
 }

@@ -310,5 +310,8 @@
   "reduceSizeFonts": "एम्बेड किए गए फ़ॉन्ट",
   "reduceSizeImages": "छवियाँ",
   "reduceSizeDuplicates": "डुप्लिकेट ऑब्जेक्ट",
-  "reduceSizeCustom": "कस्टम सेटिंग"
+  "reduceSizeCustom": "कस्टम सेटिंग",
+  "whatsNew": "नया क्या है",
+  "whatsNewInstalled": "इंस्टॉल किया गया",
+  "whatsNewUnavailable": "इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।"
 }

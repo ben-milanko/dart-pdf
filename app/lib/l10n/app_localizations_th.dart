@@ -1201,4 +1201,13 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'การตั้งค่าแบบกำหนดเอง';
+
+  @override
+  String get whatsNew => 'มีอะไรใหม่';
+
+  @override
+  String get whatsNewInstalled => 'ติดตั้งแล้ว';
+
+  @override
+  String get whatsNewUnavailable => 'ไม่มีบันทึกประจำรุ่นในบิลด์นี้';
 }

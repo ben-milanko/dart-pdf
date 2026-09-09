@@ -1209,4 +1209,14 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'कस्टम सेटिंग';
+
+  @override
+  String get whatsNew => 'नया क्या है';
+
+  @override
+  String get whatsNewInstalled => 'इंस्टॉल किया गया';
+
+  @override
+  String get whatsNewUnavailable =>
+      'इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।';
 }

@@ -1602,5 +1602,17 @@
   "reduceSizeCustom": "Custom settings",
   "@reduceSizeCustom": {
     "description": "Preset label shown after any individual compression setting is changed."
+  },
+  "whatsNew": "What's new",
+  "@whatsNew": {
+    "description": "Title of the release-notes dialog, and the label of every entry point that opens it."
+  },
+  "whatsNewInstalled": "Installed",
+  "@whatsNewInstalled": {
+    "description": "Badge marking the changelog section that matches the running build's version."
+  },
+  "whatsNewUnavailable": "Release notes aren't available in this build.",
+  "@whatsNewUnavailable": {
+    "description": "Shown when the bundled changelog is missing or empty."
   }
 }

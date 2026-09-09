@@ -51,6 +51,7 @@ import 'update_installer.dart';
 import 'update_platform.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
+import 'whats_new.dart';
 import 'window_support.dart';
 import 'windows_drop_target.dart';
 
@@ -3433,6 +3434,17 @@ class _EditorScreenState extends State<EditorScreen>
         run: action.run,
       ));
     }
+
+    // Reachable from Settings > About rather than the menu itself, so it
+    // names Settings as its source instead of claiming a menu row it has not
+    // got.
+    commands.add(AppCommand(
+      id: 'whats-new',
+      label: l.whatsNew,
+      icon: Icons.new_releases_outlined,
+      source: l.settingsTitle,
+      run: () => unawaited(showWhatsNew(context)),
+    ));
 
     if (hasDocument) {
       commands.add(AppCommand(

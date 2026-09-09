@@ -1228,4 +1228,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Benutzerdefinierte Einstellungen';
+
+  @override
+  String get whatsNew => 'Neuerungen';
+
+  @override
+  String get whatsNewInstalled => 'Installiert';
+
+  @override
+  String get whatsNewUnavailable =>
+      'In diesem Build sind keine Versionshinweise verfügbar.';
 }

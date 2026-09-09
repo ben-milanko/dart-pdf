@@ -1229,4 +1229,14 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Paramètres personnalisés';
+
+  @override
+  String get whatsNew => 'Nouveautés';
+
+  @override
+  String get whatsNewInstalled => 'Installée';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Les notes de version ne sont pas disponibles dans cette version.';
 }

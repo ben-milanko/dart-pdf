@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Ingesloten lettertypen",
   "reduceSizeImages": "Afbeeldingen",
   "reduceSizeDuplicates": "Dubbele objecten",
-  "reduceSizeCustom": "Aangepaste instellingen"
+  "reduceSizeCustom": "Aangepaste instellingen",
+  "whatsNew": "Wat is er nieuw",
+  "whatsNewInstalled": "Geïnstalleerd",
+  "whatsNewUnavailable": "Release-opmerkingen zijn niet beschikbaar in deze build."
 }

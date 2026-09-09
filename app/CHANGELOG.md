@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Ship the release notes with the app: **What's new** (Settings > About, or the
+  command palette) reads the bundled `CHANGELOG.md` and marks the section the
+  running build came from, so the notes can't drift from the binary and need no
+  network call.
+
 ## 4.4.0
 
 - Print directly on Windows from the app's own preview: choose the printer,

@@ -310,5 +310,8 @@
   "reduceSizeFonts": "ฟอนต์ที่ฝังไว้",
   "reduceSizeImages": "ภาพ",
   "reduceSizeDuplicates": "วัตถุที่ซ้ำกัน",
-  "reduceSizeCustom": "การตั้งค่าแบบกำหนดเอง"
+  "reduceSizeCustom": "การตั้งค่าแบบกำหนดเอง",
+  "whatsNew": "มีอะไรใหม่",
+  "whatsNewInstalled": "ติดตั้งแล้ว",
+  "whatsNewUnavailable": "ไม่มีบันทึกประจำรุ่นในบิลด์นี้"
 }

@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Вбудовані шрифти",
   "reduceSizeImages": "Зображення",
   "reduceSizeDuplicates": "Дубльовані об’єкти",
-  "reduceSizeCustom": "Власні налаштування"
+  "reduceSizeCustom": "Власні налаштування",
+  "whatsNew": "Що нового",
+  "whatsNewInstalled": "Встановлено",
+  "whatsNewUnavailable": "Примітки до випуску недоступні в цій збірці."
 }

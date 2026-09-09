@@ -1230,4 +1230,14 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Власні налаштування';
+
+  @override
+  String get whatsNew => 'Що нового';
+
+  @override
+  String get whatsNewInstalled => 'Встановлено';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Примітки до випуску недоступні в цій збірці.';
 }

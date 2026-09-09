@@ -1209,4 +1209,13 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Özel ayarlar';
+
+  @override
+  String get whatsNew => 'Yenilikler';
+
+  @override
+  String get whatsNewInstalled => 'Yüklü';
+
+  @override
+  String get whatsNewUnavailable => 'Bu sürümde sürüm notları kullanılamıyor.';
 }
