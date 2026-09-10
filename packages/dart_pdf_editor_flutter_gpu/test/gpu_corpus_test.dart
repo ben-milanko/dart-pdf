@@ -7,7 +7,7 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
-import 'package:flutter/services.dart' show FontLoader;
+import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -76,6 +76,13 @@ void main() {
     return;
   }
 
+  // Canvas and the accelerated backend have to substitute the *same* face for
+  // unembedded text or the parity comparison below is measuring the faces, not
+  // the two renderers. The outliner reads the bundled TeX Gyre files out of the
+  // asset bundle exactly as it does in an app; flutter_test never registers a
+  // pubspec font family (and ignores fontFamilyFallback), so Canvas needs them
+  // registered by hand under the same names.
+  setUpAll(_registerBundledSubstituteFonts);
   if (Platform.isMacOS &&
       Platform.environment['GPU_CORPUS_REGISTER_SYSTEM_FONTS'] == '1') {
     setUpAll(_registerMacSystemFonts);
@@ -164,6 +171,11 @@ void _corpus(
                 ) ??
                 768,
           );
+          // The outliner declines every substituted run until it knows whether
+          // it has the bundled faces, so settle that before recording rather
+          // than spending the first page on the Canvas fallback.
+          final outliner = backend.textOutliner;
+          if (outliner is FlutterGpuSystemTextOutliner) await outliner.ready;
           final scene = await PdfRetainedScene.record(
             document.page(pageIndex),
             retainDecodedPixelsForCommands:
@@ -306,6 +318,24 @@ void _writeCorpusReport() {
         'schema': 1,
         'suites': _corpusReports,
       })}\n');
+}
+
+/// Registers the bundled metric-compatible substitutes with the engine, so
+/// Canvas draws unembedded standard-14 text in the same faces
+/// `FlutterGpuSystemTextOutliner` reads from the asset bundle.
+///
+/// The optional assets package is a dev dependency here for exactly this: its
+/// files are in the test asset bundle, so both sides resolve the same bytes.
+Future<void> _registerBundledSubstituteFonts() async {
+  for (final substitute in PdfBundledSubstitute.values) {
+    final loader = FontLoader(substitute.packageFamily);
+    for (final face in substitute.faces) {
+      final data = await rootBundle
+          .load('packages/dart_pdf_editor_assets/assets/fonts/${face.file}');
+      loader.addFont(Future<ByteData>.value(data));
+    }
+    await loader.load();
+  }
 }
 
 Future<void> _registerMacSystemFonts() async {
