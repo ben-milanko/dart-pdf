@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Bundle the metric-compatible TeX Gyre faces the renderer substitutes into
+  unembedded standard-14 text: Heros (Helvetica/Arial), Termes (Times) and
+  Cursor (Courier), in regular, bold, italic and bold-italic, joining the
+  Adventor faces already shipped for Century Gothic / Avant Garde. They carry
+  the same advances as the AFM tables a standard-14 page is typeset against, so
+  such a page is spaced as it was written on every platform instead of picking
+  up whatever the host has installed.
+- Check every bundled substitute file against those AFM tables in
+  `test/substitute_metrics_test.dart`, run by CI.
+
 ## 4.4.0
 
 - Regenerate the bundled web render worker for dart_pdf_editor 4.4.0 and align the optional assets with the package suite.

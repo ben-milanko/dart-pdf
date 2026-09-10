@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Draw unembedded standard-14 text in the metric-compatible TeX Gyre faces
+  bundled by `dart_pdf_editor_assets` - Heros for Helvetica/Arial, Termes for
+  Times, Cursor for Courier - ahead of any host font. Substituting a face with
+  different advances opened white space inside words, because each character is
+  placed at the PDF's own pen offset: DejaVu Sans, the previous fallback, drew
+  `J` at 295/1000 em where Helvetica's table reserves 500, leaving ~2.7pt of air
+  after every capital J at 12pt. Without the assets package the renderer now
+  names the host's metric equivalents (Arial, Liberation Sans, Nimbus Sans and
+  their serif/mono counterparts) before falling back further.
+- Load only the substitute weights and slants a page actually shows in the
+  canvas2d web worker, and none for an invisible OCR layer.
+- Export the substitution policy (`PdfBundledSubstitute`,
+  `pdfBundledSubstituteFor`) so a host can resolve the same faces the renderer
+  does.
+
 ## 4.4.0
 
 - Reach at least 10000% actual size independently of viewport width, with

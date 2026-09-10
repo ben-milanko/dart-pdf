@@ -1,14 +1,38 @@
 # dart_pdf_editor_assets
 
 Optional bundled assets for [`dart_pdf_editor`](../dart_pdf_editor): the six
-editor fonts offered by the font menu (and used as composite-text fallbacks) and
+editor fonts offered by the font menu (and used as composite-text fallbacks),
+the **metric-compatible substitute faces** for unembedded standard-14 text, and
 the prebuilt **web render worker**.
 
-These assets add roughly **2 MB** to a build (fonts plus the web worker,
+These assets add roughly **3.5 MB** to a build (fonts plus the web worker,
 compressed). They live in this separate package - not in
 `dart_pdf_editor` - so an app that only *views* PDFs never bundles them: Flutter
 includes a package's declared assets on every build target, so the only way to
 make these opt-in is to keep them out of the package every consumer depends on.
+
+## Substitute faces for the standard 14
+
+A PDF that names one of the standard 14 fonts carries no font program: the
+viewer draws the text, and the advances come from the AFM tables the page was
+typeset against. This package bundles URW's metric-compatible clones of those
+fonts - **TeX Gyre Heros** (Helvetica, Arial), **Termes** (Times), **Cursor**
+(Courier) and **Adventor** (Century Gothic, Avant Garde) - and the renderer
+names them ahead of anything the host has installed, so such a page is drawn
+with the advances it was written for on every platform.
+
+That matters more than the shapes: the renderer places every character at the
+PDF's own pen offset, so that selection, search and hit boxes land on the ink.
+A substitute whose glyphs are narrower than the table says therefore opens white
+space *inside* words - DejaVu Sans, the fallback without this package, draws `J`
+at 295/1000 em where Helvetica's table reserves 500, which put about 2.7pt of
+air after every capital J at 12pt. `test/substitute_metrics_test.dart` checks
+every bundled file against the AFM tables, and CI runs it.
+
+Without this package the renderer falls back to whatever metric-compatible face
+the host has (Arial, Liberation Sans, Nimbus Sans and their serif/mono
+equivalents), then to any sans at all - text still renders, it just may not be
+spaced as the page intended.
 
 ## Full-featured editor (the historical default)
 
@@ -53,4 +77,5 @@ catalogue, or a native app that wants the fonts but no worker asset.
 
 The font licences are in `assets/fonts/*-LICENSE.txt`. DejaVu is a permissive
 Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are the SIL Open
-Font Licence; TeX Gyre Adventor uses the GUST Font License.
+Font Licence; the TeX Gyre families (Heros, Termes, Cursor, Adventor) use the
+GUST Font License and ship unmodified.

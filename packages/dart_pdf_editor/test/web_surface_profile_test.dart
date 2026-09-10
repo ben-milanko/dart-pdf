@@ -216,6 +216,52 @@ void main() {
     }
   });
 
+  test('a mismatched substitute splits a word where a matched one keeps it',
+      () {
+    // "Run JavaScript" at 12pt base-14 Helvetica, from the example app's demo
+    // page. The PDF's advances are the Helvetica AFM table; the substitute's
+    // are what it actually draws. TeX Gyre Heros is the metric-compatible
+    // clone, so its numbers are the same ones - DejaVu Sans, the fallback
+    // without it, draws J at 295/1000 em against the table's 500.
+    const text = 'Run JavaScript';
+    const width = 6.78;
+    const offsets = <double>[
+      0, 0.722, 1.278, 1.834, 2.112, 2.612, 3.168, 3.668, //
+      4.224, 4.891, 5.391, 5.724, 5.946, 6.502, 6.78,
+    ];
+    const heros = <String, double>{
+      'R': 72.2, 'u': 55.6, 'n': 55.6, ' ': 27.8, 'J': 50, 'a': 55.6, //
+      'v': 50, 'S': 66.7, 'c': 50, 'r': 33.3, 'i': 22.2, 'p': 55.6, 't': 27.8,
+    };
+    const dejaVu = <String, double>{
+      'R': 69.5, 'u': 63.4, 'n': 63.4, ' ': 31.8, 'J': 29.5, 'a': 61.3, //
+      'v': 59.2, 'S': 63.5, 'c': 55, 'r': 41.1, 'i': 27.8, 'p': 63.5, 't': 39.2,
+    };
+    double measured(Map<String, double> face, String piece) =>
+        piece.split('').fold(0, (sum, char) => sum + face[char]!);
+
+    final matched = pdfCanvas2dTextLayout(
+      _run(text: text, width: width, charOffsets: offsets),
+      (piece) => measured(heros, piece),
+    );
+    expect(matched, isNotNull);
+    expect(matched!.parts.map((part) => part.text), ['Run', 'JavaScript'],
+        reason: 'a face carrying the PDF\'s own advances shapes each word '
+            'whole, kerning intact');
+
+    final mismatched = pdfCanvas2dTextLayout(
+      _run(text: text, width: width, charOffsets: offsets),
+      (piece) => measured(dejaVu, piece),
+    );
+    expect(mismatched, isNotNull);
+    expect(mismatched!.parts.map((part) => part.text), contains('J'),
+        reason: 'the 205/1000 em the substitute leaves over cuts the word '
+            'after the J - the visible gap in "J avaScript"');
+    // Ten pieces against two: every disagreement is spent as a cut, which
+    // costs a draw call as well as the gap.
+    expect(mismatched.parts.length, greaterThan(matched.parts.length));
+  });
+
   test('Century Gothic routes to the metric-compatible Canvas2D family', () {
     expect(pdfUsesAdventorSubstitute('ABCDEF+CenturyGothic-Bold'), isTrue);
     expect(pdfUsesAdventorSubstitute('AvantGarde-Demi'), isTrue);
@@ -223,9 +269,61 @@ void main() {
     expect(
       pdfCanvas2dSubstituteFamily('CenturyGothic-Bold'),
       '"TeX Gyre Adventor", "Century Gothic", "URW Gothic L", '
-      '"Avenir Next", Futura, Helvetica',
+      '"Avenir Next", Futura, sans-serif',
     );
-    expect(pdfCanvas2dSubstituteFamily('Helvetica-Bold'), 'Helvetica');
+  });
+
+  test('the standard 14 route to their metric-compatible clones', () {
+    expect(
+        pdfBundledSubstituteFor('Helvetica-Bold'), PdfBundledSubstitute.heros);
+    expect(pdfBundledSubstituteFor('ABCDEF+Arial,BoldItalic'),
+        PdfBundledSubstitute.heros);
+    expect(
+        pdfBundledSubstituteFor('Times-Italic'), PdfBundledSubstitute.termes);
+    expect(pdfBundledSubstituteFor('ABCDEF+TimesNewRoman'),
+        PdfBundledSubstitute.termes);
+    expect(pdfBundledSubstituteFor('Courier-BoldOblique'),
+        PdfBundledSubstitute.cursor);
+    expect(
+        pdfBundledSubstituteFor('Consolas-Mono'), PdfBundledSubstitute.cursor);
+    // An unembedded font we know nothing about stays a sans-serif, exactly as
+    // the substitution switch has always assumed.
+    expect(pdfBundledSubstituteFor('Calibri'), PdfBundledSubstitute.heros);
+    expect(pdfBundledSubstituteFor(null), PdfBundledSubstitute.heros);
+    expect(
+      pdfCanvas2dSubstituteFamily('Helvetica-Bold'),
+      '"TeX Gyre Heros", Helvetica, Arial, "Liberation Sans", '
+      '"Nimbus Sans", sans-serif',
+    );
+    expect(
+      pdfCanvas2dSubstituteFamily('Times-Roman'),
+      '"TeX Gyre Termes", "Times New Roman", Times, "Liberation Serif", '
+      '"Nimbus Roman", serif',
+    );
+    expect(
+      pdfCanvas2dSubstituteFamily('Courier'),
+      '"TeX Gyre Cursor", "Courier New", Courier, "Liberation Mono", '
+      '"Nimbus Mono PS", monospace',
+    );
+  });
+
+  test('a substitute names the file the requested weight and slant needs', () {
+    const heros = PdfBundledSubstitute.heros;
+    expect(
+        heros.packageFamily, 'packages/dart_pdf_editor_assets/TeX Gyre Heros');
+    expect(heros.assetFile(), 'TeXGyreHeros-Regular.otf');
+    expect(heros.assetFile(bold: true), 'TeXGyreHeros-Bold.otf');
+    expect(heros.assetFile(italic: true), 'TeXGyreHeros-Italic.otf');
+    expect(heros.assetFile(bold: true, italic: true),
+        'TeXGyreHeros-BoldItalic.otf');
+    expect(heros.faces.map((face) => face.file), hasLength(4));
+    // Adventor ships upright weights only; a slanted request takes the upright
+    // file and the engine obliques it.
+    const adventor = PdfBundledSubstitute.adventor;
+    expect(adventor.assetFile(italic: true), 'TeXGyreAdventor-Regular.otf');
+    expect(adventor.assetFile(bold: true, italic: true),
+        'TeXGyreAdventor-Bold.otf');
+    expect(adventor.faces, hasLength(2));
   });
 
   test('Canvas2D exact placement declines complex and malformed runs', () {

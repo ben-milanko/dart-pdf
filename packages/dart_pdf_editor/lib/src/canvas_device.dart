@@ -1697,30 +1697,22 @@ class CanvasPdfDevice
     final name = run.fontName ?? '';
     final cjk = _cjkPrimaryFontFor(name);
     final symbol = name.contains('ZapfDingbats') || name.contains('Symbol');
-    final adventor = pdfUsesAdventorSubstitute(name);
+    // Symbolic families have no metric-compatible clone to bundle, so they keep
+    // asking for a host symbol face; everything else draws in the bundled
+    // TeX Gyre face whose advances match the PDF's own (font_substitution.dart).
+    final substitute = symbol ? null : pdfBundledSubstituteFor(name);
     return TextStyle(
       color: foreground == null ? _toColor(run.color, run.fillAlpha) : null,
       foreground: foreground,
       fontSize: 100,
       fontFamily: cjk ??
-          (adventor
-              ? pdfBundledAdventorFontFamily
-              : switch (name) {
-                  _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
-                  _ when name.contains('Symbol') => 'Symbol',
-                  _ when name.contains('Courier') || name.contains('Mono') =>
-                    'Courier',
-                  _ when name.contains('Times') || name.contains('Serif') =>
-                    'Times New Roman',
-                  _ => 'Helvetica',
-                }),
+          substitute?.packageFamily ??
+          (name.contains('ZapfDingbats') ? 'Zapf Dingbats' : 'Symbol'),
       fontFamilyFallback: cjk != null
           ? _cjkFontFallbacks
-          : adventor
-              ? _adventorFontFallbacks
-              : symbol
-                  ? _symbolFontFallbacks
-                  : _defaultFontFallbacks,
+          : substitute == null
+              ? _symbolFontFallbacks
+              : _substituteFontFallbacks[substitute]!,
       fontWeight: name.contains('Bold') ? FontWeight.bold : FontWeight.normal,
       fontStyle: name.contains('Italic') || name.contains('Oblique')
           ? FontStyle.italic
@@ -1790,14 +1782,21 @@ class CanvasPdfDevice
     'Microsoft YaHei',
   ];
 
-  static const _adventorFontFallbacks = [
-    pdfAdventorFontFamily,
-    'Century Gothic',
-    'URW Gothic L',
-    'Avenir Next',
-    'Futura',
-    ..._defaultFontFallbacks,
-  ];
+  /// What stands behind each bundled substitute when its optional asset isn't
+  /// registered: the bare family name first - a host that registers the face
+  /// system-wide, and this package's own tests, address it that way - then the
+  /// host faces that carry the same metrics, then the shared script-coverage
+  /// chain above. A run only ever reaches DejaVu for a character the metric
+  /// clone has no glyph for.
+  static final Map<PdfBundledSubstitute, List<String>>
+      _substituteFontFallbacks = {
+    for (final substitute in PdfBundledSubstitute.values)
+      substitute: [
+        substitute.family,
+        ...substitute.systemFallbacks,
+        ..._defaultFontFallbacks,
+      ],
+  };
 
   static const _symbolFontFallbacks = [
     'Noto Sans Symbols',

@@ -1,9 +1,10 @@
 name: dart_pdf_editor_assets
 description: >-
-  Optional bundled assets for dart_pdf_editor - the six editor fonts and the
-  prebuilt web render worker. Depend on it (and call
+  Optional bundled assets for dart_pdf_editor - the six editor fonts, the
+  metric-compatible TeX Gyre faces the renderer substitutes into unembedded
+  standard-14 text, and the prebuilt web render worker. Depend on it (and call
   registerBundledEditorAssets) for the full-featured editor; omit it for a
-  size-minimal viewer that ships neither.
+  size-minimal viewer that ships none of them.
 version: 4.4.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_assets
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
@@ -25,15 +26,26 @@ dependencies:
   # populates live in the editor package; this package supplies the bytes.
   dart_pdf_editor: ^4.4.0
 
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # substitute_metrics_test.dart reads the bundled faces with pdf_graphics' own
+  # OpenType parser and checks them against pdf_document's AFM tables - the
+  # contract that makes them safe to substitute at all.
+  pdf_document: ^4.4.0
+  pdf_graphics: ^4.4.0
+
 flutter:
   # The optional editor assets. These are declared here, not in
   # dart_pdf_editor, so an app that only views PDFs never bundles them: Flutter
   # includes a package's declared assets on every build target, so the only way
   # to make them opt-in is to keep them out of the always-depended-on package.
   #
-  # Fonts offered by the editor font menu. DejaVu is a permissive Bitstream
-  # Vera / Arev licence; Fira Sans, Spectral and Lobster are SIL Open Font
-  # Licence; TeX Gyre Adventor uses the GUST Font License - see the
+  # Fonts offered by the editor font menu, plus the TeX Gyre families the
+  # renderer substitutes for unembedded standard-14 text. DejaVu is a permissive
+  # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are SIL Open
+  # Font Licence; the TeX Gyre families use the GUST Font License - see the
   # *-LICENSE.txt files in assets/fonts/.
   assets:
     - assets/web/pdf_render_worker.dart.js
@@ -43,28 +55,79 @@ flutter:
     - assets/fonts/FiraSans-Regular.ttf
     - assets/fonts/Spectral-Regular.ttf
     - assets/fonts/Lobster-Regular.ttf
+    - assets/fonts/TeXGyreHeros-Regular.otf
+    - assets/fonts/TeXGyreHeros-Bold.otf
+    - assets/fonts/TeXGyreHeros-Italic.otf
+    - assets/fonts/TeXGyreHeros-BoldItalic.otf
+    - assets/fonts/TeXGyreTermes-Regular.otf
+    - assets/fonts/TeXGyreTermes-Bold.otf
+    - assets/fonts/TeXGyreTermes-Italic.otf
+    - assets/fonts/TeXGyreTermes-BoldItalic.otf
+    - assets/fonts/TeXGyreCursor-Regular.otf
+    - assets/fonts/TeXGyreCursor-Bold.otf
+    - assets/fonts/TeXGyreCursor-Italic.otf
+    - assets/fonts/TeXGyreCursor-BoldItalic.otf
     - assets/fonts/TeXGyreAdventor-Regular.otf
     - assets/fonts/TeXGyreAdventor-Bold.otf
-  # DejaVu Sans is declared as an engine font family because the renderer names
-  # it as a script fallback (`CanvasPdfDevice`'s
-  # `_defaultFontFallbacks` - Arabic/Hebrew/Greek/Cyrillic in arbitrary PDFs)
-  # and needs it registered from the first paint. TeX Gyre Adventor is also
-  # declared because it is the renderer's metric-compatible substitute for
-  # unembedded Century Gothic / Avant Garde. Declaring a family puts it in
-  # FontManifest.json, which CanvasKit fetches and parses at web startup before
-  # the first frame - so the other five menu faces, used only to preview their own
-  # menu rows, are deliberately NOT declared here. They stay listed under
-  # `assets:` above (loaded as raw bytes for embedding, and for composite-text
-  # fallback) and are registered lazily with the engine the first time the font
-  # menu opens (`_ensureBundledFontPreview` in editing_fonts.dart), keeping
-  # ~1.85 MB of font parsing off cold start.
+  # Declared families are the ones the renderer *names* while painting, so they
+  # have to be registered from the first paint: DejaVu Sans as the script
+  # fallback for Arabic/Hebrew/Greek/Cyrillic in arbitrary PDFs
+  # (`CanvasPdfDevice._defaultFontFallbacks`), and the four TeX Gyre families as
+  # the metric-compatible substitutes for unembedded standard-14 text
+  # (font_substitution.dart). Declaring a family puts it in FontManifest.json,
+  # which CanvasKit fetches and parses at web startup before the first frame, so
+  # this list is kept to faces a page can actually be drawn with - the five menu
+  # faces, used only to preview their own menu rows, are deliberately NOT
+  # declared. They stay listed under `assets:` above (loaded as raw bytes for
+  # embedding, and for composite-text fallback) and are registered lazily with
+  # the engine the first time the font menu opens (`_ensureBundledFontPreview`
+  # in editing_fonts.dart), keeping ~1.85 MB of font parsing off cold start.
+  #
+  # The TeX Gyre faces do cost ~1.5 MB of that cold start on web, which buys
+  # every standard-14 page the advances it was typeset against on every
+  # platform: a substitute with different advances does not just look different,
+  # it opens white space inside words, because the renderer places each
+  # character at the PDF's own pen offset. See
+  # doc/dev-log/2026-09-10-standard-14-metric-substitutes.md.
   fonts:
     - family: DejaVu Sans
       fonts:
         - asset: assets/fonts/DejaVuSans.ttf
-    # Metric-compatible fallback for unembedded Century Gothic / Avant Garde
-    # text. The native renderer addresses the package-qualified family; the
-    # bundled web worker loads the same two files through FontFace.
+    # Metric-compatible substitutes for the unembedded standard 14. The native
+    # renderer addresses the package-qualified families; the bundled web worker
+    # loads the same files through FontFace.
+    - family: TeX Gyre Heros
+      fonts:
+        - asset: assets/fonts/TeXGyreHeros-Regular.otf
+        - asset: assets/fonts/TeXGyreHeros-Bold.otf
+          weight: 700
+        - asset: assets/fonts/TeXGyreHeros-Italic.otf
+          style: italic
+        - asset: assets/fonts/TeXGyreHeros-BoldItalic.otf
+          weight: 700
+          style: italic
+    - family: TeX Gyre Termes
+      fonts:
+        - asset: assets/fonts/TeXGyreTermes-Regular.otf
+        - asset: assets/fonts/TeXGyreTermes-Bold.otf
+          weight: 700
+        - asset: assets/fonts/TeXGyreTermes-Italic.otf
+          style: italic
+        - asset: assets/fonts/TeXGyreTermes-BoldItalic.otf
+          weight: 700
+          style: italic
+    - family: TeX Gyre Cursor
+      fonts:
+        - asset: assets/fonts/TeXGyreCursor-Regular.otf
+        - asset: assets/fonts/TeXGyreCursor-Bold.otf
+          weight: 700
+        - asset: assets/fonts/TeXGyreCursor-Italic.otf
+          style: italic
+        - asset: assets/fonts/TeXGyreCursor-BoldItalic.otf
+          weight: 700
+          style: italic
+    # Century Gothic / Avant Garde ships upright weights only; the engine
+    # obliques them, which matches the AFM advances.
     - family: TeX Gyre Adventor
       fonts:
         - asset: assets/fonts/TeXGyreAdventor-Regular.otf

@@ -3,7 +3,13 @@ import 'dart:typed_data';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show helveticaWidths, helveticaBoldWidths, timesRomanWidths;
+    show
+        helveticaWidths,
+        helveticaBoldWidths,
+        timesRomanWidths,
+        timesBoldWidths,
+        timesItalicWidths,
+        timesBoldItalicWidths;
 
 import 'fonts/cff.dart';
 import 'fonts/cjk_cmap.dart';
@@ -144,8 +150,7 @@ class PdfFontInfo {
   }
 
   /// True when embedded glyph outlines are available.
-  bool get hasOutlines =>
-      _trueType != null || _cff != null || _type1 != null;
+  bool get hasOutlines => _trueType != null || _cff != null || _type1 != null;
 
   static PdfFontInfo load(CosDocument cos, CosDictionary font) {
     final t0 = PdfPerf.begin();
@@ -321,10 +326,12 @@ class PdfFontInfo {
 
   /// Fills ASCII advance widths (codes 32–126) for the standard-14
   /// families from their AFM tables. Helvetica/Arial map to the
-  /// Helvetica tables (bold variants to the bold table), Times to
-  /// Times-Roman, Courier to its uniform 600. Italic/oblique reuse the
-  /// upright widths - within a percent of the real AFMs and far closer
-  /// than the flat fallback. Symbol/ZapfDingbats keep the default.
+  /// Helvetica tables, Times to its four, Courier to its uniform 600.
+  /// Helvetica's oblique advances are its upright ones, so those two
+  /// styles share a table; Times' italics genuinely differ (`A` is 611
+  /// against the roman's 722) and take their own, which is what the
+  /// bundled metric-compatible substitute draws them at.
+  /// Symbol/ZapfDingbats keep the default.
   static void _fillStandardWidths(String? baseFont, Map<int, double> widths) {
     if (baseFont == null) return;
     // strip any ABCDEF+ subset prefix
@@ -335,7 +342,11 @@ class PdfFontInfo {
     if (name.startsWith('helvetica') || name.startsWith('arial')) {
       table = name.contains('bold') ? helveticaBoldWidths : helveticaWidths;
     } else if (name.startsWith('times')) {
-      table = timesRomanWidths;
+      final bold = name.contains('bold');
+      final italic = name.contains('italic');
+      table = bold
+          ? (italic ? timesBoldItalicWidths : timesBoldWidths)
+          : (italic ? timesItalicWidths : timesRomanWidths);
     } else if (name.startsWith('courier')) {
       for (var code = 32; code <= 126; code++) {
         widths[code] = 0.6;

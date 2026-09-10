@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Outline unembedded standard-14 text from the bundled metric-compatible TeX
+  Gyre faces where `dart_pdf_editor_assets` supplies them, so the accelerated
+  backend draws the same glyphs, in the same places, as the Canvas renderer.
+  The platform font catalogue is still used when those assets are absent, and a
+  face that is still loading declines the run rather than outlining one Canvas
+  would not draw.
+
 ## 0.3.3
 
 - Stop stretching substituted glyphs across their character spacing in the

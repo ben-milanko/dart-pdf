@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Give unembedded Times-Bold, Times-Italic and Times-BoldItalic their own AFM
+  advances instead of reusing Times-Roman's (`A` is 611 against the roman's
+  722), so their text measures and selects where it is drawn. Helvetica's
+  oblique advances are its upright ones and keep sharing a table.
+
 ## 4.4.0
 
 - Add `RecordedText`, a text-only snapshot a device can retain while it records
