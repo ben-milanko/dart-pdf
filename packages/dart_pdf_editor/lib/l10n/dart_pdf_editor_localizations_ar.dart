@@ -994,6 +994,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'شبكة الصفحات';
 
   @override
+  String get shellViewPages => 'الصفحات';
+
+  @override
   String get shellPanelAnnotations => 'التعليقات التوضيحية';
 
   @override

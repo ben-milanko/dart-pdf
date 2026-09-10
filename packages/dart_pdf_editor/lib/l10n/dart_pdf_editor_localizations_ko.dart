@@ -972,6 +972,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get shellPageGrid => '페이지 그리드';
 
   @override
+  String get shellViewPages => '페이지';
+
+  @override
   String get shellPanelAnnotations => '주석';
 
   @override

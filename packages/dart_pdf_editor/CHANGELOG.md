@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Group the view-options menu around what its rows actually do. Reflow text
+  and the page grid each REPLACE the page viewer, but they were drawn as two
+  independent checkmarks among the display overlays, and each silently cleared
+  the other - so leaving a mode meant unticking the one you ticked, and plain
+  pages existed only as the absence of both. They are now one `SegmentedButton`
+  at the top of the menu, with `Pages` as a real destination, over a
+  `PdfEditingPreferences.viewMode` (`PdfViewMode`) that owns the exclusivity
+  the callers kept re-implementing - including the command palette, which
+  toggled the two bools independently and could show both at once. On compact
+  layouts the modes move up into the Controls sheet's View section, one tap
+  from the document: Reflow already had a tile there, and the page grid needed
+  Controls -> Settings -> scroll -> tick. The Settings sheet keeps only
+  settings, and `showPdfShellViewOptionsSheet` no longer takes `reflow` /
+  `pageGrid`.
+
 - Draw unembedded standard-14 text in the metric-compatible TeX Gyre faces
   bundled by `dart_pdf_editor_assets` - Heros for Helvetica/Arial, Termes for
   Times, Cursor for Courier - ahead of any host font. Substituting a face with

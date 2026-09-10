@@ -1350,14 +1350,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   );
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
+            group: PdfShellControlGroup.actions,
             icon: Icons.display_settings_outlined,
             label: pdfL10n(context).shellSettings,
             onPressed: () {
               showPdfShellViewOptionsSheet(
                 context,
                 preferences: prefs,
-                reflow: features.reflowView,
-                pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
                 editingGuides: true,
                 author: features.author,
@@ -1370,19 +1369,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               );
             },
           );
-          // A one-tap Reflow toggle for the compact Controls sheet - reading
-          // reflow is something phone users reach for often, so it earns a
-          // direct tile instead of living only inside Settings. Mirrors the
-          // Settings toggle: turning reflow on clears the page grid.
-          final reflowControl = PdfShellControlItem(
-            key: const ValueKey('pdf-shell-reflow-toggle'),
-            icon: Icons.article_outlined,
-            label: pdfL10n(context).shellReflow,
-            selected: reflowActive,
-            onPressed: () {
-              prefs.showThumbnailView = false;
-              prefs.showReflowView = !prefs.showReflowView;
-            },
+          // Every view mode gets a one-tap tile in the compact Controls
+          // sheet. Reflow had one already - phone readers reach for it often -
+          // and Page grid, which is just as much a mode, was reachable only by
+          // opening Settings from here and scrolling to a checkbox.
+          final viewModeControls = pdfShellViewModeControls(
+            context,
+            preferences: prefs,
+            reflow: features.reflowView,
+            pageGrid: features.thumbnails,
           );
           final panelItems = [
             if (features.searchResultsPanel)
@@ -1514,8 +1509,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (!altView) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
+                  ...viewModeControls,
                   if (features.viewOptions) viewOptionsControl,
-                  if (features.reflowView) reflowControl,
                   for (final item in panelItems)
                     PdfShellControlItem(
                       group: PdfShellControlGroup.panels,

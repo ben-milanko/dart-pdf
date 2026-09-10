@@ -17,6 +17,11 @@ import 'saved_annotation.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 
+/// Which surface owns the document area: fixed-layout pages, the inferred
+/// text reflow view, or the full-area page grid. Exactly one at a time -
+/// see [PdfEditingPreferences.viewMode].
+enum PdfViewMode { pages, reflow, pageGrid }
+
 /// Editing-UI preferences, persisted on the local device.
 ///
 /// Every [PdfEditingController] creates one by default, so tool styles
@@ -1285,6 +1290,37 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showThumbnailView) return;
     _showThumbnailView = value;
     _write((s) => s.setBool('${_prefix}showThumbnailView', value));
+    notifyListeners();
+  }
+
+  /// The surface that currently owns the document area.
+  ///
+  /// [showReflowView] and [showThumbnailView] each REPLACE the page viewer,
+  /// so at most one of them can be true. Setting the two bools individually
+  /// leaves that invariant to the caller, and every caller that forgot it
+  /// produced the same bug: view options that silently untick each other,
+  /// with no way back to plain pages except unticking the one you ticked.
+  /// This pair is the single place the modes are kept coherent - prefer it,
+  /// and it notifies once for the whole change.
+  PdfViewMode get viewMode => _showReflowView
+      ? PdfViewMode.reflow
+      : _showThumbnailView
+          ? PdfViewMode.pageGrid
+          : PdfViewMode.pages;
+
+  set viewMode(PdfViewMode value) {
+    final reflow = value == PdfViewMode.reflow;
+    final grid = value == PdfViewMode.pageGrid;
+    if (reflow == _showReflowView && grid == _showThumbnailView) return;
+    _showReflowView = reflow;
+    _showThumbnailView = grid;
+    // Both keys before yielding, for the reason in _writeSignatureLibrary:
+    // awaiting one would let a later mode change resume in between and
+    // persist a pair that was never live.
+    _write((s) => Future.wait<Object?>([
+          s.setBool('${_prefix}showReflowView', reflow),
+          s.setBool('${_prefix}showThumbnailView', grid),
+        ]));
     notifyListeners();
   }
 

@@ -506,30 +506,24 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
+                  // Pages / Reflow as one exclusive choice, at one tap. The
+                  // reader offers no page grid, so the set is a pair.
+                  ...pdfShellViewModeControls(context,
+                      preferences: prefs, reflow: true),
                   if (features.viewOptions)
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-view-options'),
+                      group: PdfShellControlGroup.actions,
                       icon: Icons.display_settings_outlined,
                       label: pdfL10n(context).shellSettings,
                       onPressed: () {
                         showPdfShellViewOptionsSheet(
                           context,
                           preferences: prefs,
-                          reflow: true,
                           pageColor: features.pageColorEditable,
                         );
                       },
                     ),
-                  // A direct Reflow toggle for phone readers, who reach for the
-                  // reading view most - no need to dig into Settings.
-                  PdfShellControlItem(
-                    key: const ValueKey('pdf-shell-reflow-toggle'),
-                    icon: Icons.article_outlined,
-                    label: pdfL10n(context).shellReflow,
-                    selected: prefs.showReflowView,
-                    onPressed: () =>
-                        prefs.showReflowView = !prefs.showReflowView,
-                  ),
                   if (features.thumbnails)
                     PdfShellControlItem(
                       group: PdfShellControlGroup.panels,

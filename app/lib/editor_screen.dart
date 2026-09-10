@@ -3547,10 +3547,24 @@ class _EditorScreenState extends State<EditorScreen>
         view,
         _prefs.showAnnotations,
         (v) => _prefs.showAnnotations = v);
-    toggle('view-reflow', Icons.article_outlined, pdf.shellReflowText, view,
-        _prefs.showReflowView, (v) => _prefs.showReflowView = v);
-    toggle('view-page-grid', Icons.grid_view_outlined, pdf.shellPageGrid, view,
-        _prefs.showThumbnailView, (v) => _prefs.showThumbnailView = v);
+    // Reflow and the page grid each replace the page viewer, so they go
+    // through PdfEditingPreferences.viewMode rather than their own bools:
+    // turning one on has to clear the other, and turning one off has to land
+    // somewhere - plain pages.
+    toggle(
+        'view-reflow',
+        Icons.article_outlined,
+        pdf.shellReflowText,
+        view,
+        _prefs.viewMode == PdfViewMode.reflow,
+        (v) => _prefs.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
+    toggle(
+        'view-page-grid',
+        Icons.grid_view_outlined,
+        pdf.shellPageGrid,
+        view,
+        _prefs.viewMode == PdfViewMode.pageGrid,
+        (v) => _prefs.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
     toggle(
         'view-form-fields',
         Icons.ballot_outlined,

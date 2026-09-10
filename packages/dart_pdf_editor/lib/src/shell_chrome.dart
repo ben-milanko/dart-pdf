@@ -1416,8 +1416,6 @@ enum _ViewOption {
   annotations,
   scrollbarChapters,
   formHighlight,
-  reflow,
-  pageGrid,
   pageColor,
   editingGuides,
   author,
@@ -1441,14 +1439,6 @@ Future<void> _selectViewOption(
       preferences.showScrollbarChapters = !preferences.showScrollbarChapters;
     case _ViewOption.formHighlight:
       preferences.highlightFormFields = !preferences.highlightFormFields;
-    case _ViewOption.reflow:
-      // reflow and the page grid both replace the page viewer - only one
-      // can claim the area, so each clears the other
-      preferences.showThumbnailView = false;
-      preferences.showReflowView = !preferences.showReflowView;
-    case _ViewOption.pageGrid:
-      preferences.showReflowView = false;
-      preferences.showThumbnailView = !preferences.showThumbnailView;
     case _ViewOption.pageColor:
       if (!pageColor) return;
       final color = await showPdfColorPicker(
@@ -1724,11 +1714,15 @@ String _shortcutGroupLabel(BuildContext context, PdfEditToolGroup group) {
   }
 }
 
+/// The compact twin of [PdfShellViewOptionsButton]'s popup.
+///
+/// It deliberately holds LESS than the popup does: the view modes live in the
+/// Controls sheet one level up (see [pdfShellViewModeControls]), because on a
+/// compact layout Controls is the parent surface and this sheet is a child of
+/// it - putting a mode here would bury it two taps deep.
 Future<void> showPdfShellViewOptionsSheet(
   BuildContext context, {
   required PdfEditingPreferences preferences,
-  bool reflow = false,
-  bool pageGrid = false,
   bool pageColor = true,
   bool editingGuides = false,
   bool author = false,
@@ -1822,40 +1816,6 @@ Future<void> showPdfShellViewOptionsSheet(
                   setSheetState(() {});
                 },
               ),
-              if (reflow)
-                SwitchListTile(
-                  key: const ValueKey('pdf-shell-reflow-view'),
-                  secondary: const Icon(Icons.article_outlined),
-                  title: Text(pdfL10n(context).shellReflowText),
-                  value: preferences.showReflowView,
-                  onChanged: (_) async {
-                    await _selectViewOption(
-                      context,
-                      _ViewOption.reflow,
-                      preferences: preferences,
-                      pageColor: pageColor,
-                      onAuthorPressed: onAuthorPressed,
-                    );
-                    setSheetState(() {});
-                  },
-                ),
-              if (pageGrid)
-                SwitchListTile(
-                  key: const ValueKey('pdf-shell-page-grid'),
-                  secondary: const Icon(Icons.view_module_outlined),
-                  title: Text(pdfL10n(context).shellPageGrid),
-                  value: preferences.showThumbnailView,
-                  onChanged: (_) async {
-                    await _selectViewOption(
-                      context,
-                      _ViewOption.pageGrid,
-                      preferences: preferences,
-                      pageColor: pageColor,
-                      onAuthorPressed: onAuthorPressed,
-                    );
-                    setSheetState(() {});
-                  },
-                ),
               if (pageColor)
                 ListTile(
                   key: const ValueKey('pdf-shell-page-color'),
@@ -1937,10 +1897,153 @@ Future<void> showPdfShellViewOptionsSheet(
   );
 }
 
-/// The "view options" popup both shells offer: display-only settings
-/// (annotation visibility, form-field highlight, paper color, and optional
-/// editing guides) that live in [PdfEditingPreferences] and never touch the
-/// document.
+/// How wide the view-options popup grows when it carries the view-mode
+/// segmented control: 6 of Flutter's 56pt menu steps.
+///
+/// Not a ceiling the content stops short of - a [SegmentedButton] fills the
+/// width it is offered, so this IS the menu's width whenever the modes are
+/// shown. 336 fits the English labels ("Reflow text" is the widest at ~79pt
+/// of 14pt Roboto, plus segment padding, times three); a verbose locale
+/// ellipsizes into the same frame rather than pushing the menu wider than a
+/// menu should be.
+const double _viewModeMenuMaxWidth = 6 * 56;
+
+/// The [PdfViewMode] to show as selected when the host does not offer every
+/// mode. A shell can turn reflow or the page grid off ([PdfEditorFeatures]),
+/// and a segmented control asserts if its selected value has no segment.
+PdfViewMode _effectiveViewMode(PdfViewMode mode,
+    {required bool reflow, required bool pageGrid}) {
+  if (mode == PdfViewMode.reflow && !reflow) return PdfViewMode.pages;
+  if (mode == PdfViewMode.pageGrid && !pageGrid) return PdfViewMode.pages;
+  return mode;
+}
+
+/// The view-mode tiles for the compact Controls sheet's "View" section.
+///
+/// Compact keeps the modes here rather than in the Settings sheet: Controls is
+/// the parent surface on a phone, so a mode reached through Settings would sit
+/// two taps deep. Reflow already had a tile of its own on that reasoning; this
+/// puts all three on the same footing, as one exclusive choice.
+///
+/// Returns nothing when the host offers no mode but plain pages - a one-member
+/// radio set is just chrome.
+List<PdfShellControlItem> pdfShellViewModeControls(
+  BuildContext context, {
+  required PdfEditingPreferences preferences,
+  bool reflow = false,
+  bool pageGrid = false,
+}) {
+  if (!reflow && !pageGrid) return const [];
+  final l10n = pdfL10n(context);
+  final mode = _effectiveViewMode(preferences.viewMode,
+      reflow: reflow, pageGrid: pageGrid);
+  return [
+    PdfShellControlItem(
+      key: const ValueKey('pdf-shell-view-mode-pages'),
+      icon: Icons.description_outlined,
+      label: l10n.shellViewPages,
+      selected: mode == PdfViewMode.pages,
+      onPressed: () => preferences.viewMode = PdfViewMode.pages,
+    ),
+    if (reflow)
+      PdfShellControlItem(
+        key: const ValueKey('pdf-shell-reflow-toggle'),
+        icon: Icons.article_outlined,
+        label: l10n.shellReflow,
+        selected: mode == PdfViewMode.reflow,
+        onPressed: () => preferences.viewMode = PdfViewMode.reflow,
+      ),
+    if (pageGrid)
+      PdfShellControlItem(
+        key: const ValueKey('pdf-shell-page-grid-toggle'),
+        icon: Icons.grid_view_outlined,
+        label: l10n.shellPageGrid,
+        selected: mode == PdfViewMode.pageGrid,
+        onPressed: () => preferences.viewMode = PdfViewMode.pageGrid,
+      ),
+  ];
+}
+
+/// The view-mode segmented control that opens the view-options popup.
+///
+/// A [PopupMenuEntry] rather than a [PopupMenuItem] because the modes are one
+/// exclusive choice, not independent commands - the same reason
+/// [_KeyboardShortcutMenuItem] is one. Drawn as checkmarks in a run of display
+/// toggles they read as three unrelated switches, and clearing one meant
+/// unticking it, since "pages" was only ever the absence of the other two.
+///
+/// Picking a mode closes the menu, matching the checked items it replaces (and
+/// there is nothing to see behind an open menu that covers the view anyway).
+class _ViewModeMenuItem extends PopupMenuEntry<_ViewOption> {
+  const _ViewModeMenuItem({
+    required this.preferences,
+    required this.reflow,
+    required this.pageGrid,
+  });
+
+  final PdfEditingPreferences preferences;
+  final bool reflow;
+  final bool pageGrid;
+
+  @override
+  double get height => kMinInteractiveDimension;
+
+  // it stands for no single _ViewOption - it handles its own taps and never
+  // travels through the menu's onSelected
+  @override
+  bool represents(_ViewOption? value) => false;
+
+  @override
+  State<_ViewModeMenuItem> createState() => _ViewModeMenuItemState();
+}
+
+class _ViewModeMenuItemState extends State<_ViewModeMenuItem> {
+  // Every segment is as wide as the widest one, so a verbose locale can ask
+  // for more than any menu should be - Ukrainian's "Переформатувати текст"
+  // alone runs to 21 characters. The label ellipsizes and keeps its full text
+  // in a tooltip rather than overflowing or forcing a menu wider than
+  // [_viewModeMenuMaxWidth].
+  ButtonSegment<PdfViewMode> _segment(PdfViewMode value, String label) =>
+      ButtonSegment(
+        value: value,
+        tooltip: label,
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = pdfL10n(context);
+    final mode = _effectiveViewMode(widget.preferences.viewMode,
+        reflow: widget.reflow, pageGrid: widget.pageGrid);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: SegmentedButton<PdfViewMode>(
+        key: const ValueKey('pdf-shell-view-mode'),
+        // The filled segment already says which mode is on, and a checkmark
+        // here would be the same glyph the display toggles below use for a
+        // different question - plus it costs a whole 56pt menu step.
+        showSelectedIcon: false,
+        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+        segments: [
+          _segment(PdfViewMode.pages, l10n.shellViewPages),
+          if (widget.reflow) _segment(PdfViewMode.reflow, l10n.shellReflowText),
+          if (widget.pageGrid)
+            _segment(PdfViewMode.pageGrid, l10n.shellPageGrid),
+        ],
+        selected: {mode},
+        onSelectionChanged: (selection) {
+          widget.preferences.viewMode = selection.first;
+          Navigator.of(context).maybePop();
+        },
+      ),
+    );
+  }
+}
+
+/// The "view options" popup both shells offer: the view mode, then
+/// display-only settings (annotation visibility, form-field highlight, paper
+/// color, and optional editing guides) that live in [PdfEditingPreferences]
+/// and never touch the document.
 class PdfShellViewOptionsButton extends StatelessWidget {
   const PdfShellViewOptionsButton({
     super.key,
@@ -1997,6 +2100,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
     return PopupMenuButton<_ViewOption>(
       key: const ValueKey('pdf-shell-view-options'),
       tooltip: pdfL10n(context).shellSettings,
+      // A popup stops at 5 menu steps (280pt) by default, which is fine for a
+      // column of rows but squeezes three labelled segments. Raise the cap
+      // only when the modes are actually offered - IntrinsicWidth still sizes
+      // the menu to its content, in 56pt steps.
+      constraints: reflow || pageGrid
+          ? const BoxConstraints(minWidth: 112, maxWidth: _viewModeMenuMaxWidth)
+          : null,
       icon: const Icon(Icons.display_settings_outlined),
       // match the bar's IconButtons; a PopupMenuButton icon otherwise
       // defaults to black87 instead of onSurfaceVariant
@@ -2015,6 +2125,14 @@ class PdfShellViewOptionsButton extends StatelessWidget {
         );
       },
       itemBuilder: (context) => [
+        if (reflow || pageGrid) ...[
+          _ViewModeMenuItem(
+            preferences: preferences,
+            reflow: reflow,
+            pageGrid: pageGrid,
+          ),
+          const PopupMenuDivider(),
+        ],
         CheckedPopupMenuItem(
           key: const ValueKey('pdf-shell-show-annotations'),
           value: _ViewOption.annotations,
@@ -2033,20 +2151,6 @@ class PdfShellViewOptionsButton extends StatelessWidget {
           checked: preferences.highlightFormFields,
           child: Text(pdfL10n(context).shellHighlightFormFields),
         ),
-        if (reflow)
-          CheckedPopupMenuItem(
-            key: const ValueKey('pdf-shell-reflow-view'),
-            value: _ViewOption.reflow,
-            checked: preferences.showReflowView,
-            child: Text(pdfL10n(context).shellReflowText),
-          ),
-        if (pageGrid)
-          CheckedPopupMenuItem(
-            key: const ValueKey('pdf-shell-page-grid'),
-            value: _ViewOption.pageGrid,
-            checked: preferences.showThumbnailView,
-            child: Text(pdfL10n(context).shellPageGrid),
-          ),
         if (pageColor)
           PopupMenuItem(
             key: const ValueKey('pdf-shell-page-color'),

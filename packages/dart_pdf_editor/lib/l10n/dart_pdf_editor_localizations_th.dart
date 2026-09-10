@@ -975,6 +975,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'ตารางหน้า';
 
   @override
+  String get shellViewPages => 'หน้า';
+
+  @override
   String get shellPanelAnnotations => 'คำอธิบายประกอบ';
 
   @override

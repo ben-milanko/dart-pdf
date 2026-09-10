@@ -40,6 +40,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // The view modes are one SegmentedButton in the view-options popup, so a
+  // mode is addressed by its label rather than by a per-item key. Each segment
+  // repeats its label as a tooltip (for the locales where it ellipsizes), so
+  // match the drawn label - the single-line one - not the tooltip's copy.
+  Finder viewModeSegment(String label) => find.descendant(
+      of: find.byKey(const ValueKey('pdf-shell-view-mode')),
+      matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Text && widget.data == label && widget.maxLines == 1,
+          description: 'segment labelled "$label"'));
+
+  Future<void> tapViewMode(WidgetTester tester, String label) async {
+    await tester.tap(viewModeSegment(label), kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+  }
+
   Visibility actionVisibility(WidgetTester tester, Finder action) =>
       tester.widget<Visibility>(
         find.ancestor(of: action, matching: find.byType(Visibility)).first,
@@ -291,9 +307,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-reflow-view')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Reflow text');
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
@@ -354,8 +368,7 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-shell-author')), findsOneWidget);
-      expect(
-          find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
+      expect(viewModeSegment('Reflow text'), findsOneWidget);
     });
 
     testWidgets('forwards page preview and raster cache policies',
@@ -595,9 +608,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-reflow-view')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Reflow text');
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
@@ -606,6 +617,51 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-page-number-field')), findsNothing);
       expect(find.text('Hello, world!'), findsOneWidget);
+    });
+
+    testWidgets('the view-mode control clears Flutter\'s 280pt menu cap',
+        (tester) async {
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: null));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      // a popup stops at 5 * 56 by default, which squeezes three labelled
+      // segments; PdfShellViewOptionsButton raises the cap when it carries
+      // them, so all three labels stay readable
+      final width = tester
+          .getSize(find.byKey(const ValueKey('pdf-shell-view-mode')))
+          .width;
+      expect(width, greaterThan(280 - 24));
+      expect(viewModeSegment('Pages'), findsOneWidget);
+      expect(viewModeSegment('Reflow text'), findsOneWidget);
+      expect(viewModeSegment('Page grid'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a verbose locale ellipsizes the segments instead of'
+        ' overflowing', (tester) async {
+      // Ukrainian has the longest set of the shipped locales; every segment is
+      // as wide as the widest, so this is the case that would overflow.
+      await tester.pumpWidget(MaterialApp(
+        locale: const Locale('uk'),
+        localizationsDelegates:
+            DartPdfEditorLocalizations.localizationsDelegates,
+        supportedLocales: DartPdfEditorLocalizations.supportedLocales,
+        home: Scaffold(body: PdfEditorView(bytes: buildMultiPagePdf(2))),
+      ));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      // reaching here without a RenderFlex overflow is the assertion
+      expect(find.byKey(const ValueKey('pdf-shell-view-mode')), findsOneWidget);
+      expect(
+          tester
+              .getSize(find.byKey(const ValueKey('pdf-shell-view-mode')))
+              .width,
+          lessThanOrEqualTo(6 * 56));
     });
 
     testWidgets('View options can swap in the full-area page grid',
@@ -621,9 +677,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
 
       expect(prefs.showThumbnailView, isTrue);
       expect(find.byType(PdfThumbnailView), findsOneWidget);
@@ -657,9 +711,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
 
       expect(prefs.showReflowView, isFalse);
       expect(prefs.showThumbnailView, isTrue);
@@ -678,7 +730,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('pdf-shell-page-grid')), findsNothing);
+      expect(viewModeSegment('Page grid'), findsNothing);
+      // reflow is still offered, so the control stays - as a pair
+      expect(viewModeSegment('Pages'), findsOneWidget);
+      expect(viewModeSegment('Reflow text'), findsOneWidget);
     });
 
     testWidgets('reflowView: false hides editor reflow option', (tester) async {
@@ -695,7 +750,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
           findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-shell-reflow-view')), findsNothing);
+      expect(viewModeSegment('Reflow text'), findsNothing);
     });
 
     testWidgets('compact layout honors an explicit thumbnail preference',
@@ -1742,6 +1797,59 @@ void main() {
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-properties-toggle')),
           findsOneWidget);
+    });
+
+    testWidgets('compact: the Controls sheet owns the view modes, one tap deep',
+        (tester) async {
+      compactScreen(tester);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
+      await openShellControls(tester);
+
+      // all three modes are tiles in the sheet's View section. Page grid used
+      // to be reachable only by opening Settings from here and scrolling to a
+      // checkbox, while Reflow already had a tile of its own.
+      expect(find.byKey(const ValueKey('pdf-shell-view-mode-pages')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-reflow-toggle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-page-grid-toggle')),
+          findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
+      expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+      // and picking another mode leaves the first one behind
+      await openShellControls(tester);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-reflow-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.viewMode, PdfViewMode.reflow);
+      expect(prefs.showThumbnailView, isFalse);
+      expect(find.byType(PdfThumbnailView), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('compact: the Settings sheet no longer holds the view modes',
+        (tester) async {
+      compactScreen(tester);
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShellControls(tester);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Settings'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
+          findsOneWidget);
+      // they live one level up, in Controls
+      expect(find.text('Reflow text'), findsNothing);
+      expect(find.text('Page grid'), findsNothing);
     });
 
     testWidgets('compact: a toggled panel floats up as a bottom sheet',

@@ -970,6 +970,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get shellPageGrid => '页面网格';
 
   @override
+  String get shellViewPages => '页面';
+
+  @override
   String get shellPanelAnnotations => '注释';
 
   @override
@@ -3080,6 +3083,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get shellPageGrid => '頁面網格';
+
+  @override
+  String get shellViewPages => '頁面';
 
   @override
   String get shellPanelAnnotations => '註解';

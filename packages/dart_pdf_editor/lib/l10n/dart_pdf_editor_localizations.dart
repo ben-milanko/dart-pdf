@@ -1876,6 +1876,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Page grid'**
   String get shellPageGrid;
 
+  /// View-mode label for ordinary fixed-layout pages, the alternative to the reflow view and the page grid. Distinct from shellPanelPages, which names the page thumbnail sidebar.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get shellViewPages;
+
   /// Name of the annotations list panel (toggle tooltip and sheet title).
   ///
   /// In en, this message translates to:

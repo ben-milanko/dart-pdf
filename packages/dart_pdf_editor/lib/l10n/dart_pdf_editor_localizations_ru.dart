@@ -991,6 +991,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Сетка страниц';
 
   @override
+  String get shellViewPages => 'Страницы';
+
+  @override
   String get shellPanelAnnotations => 'Аннотации';
 
   @override
