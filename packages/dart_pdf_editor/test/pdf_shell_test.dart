@@ -646,6 +646,44 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
+    testWidgets('a page grid double-click lands the viewer on that page',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      await pump(
+          tester,
+          PdfEditorView(
+              bytes: buildMultiPagePdf(8),
+              preferences: prefs,
+              viewerController: viewer));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Page 6'));
+      await tester.pump();
+      await tester.tap(find.text('Page 6'));
+      await tester.pumpAndSettle();
+
+      // the grid closes onto the page that was double-clicked. Regression:
+      // hiding the editing toolbar used to drop PdfToolbarDragScope out of
+      // the tree, which rebuilt the viewer's State (and so its scroll
+      // position) from scratch - the reader landed back on page 1.
+      expect(prefs.showThumbnailView, isFalse);
+      expect(viewer.currentPage, 5);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('opening the page grid clears reflow', (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);

@@ -83,13 +83,15 @@ bool pdfPanelControlsRevealOnHover() => switch (defaultTargetPlatform) {
 
 /// Ambient wiring that lets a docked panel's move handle drive the shell's
 /// drag-to-redock affordance. [PdfShellPanelLayout] provides it around the
-/// panels; a panel's [PdfSidebarPanelGeometry.moveHandle] reads it. Absent
-/// when a shell wires no redocking - then panels render no move handle.
+/// panels; a panel's [PdfSidebarPanelGeometry.moveHandle] reads it. Reads as
+/// absent ([maybeOf] returns null) when a shell wires no redocking - then
+/// panels render no move handle.
 class PdfPanelDragScope extends InheritedWidget {
   const PdfPanelDragScope({
     super.key,
     required this.onDragStarted,
     required this.onDragEnded,
+    this.enabled = true,
     required super.child,
   });
 
@@ -100,11 +102,22 @@ class PdfPanelDragScope extends InheritedWidget {
   /// The drag ended (dropped or cancelled) - the shell hides its drop zones.
   final VoidCallback onDragEnded;
 
-  static PdfPanelDragScope? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<PdfPanelDragScope>();
+  /// Whether the host actually accepts a redock right now. A disabled scope
+  /// reads as absent ([maybeOf] returns null, so no move handle is drawn) yet
+  /// still sits in the tree: dropping the widget entirely would change the
+  /// depth of everything below it - the viewer included - and rebuild it from
+  /// scratch, losing its scroll position (see [PdfShellPanelLayout]).
+  final bool enabled;
+
+  static PdfPanelDragScope? maybeOf(BuildContext context) {
+    final scope =
+        context.dependOnInheritedWidgetOfExactType<PdfPanelDragScope>();
+    return scope != null && scope.enabled ? scope : null;
+  }
 
   @override
-  bool updateShouldNotify(PdfPanelDragScope oldWidget) => false;
+  bool updateShouldNotify(PdfPanelDragScope oldWidget) =>
+      oldWidget.enabled != enabled;
 }
 
 /// A compact close (×) button for a docked sidebar panel's header - the

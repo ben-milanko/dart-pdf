@@ -202,23 +202,29 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       Expanded(child: content),
       if (widget.dockedToolbar != null) widget.dockedToolbar!,
     ]);
-    if (widget.onPanelDock != null) {
-      // the panels below read this to drive the drag: their move handles
-      // toggle the drop zones on and off.
-      result = PdfPanelDragScope(
-        onDragStarted: () => _setPanelDragging(true),
-        onDragEnded: () => _setPanelDragging(false),
-        child: result,
-      );
-    }
-    if (widget.onToolbarDock != null) {
-      result = PdfToolbarDragScope(
-        onDragStarted: () => _setToolbarDragging(true),
-        onDragEnded: () => _setToolbarDragging(false),
-        child: result,
-      );
-    }
-    return result;
+    // Both scopes are always in the tree, switched on and off through
+    // [enabled] rather than by being wrapped conditionally. A wrapper that
+    // comes and goes changes the depth of everything below it, so Flutter
+    // cannot match the old elements to the new ones: the viewer's State is
+    // rebuilt from scratch and its ScrollController re-attaches at offset 0.
+    // Hiding the toolbar (opening the full-area page grid does exactly that,
+    // which drops `onToolbarDock`) would then rewind the reader to page 1 the
+    // moment the grid closed - the double-clicked page included.
+    //
+    // the panels below read this to drive the drag: their move handles
+    // toggle the drop zones on and off.
+    result = PdfPanelDragScope(
+      enabled: widget.onPanelDock != null,
+      onDragStarted: () => _setPanelDragging(true),
+      onDragEnded: () => _setPanelDragging(false),
+      child: result,
+    );
+    return PdfToolbarDragScope(
+      enabled: widget.onToolbarDock != null,
+      onDragStarted: () => _setToolbarDragging(true),
+      onDragEnded: () => _setToolbarDragging(false),
+      child: result,
+    );
   }
 }
 
@@ -368,17 +374,28 @@ class PdfToolbarDragScope extends InheritedWidget {
     super.key,
     required this.onDragStarted,
     required this.onDragEnded,
+    this.enabled = true,
     required super.child,
   });
 
   final VoidCallback onDragStarted;
   final VoidCallback onDragEnded;
 
-  static PdfToolbarDragScope? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<PdfToolbarDragScope>();
+  /// Whether the shell accepts a toolbar redock right now. A disabled scope
+  /// reads as absent ([maybeOf] returns null, so no move handle is drawn) yet
+  /// still sits in the tree - see [PdfShellPanelLayout.build] for why it may
+  /// not come and go.
+  final bool enabled;
+
+  static PdfToolbarDragScope? maybeOf(BuildContext context) {
+    final scope =
+        context.dependOnInheritedWidgetOfExactType<PdfToolbarDragScope>();
+    return scope != null && scope.enabled ? scope : null;
+  }
 
   @override
-  bool updateShouldNotify(PdfToolbarDragScope oldWidget) => false;
+  bool updateShouldNotify(PdfToolbarDragScope oldWidget) =>
+      oldWidget.enabled != enabled;
 }
 
 /// Compact grab handle injected into the stock floating editing toolbar.
