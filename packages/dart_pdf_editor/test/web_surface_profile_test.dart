@@ -307,6 +307,19 @@ void main() {
     );
   });
 
+  test('the weight and slant of a run come from its /BaseFont name', () {
+    // The web worker picks which bundled file to fetch from these, and the
+    // standard-14 names spell the style four different ways.
+    expect(pdfSubstituteIsBold('Helvetica-Bold'), isTrue);
+    expect(pdfSubstituteIsBold('ABCDEF+Arial,BoldItalic'), isTrue);
+    expect(pdfSubstituteIsBold('Times-Italic'), isFalse);
+    expect(pdfSubstituteIsBold(null), isFalse);
+    expect(pdfSubstituteIsItalic('Times-Italic'), isTrue);
+    expect(pdfSubstituteIsItalic('Helvetica-BoldOblique'), isTrue);
+    expect(pdfSubstituteIsItalic('Courier-Bold'), isFalse);
+    expect(pdfSubstituteIsItalic(null), isFalse);
+  });
+
   test('a substitute names the file the requested weight and slant needs', () {
     const heros = PdfBundledSubstitute.heros;
     expect(
