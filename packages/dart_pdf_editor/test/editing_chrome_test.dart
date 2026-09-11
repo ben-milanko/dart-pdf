@@ -402,15 +402,15 @@ void main() {
     /// text-markup annotation. Returns the editing controller plus the
     /// page geometry the overlay mounted with.
     Future<(PdfEditingController, PdfPageGeometry)> pumpMarkupOverlay(
-        WidgetTester tester) async {
+      WidgetTester tester, {
+      List<PdfRect> quads = const [
+        PdfRect(100, 700, 300, 712),
+        PdfRect(100, 685, 200, 697),
+      ],
+    }) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addMarkup(PdfMarkupKind.highlight, {
-          0: const [
-            // two quads on different vertical bands → /Rect spans
-            // the gap, exercising the per-quad chrome path
-            PdfRect(100, 700, 300, 712),
-            PdfRect(100, 685, 200, 697),
-          ],
+          0: quads,
         })
         ..tool = PdfEditTool.select
         ..selectAnnotation(0, 0);
@@ -461,6 +461,29 @@ void main() {
       expect(painter.extraSelectionRects, hasLength(1));
       final expected = geometry.toViewRect(const PdfRect(100, 685, 200, 697));
       expect(painter.extraSelectionRects.single, expected);
+    });
+
+    testWidgets('fragmented selected text has one chrome box per visual line',
+        (tester) async {
+      final (_, geometry) = await pumpMarkupOverlay(
+        tester,
+        quads: const [
+          PdfRect(100, 700, 170, 712),
+          PdfRect(210, 700, 300, 712),
+          PdfRect(100, 680, 160, 692),
+          PdfRect(190, 680, 260, 692),
+        ],
+      );
+      final painter = overlayPainter(tester);
+      expect(
+        painter.selectionRect,
+        geometry.toViewRect(const PdfRect(100, 700, 300, 712)),
+      );
+      expect(painter.extraSelectionRects, hasLength(1));
+      expect(
+        painter.extraSelectionRects.single,
+        geometry.toViewRect(const PdfRect(100, 680, 260, 692)),
+      );
     });
   });
 }

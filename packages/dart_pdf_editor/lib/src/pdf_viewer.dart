@@ -52,6 +52,7 @@ import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'tile_store.dart';
 import 'toast.dart';
+import 'text_selection_geometry.dart';
 import 'viewport.dart';
 
 export 'viewport.dart' show PdfViewport, pdfDocumentKey;
@@ -7923,9 +7924,10 @@ class _PdfViewerState extends State<PdfViewer>
     // handles and chip appear when the finger lifts
     if (_touchSelecting) return null;
     final quads = _selectionQuadsOn(index);
-    if (quads.isEmpty) return null;
-    final first = quads.first;
-    final last = quads.last;
+    final rawQuads = _rawSelectionQuadsOn(index);
+    if (quads.isEmpty || rawQuads.isEmpty) return null;
+    final first = rawQuads.first;
+    final last = rawQuads.last;
     return _PageTextSelection(
       startRect: isStart ? first.bounds : null,
       startRightToLeft: isStart && first.isRightToLeft,
@@ -8082,6 +8084,7 @@ class _PdfViewerState extends State<PdfViewer>
     _wordAnchor = null;
     _selectionQuadCacheRange = null;
     _selectionQuadCache.clear();
+    _rawSelectionQuadCache.clear();
     if (_selAnchor != null || _selFocus != null || _touchSelecting) {
       setState(() {
         _selAnchor = null;
@@ -8129,25 +8132,40 @@ class _PdfViewerState extends State<PdfViewer>
   // the range changes (an active-selection drag).
   ((int, int), (int, int))? _selectionQuadCacheRange;
   final Map<int, List<PdfTextQuad>> _selectionQuadCache = {};
+  final Map<int, List<PdfTextQuad>> _rawSelectionQuadCache = {};
 
   List<PdfTextQuad> _selectionQuadsOn(int pageIndex) {
+    _ensureSelectionQuadCacheRange();
+    final cached = _selectionQuadCache[pageIndex];
+    if (cached != null) return cached;
+    return _selectionQuadCache[pageIndex] =
+        normalizeTextSelectionQuads(_rawSelectionQuadsOn(pageIndex));
+  }
+
+  void _ensureSelectionQuadCacheRange() {
     final range = _selRange;
-    if (range == null) return const [];
     if (range != _selectionQuadCacheRange) {
       _selectionQuadCacheRange = range;
       _selectionQuadCache.clear();
+      _rawSelectionQuadCache.clear();
     }
-    final cached = _selectionQuadCache[pageIndex];
+  }
+
+  List<PdfTextQuad> _rawSelectionQuadsOn(int pageIndex) {
+    _ensureSelectionQuadCacheRange();
+    final range = _selRange;
+    if (range == null) return const [];
+    final cached = _rawSelectionQuadCache[pageIndex];
     if (cached != null) return cached;
     final (start, end) = range;
     if (pageIndex < start.$1 || pageIndex > end.$1) {
-      return _selectionQuadCache[pageIndex] = const [];
+      return _rawSelectionQuadCache[pageIndex] = const [];
     }
     final text = _pageText(pageIndex);
     final from = pageIndex == start.$1 ? start.$2 : 0;
     final to = pageIndex == end.$1 ? end.$2 : text.text.length;
-    if (from >= to) return _selectionQuadCache[pageIndex] = const [];
-    return _selectionQuadCache[pageIndex] = text.quadsFor(from, to);
+    if (from >= to) return _rawSelectionQuadCache[pageIndex] = const [];
+    return _rawSelectionQuadCache[pageIndex] = text.quadsFor(from, to);
   }
 
   void _showMatch(PdfTextMatch match) {

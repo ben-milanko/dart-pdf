@@ -52,7 +52,7 @@ void _disposeAll(Iterable<ui.Picture> pictures) {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('a wrapped Highlight records one clipped picture per markup quad',
+  test('fragmented selected lines keep one #875 clipped picture per line',
       () async {
     final editing = PdfEditingController(
       buildTextLinesPdf(
@@ -61,20 +61,21 @@ void main() {
       ),
     );
     addTearDown(editing.dispose);
-    editing.apply(
-      (editor) => editor.addHighlight(
-        0,
-        const [
-          PdfRect(36, 716, 180, 732),
-          PdfRect(36, 692, 205, 708),
-        ],
-        color: 0xFFFF00,
-        opacity: 1,
-      ),
-    );
+    editing.addMarkup(PdfMarkupKind.highlight, const {
+      0: [
+        PdfRect(36, 716, 90, 732),
+        PdfRect(120, 716, 180, 732),
+        PdfRect(36, 692, 100, 708),
+        PdfRect(130, 692, 205, 708),
+      ],
+    });
 
     final page = editing.document.page(0);
     final annotation = page.annotations.single;
+    expect(annotation.behavior.markupQuads, const [
+      PdfRect(36, 716, 180, 732),
+      PdfRect(36, 692, 205, 708),
+    ]);
     final pictures = await PdfPageRenderer.renderAnnotationPictures(
       page,
       annotation,
