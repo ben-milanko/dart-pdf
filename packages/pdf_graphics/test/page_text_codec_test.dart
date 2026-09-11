@@ -12,12 +12,25 @@ void _expectRunEquals(PdfExtractedRun a, PdfExtractedRun b) {
   expect(b.startIndex, a.startIndex);
   expect(b.mcid, a.mcid);
   expect(b.width, a.width);
+  expect(b.descent, a.descent);
+  expect(b.ascent, a.ascent);
   expect(b.isRightToLeft, a.isRightToLeft);
   expect(b.charOffsets, a.charOffsets);
-  expect([b.transform.a, b.transform.b, b.transform.c, b.transform.d,
-    b.transform.e, b.transform.f],
-      [a.transform.a, a.transform.b, a.transform.c, a.transform.d,
-    a.transform.e, a.transform.f]);
+  expect([
+    b.transform.a,
+    b.transform.b,
+    b.transform.c,
+    b.transform.d,
+    b.transform.e,
+    b.transform.f
+  ], [
+    a.transform.a,
+    a.transform.b,
+    a.transform.c,
+    a.transform.d,
+    a.transform.e,
+    a.transform.f
+  ]);
   expect([b.bounds.left, b.bounds.bottom, b.bounds.right, b.bounds.top],
       [a.bounds.left, a.bounds.bottom, a.bounds.right, a.bounds.top]);
 }
@@ -33,6 +46,7 @@ void main() {
           startIndex: 0,
           transform: PdfMatrix(12, 0, 0, 12, 72, 720),
           width: 3.2,
+          ascent: 1,
           bounds: PdfRect(72, 708, 132, 732),
           mcid: 4,
         ),

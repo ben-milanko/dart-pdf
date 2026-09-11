@@ -6260,12 +6260,13 @@ class _PdfViewerState extends State<PdfViewer>
           run.transform.b * run.transform.b);
       if (baselineScale <= 1e-12) continue;
       final padding = alongTolerance / baselineScale;
-      // Text extraction uses this conventional em-space ascent/descent for
-      // run bounds and selection quads (text_extraction.dart::_quadOf).
+      // Use the same line-aware em-space band as extraction bounds and
+      // selection quads. CJK-bearing lines extend above the conventional
+      // Latin ascent so their full glyph height remains selectable.
       if (ex >= -padding &&
           ex <= run.width + padding &&
-          ey >= -0.25 &&
-          ey <= 0.75) {
+          ey >= run.descent &&
+          ey <= run.ascent) {
         final outside = ex < 0
             ? -ex
             : ex > run.width

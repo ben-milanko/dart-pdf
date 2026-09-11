@@ -14,6 +14,7 @@ PdfPageText _sample() => PdfPageText(
           startIndex: 0,
           transform: PdfMatrix(12, 0, 0, 12, 72, 700),
           width: 2.5,
+          ascent: 1,
           bounds: PdfRect(72, 694, 132, 712),
           // Uneven, like a proportional font's real advances (#647).
           charOffsets: [0, 0.72, 1.28, 1.5, 1.72, 2.5],
@@ -38,6 +39,8 @@ void _expectSame(PdfPageText a, PdfPageText b) {
     expect(b.runs[i].startIndex, a.runs[i].startIndex);
     expect(b.runs[i].isRightToLeft, a.runs[i].isRightToLeft);
     expect(b.runs[i].width, a.runs[i].width);
+    expect(b.runs[i].descent, a.runs[i].descent);
+    expect(b.runs[i].ascent, a.runs[i].ascent);
     expect(b.runs[i].charOffsets, a.runs[i].charOffsets);
     final ta = a.runs[i].transform, tb = b.runs[i].transform;
     expect([tb.a, tb.b, tb.c, tb.d, tb.e, tb.f],

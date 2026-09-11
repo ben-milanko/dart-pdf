@@ -365,6 +365,34 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('CJK selection hit region follows the expanded line band',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildRtlTextPdf(lines: const ['中文']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+
+    // The Type3 fixture draws two 0.5em glyphs right-aligned at x=360 with a
+    // 24pt font and a y=720 baseline. This point is 0.875em above the
+    // baseline: above the legacy Latin band, but inside the CJK line band.
+    final gesture = await tester.startGesture(
+      view(358, 720 + 0.875 * 24),
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveBy(const Offset(-20, 0)); // pass the drag slop
+    await tester.pump();
+    await gesture.moveTo(view(330, 720 + 0.875 * 24));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.hasSelection, isTrue);
+    expect(controller.selectedText, isNotEmpty);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
   testWidgets('mouse drag between text lines grab-pans the page',
       (tester) async {
     final controller = await pumpViewer(
