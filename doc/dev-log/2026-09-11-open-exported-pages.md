@@ -57,3 +57,25 @@ document - rather than just the tab count.
 Still not wired: `PdfEditorView.onSplitPages` ("Split PDF…", one document
 per range) has no host handler in the app at all, so that action never
 appears. Whatever opens its outputs will want the same treatment.
+
+## Ported: the page-grid shell test that main left stale
+
+CI's `test` job came back red on this branch with one failure,
+`pdf_shell_test.dart: PdfEditorView a page grid double-click lands the viewer
+on that page` — nothing to do with this change (it is all under `app/`), and
+the same single failure is red on the base commit (12f5b49) too, so every PR
+off main was red.
+
+#908 turned the loose view-mode checkmarks into one `SegmentedButton` keyed
+`pdf-shell-view-mode`, and the file grew a `tapViewMode(tester, label)` helper
+because a segment is addressed by its label, not a per-item key. Every other
+test in the file was converted; this one still tapped
+`ValueKey('pdf-shell-page-grid')` — a key that now belongs to the *grid widget
+itself* (`pdf_editor_view.dart`), which isn't in the tree until the mode is
+already on, so the finder matched nothing. (`pdf-shell-page-grid-toggle` is
+not it either: that key is on the compact Controls sheet's tile, absent from
+the desktop popup.) One line, now `await tapViewMode(tester, 'Page grid');`.
+
+Ported here rather than left for a separate PR so this branch can reach green;
+`cd packages/dart_pdf_editor && fvm flutter test` is 2753 passed / 33 skipped,
+which is CI's own count with the one failure flipped.
