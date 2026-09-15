@@ -720,9 +720,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
 
       await tester.tap(find.text('Page 6'));
       await tester.pump();
