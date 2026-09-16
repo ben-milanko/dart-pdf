@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.5.0
 
 - Bundle the metric-compatible TeX Gyre faces the renderer substitutes into
   unembedded standard-14 text: Heros (Helvetica/Arial), Termes (Times) and

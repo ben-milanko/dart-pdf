@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.5.0
+
+- Measure and declare the whole WinAnsi range (codes 32-255) for base-14
+  fonts. `PdfStandardFont` widths stopped at code 126 and every emitter wrote
+  `/LastChar 126`, so accented text in signature boxes, free-text appearances
+  and the OCR text layer laid out with the wrong advances or stacked.
+- Refuse to sign a document certified with `/DocMDP /P 1` (no changes
+  permitted): `saveSigned`, `saveSignedEcdsa`, `saveSignedExternal` and the
+  PAdES paths throw `CertifiedNoChangesException` instead of producing a file
+  every viewer reports as tampered with. `/P 2` and `/P 3` and document
+  timestamps are unaffected.
+
 ## 4.4.0
 
 - Add persistent vertical alignment for text form fields. `PdfFormField`

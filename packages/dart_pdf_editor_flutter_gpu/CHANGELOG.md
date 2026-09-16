@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4
 
 - Outline unembedded standard-14 text from the bundled metric-compatible TeX
   Gyre faces where `dart_pdf_editor_assets` supplies them, so the accelerated

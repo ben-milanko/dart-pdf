@@ -95,6 +95,19 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="4.5.0" date="2026-09-16">
+      <description>
+        <ul>
+          <li>See what's new in each release under Settings &gt; About.</li>
+          <li>Sharper PDF text and line art on Linux.</li>
+          <li>Exported pages open in a new tab.</li>
+          <li>Switch between pages, reflowed text and the page grid from one control.</li>
+          <li>Correct letter spacing for text in unembedded standard fonts.</li>
+          <li>Better text selection across columns and in Chinese, Japanese and Korean.</li>
+          <li>Outlined text now draws clearly.</li>
+        </ul>
+      </description>
+    </release>
     <release version="4.4.0" date="2026-09-09">
       <description>
         <ul>

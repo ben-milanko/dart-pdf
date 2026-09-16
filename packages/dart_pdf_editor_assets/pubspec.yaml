@@ -5,7 +5,7 @@ description: >-
   standard-14 text, and the prebuilt web render worker. Depend on it (and call
   registerBundledEditorAssets) for the full-featured editor; omit it for a
   size-minimal viewer that ships none of them.
-version: 4.4.0
+version: 4.5.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_assets
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -24,7 +24,7 @@ dependencies:
     sdk: flutter
   # The registration API and the PdfBundledFont / global-config symbols it
   # populates live in the editor package; this package supplies the bytes.
-  dart_pdf_editor: ^4.4.0
+  dart_pdf_editor: ^4.5.0
 
 dev_dependencies:
   flutter_test:
@@ -33,8 +33,8 @@ dev_dependencies:
   # substitute_metrics_test.dart reads the bundled faces with pdf_graphics' own
   # OpenType parser and checks them against pdf_document's AFM tables - the
   # contract that makes them safe to substitute at all.
-  pdf_document: ^4.4.0
-  pdf_graphics: ^4.4.0
+  pdf_document: ^4.5.0
+  pdf_graphics: ^4.5.0
 
 flutter:
   # The optional editor assets. These are declared here, not in

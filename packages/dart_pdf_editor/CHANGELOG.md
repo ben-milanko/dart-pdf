@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.5.0
 
 - Group the view-options menu around what its rows actually do. Reflow text
   and the page grid each REPLACE the page viewer, but they were drawn as two
@@ -31,6 +31,24 @@
 - Export the substitution policy (`PdfBundledSubstitute`,
   `pdfBundledSubstituteFor`) so a host can resolve the same faces the renderer
   does.
+- Keep a text selection that crosses separately drawn runs continuous:
+  selection rects and the quads `addMarkup` saves are normalized to one box
+  per visual line, joining fragments only across a gap of up to 1.5 line
+  heights so a column gutter keeps its two boxes.
+- Hit-test text with each run's own ascent and descent, so CJK lines select
+  over the whole glyph height.
+- Floor stroked text (rendering modes 1/2/5/6) at one device pixel on both
+  text paths. A `0 w` width no longer becomes a hundredth of an em in the
+  substituted-font painter, which left stroked text nearly invisible.
+- Add an off-by-default glyph stem darkening flag,
+  `CanvasPdfDevice.glyphStemDarkening`, which darkens thin stems of small text
+  without widening them.
+- Keep the viewer's `State` when the editing toolbar comes and goes, so
+  double-clicking a page in the page grid lands on that page instead of
+  rewinding to page 1.
+- Opt the example's Linux runner out of Impeller (`DARTPDF_IMPELLER=1` turns
+  it back on): on desktop OpenGL Impeller fills PDF glyph paths without
+  antialiasing.
 
 ## 4.4.0
 
