@@ -10,6 +10,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import '../page_geometry.dart';
 import '../renderer.dart';
+import '../text_selection_geometry.dart';
 import 'digital_signature.dart';
 import 'editing_annotation_clipboard.dart';
 import 'editing_measure.dart';
@@ -2371,11 +2372,15 @@ class PdfEditingController extends ChangeNotifier {
   /// Adds a text markup of [kind] over [quadsByPage] (page index → quad
   /// rects, e.g. from [PdfViewerController.selectionRectsOn]).
   void addMarkup(PdfMarkupKind kind, Map<int, List<PdfRect>> quadsByPage) {
-    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    final linesByPage = <int, List<PdfRect>>{};
+    quadsByPage.forEach((page, quads) {
+      final lines = normalizeTextSelectionRects(quads);
+      if (lines.isNotEmpty) linesByPage[page] = lines;
+    });
+    if (linesByPage.isEmpty) return;
     apply(
       (editor) {
-        quadsByPage.forEach((page, quads) {
-          if (quads.isEmpty) return;
+        linesByPage.forEach((page, quads) {
           switch (kind) {
             case PdfMarkupKind.highlight:
               editor.addHighlight(
