@@ -6,6 +6,9 @@
   command palette) reads the bundled `CHANGELOG.md` and marks the section the
   running build came from, so the notes can't drift from the binary and need no
   network call.
+- Fix jagged, broken-looking PDF text and line art on Linux. Pages rendered
+  without antialiasing on most desktop graphics drivers, so thin serifs and
+  hairlines broke up. The Linux app now renders with Skia.
 
 ## 4.4.0
 
