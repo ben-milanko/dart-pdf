@@ -57,6 +57,10 @@ static void my_application_activate(GApplication* application) {
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
+  // Render with Skia, not Impeller (#912): Impeller on Linux's OpenGL usually
+  // has no MSAA and so draws PDF glyph outline paths without antialiasing.
+  // See app/linux/runner/my_application.cc.
+  fl_dart_project_set_enable_impeller(project, FALSE);
 
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;

@@ -415,6 +415,16 @@ static void my_application_activate(GApplication* application) {
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
+  // Render with Skia, not Impeller (#912). The Linux embedder turns Impeller
+  // on by default and runs it on OpenGL, where Impeller only gets 4x MSAA from
+  // an OpenGL ES 3 context or GL_EXT_multisampled_render_to_texture2. Common
+  // desktop GL drivers give it neither, and Impeller has no other antialiasing
+  // for arbitrary paths. PDF text is drawn as glyph outline paths, so every
+  // page came out aliased: 1-bit edges, and thin serifs and hairlines dropped
+  // out. Skia antialiases paths without MSAA. DARTPDF_IMPELLER=1 turns
+  // Impeller back on for comparison.
+  fl_dart_project_set_enable_impeller(
+      project, g_strcmp0(g_getenv("DARTPDF_IMPELLER"), "1") == 0);
 
   if (experimental_windowing_enabled()) {
     // fl_engine_new_headless starts the engine without installing an implicit
