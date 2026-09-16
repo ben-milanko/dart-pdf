@@ -26,33 +26,54 @@ const _pageHeight = 40.0;
 
 Uint8List _ascii(String s) => Uint8List.fromList(s.codeUnits);
 
-/// A page setting [_text] at [size] pt in an embedded DejaVu Sans - a real
-/// text face with real stems, unlike the geometric test font.
-Uint8List _embeddedTextPdf(double size) {
-  final font = Uint8List.fromList(
-      File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf')
-          .readAsBytesSync());
-  final content = 'BT /F1 $size Tf 0 0 0 rg 8 14 Td ($_text) Tj ET';
+/// A page setting [_text] at [size] pt.
+///
+/// With [embedded] the face is the repo's own DejaVu Sans, a real text face
+/// with real stems, so the run reaches the device as glyph outlines. Without
+/// it the face is an unembedded standard-14, which the device draws through a
+/// substituted system font instead - the other half of the darkening, and one
+/// that would otherwise diverge from embedded text on the same page.
+///
+/// [fillAlpha] below 1 emits an ExtGState `ca`, which must switch the
+/// darkening off: compositing a translucent shape twice would darken its whole
+/// body rather than its edges.
+Uint8List _textPdf(double size, {bool embedded = true, double fillAlpha = 1}) {
+  final graphicsState = fillAlpha < 1 ? '/GS0 gs ' : '';
+  final content = 'BT $graphicsState/F1 $size Tf 0 0 0 rg 8 14 Td '
+      '($_text) Tj ET';
+  final resources = StringBuffer('/Font << /F1 5 0 R >>');
+  if (fillAlpha < 1) {
+    resources.write(' /ExtGState << /GS0 << /ca $fillAlpha >> >>');
+  }
   final bodies = <Uint8List>[
     _ascii('<< /Type /Catalog /Pages 2 0 R >>'),
     _ascii('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
     _ascii('<< /Type /Page /Parent 2 0 R '
         '/MediaBox [0 0 $_pageWidth $_pageHeight] /Contents 4 0 R '
-        '/Resources << /Font << /F1 5 0 R >> >> >>'),
+        '/Resources << $resources >> >>'),
     _ascii('<< /Length ${content.length} >>\nstream\n$content\nendstream'),
-    _ascii('<< /Type /Font /Subtype /TrueType /BaseFont /DejaVuSans '
-        '/FirstChar 32 /LastChar 126 /Encoding /WinAnsiEncoding '
-        '/FontDescriptor 7 0 R >>'),
-    (BytesBuilder()
-          ..add(_ascii('<< /Length ${font.length} /Length1 ${font.length} >>'
-              '\nstream\n'))
-          ..add(font)
-          ..add(_ascii('\nendstream')))
-        .takeBytes(),
-    _ascii('<< /Type /FontDescriptor /FontName /DejaVuSans /Flags 32 '
-        '/FontBBox [-1021 -463 1793 1232] /ItalicAngle 0 /Ascent 928 '
-        '/Descent -236 /CapHeight 700 /StemV 80 /FontFile2 6 0 R >>'),
+    if (!embedded)
+      _ascii('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
   ];
+  if (embedded) {
+    final font = Uint8List.fromList(
+        File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf')
+            .readAsBytesSync());
+    bodies.addAll([
+      _ascii('<< /Type /Font /Subtype /TrueType /BaseFont /DejaVuSans '
+          '/FirstChar 32 /LastChar 126 /Encoding /WinAnsiEncoding '
+          '/FontDescriptor 7 0 R >>'),
+      (BytesBuilder()
+            ..add(_ascii('<< /Length ${font.length} /Length1 ${font.length} >>'
+                '\nstream\n'))
+            ..add(font)
+            ..add(_ascii('\nendstream')))
+          .takeBytes(),
+      _ascii('<< /Type /FontDescriptor /FontName /DejaVuSans /Flags 32 '
+          '/FontBBox [-1021 -463 1793 1232] /ItalicAngle 0 /Ascent 928 '
+          '/Descent -236 /CapHeight 700 /StemV 80 /FontFile2 6 0 R >>'),
+    ]);
+  }
   final out = BytesBuilder()..add(_ascii('%PDF-1.7\n'));
   final offsets = <int>[];
   for (var i = 0; i < bodies.length; i++) {
@@ -79,9 +100,13 @@ Uint8List _embeddedTextPdf(double size) {
 /// Inked-pixel count and mean ink luminance of a rendered page: how much of
 /// the paper the glyphs touch, and how dark that ink is.
 Future<(int inked, double meanLuminance)> _ink(double size,
-    {required bool darken, double ratio = 1}) async {
+    {required bool darken,
+    double ratio = 1,
+    bool embedded = true,
+    double fillAlpha = 1}) async {
   CanvasPdfDevice.glyphStemDarkening = darken;
-  final document = PdfDocument.open(_embeddedTextPdf(size));
+  final document = PdfDocument.open(
+      _textPdf(size, embedded: embedded, fillAlpha: fillAlpha));
   final picture = await PdfPageRenderer.renderPicture(document.page(0));
   final image = await PdfPageRenderer.rasterize(
       picture, const Size(_pageWidth, _pageHeight), ratio);
@@ -168,6 +193,25 @@ void main() {
       // coverage, not edges.
       expect(darkened, lessThan(plain * 1.1),
           reason: 'inked pixels $plain -> $darkened');
+    });
+
+    test('darkens a substituted face too, so a mixed page stays even',
+        () async {
+      final (_, plain) = await _ink(12, darken: false, embedded: false);
+      final (_, darkened) = await _ink(12, darken: true, embedded: false);
+
+      expect(darkened, lessThan(plain),
+          reason: 'mean ink luminance $plain -> $darkened');
+    });
+
+    test('keeps a translucent fill exact', () async {
+      final (plainInk, plain) = await _ink(12, darken: false, fillAlpha: 0.5);
+      final (darkenedInk, darkened) =
+          await _ink(12, darken: true, fillAlpha: 0.5);
+
+      // Compositing twice would darken the whole body, not just the stems.
+      expect(darkened, closeTo(plain, 0.5));
+      expect(darkenedInk, plainInk);
     });
 
     test('leaves display sizes alone', () async {
