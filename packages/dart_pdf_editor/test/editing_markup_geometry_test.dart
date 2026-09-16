@@ -25,9 +25,9 @@ void main() {
     expect(
       _markupQuads(const [
         PdfRect(100, 700, 170, 724),
-        PdfRect(210, 700, 280, 724),
+        PdfRect(180, 700, 250, 724),
       ]),
-      const [PdfRect(100, 700, 280, 724)],
+      const [PdfRect(100, 700, 250, 724)],
     );
   });
 
@@ -42,13 +42,32 @@ void main() {
     );
   });
 
-  test('horizontal gap size does not split one selected line', () {
+  test('a word-sized gap between runs is bridged', () {
     expect(
       _markupQuads(const [
         PdfRect(40, 650, 80, 674),
-        PdfRect(300, 650, 360, 674),
+        PdfRect(110, 650, 170, 674),
       ]),
-      const [PdfRect(40, 650, 360, 674)],
+      const [PdfRect(40, 650, 170, 674)],
+    );
+  });
+
+  test('a column gutter on one line keeps two boxes', () {
+    // Selecting across a two-column page carries both columns' lines at the
+    // same height; the highlight must not bridge the gutter between them.
+    expect(
+      _markupQuads(const [
+        PdfRect(72, 700, 290, 710),
+        PdfRect(72, 688, 290, 698),
+        PdfRect(322, 700, 540, 710),
+        PdfRect(322, 688, 540, 698),
+      ]),
+      const [
+        PdfRect(72, 700, 290, 710),
+        PdfRect(72, 688, 290, 698),
+        PdfRect(322, 700, 540, 710),
+        PdfRect(322, 688, 540, 698),
+      ],
     );
   });
 
@@ -56,9 +75,9 @@ void main() {
     expect(
       _markupQuads(const [
         PdfRect(100, 700, 160, 712),
-        PdfRect(180, 700, 240, 712),
+        PdfRect(170, 700, 240, 712),
         PdfRect(100, 680, 170, 692),
-        PdfRect(190, 680, 260, 692),
+        PdfRect(180, 680, 260, 692),
       ]),
       const [
         PdfRect(100, 700, 240, 712),
@@ -167,7 +186,7 @@ void main() {
         _markupQuads(
           const [
             PdfRect(100, 700, 150, 712),
-            PdfRect(200, 700, 260, 712),
+            PdfRect(160, 700, 260, 712),
           ],
           kind: kind,
         ),

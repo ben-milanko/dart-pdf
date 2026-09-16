@@ -469,9 +469,9 @@ void main() {
         tester,
         quads: const [
           PdfRect(100, 700, 170, 712),
-          PdfRect(210, 700, 300, 712),
+          PdfRect(180, 700, 300, 712),
           PdfRect(100, 680, 160, 692),
-          PdfRect(190, 680, 260, 692),
+          PdfRect(170, 680, 260, 692),
         ],
       );
       final painter = overlayPainter(tester);

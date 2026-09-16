@@ -64,9 +64,9 @@ void main() {
     editing.addMarkup(PdfMarkupKind.highlight, const {
       0: [
         PdfRect(36, 716, 90, 732),
-        PdfRect(120, 716, 180, 732),
+        PdfRect(100, 716, 180, 732),
         PdfRect(36, 692, 100, 708),
-        PdfRect(130, 692, 205, 708),
+        PdfRect(110, 692, 205, 708),
       ],
     });
 

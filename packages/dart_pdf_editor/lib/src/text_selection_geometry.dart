@@ -11,6 +11,11 @@ class _LineBand<T> {
   final List<_IndexedRect<T>> members;
 }
 
+/// How far apart, in line heights, two fragments of one line may sit and
+/// still share a box: the word space between separately drawn text runs, but
+/// not a column gutter or the spacing between table cells.
+const _maxJoinGapLineHeights = 1.5;
+
 bool _validRect(PdfRect rect) =>
     rect.left.isFinite &&
     rect.bottom.isFinite &&
@@ -46,7 +51,7 @@ int _physicalOrder<T>(_IndexedRect<T> a, _IndexedRect<T> b) {
   return a.index.compareTo(b.index);
 }
 
-List<_LineBand<T>> _lineBands<T>(
+List<List<_IndexedRect<T>>> _lineBands<T>(
   List<T> input,
   PdfRect Function(T value) bounds,
 ) {
@@ -72,19 +77,44 @@ List<_LineBand<T>> _lineBands<T>(
       eligible.members.add(candidate);
     }
   }
-  bands.sort((a, b) => _earliest(a).compareTo(_earliest(b)));
-  return bands;
+  final groups = [for (final band in bands) ..._gapClusters(band)]
+    ..sort((a, b) => _earliest(a).compareTo(_earliest(b)));
+  return groups;
 }
 
-int _earliest<T>(_LineBand<T> band) =>
-    band.members.map((member) => member.index).reduce(math.min);
+/// Splits one visual line wherever two neighbouring fragments sit further
+/// apart than [_maxJoinGapLineHeights] line heights. A selection that crosses
+/// columns carries both columns' lines at the same height, and joining those
+/// would paint (and save as markup) a box across the gutter.
+List<List<_IndexedRect<T>>> _gapClusters<T>(_LineBand<T> band) {
+  final members = [...band.members]
+    ..sort((a, b) => a.rect.left.compareTo(b.rect.left));
+  final maxGap = members.map((member) => member.rect.height).reduce(math.min) *
+      _maxJoinGapLineHeights;
+  final clusters = [
+    [members.first],
+  ];
+  var right = members.first.rect.right;
+  for (final member in members.skip(1)) {
+    if (member.rect.left - right > maxGap) {
+      clusters.add([member]);
+    } else {
+      clusters.last.add(member);
+    }
+    right = math.max(right, member.rect.right);
+  }
+  return clusters;
+}
 
-PdfRect _union<T>(_LineBand<T> band) {
-  var left = band.members.first.rect.left;
-  var bottom = band.members.first.rect.bottom;
-  var right = band.members.first.rect.right;
-  var top = band.members.first.rect.top;
-  for (final member in band.members.skip(1)) {
+int _earliest<T>(List<_IndexedRect<T>> group) =>
+    group.map((member) => member.index).reduce(math.min);
+
+PdfRect _union<T>(List<_IndexedRect<T>> group) {
+  var left = group.first.rect.left;
+  var bottom = group.first.rect.bottom;
+  var right = group.first.rect.right;
+  var top = group.first.rect.top;
+  for (final member in group.skip(1)) {
     left = math.min(left, member.rect.left);
     bottom = math.min(bottom, member.rect.bottom);
     right = math.max(right, member.rect.right);
@@ -93,21 +123,22 @@ PdfRect _union<T>(_LineBand<T> band) {
   return PdfRect(left, bottom, right, top);
 }
 
-/// Merges every fragment of one continuous selection into one rectangle per
-/// near-horizontal visual line, including all horizontal space between runs.
+/// Merges the fragments of one continuous selection into one rectangle per
+/// near-horizontal visual line, bridging word-sized gaps between runs but
+/// leaving fragments a column gutter apart as separate rectangles.
 List<PdfRect> normalizeTextSelectionRects(List<PdfRect> rects) =>
-    [for (final band in _lineBands(rects, (rect) => rect)) _union(band)];
+    [for (final group in _lineBands(rects, (rect) => rect)) _union(group)];
 
 /// The live-selection counterpart of [normalizeTextSelectionRects]. A lone
 /// quad stays byte-for-byte geometric, preserving rotated and vertical text.
 List<PdfTextQuad> normalizeTextSelectionQuads(List<PdfTextQuad> quads) {
   final result = <PdfTextQuad>[];
-  for (final band in _lineBands(quads, (quad) => quad.bounds)) {
-    if (band.members.length == 1) {
-      result.add(band.members.single.value);
+  for (final group in _lineBands(quads, (quad) => quad.bounds)) {
+    if (group.length == 1) {
+      result.add(group.single.value);
       continue;
     }
-    final rect = _union(band);
+    final rect = _union(group);
     result.add(PdfTextQuad([
       (rect.left, rect.bottom),
       (rect.right, rect.bottom),
