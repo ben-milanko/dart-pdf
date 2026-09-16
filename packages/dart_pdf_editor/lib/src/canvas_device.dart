@@ -99,6 +99,78 @@ class CanvasPdfDevice
     return width * pixelRatio < 1 ? 0 : width;
   }
 
+  /// Darkens small glyph fills so their stems read as ink rather than haze
+  /// (#912). **Off by default** - a deliberate deviation from exact coverage.
+  ///
+  /// A text stem at ordinary reading sizes is thinner than a device pixel: at
+  /// 1 px/pt, a 12 pt face draws stems around 0.7 px wide. Exact analytic
+  /// coverage therefore *correctly* paints them as ~40% grey spread over two
+  /// columns, which is why a page of body text measures a mean ink luminance
+  /// of ~154 against the ~80 a hinted rasterizer produces. We match pdf.js to
+  /// within 1% on that measure, and both look washed out next to Okular.
+  ///
+  /// Okular is not more accurate - it is deliberately *less* so. FreeType
+  /// grid-fits (hints) each outline, snapping stems onto whole pixel columns.
+  /// Nothing in Flutter will do that for us: Skia's glyph atlas does not hint
+  /// either (measured - its 12 pt coverage is *lighter* than our path fills),
+  /// so switching text APIs cannot buy it back. Grid-fitting would have to be
+  /// implemented over our own outlines, which is its own project.
+  ///
+  /// What this does instead is raise the coverage curve, by compositing the
+  /// same shape a second time: source-over of coverage c over itself at alpha
+  /// a yields `1 - (1 - c)(1 - a*c)`, so a 0.35 stem reaches 0.58 while a
+  /// fully covered pixel stays at 1. That is a gamma on coverage, the same
+  /// correction Skia applies through its text contrast LUT for glyphs it
+  /// rasterizes itself - and, unlike widening the outline, it does not move
+  /// the glyph's edges.
+  ///
+  /// Dilating instead (stroking the fill to widen stems, FreeType's CFF
+  /// approach) was measured first and rejected: it spread ink into 47% more
+  /// pixels while mean ink luminance moved only 153.8 -> 152.4, i.e. it made
+  /// text fatter and hazier rather than darker.
+  static bool glyphStemDarkening = false;
+
+  /// Alpha of the second composite, at or below [glyphStemDarkeningMinEm].
+  static double glyphStemDarkeningAlpha = 1;
+
+  /// Em size, in device pixels, at and below which the full
+  /// [glyphStemDarkeningAlpha] applies.
+  static double glyphStemDarkeningMinEm = 12;
+
+  /// Em size, in device pixels, at and above which no darkening applies -
+  /// display sizes resolve their own stems and must stay exact.
+  static double glyphStemDarkeningMaxEm = 28;
+
+  /// The second composite's alpha for a glyph run whose em measures
+  /// [emPageUnits] in page units, or 0 when the run must stay exact.
+  ///
+  /// Like [strokeWidthFor] this is a *device*-space rule, and [pixelRatio] 0 -
+  /// the scale-independent annotation picture (#660) - disables it, because a
+  /// size threshold cannot be evaluated for a picture with no fixed output
+  /// scale.
+  @visibleForTesting
+  double glyphDarkeningFor(double emPageUnits) {
+    if (!glyphStemDarkening || pixelRatio <= 0) return 0;
+    final emDevice = emPageUnits * pixelRatio;
+    if (emDevice >= glyphStemDarkeningMaxEm || emDevice <= 0) return 0;
+    if (emDevice <= glyphStemDarkeningMinEm) return glyphStemDarkeningAlpha;
+    // linear taper between the two thresholds
+    return glyphStemDarkeningAlpha *
+        (glyphStemDarkeningMaxEm - emDevice) /
+        (glyphStemDarkeningMaxEm - glyphStemDarkeningMinEm);
+  }
+
+  /// Whether [run]'s fill may be composited twice without changing what an
+  /// already-opaque pixel resolves to.
+  ///
+  /// A translucent fill would darken its whole body, not just its edges; a
+  /// blend mode or knockout would apply itself twice; and a gradient would be
+  /// re-evaluated. All three keep exact coverage.
+  bool _canDarkenGlyphFill(PdfTextRun run) =>
+      run.gradient == null &&
+      run.fillAlpha >= 1 &&
+      _fillElementBlend == BlendMode.srcOver;
+
   /// Decoded images keyed by [pdfImageKey] — stream identity for XObjects,
   /// value identity for inline images.
   final Map<Object, ui.Image> images;
@@ -1011,6 +1083,29 @@ class CanvasPdfDevice
       )..layout();
     }
 
+    // Stem darkening (#912), the substituted-font half. A substituted face is
+    // rasterized through Skia's glyph atlas, which does not hint either, so a
+    // mixed page needs both halves treated or its two kinds of text diverge.
+    TextPainter? darkenPainter;
+    if (paintRun.fill && _canDarkenGlyphFill(paintRun)) {
+      final ts = run.transform.scaleFactor;
+      final w = glyphDarkeningFor(ts);
+      if (w > 0 && ts > 0) {
+        darkenPainter = TextPainter(
+          text: TextSpan(
+            text: paintRun.text,
+            style: _styleFor(
+              paintRun,
+              foreground: Paint()
+                ..color = _toColor(paintRun.color, 1).withValues(alpha: w)
+                ..blendMode = _elementBlend,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+      }
+    }
+
     canvas.scale(scaleX / renderSize, -1 / renderSize);
     if (paintRun.fill) {
       if (gradientFill != null) {
@@ -1018,6 +1113,7 @@ class CanvasPdfDevice
       } else {
         layout.paint(canvas, Offset(0, -layout.baseline));
       }
+      darkenPainter?.paint(canvas, Offset(0, -layout.baseline));
     }
     strokePainter?.paint(canvas, Offset(0, -layout.baseline));
     canvas.restore();
@@ -1060,6 +1156,9 @@ class CanvasPdfDevice
     for (var i = start; i < endExclusive; i++) {
       final run = (commands[i] as PdfDrawTextCommand).run;
       final canBatch = batchEmbeddedTextOutlines &&
+          // one combined path cannot carry per-run darkening amounts, and the
+          // runs it merges may differ in em size
+          !glyphStemDarkening &&
           _knockout.isEmpty &&
           !run.invisible &&
           run.glyphs != null &&
@@ -1561,6 +1660,19 @@ class CanvasPdfDevice
             .withValues(alpha: run.fillAlpha.clamp(0, 1));
       }
       canvas.drawPath(path, paint);
+      // Stem darkening (#912): composite the same shape again so partially
+      // covered stem pixels rise while fully covered ones stay put.
+      final darkening = _canDarkenGlyphFill(run)
+          ? glyphDarkeningFor(run.transform.scaleFactor)
+          : 0.0;
+      if (darkening > 0) {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = _toColor(run.color, 1).withValues(alpha: darkening)
+            ..blendMode = _fillElementBlend,
+        );
+      }
     }
     // The outline path is already in page space; stroke width is page-space,
     // floored at one device pixel like every other stroke ([strokeWidthFor]).
