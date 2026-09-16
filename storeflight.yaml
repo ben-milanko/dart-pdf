@@ -106,7 +106,7 @@ profiles:
         bundle_id_macos: dev.milanko.dartpdf
         platforms: [ios, macos]
         submit_for_review: true
-        release_after_approval: manual
+        release_after_approval: automatic
         credentials:
           key_id: [keychain:trax-asc-key-id, env:ASC_API_KEY_ID]
           issuer_id: [keychain:trax-asc-issuer-id, env:ASC_API_ISSUER_ID]
