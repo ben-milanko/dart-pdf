@@ -10,7 +10,7 @@ import 'text_extraction.dart';
 /// Magic + version word at the head of an encoded [PdfPageText] blob.
 /// Bump the low byte when the layout below changes; mismatched blobs
 /// decode to null (a miss) rather than mis-parsing.
-const int _textBlobMagic = 0x50545833; // 'PTX3'
+const int _textBlobMagic = 0x50545834; // 'PTX4'
 
 /// Serializes [page] into a compact binary blob for the on-disk text
 /// cache. The format is little-endian and self-describing enough to
@@ -35,6 +35,9 @@ Uint8List pdfEncodePageText(PdfPageText page) {
       ..f64(t.e)
       ..f64(t.f);
     out.f64(run.width);
+    out
+      ..f64(run.descent)
+      ..f64(run.ascent);
     final b = run.bounds;
     out
       ..f64(b.left)
@@ -74,6 +77,8 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
       final transform =
           PdfMatrix(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
       final width = r.f64();
+      final descent = r.f64();
+      final ascent = r.f64();
       final bounds = PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
       final offsetCount = r.u32();
       final offsets = offsetCount == 0
@@ -84,6 +89,8 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
         startIndex: startIndex,
         transform: transform,
         width: width,
+        descent: descent,
+        ascent: ascent,
         bounds: bounds,
         charOffsets: offsets != null && offsets.length == runText.length + 1
             ? offsets

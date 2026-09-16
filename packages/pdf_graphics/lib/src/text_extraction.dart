@@ -24,6 +24,8 @@ class PdfExtractedRun {
     required this.transform,
     required this.width,
     required this.bounds,
+    this.descent = _defaultTextDescent,
+    this.ascent = _defaultTextAscent,
     this.charOffsets,
     this.isRightToLeft = false,
     this.mcid,
@@ -47,6 +49,14 @@ class PdfExtractedRun {
 
   /// Page-space bounding box.
   final PdfRect bounds;
+
+  /// Lower edge of this run's selection band in em space, relative to the
+  /// baseline.
+  final double descent;
+
+  /// Upper edge of this run's selection band in em space, relative to the
+  /// baseline.
+  final double ascent;
 
   /// Em-space offset of every character boundary in [text], measured from this
   /// run's own origin: entry `i` is the advance to the start of `text[i]`, and
@@ -247,6 +257,8 @@ class PdfPageText {
         run.transform,
         x0,
         x1,
+        descent: run.descent,
+        ascent: run.ascent,
         isRightToLeft: run.isRightToLeft,
       ));
     }
@@ -540,12 +552,16 @@ class PdfTextExtractor {
 
     void flushLine() {
       if (line.isEmpty) return;
+      final ascent = line.any((item) => item.run.text.runes.any(_isCjkRune))
+          ? _expandedTextAscent
+          : _defaultTextAscent;
       final bidiLine = _bidiLine(line);
       if (bidiLine == null) {
         for (final item in line) {
           buffer.write(item.separator);
           _appendExtractedRun(
-              buffer, runs, item.run, item.run.text, 0, item.run.text.length);
+              buffer, runs, item.run, item.run.text, 0, item.run.text.length,
+              ascent: ascent);
         }
       } else {
         final groups =
@@ -572,6 +588,7 @@ class PdfTextExtractor {
                 rightToLeft: group.kind == _BidiKind.rtl,
                 sourceX0: piece.sourceX0,
                 sourceX1: piece.sourceX1,
+                ascent: ascent,
               );
             }
           }
@@ -725,6 +742,7 @@ class PdfTextExtractor {
     bool rightToLeft = false,
     double? sourceX0,
     double? sourceX1,
+    double ascent = _defaultTextAscent,
   }) {
     final offsets =
         _sliceCharOffsets(source, text, sourceStart, sourceEnd, rightToLeft);
@@ -751,7 +769,8 @@ class PdfTextExtractor {
       startIndex: start,
       transform: transform,
       width: width,
-      bounds: _boundsOf(transform, 0, width),
+      bounds: _boundsOf(transform, 0, width, ascent: ascent),
+      ascent: ascent,
       charOffsets: offsets,
       isRightToLeft: rightToLeft,
       mcid: source.mcid,
@@ -1389,17 +1408,35 @@ class _Column {
   }
 }
 
-/// Quad of the em-space span [x0]..[x1] (with conventional 0.25 em descent
-/// and 0.75 em ascent) mapped through [transform], in perimeter order
-/// (ll, lr, ur, ul). Rotated text yields a rotated parallelogram.
+/// Quad of the em-space span [x0]..[x1], mapped through [transform] in
+/// perimeter order (ll, lr, ur, ul). Rotated text yields a rotated
+/// parallelogram. The default vertical band uses the conventional 0.25 em
+/// descent and 0.75 em ascent; callers can supply line-aware metrics.
+const _defaultTextDescent = -0.25;
+const _defaultTextAscent = 0.75;
+const _expandedTextAscent = 1.0;
+
+bool _isCjkRune(int rune) =>
+    (rune >= 0x2E80 && rune <= 0x33FF) ||
+    (rune >= 0x3400 && rune <= 0x4DBF) ||
+    (rune >= 0x4E00 && rune <= 0x9FFF) ||
+    (rune >= 0xA960 && rune <= 0xA97F) ||
+    (rune >= 0xAC00 && rune <= 0xD7AF) ||
+    (rune >= 0xF900 && rune <= 0xFAFF) ||
+    (rune >= 0xFE30 && rune <= 0xFE4F) ||
+    (rune >= 0xFF01 && rune <= 0xFF60) ||
+    (rune >= 0xFF66 && rune <= 0xFF9D) ||
+    (rune >= 0x20000 && rune <= 0x323AF) ||
+    (rune >= 0x2F800 && rune <= 0x2FA1F);
+
 PdfTextQuad _quadOf(
   PdfMatrix transform,
   double x0,
   double x1, {
+  double descent = _defaultTextDescent,
+  double ascent = _defaultTextAscent,
   bool isRightToLeft = false,
 }) {
-  const descent = -0.25;
-  const ascent = 0.75;
   return PdfTextQuad(
     [
       for (final (x, y) in [
@@ -1416,8 +1453,14 @@ PdfTextQuad _quadOf(
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped
 /// through [transform].
-PdfRect _boundsOf(PdfMatrix transform, double x0, double x1) =>
-    _quadOf(transform, x0, x1).bounds;
+PdfRect _boundsOf(
+  PdfMatrix transform,
+  double x0,
+  double x1, {
+  double descent = _defaultTextDescent,
+  double ascent = _defaultTextAscent,
+}) =>
+    _quadOf(transform, x0, x1, descent: descent, ascent: ascent).bounds;
 
 PdfRect _union(Iterable<PdfRect> rects) {
   final iterator = rects.iterator;

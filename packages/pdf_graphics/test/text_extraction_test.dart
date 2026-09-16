@@ -24,6 +24,55 @@ void main() {
     expect(run.bounds.top, closeTo(720 + 0.75 * 24, 1e-6));
   });
 
+  group('CJK selection height', () {
+    test('expands every run on a mixed CJK line', () {
+      final doc = PdfDocument.open(_buildArabicGlyphPdf(
+        const ['A', '中'],
+        embedded: false,
+        splitAt: 1,
+        repeatFirstGlyphOnSecondLine: true,
+      ));
+      final runs = PdfTextExtractor.extract(doc, 0).runs;
+
+      expect(runs, hasLength(3));
+      for (final run in runs.take(2)) {
+        expect(run.descent, -0.25);
+        expect(run.ascent, 1.0);
+        expect(run.bounds.bottom, closeTo(720 - 0.25 * 24, 1e-6));
+        expect(run.bounds.top, closeTo(720 + 1.0 * 24, 1e-6));
+      }
+      expect(runs.last.text, 'A');
+      expect(runs.last.ascent, 0.75,
+          reason: 'CJK expansion must not leak into the next text line');
+    });
+
+    test('keeps Latin-only lines at the conventional height', () {
+      final run = PdfTextExtractor.extract(
+        PdfDocument.open(buildClassicPdf()),
+        0,
+      ).runs.single;
+
+      expect(run.descent, -0.25);
+      expect(run.ascent, 0.75);
+    });
+
+    test('uses the expanded band for partial rotated selection quads', () {
+      final doc = PdfDocument.open(_buildArabicGlyphPdf(
+        const ['A', '中'],
+        embedded: false,
+        splitAt: 1,
+        textMatrix: '0 1 -1 0 300 400',
+      ));
+      final text = PdfTextExtractor.extract(doc, 0);
+      final quad = text.quadsFor(1, 2).single;
+
+      // A 90-degree text matrix maps the 1.25em vertical selection band to
+      // a 30pt page-space width. The old 1em band was only 24pt wide.
+      expect(quad.bounds.width, closeTo(1.25 * 24, 1e-6));
+      expect(quad.bounds.height, closeTo(0.5 * 24, 1e-6));
+    });
+  });
+
   test('findAll locates substrings on the actual glyphs', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);
@@ -594,14 +643,19 @@ Uint8List _buildArabicTextPdf(String text,
     );
 
 Uint8List _buildArabicGlyphPdf(List<String> glyphTexts,
-    {required bool embedded, int? splitAt}) {
+    {required bool embedded,
+    int? splitAt,
+    String textMatrix = '1 0 0 1 72 720',
+    bool repeatFirstGlyphOnSecondLine = false}) {
   final codes = [for (var i = 0; i < glyphTexts.length; i++) i + 1];
   final shown = codes.map((c) => c.toRadixString(16).padLeft(2, '0')).join();
   final shownText = splitAt == null
       ? '<$shown> Tj'
       : '<${shown.substring(0, splitAt * 2)}> Tj '
           '<${shown.substring(splitAt * 2)}> Tj';
-  final content = 'BT /F1 24 Tf 72 720 Td $shownText ET';
+  final secondLine =
+      repeatFirstGlyphOnSecondLine ? ' 1 0 0 1 72 680 Tm <01> Tj' : '';
+  final content = 'BT /F1 24 Tf $textMatrix Tm $shownText$secondLine ET';
   final cmapEntries = <String>[];
   final widths = <String>[];
   final names = <String>[];

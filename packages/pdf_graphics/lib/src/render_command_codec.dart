@@ -54,7 +54,7 @@ import 'text_extraction.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 8;
+const int _formatVersion = 9;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -522,6 +522,8 @@ Uint8List serializePageText(PdfPageText page) {
     w.u32(run.mcid ?? 0);
     _writeMatrix(w, run.transform);
     w.f64(run.width);
+    w.f64(run.descent);
+    w.f64(run.ascent);
     _writeRect(w, run.bounds);
     w.boolean(run.isRightToLeft);
     // Per-character advances (issue #647) - without them the UI isolate falls
@@ -553,6 +555,8 @@ PdfPageText deserializePageText(Uint8List bytes) {
     final mcid = r.u32();
     final transform = _readMatrix(r);
     final width = r.f64();
+    final descent = r.f64();
+    final ascent = r.f64();
     final bounds = _readRect(r);
     final isRightToLeft = r.boolean();
     final offsetCount = r.u32();
@@ -565,6 +569,8 @@ PdfPageText deserializePageText(Uint8List bytes) {
       mcid: hasMcid ? mcid : null,
       transform: transform,
       width: width,
+      descent: descent,
+      ascent: ascent,
       bounds: bounds,
       // A table of the wrong length would throw out of quadsFor; drop it and
       // interpolate instead, like a run that never carried one.
