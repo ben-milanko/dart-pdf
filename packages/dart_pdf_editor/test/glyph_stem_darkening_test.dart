@@ -19,7 +19,6 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_graphics/pdf_graphics.dart';
 
 const _text = 'Hamburgefonstiv handgloves mimimum 12pt';
 const _pageWidth = 320.0;
@@ -123,8 +122,8 @@ void main() {
 
       expect(page.glyphDarkeningFor(8), CanvasPdfDevice.glyphStemDarkeningAlpha,
           reason: 'body text carries the full correction');
-      expect(page.glyphDarkeningFor(12),
-          CanvasPdfDevice.glyphStemDarkeningAlpha);
+      expect(
+          page.glyphDarkeningFor(12), CanvasPdfDevice.glyphStemDarkeningAlpha);
       expect(page.glyphDarkeningFor(20),
           closeTo(CanvasPdfDevice.glyphStemDarkeningAlpha / 2, 1e-9),
           reason: 'halfway between 12 and 28 device px');
