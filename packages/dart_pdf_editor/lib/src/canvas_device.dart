@@ -83,6 +83,10 @@ class CanvasPdfDevice
   /// the same way, which is PDF 32000-1 8.4.3.2's "thinnest line that can be
   /// rendered at device resolution: 1 device pixel" - and, unlike the old
   /// user-space resolution, it stays one pixel at every zoom.
+  ///
+  /// Every stroke goes through this, text included: an outlined glyph
+  /// (rendering modes 1/2/5/6) is linework, and a `0 w` stroked run used to
+  /// read as blank paper for exactly the reason above (#912).
   @visibleForTesting
   double strokeWidthFor(double width) {
     if (pixelRatio <= 0) return width;
@@ -980,8 +984,17 @@ class CanvasPdfDevice
     TextPainter? strokePainter;
     if (paintRun.strokeColor != null) {
       final ts = run.transform.scaleFactor;
-      final w =
-          paintRun.strokeWidth > 0 ? paintRun.strokeWidth : ts / renderSize;
+      // The page-space width goes through the same one-device-pixel floor as a
+      // path stroke ([strokeWidthFor]) before it is mapped in: an outlined
+      // glyph is linework like any other. A floored width is 0, Skia's
+      // hairline, which survives the mapping unchanged and stays one pixel at
+      // every replay scale.
+      //
+      // A width of 0 used to be rewritten here to one painter unit
+      // (`ts / renderSize` page units), which is a *sub-pixel* page width at
+      // every ordinary text size - so `0 w` stroked text painted at a few
+      // percent alpha and read as blank paper.
+      final w = strokeWidthFor(paintRun.strokeWidth);
       strokePainter = TextPainter(
         text: TextSpan(
           text: paintRun.text,
@@ -989,7 +1002,7 @@ class CanvasPdfDevice
             paintRun,
             foreground: Paint()
               ..style = PaintingStyle.stroke
-              ..strokeWidth = ts > 0 ? w * renderSize / ts : w
+              ..strokeWidth = w <= 0 || ts <= 0 ? w : w * renderSize / ts
               ..color = _toColor(paintRun.strokeColor!, paintRun.strokeAlpha)
               ..blendMode = _elementBlend,
           ),
@@ -1549,13 +1562,14 @@ class CanvasPdfDevice
       }
       canvas.drawPath(path, paint);
     }
-    // The outline path is already in page space; stroke width is page-space.
+    // The outline path is already in page space; stroke width is page-space,
+    // floored at one device pixel like every other stroke ([strokeWidthFor]).
     if (run.strokeColor != null) {
       canvas.drawPath(
         path,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = run.strokeWidth
+          ..strokeWidth = strokeWidthFor(run.strokeWidth)
           ..color = _toColor(run.strokeColor!, run.strokeAlpha)
           ..blendMode = _strokeElementBlend,
       );
