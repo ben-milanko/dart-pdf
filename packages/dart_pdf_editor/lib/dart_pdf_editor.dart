@@ -19,6 +19,7 @@ export 'src/budgeted_cache.dart';
 export 'src/debug_overlays.dart';
 export 'src/dialog.dart';
 export 'src/canvas_device.dart';
+export 'src/font_substitution.dart';
 export 'src/comparison/comparison_view.dart';
 export 'src/comparison/document_comparison.dart';
 export 'src/comparison/page_comparison.dart';

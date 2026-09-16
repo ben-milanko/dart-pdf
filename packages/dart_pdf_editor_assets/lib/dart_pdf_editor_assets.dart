@@ -1,11 +1,20 @@
 /// Optional bundled assets for `dart_pdf_editor`: the six editor fonts offered
-/// by the font menu (and used as composite-text fallbacks), TeX Gyre Adventor
-/// for unembedded Century Gothic / Avant Garde, and the prebuilt web worker.
+/// by the font menu (and used as composite-text fallbacks), the TeX Gyre
+/// families the renderer substitutes into unembedded standard-14 text - Heros
+/// for Helvetica/Arial, Termes for Times, Cursor for Courier, Adventor for
+/// Century Gothic / Avant Garde - and the prebuilt web worker.
+///
+/// The substitute faces are metric-compatible clones: they carry the very
+/// advances the AFM tables give the fonts they stand in for, which is what
+/// makes them safe to draw a page with. A face with different advances leaves
+/// white space *inside* words, because the renderer places every character at
+/// the PDF's own pen offset. They need no registration call - being declared
+/// font families, they are registered with the engine from the first paint.
 ///
 /// These assets are declared in *this* package rather than in `dart_pdf_editor`
 /// so a viewer-only application never bundles them - Flutter includes a
 /// package's declared assets on every build target, so the only way to make the
-/// ~1.7 MB of fonts + worker opt-in is to keep them out of the package every
+/// ~3.2 MB of fonts + worker opt-in is to keep them out of the package every
 /// consumer depends on.
 ///
 /// Depend on this package and call [registerBundledEditorAssets] once at startup
@@ -34,23 +43,23 @@ const String _package = 'dart_pdf_editor_assets';
 /// up in every [showPdfFontMenu]; the DejaVu trio also backs [loadFallbackFonts]
 /// for composite (/Type0) text editing.
 const List<PdfBundledFont> bundledEditorFonts = <PdfBundledFont>[
-  PdfBundledFont('DejaVu Sans',
-      'packages/$_package/assets/fonts/DejaVuSans.ttf',
+  PdfBundledFont(
+      'DejaVu Sans', 'packages/$_package/assets/fonts/DejaVuSans.ttf',
       package: _package),
-  PdfBundledFont('DejaVu Serif',
-      'packages/$_package/assets/fonts/DejaVuSerif.ttf',
+  PdfBundledFont(
+      'DejaVu Serif', 'packages/$_package/assets/fonts/DejaVuSerif.ttf',
       package: _package),
-  PdfBundledFont('DejaVu Sans Mono',
-      'packages/$_package/assets/fonts/DejaVuSansMono.ttf',
+  PdfBundledFont(
+      'DejaVu Sans Mono', 'packages/$_package/assets/fonts/DejaVuSansMono.ttf',
       package: _package),
-  PdfBundledFont('Fira Sans',
-      'packages/$_package/assets/fonts/FiraSans-Regular.ttf',
+  PdfBundledFont(
+      'Fira Sans', 'packages/$_package/assets/fonts/FiraSans-Regular.ttf',
       package: _package),
-  PdfBundledFont('Spectral',
-      'packages/$_package/assets/fonts/Spectral-Regular.ttf',
+  PdfBundledFont(
+      'Spectral', 'packages/$_package/assets/fonts/Spectral-Regular.ttf',
       package: _package),
-  PdfBundledFont('Lobster',
-      'packages/$_package/assets/fonts/Lobster-Regular.ttf',
+  PdfBundledFont(
+      'Lobster', 'packages/$_package/assets/fonts/Lobster-Regular.ttf',
       package: _package),
 ];
 

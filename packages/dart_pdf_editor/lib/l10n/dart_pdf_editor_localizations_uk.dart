@@ -990,6 +990,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Сітка сторінок';
 
   @override
+  String get shellViewPages => 'Сторінки';
+
+  @override
   String get shellPanelAnnotations => 'Анотації';
 
   @override

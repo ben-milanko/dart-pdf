@@ -1232,4 +1232,13 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'إعدادات مخصصة';
+
+  @override
+  String get whatsNew => 'ما الجديد';
+
+  @override
+  String get whatsNewInstalled => 'مثبَّتة';
+
+  @override
+  String get whatsNewUnavailable => 'ملاحظات الإصدار غير متوفرة في هذه النسخة.';
 }

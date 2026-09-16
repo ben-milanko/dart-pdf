@@ -1228,4 +1228,14 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Пользовательские настройки';
+
+  @override
+  String get whatsNew => 'Что нового';
+
+  @override
+  String get whatsNewInstalled => 'Установлена';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Примечания к выпуску недоступны в этой сборке.';
 }

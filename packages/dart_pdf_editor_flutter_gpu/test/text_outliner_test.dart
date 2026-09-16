@@ -108,11 +108,31 @@ void main() {
         isNull);
   });
 
+  test('system adapter declines until the bundled faces have settled',
+      () async {
+    final system = FlutterGpuSystemTextOutliner.tryCreate();
+    if (system == null) return; // platform with no known font locations
+    // Canvas draws unembedded standard-14 text in the bundled metric-compatible
+    // face wherever the assets package supplies one, so until this adapter
+    // knows whether it has that face it outlines nothing: a declined run keeps
+    // the scene on the exact Canvas fallback, where a wrongly-spaced one would
+    // not.
+    expect(
+      system.outline(run('AB', const [0, 0.6, 1.6], fontName: 'Helvetica')),
+      isNull,
+    );
+    await system.ready;
+  });
+
   test(
     'macOS system adapter resolves exact Latin and CJK faces',
-    () {
+    () async {
       final system = FlutterGpuSystemTextOutliner.tryCreate();
       expect(system, isNotNull);
+      // This test package does not ship the bundled substitute faces, so once
+      // the read of them settles the platform catalogue answers - which is what
+      // Canvas falls back to as well.
+      await system!.ready;
       for (final name in const [
         'Helvetica',
         'Helvetica-Bold',
@@ -120,7 +140,7 @@ void main() {
         'Helvetica-BoldOblique',
       ]) {
         expect(
-          system!.outline(
+          system.outline(
             run('AB', const [0, 0.6, 1.6], fontName: name),
           ),
           isNotNull,
@@ -128,7 +148,7 @@ void main() {
         );
       }
       expect(
-        system!.outline(
+        system.outline(
           run(
             'AB',
             const [0, 0.6, 1.6],

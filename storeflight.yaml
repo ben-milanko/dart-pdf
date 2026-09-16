@@ -86,6 +86,12 @@ ci:
   repository: ben-milanko/dart-pdf
   ref: main
   repository_token_secret: STOREFLIGHT_REPOSITORY_TOKEN
+  # flutter_secure_storage_linux needs libsecret and the GTK plugin layer
+  # needs jsoncpp; neither is in Flutter's documented prerequisites, so a
+  # runner without them fails at pkg_check_modules rather than at configure.
+  linux_packages:
+    - libsecret-1-dev
+    - libjsoncpp-dev
   ledger:
     backend: github_actions_artifacts
     retention_days: 90
@@ -169,8 +175,10 @@ profiles:
           - workflow
           - run
           - publish-flatpak.yml
+          # gh workflow run needs a named ref: the API rejects a raw sha with
+          # "No ref found". The release tag points at the release commit.
           - --ref
-          - "{source_sha}"
+          - "app-v{version}"
           - -f
           - version={version}
         idempotency_check: >-

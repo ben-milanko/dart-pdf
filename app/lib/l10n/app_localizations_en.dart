@@ -1205,6 +1205,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Custom settings';
+
+  @override
+  String get whatsNew => 'What\'s new';
+
+  @override
+  String get whatsNewInstalled => 'Installed';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Release notes aren\'t available in this build.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2408,6 +2418,16 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get reduceSizeCustom => 'Custom settings';
+
+  @override
+  String get whatsNew => 'What\'s new';
+
+  @override
+  String get whatsNewInstalled => 'Installed';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Release notes aren\'t available in this build.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -3611,4 +3631,14 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get reduceSizeCustom => 'Custom settings';
+
+  @override
+  String get whatsNew => 'What\'s new';
+
+  @override
+  String get whatsNewInstalled => 'Installed';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Release notes aren\'t available in this build.';
 }

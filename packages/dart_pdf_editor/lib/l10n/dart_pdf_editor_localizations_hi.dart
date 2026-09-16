@@ -974,6 +974,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'पृष्ठ ग्रिड';
 
   @override
+  String get shellViewPages => 'पृष्ठ';
+
+  @override
   String get shellPanelAnnotations => 'एनोटेशन';
 
   @override

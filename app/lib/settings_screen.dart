@@ -13,6 +13,7 @@ import 'recents.dart';
 import 'update.dart';
 import 'update_install_flow.dart';
 import 'update_installer.dart';
+import 'whats_new.dart';
 
 // The platform-specific default-app help lives in the ARB as one ICU `select`
 // key each (branches: web/windows/macos/linux/android/ios/other), resolved from
@@ -291,6 +292,14 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   label: Text(appL10n(context).settingsViewSource),
                   onPressed: () => launchUrl(Uri.parse(AppInfo.sourceUrl),
                       mode: LaunchMode.externalApplication),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-whats-new'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.new_releases_outlined),
+                  title: Text(appL10n(context).whatsNew),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showWhatsNew(context),
                 ),
                 ListTile(
                   key: const ValueKey('settings-licenses'),

@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Phông chữ nhúng",
   "reduceSizeImages": "Ảnh",
   "reduceSizeDuplicates": "Đối tượng trùng lặp",
-  "reduceSizeCustom": "Cài đặt tùy chỉnh"
+  "reduceSizeCustom": "Cài đặt tùy chỉnh",
+  "whatsNew": "Có gì mới",
+  "whatsNewInstalled": "Đã cài đặt",
+  "whatsNewUnavailable": "Ghi chú phát hành không có sẵn trong bản dựng này."
 }

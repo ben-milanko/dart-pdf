@@ -1216,4 +1216,14 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Pengaturan khusus';
+
+  @override
+  String get whatsNew => 'Yang baru';
+
+  @override
+  String get whatsNewInstalled => 'Terpasang';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Catatan rilis tidak tersedia di build ini.';
 }

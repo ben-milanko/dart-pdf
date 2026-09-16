@@ -120,7 +120,7 @@ extension PdfOcrEditing on PdfEditor {
     for (final entry in fonts.entries.entries) {
       final dict = cos.resolve(entry.value);
       // Reuse only a font shaped exactly like the one we write (explicit
-      // 32–126 /Widths) so the interpreter measures spacing the way
+      // 32–255 /Widths) so the interpreter measures spacing the way
       // [injectTextLayer] assumes; a stray document Helvetica without
       // /Widths would skew the selection boxes.
       if (dict is CosDictionary &&
@@ -128,7 +128,7 @@ extension PdfOcrEditing on PdfEditor {
           dict['Subtype'] == const CosName('Type1') &&
           dict['Encoding'] == const CosName('WinAnsiEncoding') &&
           dict['FirstChar'] == const CosInteger(32) &&
-          dict['LastChar'] == const CosInteger(126)) {
+          dict['LastChar'] == const CosInteger(255)) {
         return entry.key;
       }
     }
@@ -144,7 +144,7 @@ extension PdfOcrEditing on PdfEditor {
       'BaseFont': baseFont,
       'Encoding': const CosName('WinAnsiEncoding'),
       'FirstChar': const CosInteger(32),
-      'LastChar': const CosInteger(126),
+      'LastChar': const CosInteger(255),
       'Widths': CosArray([for (final w in font.widths) CosInteger(w)]),
     });
     _updater.markChanged(page.dict);

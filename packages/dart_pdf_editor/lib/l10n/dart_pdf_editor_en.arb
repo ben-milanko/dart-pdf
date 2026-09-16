@@ -1272,6 +1272,10 @@
   "@shellPageGrid": {
     "description": "Toggle label for the full-area page thumbnail grid view."
   },
+  "shellViewPages": "Pages",
+  "@shellViewPages": {
+    "description": "View-mode label for ordinary fixed-layout pages, the alternative to the reflow view and the page grid. Distinct from shellPanelPages, which names the page thumbnail sidebar."
+  },
   "shellPanelAnnotations": "Annotations",
   "@shellPanelAnnotations": {
     "description": "Name of the annotations list panel (toggle tooltip and sheet title)."

@@ -977,6 +977,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Kisi halaman';
 
   @override
+  String get shellViewPages => 'Halaman';
+
+  @override
   String get shellPanelAnnotations => 'Anotasi';
 
   @override

@@ -1,5 +1,55 @@
 # Changelog
 
+## 4.5.0
+
+- Group the view-options menu around what its rows actually do. Reflow text
+  and the page grid each REPLACE the page viewer, but they were drawn as two
+  independent checkmarks among the display overlays, and each silently cleared
+  the other - so leaving a mode meant unticking the one you ticked, and plain
+  pages existed only as the absence of both. They are now one `SegmentedButton`
+  at the top of the menu, with `Pages` as a real destination, over a
+  `PdfEditingPreferences.viewMode` (`PdfViewMode`) that owns the exclusivity
+  the callers kept re-implementing - including the command palette, which
+  toggled the two bools independently and could show both at once. On compact
+  layouts the modes move up into the Controls sheet's View section, one tap
+  from the document: Reflow already had a tile there, and the page grid needed
+  Controls -> Settings -> scroll -> tick. The Settings sheet keeps only
+  settings, and `showPdfShellViewOptionsSheet` no longer takes `reflow` /
+  `pageGrid`.
+
+- Draw unembedded standard-14 text in the metric-compatible TeX Gyre faces
+  bundled by `dart_pdf_editor_assets` - Heros for Helvetica/Arial, Termes for
+  Times, Cursor for Courier - ahead of any host font. Substituting a face with
+  different advances opened white space inside words, because each character is
+  placed at the PDF's own pen offset: DejaVu Sans, the previous fallback, drew
+  `J` at 295/1000 em where Helvetica's table reserves 500, leaving ~2.7pt of air
+  after every capital J at 12pt. Without the assets package the renderer now
+  names the host's metric equivalents (Arial, Liberation Sans, Nimbus Sans and
+  their serif/mono counterparts) before falling back further.
+- Load only the substitute weights and slants a page actually shows in the
+  canvas2d web worker, and none for an invisible OCR layer.
+- Export the substitution policy (`PdfBundledSubstitute`,
+  `pdfBundledSubstituteFor`) so a host can resolve the same faces the renderer
+  does.
+- Keep a text selection that crosses separately drawn runs continuous:
+  selection rects and the quads `addMarkup` saves are normalized to one box
+  per visual line, joining fragments only across a gap of up to 1.5 line
+  heights so a column gutter keeps its two boxes.
+- Hit-test text with each run's own ascent and descent, so CJK lines select
+  over the whole glyph height.
+- Floor stroked text (rendering modes 1/2/5/6) at one device pixel on both
+  text paths. A `0 w` width no longer becomes a hundredth of an em in the
+  substituted-font painter, which left stroked text nearly invisible.
+- Add an off-by-default glyph stem darkening flag,
+  `CanvasPdfDevice.glyphStemDarkening`, which darkens thin stems of small text
+  without widening them.
+- Keep the viewer's `State` when the editing toolbar comes and goes, so
+  double-clicking a page in the page grid lands on that page instead of
+  rewinding to page 1.
+- Opt the example's Linux runner out of Impeller (`DARTPDF_IMPELLER=1` turns
+  it back on): on desktop OpenGL Impeller fills PDF glyph paths without
+  antialiasing.
+
 ## 4.4.0
 
 - Reach at least 10000% actual size independently of viewport width, with

@@ -2000,6 +2000,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Custom settings'**
   String get reduceSizeCustom;
+
+  /// Title of the release-notes dialog, and the label of every entry point that opens it.
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s new'**
+  String get whatsNew;
+
+  /// Badge marking the changelog section that matches the running build's version.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed'**
+  String get whatsNewInstalled;
+
+  /// Shown when the bundled changelog is missing or empty.
+  ///
+  /// In en, this message translates to:
+  /// **'Release notes aren\'t available in this build.'**
+  String get whatsNewUnavailable;
 }
 
 class _AppLocalizationsDelegate

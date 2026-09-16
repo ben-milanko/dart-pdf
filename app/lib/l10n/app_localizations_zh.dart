@@ -1174,6 +1174,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => '自定义设置';
+
+  @override
+  String get whatsNew => '新增功能';
+
+  @override
+  String get whatsNewInstalled => '已安装';
+
+  @override
+  String get whatsNewUnavailable => '此版本不提供发行说明。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2347,4 +2356,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get reduceSizeCustom => '自訂設定';
+
+  @override
+  String get whatsNew => '新功能';
+
+  @override
+  String get whatsNewInstalled => '已安裝';
+
+  @override
+  String get whatsNewUnavailable => '此版本未提供版本資訊。';
 }

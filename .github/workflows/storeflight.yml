@@ -35,7 +35,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  STOREFLIGHT_CONFIG: ../storeflight.yaml
+  STOREFLIGHT_CONFIG: storeflight.yaml
 
 jobs:
   microsoft_store:
@@ -62,6 +62,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -113,7 +114,13 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-microsoft_store-${{ github.run_id }}
-          path: '**/.storeflight/{plans,releases,progress,certifications}/**'
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -122,7 +129,11 @@ jobs:
         with:
           name: storeflight-state-microsoft_store-${{ github.run_id }}
           path: |
-            **/.storeflight/{plans,releases,progress,certifications,artifacts}/**
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
+            **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
             **/*.pkg
@@ -152,6 +163,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -170,7 +182,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
           sudo snap install snapcraft --classic
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
@@ -208,7 +220,13 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-snap-${{ github.run_id }}
-          path: '**/.storeflight/{plans,releases,progress,certifications}/**'
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -217,7 +235,11 @@ jobs:
         with:
           name: storeflight-state-snap-${{ github.run_id }}
           path: |
-            **/.storeflight/{plans,releases,progress,certifications,artifacts}/**
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
+            **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
             **/*.pkg
@@ -253,6 +275,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -302,7 +325,13 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-github_release_windows-${{ github.run_id }}
-          path: '**/.storeflight/{plans,releases,progress,certifications}/**'
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -311,7 +340,11 @@ jobs:
         with:
           name: storeflight-state-github_release_windows-${{ github.run_id }}
           path: |
-            **/.storeflight/{plans,releases,progress,certifications,artifacts}/**
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
+            **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
             **/*.pkg
@@ -343,6 +376,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -360,7 +394,7 @@ jobs:
       - name: Install Snapcraft and Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
           sudo snap install snapcraft --classic
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
@@ -397,7 +431,13 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-github_release_snap-${{ github.run_id }}
-          path: '**/.storeflight/{plans,releases,progress,certifications}/**'
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -406,7 +446,11 @@ jobs:
         with:
           name: storeflight-state-github_release_snap-${{ github.run_id }}
           path: |
-            **/.storeflight/{plans,releases,progress,certifications,artifacts}/**
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
+            **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
             **/*.pkg
@@ -437,6 +481,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -454,7 +499,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
@@ -490,7 +535,13 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-github_release_flatpak-${{ github.run_id }}
-          path: '**/.storeflight/{plans,releases,progress,certifications}/**'
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -499,7 +550,11 @@ jobs:
         with:
           name: storeflight-state-github_release_flatpak-${{ github.run_id }}
           path: |
-            **/.storeflight/{plans,releases,progress,certifications,artifacts}/**
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
+            **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
             **/*.pkg
@@ -529,6 +584,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -546,7 +602,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
@@ -582,7 +638,13 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-flatpak_flatpak-${{ github.run_id }}
-          path: '**/.storeflight/{plans,releases,progress,certifications}/**'
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -591,7 +653,11 @@ jobs:
         with:
           name: storeflight-state-flatpak_flatpak-${{ github.run_id }}
           path: |
-            **/.storeflight/{plans,releases,progress,certifications,artifacts}/**
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
+            **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
             **/*.pkg

@@ -75,6 +75,9 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$work_dir/snap" "$output"
+# snapcraft runs from $work_dir, so a relative --output would resolve
+# against the temporary build directory rather than the caller's.
+output="$(cd "$output" && pwd)"
 cp "$script_dir/snap/snapcraft.yaml" "$work_dir/snap/snapcraft.yaml"
 mkdir -p "$work_dir/release-payload"
 tar -xzf "$archive" -C "$work_dir/release-payload"
@@ -129,7 +132,7 @@ PY
   cd "$work_dir"
   "${snapcraft_command[@]}" pack \
     --destructive-mode \
-    --output "$(cd "$output" && pwd)"
+    --output "$output"
 )
 
 snap_file="$(find "$output" -maxdepth 1 -type f -name 'dartpdf_*.snap' -print -quit)"

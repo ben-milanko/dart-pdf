@@ -1,12 +1,20 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show
+        PdfBundledSubstitute,
+        pdfBundledSubstituteFor,
+        pdfUsesAdventorSubstitute;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'text_outliner.dart';
 
-/// Best-effort exact outlines for the native fonts selected by
-/// `CanvasPdfDevice`'s standard substitution families.
+/// Best-effort exact outlines for the fonts `CanvasPdfDevice` substitutes into
+/// unembedded text: the metric-compatible TeX Gyre faces from the optional
+/// `dart_pdf_editor_assets` package where they are bundled, and the platform's
+/// own standard families where they are not.
 ///
 /// This adapter is opt-in because platform font locations are not a Flutter
 /// API. It returns null unless it can read every face needed by a run; the GPU
@@ -14,22 +22,31 @@ import 'text_outliner.dart';
 /// bundled/custom fonts should construct [FlutterGpuTrueTypeTextOutliner]
 /// directly from those exact bytes instead.
 class FlutterGpuSystemTextOutliner implements FlutterGpuTextOutliner {
-  FlutterGpuSystemTextOutliner._(this._delegate);
+  FlutterGpuSystemTextOutliner._(this._catalogue)
+      : _delegate = FlutterGpuTrueTypeTextOutliner(_catalogue.resolve);
 
-  /// Prepares a lazy resolver for the current platform's known native faces.
+  /// Prepares a lazy resolver for the faces `CanvasPdfDevice` substitutes.
   ///
-  /// Returns null on unsupported platforms. Font files are parsed only when a
-  /// run first requests that face; a missing family or style rejects only that
-  /// run and stays memoized as unavailable.
+  /// Returns null on unsupported platforms. Reading the bundled substitute
+  /// faces out of the asset bundle starts here, because it is the one moment
+  /// this adapter can do asynchronous work - a run resolves synchronously,
+  /// mid-record. Font programs are parsed only when a run first requests that
+  /// face; a missing family or style rejects only that run and stays memoized
+  /// as unavailable.
   static FlutterGpuSystemTextOutliner? tryCreate() {
     final catalogue = _SystemFontCatalogue.load();
     if (catalogue == null) return null;
-    return FlutterGpuSystemTextOutliner._(
-      FlutterGpuTrueTypeTextOutliner(catalogue.resolve),
-    );
+    return FlutterGpuSystemTextOutliner._(catalogue..prefetchBundled());
   }
 
+  final _SystemFontCatalogue _catalogue;
   final FlutterGpuTrueTypeTextOutliner _delegate;
+
+  /// Completes once the bundled substitute faces have been read (or found
+  /// absent). Until then a run that would draw in one of them declines rather
+  /// than outlining a face Canvas would not draw, so a host that must not spend
+  /// its first paint on the Canvas fallback can await this.
+  Future<void> get ready => _catalogue.bundledReady;
 
   @override
   PdfTextRun? outline(PdfTextRun run) => _delegate.outline(run);
@@ -57,6 +74,48 @@ class _SystemFontCatalogue {
   final Map<(_Family, _Style), FlutterGpuFontFace> _faces = {};
   final Set<(_Family, _Style)> _attempted = {};
 
+  /// Program bytes of the bundled metric-compatible faces, read once up front
+  /// (see [prefetchBundled]); a key absent from both maps once [bundledReady]
+  /// has completed means the optional assets package isn't installed.
+  final Map<(PdfBundledSubstitute, _Style), Uint8List> _bundledBytes = {};
+  final Map<(PdfBundledSubstitute, _Style), FlutterGpuFontFace> _bundledFaces =
+      {};
+  Future<void>? _bundledPrefetch;
+
+  /// Completes when [prefetchBundled] has settled every bundled face.
+  Future<void> get bundledReady => _bundledPrefetch ?? Future.value();
+
+  /// Reads every bundled substitute face out of the asset bundle, once.
+  ///
+  /// Eager rather than per-face-on-demand because [resolve] is synchronous: a
+  /// face still in flight has to decline its run, and doing that lazily would
+  /// spend a Canvas fallback on the first page that uses each weight. Bytes
+  /// only - parsing stays lazy, so a face nothing draws is never parsed.
+  bool _prefetchDone = false;
+
+  Future<void> prefetchBundled() => _bundledPrefetch ??= Future.wait([
+        for (final substitute in PdfBundledSubstitute.values)
+          for (final style in _Style.values)
+            if (substitute.hasItalicFaces || !_isItalic(style))
+              _readBundled((substitute, style)),
+      ]).whenComplete(() => _prefetchDone = true);
+
+  Future<void> _readBundled((PdfBundledSubstitute, _Style) key) async {
+    final (substitute, style) = key;
+    final asset = 'packages/dart_pdf_editor_assets/assets/fonts/'
+        '${substitute.assetFile(bold: _isBold(style), italic: _isItalic(style))}';
+    try {
+      final data = await rootBundle.load(asset);
+      _bundledBytes[key] = data.buffer.asUint8List(
+        data.offsetInBytes,
+        data.lengthInBytes,
+      );
+    } on Object {
+      // No optional assets package: the platform catalogue below is then the
+      // right answer, because it is what Canvas falls back to as well.
+    }
+  }
+
   static _SystemFontCatalogue? load() {
     final specs = Platform.isMacOS
         ? _macFonts
@@ -74,13 +133,10 @@ class _SystemFontCatalogue {
 
   FlutterGpuFontFace? resolve(PdfTextRun run) {
     final name = run.fontName ?? '';
-    final lower = name.toLowerCase();
-    // Canvas uses a separately registered TeX Gyre Adventor asset for these.
-    // System paths cannot prove they match it.
-    if (_usesAdventor(lower)) return null;
     final cjkFamily = _cjkFamily(name);
     if (cjkFamily != null) return _face((cjkFamily, _Style.regular));
     if (_isCjkName(name)) return null;
+    final symbolic = name.contains('ZapfDingbats') || name.contains('Symbol');
     final family = name.contains('ZapfDingbats')
         ? _Family.dingbats
         : name.contains('Symbol')
@@ -99,12 +155,54 @@ class _SystemFontCatalogue {
             : italic
                 ? _Style.italic
                 : _Style.regular;
+    if (!symbolic) {
+      // Canvas draws this run in a bundled metric-compatible face wherever the
+      // optional assets package supplies one, so outlining anything else would
+      // put the accelerated backend's glyphs somewhere Canvas would not.
+      final bundled = _bundledFace(pdfBundledSubstituteFor(name), style);
+      if (bundled.face != null) return bundled.face;
+      // Still loading, or an oblique this family ships no file for (the engine
+      // slants it and we cannot): decline, leaving the scene on the exact
+      // Canvas fallback.
+      if (bundled.pending) return null;
+      // Only the geometric-sans clone has no platform equivalent a system path
+      // could prove it matches.
+      if (pdfUsesAdventorSubstitute(name)) return null;
+    }
     // Symbol faces generally expose one regular program; Flutter's weight
     // flags do not select a synthetic face for the PDF Symbol/Zapf families.
     return _face((family, style)) ??
         (family == _Family.symbol || family == _Family.dingbats
             ? _face((family, _Style.regular))
             : null);
+  }
+
+  /// The bundled face for [substitute] in [style], or null with `pending` set
+  /// when this adapter must not answer at all: while [prefetchBundled] is still
+  /// in flight, and for a slant the family ships no file for - Canvas has the
+  /// engine oblique the upright face, which no outline here can reproduce.
+  ({FlutterGpuFontFace? face, bool pending}) _bundledFace(
+    PdfBundledSubstitute substitute,
+    _Style style,
+  ) {
+    if (_isItalic(style) && !substitute.hasItalicFaces) {
+      return (face: null, pending: true);
+    }
+    final key = (substitute, style);
+    final face = _bundledFaces[key];
+    if (face != null) return (face: face, pending: false);
+    final bytes = _bundledBytes[key];
+    if (bytes != null) {
+      try {
+        return (face: _bundledFaces[key] = _parseFace(bytes), pending: false);
+      } on Object {
+        _bundledBytes.remove(key); // unparseable: the platform face it is
+        return (face: null, pending: false);
+      }
+    }
+    // Settled and absent means no optional assets package; still settling means
+    // hold off one paint rather than draw the wrong metrics.
+    return (face: null, pending: _bundledPrefetch != null && !_prefetchDone);
   }
 
   FlutterGpuFontFace? _face((_Family, _Style) key) {
@@ -116,22 +214,31 @@ class _SystemFontCatalogue {
       if (!file.existsSync()) continue;
       try {
         final bytes = _byteCache.putIfAbsent(path, file.readAsBytesSync);
-        try {
-          return _faces[key] = FlutterGpuTrueTypeFontFace(
-            bytes,
-            collectionIndex: spec.collectionIndex,
-          );
-        } on FormatException {
-          return _faces[key] = FlutterGpuOpenTypeCffFontFace(
-            bytes,
-            collectionIndex: spec.collectionIndex,
-          );
-        }
+        return _faces[key] = _parseFace(
+          bytes,
+          collectionIndex: spec.collectionIndex,
+        );
       } on Object {
         // Try the next known location. Failure keeps this face unavailable.
       }
     }
     return null;
+  }
+}
+
+bool _isBold(_Style style) =>
+    style == _Style.bold || style == _Style.boldItalic;
+
+bool _isItalic(_Style style) =>
+    style == _Style.italic || style == _Style.boldItalic;
+
+/// Parses [bytes] as whichever outline flavour the face carries.
+FlutterGpuFontFace _parseFace(Uint8List bytes, {int collectionIndex = 0}) {
+  try {
+    return FlutterGpuTrueTypeFontFace(bytes, collectionIndex: collectionIndex);
+  } on FormatException {
+    return FlutterGpuOpenTypeCffFontFace(bytes,
+        collectionIndex: collectionIndex);
   }
 }
 
@@ -141,16 +248,6 @@ class _FontSpec {
   final List<String> paths;
   final int collectionIndex;
 }
-
-bool _usesAdventor(String name) =>
-    name.contains('centurygothic') ||
-    name.contains('century gothic') ||
-    name.contains('avantgarde') ||
-    name.contains('avant garde') ||
-    name.contains('texgyreadventor') ||
-    name.contains('tex gyre adventor') ||
-    name.contains('urwgothic') ||
-    name.contains('urw gothic');
 
 _Family? _cjkFamily(String name) {
   if (name.contains('ºÚÌå')) return _Family.cjkHeiti; // 黑体

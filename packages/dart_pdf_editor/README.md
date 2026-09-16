@@ -108,7 +108,8 @@ Built on the pure-Dart
 
 ## Optional bundled assets
 
-The editor's six bundled fonts and its web render worker (~1.8 MB package
+The editor's six bundled fonts, the metric-compatible faces it substitutes into
+unembedded standard-14 text, and its web render worker (~3.3 MB package
 download) ship in a separate opt-in package,
 [`dart_pdf_editor_assets`](../dart_pdf_editor_assets), rather than in
 `dart_pdf_editor` itself. Flutter bundles a package's declared assets on every
@@ -144,13 +145,16 @@ What each optional group powers - everything else works without them:
 
 | Capability | Needs |
 | --- | --- |
+| Unembedded standard-14 text spaced as the page was typeset (TeX Gyre Heros / Termes / Cursor) | bundled fonts |
 | Font menu's "bundled" group (DejaVu, Fira Sans, Spectral, Lobster) | bundled fonts |
 | Fallback glyphs when editing composite (/Type0) text a subset font can't draw | bundled fonts (DejaVu trio) |
 | Off-main-thread page rendering on **web** | web worker |
 
 Missing assets degrade gracefully: the font menu simply drops the bundled group
 (base-14, document, platform and custom fonts still work), composite-text
-fallback is skipped, and web rendering falls back to the main thread. An app can
+fallback is skipped, unembedded standard-14 text is drawn in the closest face
+the host has (Arial, Liberation Sans, Nimbus Sans and their serif/mono
+counterparts, then any sans), and web rendering falls back to the main thread. An app can
 also supply its own catalogue - set `pdfBundledFonts` to your own
 `PdfBundledFont`s (each backed by an asset key or a `loadBytes` byte loader).
 

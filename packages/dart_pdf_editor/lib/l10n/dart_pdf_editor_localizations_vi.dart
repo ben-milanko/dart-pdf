@@ -977,6 +977,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Lưới trang';
 
   @override
+  String get shellViewPages => 'Trang';
+
+  @override
   String get shellPanelAnnotations => 'Chú thích';
 
   @override

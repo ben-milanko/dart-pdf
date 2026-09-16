@@ -384,7 +384,9 @@ void main() {
     final fonts = doc.cos.resolve(resources['Font']) as CosDictionary;
     final helv = doc.cos.resolve(fonts['Helv']) as CosDictionary;
     expect((doc.cos.resolve(helv['BaseFont']) as CosName).value, 'Helvetica');
-    expect((doc.cos.resolve(helv['Widths']) as CosArray).length, 95);
+    // 32-255: the appearance may show any WinAnsi byte, so every code it
+    // can emit needs an advance in the array
+    expect((doc.cos.resolve(helv['Widths']) as CosArray).length, 224);
   });
 
   test('Bluebeam free text recovers CSS alignment and CR line breaks', () {
@@ -706,7 +708,7 @@ void main() {
     final cour = doc.cos.resolve(monoFonts['Cour']) as CosDictionary;
     expect((doc.cos.resolve(cour['BaseFont']) as CosName).value, 'Courier');
     final courWidths = doc.cos.resolve(cour['Widths']) as CosArray;
-    expect(courWidths.length, 95);
+    expect(courWidths.length, 224);
     expect(
         courWidths.items.every((w) => (w as CosInteger).value == 600), isTrue);
   });

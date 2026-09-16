@@ -977,6 +977,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Paginaraster';
 
   @override
+  String get shellViewPages => 'Pagina\'s';
+
+  @override
   String get shellPanelAnnotations => 'Annotaties';
 
   @override

@@ -1182,4 +1182,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'カスタム設定';
+
+  @override
+  String get whatsNew => '新機能';
+
+  @override
+  String get whatsNewInstalled => 'インストール済み';
+
+  @override
+  String get whatsNewUnavailable => 'このビルドにはリリースノートがありません。';
 }

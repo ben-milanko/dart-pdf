@@ -1222,4 +1222,14 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Aangepaste instellingen';
+
+  @override
+  String get whatsNew => 'Wat is er nieuw';
+
+  @override
+  String get whatsNewInstalled => 'Geïnstalleerd';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Release-opmerkingen zijn niet beschikbaar in deze build.';
 }

@@ -1224,4 +1224,14 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Impostazioni personalizzate';
+
+  @override
+  String get whatsNew => 'Novità';
+
+  @override
+  String get whatsNewInstalled => 'Installata';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Le note di rilascio non sono disponibili in questa build.';
 }

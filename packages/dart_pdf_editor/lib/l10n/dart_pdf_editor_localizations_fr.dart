@@ -979,6 +979,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Grille de pages';
 
   @override
+  String get shellViewPages => 'Pages';
+
+  @override
   String get shellPanelAnnotations => 'Annotations';
 
   @override

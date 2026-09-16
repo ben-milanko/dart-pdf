@@ -77,6 +77,32 @@ Uint8List buildPlainAnnotationPdf() {
   return editor.save();
 }
 
+Uint8List buildSplitRunTextPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (signs) Tj ET '
+      'BT /F1 24 Tf 150 720 Td (and) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer.write('trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 Uint8List buildDisjointHighlightPdf({bool rotated = false}) {
   final document = PdfDocument.open(buildClassicPdf());
   final editor = PdfEditor(document)
@@ -365,6 +391,34 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('CJK selection hit region follows the expanded line band',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      bytes: buildRtlTextPdf(lines: const ['中文']),
+    );
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+
+    // The Type3 fixture draws two 0.5em glyphs right-aligned at x=360 with a
+    // 24pt font and a y=720 baseline. This point is 0.875em above the
+    // baseline: above the legacy Latin band, but inside the CJK line band.
+    final gesture = await tester.startGesture(
+      view(358, 720 + 0.875 * 24),
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveBy(const Offset(-20, 0)); // pass the drag slop
+    await tester.pump();
+    await gesture.moveTo(view(330, 720 + 0.875 * 24));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.hasSelection, isTrue);
+    expect(controller.selectedText, isNotEmpty);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
   testWidgets('mouse drag between text lines grab-pans the page',
       (tester) async {
     final controller = await pumpViewer(
@@ -534,6 +588,27 @@ void main() {
     expect(bounds.bottom, lessThan(721));
     expect(bounds.top, greaterThan(720));
     expect(controller.selectionRectsOn(1), isEmpty);
+  });
+
+  testWidgets('mouse selection wash is continuous across split text runs',
+      (tester) async {
+    final controller =
+        await pumpViewer(tester, bytes: buildSplitRunTextPdf(), pages: 1);
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+
+    final gesture = await tester.startGesture(view(195, 720),
+        kind: PointerDeviceKind.mouse);
+    await gesture.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await gesture.moveTo(view(74, 720));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.selectedText, contains('signs'));
+    expect(controller.selectedText, contains('and'));
+    expect(controller.selectionRectsOn(0), hasLength(1));
   });
 
   testWidgets('hovering text shows the text cursor', (tester) async {

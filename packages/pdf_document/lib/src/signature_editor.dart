@@ -108,6 +108,23 @@ class PdfSignatureAppearance {
   final String locationLabel;
 }
 
+/// Thrown before any byte is written when the document carries a
+/// certification signature that forbids every change - a /DocMDP transform
+/// with `/P 1` (ISO 32000-1 §12.8.2.2, Table 254). Adding a signature to
+/// such a document produces a file every viewer reports as tampered with,
+/// so the attempt is refused rather than written.
+///
+/// `/P 2` (form filling and signing) and `/P 3` (those plus annotations)
+/// both permit signing and are not refused. A document timestamp is not
+/// subject to the check: it adds no content, and PAdES long-term validation
+/// depends on being able to add one to a certified file.
+class CertifiedNoChangesException implements Exception {
+  @override
+  String toString() =>
+      'CertifiedNoChangesException: the document is certified with '
+      'DocMDP /P 1 (no changes permitted)';
+}
+
 /// The signer details rendered into a visible signature box.
 class _SignatureText {
   const _SignatureText({this.name, this.time, this.reason, this.location});
@@ -339,6 +356,12 @@ extension PdfSigning on PdfEditor {
       throw UnsupportedEncryptionException(
           'signing encrypted documents is not supported yet');
     }
+    // A document certified "no changes" cannot take another signature: the
+    // incremental update this writes would break the certification it is
+    // appended to. A document timestamp is exempt (see the exception's doc).
+    if (!docTimeStamp && _docMdpPermissionLevel() == 1) {
+      throw CertifiedNoChangesException();
+    }
     final cos = document.cos;
     final placeholder = Uint8List(capacity);
     final name = signerName ??
@@ -438,6 +461,38 @@ extension PdfSigning on PdfEditor {
       saved[revision.contentsStart + 2 + i * 2] =
           hexDigits.codeUnitAt(blob[i] & 0xF);
     }
+  }
+
+  /// The DocMDP permission level of the document's existing certification
+  /// signature, or null when the document is not certified.
+  ///
+  /// The level lives on the certifying signature's /Reference array, in the
+  /// /TransformParams of the entry whose /TransformMethod is /DocMDP. `/P`
+  /// defaults to 2 when those params omit it (§12.8.2.2, Table 257), and a
+  /// certification we cannot read the level from is read as 2 as well -
+  /// permissive, in keeping with staying lenient about what other producers
+  /// wrote.
+  int? _docMdpPermissionLevel() {
+    final cos = document.cos;
+    final perms = cos.resolve(document.catalog['Perms']);
+    if (perms is! CosDictionary) return null;
+    final sig = cos.resolve(perms['DocMDP']);
+    if (sig is! CosDictionary) return null;
+    final refs = cos.resolve(sig['Reference']);
+    if (refs is! CosArray) return 2;
+    for (final raw in refs.items) {
+      final ref = cos.resolve(raw);
+      if (ref is! CosDictionary) continue;
+      final method = cos.resolve(ref['TransformMethod']);
+      if (method is! CosName || method.value != 'DocMDP') continue;
+      final params = cos.resolve(ref['TransformParams']);
+      if (params is CosDictionary) {
+        final p = cos.resolve(params['P']);
+        if (p is CosInteger) return p.value;
+      }
+      return 2;
+    }
+    return 2;
   }
 
   /// Points the catalog's /Perms /DocMDP at the certifying signature, the
@@ -860,7 +915,7 @@ extension PdfSigning on PdfEditor {
         'BaseFont': CosName(font.baseFont),
         'Encoding': const CosName('WinAnsiEncoding'),
         'FirstChar': const CosInteger(32),
-        'LastChar': const CosInteger(126),
+        'LastChar': const CosInteger(255),
         'Widths': CosArray([for (final width in font.widths) CosInteger(width)]),
       });
 

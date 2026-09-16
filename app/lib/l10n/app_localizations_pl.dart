@@ -1247,4 +1247,14 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get reduceSizeCustom => 'Ustawienia niestandardowe';
+
+  @override
+  String get whatsNew => 'Co nowego';
+
+  @override
+  String get whatsNewInstalled => 'Zainstalowana';
+
+  @override
+  String get whatsNewUnavailable =>
+      'Informacje o wydaniu są niedostępne w tej kompilacji.';
 }

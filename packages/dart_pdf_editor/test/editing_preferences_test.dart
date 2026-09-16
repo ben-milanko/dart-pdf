@@ -162,6 +162,61 @@ void main() {
       expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });
 
+    test('viewMode keeps the two view-replacing flags exclusive', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = PdfEditingPreferences();
+      await prefs.ready;
+      expect(prefs.viewMode, PdfViewMode.pages);
+
+      var notifications = 0;
+      prefs.addListener(() => notifications++);
+
+      prefs.viewMode = PdfViewMode.reflow;
+      expect(prefs.showReflowView, isTrue);
+      expect(prefs.showThumbnailView, isFalse);
+      expect(notifications, 1, reason: 'one notification for the whole change');
+
+      // the bug this pair exists to prevent: picking the other mode used to
+      // leave both flags to the caller, so one silently untucked the other
+      prefs.viewMode = PdfViewMode.pageGrid;
+      expect(prefs.showReflowView, isFalse);
+      expect(prefs.showThumbnailView, isTrue);
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
+      expect(notifications, 2);
+
+      // and there is a way back to plain pages that is not "untick the one
+      // you ticked"
+      prefs.viewMode = PdfViewMode.pages;
+      expect(prefs.showReflowView, isFalse);
+      expect(prefs.showThumbnailView, isFalse);
+      expect(notifications, 3);
+
+      prefs.viewMode = PdfViewMode.pages;
+      expect(notifications, 3, reason: 'no notification for a no-op');
+
+      await pumpEventQueue();
+      final restored = PdfEditingPreferences();
+      await restored.ready;
+      expect(restored.viewMode, PdfViewMode.pages);
+      prefs.dispose();
+      restored.dispose();
+    });
+
+    test('viewMode reads a legacy pair that set both flags', () async {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor.editing.showReflowView': true,
+        'dart_pdf_editor.editing.showThumbnailView': true,
+      });
+      final prefs = PdfEditingPreferences();
+      await prefs.ready;
+      // reflow wins the read, and setting any mode writes the pair back clean
+      expect(prefs.viewMode, PdfViewMode.reflow);
+      prefs.viewMode = PdfViewMode.pages;
+      expect(prefs.showReflowView, isFalse);
+      expect(prefs.showThumbnailView, isFalse);
+      prefs.dispose();
+    });
+
     test('textAlign resets to null (follow text direction)', () async {
       SharedPreferences.setMockInitialValues({});
       final a = PdfEditingPreferences();

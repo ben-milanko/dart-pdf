@@ -975,6 +975,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Sayfa ızgarası';
 
   @override
+  String get shellViewPages => 'Sayfalar';
+
+  @override
   String get shellPanelAnnotations => 'Ek açıklamalar';
 
   @override

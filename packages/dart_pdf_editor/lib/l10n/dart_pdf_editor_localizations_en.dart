@@ -974,6 +974,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Page grid';
 
   @override
+  String get shellViewPages => 'Pages';
+
+  @override
   String get shellPanelAnnotations => 'Annotations';
 
   @override
@@ -3114,6 +3117,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get shellPageGrid => 'Page grid';
 
   @override
+  String get shellViewPages => 'Pages';
+
+  @override
   String get shellPanelAnnotations => 'Annotations';
 
   @override
@@ -5252,6 +5258,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get shellPageGrid => 'Page grid';
+
+  @override
+  String get shellViewPages => 'Pages';
 
   @override
   String get shellPanelAnnotations => 'Annotations';

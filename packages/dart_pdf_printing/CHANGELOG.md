@@ -1,3 +1,7 @@
+## 0.1.1
+
+- Align dependency constraints with the dart-pdf 4.5.0 package suite.
+
 ## 0.1.0
 
 - Extract DartPDF's print preview, sheet composer and system printing into an

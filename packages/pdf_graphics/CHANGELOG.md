@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.5.0
+
+- Give unembedded Times-Bold, Times-Italic and Times-BoldItalic their own AFM
+  advances instead of reusing Times-Roman's (`A` is 611 against the roman's
+  722), so their text measures and selects where it is drawn. Helvetica's
+  oblique advances are its upright ones and keep sharing a table.
+- Carry `descent` and `ascent` on `PdfExtractedRun`, giving lines that contain
+  CJK characters a full-em ascent instead of the fixed -0.25..0.75em band.
+  The worker codec and the disk text cache persist the new metrics (format
+  versions bumped, so older cached entries are re-extracted).
+
 ## 4.4.0
 
 - Add `RecordedText`, a text-only snapshot a device can retain while it records

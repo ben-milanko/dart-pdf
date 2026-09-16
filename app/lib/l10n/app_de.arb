@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Eingebettete Schriftarten",
   "reduceSizeImages": "Bilder",
   "reduceSizeDuplicates": "Doppelte Objekte",
-  "reduceSizeCustom": "Benutzerdefinierte Einstellungen"
+  "reduceSizeCustom": "Benutzerdefinierte Einstellungen",
+  "whatsNew": "Neuerungen",
+  "whatsNewInstalled": "Installiert",
+  "whatsNewUnavailable": "In diesem Build sind keine Versionshinweise verfügbar."
 }

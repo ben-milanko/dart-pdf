@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Встроенные шрифты",
   "reduceSizeImages": "Изображения",
   "reduceSizeDuplicates": "Дублирующиеся объекты",
-  "reduceSizeCustom": "Пользовательские настройки"
+  "reduceSizeCustom": "Пользовательские настройки",
+  "whatsNew": "Что нового",
+  "whatsNewInstalled": "Установлена",
+  "whatsNewUnavailable": "Примечания к выпуску недоступны в этой сборке."
 }

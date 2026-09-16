@@ -310,5 +310,8 @@
   "reduceSizeFonts": "Polices intégrées",
   "reduceSizeImages": "Images",
   "reduceSizeDuplicates": "Objets en double",
-  "reduceSizeCustom": "Paramètres personnalisés"
+  "reduceSizeCustom": "Paramètres personnalisés",
+  "whatsNew": "Nouveautés",
+  "whatsNewInstalled": "Installée",
+  "whatsNewUnavailable": "Les notes de version ne sont pas disponibles dans cette version."
 }

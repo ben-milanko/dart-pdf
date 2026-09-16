@@ -978,6 +978,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get shellPageGrid => 'Grade de páginas';
 
   @override
+  String get shellViewPages => 'Páginas';
+
+  @override
   String get shellPanelAnnotations => 'Anotações';
 
   @override

@@ -1,6 +1,6 @@
 name: dart_pdf_printing
 description: Optional PDF printing for Flutter, with layout preview and native system printing on Android, iOS, macOS, Windows, Linux, and web.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_printing
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -21,9 +21,9 @@ dependencies:
   flutter_web_plugins:
     sdk: flutter
   intl: ^0.20.2
-  dart_pdf_editor: ^4.4.0
-  pdf_cos: ^4.4.0
-  pdf_document: ^4.4.0
+  dart_pdf_editor: ^4.5.0
+  pdf_cos: ^4.5.0
+  pdf_document: ^4.5.0
   web: ^1.1.1
   shared_preferences: ^2.3.0
 

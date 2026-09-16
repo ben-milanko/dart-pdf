@@ -51,6 +51,7 @@ import 'update_installer.dart';
 import 'update_platform.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
+import 'whats_new.dart';
 import 'window_support.dart';
 import 'windows_drop_target.dart';
 
@@ -2509,9 +2510,6 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
-    final saveAsDocument = widget.saveDocumentAs ??
-        (ctx, bytes, name) =>
-            saveBytesAs(ctx, bytes, name, pdfLabel: appL10n(ctx).fileTypePdf);
     final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
@@ -2520,11 +2518,11 @@ class _EditorScreenState extends State<EditorScreen>
             tab.originPath!,
             bookmark: tab.originBookmark,
           )
-        : await saveAsDocument(context, bytes, tab.title);
+        : await _saveAsDocument(context, bytes, tab.title);
     if (!mounted) return;
     if (inPlace && !result.succeeded) {
       // The origin couldn't be written (moved, read-only) - offer save-as.
-      result = await saveAsDocument(context, bytes, tab.title);
+      result = await _saveAsDocument(context, bytes, tab.title);
       if (!mounted) return;
     }
     if (result.succeeded) {
@@ -2557,6 +2555,48 @@ class _EditorScreenState extends State<EditorScreen>
         unawaited(_persistSession());
       }
     }
+    if (result.message != null) _toast(result.message!);
+  }
+
+  /// The Save As backend: the host/test seam when one is injected, otherwise
+  /// the platform's own save dialog, browser download, or share sheet.
+  Future<SaveResult> _saveAsDocument(
+      BuildContext context, Uint8List bytes, String suggestedName) {
+    final saveAs = widget.saveDocumentAs;
+    if (saveAs != null) return saveAs(context, bytes, suggestedName);
+    return saveBytesAs(context, bytes, suggestedName,
+        pdfLabel: appL10n(context).fileTypePdf);
+  }
+
+  /// Saves the pages exported out of [tab] (the thumbnail panels' Export
+  /// actions) and then opens what was written in a new tab, so the pages the
+  /// user just pulled out are in front of them rather than only on disk. The
+  /// source document is untouched - an export reads it, it never edits it.
+  ///
+  /// The new tab adopts the save destination as its origin when the platform
+  /// gives us one (a desktop save dialog), so Save writes straight back to the
+  /// file that was just created. A browser download or a share sheet has no
+  /// path to adopt, so the tab opens over the exported bytes alone and its
+  /// first Save asks where they should go.
+  Future<void> _exportPages(DocumentTab tab, Uint8List bytes) async {
+    final result = await _saveAsDocument(context, bytes, tab.title);
+    if (!mounted) return;
+    if (result.succeeded) {
+      final path = result.path;
+      final bookmark =
+          path == null ? null : await securityBookmarkForPath(path);
+      if (!mounted) return;
+      _openBytes(
+        bytes,
+        path == null
+            ? ensurePdfName(tab.title)
+            : path.split(RegExp(r'[/\\]')).last,
+        originPath: path,
+        originBookmark: bookmark,
+      );
+    }
+    // Up to here the export said nothing at all, so a write that failed
+    // (a full disk, a folder gone read-only) passed in silence.
     if (result.message != null) _toast(result.message!);
   }
 
@@ -2611,9 +2651,7 @@ class _EditorScreenState extends State<EditorScreen>
       title: tab.title,
       hasSignatures: PdfSignature.of(session.document).isNotEmpty,
       runner: widget.compressDocument,
-      saveCopy: widget.saveDocumentAs ??
-          (ctx, bytes, name) =>
-              saveBytesAs(ctx, bytes, name, pdfLabel: appL10n(ctx).fileTypePdf),
+      saveCopy: _saveAsDocument,
     );
   }
 
@@ -3434,6 +3472,17 @@ class _EditorScreenState extends State<EditorScreen>
       ));
     }
 
+    // Reachable from Settings > About rather than the menu itself, so it
+    // names Settings as its source instead of claiming a menu row it has not
+    // got.
+    commands.add(AppCommand(
+      id: 'whats-new',
+      label: l.whatsNew,
+      icon: Icons.new_releases_outlined,
+      source: l.settingsTitle,
+      run: () => unawaited(showWhatsNew(context)),
+    ));
+
     if (hasDocument) {
       commands.add(AppCommand(
         id: 'menu-read-only',
@@ -3535,10 +3584,24 @@ class _EditorScreenState extends State<EditorScreen>
         view,
         _prefs.showAnnotations,
         (v) => _prefs.showAnnotations = v);
-    toggle('view-reflow', Icons.article_outlined, pdf.shellReflowText, view,
-        _prefs.showReflowView, (v) => _prefs.showReflowView = v);
-    toggle('view-page-grid', Icons.grid_view_outlined, pdf.shellPageGrid, view,
-        _prefs.showThumbnailView, (v) => _prefs.showThumbnailView = v);
+    // Reflow and the page grid each replace the page viewer, so they go
+    // through PdfEditingPreferences.viewMode rather than their own bools:
+    // turning one on has to clear the other, and turning one off has to land
+    // somewhere - plain pages.
+    toggle(
+        'view-reflow',
+        Icons.article_outlined,
+        pdf.shellReflowText,
+        view,
+        _prefs.viewMode == PdfViewMode.reflow,
+        (v) => _prefs.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
+    toggle(
+        'view-page-grid',
+        Icons.grid_view_outlined,
+        pdf.shellPageGrid,
+        view,
+        _prefs.viewMode == PdfViewMode.pageGrid,
+        (v) => _prefs.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
     toggle(
         'view-form-fields',
         Icons.ballot_outlined,
@@ -3874,8 +3937,7 @@ class _EditorScreenState extends State<EditorScreen>
       // a PDF dragged in from the desktop can be dropped between two page
       // thumbnails; the drop lands its pages exactly there
       thumbnailDropController: _thumbnailDrop,
-      onExportPages: (bytes) => unawaited(saveBytesAs(context, bytes, tab.title,
-          pdfLabel: appL10n(context).fileTypePdf)),
+      onExportPages: (bytes) => unawaited(_exportPages(tab, bytes)),
       onAction: _onAction,
       annotationMenuBuilder: _annotationMenuActions,
       formImagePicker: (context, field) => pickImageBytesFromSource(context),

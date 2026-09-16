@@ -310,5 +310,8 @@
   "reduceSizeFonts": "الخطوط المضمنة",
   "reduceSizeImages": "الصور",
   "reduceSizeDuplicates": "الكائنات المكررة",
-  "reduceSizeCustom": "إعدادات مخصصة"
+  "reduceSizeCustom": "إعدادات مخصصة",
+  "whatsNew": "ما الجديد",
+  "whatsNewInstalled": "مثبَّتة",
+  "whatsNewUnavailable": "ملاحظات الإصدار غير متوفرة في هذه النسخة."
 }
