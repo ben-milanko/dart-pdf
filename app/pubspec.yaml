@@ -18,7 +18,7 @@ dependencies:
     sdk: flutter
   # Localized message formatting (ICU plurals/select, DateFormat/NumberFormat)
   # and the generated AppLocalizations bundle. Pinned to the version
-  # flutter_localizations resolves against Flutter 3.47.0.
+  # flutter_localizations resolves against Flutter 3.47.4.
   intl: ^0.20.2
   cupertino_icons: ^1.0.8
 

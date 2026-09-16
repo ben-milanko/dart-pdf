@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.0
+          flutter-version: 3.47.4
           channel: stable
           cache: true
       # Run before pub get on purpose: the formatter wrapper must preserve the
@@ -204,7 +204,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.0
+          flutter-version: 3.47.4
           channel: stable
           cache: true
       - run: flutter pub get
@@ -660,7 +660,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.0
+          flutter-version: 3.47.4
           channel: stable
           cache: true
       # Guard: the checked-in worker asset must stay the small placeholder, not
@@ -722,7 +722,7 @@ jobs:
             desktop-file-utils appstream xvfb x11-utils
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.0
+          flutter-version: 3.47.4
           channel: stable
           cache: true
       - run: flutter pub get
@@ -842,7 +842,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.0
+          flutter-version: 3.47.4
           channel: stable
           cache: true
       - name: Install desktop dependencies and virtual display
