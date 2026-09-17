@@ -1,0 +1,432 @@
+{
+  "name": "table-borderless",
+  "description": "The same table with no rules at all - columns held apart by whitespace, which is what makes a borderless table read as parallel columns of prose.",
+  "pages": 1,
+  "blocks": [
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "Filter support by stream class",
+      "bounds": [
+        72.0,
+        697.6875,
+        540.0,
+        720.0
+      ],
+      "reading": 0,
+      "level": 1
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page. Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them. Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font.",
+      "bounds": [
+        72.0,
+        632.6875,
+        540.0,
+        690.6875
+      ],
+      "reading": 1
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Filter",
+      "bounds": [
+        77.0,
+        610.6875,
+        184.0,
+        624.1875
+      ],
+      "reading": 2,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Class",
+      "bounds": [
+        194.0,
+        610.6875,
+        301.0,
+        624.1875
+      ],
+      "reading": 3,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Decoder",
+      "bounds": [
+        311.0,
+        610.6875,
+        418.0,
+        624.1875
+      ],
+      "reading": 4,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Status",
+      "bounds": [
+        428.0,
+        610.6875,
+        535.0,
+        624.1875
+      ],
+      "reading": 5,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "FlateDecode",
+      "bounds": [
+        77.0,
+        591.6875,
+        184.0,
+        605.1875
+      ],
+      "reading": 6,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "General",
+      "bounds": [
+        194.0,
+        591.6875,
+        301.0,
+        605.1875
+      ],
+      "reading": 7,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "zlib",
+      "bounds": [
+        311.0,
+        591.6875,
+        418.0,
+        605.1875
+      ],
+      "reading": 8,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Complete",
+      "bounds": [
+        428.0,
+        591.6875,
+        535.0,
+        605.1875
+      ],
+      "reading": 9,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "LZWDecode",
+      "bounds": [
+        77.0,
+        572.6875,
+        184.0,
+        586.1875
+      ],
+      "reading": 10,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "General",
+      "bounds": [
+        194.0,
+        572.6875,
+        301.0,
+        586.1875
+      ],
+      "reading": 11,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "built in",
+      "bounds": [
+        311.0,
+        572.6875,
+        418.0,
+        586.1875
+      ],
+      "reading": 12,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Complete",
+      "bounds": [
+        428.0,
+        572.6875,
+        535.0,
+        586.1875
+      ],
+      "reading": 13,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "DCTDecode",
+      "bounds": [
+        77.0,
+        553.6875,
+        184.0,
+        567.1875
+      ],
+      "reading": 14,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Image",
+      "bounds": [
+        194.0,
+        553.6875,
+        301.0,
+        567.1875
+      ],
+      "reading": 15,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "baseline JPEG",
+      "bounds": [
+        311.0,
+        553.6875,
+        418.0,
+        567.1875
+      ],
+      "reading": 16,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Complete",
+      "bounds": [
+        428.0,
+        553.6875,
+        535.0,
+        567.1875
+      ],
+      "reading": 17,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "CCITTFaxDecode",
+      "bounds": [
+        77.0,
+        534.6875,
+        184.0,
+        548.1875
+      ],
+      "reading": 18,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Image",
+      "bounds": [
+        194.0,
+        534.6875,
+        301.0,
+        548.1875
+      ],
+      "reading": 19,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "group 3 and 4",
+      "bounds": [
+        311.0,
+        534.6875,
+        418.0,
+        548.1875
+      ],
+      "reading": 20,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Complete",
+      "bounds": [
+        428.0,
+        534.6875,
+        535.0,
+        548.1875
+      ],
+      "reading": 21,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "JBIG2Decode",
+      "bounds": [
+        77.0,
+        515.6875,
+        184.0,
+        529.1875
+      ],
+      "reading": 22,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Image",
+      "bounds": [
+        194.0,
+        515.6875,
+        301.0,
+        529.1875
+      ],
+      "reading": 23,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "embedded profile",
+      "bounds": [
+        311.0,
+        515.6875,
+        418.0,
+        529.1875
+      ],
+      "reading": 24,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Partial",
+      "bounds": [
+        428.0,
+        515.6875,
+        535.0,
+        529.1875
+      ],
+      "reading": 25,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "JPXDecode",
+      "bounds": [
+        77.0,
+        496.6875,
+        184.0,
+        510.1875
+      ],
+      "reading": 26,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Image",
+      "bounds": [
+        194.0,
+        496.6875,
+        301.0,
+        510.1875
+      ],
+      "reading": 27,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "JPEG 2000",
+      "bounds": [
+        311.0,
+        496.6875,
+        418.0,
+        510.1875
+      ],
+      "reading": 28,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "tableCell",
+      "text": "Partial",
+      "bounds": [
+        428.0,
+        496.6875,
+        535.0,
+        510.1875
+      ],
+      "reading": 29,
+      "table": "filters"
+    },
+    {
+      "page": 0,
+      "role": "caption",
+      "text": "Table 1. Stream filters and the decoders behind them.",
+      "bounds": [
+        72.0,
+        473.6125,
+        540.0,
+        485.6875
+      ],
+      "reading": 30
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy. The interpreter walks the content stream once and hands every operator to the device it was built with. A cross reference table maps object numbers to byte offsets so the reader can load an object without scanning the file. Fonts are embedded as programs whose glyph descriptions the rasterizer turns into filled outlines at the requested size.",
+      "bounds": [
+        72.0,
+        391.1125,
+        540.0,
+        463.6125
+      ],
+      "reading": 31
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Filters decode a stream lazily, which keeps a large document cheap to open when only a few pages are ever displayed. Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn. A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns.",
+      "bounds": [
+        72.0,
+        327.1125,
+        540.0,
+        385.1125
+      ],
+      "reading": 32
+    }
+  ]
+}

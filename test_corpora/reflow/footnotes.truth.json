@@ -1,0 +1,165 @@
+{
+  "name": "footnotes",
+  "description": "Body text over a separator rule with small-type footnotes, which belong after the page body and not inside the paragraph that happens to sit above them.",
+  "pages": 2,
+  "blocks": [
+    {
+      "page": 0,
+      "role": "artifact",
+      "text": "Notes and apparatus",
+      "bounds": [
+        72.0,
+        754.13,
+        150.90550000000002,
+        762.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 0,
+      "role": "artifact",
+      "text": "1",
+      "bounds": [
+        534.996,
+        34.02,
+        540.0,
+        42.48
+      ],
+      "reading": -1
+    },
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "Apparatus at the foot of the page",
+      "bounds": [
+        72.0,
+        697.6875,
+        540.0,
+        720.0
+      ],
+      "reading": 0,
+      "level": 1
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns. Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself. Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact. The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page.",
+      "bounds": [
+        72.0,
+        603.6875,
+        540.0,
+        690.6875
+      ],
+      "reading": 1
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them. Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font. Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy. The interpreter walks the content stream once and hands every operator to the device it was built with.",
+      "bounds": [
+        72.0,
+        525.1875,
+        540.0,
+        597.6875
+      ],
+      "reading": 2
+    },
+    {
+      "page": 0,
+      "role": "footnote",
+      "text": "1. The separator rule is drawn, not tagged, so it carries no structure.",
+      "bounds": [
+        72.0,
+        94.0,
+        540.0,
+        104.0
+      ],
+      "reading": 3
+    },
+    {
+      "page": 0,
+      "role": "footnote",
+      "text": "2. Footnote type is smaller than the body, which is the only hint.",
+      "bounds": [
+        72.0,
+        84.0,
+        540.0,
+        94.0
+      ],
+      "reading": 4
+    },
+    {
+      "page": 1,
+      "role": "artifact",
+      "text": "Notes and apparatus",
+      "bounds": [
+        72.0,
+        754.13,
+        150.90550000000002,
+        762.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 1,
+      "role": "artifact",
+      "text": "2",
+      "bounds": [
+        534.996,
+        34.02,
+        540.0,
+        42.48
+      ],
+      "reading": -1
+    },
+    {
+      "page": 1,
+      "role": "heading",
+      "text": "Column detection failures",
+      "bounds": [
+        72.0,
+        702.9375,
+        540.0,
+        720.0
+      ],
+      "reading": 5,
+      "level": 2
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Fonts are embedded as programs whose glyph descriptions the rasterizer turns into filled outlines at the requested size. Filters decode a stream lazily, which keeps a large document cheap to open when only a few pages are ever displayed. Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn. A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns.",
+      "bounds": [
+        72.0,
+        623.4375,
+        540.0,
+        695.9375
+      ],
+      "reading": 6
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself. Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact. The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page.",
+      "bounds": [
+        72.0,
+        559.4375,
+        540.0,
+        617.4375
+      ],
+      "reading": 7
+    },
+    {
+      "page": 1,
+      "role": "footnote",
+      "text": "3. A reading view should keep the note after the body of its page.",
+      "bounds": [
+        72.0,
+        84.0,
+        540.0,
+        94.0
+      ],
+      "reading": 8
+    }
+  ]
+}
