@@ -157,6 +157,115 @@ void main() {
     expect(v[2].$1, closeTo(240, 1));
   });
 
+  /// Grabs a selected line-family annotation's vertex handle and drags it.
+  Future<void> dragVertex(WidgetTester tester, Offset from, Offset to) async {
+    final gesture =
+        await tester.startGesture(from, kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(Offset.lerp(from, to, 0.5)!);
+    await gesture.moveTo(to);
+    await gesture.up();
+    await tester.pump();
+  }
+
+  testWidgets('Shift snaps a reshaped line endpoint to a straight axis',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.tool = PdfEditTool.line;
+    await tester.pump();
+    // drawn free-hand: an angled line to reshape
+    await drag(tester, view(100, 700), view(250, 620));
+
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+    await holdShift(tester);
+
+    // the endpoint handle dragged nearly level with the other end snaps flat
+    await dragVertex(tester, view(250, 620), view(300, 695));
+
+    final ((x1, y1), (x2, y2)) =
+        editing.document.page(0).annotations.single.line!;
+    expect(x1, closeTo(100, 1));
+    expect(y1, closeTo(700, 1), reason: 'the anchored end never moves');
+    expect(x2, closeTo(300, 1));
+    expect(y2, closeTo(700, 1), reason: 'the dragged end lands on y = y1');
+    await settle(tester);
+  });
+
+  testWidgets('a reshaped middle vertex snaps to its nearest neighbour',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.tool = PdfEditTool.polyline;
+    await tester.pump();
+
+    // three vertices placed WITHOUT Shift
+    await tester.tapAt(view(100, 700));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tapAt(view(200, 640));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tapAt(view(300, 640));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(view(300, 640));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+    await holdShift(tester);
+
+    // the middle vertex has two segments; dropped just off vertical under
+    // v2 it takes that one (5pt away) over v0's diagonal (~39pt away)
+    await dragVertex(tester, view(200, 640), view(295, 560));
+
+    final v = editing.document.page(0).annotations.single.vertices!;
+    expect(v, hasLength(3));
+    expect(v[0].$1, closeTo(100, 1));
+    expect(v[0].$2, closeTo(700, 1));
+    expect(v[1].$1, closeTo(300, 1),
+        reason: 'the moved vertex lines up under v2');
+    expect(v[1].$2, closeTo(560, 1));
+    expect(v[2].$1, closeTo(300, 1));
+    expect(v[2].$2, closeTo(640, 1), reason: 'the other vertices hold');
+    await settle(tester);
+  });
+
+  testWidgets("a polygon's first vertex snaps against the closing edge",
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.tool = PdfEditTool.polygon;
+    await tester.pump();
+
+    await tester.tapAt(view(100, 700));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tapAt(view(400, 700));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tapAt(view(150, 600));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(view(150, 600));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+    await holdShift(tester);
+
+    // v0 wraps: the closing edge back from the last vertex is a candidate
+    // too, and here it is the near one
+    await dragVertex(tester, view(100, 700), view(155, 530));
+
+    final v = editing.document.page(0).annotations.single.vertices!;
+    expect(v, hasLength(3));
+    expect(v[0].$1, closeTo(150, 1),
+        reason: 'v0 drops onto the column of the closing vertex');
+    expect(v[0].$2, closeTo(530, 1));
+    expect(v[2].$1, closeTo(150, 1));
+    expect(v[2].$2, closeTo(600, 1));
+    await settle(tester);
+  });
+
   testWidgets('Shift snaps a freehand ink stroke to a 45 degree line',
       (tester) async {
     final editing = await pumpEditor(tester);
