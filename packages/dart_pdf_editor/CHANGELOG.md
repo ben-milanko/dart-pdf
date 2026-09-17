@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Give each window its own view mode. `PdfEditingPreferences` is one object per
+  process, so reading the live mode off it meant switching to the page grid (or
+  reflow) in one window switched every other window with it. The live mode now
+  belongs to the window: `PdfViewModeController` holds it, `PdfEditorView` and
+  `PdfReader` take it as `viewMode:`, and a multi-window host creates one per
+  window and hands it to every shell that window builds - so all of that
+  window's tabs share a mode and no other window follows.
+  `PdfEditingPreferences.viewMode` still persists each choice, now as the mode
+  the NEXT window starts in and the one the next launch restores. A shell given
+  no controller owns one seeded from - and written back to - the preferences,
+  so a single-window host is unchanged. `pdfShellViewModeControls` takes
+  `viewMode:` in place of `preferences:`, and `PdfShellViewOptionsButton` takes
+  an optional `viewMode:` that falls back to its preferences.
+
 ## 4.5.0
 
 - Group the view-options menu around what its rows actually do. Reflow text

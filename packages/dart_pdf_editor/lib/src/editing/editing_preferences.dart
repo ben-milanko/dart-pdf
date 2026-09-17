@@ -22,6 +22,84 @@ import 'editing_stamps.dart';
 /// see [PdfEditingPreferences.viewMode].
 enum PdfViewMode { pages, reflow, pageGrid }
 
+/// Read/write access to the live view mode, with notification when it
+/// changes - what the shells and their chrome bind to.
+///
+/// Two things satisfy it: [PdfEditingPreferences], the persisted value shared
+/// by everything in the process, and [PdfViewModeController], one window's
+/// own live mode. The chrome takes the holder and never has to know which of
+/// the two it was handed.
+abstract interface class PdfViewModeHolder implements Listenable {
+  PdfViewMode get viewMode;
+  set viewMode(PdfViewMode value);
+}
+
+/// The live [PdfViewMode] of ONE window.
+///
+/// [PdfEditingPreferences.viewMode] is device state: it persists the mode so a
+/// window opens - and the app relaunches - in the one the user last picked.
+/// It cannot also be the live mode once a host runs more than one window,
+/// because a single preferences object is shared process-wide: switching one
+/// window to the page grid switched every other window with it. Two windows
+/// are two reading surfaces, and the surface owns its mode.
+///
+/// A window creates one controller and hands it to every shell it builds
+/// ([PdfEditorView.viewMode], [PdfReader.viewMode]) and to its own view menu,
+/// so all of that window's tabs share one mode and no other window follows.
+/// A shell given none owns one, so a single-window host is unchanged.
+///
+/// Each change still writes through to [preferences]: the mode persists as
+/// the mode the NEXT window starts in, not as an order to the windows already
+/// open.
+class PdfViewModeController extends ChangeNotifier
+    implements PdfViewModeHolder {
+  PdfViewModeController({this.preferences, PdfViewMode? initialMode})
+      : _mode = initialMode ?? preferences?.viewMode ?? PdfViewMode.pages,
+        _picked = initialMode != null {
+    final prefs = preferences;
+    if (prefs == null || _picked) return;
+    // Stored values arrive asynchronously, so the mode read above is still
+    // the default rather than the user's. Adopt the stored one when it lands
+    // - unless this window has picked a mode meanwhile, which wins for the
+    // same reason PdfEditingPreferences._modified makes it win there.
+    unawaited(prefs.ready.then((_) {
+      if (_picked || _disposed) return;
+      final stored = prefs.viewMode;
+      if (stored == _mode) return;
+      _mode = stored;
+      notifyListeners();
+    }));
+  }
+
+  /// Where the mode is persisted, and where this window's starting mode came
+  /// from. Null for a host that keeps the mode in memory only.
+  final PdfEditingPreferences? preferences;
+
+  PdfViewMode _mode;
+  bool _picked;
+  bool _disposed = false;
+
+  @override
+  PdfViewMode get viewMode => _mode;
+
+  @override
+  set viewMode(PdfViewMode value) {
+    // Set before the equality check: choosing the mode this window is already
+    // in is still a choice, and stops a late-loading preference replacing it.
+    _picked = true;
+    if (value == _mode) return;
+    _mode = value;
+    preferences?.viewMode = value;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+}
+
 /// Editing-UI preferences, persisted on the local device.
 ///
 /// Every [PdfEditingController] creates one by default, so tool styles
@@ -41,7 +119,8 @@ enum PdfViewMode { pages, reflow, pageGrid }
 /// Values load asynchronously ([ready]); each change is written back
 /// immediately. Where no local storage exists - plain widget tests, for
 /// example - loading fails silently and the defaults stand.
-class PdfEditingPreferences extends ChangeNotifier {
+class PdfEditingPreferences extends ChangeNotifier
+    implements PdfViewModeHolder {
   PdfEditingPreferences() {
     _ready = _load();
   }
@@ -1302,12 +1381,18 @@ class PdfEditingPreferences extends ChangeNotifier {
   /// with no way back to plain pages except unticking the one you ticked.
   /// This pair is the single place the modes are kept coherent - prefer it,
   /// and it notifies once for the whole change.
+  ///
+  /// This is the PERSISTED mode: the one a window starts in and the one the
+  /// next launch restores. It is not what a multi-window host reads to draw
+  /// the current window - see [PdfViewModeController].
+  @override
   PdfViewMode get viewMode => _showReflowView
       ? PdfViewMode.reflow
       : _showThumbnailView
           ? PdfViewMode.pageGrid
           : PdfViewMode.pages;
 
+  @override
   set viewMode(PdfViewMode value) {
     final reflow = value == PdfViewMode.reflow;
     final grid = value == PdfViewMode.pageGrid;

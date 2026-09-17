@@ -700,6 +700,60 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
+    testWidgets('each window keeps its own view mode', (tester) async {
+      tester.view.physicalSize = const Size(2400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      // one process-wide preferences object, as a multi-window host has, and
+      // one view-mode controller per window
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final first = PdfViewModeController(preferences: prefs);
+      addTearDown(first.dispose);
+      final second = PdfViewModeController(preferences: prefs);
+      addTearDown(second.dispose);
+      Widget window(Key key, PdfViewModeController viewMode) => Expanded(
+            child: KeyedSubtree(
+              key: key,
+              child: PdfEditorView(
+                bytes: buildMultiPagePdf(3),
+                preferences: prefs,
+                viewMode: viewMode,
+              ),
+            ),
+          );
+      await pump(
+          tester,
+          Row(children: [
+            window(const ValueKey('window-1'), first),
+            window(const ValueKey('window-2'), second),
+          ]));
+      await tester.pumpAndSettle();
+
+      Finder inWindow(Key key, Finder matching) =>
+          find.descendant(of: find.byKey(key), matching: matching);
+      await tester.tap(
+          inWindow(const ValueKey('window-1'),
+              find.byKey(const ValueKey('pdf-shell-view-options'))),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
+
+      expect(
+          inWindow(const ValueKey('window-1'), find.byType(PdfThumbnailView)),
+          findsOneWidget);
+      // the regression: the second window read the same process-wide
+      // preference the first one wrote, so it switched to the grid too
+      expect(second.viewMode, PdfViewMode.pages);
+      expect(
+          inWindow(const ValueKey('window-2'), find.byType(PdfThumbnailView)),
+          findsNothing);
+
+      // the choice is still persisted - as the mode the next window opens in
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('a page grid double-click lands the viewer on that page',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 900);

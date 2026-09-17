@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Switch to the page grid in one window and only that window switches. The view
+  mode (Pages / Reflow text / Page grid) was stored once for the whole app, so
+  picking one changed every open window at once; it now belongs to the window
+  you picked it in, shared by that window's tabs. The choice is still
+  remembered as the mode the next window - and the next launch - opens in.
+
 ## 4.5.0
 
 - Ship the release notes with the app: **What's new** (Settings > About, or the

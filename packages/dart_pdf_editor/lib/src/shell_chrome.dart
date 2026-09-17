@@ -1946,21 +1946,21 @@ PdfViewMode _effectiveViewMode(PdfViewMode mode,
 /// radio set is just chrome.
 List<PdfShellControlItem> pdfShellViewModeControls(
   BuildContext context, {
-  required PdfEditingPreferences preferences,
+  required PdfViewModeHolder viewMode,
   bool reflow = false,
   bool pageGrid = false,
 }) {
   if (!reflow && !pageGrid) return const [];
   final l10n = pdfL10n(context);
-  final mode = _effectiveViewMode(preferences.viewMode,
-      reflow: reflow, pageGrid: pageGrid);
+  final mode =
+      _effectiveViewMode(viewMode.viewMode, reflow: reflow, pageGrid: pageGrid);
   return [
     PdfShellControlItem(
       key: const ValueKey('pdf-shell-view-mode-pages'),
       icon: Icons.description_outlined,
       label: l10n.shellViewPages,
       selected: mode == PdfViewMode.pages,
-      onPressed: () => preferences.viewMode = PdfViewMode.pages,
+      onPressed: () => viewMode.viewMode = PdfViewMode.pages,
     ),
     if (reflow)
       PdfShellControlItem(
@@ -1968,7 +1968,7 @@ List<PdfShellControlItem> pdfShellViewModeControls(
         icon: Icons.article_outlined,
         label: l10n.shellReflow,
         selected: mode == PdfViewMode.reflow,
-        onPressed: () => preferences.viewMode = PdfViewMode.reflow,
+        onPressed: () => viewMode.viewMode = PdfViewMode.reflow,
       ),
     if (pageGrid)
       PdfShellControlItem(
@@ -1976,7 +1976,7 @@ List<PdfShellControlItem> pdfShellViewModeControls(
         icon: Icons.grid_view_outlined,
         label: l10n.shellPageGrid,
         selected: mode == PdfViewMode.pageGrid,
-        onPressed: () => preferences.viewMode = PdfViewMode.pageGrid,
+        onPressed: () => viewMode.viewMode = PdfViewMode.pageGrid,
       ),
   ];
 }
@@ -1993,12 +1993,12 @@ List<PdfShellControlItem> pdfShellViewModeControls(
 /// there is nothing to see behind an open menu that covers the view anyway).
 class _ViewModeMenuItem extends PopupMenuEntry<_ViewOption> {
   const _ViewModeMenuItem({
-    required this.preferences,
+    required this.viewMode,
     required this.reflow,
     required this.pageGrid,
   });
 
-  final PdfEditingPreferences preferences;
+  final PdfViewModeHolder viewMode;
   final bool reflow;
   final bool pageGrid;
 
@@ -2030,7 +2030,7 @@ class _ViewModeMenuItemState extends State<_ViewModeMenuItem> {
   @override
   Widget build(BuildContext context) {
     final l10n = pdfL10n(context);
-    final mode = _effectiveViewMode(widget.preferences.viewMode,
+    final mode = _effectiveViewMode(widget.viewMode.viewMode,
         reflow: widget.reflow, pageGrid: widget.pageGrid);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
@@ -2049,7 +2049,7 @@ class _ViewModeMenuItemState extends State<_ViewModeMenuItem> {
         ],
         selected: {mode},
         onSelectionChanged: (selection) {
-          widget.preferences.viewMode = selection.first;
+          widget.viewMode.viewMode = selection.first;
           Navigator.of(context).maybePop();
         },
       ),
@@ -2065,6 +2065,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   const PdfShellViewOptionsButton({
     super.key,
     required this.preferences,
+    this.viewMode,
     this.reflow = false,
     this.pageGrid = false,
     this.pageColor = true,
@@ -2078,6 +2079,12 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   });
 
   final PdfEditingPreferences preferences;
+
+  /// Where the view mode is read and written. Null falls back to
+  /// [preferences] - the process-wide value, which is right for a host with
+  /// one window and wrong for one with several (see [PdfViewModeController]).
+  final PdfViewModeHolder? viewMode;
+
   final bool reflow;
 
   /// Whether the menu offers "Page grid" - the full-area page thumbnail
@@ -2144,7 +2151,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
       itemBuilder: (context) => [
         if (reflow || pageGrid) ...[
           _ViewModeMenuItem(
-            preferences: preferences,
+            viewMode: viewMode ?? preferences,
             reflow: reflow,
             pageGrid: pageGrid,
           ),
