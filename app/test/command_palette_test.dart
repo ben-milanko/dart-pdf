@@ -140,6 +140,41 @@ void main() {
       }
     });
 
+    testWidgets("the View commands drive this window's view mode",
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+
+        Future<void> runViewCommand(String query, String id) async {
+          await openWithKeyboard(tester);
+          await tester.enterText(
+              find.byKey(const ValueKey('command-palette-field')), query);
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(ValueKey('palette-result-$id')));
+          await tester.pumpAndSettle();
+        }
+
+        // The palette is the app's other way into a view mode (the shell's
+        // View options being the first), and it goes through the same
+        // per-window controller.
+        await runViewCommand('page grid', 'view-page-grid');
+        expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+        await runViewCommand('reflow', 'view-reflow');
+        expect(find.byType(PdfThumbnailView), findsNothing);
+        expect(find.byType(PdfReflowView), findsOneWidget);
+
+        // ticking the mode you are in is the way back to plain pages
+        await runViewCommand('reflow', 'view-reflow');
+        expect(find.byType(PdfReflowView), findsNothing);
+        expect(find.byType(PdfViewer), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('with nothing open, document commands still list - dimmed',
         (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.linux;
