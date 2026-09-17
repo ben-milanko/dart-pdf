@@ -260,6 +260,17 @@ class _EditorScreenState extends State<EditorScreen>
     implements TabDragWindow {
   PdfEditingPreferences get _prefs => widget.prefs;
 
+  /// This window's view mode (pages / reflow / page grid).
+  ///
+  /// The preferences are process-wide - every window shares the one instance
+  /// the app owns - so reading the live mode off them made switching to the
+  /// page grid in one window switch every other window with it. The mode
+  /// belongs to the window: one controller per [EditorScreen], shared by all
+  /// of its tabs and by its View menu, still persisting each choice as the
+  /// mode the next window starts in.
+  late final PdfViewModeController _viewMode =
+      PdfViewModeController(preferences: _prefs);
+
   /// The device document scanner, or null where scanning isn't available. An
   /// injected fake wins; otherwise the platform scanner is used on mobile
   /// (and nothing on desktop/web). Drives whether the scan menu entries show.
@@ -612,6 +623,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _recents.dispose();
     _recentThumbnails.dispose();
+    _viewMode.dispose();
     _thumbnailDrop.dispose();
     _updates.removeListener(_onUpdateStatus);
     if (_ownsUpdates) _updates.dispose();
@@ -3593,15 +3605,16 @@ class _EditorScreenState extends State<EditorScreen>
         Icons.article_outlined,
         pdf.shellReflowText,
         view,
-        _prefs.viewMode == PdfViewMode.reflow,
-        (v) => _prefs.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
+        _viewMode.viewMode == PdfViewMode.reflow,
+        (v) => _viewMode.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
     toggle(
         'view-page-grid',
         Icons.grid_view_outlined,
         pdf.shellPageGrid,
         view,
-        _prefs.viewMode == PdfViewMode.pageGrid,
-        (v) => _prefs.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
+        _viewMode.viewMode == PdfViewMode.pageGrid,
+        (v) =>
+            _viewMode.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
     toggle(
         'view-form-fields',
         Icons.ballot_outlined,
@@ -3886,6 +3899,7 @@ class _EditorScreenState extends State<EditorScreen>
         key: ValueKey(tab),
         tab: tab,
         preferences: _prefs,
+        viewMode: _viewMode,
         onAction: _onAction,
         pageRasterCachePolicy: pageRasterCachePolicy,
         pageRasterWarmPolicy: pageRasterWarmPolicy,
@@ -3899,6 +3913,7 @@ class _EditorScreenState extends State<EditorScreen>
         documentId: tab.documentId,
         controller: tab.viewer,
         preferences: _prefs,
+        viewMode: _viewMode,
         onAction: _onAction,
         // View mode is for reading the document as it is: the paper colour is
         // an authoring choice, so the View options menu drops "Page color…"
@@ -3914,6 +3929,7 @@ class _EditorScreenState extends State<EditorScreen>
       documentId: tab.documentId,
       controller: tab.session,
       viewerController: tab.viewer,
+      viewMode: _viewMode,
       pageRasterCachePolicy: pageRasterCachePolicy,
       pageRasterWarmPolicy: pageRasterWarmPolicy,
       tileRasterBackend: tileRasterBackend,
@@ -4841,6 +4857,7 @@ class _ProgressivePreview extends StatelessWidget {
     super.key,
     required this.tab,
     required this.preferences,
+    required this.viewMode,
     required this.onAction,
     required this.pageRasterCachePolicy,
     required this.pageRasterWarmPolicy,
@@ -4849,6 +4866,7 @@ class _ProgressivePreview extends StatelessWidget {
 
   final DocumentTab tab;
   final PdfEditingPreferences preferences;
+  final PdfViewModeHolder viewMode;
   final PdfActionHandler onAction;
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
   final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
@@ -4864,6 +4882,7 @@ class _ProgressivePreview extends StatelessWidget {
             documentId: tab.documentId,
             controller: tab.viewer,
             preferences: preferences,
+            viewMode: viewMode,
             onAction: onAction,
             pageRasterCachePolicy: pageRasterCachePolicy,
             pageRasterWarmPolicy: pageRasterWarmPolicy,

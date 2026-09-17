@@ -202,6 +202,72 @@ void main() {
       restored.dispose();
     });
 
+    test('a window view mode is its own, and persists for the next window',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = PdfEditingPreferences();
+      await prefs.ready;
+      final windowA = PdfViewModeController(preferences: prefs);
+      final windowB = PdfViewModeController(preferences: prefs);
+      var notifiedB = 0;
+      windowB.addListener(() => notifiedB++);
+
+      windowA.viewMode = PdfViewMode.pageGrid;
+      expect(windowA.viewMode, PdfViewMode.pageGrid);
+      // the bug: B used to read the same process-wide preference A wrote, so
+      // it switched to the grid with it
+      expect(windowB.viewMode, PdfViewMode.pages);
+      expect(notifiedB, 0);
+
+      // the choice still persists - as the mode the NEXT window starts in
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
+      final windowC = PdfViewModeController(preferences: prefs);
+      expect(windowC.viewMode, PdfViewMode.pageGrid);
+
+      windowA.dispose();
+      windowB.dispose();
+      windowC.dispose();
+      prefs.dispose();
+    });
+
+    test('a window adopts the stored mode when the slow read lands', () async {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor.editing.showThumbnailView': true,
+      });
+      // constructed against preferences that have not read the disk yet -
+      // the app's first window, built before the store answers
+      final prefs = PdfEditingPreferences();
+      final window = PdfViewModeController(preferences: prefs);
+      expect(window.viewMode, PdfViewMode.pages);
+
+      var notified = 0;
+      window.addListener(() => notified++);
+      await prefs.ready;
+      await pumpEventQueue();
+      expect(window.viewMode, PdfViewMode.pageGrid);
+      expect(notified, 1);
+
+      window.dispose();
+      prefs.dispose();
+    });
+
+    test('a mode picked during the read beats the stored one', () async {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor.editing.showThumbnailView': true,
+      });
+      final prefs = PdfEditingPreferences();
+      final window = PdfViewModeController(preferences: prefs);
+      // same rule as PdfEditingPreferences._modified: a value the user set
+      // while the disk read was in flight wins over the stored one
+      window.viewMode = PdfViewMode.reflow;
+      await prefs.ready;
+      await pumpEventQueue();
+      expect(window.viewMode, PdfViewMode.reflow);
+
+      window.dispose();
+      prefs.dispose();
+    });
+
     test('viewMode reads a legacy pair that set both flags', () async {
       SharedPreferences.setMockInitialValues({
         'dart_pdf_editor.editing.showReflowView': true,

@@ -72,6 +72,37 @@ void main() {
   }
 
   group('PdfReader', () {
+    testWidgets("the reader follows the host's view-mode controller",
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final viewMode = PdfViewModeController(preferences: prefs);
+      addTearDown(viewMode.dispose);
+      await pump(
+          tester,
+          PdfReader(
+              bytes: buildClassicPdf(),
+              preferences: prefs,
+              viewMode: viewMode));
+      expect(find.byType(PdfReflowView), findsNothing);
+
+      // the window switches mode out from under the reader (its own View menu
+      // elsewhere, or the host's): the reader is bound to the controller, so
+      // it follows without the preferences being what it reads
+      viewMode.viewMode = PdfViewMode.reflow;
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfReflowView), findsOneWidget);
+
+      // and the reader's own control writes back to the same controller
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Pages');
+      expect(viewMode.viewMode, PdfViewMode.pages);
+      expect(find.byType(PdfReflowView), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('stock chrome: search, page number, view options, thumbnails',
         (tester) async {
       await pump(tester, PdfReader(bytes: buildMultiPagePdf(3)));
@@ -697,6 +728,92 @@ void main() {
       await tester.pump();
       expect(prefs.showThumbnailView, isFalse);
       expect(find.byType(PdfThumbnailView), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('an owned view mode survives a preferences swap',
+        (tester) async {
+      // No host controller here, so the shell owns one - and the object it
+      // persists into can still be swapped under it.
+      final first = PdfEditingPreferences();
+      addTearDown(first.dispose);
+      final second = PdfEditingPreferences();
+      addTearDown(second.dispose);
+      final bytes = buildMultiPagePdf(3);
+      await pump(tester, PdfEditorView(bytes: bytes, preferences: first));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
+      expect(first.viewMode, PdfViewMode.pageGrid);
+
+      await pump(tester, PdfEditorView(bytes: bytes, preferences: second));
+      await tester.pumpAndSettle();
+      // the mode is the window's and outlives the swap; only where it
+      // persists changes - the fresh preferences say "pages" and lose
+      expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Pages');
+      expect(second.viewMode, PdfViewMode.pages);
+      expect(first.viewMode, PdfViewMode.pageGrid,
+          reason: 'the old preferences are no longer written');
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('each window keeps its own view mode', (tester) async {
+      tester.view.physicalSize = const Size(2400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      // one process-wide preferences object, as a multi-window host has, and
+      // one view-mode controller per window
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final first = PdfViewModeController(preferences: prefs);
+      addTearDown(first.dispose);
+      final second = PdfViewModeController(preferences: prefs);
+      addTearDown(second.dispose);
+      Widget window(Key key, PdfViewModeController viewMode) => Expanded(
+            child: KeyedSubtree(
+              key: key,
+              child: PdfEditorView(
+                bytes: buildMultiPagePdf(3),
+                preferences: prefs,
+                viewMode: viewMode,
+              ),
+            ),
+          );
+      await pump(
+          tester,
+          Row(children: [
+            window(const ValueKey('window-1'), first),
+            window(const ValueKey('window-2'), second),
+          ]));
+      await tester.pumpAndSettle();
+
+      Finder inWindow(Key key, Finder matching) =>
+          find.descendant(of: find.byKey(key), matching: matching);
+      await tester.tap(
+          inWindow(const ValueKey('window-1'),
+              find.byKey(const ValueKey('pdf-shell-view-options'))),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
+
+      expect(
+          inWindow(const ValueKey('window-1'), find.byType(PdfThumbnailView)),
+          findsOneWidget);
+      // the regression: the second window read the same process-wide
+      // preference the first one wrote, so it switched to the grid too
+      expect(second.viewMode, PdfViewMode.pages);
+      expect(
+          inWindow(const ValueKey('window-2'), find.byType(PdfThumbnailView)),
+          findsNothing);
+
+      // the choice is still persisted - as the mode the next window opens in
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
       await tester.pump(const Duration(seconds: 2));
     });
 

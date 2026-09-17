@@ -130,6 +130,7 @@ class PdfReader extends StatefulWidget {
     this.documentId,
     this.controller,
     this.preferences,
+    this.viewMode,
     this.performance,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.autoRenderWorker = true,
@@ -186,6 +187,7 @@ class PdfReader extends StatefulWidget {
     this.errorBuilder,
     this.controller,
     this.preferences,
+    this.viewMode,
     this.performance,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.autoRenderWorker = true,
@@ -270,6 +272,16 @@ class PdfReader extends StatefulWidget {
   /// The persisted display preferences. Defaults to a private instance.
   final PdfEditingPreferences? preferences;
 
+  /// The window's live view mode (pages / reflow).
+  ///
+  /// The mode belongs to the window, not to the process: a host with more
+  /// than one window creates one [PdfViewModeController] per window and
+  /// passes the same one to every shell that window builds, so switching this
+  /// one to reflow leaves the other windows on their own mode. Null makes the
+  /// reader own a controller seeded from - and written back to - the
+  /// preferences, which is what a single-window host wants.
+  final PdfViewModeHolder? viewMode;
+
   /// Optional adaptive/fixed performance controller. Null creates an owned
   /// Auto controller. Pass one to select fixed worker settings at runtime or
   /// expose [PdfPerformanceController.diagnostics] in host UI.
@@ -349,6 +361,29 @@ class _PdfReaderState extends State<PdfReader> {
 
   bool get _isSource => widget.source != null;
 
+  /// Owned only when the host passes no view mode of its own - a
+  /// single-window host, where the mode may as well follow the preferences
+  /// it is persisted in.
+  PdfViewModeController? _ownedViewMode;
+
+  PdfViewModeHolder get _viewMode => widget.viewMode ?? _ownedViewMode!;
+
+  /// Keeps the owned controller in step with who owns the mode and which
+  /// preferences it persists into - both can change under a live reader.
+  void _syncOwnedViewMode() {
+    final owned = _ownedViewMode;
+    if (widget.viewMode != null) {
+      _ownedViewMode = null;
+      owned?.dispose();
+      return;
+    }
+    if (owned != null && identical(owned.preferences, _prefs)) return;
+    // The window's mode outlives the swap; only where it persists changes.
+    _ownedViewMode = PdfViewModeController(
+        preferences: _prefs, initialMode: owned?.viewMode);
+    owned?.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -364,6 +399,7 @@ class _PdfReaderState extends State<PdfReader> {
       documentId: widget.documentId,
       renderWorkerEnabled: widget.autoRenderWorker,
     );
+    _syncOwnedViewMode();
   }
 
   @override
@@ -379,10 +415,12 @@ class _PdfReaderState extends State<PdfReader> {
       documentId: widget.documentId,
       renderWorkerEnabled: widget.autoRenderWorker,
     );
+    _syncOwnedViewMode();
   }
 
   @override
   void dispose() {
+    _ownedViewMode?.dispose();
     if (!_isSource) _shell.dispose();
     super.dispose();
   }
@@ -393,9 +431,10 @@ class _PdfReaderState extends State<PdfReader> {
     final features = widget.features;
     Widget body = LayoutBuilder(builder: (context, constraints) {
       return ListenableBuilder(
-        listenable: _prefs,
+        listenable: Listenable.merge([_prefs, _viewMode]),
         builder: (context, _) {
           final prefs = _prefs;
+          final reflowActive = _viewMode.viewMode == PdfViewMode.reflow;
           final pageColor = widget.pageColor ?? prefs.pageColor;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
@@ -445,30 +484,29 @@ class _PdfReaderState extends State<PdfReader> {
             if (features.headerBar)
               PdfShellBar(
                 leading: [
-                  if (features.search && !prefs.showReflowView)
+                  if (features.search && !reflowActive)
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
                       focusNode: _searchFocus,
                       preferences: prefs,
                     ),
-                  if (features.pageNumber && !prefs.showReflowView)
+                  if (features.pageNumber && !reflowActive)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
-                  if (!prefs.showReflowView)
-                    PdfShellZoomControl(controller: _viewer),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactLeading: [
-                  if (features.search && !prefs.showReflowView)
+                  if (features.search && !reflowActive)
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
                       focusNode: _searchFocus,
                       preferences: prefs,
                     ),
-                  if (features.pageNumber && !prefs.showReflowView)
+                  if (features.pageNumber && !reflowActive)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: PdfPageNumberField(controller: _viewer),
@@ -478,6 +516,7 @@ class _PdfReaderState extends State<PdfReader> {
                   if (features.viewOptions)
                     PdfShellViewOptionsButton(
                         preferences: prefs,
+                        viewMode: _viewMode,
                         reflow: true,
                         pageColor: features.pageColorEditable),
                   PdfShellPanelSwitch(items: [
@@ -502,14 +541,13 @@ class _PdfReaderState extends State<PdfReader> {
                   ]),
                 ],
                 compactSheetChildren: [
-                  if (!prefs.showReflowView)
-                    PdfShellZoomControl(controller: _viewer),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   // Pages / Reflow as one exclusive choice, at one tap. The
                   // reader offers no page grid, so the set is a pair.
                   ...pdfShellViewModeControls(context,
-                      preferences: prefs, reflow: true),
+                      viewMode: _viewMode, reflow: true),
                   if (features.viewOptions)
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-view-options'),
@@ -559,7 +597,7 @@ class _PdfReaderState extends State<PdfReader> {
                 // the build-time snapshot
                 viewer: ListenableBuilder(
                   listenable: _session,
-                  builder: (context, _) => prefs.showReflowView
+                  builder: (context, _) => reflowActive
                       ? PdfReflowView(
                           document: _session.document,
                           controller: _viewer,
@@ -651,6 +689,7 @@ class _PdfReaderState extends State<PdfReader> {
         documentId: widget.documentId,
         controller: widget.controller,
         preferences: widget.preferences,
+        viewMode: widget.viewMode,
         performance: widget.performance,
         tileRasterBackend: widget.tileRasterBackend,
         autoRenderWorker: complete && widget.autoRenderWorker,
