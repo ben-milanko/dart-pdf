@@ -32,16 +32,16 @@
     },
     "justified-kerned": {
       "name": "justified-kerned",
-      "textAccuracy": 0.2323,
-      "readingOrder": 0.7636,
-      "segmentationF1": 0.0833,
+      "textAccuracy": 0.9895,
+      "readingOrder": 0.7273,
+      "segmentationF1": 0.8333,
       "artifactRejection": 0.0,
       "listF1": 1.0,
       "headingF1": 0.5,
       "figureRecall": 1.0,
-      "splitRate": 0.3333,
-      "mergeRate": 0.3333,
-      "overall": 0.5113,
+      "splitRate": 1.0,
+      "mergeRate": 0.75,
+      "overall": 0.7214,
       "truthBlocks": 12,
       "predictedBlocks": 12
     },
@@ -152,15 +152,15 @@
     }
   },
   "pooled": {
-    "textAccuracy": 0.71,
-    "readingOrder": 0.7832,
-    "segmentationF1": 0.6714,
+    "textAccuracy": 0.7857,
+    "readingOrder": 0.7796,
+    "segmentationF1": 0.7464,
     "artifactRejection": 0.5,
     "listF1": 0.8778,
     "headingF1": 0.4202,
     "figureRecall": 0.9667,
-    "splitRate": 0.8529,
-    "mergeRate": 0.5775,
-    "overall": 0.7042
+    "splitRate": 0.9196,
+    "mergeRate": 0.6192,
+    "overall": 0.7252
   }
 }
