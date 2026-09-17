@@ -1632,6 +1632,35 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _snap45(anchor, point);
   }
 
+  /// Constrains a dragged vertex against the vertex it shares a segment with
+  /// while Shift is held, so reshaping a line / polyline / polygon straightens
+  /// the same way drawing one does. A terminal vertex has one neighbour; an
+  /// interior one - and every vertex of a polygon, whose ends wrap - has two,
+  /// and the candidate landing nearest the pointer wins, which is the segment
+  /// the drag was already closest to lining up. Callout handles keep their
+  /// free aim: that leader is tied to the text box, not to a path segment.
+  Offset _snapVertexPosition(List<Offset> points, int index, Offset point) {
+    if (!HardwareKeyboard.instance.isShiftPressed) return point;
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null || annotation.isCallout) return point;
+    if (_selectedLineTool == null || points.length < 2) return point;
+    final closed = annotation.subtype == 'Polygon';
+    final last = points.length - 1;
+    final anchors = <Offset>[
+      if (index > 0) points[index - 1] else if (closed) points[last],
+      if (index < last) points[index + 1] else if (closed) points.first,
+    ];
+    Offset? best;
+    for (final anchor in anchors) {
+      final candidate = _snap45(anchor, point);
+      if (best == null ||
+          (candidate - point).distance < (best - point).distance) {
+        best = candidate;
+      }
+    }
+    return best ?? point;
+  }
+
   /// Ink keeps snapping after Shift is released; other tools retain their
   /// live modifier behavior through [_straightSnap].
   Offset _snap45(Offset anchor, Offset point) {
@@ -4208,9 +4237,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _rotateCursor = position; // the glyph follows the pointer
       });
     } else if (_vertexHandle != null) {
+      // holding Shift straightens the segment being reshaped to a 45° axis
       setState(() {
         final points = List<Offset>.of(_vertexPoints!);
-        points[_vertexHandle!] = _snapPointToGrid(position);
+        points[_vertexHandle!] = _snapVertexPosition(
+            points, _vertexHandle!, _snapPointToGrid(position));
         _vertexPoints = points;
       });
     } else if (_resizeHandle != null) {

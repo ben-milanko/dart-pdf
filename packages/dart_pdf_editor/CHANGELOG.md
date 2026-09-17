@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Hold Shift while dragging a line, polyline or polygon vertex handle to
+  straighten the segment being reshaped onto the nearest 45° axis, the same
+  constraint the tools already apply while drawing. A vertex with a neighbour
+  on each side (every vertex of a polygon, whose ends wrap) takes whichever of
+  its two segments the pointer was already closest to lining up. Callout
+  leader handles keep their free aim.
+
 ## 4.5.0
 
 - Group the view-options menu around what its rows actually do. Reflow text
