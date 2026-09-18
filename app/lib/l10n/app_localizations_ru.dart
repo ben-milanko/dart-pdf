@@ -937,6 +937,18 @@ class AppLocalizationsRu extends AppLocalizations {
   String get undo => 'Отменить';
 
   @override
+  String get welcomeCopyName => 'Копировать имя';
+
+  @override
+  String get welcomeCopyPath => 'Копировать путь';
+
+  @override
+  String get welcomeOpen => 'Открыть';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Открыть в новом окне';
+
+  @override
   String get welcomeOpenPdf => 'Открыть PDF';
 
   @override

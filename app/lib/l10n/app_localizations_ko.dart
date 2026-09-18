@@ -905,6 +905,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get undo => '실행 취소';
 
   @override
+  String get welcomeCopyName => '이름 복사';
+
+  @override
+  String get welcomeCopyPath => '경로 복사';
+
+  @override
+  String get welcomeOpen => '열기';
+
+  @override
+  String get welcomeOpenInNewWindow => '새 창에서 열기';
+
+  @override
   String get welcomeOpenPdf => 'PDF 열기';
 
   @override

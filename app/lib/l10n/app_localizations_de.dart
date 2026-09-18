@@ -934,6 +934,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get undo => 'Rückgängig';
 
   @override
+  String get welcomeCopyName => 'Namen kopieren';
+
+  @override
+  String get welcomeCopyPath => 'Pfad kopieren';
+
+  @override
+  String get welcomeOpen => 'Öffnen';
+
+  @override
+  String get welcomeOpenInNewWindow => 'In neuem Fenster öffnen';
+
+  @override
   String get welcomeOpenPdf => 'PDF öffnen';
 
   @override

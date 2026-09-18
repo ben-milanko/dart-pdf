@@ -953,6 +953,18 @@ class AppLocalizationsPl extends AppLocalizations {
   String get undo => 'Cofnij';
 
   @override
+  String get welcomeCopyName => 'Kopiuj nazwę';
+
+  @override
+  String get welcomeCopyPath => 'Kopiuj ścieżkę';
+
+  @override
+  String get welcomeOpen => 'Otwórz';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Otwórz w nowym oknie';
+
+  @override
   String get welcomeOpenPdf => 'Otwórz plik PDF';
 
   @override

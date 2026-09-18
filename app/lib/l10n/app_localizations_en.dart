@@ -920,6 +920,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get undo => 'Undo';
 
   @override
+  String get welcomeCopyName => 'Copy name';
+
+  @override
+  String get welcomeCopyPath => 'Copy path';
+
+  @override
+  String get welcomeOpen => 'Open';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Open in new window';
+
+  @override
   String get welcomeOpenPdf => 'Open a PDF';
 
   @override
@@ -2133,6 +2145,18 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get undo => 'Undo';
 
   @override
+  String get welcomeCopyName => 'Copy name';
+
+  @override
+  String get welcomeCopyPath => 'Copy path';
+
+  @override
+  String get welcomeOpen => 'Open';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Open in new window';
+
+  @override
   String get welcomeOpenPdf => 'Open a PDF';
 
   @override
@@ -3344,6 +3368,18 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get undo => 'Undo';
+
+  @override
+  String get welcomeCopyName => 'Copy name';
+
+  @override
+  String get welcomeCopyPath => 'Copy path';
+
+  @override
+  String get welcomeOpen => 'Open';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Open in new window';
 
   @override
   String get welcomeOpenPdf => 'Open a PDF';

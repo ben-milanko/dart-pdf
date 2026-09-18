@@ -933,6 +933,18 @@ class AppLocalizationsFr extends AppLocalizations {
   String get undo => 'Annuler';
 
   @override
+  String get welcomeCopyName => 'Copier le nom';
+
+  @override
+  String get welcomeCopyPath => 'Copier le chemin';
+
+  @override
+  String get welcomeOpen => 'Ouvrir';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Ouvrir dans une nouvelle fenêtre';
+
+  @override
   String get welcomeOpenPdf => 'Ouvrir un PDF';
 
   @override

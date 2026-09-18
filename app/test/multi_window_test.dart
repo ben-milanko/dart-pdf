@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 // This regression must inspect the same experimental internal feature gate
 // that MaterialApp/showDialog read.
@@ -148,6 +149,77 @@ void main() {
     await tester.pump();
 
     expect(opened, 2);
+  });
+
+  testWidgets('a recent entry opens in a new window from its context menu',
+      (tester) async {
+    // Synchronous file work only: awaiting real I/O from the test body would
+    // hang inside the binding's fake-async zone.
+    final dir = Directory.systemTemp.createTempSync('dartpdf-recents');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final source = File('${dir.path}/alpha.pdf')
+      ..writeAsBytesSync(buildClassicPdf());
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.recents': jsonEncode([
+        {'t': 'alpha.pdf', 'p': source.path, 'o': 2000},
+      ]),
+    });
+
+    // Reading the entry back is real file I/O, which only progresses under
+    // runAsync - so every step here pumps real frames (as session_restore's
+    // path-backed opens do).
+    Future<void> pumpFrames() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    DocumentHandoff? handed;
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          onNewWindow: (_, {document}) {
+            handed = document;
+            return true;
+          },
+        ),
+      ));
+      // No document: the welcome screen's recents are the surface under test,
+      // and the default 800x600 surface is wide enough for its grid.
+      await pumpFrames();
+    });
+
+    final tile = find.byKey(ValueKey('recent-tile-${source.path}'));
+    expect(tile, findsOneWidget);
+
+    await tester.runAsync(() async {
+      final gesture = await tester.startGesture(
+        tester.getCenter(tile),
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryButton,
+      );
+      await tester.pump();
+      await gesture.up();
+      await pumpFrames();
+    });
+
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('recent-menu-new-window')));
+      await pumpFrames();
+    });
+    await tester.pump();
+
+    expect(handed, isNotNull);
+    expect(handed!.title, 'alpha.pdf');
+    expect(handed!.originPath, source.path);
+    expect(handed!.bytes, buildClassicPdf());
+    // Read, not edited: the receiving window starts clean.
+    expect(handed!.isDirty, isFalse);
+    // The document opened elsewhere, so this window keeps showing the welcome
+    // screen rather than a tab of its own.
+    expect(find.byType(PdfEditorView), findsNothing);
   });
 
   testWidgets('failed window creation keeps the source tab', (tester) async {

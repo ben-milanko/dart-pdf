@@ -1,7 +1,14 @@
-import 'package:dart_pdf_editor/dart_pdf_editor.dart' show pdfSearchInputBorder;
+import 'dart:async';
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show pdfFloatingToastMargin, pdfSearchInputBorder;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_info.dart';
+import 'devtools.dart';
+import 'file_io.dart';
 import 'l10n/app_l10n.dart';
 import 'middle_ellipsis_text.dart';
 import 'recent_thumbnails.dart';
@@ -29,6 +36,7 @@ class WelcomeScreen extends StatefulWidget {
     required this.recents,
     required this.onOpen,
     required this.onOpenRecent,
+    this.onOpenRecentInNewWindow,
     this.thumbnails,
     this.excludedIds = const {},
     this.showHero = true,
@@ -38,6 +46,10 @@ class WelcomeScreen extends StatefulWidget {
   final RecentsStore recents;
   final VoidCallback onOpen;
   final void Function(RecentFile entry) onOpenRecent;
+
+  /// Opens a recent entry in a second native window, offered by the entry's
+  /// context menu. Null (single-window hosts, web/mobile) hides that item.
+  final void Function(RecentFile entry)? onOpenRecentInNewWindow;
 
   /// Recent entries already open in document tabs are omitted when this set
   /// is provided by the full recent-files browser.
@@ -68,12 +80,14 @@ class RecentFilesScreen extends StatelessWidget {
     super.key,
     required this.recents,
     required this.onOpenRecent,
+    this.onOpenRecentInNewWindow,
     this.thumbnails,
     this.excludedIds = const {},
   });
 
   final RecentsStore recents;
   final void Function(RecentFile entry) onOpenRecent;
+  final void Function(RecentFile entry)? onOpenRecentInNewWindow;
   final RecentThumbnailCache? thumbnails;
   final Set<String> excludedIds;
 
@@ -103,6 +117,14 @@ class RecentFilesScreen extends StatelessWidget {
           Navigator.of(context).pop();
           onOpenRecent(entry);
         },
+        onOpenRecentInNewWindow: onOpenRecentInNewWindow == null
+            ? null
+            : (entry) {
+                // The document leaves this window entirely, so the browser
+                // route closes behind it exactly as a plain open does.
+                Navigator.of(context).pop();
+                onOpenRecentInNewWindow!(entry);
+              },
         thumbnails: thumbnails,
         excludedIds: excludedIds,
         showHero: false,
@@ -208,12 +230,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                       items: items,
                                       recents: widget.recents,
                                       onOpenRecent: widget.onOpenRecent,
+                                      onOpenRecentInNewWindow:
+                                          widget.onOpenRecentInNewWindow,
                                       thumbnails: widget.thumbnails,
                                     )
                                   : _RecentsList(
                                       items: items,
                                       recents: widget.recents,
                                       onOpenRecent: widget.onOpenRecent,
+                                      onOpenRecentInNewWindow:
+                                          widget.onOpenRecentInNewWindow,
                                       thumbnails: widget.thumbnails,
                                     ),
                         ),
@@ -370,6 +396,195 @@ class _ViewToggle extends StatelessWidget {
   }
 }
 
+/// What the recent entry's context menu offers. Items that cannot apply to an
+/// entry (no origin path, no multi-window host) are left out rather than shown
+/// disabled; only [open] stays visible-but-disabled, because an entry that
+/// can't be reopened is exactly what the menu's other actions are for.
+enum _RecentMenuAction {
+  open,
+  openInNewWindow,
+  openFolder,
+  copyPath,
+  copyName,
+  remove,
+  clear,
+}
+
+/// Row height for the recents menu: the app menu's tight desktop rows, with
+/// the full tap target kept on touch platforms (mirrors the editor screen's
+/// `_appMenuItemHeight`).
+double _recentMenuItemHeight() => switch (defaultTargetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux =>
+        36.0,
+      _ => kMinInteractiveDimension,
+    };
+
+/// Adds the recents context menu to a row or tile: right-click on desktop,
+/// long-press on touch. Both gestures carry a global position, so the menu
+/// opens where the user pointed.
+///
+/// The detector defers hit testing to [child] so it never claims the gaps
+/// between tiles, and it leaves primary taps alone - the row/tile keeps its
+/// own open-on-tap and its close button.
+class _RecentContextMenuTarget extends StatelessWidget {
+  const _RecentContextMenuTarget({
+    required this.entry,
+    required this.recents,
+    required this.onOpenRecent,
+    required this.onOpenRecentInNewWindow,
+    required this.child,
+  });
+
+  final RecentFile entry;
+  final RecentsStore recents;
+  final void Function(RecentFile entry) onOpenRecent;
+  final void Function(RecentFile entry)? onOpenRecentInNewWindow;
+  final Widget child;
+
+  void _open(BuildContext context, Offset position) {
+    unawaited(showRecentContextMenu(
+      context,
+      entry: entry,
+      position: position,
+      recents: recents,
+      onOpen: onOpenRecent,
+      onOpenInNewWindow: onOpenRecentInNewWindow,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onSecondaryTapUp: (details) => _open(context, details.globalPosition),
+        onLongPressStart: (details) => _open(context, details.globalPosition),
+        child: child,
+      );
+}
+
+/// Opens the context menu for a recent [entry] at [position] (global
+/// coordinates).
+///
+/// Shared by the list rows and the grid tiles, and so by both entry points -
+/// the welcome screen and the full recent-files browser - which is why it
+/// takes its dependencies rather than reaching for an ancestor state.
+Future<void> showRecentContextMenu(
+  BuildContext context, {
+  required RecentFile entry,
+  required Offset position,
+  required RecentsStore recents,
+  required void Function(RecentFile entry) onOpen,
+  void Function(RecentFile entry)? onOpenInNewWindow,
+}) async {
+  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+  final l10n = appL10n(context);
+  // Everything the actions need from this context is resolved up front: the
+  // menu is modal, so the rest of the work happens after an await.
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final toastMargin = pdfFloatingToastMargin(context);
+  final path = entry.path;
+  final height = _recentMenuItemHeight();
+  final selected = await showMenu<_RecentMenuAction>(
+    context: context,
+    position: RelativeRect.fromRect(
+      position & const Size(40, 40),
+      Offset.zero & overlay.size,
+    ),
+    items: [
+      PopupMenuItem(
+        key: const ValueKey('recent-menu-open'),
+        height: height,
+        value: _RecentMenuAction.open,
+        enabled: entry.isReopenable,
+        child: Text(l10n.welcomeOpen),
+      ),
+      if (onOpenInNewWindow != null && entry.isReopenable)
+        PopupMenuItem(
+          key: const ValueKey('recent-menu-new-window'),
+          height: height,
+          value: _RecentMenuAction.openInNewWindow,
+          child: Text(l10n.welcomeOpenInNewWindow),
+        ),
+      const PopupMenuDivider(),
+      if (supportsOpenContainingFolder && path != null)
+        PopupMenuItem(
+          key: const ValueKey('recent-menu-open-folder'),
+          height: height,
+          value: _RecentMenuAction.openFolder,
+          child: Text(openContainingFolderLabel),
+        ),
+      if (path != null)
+        PopupMenuItem(
+          key: const ValueKey('recent-menu-copy-path'),
+          height: height,
+          value: _RecentMenuAction.copyPath,
+          child: Text(l10n.welcomeCopyPath),
+        ),
+      PopupMenuItem(
+        key: const ValueKey('recent-menu-copy-name'),
+        height: height,
+        value: _RecentMenuAction.copyName,
+        child: Text(l10n.welcomeCopyName),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem(
+        key: const ValueKey('recent-menu-remove'),
+        height: height,
+        value: _RecentMenuAction.remove,
+        child: Text(l10n.welcomeRemoveFromRecent),
+      ),
+      PopupMenuItem(
+        key: const ValueKey('recent-menu-clear'),
+        height: height,
+        value: _RecentMenuAction.clear,
+        child: Text(l10n.editorClearRecentFiles),
+      ),
+    ],
+  );
+  if (selected == null) return;
+  switch (selected) {
+    case _RecentMenuAction.open:
+      onOpen(entry);
+    case _RecentMenuAction.openInNewWindow:
+      onOpenInNewWindow?.call(entry);
+    case _RecentMenuAction.openFolder:
+      final opened = await openContainingFolder(path, bookmark: entry.bookmark);
+      if (!opened) {
+        _recentMenuToast(messenger, toastMargin, l10n.editorCouldNotOpenFolder);
+      }
+    case _RecentMenuAction.copyPath:
+      await Clipboard.setData(ClipboardData(text: path ?? ''));
+      _recentMenuToast(messenger, toastMargin, l10n.editorCopiedToClipboard);
+    case _RecentMenuAction.copyName:
+      await Clipboard.setData(ClipboardData(text: entry.title));
+      _recentMenuToast(messenger, toastMargin, l10n.editorCopiedToClipboard);
+    case _RecentMenuAction.remove:
+      await recents.remove(entry.id);
+    case _RecentMenuAction.clear:
+      await recents.clear();
+  }
+}
+
+/// The editor screen's transient toast, addressed through a messenger captured
+/// before the menu opened (the originating row may be gone by the time an
+/// action resolves - removing it is one of them).
+void _recentMenuToast(
+  ScaffoldMessengerState? messenger,
+  EdgeInsetsGeometry margin,
+  String message,
+) {
+  AppDevTools.instance.addLog('toast: $message');
+  if (messenger == null || !messenger.mounted) return;
+  messenger
+    ..clearSnackBars()
+    ..showSnackBar(SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+      margin: margin,
+      duration: const Duration(seconds: 2),
+    ));
+}
+
 /// The recents rendered as a vertical list, each row leading with a small
 /// first-page thumbnail.
 class _RecentsList extends StatelessWidget {
@@ -377,12 +592,14 @@ class _RecentsList extends StatelessWidget {
     required this.items,
     required this.recents,
     required this.onOpenRecent,
+    required this.onOpenRecentInNewWindow,
     required this.thumbnails,
   });
 
   final List<RecentFile> items;
   final RecentsStore recents;
   final void Function(RecentFile entry) onOpenRecent;
+  final void Function(RecentFile entry)? onOpenRecentInNewWindow;
   final RecentThumbnailCache? thumbnails;
 
   @override
@@ -393,33 +610,39 @@ class _RecentsList extends StatelessWidget {
       itemCount: items.length,
       itemBuilder: (context, i) {
         final entry = items[i];
-        return ListTile(
-          key: ValueKey('recent-${entry.id}'),
-          leading: _RecentThumbnail(
-            key: ValueKey('recent-leading-${entry.id}'),
-            entry: entry,
-            thumbnails: thumbnails,
-            width: 48,
-            height: 62,
+        return _RecentContextMenuTarget(
+          entry: entry,
+          recents: recents,
+          onOpenRecent: onOpenRecent,
+          onOpenRecentInNewWindow: onOpenRecentInNewWindow,
+          child: ListTile(
+            key: ValueKey('recent-${entry.id}'),
+            leading: _RecentThumbnail(
+              key: ValueKey('recent-leading-${entry.id}'),
+              entry: entry,
+              thumbnails: thumbnails,
+              width: 48,
+              height: 62,
+            ),
+            title: MiddleEllipsisText(
+              entry.title,
+              hidePdfExtension: true,
+            ),
+            subtitle: entry.path != null
+                ? MiddleEllipsisText(entry.path!)
+                : entry.isReopenable
+                    // Mobile: reopens from a private snapshot, so no path to
+                    // show and no re-pick needed.
+                    ? Text(appL10n(context).welcomeTapToReopen)
+                    : Text(appL10n(context).welcomePickAgainToReopen),
+            enabled: entry.isReopenable,
+            trailing: IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              tooltip: appL10n(context).welcomeRemoveFromRecent,
+              onPressed: () => recents.remove(entry.id),
+            ),
+            onTap: entry.isReopenable ? () => onOpenRecent(entry) : null,
           ),
-          title: MiddleEllipsisText(
-            entry.title,
-            hidePdfExtension: true,
-          ),
-          subtitle: entry.path != null
-              ? MiddleEllipsisText(entry.path!)
-              : entry.isReopenable
-                  // Mobile: reopens from a private snapshot, so no path to
-                  // show and no re-pick needed.
-                  ? Text(appL10n(context).welcomeTapToReopen)
-                  : Text(appL10n(context).welcomePickAgainToReopen),
-          enabled: entry.isReopenable,
-          trailing: IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            tooltip: appL10n(context).welcomeRemoveFromRecent,
-            onPressed: () => recents.remove(entry.id),
-          ),
-          onTap: entry.isReopenable ? () => onOpenRecent(entry) : null,
         );
       },
     );
@@ -432,12 +655,14 @@ class _RecentsGrid extends StatelessWidget {
     required this.items,
     required this.recents,
     required this.onOpenRecent,
+    required this.onOpenRecentInNewWindow,
     required this.thumbnails,
   });
 
   final List<RecentFile> items;
   final RecentsStore recents;
   final void Function(RecentFile entry) onOpenRecent;
+  final void Function(RecentFile entry)? onOpenRecentInNewWindow;
   final RecentThumbnailCache? thumbnails;
 
   @override
@@ -454,8 +679,11 @@ class _RecentsGrid extends StatelessWidget {
               _RecentGridTile(
                 key: ValueKey('recent-tile-${entry.id}'),
                 entry: entry,
+                recents: recents,
                 thumbnails: thumbnails,
                 onOpen: () => onOpenRecent(entry),
+                onOpenRecent: onOpenRecent,
+                onOpenRecentInNewWindow: onOpenRecentInNewWindow,
                 onRemove: () => recents.remove(entry.id),
               ),
           ],
@@ -472,14 +700,20 @@ class _RecentGridTile extends StatelessWidget {
   const _RecentGridTile({
     super.key,
     required this.entry,
+    required this.recents,
     required this.thumbnails,
     required this.onOpen,
+    required this.onOpenRecent,
+    required this.onOpenRecentInNewWindow,
     required this.onRemove,
   });
 
   final RecentFile entry;
+  final RecentsStore recents;
   final RecentThumbnailCache? thumbnails;
   final VoidCallback onOpen;
+  final void Function(RecentFile entry) onOpenRecent;
+  final void Function(RecentFile entry)? onOpenRecentInNewWindow;
   final VoidCallback onRemove;
 
   static const double _tileWidth = 150;
@@ -565,9 +799,18 @@ class _RecentGridTile extends StatelessWidget {
       ),
     );
 
+    // The context-menu gesture sits *inside* the tooltip: a tooltip's own
+    // long-press recognizer is the deeper arena member when it wraps the
+    // detector, and would swallow the touch-platform menu gesture.
     return Tooltip(
       message: tooltip,
-      child: Opacity(opacity: enabled ? 1.0 : 0.5, child: tile),
+      child: _RecentContextMenuTarget(
+        entry: entry,
+        recents: recents,
+        onOpenRecent: onOpenRecent,
+        onOpenRecentInNewWindow: onOpenRecentInNewWindow,
+        child: Opacity(opacity: enabled ? 1.0 : 0.5, child: tile),
+      ),
     );
   }
 

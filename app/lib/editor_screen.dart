@@ -2227,6 +2227,67 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  /// Opens a recent entry in a second native window (its context menu's
+  /// "Open in new window"). Null when this host has no multi-window opener, so
+  /// the menu item hides rather than failing on use.
+  void Function(RecentFile entry)? get _openRecentInNewWindow =>
+      widget.onNewWindow == null
+          ? null
+          : (entry) => unawaited(_openRecentInNewWindowAsync(entry));
+
+  /// Reads the entry and hands it to a fresh window. A new window takes a
+  /// document by handoff (bytes in hand), so unlike [_openRecent] this can't
+  /// open progressively; the read failure path mirrors it - the entry is
+  /// dropped from recents, since the source it names is gone.
+  Future<void> _openRecentInNewWindowAsync(RecentFile entry) async {
+    final open = widget.onNewWindow;
+    final readPath = entry.readPath;
+    if (open == null || readPath == null) return;
+    final Uint8List bytes;
+    try {
+      bytes = await readPdfAtPath(readPath, bookmark: entry.bookmark);
+    } catch (e) {
+      AppDevTools.instance.addLog(
+        'recent open in new window failed: ${entry.title} - $e',
+        level: DevLogLevel.error,
+      );
+      if (entry.path == null && entry.cachePath != null) {
+        await _recents.updateCachedAvailability({entry.cachePath!}, {});
+      } else {
+        await _recents.remove(entry.id);
+      }
+      _pruneRecentCache();
+      if (!mounted) return;
+      _toast(
+          appL10n(context).editorCouldNotReopen(pdfDisplayName(entry.title)));
+      return;
+    }
+    if (!mounted) return;
+    final opened = open(
+      context,
+      document: DocumentHandoff(
+        bytes: bytes,
+        title: entry.title,
+        // Untouched since the read: the new window starts clean, not dirty.
+        savedLength: bytes.length,
+        originPath: entry.path,
+        originBookmark: entry.bookmark,
+        cachePath: entry.cachePath,
+      ),
+    );
+    if (!opened) {
+      _toast(appL10n(context).editorUnableToOpenNewWindow);
+      return;
+    }
+    // The document is open (elsewhere), so it belongs at the front of the
+    // shared recents exactly as an in-window open would put it.
+    await _recents.add(
+        title: entry.title,
+        path: entry.path,
+        cachePath: entry.cachePath,
+        bookmark: entry.bookmark);
+  }
+
   List<RecentFile> _recentMenuEntries() {
     return _availableRecentEntries().take(_maxRecentMenuItems).toList();
   }
@@ -2257,6 +2318,7 @@ class _EditorScreenState extends State<EditorScreen>
           thumbnails: _recentThumbnails,
           excludedIds: _openRecentIds(),
           onOpenRecent: (entry) => unawaited(_openRecent(entry)),
+          onOpenRecentInNewWindow: _openRecentInNewWindow,
         ),
       ),
     ));
@@ -3852,6 +3914,7 @@ class _EditorScreenState extends State<EditorScreen>
         recents: _recents,
         onOpen: _pickAndOpen,
         onOpenRecent: _openRecent,
+        onOpenRecentInNewWindow: _openRecentInNewWindow,
         // Recents can load before the session list. Starting their first-page
         // renders during that transient welcome frame wastes enough platform-
         // thread work to beachball macOS, only for restore to replace the
