@@ -1,0 +1,92 @@
+[
+  {
+    "name": "simple-report",
+    "description": "Single column prose with a running head, running foot, and page numbers that must stay out of the reading stream.",
+    "pages": 3,
+    "readableBlocks": 22,
+    "artifacts": 9,
+    "figures": 0,
+    "bytes": 4224
+  },
+  {
+    "name": "two-column",
+    "description": "Academic shape: a title and abstract spanning the page over two columns that begin underneath it.",
+    "pages": 2,
+    "readableBlocks": 20,
+    "artifacts": 2,
+    "figures": 0,
+    "bytes": 3609
+  },
+  {
+    "name": "three-column-news",
+    "description": "Three narrow columns under a spanning masthead, with headings inside the columns.",
+    "pages": 1,
+    "readableBlocks": 20,
+    "artifacts": 0,
+    "figures": 0,
+    "bytes": 2068
+  },
+  {
+    "name": "justified-kerned",
+    "description": "One justified column whose slack is spread as per-gap TJ kerns - the LaTeX and InDesign shape. Wide inter-word gaps are what a naive gutter detector mistakes for a column break.",
+    "pages": 2,
+    "readableBlocks": 12,
+    "artifacts": 2,
+    "figures": 0,
+    "bytes": 4383
+  },
+  {
+    "name": "justified-wordspaced",
+    "description": "The same justified column, stretched with a Tw word-spacing value instead - the shape Word emits.",
+    "pages": 2,
+    "readableBlocks": 12,
+    "artifacts": 2,
+    "figures": 0,
+    "bytes": 3177
+  },
+  {
+    "name": "nested-lists",
+    "description": "Bulleted and numbered lists at two depths, between prose - each item its own block, never folded into the paragraph above.",
+    "pages": 1,
+    "readableBlocks": 13,
+    "artifacts": 0,
+    "figures": 0,
+    "bytes": 2072
+  },
+  {
+    "name": "table-ruled",
+    "description": "A bordered table read row-major, between prose.",
+    "pages": 1,
+    "readableBlocks": 33,
+    "artifacts": 0,
+    "figures": 0,
+    "bytes": 2237
+  },
+  {
+    "name": "table-borderless",
+    "description": "The same table with no rules at all - columns held apart by whitespace, which is what makes a borderless table read as parallel columns of prose.",
+    "pages": 1,
+    "readableBlocks": 33,
+    "artifacts": 0,
+    "figures": 0,
+    "bytes": 2118
+  },
+  {
+    "name": "figures-captions",
+    "description": "Raster and vector figures with captions. The vector figure is the interesting one: the reading view surfaces image XObjects only, so artwork drawn as paths disappears from the reflow.",
+    "pages": 2,
+    "readableBlocks": 8,
+    "artifacts": 0,
+    "figures": 3,
+    "bytes": 3567
+  },
+  {
+    "name": "footnotes",
+    "description": "Body text over a separator rule with small-type footnotes, which belong after the page body and not inside the paragraph that happens to sit above them.",
+    "pages": 2,
+    "readableBlocks": 9,
+    "artifacts": 4,
+    "figures": 0,
+    "bytes": 2765
+  }
+]
