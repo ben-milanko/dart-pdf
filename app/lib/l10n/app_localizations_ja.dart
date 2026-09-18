@@ -907,6 +907,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get undo => '元に戻す';
 
   @override
+  String get welcomeCopyName => '名前をコピー';
+
+  @override
+  String get welcomeCopyPath => 'パスをコピー';
+
+  @override
+  String get welcomeOpen => '開く';
+
+  @override
+  String get welcomeOpenInNewWindow => '新しいウィンドウで開く';
+
+  @override
   String get welcomeOpenPdf => 'PDF を開く';
 
   @override

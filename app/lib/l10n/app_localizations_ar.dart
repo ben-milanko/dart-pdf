@@ -948,6 +948,18 @@ class AppLocalizationsAr extends AppLocalizations {
   String get undo => 'تراجع';
 
   @override
+  String get welcomeCopyName => 'نسخ الاسم';
+
+  @override
+  String get welcomeCopyPath => 'نسخ المسار';
+
+  @override
+  String get welcomeOpen => 'فتح';
+
+  @override
+  String get welcomeOpenInNewWindow => 'فتح في نافذة جديدة';
+
+  @override
   String get welcomeOpenPdf => 'فتح ملف PDF';
 
   @override

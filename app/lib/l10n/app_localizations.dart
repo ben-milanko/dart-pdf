@@ -1557,6 +1557,30 @@ abstract class AppLocalizations {
   /// **'Undo'**
   String get undo;
 
+  /// Recent-file context-menu item that copies the document name to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy name'**
+  String get welcomeCopyName;
+
+  /// Recent-file context-menu item that copies the document's file path to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy path'**
+  String get welcomeCopyPath;
+
+  /// Recent-file context-menu item that opens the document.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get welcomeOpen;
+
+  /// Recent-file context-menu item that opens the document in a second application window.
+  ///
+  /// In en, this message translates to:
+  /// **'Open in new window'**
+  String get welcomeOpenInNewWindow;
+
   /// Primary button on the welcome screen that opens a PDF file.
   ///
   /// In en, this message translates to:

@@ -925,6 +925,18 @@ class AppLocalizationsId extends AppLocalizations {
   String get undo => 'Urungkan';
 
   @override
+  String get welcomeCopyName => 'Salin nama';
+
+  @override
+  String get welcomeCopyPath => 'Salin jalur';
+
+  @override
+  String get welcomeOpen => 'Buka';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Buka di jendela baru';
+
+  @override
   String get welcomeOpenPdf => 'Buka PDF';
 
   @override

@@ -923,6 +923,18 @@ class AppLocalizationsHi extends AppLocalizations {
   String get undo => 'पूर्ववत करें';
 
   @override
+  String get welcomeCopyName => 'नाम कॉपी करें';
+
+  @override
+  String get welcomeCopyPath => 'पथ कॉपी करें';
+
+  @override
+  String get welcomeOpen => 'खोलें';
+
+  @override
+  String get welcomeOpenInNewWindow => 'नई विंडो में खोलें';
+
+  @override
   String get welcomeOpenPdf => 'PDF खोलें';
 
   @override

@@ -922,6 +922,18 @@ class AppLocalizationsVi extends AppLocalizations {
   String get undo => 'Hoàn tác';
 
   @override
+  String get welcomeCopyName => 'Sao chép tên';
+
+  @override
+  String get welcomeCopyPath => 'Sao chép đường dẫn';
+
+  @override
+  String get welcomeOpen => 'Mở';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Mở trong cửa sổ mới';
+
+  @override
   String get welcomeOpenPdf => 'Mở một PDF';
 
   @override

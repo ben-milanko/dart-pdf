@@ -921,6 +921,18 @@ class AppLocalizationsTr extends AppLocalizations {
   String get undo => 'Geri al';
 
   @override
+  String get welcomeCopyName => 'Adı kopyala';
+
+  @override
+  String get welcomeCopyPath => 'Yolu kopyala';
+
+  @override
+  String get welcomeOpen => 'Aç';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Yeni pencerede aç';
+
+  @override
   String get welcomeOpenPdf => 'Bir PDF aç';
 
   @override

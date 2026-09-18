@@ -1251,6 +1251,22 @@
   "@undo": {
     "description": "Generic button/tooltip to undo the last change."
   },
+  "welcomeCopyName": "Copy name",
+  "@welcomeCopyName": {
+    "description": "Recent-file context-menu item that copies the document name to the clipboard."
+  },
+  "welcomeCopyPath": "Copy path",
+  "@welcomeCopyPath": {
+    "description": "Recent-file context-menu item that copies the document's file path to the clipboard."
+  },
+  "welcomeOpen": "Open",
+  "@welcomeOpen": {
+    "description": "Recent-file context-menu item that opens the document."
+  },
+  "welcomeOpenInNewWindow": "Open in new window",
+  "@welcomeOpenInNewWindow": {
+    "description": "Recent-file context-menu item that opens the document in a second application window."
+  },
   "welcomeOpenPdf": "Open a PDF",
   "@welcomeOpenPdf": {
     "description": "Primary button on the welcome screen that opens a PDF file."

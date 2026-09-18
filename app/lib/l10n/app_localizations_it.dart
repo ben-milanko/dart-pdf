@@ -931,6 +931,18 @@ class AppLocalizationsIt extends AppLocalizations {
   String get undo => 'Annulla';
 
   @override
+  String get welcomeCopyName => 'Copia nome';
+
+  @override
+  String get welcomeCopyPath => 'Copia percorso';
+
+  @override
+  String get welcomeOpen => 'Apri';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Apri in una nuova finestra';
+
+  @override
   String get welcomeOpenPdf => 'Apri un PDF';
 
   @override

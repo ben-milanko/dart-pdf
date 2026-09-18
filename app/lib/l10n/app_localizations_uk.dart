@@ -938,6 +938,18 @@ class AppLocalizationsUk extends AppLocalizations {
   String get undo => 'Відмінити';
 
   @override
+  String get welcomeCopyName => 'Копіювати ім’я';
+
+  @override
+  String get welcomeCopyPath => 'Копіювати шлях';
+
+  @override
+  String get welcomeOpen => 'Відкрити';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Відкрити в новому вікні';
+
+  @override
   String get welcomeOpenPdf => 'Відкрити PDF';
 
   @override

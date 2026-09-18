@@ -904,6 +904,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get undo => '撤销';
 
   @override
+  String get welcomeCopyName => '复制名称';
+
+  @override
+  String get welcomeCopyPath => '复制路径';
+
+  @override
+  String get welcomeOpen => '打开';
+
+  @override
+  String get welcomeOpenInNewWindow => '在新窗口中打开';
+
+  @override
   String get welcomeOpenPdf => '打开 PDF';
 
   @override
@@ -2083,6 +2095,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get undo => '復原';
+
+  @override
+  String get welcomeCopyName => '複製名稱';
+
+  @override
+  String get welcomeCopyPath => '複製路徑';
+
+  @override
+  String get welcomeOpen => '開啟';
+
+  @override
+  String get welcomeOpenInNewWindow => '在新視窗中開啟';
 
   @override
   String get welcomeOpenPdf => '開啟 PDF';

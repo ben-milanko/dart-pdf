@@ -930,6 +930,18 @@ class AppLocalizationsNl extends AppLocalizations {
   String get undo => 'Ongedaan maken';
 
   @override
+  String get welcomeCopyName => 'Naam kopiëren';
+
+  @override
+  String get welcomeCopyPath => 'Pad kopiëren';
+
+  @override
+  String get welcomeOpen => 'Openen';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Openen in nieuw venster';
+
+  @override
   String get welcomeOpenPdf => 'Een PDF openen';
 
   @override

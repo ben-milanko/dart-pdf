@@ -918,6 +918,18 @@ class AppLocalizationsTh extends AppLocalizations {
   String get undo => 'เลิกทำ';
 
   @override
+  String get welcomeCopyName => 'คัดลอกชื่อ';
+
+  @override
+  String get welcomeCopyPath => 'คัดลอกเส้นทาง';
+
+  @override
+  String get welcomeOpen => 'เปิด';
+
+  @override
+  String get welcomeOpenInNewWindow => 'เปิดในหน้าต่างใหม่';
+
+  @override
   String get welcomeOpenPdf => 'เปิด PDF';
 
   @override
