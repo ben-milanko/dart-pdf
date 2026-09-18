@@ -113,6 +113,50 @@ String shownText(String content) => RegExp(r'\(([^)]*)\) Tj')
     .map((m) => m.group(1))
     .join(' ');
 
+/// One `q <clip> W n BT /F <size> Tf ... ET` block of an appearance: the clip
+/// rectangle the text is confined to and the baselines drawn inside it.
+class TextBlock {
+  TextBlock(this.clipBottom, this.clipTop, this.size, this.baselines);
+
+  final double clipBottom, clipTop, size;
+  final List<double> baselines;
+
+  // Helvetica's nominal metrics, the same ones the layout places against.
+  double get inkTop => baselines.first + size * 718 / 1000;
+  double get inkBottom => baselines.last - size * 207 / 1000;
+
+  double get topMargin => clipTop - inkTop;
+  double get bottomMargin => inkBottom - clipBottom;
+}
+
+/// Parses every clipped text block out of an appearance stream.
+List<TextBlock> textBlocks(String content) {
+  final blocks = <TextBlock>[];
+  final re = RegExp(
+      r'([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\s+W\s+n\s+BT\s+'
+      r'/\w+ ([\d.]+) Tf(.*?)ET',
+      dotAll: true);
+  for (final m in re.allMatches(content)) {
+    final bottom = double.parse(m.group(2)!);
+    final height = double.parse(m.group(4)!);
+    final size = double.parse(m.group(5)!);
+    final baselines = <double>[];
+    var y = 0.0;
+    var first = true;
+    for (final td
+        in RegExp(r'([\d.-]+) ([\d.-]+) Td').allMatches(m.group(6)!)) {
+      final dy = double.parse(td.group(2)!);
+      y = first ? dy : y + dy;
+      first = false;
+      baselines.add(y);
+    }
+    if (baselines.isNotEmpty) {
+      blocks.add(TextBlock(bottom, bottom + height, size, baselines));
+    }
+  }
+  return blocks;
+}
+
 void main() {
   group('visible signature box', () {
     test('a placed appearance draws the Acrobat-style box', () {
@@ -407,6 +451,96 @@ void main() {
       final shown = shownText(content);
       expect(shown, isNot(contains('Digitally signed by')));
       expect(shown, contains('Reason: Approval'));
+    });
+
+    // A short, wide "sign on this line" box used to lose the top of its first
+    // detail line and the bottom of its last: a flat 4pt margin took over 40%
+    // of a ~20pt box's height, the auto-fit loop gave up at a 4pt floor while
+    // the block was still taller than what was left, and the centred overflow
+    // ran past the clip at both ends at once.
+    test('a short box keeps every detail line inside the clip', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approved',
+        signingTime: signedAt,
+        appearance: PdfSignatureAppearance(
+          rect: const PdfRect(72, 600, 268, 619.66),
+          graphic: PdfEmbeddableImage.png(_png),
+          backgroundColor: 0xDDE8F7,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      final content = appearanceContent(doc, signature.field)!;
+      expect(shownText(content), contains('Digitally signed by'));
+
+      final block = textBlocks(content).single;
+      expect(block.baselines, hasLength(3));
+      expect(block.topMargin, greaterThan(0));
+      expect(block.bottomMargin, greaterThan(0));
+    });
+
+    // Both panels, across the box shapes people actually draw.
+    test('no box shape clips its text at the top or the bottom', () {
+      for (final w in <double>[120, 196, 300, 420]) {
+        for (final h in <double>[14, 19.66, 26, 44, 72, 100]) {
+          for (final graphic in [true, false]) {
+            final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+            final signed = editor.saveSigned(
+              privateKey: key,
+              certificates: [cert],
+              reason: 'Approved',
+              location: 'Melbourne, AU',
+              signingTime: signedAt,
+              appearance: PdfSignatureAppearance(
+                rect: PdfRect(40, 400, 40 + w, 400 + h),
+                graphic: graphic ? PdfEmbeddableImage.png(_png) : null,
+                backgroundColor: 0xDDE8F7,
+              ),
+            );
+            final doc = PdfDocument.open(signed);
+            final content =
+                appearanceContent(doc, PdfSignature.of(doc).single.field)!;
+            final blocks = textBlocks(content);
+            expect(blocks, isNotEmpty, reason: 'w=$w h=$h graphic=$graphic');
+            for (final block in blocks) {
+              final where = 'w=$w h=$h graphic=$graphic size=${block.size}';
+              expect(block.topMargin, greaterThanOrEqualTo(0), reason: where);
+              expect(block.bottomMargin, greaterThanOrEqualTo(0),
+                  reason: where);
+            }
+          }
+        }
+      }
+    });
+
+    // The last resort, for a box too short for the block at any size: the
+    // overflow must leave by the bottom only, never shave the first line.
+    test('a box too short for its text still keeps the first line whole', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approved for release by the engineering review board',
+        location: 'Melbourne, Victoria, Australia (head office)',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 192, 608),
+          backgroundColor: 0xDDE8F7,
+          showName: false,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final block =
+          textBlocks(appearanceContent(doc, PdfSignature.of(doc).single.field)!)
+              .single;
+      // genuinely overfull, so the clip does bite - but only at the bottom
+      expect(block.bottomMargin, lessThan(0));
+      expect(block.topMargin, greaterThanOrEqualTo(0));
     });
 
     test('no appearance keeps an invisible field (backward compatible)', () {

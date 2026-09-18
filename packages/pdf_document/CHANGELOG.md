@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Stop the visible signature box clipping its detail lines. On a short, wide
+  "sign on this line" placement the top of the first line and the bottom of the
+  last were sliced off: the box's flat 4pt inner margin took over 40% of a
+  ~20pt-tall box, the auto-fit loop gave up at a hard 4pt floor while the text
+  block was still taller than the room left, and centring that overflow ran it
+  past the clip at both ends at once. The margin is now proportional on small
+  boxes (never more than a tenth of the shorter side), the loop shrinks to 2pt
+  before giving up, and a block that still overflows is top-anchored so the
+  clip can only take the tail. A signature graphic also gets the reclaimed
+  room, so it no longer floats small in a short box.
+
 ## 4.5.0
 
 - Measure and declare the whole WinAnsi range (codes 32-255) for base-14
