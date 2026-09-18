@@ -2,16 +2,16 @@
 
 Optional bundled assets for [`dart_pdf_editor`](../dart_pdf_editor): the six
 editor fonts offered by the font menu (and used as composite-text fallbacks),
-the **metric-compatible substitute faces** for unembedded standard-14 text, and
-the prebuilt **web render worker**.
+the **metric-compatible substitute faces** for unembedded text - the standard
+14 and Calibri - and the prebuilt **web render worker**.
 
-These assets add roughly **3.5 MB** to a build (fonts plus the web worker,
+These assets add roughly **6 MB** to a build (fonts plus the web worker,
 compressed). They live in this separate package - not in
 `dart_pdf_editor` - so an app that only *views* PDFs never bundles them: Flutter
 includes a package's declared assets on every build target, so the only way to
 make these opt-in is to keep them out of the package every consumer depends on.
 
-## Substitute faces for the standard 14
+## Substitute faces for unembedded text
 
 A PDF that names one of the standard 14 fonts carries no font program: the
 viewer draws the text, and the advances come from the AFM tables the page was
@@ -28,6 +28,15 @@ space *inside* words - DejaVu Sans, the fallback without this package, draws `J`
 at 295/1000 em where Helvetica's table reserves 500, which put about 2.7pt of
 air after every capital J at 12pt. `test/substitute_metrics_test.dart` checks
 every bundled file against the AFM tables, and CI runs it.
+
+**Calibri** is the same problem arriving by a different road. It is not one of
+the standard 14 - a page that names it does carry a /Widths array - but Office
+and its print drivers emit it unembedded all the time, assuming Windows will
+have the font. The error runs the other way there: Helvetica is much *wider*
+than Calibri (`C` 722 against 529), so substituting Heros crowded every glyph
+into the next rather than spacing them out. This package bundles **Carlito**,
+Google's metric-compatible Calibri clone, which carries Calibri's advances
+exactly; the same test checks all four faces against them.
 
 Without this package the renderer falls back to whatever metric-compatible face
 the host has (Arial, Liberation Sans, Nimbus Sans and their serif/mono
@@ -76,6 +85,7 @@ catalogue, or a native app that wants the fonts but no worker asset.
 ## Licences
 
 The font licences are in `assets/fonts/*-LICENSE.txt`. DejaVu is a permissive
-Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are the SIL Open
-Font Licence; the TeX Gyre families (Heros, Termes, Cursor, Adventor) use the
-GUST Font License and ship unmodified.
+Bitstream Vera / Arev licence; Fira Sans, Spectral, Lobster and Carlito are the
+SIL Open Font Licence; the TeX Gyre families (Heros, Termes, Cursor, Adventor)
+use the GUST Font License. All of them ship unmodified - and Carlito's OFL
+reserves its name, so a subset of it could not be called Carlito.

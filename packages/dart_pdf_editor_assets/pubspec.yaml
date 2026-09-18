@@ -1,10 +1,11 @@
 name: dart_pdf_editor_assets
 description: >-
   Optional bundled assets for dart_pdf_editor - the six editor fonts, the
-  metric-compatible TeX Gyre faces the renderer substitutes into unembedded
-  standard-14 text, and the prebuilt web render worker. Depend on it (and call
-  registerBundledEditorAssets) for the full-featured editor; omit it for a
-  size-minimal viewer that ships none of them.
+  metric-compatible faces the renderer substitutes into unembedded text (TeX
+  Gyre for the standard 14, Carlito for Calibri), and the prebuilt web render
+  worker. Depend on it (and call registerBundledEditorAssets) for the
+  full-featured editor; omit it for a size-minimal viewer that ships none of
+  them.
 version: 4.5.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_assets
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
@@ -42,11 +43,12 @@ flutter:
   # includes a package's declared assets on every build target, so the only way
   # to make them opt-in is to keep them out of the always-depended-on package.
   #
-  # Fonts offered by the editor font menu, plus the TeX Gyre families the
-  # renderer substitutes for unembedded standard-14 text. DejaVu is a permissive
-  # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are SIL Open
-  # Font Licence; the TeX Gyre families use the GUST Font License - see the
-  # *-LICENSE.txt files in assets/fonts/.
+  # Fonts offered by the editor font menu, plus the families the renderer
+  # substitutes for unembedded text: TeX Gyre for the standard 14, Carlito for
+  # Calibri. DejaVu is a permissive Bitstream Vera / Arev licence; Fira Sans,
+  # Spectral, Lobster and Carlito are SIL Open Font Licence; the TeX Gyre
+  # families use the GUST Font License - see the *-LICENSE.txt files in
+  # assets/fonts/.
   assets:
     - assets/web/pdf_render_worker.dart.js
     - assets/fonts/DejaVuSans.ttf
@@ -69,6 +71,10 @@ flutter:
     - assets/fonts/TeXGyreCursor-BoldItalic.otf
     - assets/fonts/TeXGyreAdventor-Regular.otf
     - assets/fonts/TeXGyreAdventor-Bold.otf
+    - assets/fonts/Carlito-Regular.ttf
+    - assets/fonts/Carlito-Bold.ttf
+    - assets/fonts/Carlito-Italic.ttf
+    - assets/fonts/Carlito-BoldItalic.ttf
   # Declared families are the ones the renderer *names* while painting, so they
   # have to be registered from the first paint: DejaVu Sans as the script
   # fallback for Arabic/Hebrew/Greek/Cyrillic in arbitrary PDFs
@@ -83,12 +89,15 @@ flutter:
   # the engine the first time the font menu opens (`_ensureBundledFontPreview`
   # in editing_fonts.dart), keeping ~1.85 MB of font parsing off cold start.
   #
-  # The TeX Gyre faces do cost ~1.5 MB of that cold start on web, which buys
-  # every standard-14 page the advances it was typeset against on every
-  # platform: a substitute with different advances does not just look different,
-  # it opens white space inside words, because the renderer places each
-  # character at the PDF's own pen offset. See
-  # doc/dev-log/2026-09-10-standard-14-metric-substitutes.md.
+  # The TeX Gyre faces do cost ~1.5 MB of that cold start on web, and Carlito a
+  # further 2.7 MB, which buys every standard-14 and every unembedded-Calibri
+  # page the advances it was typeset against on every platform: a substitute
+  # with different advances does not just look different, it opens white space
+  # inside words - or, where the substitute is the wider face, crowds the
+  # glyphs into each other - because the renderer places each character at the
+  # PDF's own pen offset. See
+  # doc/dev-log/2026-09-10-standard-14-metric-substitutes.md and
+  # doc/dev-log/2026-09-18-calibri-carlito-substitute.md.
   fonts:
     - family: DejaVu Sans
       fonts:
@@ -133,3 +142,19 @@ flutter:
         - asset: assets/fonts/TeXGyreAdventor-Regular.otf
         - asset: assets/fonts/TeXGyreAdventor-Bold.otf
           weight: 700
+    # Calibri's metric-compatible clone, for the unembedded Calibri that Office
+    # print drivers emit. Shipped unmodified from upstream, so it is TrueType
+    # (and heavily hinted) where the TeX Gyre faces are CFF: 2.7 MB against
+    # their 1.5 MB. The OFL reserves the name, so a subset could not be called
+    # Carlito - slimming it means renaming it, which is a decision this change
+    # does not take.
+    - family: Carlito
+      fonts:
+        - asset: assets/fonts/Carlito-Regular.ttf
+        - asset: assets/fonts/Carlito-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Carlito-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Carlito-BoldItalic.ttf
+          weight: 700
+          style: italic

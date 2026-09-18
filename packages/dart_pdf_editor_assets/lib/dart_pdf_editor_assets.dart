@@ -1,20 +1,23 @@
 /// Optional bundled assets for `dart_pdf_editor`: the six editor fonts offered
-/// by the font menu (and used as composite-text fallbacks), the TeX Gyre
-/// families the renderer substitutes into unembedded standard-14 text - Heros
-/// for Helvetica/Arial, Termes for Times, Cursor for Courier, Adventor for
-/// Century Gothic / Avant Garde - and the prebuilt web worker.
+/// by the font menu (and used as composite-text fallbacks), the families the
+/// renderer substitutes into unembedded text - TeX Gyre Heros for
+/// Helvetica/Arial, Termes for Times, Cursor for Courier, Adventor for Century
+/// Gothic / Avant Garde, and Carlito for Calibri - and the prebuilt web
+/// worker.
 ///
 /// The substitute faces are metric-compatible clones: they carry the very
-/// advances the AFM tables give the fonts they stand in for, which is what
-/// makes them safe to draw a page with. A face with different advances leaves
-/// white space *inside* words, because the renderer places every character at
-/// the PDF's own pen offset. They need no registration call - being declared
-/// font families, they are registered with the engine from the first paint.
+/// advances the fonts they stand in for do - the AFM tables for the standard
+/// 14, and Calibri's own /Widths for Carlito - which is what makes them safe to
+/// draw a page with. A face with different advances leaves white space *inside*
+/// words - or, where it is the wider face, crowds the glyphs into each other -
+/// because the renderer places every character at the PDF's own pen offset.
+/// They need no registration call - being declared font families, they are
+/// registered with the engine from the first paint.
 ///
 /// These assets are declared in *this* package rather than in `dart_pdf_editor`
 /// so a viewer-only application never bundles them - Flutter includes a
 /// package's declared assets on every build target, so the only way to make the
-/// ~3.2 MB of fonts + worker opt-in is to keep them out of the package every
+/// ~5.9 MB of fonts + worker opt-in is to keep them out of the package every
 /// consumer depends on.
 ///
 /// Depend on this package and call [registerBundledEditorAssets] once at startup

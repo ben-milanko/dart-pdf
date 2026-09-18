@@ -2636,7 +2636,11 @@ List<String> _browserImageDecodeMissing() => <String>[
 
 /// One bundled substitute face this worker has to register before it can paint
 /// the text that names it.
-typedef _WorkerSubstituteFace = ({String family, PdfSubstituteFace face});
+typedef _WorkerSubstituteFace = ({
+  String family,
+  String format,
+  PdfSubstituteFace face
+});
 
 /// The bundled faces the substituted text in [commands] will be drawn with,
 /// keyed so each file is fetched once per worker session.
@@ -2659,8 +2663,11 @@ Map<String, _WorkerSubstituteFace> _workerSubstituteFaces(
       weight: bold ? 700 : 400,
       italic: italic && substitute.hasItalicFaces,
     );
-    faces['${substitute.family}\u0000${face.file}'] =
-        (family: substitute.family, face: face);
+    faces['${substitute.family}\u0000${face.file}'] = (
+      family: substitute.family,
+      format: substitute.fontFaceFormat,
+      face: face,
+    );
   }
   return faces;
 }
@@ -2683,7 +2690,7 @@ Future<void> _loadWorkerSubstituteFont(
   try {
     final font = web.FontFace(
       entry.family,
-      'url("${base.resolve(entry.face.file)}") format("opentype")'.toJS,
+      'url("${base.resolve(entry.face.file)}") format("${entry.format}")'.toJS,
       web.FontFaceDescriptors(
         weight: '${entry.face.weight}',
         style: entry.face.italic ? 'italic' : 'normal',

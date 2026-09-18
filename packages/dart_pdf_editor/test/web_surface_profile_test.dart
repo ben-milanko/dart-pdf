@@ -286,9 +286,15 @@ void main() {
         PdfBundledSubstitute.cursor);
     expect(
         pdfBundledSubstituteFor('Consolas-Mono'), PdfBundledSubstitute.cursor);
+    // Calibri is not one of the standard 14, but Office emits it unembedded
+    // constantly and Helvetica's advances are far too wide for it.
+    expect(pdfBundledSubstituteFor('Calibri'), PdfBundledSubstitute.carlito);
+    expect(pdfBundledSubstituteFor('ABCDEF+Calibri-BoldItalic'),
+        PdfBundledSubstitute.carlito);
     // An unembedded font we know nothing about stays a sans-serif, exactly as
     // the substitution switch has always assumed.
-    expect(pdfBundledSubstituteFor('Calibri'), PdfBundledSubstitute.heros);
+    expect(pdfBundledSubstituteFor('Whatever-Regular'),
+        PdfBundledSubstitute.heros);
     expect(pdfBundledSubstituteFor(null), PdfBundledSubstitute.heros);
     expect(
       pdfCanvas2dSubstituteFamily('Helvetica-Bold'),
@@ -299,6 +305,10 @@ void main() {
       pdfCanvas2dSubstituteFamily('Times-Roman'),
       '"TeX Gyre Termes", "Times New Roman", Times, "Liberation Serif", '
       '"Nimbus Roman", serif',
+    );
+    expect(
+      pdfCanvas2dSubstituteFamily('Calibri-Bold'),
+      'Carlito, Calibri, sans-serif',
     );
     expect(
       pdfCanvas2dSubstituteFamily('Courier'),
@@ -337,6 +347,15 @@ void main() {
     expect(adventor.assetFile(bold: true, italic: true),
         'TeXGyreAdventor-Bold.otf');
     expect(adventor.faces, hasLength(2));
+    // Carlito ships as TrueType upstream, and the worker has to declare the
+    // matching CSS format hint or a strict engine rejects the face.
+    const carlito = PdfBundledSubstitute.carlito;
+    expect(carlito.assetFile(), 'Carlito-Regular.ttf');
+    expect(
+        carlito.assetFile(bold: true, italic: true), 'Carlito-BoldItalic.ttf');
+    expect(carlito.faces, hasLength(4));
+    expect(carlito.fontFaceFormat, 'truetype');
+    expect(heros.fontFaceFormat, 'opentype');
   });
 
   test('Canvas2D exact placement declines complex and malformed runs', () {

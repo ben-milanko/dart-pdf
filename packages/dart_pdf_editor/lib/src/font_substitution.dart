@@ -19,6 +19,17 @@
 /// pre-existing Adventor for Century Gothic / Avant Garde. Naming them means a
 /// standard-14 page is drawn with the advances it was typeset against, on every
 /// platform, instead of whatever the host happens to have installed.
+///
+/// Calibri is the same problem one step removed. It is not one of the standard
+/// 14, so a page that names it *does* carry a /Widths array - but Office and
+/// its print drivers routinely emit it unembedded, on the assumption that
+/// Windows will have the font. Falling through to Heros made every such page
+/// cursed: Helvetica is far wider than Calibri (`C` 722 against 529, `s` 556
+/// against 399), so with each character pinned to the PDF's own pen offset the
+/// surplus has nowhere to go and every glyph crowds the next. Carlito is
+/// Google's metric-compatible Calibri clone and matches those /Widths exactly -
+/// all 265 advances the four styles of a GDI-printed document name, to the
+/// unit (`substitute_metrics_test.dart`).
 library;
 
 /// The package whose asset bundle carries the substitute faces.
@@ -32,6 +43,9 @@ const pdfTermesFontFamily = 'TeX Gyre Termes';
 
 /// The open metric-compatible face used for unembedded Courier text.
 const pdfCursorFontFamily = 'TeX Gyre Cursor';
+
+/// The open metric-compatible face used for unembedded Calibri text.
+const pdfCarlitoFontFamily = 'Carlito';
 
 /// The open metric-compatible face used for unembedded Century Gothic and
 /// Avant Garde text.
@@ -82,6 +96,21 @@ enum PdfBundledSubstitute {
     genericFallback: 'monospace',
   ),
 
+  /// Google's Calibri clone - the substitute for unembedded Calibri, which
+  /// Office and its print drivers emit on the assumption Windows supplies the
+  /// font. Shipped unmodified: the OFL reserves the name "Carlito", so a
+  /// subset of it could not be called this.
+  carlito(
+    family: pdfCarlitoFontFamily,
+    assetPrefix: 'Carlito',
+    assetSuffix: 'ttf',
+    // The family name above already reaches a host-installed Carlito; Calibri
+    // itself is the other face carrying these metrics, and a Windows or Office
+    // host has it.
+    systemFallbacks: ['Calibri'],
+    genericFallback: 'sans-serif',
+  ),
+
   /// The geometric sans clone - Century Gothic was designed to copyfit ITC
   /// Avant Garde, and Adventor extends URW Gothic L, the open metric-compatible
   /// Avant Garde replacement. Ships upright weights only; a slanted request
@@ -105,6 +134,7 @@ enum PdfBundledSubstitute {
     required this.assetPrefix,
     required this.systemFallbacks,
     required this.genericFallback,
+    this.assetSuffix = 'otf',
     this.hasItalicFaces = true,
   });
 
@@ -113,6 +143,10 @@ enum PdfBundledSubstitute {
 
   /// The shared prefix of this family's asset file names.
   final String assetPrefix;
+
+  /// This family's asset file extension. The TeX Gyre faces are CFF-flavoured
+  /// OpenType; Carlito ships as TrueType upstream and is bundled as it comes.
+  final String assetSuffix;
 
   /// Host faces to try, in order, when the bundled asset isn't registered.
   final List<String> systemFallbacks;
@@ -126,6 +160,11 @@ enum PdfBundledSubstitute {
   /// Flutter's package-qualified name for the bundled face - what the renderer
   /// asks for first, so the bundled file wins over a same-named host font.
   String get packageFamily => 'packages/$_assetsPackage/$family';
+
+  /// The CSS `format()` hint for this family's files - what the web worker's
+  /// `FontFace` src has to name, and what a strict engine checks the bytes
+  /// against before it accepts them.
+  String get fontFaceFormat => assetSuffix == 'ttf' ? 'truetype' : 'opentype';
 
   /// This family's bundled files, in the order a pubspec declares them.
   List<PdfSubstituteFace> get faces => [
@@ -145,7 +184,7 @@ enum PdfBundledSubstitute {
     final slant = hasItalicFaces && italic;
     final suffix =
         bold ? (slant ? 'BoldItalic' : 'Bold') : (slant ? 'Italic' : 'Regular');
-    return '$assetPrefix-$suffix.otf';
+    return '$assetPrefix-$suffix.$assetSuffix';
   }
 
   /// The canvas2d `font` shorthand's family list: the bundled face first, then
@@ -167,6 +206,11 @@ enum PdfBundledSubstitute {
 PdfBundledSubstitute pdfBundledSubstituteFor(String? fontName) {
   final name = fontName ?? '';
   if (pdfUsesAdventorSubstitute(name)) return PdfBundledSubstitute.adventor;
+  // Before the Mono test: Calibri is a humanist sans, and nothing about it
+  // reads as serif or monospaced.
+  if (name.contains('Calibri') || name.contains('Carlito')) {
+    return PdfBundledSubstitute.carlito;
+  }
   if (name.contains('Courier') || name.contains('Mono')) {
     return PdfBundledSubstitute.cursor;
   }
