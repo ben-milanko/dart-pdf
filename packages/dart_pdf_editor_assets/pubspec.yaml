@@ -89,8 +89,10 @@ flutter:
   # the engine the first time the font menu opens (`_ensureBundledFontPreview`
   # in editing_fonts.dart), keeping ~1.85 MB of font parsing off cold start.
   #
-  # The TeX Gyre faces do cost ~1.5 MB of that cold start on web, and Carlito a
-  # further 2.7 MB, which buys every standard-14 and every unembedded-Calibri
+  # Measured off a deployed web build: the TeX Gyre faces cost 0.77 MB of that
+  # cold start (1.7 MB of files) and Carlito 0.86 MB (2.6 MB of files - its
+  # TrueType hinting compresses to a quarter, where their CFF outlines halve).
+  # That buys every standard-14 and every unembedded-Calibri
   # page the advances it was typeset against on every platform: a substitute
   # with different advances does not just look different, it opens white space
   # inside words - or, where the substitute is the wider face, crowds the
@@ -144,10 +146,11 @@ flutter:
           weight: 700
     # Calibri's metric-compatible clone, for the unembedded Calibri that Office
     # print drivers emit. Shipped unmodified from upstream, so it is TrueType
-    # (and heavily hinted) where the TeX Gyre faces are CFF: 2.7 MB against
-    # their 1.5 MB. The OFL reserves the name, so a subset could not be called
-    # Carlito - slimming it means renaming it, which is a decision this change
-    # does not take.
+    # (and heavily hinted) where the TeX Gyre faces are CFF: 2.6 MB of files
+    # against their 1.7 MB, though only 0.86 MB against 0.77 MB once the
+    # server compresses them. The OFL reserves the name, so a subset could not
+    # be called Carlito - slimming it means renaming it, which is a decision
+    # this change does not take.
     - family: Carlito
       fonts:
         - asset: assets/fonts/Carlito-Regular.ttf

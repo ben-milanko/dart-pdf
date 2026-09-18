@@ -17,8 +17,8 @@
 /// These assets are declared in *this* package rather than in `dart_pdf_editor`
 /// so a viewer-only application never bundles them - Flutter includes a
 /// package's declared assets on every build target, so the only way to make the
-/// ~5.9 MB of fonts + worker opt-in is to keep them out of the package every
-/// consumer depends on.
+/// ~6 MB of fonts + worker (~4.4 MB compressed) opt-in is to keep them out of
+/// the package every consumer depends on.
 ///
 /// Depend on this package and call [registerBundledEditorAssets] once at startup
 /// (before opening a viewer) to get the historical full-featured behaviour:

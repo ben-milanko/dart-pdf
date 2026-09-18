@@ -67,12 +67,15 @@ pen offsets, glyphs that fit between them.
 Three details worth keeping:
 
 - **Carlito ships unmodified**, so it is TrueType where the TeX Gyre faces
-  are CFF, and it is big: 2.7 MB for four faces against their 1.5 MB. It
-  could be subset to a tenth of that, but the OFL reserves the name
-  "Carlito", so a subset cannot be called Carlito - slimming it means
-  renaming it, and that is a decision to take deliberately rather than in
-  passing. If web cold start becomes the binding constraint, that is the
-  lever.
+  are CFF, and on disk it is big: 2.6 MB for four faces against their
+  1.7 MB for fourteen. On the wire it is closer than that sounds - measured
+  off the PR's deployed web build, 0.86 MB brotli against their 0.77 MB,
+  because TrueType hinting compresses to a quarter where CFF outlines only
+  halve. It could still be subset to a fraction of that, but the OFL
+  reserves the name "Carlito", so a subset cannot be called Carlito -
+  slimming it means renaming it, and that is a decision to take
+  deliberately rather than in passing. If web cold start becomes the
+  binding constraint, that is the lever.
 - `assetFile()` grew an `assetSuffix`, because it hardcoded `.otf`. The web
   worker's `FontFace` had the matching assumption baked into its CSS
   `format("opentype")` hint; that now comes from
