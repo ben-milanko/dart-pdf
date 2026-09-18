@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
+  `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
+  default sans, and Helvetica's advances are much wider than Calibri's - with
+  every character pinned to the PDF's own pen offset by
+  `exactSubstitutedGlyphPlacement`, the surplus had nowhere to go and the
+  glyphs crowded into each other - which is what an Office-printed cover page
+  looked like. Carlito matches Calibri's advances exactly, in all four styles.
+  The faces come from the optional `dart_pdf_editor_assets` package; without
+  it, the fallback chain now names a host Carlito or Calibri before anything
+  else. `PdfBundledSubstitute` gained `assetSuffix` (Carlito is TrueType where
+  the TeX Gyre faces are CFF) and `fontFaceFormat`, which the web worker's
+  `FontFace` now names instead of assuming `opentype`.
 - Give each window its own view mode. `PdfEditingPreferences` is one object per
   process, so reading the live mode off it meant switching to the page grid (or
   reflow) in one window switched every other window with it. The live mode now
