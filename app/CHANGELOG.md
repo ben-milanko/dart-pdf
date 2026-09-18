@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix digital signature boxes cropping their text. Placing a signature on a
+  short, wide line cut the top off "Digitally signed by ..." and the bottom off
+  the last line; the box now sizes its text to the room it actually has, and a
+  handwritten signature fills more of a short box.
 - Switch to the page grid in one window and only that window switches. The view
   mode (Pages / Reflow text / Page grid) was stored once for the whole app, so
   picking one changed every open window at once; it now belongs to the window

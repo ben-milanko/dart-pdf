@@ -744,7 +744,13 @@ extension PdfSigning on PdfEditor {
     final fonts = CosDictionary({});
     final xObjects = CosDictionary({});
     final extGStates = CosDictionary({});
-    const pad = 4.0;
+    // Inner margin. A flat 4pt is right for a roomy box but ruinous for a
+    // short one - on the ~20pt-tall "sign on this line" boxes people actually
+    // draw it swallows 8pt, over 40% of the height, leaving the detail lines
+    // so little room that the auto-fit loop bottoms out at its own floor and
+    // still overflows. Never spend more than a tenth of the smaller side on
+    // margin, so the padding shrinks with the box instead of crowding it out.
+    final pad = math.min(4.0, math.min(w, h) * 0.1);
 
     if (config.backgroundColor != null) {
       writer
@@ -924,11 +930,22 @@ extension PdfSigning on PdfEditor {
   /// "contain, then wrap once the font gets small enough".
   static const double _signatureWrapFloor = 10.0;
 
+  /// Smallest font the auto-fit loop will shrink to. This is a containment
+  /// stop, not a legibility floor: whatever the loop settles on is drawn into
+  /// a clipped box, so stopping while the block is still too tall buys no
+  /// legibility - it only moves the failure from "small" to "sliced through
+  /// the middle". Text that is barely readable still beats text with its
+  /// ascenders and descenders shaved off, and a box this tight was drawn
+  /// that way deliberately.
+  static const double _signatureMinSize = 2.0;
+
   /// Lays [lines] out in the box `[left, bottom, right, top]`. Shrinks the
-  /// font (from [maxSize]) so the text is contained in both width and height;
-  /// once it reaches [_signatureWrapFloor] and a run is still too wide (a long
-  /// unbreakable token), it wraps the run mid-token rather than shrinking
-  /// (and clipping) further. Top-anchored unless [centerVertical].
+  /// font (from [maxSize], down to [_signatureMinSize]) so the text is
+  /// contained in both width and height; once it reaches [_signatureWrapFloor]
+  /// and a run is still too wide (a long unbreakable token), it wraps the run
+  /// mid-token rather than shrinking (and clipping) further. Top-anchored
+  /// unless [centerVertical]; a block that overflows even at the minimum size
+  /// stays top-anchored either way, so the clip can only ever take the tail.
   void _drawSignatureText(
     ContentWriter writer,
     List<String> lines,
@@ -958,13 +975,13 @@ extension PdfSigning on PdfEditor {
           0, (m, l) => math.max(m, font.measure(l, size)));
       final fits =
           widest <= boxW && wrapped.length * size * 1.3 <= boxH;
-      if (fits || size <= 4) break;
+      if (fits || size <= _signatureMinSize) break;
       size -= 0.5;
     }
     if (wrapped.isEmpty) return;
 
     // The box edges already exclude the caller's padding, so the shared
-    // builder runs with zero padding and unclamped alignment.
+    // builder runs with zero padding and unclamped horizontal alignment.
     writer.save();
     writePdfTextBox(
       writer,
@@ -978,6 +995,12 @@ extension PdfSigning on PdfEditor {
       vAlign: centerVertical
           ? PdfTextBoxVAlign.centerBlock
           : PdfTextBoxVAlign.top,
+      // A box too short for the block even at the minimum size would otherwise
+      // centre the overflow and let the clip slice the first line's ascenders
+      // and the last line's descenders at once - the worst of both edges.
+      // Top-anchor it instead: the leading lines stay whole and only the tail
+      // runs past the bottom.
+      clampVerticalAlign: true,
       writeColor: (w) => w.fillColor(color),
     );
     writer.restore();
