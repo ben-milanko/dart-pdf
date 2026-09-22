@@ -10,6 +10,39 @@ doc/marketing/<target>/<platform>/NN-name.png     framed store shots (gradient +
 ```
 
 `<target>` is `app` or `example`; `<platform>` is `ios`, `macos`, or `android`.
+The Windows-only CI path also produces `doc/screenshots/app/windows/`.
+
+## Microsoft Store (Windows CI)
+
+Run **Marketing screenshots** with `windows_only: true` and `source_ref` set
+to the version being submitted (for example, `app-v4.5.0`). Apple and Android
+jobs are skipped. The Windows runner builds that source ref with the current
+screenshot harness, launches the real native app, and captures three scenes:
+the document, the thumbnail workspace, and dark mode.
+
+Download the `screenshots-windows` artifact and visually review all three PNGs
+before replacing the Microsoft Store listing screenshots. These are unframed
+native Windows window captures; do not reuse Apple/Android marketing images
+for this listing. The artifact includes source/harness commits, version,
+dimensions and checksums in `provenance.json`, plus app logs for diagnosis.
+
+`app/tool/capture_windows_screenshots.ps1` waits for a ready file from each
+settled scene and acknowledges it after capture, so slow runners cannot skip
+scenes. It captures only the launched process's window, checks Store minimum
+dimensions and blank/duplicate frames, and restores the runner's display mode
+afterward. The harness uses the app's native window bootstrap, localization
+delegates and bundled fonts. It changes demo data/preferences only, not the
+release's editor UI. Raw Windows images need no marketing composition.
+
+Locally on Windows (PowerShell 7, from the repository root):
+
+```powershell
+flutter pub get
+Push-Location app
+flutter build windows --release -t tool/screenshots_main.dart
+Pop-Location
+./app/tool/capture_windows_screenshots.ps1
+```
 
 ## How it works
 
