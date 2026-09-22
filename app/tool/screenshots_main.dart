@@ -26,6 +26,7 @@ import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_viewer_example/demo_document.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -121,7 +122,12 @@ const _scenes = <_Scene>[
 
 class _AppScreenshotsState extends State<AppScreenshots> {
   final _prefs = PdfEditingPreferences();
-  late final _doc = (bytes: buildDemoPdf(), title: 'Feature Showcase.pdf');
+  // The example's first two pages require host-provided Flutter overlays.
+  // Show its standalone PDF graphics/annotation/font/image pages in the app.
+  late final _doc = (
+    bytes: PdfDocument.open(buildDemoPdf()).extractPages(const [2, 5, 3, 4]),
+    title: 'PDF Editing Showcase.pdf',
+  );
 
   _Scene _scene = _scenes.first;
 
