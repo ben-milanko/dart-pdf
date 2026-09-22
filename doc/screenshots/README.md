@@ -22,15 +22,17 @@ the document, the thumbnail workspace, and dark mode.
 
 Download the `screenshots-windows` artifact and visually review all three PNGs
 before replacing the Microsoft Store listing screenshots. These are unframed
-native Windows window captures; do not reuse Apple/Android marketing images
+captures of the running Windows app's render surface; do not reuse Apple/Android marketing images
 for this listing. The artifact includes source/harness commits, version,
 dimensions and checksums in `provenance.json`, plus app logs for diagnosis.
 
 `app/tool/capture_windows_screenshots.ps1` waits for a ready file from each
-settled scene and acknowledges it after capture, so slow runners cannot skip
-scenes. It captures only the launched process's window, checks Store minimum
-dimensions and blank/duplicate frames, and restores the runner's display mode
-afterward. The harness uses the app's native window bootstrap, localization
+settled scene, sizes the launched process's window, and requests a capture.
+The app writes the PNG before advancing, so slow runners cannot skip scenes.
+The script checks Store minimum dimensions and blank/duplicate frames. Hosted
+Windows runners have no capturable desktop monitor; the native Flutter engine
+captures its real render surface at 2x using `RenderRepaintBoundary.toImage`.
+The OS title bar is outside that surface and is not included or synthesized. The harness uses the app's native window bootstrap, localization
 delegates and bundled fonts. It changes demo data/preferences only, not the
 release's editor UI. Raw Windows images need no marketing composition.
 
