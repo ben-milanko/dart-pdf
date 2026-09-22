@@ -34,7 +34,16 @@ Windows runners have no capturable desktop monitor; the native Flutter engine
 captures its real render surface at 2x using `RenderRepaintBoundary.toImage`.
 The OS title bar is outside that surface and is not included or synthesized. The harness uses the app's native window bootstrap, localization
 delegates and bundled fonts. It changes demo data/preferences only, not the
-release's editor UI. Raw Windows images need no marketing composition.
+release's editor UI. Raw Windows images can be uploaded directly, or composed
+with the same branded headlines and ink/highlighter overlays as the other
+listings. The Microsoft Store versions in `doc/marketing/app/windows/` use
+only these Windows captures, without a synthesized OS frame:
+
+```sh
+dart packages/dart_pdf_editor/example/tool/compose_marketing.dart \
+  --in doc/screenshots/app/windows --out doc/marketing/app/windows \
+  --orientation landscape --width 2560 --height 1600 --target app
+```
 
 Locally on Windows (PowerShell 7, from the repository root):
 
