@@ -138,6 +138,13 @@ jobs:
         run: |
           ./app/tool/capture_windows_screenshots.ps1 -SourceRoot screenshot-source -OutputDirectory doc/screenshots/app/windows
       - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: windows-capture-build-debug
+          path: screenshot-source/app/build/windows/x64/runner/Release/
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: screenshots-windows

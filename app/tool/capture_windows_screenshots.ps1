@@ -13,7 +13,8 @@ $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows captures require Windows.' }
 $source = (Resolve-Path $SourceRoot).Path
 $output = [IO.Path]::GetFullPath($OutputDirectory)
-$executable = Join-Path $source 'app/build/windows/x64/runner/Release/dartpdf.exe'
+# dartpdf.exe is the separate command-line tool bundled beside the GUI.
+$executable = Join-Path $source 'app/build/windows/x64/runner/Release/dart_pdf_editor_app.exe'
 if (-not (Test-Path $executable)) { throw "Build the capture app first: $executable" }
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $signals = Join-Path ([IO.Path]::GetTempPath()) "dartpdf-shots-$([guid]::NewGuid())"
