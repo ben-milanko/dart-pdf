@@ -230,6 +230,10 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// the whole selection's page count.
   int? _reorderPage;
 
+  // Page indices belong to the revision where the drag began. Undo/redo or
+  // a host edit can replace it while the pointer is still held.
+  PdfDocument? _reorderDocument;
+
   /// The pages the live reorder drag carries while its pointer is outside
   /// this window, or null when it's inside (or no drag is live). A release
   /// out there is a drop into another window, handed to the host through
@@ -257,6 +261,10 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final grabbed = _reorderPage;
     if (grabbed == null ||
         widget.fileDropController?.onPageDropOutside == null) {
+      return;
+    }
+    if (!identical(_reorderDocument, widget.controller.document)) {
+      _setDragOut(null);
       return;
     }
     final view = View.maybeOf(context);
@@ -941,16 +949,22 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                         onReorderStart: (index) {
                           _suppressReorder = false;
                           _setDragOut(null);
+                          _reorderDocument = controller.document;
                           setState(() => _reorderPage = index);
                         },
                         onReorderEnd: (_) {
                           final out = _dragOut;
-                          if (out != null) {
+                          if (!identical(
+                              _reorderDocument, controller.document)) {
+                            _suppressReorder = true;
+                            _setDragOut(null);
+                          } else if (out != null) {
                             _suppressReorder = true;
                             _setDragOut(null);
                             widget.fileDropController?.onPageDropOutside
                                 ?.call(out);
                           }
+                          _reorderDocument = null;
                           if (mounted) setState(() => _reorderPage = null);
                         },
                         proxyDecorator: (child, index, animation) {
@@ -1029,7 +1043,13 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                     // remount the list mid-drag.
                     tiles = Listener(
                       onPointerMove: _trackDragOut,
-                      onPointerCancel: (_) => _setDragOut(null),
+                      onPointerCancel: (_) {
+                        _setDragOut(null);
+                        _reorderDocument = null;
+                        if (_reorderPage != null) {
+                          setState(() => _reorderPage = null);
+                        }
+                      },
                       child: tiles,
                     );
                     if (horizontal) {

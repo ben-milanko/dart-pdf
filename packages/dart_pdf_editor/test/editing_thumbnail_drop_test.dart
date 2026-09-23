@@ -452,6 +452,34 @@ void main() {
       await drain(tester);
     });
 
+    testWidgets('a revision during the drag cancels the external drop',
+        (tester) async {
+      final refs = await pumpDragStrip(tester);
+      final drops = <PdfPageDragOut>[];
+      refs.drop.onPageDropOutside = drops.add;
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(1)),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await mouse.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await mouse.moveTo(const Offset(1200, 300));
+      await tester.pump();
+
+      // A same-count edit (including undo/redo of a reorder) doesn't cancel
+      // Flutter's reorder recognizer, but changes what the grabbed slot means.
+      refs.editing.movePage(1, 0);
+      final revised = refs.editing.document;
+      await tester.pump();
+      await mouse.moveTo(const Offset(1220, 300));
+      await tester.pump();
+      await mouse.up();
+      await tester.pumpAndSettle();
+
+      expect(drops, isEmpty);
+      expect(refs.editing.document, same(revised));
+      await drain(tester);
+    });
+
     testWidgets('a selected tile carries the whole selection', (tester) async {
       final refs = await pumpDragStrip(tester, pages: 4);
       final drops = <PdfPageDragOut>[];
@@ -473,6 +501,37 @@ void main() {
 
       expect(drops.single.pages, [0, 2]);
       expect(refs.editing.document.pageCount, 4);
+      await drain(tester);
+    });
+
+    testWidgets('cancelling a drag clears the companion preview and marker',
+        (tester) async {
+      final refs = await pumpDragStrip(tester);
+      final moves = <PdfPageDragOut?>[];
+      final drops = <PdfPageDragOut>[];
+      refs.drop
+        ..onPageDragOutside = moves.add
+        ..onPageDropOutside = drops.add;
+      refs.editing
+        ..selectPage(0)
+        ..togglePageSelection(1);
+      await tester.pump();
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(1)),
+          kind: PointerDeviceKind.mouse);
+      await mouse.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await mouse.moveTo(const Offset(1200, 300));
+      await tester.pump();
+      final companion =
+          find.byKey(const ValueKey('pdf-thumbnail-reorder-companion-0'));
+      expect(companion, findsOneWidget);
+
+      await mouse.cancel();
+      await tester.pumpAndSettle();
+      expect(companion, findsNothing);
+      expect(moves.last, isNull);
+      expect(drops, isEmpty);
+      expect(refs.editing.canUndo, isFalse);
       await drain(tester);
     });
   });

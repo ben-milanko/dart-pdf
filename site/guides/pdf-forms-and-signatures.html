@@ -797,8 +797,8 @@
             </div>
             <div class="choice">
               <strong>Digital signature</strong>
-              <p>A cryptographic signature from a certificate. It proves who signed, and any later change to the
-                signed bytes shows up in Acrobat's signature panel.</p>
+              <p>A cryptographic signature from a certificate. It detects changes to the signed bytes. Establishing
+                who signed also requires trusting the signer's certificate and its issuing authority.</p>
             </div>
             <div class="choice">
               <strong>Both at once</strong>
@@ -978,8 +978,8 @@ Uint8List fillApplication(Uint8List template) {
                 </tr>
                 <tr>
                   <td>Certification</td>
-                  <td>Certify (DocMDP) signatures with P=1/2/3 change permissions; later edits that break a P=1
-                    certification are refused</td>
+                  <td>Certify (DocMDP) signatures with P=1/2/3 change permissions; additional approval signatures
+                    are refused after P=1 certification. General editing APIs do not enforce DocMDP permissions.</td>
                 </tr>
                 <tr>
                   <td>Multiple signers</td>
@@ -1063,8 +1063,9 @@ await session.addDigitalSignature(
             <li><strong>Multi-select list boxes</strong> take a single value.</li>
             <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
               groups, choice fields, or empty signature fields for someone else to sign later.</li>
-            <li><strong>Signing encrypted (password-protected) PDFs</strong> is refused. Decrypt, sign, and then
-              re-protect if you need to.</li>
+            <li><strong>Signing encrypted (password-protected) PDFs</strong> is refused. Sign an unencrypted
+              copy instead. Adding password encryption afterwards rewrites the signed bytes and invalidates
+              the signature; an encrypted, signed output is not currently supported.</li>
             <li><strong>Trust roots.</strong> No certificate authorities are bundled. Validation tells you whether
               the chain reaches a root you supplied (for example, the AATL or your organisation's CA), and it
               doesn't query live revocation during validation. A self-signed signature validates as intact, but
@@ -1083,9 +1084,11 @@ await session.addDigitalSignature(
               stays editable in Acrobat unless you flatten the form.</p>
 
             <h3>Does filling a form break an existing signature?</h3>
-            <p>No. All edits are saved as incremental updates, so the signed bytes stay untouched. The signature
-              still validates as intact, and validation reports that it no longer covers the whole document, which
-              is how Acrobat shows changes made after signing.</p>
+            <p>Form fills are saved as incremental updates, so the signed bytes stay untouched and their
+              cryptographic signature can remain intact. Validation reports that the signature no longer covers
+              the whole document. A certification signature may still forbid the change: DocMDP P=1 forbids
+              form filling, while P=2 and P=3 permit it. The editing APIs do not enforce those permissions, so
+              check the document's certification policy before filling it.</p>
 
             <h3>Can I fill forms without Flutter?</h3>
             <p>Yes. <code>pdf_document</code> is pure Dart with no <code>dart:io</code> or Flutter imports, so the
