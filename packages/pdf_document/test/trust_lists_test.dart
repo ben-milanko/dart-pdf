@@ -98,11 +98,11 @@ void main() {
 
   String b64(Uint8List der) => base64.encode(der);
 
-  String lotlBody() => '''
+  String lotlBody({String next = '2027-03-01T00:00:00Z'}) => '''
 <SchemeInformation>
   <TSLSequenceNumber>7</TSLSequenceNumber>
   <ListIssueDateTime>2026-09-01T00:00:00Z</ListIssueDateTime>
-  <NextUpdate><dateTime>2027-03-01T00:00:00Z</dateTime></NextUpdate>
+  <NextUpdate><dateTime>$next</dateTime></NextUpdate>
   <PointersToOtherTSL>
 ${[
         ('XX', xxCert, 'https://tl.test.invalid/xx.xml'),
@@ -131,7 +131,12 @@ ${[
   <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/$status</ServiceStatus>
 </ServiceInformation></TSPService>''';
 
-  String xxBody() => '''
+  String scheme(String next) =>
+      '<SchemeInformation><NextUpdate><dateTime>$next</dateTime></NextUpdate>'
+      '</SchemeInformation>';
+
+  String xxBody({String next = '2027-01-15T00:00:00Z'}) => '''
+${scheme(next)}
 <TrustServiceProviderList><TrustServiceProvider><TSPServices>
 ${service('CA/QC', 'granted', pki.root, 'Test Qualified CA &amp; Co')}
 ${service('CA/QC', 'withdrawn', otherCa.root, 'Withdrawn CA')}
@@ -140,6 +145,7 @@ ${service('TSA/QTST', 'granted', otherCa.intermediate, 'A timestamp service')}
 ''';
 
   String yyBody() => '''
+${scheme('2027-02-01T00:00:00Z')}
 <TrustServiceProviderList><TrustServiceProvider><TSPServices>
 ${service('NationalRootCA-QC', 'granted', otherCa.root, 'YY national root')}
 </TSPServices></TrustServiceProvider></TrustServiceProviderList>
@@ -186,6 +192,10 @@ ${service('NationalRootCA-QC', 'granted', otherCa.root, 'YY national root')}
       expect(snapshot.problems, isEmpty);
       expect(snapshot.lotlSequenceNumber, 7);
       expect(snapshot.lotlNextUpdate, DateTime.utc(2027, 3));
+      // the earliest NextUpdate of the lists it was built from
+      expect(snapshot.expires, DateTime.utc(2027, 1, 15));
+      expect(snapshot.isCurrentAt(now), isTrue);
+      expect(snapshot.isCurrentAt(DateTime.utc(2027, 1, 16)), isFalse);
       expect(snapshot.entries.map((e) => (e.territory, e.serviceName)), [
         ('XX', 'Test Qualified CA & Co'),
         ('YY', 'YY national root'),
@@ -241,9 +251,49 @@ ${service('NationalRootCA-QC', 'granted', otherCa.root, 'YY national root')}
       );
       final result = PdfSignature.of(PdfDocument.open(signed))
           .single
-          .validate(trustStore: PdfTrustLists.eutl(pem));
+          .validate(trustStore: PdfTrustLists.eutl(pem, now: now));
       expect(result.chainTrusted, isTrue, reason: '${result.chainProblems}');
       expect(result.trustChain.last.subjectCommonName, 'Revocation Test Root');
+    });
+
+    test('an expired LOTL is refused', () async {
+      final files = served()
+        ..[PdfEuLotl.url.toString()] = signTestTrustList(
+            lotlBody(next: '2026-09-01T00:00:00Z'), lotlKey, lotlCert);
+      await expectLater(
+          fetchFrom(files),
+          throwsA(isA<FormatException>()
+              .having((e) => e.message, 'message', contains('expired'))));
+    });
+
+    test('a LOTL within the grace period is still accepted', () async {
+      final files = served()
+        ..[PdfEuLotl.url.toString()] = signTestTrustList(
+            lotlBody(next: '2026-09-22T20:00:00Z'), lotlKey, lotlCert);
+      final snapshot = await fetchFrom(files);
+      expect(snapshot.entries, hasLength(2));
+      // ...but the snapshot built from it expires with it
+      expect(snapshot.expires, DateTime.utc(2026, 9, 22, 20));
+    });
+
+    test('an expired national list is skipped with a problem', () async {
+      final files = served()
+        ..['https://tl.test.invalid/xx.xml'] = signTestTrustList(
+            xxBody(next: '2026-08-01T00:00:00Z'), xxKey, xxCert);
+      final snapshot = await fetchFrom(files);
+      expect(snapshot.problems.keys, ['XX']);
+      expect(snapshot.problems['XX'], contains('expired'));
+      expect(snapshot.entries.map((e) => e.territory), ['YY']);
+      expect(snapshot.expires, DateTime.utc(2027, 2));
+    });
+
+    test('an expired snapshot PEM is refused and round-trips its expiry',
+        () async {
+      final pem = (await fetchFrom(served())).toPem();
+      expect(PdfEuTrustListSnapshot.fromPem(pem).expires,
+          DateTime.utc(2027, 1, 15));
+      expect(() => PdfTrustLists.eutl(pem, now: DateTime.utc(2027, 2)),
+          throwsFormatException);
     });
 
     test('the pinned LOTL signers are SHA-256 fingerprints', () {
@@ -299,6 +349,20 @@ ${service('NationalRootCA-QC', 'granted', otherCa.root, 'YY national root')}
           parseAatlSecuritySettings(signed, rootFingerprint: rootPrint);
       expect(snapshot.anchors, hasLength(2));
       expect(snapshot.signer, 'Revocation Test Signer');
+      // An age limit, when asked for, is judged from the signing time.
+      expect(
+          parseAatlSecuritySettings(signed,
+                  rootFingerprint: rootPrint,
+                  maxAge: const Duration(days: 30),
+                  now: DateTime.utc(2026, 9, 20))
+              .anchors,
+          hasLength(2));
+      expect(
+          () => parseAatlSecuritySettings(signed,
+              rootFingerprint: rootPrint,
+              maxAge: const Duration(days: 30),
+              now: DateTime.utc(2026, 12, 1)),
+          throwsFormatException);
       // ...and refused against the real Adobe pin.
       expect(() => parseAatlSecuritySettings(signed), throwsFormatException);
     });

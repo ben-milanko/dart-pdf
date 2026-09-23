@@ -77,7 +77,8 @@ Future<void> main(List<String> args) async {
       final territories = {for (final e in snapshot.entries) e.territory};
       stdout.writeln('EUTL: LOTL #${snapshot.lotlSequenceNumber}, '
           '${snapshot.entries.length} qualified CA certificates from '
-          '${territories.length} lists -> $eutlOut');
+          '${territories.length} lists, valid until '
+          '${snapshot.expires?.toIso8601String()} -> $eutlOut');
       snapshot.problems.forEach((territory, problem) {
         stdout.writeln('  skipped $territory: $problem');
       });

@@ -61,9 +61,16 @@ class PdfAatlSnapshot {
 ///
 /// [rootFingerprint] overrides the pinned root (tests, or a future Adobe
 /// root).
+///
+/// Unlike an ETSI trusted list, the AATL file carries no NextUpdate or
+/// expiry field - only the date Adobe signed it. Pass [maxAge] to refuse a
+/// file signed longer ago than that before [now] (Acrobat itself refreshes
+/// it periodically); by default the age is not judged.
 PdfAatlSnapshot parseAatlSecuritySettings(Uint8List file,
     {bool verifySignature = true,
-    String rootFingerprint = PdfAatl.adobeRootFingerprint}) {
+    String rootFingerprint = PdfAatl.adobeRootFingerprint,
+    Duration? maxAge,
+    DateTime? now}) {
   final document = PdfDocument.open(file);
   DateTime? signedAt;
   String? signer;
@@ -90,6 +97,13 @@ PdfAatlSnapshot parseAatlSecuritySettings(Uint8List file,
     }
     signedAt = result.signedAt ?? signature.signingTime;
     signer = result.signerCertificate?.subjectCommonName;
+    if (maxAge != null) {
+      final at = (now ?? DateTime.now()).toUtc();
+      if (signedAt == null || at.difference(signedAt) > maxAge) {
+        throw FormatException('the AATL file is older than $maxAge '
+            '(signed ${signedAt?.toIso8601String() ?? 'at an unknown time'})');
+      }
+    }
   }
   Uint8List? xml;
   for (final attachment in PdfAttachments.of(document).all) {

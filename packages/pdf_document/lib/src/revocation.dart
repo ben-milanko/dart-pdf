@@ -316,16 +316,38 @@ typedef PdfRevocationFetch = Future<Uint8List> Function(
 /// nonce is POSTed; a response that echoes a *different* nonce is dropped as
 /// a replay. Responders that return a cached response without any nonce
 /// are accepted - most public CAs do this - and are judged on freshness
-/// (thisUpdate/nextUpdate) by the validator instead. When OCSP is missing,
-/// fails, or does not say good/revoked, the first CRL that downloads is
-/// used. Failures are swallowed per certificate: the validator reports the
+/// (thisUpdate/nextUpdate) instead. OCSP settles a certificate only when its
+/// answer fully verifies (CertID, issuer or authorized-responder signature,
+/// freshness at [clock]) and says good or revoked; otherwise - missing,
+/// failed, forged, unauthorized, stale or "unknown" - the CRL distribution
+/// points are tried, the first verifying, current CRL winning. Failures are swallowed per certificate: the validator reports the
 /// certificate as "revocation unknown" rather than failing the whole check.
 PdfRevocationClient pdfOnlineRevocationClient({
   required PdfRevocationFetch fetch,
   bool useNonce = true,
   Random? random,
+  DateTime Function()? clock,
 }) {
   final rng = random ?? Random.secure();
+  final now = clock ?? DateTime.now;
+  // Decisive only when the answer would also satisfy the validator: CertID,
+  // issuer or authorized responder signature, and freshness. A forged,
+  // unauthorized or stale answer must not suppress the CRL fallback.
+  bool decisive(X509Certificate cert, X509Certificate issuer,
+          {List<OcspResponse> ocsps = const [],
+          List<CertificateRevocationList> crls = const []}) =>
+      switch (checkCertificateRevocation(
+        certificate: cert,
+        issuer: issuer,
+        ocspResponses: ocsps,
+        crls: crls,
+        source: PdfRevocationSource.live,
+        freshAt: now().toUtc(),
+      ).status) {
+        PdfRevocationStatus.good || PdfRevocationStatus.revoked => true,
+        _ => false,
+      };
+
   return (chain) async {
     final ocsps = <Uint8List>[];
     final crls = <Uint8List>[];
@@ -349,26 +371,33 @@ PdfRevocationClient pdfOnlineRevocationClient({
           if (!replayed &&
               response.responseStatus == OcspResponseStatus.successful) {
             ocsps.add(body);
-            final single = response.forCertificate(cert, issuer);
-            decided = single != null && single.status != OcspCertStatus.unknown;
+            decided = decisive(cert, issuer, ocsps: [response]);
           }
         } on Object {
           // fall through to the CRL
         }
       }
       if (decided) continue;
+      // The first CRL that verifies and is current wins; if none does, the
+      // first one fetched is still handed over so the validator can say why.
+      Uint8List? fallback;
       for (final url in cert.crlDistributionUrls) {
         final uri = _httpUrl(url);
         if (uri == null) continue;
         try {
           final body = await fetch(PdfRevocationRequest(uri));
-          CertificateRevocationList.parse(body); // reject junk early
-          crls.add(body);
-          break;
+          final crl = CertificateRevocationList.parse(body);
+          if (decisive(cert, issuer, crls: [crl])) {
+            crls.add(body);
+            fallback = null;
+            break;
+          }
+          fallback ??= body;
         } on Object {
           // try the next distribution point
         }
       }
+      if (fallback != null) crls.add(fallback);
     }
     return PdfRevocationMaterial(ocspResponses: ocsps, crls: crls);
   };

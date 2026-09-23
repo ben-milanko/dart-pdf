@@ -40,6 +40,27 @@ abstract final class PdfEuLotl {
   };
 }
 
+/// How long past its NextUpdate a trusted list is still accepted. A list
+/// that is not reissued by its NextUpdate is expired (ETSI TS 119 612
+/// §5.3.14) and may still carry trust anchors that have since been
+/// withdrawn; the grace only absorbs clock skew and publication lag.
+const pdfTrustListExpiryGrace = Duration(hours: 12);
+
+/// Throws when a list whose NextUpdate is [nextUpdate] is expired at [now]
+/// (a list without a NextUpdate is a closed list - never current).
+void _requireCurrent(String what, DateTime? nextUpdate, DateTime now) {
+  if (nextUpdate == null) {
+    throw FormatException('$what names no NextUpdate (a closed list)');
+  }
+  if (nextUpdate.add(pdfTrustListExpiryGrace).isBefore(now)) {
+    throw FormatException(
+        '$what expired at ${nextUpdate.toUtc().toIso8601String()}');
+  }
+}
+
+DateTime? _nextUpdateOf(XmlLiteElement? scheme) => DateTime.tryParse(
+    scheme?.child('NextUpdate')?.child('dateTime')?.text.trim() ?? '');
+
 /// ETSI service types kept as signature trust anchors.
 const _anchorServiceTypes = {
   'http://uri.etsi.org/TrstSvc/Svctype/CA/QC',
@@ -94,6 +115,7 @@ class PdfEuTrustListSnapshot {
     this.lotlSequenceNumber,
     this.lotlIssued,
     this.lotlNextUpdate,
+    this.expires,
     this.problems = const {},
   });
 
@@ -102,6 +124,18 @@ class PdfEuTrustListSnapshot {
   final int? lotlSequenceNumber;
   final DateTime? lotlIssued;
   final DateTime? lotlNextUpdate;
+
+  /// The earliest NextUpdate among the LOTL and every list whose anchors
+  /// are included - past it (plus [pdfTrustListExpiryGrace]) some of those
+  /// lists are expired and the snapshot must not be used.
+  final DateTime? expires;
+
+  /// Whether the snapshot is still within every included list's validity at
+  /// [now]. A snapshot with no recorded expiry is never current.
+  bool isCurrentAt(DateTime now) {
+    final until = expires;
+    return until != null && !until.add(pdfTrustListExpiryGrace).isBefore(now);
+  }
 
   /// Territory (or `EU` for the LOTL) -> why that list was skipped.
   final Map<String, String> problems;
@@ -137,6 +171,9 @@ class PdfEuTrustListSnapshot {
     if (lotlNextUpdate != null) {
       out.writeln(
           '# lotl-next-update: ${lotlNextUpdate!.toUtc().toIso8601String()}');
+    }
+    if (expires != null) {
+      out.writeln('# expires: ${expires!.toUtc().toIso8601String()}');
     }
     for (final entry in problems.entries) {
       out.writeln('# skipped ${entry.key}: '
@@ -178,14 +215,16 @@ class PdfEuTrustListSnapshot {
       lotlSequenceNumber: seq == null ? null : int.parse(seq.group(1)!),
       lotlIssued: header('lotl-issued'),
       lotlNextUpdate: header('lotl-next-update'),
+      expires: header('expires'),
     );
   }
 }
 
 String _fingerprint(Uint8List der) => crypto.sha256.convert(der).toString();
 
-/// Parses and verifies the LOTL: its signature must verify and its signing
-/// certificate must be one of [pinnedSigners] (SHA-256 fingerprints).
+/// Parses and verifies the LOTL: its signature must verify, its signing
+/// certificate must be one of [pinnedSigners] (SHA-256 fingerprints), and it
+/// must not be expired at [now] (NextUpdate + [pdfTrustListExpiryGrace]).
 /// Returns the pointers to the Member State XML lists.
 ({
   List<PdfTrustListPointer> pointers,
@@ -193,7 +232,7 @@ String _fingerprint(Uint8List der) => crypto.sha256.convert(der).toString();
   DateTime? issued,
   DateTime? nextUpdate
 }) parseEuLotl(Uint8List bytes,
-    {Set<String> pinnedSigners = PdfEuLotl.signerFingerprints}) {
+    {Set<String> pinnedSigners = PdfEuLotl.signerFingerprints, DateTime? now}) {
   final doc = XmlLiteDocument.parse(bytes);
   final check = verifyEnvelopedXmlSignature(doc);
   if (!check.valid) {
@@ -204,6 +243,8 @@ String _fingerprint(Uint8List der) => crypto.sha256.convert(der).toString();
         'LOTL is signed by a certificate outside the pinned LOTL signers');
   }
   final scheme = doc.root.child('SchemeInformation');
+  final nextUpdate = _nextUpdateOf(scheme);
+  _requireCurrent('LOTL', nextUpdate, (now ?? DateTime.now()).toUtc());
   final pointers = <PdfTrustListPointer>[];
   for (final p in scheme
           ?.child('PointersToOtherTSL')
@@ -236,16 +277,17 @@ String _fingerprint(Uint8List der) => crypto.sha256.convert(der).toString();
         int.tryParse(scheme?.child('TSLSequenceNumber')?.text.trim() ?? ''),
     issued: DateTime.tryParse(
         scheme?.child('ListIssueDateTime')?.text.trim() ?? ''),
-    nextUpdate: DateTime.tryParse(
-        scheme?.child('NextUpdate')?.child('dateTime')?.text.trim() ?? ''),
+    nextUpdate: nextUpdate,
   );
 }
 
 /// Parses and verifies one Member State list against its LOTL [pointer]:
-/// the list's signature must verify with one of the pointer's certificates.
-/// Returns the active qualified CA service certificates.
-List<PdfTrustListEntry> parseEuTrustedList(
-    Uint8List bytes, PdfTrustListPointer pointer) {
+/// the list's signature must verify with one of the pointer's certificates,
+/// and it must not be expired at [now]. Returns the active qualified CA
+/// service certificates and the list's NextUpdate.
+({List<PdfTrustListEntry> entries, DateTime nextUpdate}) parseEuTrustedList(
+    Uint8List bytes, PdfTrustListPointer pointer,
+    {DateTime? now}) {
   final doc = XmlLiteDocument.parse(bytes);
   final check = verifyEnvelopedXmlSignature(doc);
   if (!check.valid) {
@@ -256,6 +298,9 @@ List<PdfTrustListEntry> parseEuTrustedList(
     throw const FormatException(
         'signed by a certificate the LOTL does not list for this territory');
   }
+  final nextUpdate = _nextUpdateOf(doc.root.child('SchemeInformation'));
+  _requireCurrent('the ${pointer.territory} trusted list', nextUpdate,
+      (now ?? DateTime.now()).toUtc());
   final entries = <PdfTrustListEntry>[];
   for (final service in doc.root.descendantsNamed('TSPService')) {
     final info = service.child('ServiceInformation');
@@ -290,22 +335,25 @@ List<PdfTrustListEntry> parseEuTrustedList(
       }
     }
   }
-  return entries;
+  return (entries: entries, nextUpdate: nextUpdate!);
 }
 
 /// Fetches the LOTL and every Member State list through [fetch], verifies
 /// each signature (the LOTL against [pinnedSigners], each national list
 /// against the certificates the LOTL names for it) and collects the
 /// qualified CA anchors. A list that fails to download or verify is
-/// skipped and reported in [PdfEuTrustListSnapshot.problems]; a LOTL that
-/// fails is fatal (thrown).
+/// skipped and reported in [PdfEuTrustListSnapshot.problems] - including one
+/// that is expired at [now]; a LOTL that fails or is expired is fatal
+/// (thrown). The snapshot's [PdfEuTrustListSnapshot.expires] is the earliest
+/// NextUpdate of the lists it was built from.
 Future<PdfEuTrustListSnapshot> fetchEuTrustedLists({
   required PdfTrustListFetch fetch,
   Set<String> pinnedSigners = PdfEuLotl.signerFingerprints,
   DateTime? now,
 }) async {
-  final lotl =
-      parseEuLotl(await fetch(PdfEuLotl.url), pinnedSigners: pinnedSigners);
+  final at = (now ?? DateTime.now()).toUtc();
+  final lotl = parseEuLotl(await fetch(PdfEuLotl.url),
+      pinnedSigners: pinnedSigners, now: at);
   // One list per territory (the first XML pointer), fetched concurrently -
   // the downloads dominate, and the lists are independent.
   final byTerritory = <String, PdfTrustListPointer>{};
@@ -317,20 +365,28 @@ Future<PdfEuTrustListSnapshot> fetchEuTrustedLists({
     for (final pointer in byTerritory.values)
       () async {
         try {
-          return parseEuTrustedList(await fetch(pointer.location), pointer);
+          return parseEuTrustedList(await fetch(pointer.location), pointer,
+              now: at);
         } on Object catch (e) {
           problems[pointer.territory] = '${pointer.location}: $e';
-          return const <PdfTrustListEntry>[];
+          return null;
         }
       }(),
   ]);
-  final entries = [for (final list in results) ...list];
+  final entries = <PdfTrustListEntry>[];
+  var expires = lotl.nextUpdate!; // parseEuLotl refuses a list without one
+  for (final list in results) {
+    if (list == null) continue;
+    entries.addAll(list.entries);
+    if (list.nextUpdate.isBefore(expires)) expires = list.nextUpdate;
+  }
   return PdfEuTrustListSnapshot(
     entries: entries,
-    fetchedAt: (now ?? DateTime.now()).toUtc(),
+    fetchedAt: at,
     lotlSequenceNumber: lotl.sequence,
     lotlIssued: lotl.issued,
     lotlNextUpdate: lotl.nextUpdate,
+    expires: expires,
     problems: problems,
   );
 }

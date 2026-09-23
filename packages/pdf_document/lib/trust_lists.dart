@@ -32,8 +32,19 @@ export 'src/trust_lists/xml_lite.dart'
 abstract final class PdfTrustLists {
   /// A store anchored at the EU qualified CA services of a snapshot PEM (as
   /// written by [PdfEuTrustListSnapshot.toPem] or the refresh tool).
-  static PdfTrustStore eutl(String snapshotPem) =>
-      PdfEuTrustListSnapshot.fromPem(snapshotPem).toTrustStore();
+  ///
+  /// Throws a [FormatException] when the snapshot is expired at [now] (one
+  /// of the lists it was built from is past its NextUpdate) - an expired
+  /// list may still hold withdrawn anchors. Refresh it instead.
+  static PdfTrustStore eutl(String snapshotPem, {DateTime? now}) {
+    final snapshot = PdfEuTrustListSnapshot.fromPem(snapshotPem);
+    final at = (now ?? DateTime.now()).toUtc();
+    if (!snapshot.isCurrentAt(at)) {
+      throw FormatException('the EU trusted list snapshot expired '
+          '(${snapshot.expires?.toIso8601String() ?? 'no expiry recorded'})');
+    }
+    return snapshot.toTrustStore();
+  }
 
   /// A store anchored at the trusted roots of an AATL
   /// `.acrobatsecuritysettings` file the host obtained (signature checked

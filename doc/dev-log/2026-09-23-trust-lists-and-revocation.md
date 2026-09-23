@@ -72,6 +72,29 @@
   Fetching and verifying run in `Isolate.run`, and a failed refresh falls back
   to the stale cache.
 
+## Review fixes (PR #948)
+
+- `pdfOnlineRevocationClient` used to treat any matching good/revoked OCSP
+  status as final. A forged, unauthorized or stale answer therefore skipped
+  the CRL, and the validator then rejected the OCSP answer and reported
+  unknown. Now OCSP settles a certificate only when
+  `checkCertificateRevocation` would accept it at the client's `clock`.
+  Otherwise the CRL points are tried, and the first CRL that verifies and is
+  current wins.
+- Trusted lists now expire. The LOTL and each national list must have a
+  NextUpdate that hasn't passed, allowing `pdfTrustListExpiryGrace` (12 h)
+  for skew and publication lag. A list with no NextUpdate is a closed list
+  and is refused. An expired LOTL is fatal; an expired national list is
+  skipped with a problem.
+- Each snapshot records `expires`, the earliest NextUpdate among the lists
+  it was built from (`# expires:` in the PEM). `isCurrentAt` gates
+  `PdfTrustLists.eutl` and the app cache. The app uses a cached snapshot
+  only while it is under 7 days old *and* current. After a failed refresh it
+  falls back only to a cache that is still current, so an expired one is
+  never brought back.
+- The AATL file has no expiry field, only Adobe's signing date.
+  `parseAatlSecuritySettings(maxAge:, now:)` is an opt-in age limit.
+
 ## Licensing finding
 
 The AATL has no redistribution grant we could find (Adobe publishes it for

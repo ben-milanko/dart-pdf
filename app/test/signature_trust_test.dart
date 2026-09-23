@@ -7,7 +7,6 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_document/trust_lists.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -94,26 +93,83 @@ void main() {
     trust.detach(withSignature);
   });
 
-  test('a fresh cached EU snapshot loads without touching the network',
-      () async {
-    final dir = await Directory.systemTemp.createTemp('eutl');
-    addTearDown(() => dir.delete(recursive: true));
-    final file = File('${dir.path}/eutl.pem');
+  group('EU trusted list cache', () {
     final now = DateTime.utc(2026, 9, 23);
-    await file.writeAsString(PdfEuTrustListSnapshot(
-      entries: [
-        PdfTrustListEntry(
-          territory: 'XX',
-          serviceName: 'Test CA',
-          serviceType: 'http://uri.etsi.org/TrstSvc/Svctype/CA/QC',
-          certificate: pki.root,
-        ),
-      ],
-      fetchedAt: now.subtract(const Duration(days: 2)),
-    ).toPem());
-    final loaded =
-        await store.loadEuTrustStore(now: now, cacheFile: () async => file);
-    expect(loaded?.anchors.single.subjectCommonName, 'Revocation Test Root');
-    expect(X509Certificate.parse(pki.root).isCa, isTrue);
+    late File file;
+
+    setUp(() async {
+      final dir = await Directory.systemTemp.createTemp('eutl');
+      addTearDown(() => dir.delete(recursive: true));
+      file = File('${dir.path}/eutl.pem');
+    });
+
+    String snapshot({
+      required Duration age,
+      required DateTime expires,
+      String name = 'Test CA',
+    }) =>
+        PdfEuTrustListSnapshot(
+          entries: [
+            PdfTrustListEntry(
+              territory: 'XX',
+              serviceName: name,
+              serviceType: 'http://uri.etsi.org/TrstSvc/Svctype/CA/QC',
+              certificate: pki.root,
+            ),
+          ],
+          fetchedAt: now.subtract(age),
+          expires: expires,
+        ).toPem();
+
+    Future<String> offline() async => throw const SocketException('offline');
+
+    Future<PdfTrustStore?> load({Future<String> Function()? fetch}) =>
+        store.loadEuTrustStore(
+          now: now,
+          cacheFile: () async => file,
+          fetchSnapshotPem: fetch ?? offline,
+        );
+
+    test('a fresh, current cache loads without fetching', () async {
+      await file.writeAsString(
+          snapshot(age: const Duration(days: 2), expires: DateTime.utc(2027)));
+      var fetched = false;
+      final loaded = await load(fetch: () async {
+        fetched = true;
+        return offline();
+      });
+      expect(fetched, isFalse);
+      expect(loaded?.anchors.single.subjectCommonName, 'Revocation Test Root');
+    });
+
+    test('a recent cache past its NextUpdate is refreshed, not used', () async {
+      await file.writeAsString(snapshot(
+          age: const Duration(days: 1), expires: DateTime.utc(2026, 9, 1)));
+      final fresh = snapshot(
+          age: Duration.zero, expires: DateTime.utc(2027), name: 'Fresh CA');
+      final loaded = await load(fetch: () async => fresh);
+      expect(loaded?.anchors, hasLength(1));
+      expect(await file.readAsString(), fresh);
+    });
+
+    test('an expired cache is never resurrected when the refresh fails',
+        () async {
+      await file.writeAsString(snapshot(
+          age: const Duration(days: 30), expires: DateTime.utc(2026, 9, 1)));
+      expect(await load(), isNull);
+    });
+
+    test('an old but still current cache covers a failed refresh', () async {
+      await file.writeAsString(
+          snapshot(age: const Duration(days: 30), expires: DateTime.utc(2027)));
+      expect(await load(), isNotNull);
+    });
+
+    test('an expired snapshot from the refresh is not cached', () async {
+      final stale =
+          snapshot(age: Duration.zero, expires: DateTime.utc(2026, 9, 1));
+      expect(await load(fetch: () async => stale), isNull);
+      expect(await file.exists(), isFalse);
+    });
   });
 }

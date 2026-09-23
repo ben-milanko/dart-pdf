@@ -405,6 +405,7 @@ void main() {
         () async {
       final requests = <PdfRevocationRequest>[];
       final client = pdfOnlineRevocationClient(
+        clock: () => now,
         random: Random(5),
         fetch: (request) async {
           requests.add(request);
@@ -443,6 +444,7 @@ void main() {
         nextUpdate: now.add(const Duration(days: 1)),
       );
       final client = pdfOnlineRevocationClient(
+        clock: () => now,
         fetch: (request) async {
           if (request.isPost) {
             return buildTestOcspResponse(
@@ -465,6 +467,7 @@ void main() {
 
     test('accepts a responder that ignores the nonce', () async {
       final client = pdfOnlineRevocationClient(
+        clock: () => now,
         fetch: (request) async {
           if (request.isPost) return ocspFor();
           return rootCrl();
@@ -476,6 +479,7 @@ void main() {
 
     test('end to end through validateOnline', () async {
       final client = pdfOnlineRevocationClient(
+        clock: () => now,
         fetch: (request) async {
           if (request.isPost) {
             if (_requestSerial(request.body!) != signerCert.serial) {
@@ -500,6 +504,79 @@ void main() {
       expect(result.revocation.map((r) => r.status),
           [PdfRevocationStatus.revoked, PdfRevocationStatus.good]);
       expect(result.chainTrusted, isFalse);
+    });
+  });
+
+  group('pdfOnlineRevocationClient falls back to the CRL', () {
+    final chain = [
+      for (final der in pki.chain) X509Certificate.parse(der),
+    ];
+    final signerCrl = buildTestCrl(
+      issuer: pki.intermediate,
+      issuerKey: pki.intermediateKey,
+      revoked: {signerCert.serial: DateTime.utc(2026, 7, 1)},
+      thisUpdate: now.subtract(const Duration(hours: 1)),
+      nextUpdate: now.add(const Duration(days: 1)),
+    );
+
+    /// Serves [ocsp] for the signer's OCSP request (the intermediate's gets
+    /// a 500) and the right CRL for each distribution point; returns the
+    /// URLs fetched.
+    Future<(PdfRevocationMaterial, List<String>)> run(Uint8List ocsp) async {
+      final fetched = <String>[];
+      final client = pdfOnlineRevocationClient(
+        clock: () => now,
+        useNonce: false,
+        fetch: (request) async {
+          fetched.add(request.url.toString());
+          if (request.isPost) {
+            if (_requestSerial(request.body!) != signerCert.serial) {
+              throw StateError('HTTP 500');
+            }
+            return ocsp;
+          }
+          return request.url.toString() == testSignerCrlUrl
+              ? signerCrl
+              : rootCrl();
+        },
+      );
+      return (await client(chain), fetched);
+    }
+
+    Future<void> expectCrlDecides(Uint8List ocsp) async {
+      final (material, fetched) = await run(ocsp);
+      expect(fetched, contains(testSignerCrlUrl),
+          reason: 'an unusable OCSP answer must not suppress the CRL');
+      final result = await only(signPlain()).validateOnline(
+        trustStore: trust,
+        revocationClient: (_) async => material,
+        now: now,
+      );
+      final leaf = result.revocation.first;
+      expect(leaf.mechanism, PdfRevocationMechanism.crl);
+      expect(leaf.status, PdfRevocationStatus.revoked);
+    }
+
+    test('a forged-signature OCSP answer', () async {
+      final forger = EcPrivateKey.generate(EcCurve.p256, random: Random(2));
+      await expectCrlDecides(ocspFor(key: forger));
+    });
+
+    test('a stale OCSP answer', () async {
+      await expectCrlDecides(ocspFor(
+        thisUpdate: now.subtract(const Duration(days: 10)),
+        nextUpdate: now.subtract(const Duration(days: 2)),
+      ));
+    });
+
+    test('an answer from an unauthorized responder', () async {
+      await expectCrlDecides(
+          ocspFor(key: pki.responderKey, responder: pki.rogueResponder));
+    });
+
+    test('a verified OCSP answer still settles it without the CRL', () async {
+      final (_, fetched) = await run(ocspFor());
+      expect(fetched, isNot(contains(testSignerCrlUrl)));
     });
   });
 

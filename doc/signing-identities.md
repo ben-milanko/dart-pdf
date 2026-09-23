@@ -289,12 +289,17 @@ It contains code, not certificates:
   pinned LOTL signing certificates (`PdfEuLotl.signerFingerprints`), then
   downloads each Member State list and verifies it against the certificates
   the LOTL names for that country. It keeps the active qualified CA services
-  (`CA/QC` and `NationalRootCA-QC` with a granted status). The result
-  serializes to a PEM snapshot (`toPem` / `PdfTrustLists.eutl(pem)`).
+  (`CA/QC` and `NationalRootCA-QC` with a granted status). A list past its
+  NextUpdate (with 12 hours of grace) is expired and may still hold
+  withdrawn anchors. An expired LOTL is refused outright, and an expired
+  national list is skipped. The result serializes to a PEM snapshot that
+  records when the earliest of its lists expires (`toPem`, `expires`), and
+  `PdfTrustLists.eutl(pem)` refuses a snapshot past that date.
 - **Adobe Approved Trust List (AATL).** `parseAatlSecuritySettings(bytes)`
   reads a `.acrobatsecuritysettings` file you already have. It checks that the
   file's PDF signature chains to Adobe Root CA G2 (pinned by fingerprint) and
-  keeps the identities marked as trusted roots.
+  keeps the identities marked as trusted roots. The file has no expiry
+  field, only Adobe's signing date, so an age limit is opt-in (`maxAge:`).
 
 **Why no data is committed.** The AATL is distributed by Adobe for Acrobat
 under its member agreements, and we found no terms that allow a third party to
@@ -311,7 +316,9 @@ eutl.pem [--aatl aatl.pem]` writes verified PEM snapshots for a host to ship or
 cache. Cadence:
 
 - The DartPDF app refreshes its cached EU snapshot when it is older than
-  **7 days**, and only after a signed document is opened. Member States
+  **7 days** or any list in it has expired, and only after a signed
+  document is opened. If the refresh fails, it keeps a cache that is still
+  current and drops an expired one. Member States
   reissue their lists when a service changes, so weekly keeps them current
   without re-downloading about 25 MB on every launch.
 - A host that ships a snapshot should refresh it at least **monthly** and

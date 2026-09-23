@@ -22,48 +22,68 @@ Future<File> _cacheFile() async {
   return File('${base.path}/signature_trust/eutl.pem');
 }
 
-/// The EU trusted list anchors: the cached snapshot while it is younger than
-/// [euTrustListMaxAge], otherwise a fresh fetch (verified and cached), and
-/// the stale cache when a refresh fails. Parsing, downloading and XML
-/// signature verification all run in a background isolate.
+/// The EU trusted list anchors.
+///
+/// - The cached snapshot is used while it is younger than
+///   [euTrustListMaxAge] *and* still current - none of the lists it was
+///   built from is past its NextUpdate (`PdfEuTrustListSnapshot.isCurrentAt`).
+/// - Otherwise a fresh snapshot is fetched, verified and cached. The library
+///   refuses an expired LOTL outright and skips an expired national list.
+/// - When that refresh fails, an older cached snapshot is used only if it is
+///   still current; an expired one is never brought back (returns null, so
+///   signatures read as "not from a trusted authority" rather than trusting
+///   anchors that may have been withdrawn).
+///
+/// Parsing, downloading and XML signature verification all run in a
+/// background isolate. [cacheFile] and [fetchSnapshotPem] are test seams.
 Future<PdfTrustStore?> loadEuTrustStore({
   DateTime? now,
   Future<File> Function()? cacheFile,
+  Future<String> Function()? fetchSnapshotPem,
 }) async {
   final file = await (cacheFile ?? _cacheFile)();
   final clock = (now ?? DateTime.now()).toUtc();
-  String? cached;
+  PdfEuTrustListSnapshot? cached;
   try {
-    if (await file.exists()) cached = await file.readAsString();
-  } on FileSystemException {
+    if (await file.exists()) {
+      final pem = await file.readAsString();
+      cached = await Isolate.run(() => PdfEuTrustListSnapshot.fromPem(pem));
+    }
+  } on Object catch (error) {
+    debugPrint('EU trusted list cache unreadable: $error');
     cached = null;
   }
-  if (cached != null) {
-    final pem = cached;
-    final snapshot =
-        await Isolate.run(() => PdfEuTrustListSnapshot.fromPem(pem));
-    if (clock.difference(snapshot.fetchedAt) < euTrustListMaxAge &&
-        snapshot.entries.isNotEmpty) {
-      return Isolate.run(snapshot.toTrustStore);
-    }
+  final usable =
+      cached != null && cached.entries.isNotEmpty && cached.isCurrentAt(clock);
+  if (usable && clock.difference(cached.fetchedAt) < euTrustListMaxAge) {
+    return Isolate.run(cached.toTrustStore);
   }
   try {
-    final pem = await Isolate.run(() async {
+    final pem = await (fetchSnapshotPem ?? _fetchSnapshotPem)();
+    final fresh = await Isolate.run(() => PdfEuTrustListSnapshot.fromPem(pem));
+    if (!fresh.isCurrentAt(clock) || fresh.entries.isEmpty) {
+      throw StateError('the fetched EU trusted list snapshot is not current');
+    }
+    await file.parent.create(recursive: true);
+    await file.writeAsString(pem, flush: true);
+    return await Isolate.run(fresh.toTrustStore);
+  } catch (error) {
+    debugPrint('EU trusted list refresh failed: $error');
+    if (!usable) {
+      if (cached != null) {
+        debugPrint('EU trusted list cache expired '
+            '(${cached.expires?.toIso8601String()}); not using it');
+      }
+      return null;
+    }
+    return Isolate.run(cached.toTrustStore);
+  }
+}
+
+Future<String> _fetchSnapshotPem() => Isolate.run(() async {
       final snapshot = await fetchEuTrustedLists(fetch: _get);
       return snapshot.toPem();
     });
-    await file.parent.create(recursive: true);
-    await file.writeAsString(pem, flush: true);
-    return await Isolate.run(
-        () => PdfEuTrustListSnapshot.fromPem(pem).toTrustStore());
-  } catch (error) {
-    debugPrint('EU trusted list refresh failed: $error');
-    if (cached == null) return null;
-    final pem = cached;
-    return Isolate.run(
-        () => PdfEuTrustListSnapshot.fromPem(pem).toTrustStore());
-  }
-}
 
 Future<Uint8List> _get(Uri url) async {
   final response = await http.get(url, headers: const {
