@@ -1,6 +1,8 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
+import 'signature_trust.dart';
+
 /// A detached snapshot used to move a live document into another native
 /// window.
 ///
@@ -65,8 +67,14 @@ class DocumentTab {
   static PdfEditingController _handModeController(
     Uint8List bytes,
     PdfEditingPreferences preferences,
-  ) =>
-      PdfEditingController(bytes, preferences: preferences)..activateHandMode();
+  ) {
+    final controller = PdfEditingController(bytes, preferences: preferences)
+      ..activateHandMode();
+    // Off-web: live revocation checks + EU trusted list roots for the
+    // signature panel (see signature_trust.dart).
+    SignatureTrust.platformDefault?.attach(controller);
+    return controller;
+  }
 
   DocumentTab.loading(
       {required this.title,
@@ -309,7 +317,10 @@ class DocumentTab {
     // full read so a closed tab stops pulling bytes.
     cancel?.cancel();
     progress?.dispose();
-    session?.dispose();
+    if (session case final session?) {
+      SignatureTrust.platformDefault?.detach(session);
+      session.dispose();
+    }
     viewer?.dispose();
   }
 }
