@@ -33,7 +33,10 @@ in CLIs and servers, and on the web.
 - Forms: the AcroForm field model, filling with regenerated appearances
   (text, checkbox, radio, choice, auto-size, quadding), and field
   administration (add, rename, remove, change type, button images,
-  flatten).
+  flatten). XFA is detected (`PdfAcroForm.hasXfa` / `isDynamicXfa`) but
+  not rendered or filled: hybrid XFA forms fill through their AcroForm
+  fields, and filling or flattening removes the stale `/XFA` entry
+  (`PdfEditor.removeXfa`).
 - Signatures: read and validate (`PdfSignature.validate`, optional
   trust-store chain validation) and sign (`PdfEditor.saveSigned`,
   `adbe.pkcs7.detached`).

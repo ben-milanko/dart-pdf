@@ -295,6 +295,7 @@
   "searchWholeWord": "Слово целиком",
   "shellControls": "Элементы управления",
   "shellDefaultAuthor": "Автор по умолчанию…",
+  "formXfaUnsupportedNotice": "Эта форма использует XFA, которую здесь нельзя заполнить, поэтому её поля не отображаются. Чтобы заполнить её, откройте в приложении с поддержкой форм XFA.",
   "shellHighlightFormFields": "Выделять поля форм",
   "shellKeyboardShortcutsMenu": "Сочетания клавиш…",
   "shellKeyboardShortcutsTitle": "Сочетания клавиш",

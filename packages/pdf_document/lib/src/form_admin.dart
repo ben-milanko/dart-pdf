@@ -193,7 +193,8 @@ extension PdfFormAdmin on PdfEditor {
   /// their widgets. Missing appearances are generated first, so empty
   /// fields retain their background and border after flattening. Broken
   /// structures - widgets without pages, unparseable rectangles, corrupt
-  /// appearance streams - are skipped, never fatal.
+  /// appearance streams - are skipped, never fatal. The form's XFA copy
+  /// is removed too ([PdfFormFilling.removeXfa]).
   void flattenForm() {
     final form = acroForm;
     if (form == null) return;
@@ -220,6 +221,9 @@ extension PdfFormAdmin on PdfEditor {
         removeField(field);
       } catch (_) {}
     }
+    // with the fields gone, an XFA-aware viewer would bring them back from
+    // the XFA packet over the flattened page content
+    removeXfa();
   }
 
   /// Materializes normal appearances that a viewer would otherwise have to
