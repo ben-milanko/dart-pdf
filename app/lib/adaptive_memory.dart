@@ -47,8 +47,7 @@ const pdfWarmPageRasterEntryFloorBytes = 24 * _mb;
 
 int _pageRasterEntryFloor(PdfPerformancePlatform platform) =>
     switch (platform) {
-      PdfPerformancePlatform.desktop || PdfPerformancePlatform.web =>
-        16 * _mb,
+      PdfPerformancePlatform.desktop || PdfPerformancePlatform.web => 16 * _mb,
       PdfPerformancePlatform.mobile || PdfPerformancePlatform.other => 8 * _mb,
     };
 
@@ -250,7 +249,9 @@ AdaptiveMemoryDecision computeAdaptiveMemoryDecision({
 ///
 /// Shrinks are immediate. Growth is rate-limited after the first sample and
 /// blocked for five minutes after memory pressure, avoiding oscillation around
-/// an OS threshold. A fixed Developer-tools page budget still passes through
+/// an OS threshold. A repeat pressure signal inside those five minutes does
+/// not halve again, and while the app is hidden only low memory changes the
+/// budgets. A fixed Developer-tools page budget still passes through
 /// the process-wide registry ceiling, so a diagnostic 5-GB override cannot make
 /// two viewers reserve 10 GB between them.
 class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
@@ -283,7 +284,16 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   DateTime? _lastPressure;
   int? _pressureRegistryCap;
   bool _lowMemoryActive = false;
+  int _clearSamplesSinceLowMemory = 0;
+  bool _backgrounded = false;
   int? _lastRssBytes;
+
+  /// Consecutive clear samples before a platform low-memory state is over.
+  ///
+  /// The platform flag is a level compared against a threshold, and a machine
+  /// sitting near that threshold flips it on and off. Without hysteresis every
+  /// re-entry was a fresh pressure event - see [_applyPressure].
+  static const lowMemoryClearSamples = 2;
 
   // Chrome's `usedJSHeapSize` is sampled before its next GC and includes
   // short-lived worker transfer/deserialization buffers. A single large-page
@@ -344,8 +354,7 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   int _warmAwareEntryLimit(int bytes) {
     final derived = _entryLimitFor(bytes, platform);
     if (bytes == 0 || !tools.pageRasterWarmPolicy.value.enabled) return derived;
-    return math.min(
-        bytes, math.max(derived, pdfWarmPageRasterEntryFloorBytes));
+    return math.min(bytes, math.max(derived, pdfWarmPageRasterEntryFloorBytes));
   }
 
   void _onWarmPolicyChanged() {
@@ -364,13 +373,23 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
       // punish are where the memory actually is.
       _lastRssBytes = snapshot.processRssBytes ?? _lastRssBytes;
       if (snapshot.lowMemory) {
+        _clearSamplesSinceLowMemory = 0;
         if (!_lowMemoryActive) {
           _lowMemoryActive = true;
-          _applyPressure('platform low-memory threshold');
+          _applyPressure('platform low-memory threshold', event: false);
         }
         return;
       }
+      if (_lowMemoryActive &&
+          ++_clearSamplesSinceLowMemory < lowMemoryClearSamples) {
+        return;
+      }
       _lowMemoryActive = false;
+      // While the app is hidden, the apps the user switched to are what move
+      // available memory, and shrinking for them only throws away pages the
+      // user will come back to. The low-memory path above still guards the
+      // machine; the budgets are re-derived on the resume sample.
+      if (_backgrounded) return;
       applySnapshot(snapshot);
     } catch (error) {
       tools.addLog('memory-auto: sample failed: $error',
@@ -462,14 +481,37 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   }
 
   @override
-  void didHaveMemoryPressure() => _applyPressure('OS memory pressure');
+  void didHaveMemoryPressure() =>
+      _applyPressure('OS memory pressure', event: true);
 
-  void _applyPressure(String reason) {
+  /// Responds to memory pressure: reclaims, then halves the budgets for
+  /// [pressureCooldown].
+  ///
+  /// [event] is true for a discrete OS callback and false for the polled
+  /// low-memory level.
+  void _applyPressure(String reason, {required bool event}) {
     final now = _clock();
-    // Coalesce a sustained low-memory state: repeated 15-second samples should
-    // not halve an already-empty cache all the way to zero.
-    if (_lastPressure != null &&
-        now.difference(_lastPressure!) < const Duration(seconds: 30)) {
+    final last = _lastPressure;
+    // Coalesce a burst of signals.
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    // A repeat inside the cooldown finds the budgets already halved. Halving
+    // again - and restarting the cooldown - is a ratchet: a Windows machine
+    // hovering at the old 90%-load threshold re-entered low memory every
+    // minute or so and walked the page cache down to its floor, where it
+    // stayed for as long as the app was open. A discrete OS callback still
+    // reclaims what it can; the polled level just holds.
+    if (last != null && now.difference(last) < pressureCooldown) {
+      if (!event) {
+        tools.addLog('memory-auto: $reason again within the cooldown; '
+            'budgets held');
+        return;
+      }
+      final freed = PdfCacheRegistry.instance.handleMemoryPressure() +
+          PdfLiveRasterBudget.instance.evictReclaimable();
+      tools.addLog('memory-auto: $reason within the cooldown, reclaimed '
+          '${freed >> 20}MB; budgets held');
       return;
     }
     _lastPressure = now;
@@ -535,8 +577,16 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _backgrounded = false;
       unawaited(sample());
       return;
+    }
+    // `inactive` is a visible window without focus (and a transition state),
+    // so it leaves the flag as it was.
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _backgrounded = true;
     }
     if (platform != PdfPerformancePlatform.mobile ||
         (state != AppLifecycleState.hidden &&
