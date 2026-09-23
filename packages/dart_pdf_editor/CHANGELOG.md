@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Multi-select list boxes take several values (#933):
+  `PdfEditingController.setFormChoiceValues` and `pickFormChoiceOption`
+  (which toggles an option on a multi-select box), and the form option menus
+  show checkable items for those fields, each pick toggling one option.
+
 - Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
   `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
   default sans, and Helvetica's advances are much wider than Calibri's - with

@@ -244,7 +244,7 @@ extension PdfFormAdmin on PdfEditor {
         _regenerateVariableText(field, field.value ?? '');
       case PdfFieldType.comboBox:
       case PdfFieldType.listBox:
-        _regenerateVariableText(field, _choiceDisplay(field));
+        _regenerateChoice(field);
       case PdfFieldType.checkBox:
       case PdfFieldType.radioGroup:
         _ensureButtonAppearances(field);

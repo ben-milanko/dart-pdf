@@ -1029,14 +1029,22 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
           items: [
             for (final (export, display) in field.options)
-              PopupMenuItem(
-                key: ValueKey('pdf-selected-form-option-$export'),
-                value: export,
-                child: Text(display),
-              ),
+              if (field.isMultiSelect)
+                CheckedPopupMenuItem(
+                  key: ValueKey('pdf-selected-form-option-$export'),
+                  value: export,
+                  checked: field.values.contains(export),
+                  child: Text(display),
+                )
+              else
+                PopupMenuItem(
+                  key: ValueKey('pdf-selected-form-option-$export'),
+                  value: export,
+                  child: Text(display),
+                ),
           ],
         );
-        if (picked != null) controller.setFormChoiceValue(name, picked);
+        if (picked != null) controller.pickFormChoiceOption(name, picked);
       case PdfFieldType.pushButton:
         final picker = widget.formImagePicker;
         if (picker == null) return;

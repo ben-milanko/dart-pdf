@@ -299,11 +299,16 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     }
   }
 
-  /// A choice field's options as a menu anchored under the widget.
+  /// A choice field's options as a menu anchored under the widget. A
+  /// multi-select list box shows a checkable menu: each pick toggles that
+  /// option in or out of the selection
+  /// ([PdfEditingController.pickFormChoiceOption]).
   Future<void> _pickChoice(PdfFormField field, Rect viewRect) async {
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
+    final multi = field.isMultiSelect;
+    final selected = field.values.toSet();
     final box = context.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
@@ -315,19 +320,32 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           topLeft & Size.zero, Offset.zero & overlay.size),
       items: [
         for (final (export, display) in options)
-          PopupMenuItem(
-            key: ValueKey('pdf-form-option-$export'),
-            value: export,
-            height: 34,
-            child: Text(display,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(height: 1.1)),
-          ),
+          if (multi)
+            CheckedPopupMenuItem(
+              key: ValueKey('pdf-form-option-$export'),
+              value: export,
+              height: 34,
+              checked: selected.contains(export),
+              child: Text(display,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium
+                      ?.copyWith(height: 1.1)),
+            )
+          else
+            PopupMenuItem(
+              key: ValueKey('pdf-form-option-$export'),
+              value: export,
+              height: 34,
+              child: Text(display,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium
+                      ?.copyWith(height: 1.1)),
+            ),
       ],
     );
-    if (picked != null) _controller.setFormChoiceValue(name, picked);
+    if (picked != null) _controller.pickFormChoiceOption(name, picked);
   }
 
   MouseCursor _cursorFor(PdfFormField field) {

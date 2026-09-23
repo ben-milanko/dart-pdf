@@ -8735,6 +8735,48 @@ class PdfEditingController extends ChangeNotifier {
       },
       (e, f) => e.setChoiceValue(f, value));
 
+  /// Sets the choice field [name] to every option in [values] (export or
+  /// display values, per [PdfEditor.setChoiceValues]) - the multi-select
+  /// list box fill. Returns false for missing/read-only fields, a
+  /// selection the field can't hold, and an unchanged selection.
+  bool setFormChoiceValues(String name, List<String> values) {
+    final field = acroForm?.fieldNamed(name);
+    if (field != null) {
+      final current = field.values.toSet();
+      final next = {
+        for (final v in values)
+          field.options.where((o) => o.$1 == v || o.$2 == v).firstOrNull?.$1 ??
+              v,
+      };
+      if (current.length == next.length && current.containsAll(next)) {
+        return false;
+      }
+    }
+    return _fillField(
+        name,
+        const {
+          PdfFieldType.comboBox,
+          PdfFieldType.listBox,
+        },
+        (e, f) => e.setChoiceValues(f, values));
+  }
+
+  /// Picks option [export] from the choice field [name]: a multi-select
+  /// list box toggles it in or out of the selection, any other choice
+  /// field selects it alone. What the editor's option menus call.
+  bool pickFormChoiceOption(String name, String export) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null || !field.isMultiSelect) {
+      return setFormChoiceValue(name, export);
+    }
+    final current = field.values;
+    return setFormChoiceValues(name, [
+      for (final v in current)
+        if (v != export) v,
+      if (!current.contains(export)) export,
+    ]);
+  }
+
   /// Fills the push button [name] with [imageBytes] (PNG or JPEG),
   /// aspect-fit - signature and logo fields in template pipelines.
   bool setFormButtonImage(String name, Uint8List imageBytes) {

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fill multi-select list boxes (#933). `PdfFormField` gains `isMultiSelect`
+  (/Ff bit 22), `values` (a /V string or array as a list; `value` still
+  returns the first entry), `selectedIndices` (/I, falling back to /V when /I
+  is missing or stale) and `topIndex` (/TI). `PdfEditor.setChoiceValues`
+  writes /V as an array of export values in option order (a plain string for
+  exactly one, removed for none), /I as sorted indices, and scrolls /TI to the
+  first selection. List-box appearances now draw every option row with the
+  selected rows highlighted, for single-select list boxes too, instead of
+  showing only the chosen value.
+
 - Stop the visible signature box clipping its detail lines. On a short, wide
   "sign on this line" placement the top of the first line and the bottom of the
   last were sliced off: the box's flat 4pt inner margin took over 40% of a

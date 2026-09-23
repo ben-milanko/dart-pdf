@@ -489,16 +489,27 @@ Future<void> showPdfFormFieldMenu({
               position: pdfPopupPosition(context, position),
               items: [
                 for (final (export, display) in field.options)
-                  PopupMenuItem(
-                    key: ValueKey('pdf-form-edit-option-$export'),
-                    value: export,
-                    height: _densePopupMenuHeight,
-                    child: Text(display, style: _densePopupTextStyle(context)),
-                  ),
+                  if (field.isMultiSelect)
+                    CheckedPopupMenuItem(
+                      key: ValueKey('pdf-form-edit-option-$export'),
+                      value: export,
+                      height: _densePopupMenuHeight,
+                      checked: field.values.contains(export),
+                      child:
+                          Text(display, style: _densePopupTextStyle(context)),
+                    )
+                  else
+                    PopupMenuItem(
+                      key: ValueKey('pdf-form-edit-option-$export'),
+                      value: export,
+                      height: _densePopupMenuHeight,
+                      child:
+                          Text(display, style: _densePopupTextStyle(context)),
+                    ),
               ],
             );
             if (picked != null) {
-              controller.setFormChoiceValue(fieldName, picked);
+              controller.pickFormChoiceOption(fieldName, picked);
             }
           },
         );
