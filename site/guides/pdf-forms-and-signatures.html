@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fillable PDF forms and signatures in Flutter | DartPDF</title>
+  <meta name="description"
+    content="Does DartPDF support fillable AcroForm fields and signatures? Yes: fill and flatten AcroForms, draw handwritten signatures, and apply PAdES digital signatures from pure Dart and Flutter." />
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+  <link rel="canonical" href="https://dart-pdf.com/guides/pdf-forms-and-signatures" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="DartPDF" />
+  <meta property="og:url" content="https://dart-pdf.com/guides/pdf-forms-and-signatures" />
+  <meta property="og:title" content="Does DartPDF support fillable AcroForm fields and signatures?" />
+  <meta property="og:description"
+    content="Yes. Fill, author, and flatten AcroForm fields, place drawn signatures, and apply certificate-backed PAdES signatures, all in pure Dart." />
+  <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="dart_pdf_editor, an open-source Flutter PDF editor" />
+  <meta property="article:published_time" content="2026-09-23" />
+  <meta property="article:modified_time" content="2026-09-23" />
+  <meta property="article:author" content="Ben Milanko" />
+
+  <!-- X / Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Does DartPDF support fillable AcroForm fields and signatures?" />
+  <meta name="twitter:description"
+    content="Yes. AcroForm filling and authoring, drawn signatures, and PAdES digital signatures in one open-source Dart stack." />
+  <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <meta name="theme-color" content="#0169b4" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap"
+    rel="stylesheet" />
+
+  <style>
+    :root {
+      --paper: #ffffff;
+      --bg: #fbfcfd;
+      --ink: #202124;
+      --ink-soft: #3c4043;
+      --grey: #6b7177;
+      --line: #e7ebee;
+      --line-soft: #eef2f5;
+      --tint: #c6e3f8;
+      --tint-soft: #eaf5fe;
+      --blue: #0169b4;
+      --blue-bright: #16bafd;
+      --amber: #ffc93c;
+      --dark: #1a1b1d;
+      --radius: 14px;
+      --radius-lg: 22px;
+      --maxw: 1180px;
+      --article: 760px;
+      --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
+      --shadow-sm: 0 1px 2px rgba(32, 33, 36, .06), 0 1px 3px rgba(32, 33, 36, .05);
+      --shadow-md: 0 12px 36px rgba(32, 33, 36, .09), 0 3px 10px rgba(32, 33, 36, .05);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 94px;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      line-height: 1.65;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -.025em;
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-size: clamp(38px, 6vw, 66px);
+      max-width: 900px;
+    }
+
+    h2 {
+      margin-top: 64px;
+      font-size: clamp(27px, 3.4vw, 38px);
+    }
+
+    h3 {
+      margin-top: 34px;
+      font-size: 21px;
+    }
+
+    p {
+      margin: 18px 0 0;
+      text-wrap: pretty;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      text-decoration-thickness: 2px;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    :not(pre)>code {
+      padding: .14em .38em;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f6f8fa;
+      font-size: .88em;
+    }
+
+    ::selection {
+      background: rgba(255, 201, 60, .55);
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(251, 252, 253, .88);
+      backdrop-filter: saturate(180%) blur(14px);
+    }
+
+    .nav {
+      display: flex;
+      min-height: 70px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink);
+      font-size: 19px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .brand img {
+      width: 31px;
+      height: 31px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .nav-links a {
+      color: var(--ink-soft);
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--blue);
+    }
+
+    .nav-cta {
+      padding: 9px 14px;
+      border-radius: 9px;
+      background: var(--grad);
+      color: #fff !important;
+      box-shadow: 0 6px 16px -7px rgba(1, 105, 180, .7);
+    }
+
+    .hero {
+      padding: 74px 0 56px;
+      border-bottom: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 78% 6%, rgba(22, 186, 253, .13), transparent 30%),
+        linear-gradient(180deg, #fff 0%, var(--bg) 100%);
+    }
+
+    .crumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .crumbs a {
+      color: var(--grey);
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .dek {
+      max-width: 820px;
+      margin-top: 24px;
+      color: var(--ink-soft);
+      font-size: clamp(18px, 2.2vw, 23px);
+      line-height: 1.55;
+    }
+
+    .answer {
+      max-width: 860px;
+      margin-top: 32px;
+      padding: 22px 24px;
+      border: 1px solid var(--tint);
+      border-left: 5px solid var(--blue-bright);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+      font-size: 17px;
+    }
+
+    .answer p {
+      margin: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 16px;
+      margin-top: 24px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .meta a {
+      font-weight: 700;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: var(--shadow-sm);
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+      color: #fff;
+    }
+
+    .article-grid {
+      display: grid;
+      grid-template-columns: minmax(0, var(--article)) 250px;
+      gap: 70px;
+      align-items: start;
+      padding-top: 52px;
+      padding-bottom: 90px;
+    }
+
+    article {
+      min-width: 0;
+    }
+
+    article>p,
+    article>ul,
+    article>ol {
+      color: var(--ink-soft);
+      font-size: 16px;
+    }
+
+    article ul,
+    article ol {
+      margin: 18px 0 0;
+      padding-left: 24px;
+    }
+
+    article li+li {
+      margin-top: 8px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 98px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toc strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .toc a {
+      display: block;
+      padding: 7px 0;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      color: var(--blue);
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .step span {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--grad);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .step h2 {
+      margin-top: 0;
+    }
+
+    pre {
+      position: relative;
+      margin: 22px 0 0;
+      padding: 20px 22px;
+      overflow-x: auto;
+      border: 1px solid #30333a;
+      border-radius: var(--radius);
+      background: var(--dark);
+      color: #e8eaed;
+      font-size: 13.5px;
+      line-height: 1.65;
+      tab-size: 2;
+    }
+
+    .comment {
+      color: #9aa0a6;
+    }
+
+    .keyword {
+      color: #6fd0ff;
+    }
+
+    .string {
+      color: #a5d6a7;
+    }
+
+    .callout {
+      margin-top: 24px;
+      padding: 19px 21px;
+      border: 1px solid var(--tint);
+      border-radius: var(--radius);
+      background: var(--tint-soft);
+      color: var(--ink-soft);
+      font-size: 15px;
+    }
+
+    .callout strong {
+      color: var(--ink);
+    }
+
+    .shot {
+      margin: 30px 0 0;
+    }
+
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+
+    .shot figcaption {
+      margin-top: 10px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      margin-top: 24px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f9fb;
+      color: var(--ink);
+      font-size: 12px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .choice {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    .choice strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .choice p {
+      margin: 0;
+      color: var(--grey);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .faq {
+      margin-top: 20px;
+      padding-top: 4px;
+      border-top: 1px solid var(--line);
+    }
+
+    .faq h3 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+
+    .faq p {
+      color: var(--ink-soft);
+    }
+
+    .next {
+      margin-top: 64px;
+      padding: 30px;
+      border-radius: var(--radius-lg);
+      background: var(--dark);
+      color: #fff;
+    }
+
+    .next h2 {
+      margin-top: 0;
+      color: #fff;
+    }
+
+    .next p {
+      color: #c9cdd2;
+    }
+
+    .next .btn {
+      margin-top: 20px;
+      border-color: rgba(255, 255, 255, .18);
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+    }
+
+    .next .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      background: #f3f5f7;
+    }
+
+    .foot {
+      display: flex;
+      min-height: 88px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .foot a {
+      color: var(--ink-soft);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .article-grid {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .toc {
+        display: none;
+      }
+
+      .choice-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .wrap {
+        padding: 0 20px;
+      }
+
+      .nav-links a:not(.nav-cta) {
+        display: none;
+      }
+
+      .hero {
+        padding: 48px 0 42px;
+      }
+
+      h1 {
+        font-size: clamp(35px, 12vw, 50px);
+      }
+
+      h2 {
+        margin-top: 52px;
+      }
+
+      .answer,
+      pre {
+        margin-right: -4px;
+        margin-left: -4px;
+      }
+
+      .answer {
+        padding: 18px;
+      }
+
+      pre {
+        padding: 18px;
+        font-size: 12.5px;
+      }
+
+      th,
+      td {
+        padding: 12px;
+      }
+
+      .foot {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 22px;
+        padding-bottom: 22px;
+      }
+    }
+  </style>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "TechArticle",
+        "@id": "https://dart-pdf.com/guides/pdf-forms-and-signatures#article",
+        "mainEntityOfPage": "https://dart-pdf.com/guides/pdf-forms-and-signatures",
+        "headline": "Does DartPDF support fillable AcroForm fields and signatures?",
+        "description": "What DartPDF supports for AcroForm filling, field authoring, flattening, drawn signatures, and PAdES digital signatures, with code and the current limits.",
+        "datePublished": "2026-09-23",
+        "dateModified": "2026-09-23",
+        "proficiencyLevel": "Intermediate",
+        "image": "https://dart-pdf.com/assets/editor-screenshot.png",
+        "author": {
+          "@type": "Person",
+          "name": "Ben Milanko",
+          "url": "https://github.com/ben-milanko"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "DartPDF",
+          "url": "https://dart-pdf.com/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://dart-pdf.com/assets/icon-512.png"
+          }
+        },
+        "about": {
+          "@id": "https://dart-pdf.com/flutter-pdf-editor#software"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://dart-pdf.com/guides/pdf-forms-and-signatures#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Does DartPDF support fillable AcroForm fields?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. It reads and fills text, checkbox, radio, combo box, list box, and push-button fields, regenerates their appearance streams so the filled values print and display in other viewers, and can flatten the form into page content. It can also add text, checkbox, and push-button fields to a PDF."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can DartPDF insert signatures into a PDF?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, both kinds. Users can draw a handwritten signature and place it on the page, and apps can apply certificate-backed digital signatures (PAdES B-B, B-T, B-LT, B-LTA) with an optional visible signature box that includes the drawn signature."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does DartPDF support XFA forms or form JavaScript?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. DartPDF supports AcroForms. XFA forms are not supported, and there is deliberately no JavaScript engine, so calculated fields and format scripts do not run."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "DartPDF",
+            "item": "https://dart-pdf.com/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Flutter PDF editor",
+            "item": "https://dart-pdf.com/flutter-pdf-editor"
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "PDF forms and signatures",
+            "item": "https://dart-pdf.com/guides/pdf-forms-and-signatures"
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="/" aria-label="DartPDF home">
+        <img src="/assets/favicon.svg" alt="" aria-hidden="true" />
+        DartPDF
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/flutter-pdf-editor">Flutter PDF editor</a>
+        <a href="https://github.com/ben-milanko/dart-pdf">GitHub</a>
+        <a class="nav-cta" href="https://pub.dev/packages/dart_pdf_editor">Get the package</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <a href="/">DartPDF</a><span aria-hidden="true">/</span>
+          <a href="/flutter-pdf-editor">Flutter PDF editor</a><span aria-hidden="true">/</span>
+          <span>Forms and signatures</span>
+        </nav>
+        <p class="eyebrow">Frequently asked</p>
+        <h1>Does it support fillable AcroForm fields and inserting signatures?</h1>
+        <p class="dek">It's a fair question to ask of any PDF library. Here is what works today, the code for it, and
+          what doesn't work yet.</p>
+
+        <div class="answer">
+          <p><strong>Short answer: yes, to both.</strong> DartPDF fills existing AcroForm text, checkbox, radio,
+            combo box, list box, and image-button fields, and redraws each field's appearance so the value shows up in
+            other PDF viewers, not only this one. It can also add new fields and flatten a form into the page. For signatures,
+            users can draw a handwritten signature and drop it on the page. Apps can also apply real
+            certificate-backed digital signatures (PAdES B-B through B-LTA), shown in a visible signature box that
+            can include the drawn signature. It's all pure Dart and runs the same on Android, iOS, desktop, web, and
+            servers.</p>
+        </div>
+
+        <div class="meta">
+          <span>By <a href="https://github.com/ben-milanko">Ben Milanko</a>, maintainer of dart-pdf</span>
+          <span>Published 23 September 2026</span>
+          <span>Applies to <code>dart_pdf_editor</code> / <code>pdf_document</code> 4.5.0</span>
+        </div>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://dart-pdf-demo.web.app">Try it in the live demo</a>
+          <a class="btn" href="https://github.com/ben-milanko/dart-pdf">View the source</a>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap article-grid">
+      <article>
+        <section id="two-signatures">
+          <h2>“Signature” means two different things</h2>
+          <p>People asking about signatures usually mean one of two jobs, and a PDF stores them very differently.
+            DartPDF does both, and can combine them.</p>
+          <div class="choice-grid">
+            <div class="choice">
+              <strong>Drawn signature</strong>
+              <p>Your handwriting on the page. Good for everyday sign-and-return. It is ink on the page, so it
+                doesn't prove who drew it.</p>
+            </div>
+            <div class="choice">
+              <strong>Digital signature</strong>
+              <p>A cryptographic signature from a certificate. It proves who signed, and any later change to the
+                signed bytes shows up in Acrobat's signature panel.</p>
+            </div>
+            <div class="choice">
+              <strong>Both at once</strong>
+              <p>A visible signature box on the page, showing the drawn signature, backed by a real digital
+                signature.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="forms">
+          <h2>Fillable AcroForm fields</h2>
+          <p>AcroForms are the standard interactive form fields defined by the PDF specification. They are what
+            Acrobat, Word's PDF export, and most form designers produce. DartPDF finds every field in the document,
+            including widgets a broken file left attached to a page but missing from the field tree, and handles
+            each field type as follows:</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Field type</th>
+                  <th>Read &amp; fill</th>
+                  <th>Add new</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Text (single-line &amp; multiline)</td>
+                  <td>Yes: wrapping, auto-size, alignment, RTL text, custom font/size/colour</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td>Checkbox</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td>Radio group</td>
+                  <td>Yes</td>
+                  <td>Not yet</td>
+                </tr>
+                <tr>
+                  <td>Combo box / list box</td>
+                  <td>Yes: by export or display value; editable combos accept free text</td>
+                  <td>Not yet</td>
+                </tr>
+                <tr>
+                  <td>Push button (image)</td>
+                  <td>Yes: fill with a PNG/JPEG, e.g. a photo or signature image</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td>Signature field</td>
+                  <td>Detected, signed, and validated (see below)</td>
+                  <td>Created when you sign</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The important detail is <strong>appearance generation</strong>. In a PDF, a field's value and how it
+            looks on the page are stored separately. A library that only sets the value leaves a form that looks
+            empty in some viewers, or that Acrobat redraws with its own layout. DartPDF redraws every field it fills,
+            including wrapping, auto-sizing, quadding (alignment), borders, backgrounds, and page rotation, and then
+            clears <code>/NeedAppearances</code>. The saved file looks the same in every viewer, and it prints
+            correctly.</p>
+
+          <h3 id="forms-flutter">In a Flutter app</h3>
+          <p>Form filling is on by default. <code>PdfEditorView</code> (the full editor) and <code>PdfReader</code>
+            (the read-only viewer) both let users tap into fields. Tapping a text field opens an inline editor,
+            checkboxes and radios toggle, choice fields open a menu, and image buttons open the host's image picker.
+            To add form filling to a custom viewer, pass it an editing controller:</p>
+          <pre><code><span class="keyword">final</span> session = PdfEditingController(pdfBytes);
+
+PdfViewer(
+  formController: session, <span class="comment">// tap-to-fill, no editing toolbar</span>
+  formImagePicker: (context, field) =&gt; pickImageBytes(context),
+);
+
+<span class="comment">// Or fill from code, e.g. to prefill from your backend:</span>
+session.setFormFieldText(<span class="string">'applicant.name'</span>, <span class="string">'Ada Lovelace'</span>);
+session.toggleFormCheckBox(<span class="string">'terms'</span>);
+session.setFormChoiceValue(<span class="string">'country'</span>, <span class="string">'Australia'</span>);
+
+<span class="keyword">final</span> Uint8List filled = session.bytes;</code></pre>
+          <p>Every change is an incremental revision, so undo and redo work for form input too.</p>
+
+          <h3 id="forms-dart">In pure Dart (server, CLI, tests)</h3>
+          <p>The form engine is in <code>pdf_document</code>, which has no Flutter dependency. That makes it a good
+            fit for batch-filling a template on a server:</p>
+          <pre><code><span class="keyword">import</span> <span class="string">'package:pdf_document/pdf_document.dart'</span>;
+
+Uint8List fillApplication(Uint8List template) {
+  <span class="keyword">final</span> editor = PdfEditor(PdfDocument.open(template));
+  <span class="keyword">final</span> form = editor.acroForm!;
+
+  <span class="keyword">for</span> (<span class="keyword">final</span> field <span class="keyword">in</span> form.fields) {
+    print(<span class="string">'${field.name}: ${field.type} = ${field.value}'</span>);
+  }
+
+  editor.setTextValue(form.fieldNamed(<span class="string">'name'</span>)!, <span class="string">'John Doe'</span>);
+  editor.setCheckBoxValue(form.fieldNamed(<span class="string">'agree'</span>)!, <span class="keyword">true</span>);
+  editor.setRadioValue(form.fieldNamed(<span class="string">'color'</span>)!, <span class="string">'Blue'</span>);
+  editor.setChoiceValue(form.fieldNamed(<span class="string">'size'</span>)!, <span class="string">'Large'</span>);
+
+  <span class="comment">// Optional: burn the values into the page so they can't be edited.</span>
+  editor.flattenForm();
+
+  <span class="keyword">return</span> editor.save();
+}</code></pre>
+          <p>To add fields, use <code>addTextField</code>, <code>addCheckBoxField</code>, and
+            <code>addPushButtonField</code>. <code>renameField</code>, <code>removeField</code>, and
+            <code>changeFieldType</code> handle field management. If the document has no AcroForm yet, the first
+            new field creates one. The editor UI has matching tools, so users can draw fields onto a plain PDF and
+            turn it into a fillable form.</p>
+        </section>
+
+        <section id="drawn">
+          <h2>Drawn (handwritten) signatures</h2>
+          <p>The editor ships a signature pad with pressure-sensitive strokes, pen colour and width, and a saved
+            signature library. Users draw once, then tap anywhere to place the signature. The library persists on
+            the device through <code>PdfEditingPreferences</code>, and users can rename, redraw, or delete
+            entries.</p>
+          <pre><code><span class="comment">// Show the pad, keep the result in the library, and place it.</span>
+<span class="keyword">final</span> ink = await showPdfSignatureDialog(context);
+<span class="keyword">if</span> (ink != <span class="keyword">null</span>) {
+  session.addSavedSignature(ink, name: <span class="string">'Full signature'</span>);
+  session.placeSignature(0, 300, 200); <span class="comment">// page 0, centred on (300, 200) in PDF points</span>
+}</code></pre>
+          <p>A placed signature is a vector ink annotation. It stays crisp at any zoom, can be moved and resized,
+            and appears in any viewer. To stop it being moved or removed, flatten it into the page content, using the
+            editor's Flatten action or <code>flattenDocument()</code>. If a form has an image button meant
+            for a signature, filling that button with a picture of the signature also works.</p>
+          <div class="callout">
+            <strong>Know what a drawn signature does and doesn't prove.</strong> It shows intent, and that is
+            enough for most everyday paperwork. It doesn't say who drew it, and nothing detects a later change to
+            the document. If you need either of those, use a digital signature.
+          </div>
+        </section>
+
+        <section id="digital">
+          <h2>Digital signatures (PAdES)</h2>
+          <p>DartPDF writes standard <code>adbe.pkcs7.detached</code> / PAdES signatures, and it does the
+            cryptography (CMS, X.509, RSA, ECDSA) in Dart. It has no OpenSSL dependency and no native plugin. The
+            output is interoperable: pyHanko rates our PAdES B-LTA files valid and LTV-enabled with no network
+            access.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Capability</th>
+                  <th>Support</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Signing keys</td>
+                  <td>Your own RSA or ECDSA key and certificate chain; an external signer callback for HSMs and
+                    platform keystores</td>
+                </tr>
+                <tr>
+                  <td>PAdES levels</td>
+                  <td>B-B, B-T (RFC 3161 timestamp), B-LT (embedded OCSP/CRL in a /DSS), B-LTA (plus a document
+                    timestamp)</td>
+                </tr>
+                <tr>
+                  <td>Identities</td>
+                  <td>One-tap self-signed P-256 identities, your own organisation CA that issues member
+                    certificates, or keyless Sigstore certificates tied to an email sign-in</td>
+                </tr>
+                <tr>
+                  <td>Appearance</td>
+                  <td>Invisible, or a visible box with the signer's name, date, reason, location, drawn signature,
+                    and logo backdrop. The box can be repeated on other pages.</td>
+                </tr>
+                <tr>
+                  <td>Existing fields</td>
+                  <td>Signs into an empty signature field a form designer already placed</td>
+                </tr>
+                <tr>
+                  <td>Certification</td>
+                  <td>Certify (DocMDP) signatures with P=1/2/3 change permissions; later edits that break a P=1
+                    certification are refused</td>
+                </tr>
+                <tr>
+                  <td>Multiple signers</td>
+                  <td>Each signature is an incremental update, so countersigning leaves earlier signatures
+                    valid</td>
+                </tr>
+                <tr>
+                  <td>Validation</td>
+                  <td>Checks the digest, the signature, and whether the whole document is covered; builds the chain
+                    against your trust store; reports PAdES level, timestamp, and embedded revocation data</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="digital-dart">Sign with a visible box</h3>
+          <pre><code><span class="keyword">final</span> identity = PdfSigningIdentity.generate(
+  name: <span class="string">'Ada Lovelace'</span>,
+  email: <span class="string">'ada@example.com'</span>,
+);
+
+<span class="keyword">final</span> editor = PdfEditor(PdfDocument.open(filledPdf));
+<span class="keyword">final</span> signed = await editor.saveSelfSignedPades(
+  identity: identity,
+  level: PdfPadesLevel.bT,                  <span class="comment">// trusted time from a TSA</span>
+  timestampClient: myTimestampClient,       <span class="comment">// you supply the HTTP call</span>
+  reason: <span class="string">'Approved'</span>,
+  location: <span class="string">'Melbourne'</span>,
+  appearance: PdfSignatureAppearance(
+    page: 0,
+    rect: <span class="keyword">const</span> PdfRect(72, 80, 320, 150),
+    graphic: PdfEmbeddableImage.png(drawnSignaturePng),
+  ),
+);</code></pre>
+          <p>To sign into a field the form already has, pass <code>fieldName: 'ApproverSig'</code>. The box then
+            takes the field's existing position. For a company certificate, use <code>saveSignedPades</code> with
+            your <code>RsaPrivateKey</code> and certificate chain. The library does no network I/O of its own:
+            timestamp, OCSP, and CRL transports are callbacks you provide, so it runs on the web and never contacts
+            a server you didn't choose.</p>
+
+          <h3 id="digital-flutter">In the Flutter editor</h3>
+          <p>The editor's signature-box tool lets users drag out a rectangle on the page. Your
+            <code>onPlaceSignature</code> callback receives the page and rectangle, and the controller does the
+            signing:</p>
+          <pre><code><span class="keyword">final</span> identity = PdfDigitalSignatureIdentity.fromFiles(
+  privateKey: privateKeyBytes,
+  certificates: certificateFileBytes,
+);
+await session.addDigitalSignature(
+  identity,
+  reason: <span class="string">'Approved'</span>,
+  appearance: PdfSignatureAppearance(page: pageIndex, rect: pageRect),
+);</code></pre>
+          <p>Before committing a signature, the controller re-opens and validates it. So it will never save a
+            signature that doesn't verify. <code>addSelfSignedSignature</code> and <code>addKeylessSignature</code>
+            cover the other identity types. The package also ships a “Create signing identity” dialog and secure key
+            storage. The <a href="/">DartPDF app</a> wires all of this into a single <em>Digitally sign…</em>
+            dialog.</p>
+
+          <h3 id="validate">Verify signatures</h3>
+          <pre><code><span class="keyword">for</span> (<span class="keyword">final</span> sig <span class="keyword">in</span> PdfSignature.of(PdfDocument.open(bytes))) {
+  <span class="keyword">final</span> result = sig.validate(trustStore: PdfTrustStore.trusting([caDer]));
+  print(<span class="string">'${sig.signerName}: intact=${result.intact} '</span>
+      <span class="string">'trusted=${result.chainTrusted} level=${result.padesLevel}'</span>);
+}</code></pre>
+          <p>The editor's annotations panel shows the same result next to each signature.</p>
+        </section>
+
+        <section id="limits">
+          <h2>What isn't supported (yet)</h2>
+          <p>These are the gaps you're most likely to hit, so you know before you build on it:</p>
+          <ul>
+            <li><strong>XFA forms.</strong> XFA is the older XML-based Adobe forms format. Pure-XFA (“dynamic”)
+              forms won't show their fields. Hybrid forms work through their AcroForm half.</li>
+            <li><strong>Form JavaScript.</strong> There is deliberately no JS engine, so calculated totals,
+              format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
+              app can inspect them.</li>
+            <li><strong>Comb fields, <code>/MaxLen</code>, and password masking</strong> are not enforced when
+              filling.</li>
+            <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
+            <li><strong>Multi-select list boxes</strong> take a single value.</li>
+            <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
+              groups, choice fields, or empty signature fields for someone else to sign later.</li>
+            <li><strong>Signing encrypted (password-protected) PDFs</strong> is refused. Decrypt, sign, and then
+              re-protect if you need to.</li>
+            <li><strong>Trust roots.</strong> No certificate authorities are bundled. Validation tells you whether
+              the chain reaches a root you supplied (for example, the AATL or your organisation's CA), and it
+              doesn't query live revocation during validation. A self-signed signature validates as intact, but
+              Acrobat shows its signer as unknown until the certificate is trusted.</li>
+          </ul>
+          <p>If one of these blocks you, <a href="https://github.com/ben-milanko/dart-pdf/issues">open an issue</a>
+            with a sample PDF. Real forms decide what we work on next.</p>
+        </section>
+
+        <section id="questions">
+          <h2>Common questions</h2>
+          <div class="faq">
+            <h3>Will filled forms look right in Adobe Acrobat?</h3>
+            <p>Yes. DartPDF writes each field's value and redraws its appearance stream, then turns off
+              <code>/NeedAppearances</code> so Acrobat doesn't redraw the field with its own layout. The field
+              stays editable in Acrobat unless you flatten the form.</p>
+
+            <h3>Does filling a form break an existing signature?</h3>
+            <p>No. All edits are saved as incremental updates, so the signed bytes stay untouched. The signature
+              still validates as intact, and validation reports that it no longer covers the whole document, which
+              is how Acrobat shows changes made after signing.</p>
+
+            <h3>Can I fill forms without Flutter?</h3>
+            <p>Yes. <code>pdf_document</code> is pure Dart with no <code>dart:io</code> or Flutter imports, so the
+              same filling, flattening, and signing code runs on a server, in a CLI, or on the web.</p>
+
+            <h3>Is a drawn signature legally binding?</h3>
+            <p>That depends on your jurisdiction and use case, not on the library. Many everyday agreements accept
+              a drawn signature. Some regulated workflows need an advanced or qualified signature. For those, sign
+              with a certificate from a provider your regulator recognises. DartPDF produces the PAdES formats
+              those schemes build on.</p>
+          </div>
+        </section>
+
+        <section class="next" aria-labelledby="next-title">
+          <h2 id="next-title">See it on a real form</h2>
+          <p>The web demo's showcase PDF includes fillable fields and a signature area. Fill it in, draw a
+            signature, and save it to check the output in your own viewer.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://dart-pdf-demo.web.app">Open the live demo</a>
+            <a class="btn" href="/guides/add-pdf-editing-to-flutter">Add the editor to your app</a>
+          </div>
+        </section>
+      </article>
+
+      <aside class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <a href="#two-signatures">Two kinds of signature</a>
+        <a href="#forms">Fillable AcroForm fields</a>
+        <a href="#forms-flutter">Forms in Flutter</a>
+        <a href="#forms-dart">Forms in pure Dart</a>
+        <a href="#drawn">Drawn signatures</a>
+        <a href="#digital">Digital signatures</a>
+        <a href="#validate">Verify signatures</a>
+        <a href="#limits">What isn't supported</a>
+        <a href="#questions">Common questions</a>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span>© Railway Engineering Solutions · <a href="/">DartPDF app</a> · <a
+          href="/flutter-pdf-editor">Flutter SDK</a></span>
+      <span>Free and open source under Apache-2.0.</span>
+    </div>
+  </footer>
+</body>
+
+</html>

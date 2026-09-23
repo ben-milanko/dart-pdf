@@ -14,6 +14,9 @@ up against the real product facts.
   Firebase permanently redirects the old `/sdk` URL to it.
 - `guides/add-pdf-editing-to-flutter.html` is the answer-first integration
   tutorial served at `/guides/add-pdf-editing-to-flutter`.
+- `guides/pdf-forms-and-signatures.html` answers "does it support fillable
+  AcroForm fields and signatures?" at `/guides/pdf-forms-and-signatures`
+  (English-only, like the integration guide).
 - `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
 - `404.html` is the not-found page. Firebase Hosting serves it automatically
