@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'document_tab.dart';
+import 'page_drag.dart';
 
 const _windowGeometryChannel =
     MethodChannel('dev.milanko.dartpdf/window_geometry');
@@ -121,6 +122,11 @@ class TabDragCoordinator extends ChangeNotifier {
       : _locator = locator;
 
   final TabDropLocator _locator;
+
+  /// The page-drag router sharing this coordinator's native cursor lookup:
+  /// thumbnail tiles dragged from one window into another.
+  late final PageDragCoordinator pages = PageDragCoordinator(locator: _locator);
+
   final Map<int, TabDragWindow> _windows = <int, TabDragWindow>{};
   final Map<String, _TabTransfer> _transfers = <String, _TabTransfer>{};
   int _nextToken = 0;
@@ -322,6 +328,7 @@ class TabDragCoordinator extends ChangeNotifier {
 
   @override
   void dispose() {
+    pages.dispose();
     _queuedPreviewToken = null;
     _transfers.clear();
     _windows.clear();

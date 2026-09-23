@@ -728,6 +728,12 @@ class PdfEditingController extends ChangeNotifier {
     _reloadDocument(grew: grew);
     // the same /Annots slot may hold a different annotation now
     _selected.clear();
+    // undoing a paste/insert (or redoing a removal) can leave the page
+    // selection pointing at pages that are gone or shifted
+    if (_lastRevisionImpact?.pageStructureChanged ?? false) {
+      _selectedPages.clear();
+      _pageSelectionAnchor = null;
+    }
     _invalidateElements();
     notifyListeners();
   }
@@ -4172,6 +4178,23 @@ class PdfEditingController extends ChangeNotifier {
   bool removeSelectedPages() {
     final doomed =
         _selectedPages.where((i) => i >= 0 && i < _document.pageCount).toList();
+    if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    return apply((e) => e.removePages(doomed));
+  }
+
+  /// Removes [indices] in one edit (one undo). Refused (returns false) when
+  /// nothing valid is given or the removal would empty the document - at
+  /// least one page must remain. Clears the page selection, like
+  /// [removeSelectedPages].
+  bool removePages(Iterable<int> indices) {
+    final doomed = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
     if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
     _selected.clear();
     _selectedPages.clear();
