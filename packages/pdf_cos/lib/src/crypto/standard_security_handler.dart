@@ -87,8 +87,7 @@ class StandardSecurityHandler {
         }
         final cf = resolve(encrypt['CF']);
         final filter = cf is CosDictionary ? resolve(cf[name.value]) : null;
-        final method =
-            filter is CosDictionary ? resolve(filter['CFM']) : null;
+        final method = filter is CosDictionary ? resolve(filter['CFM']) : null;
         return switch (method is CosName ? method.value : '') {
           'V2' => PdfCipher.rc4,
           'AESV2' => PdfCipher.aes128,
@@ -106,8 +105,7 @@ class StandardSecurityHandler {
 
     final Uint8List fileKey;
     if (revision >= 5) {
-      fileKey = _authenticateAes256(
-          encrypt, password, o, u, revision, resolve);
+      fileKey = _authenticateAes256(encrypt, password, o, u, revision, resolve);
     } else {
       fileKey = _authenticateClassic(password, o, u, p, revision,
           v == 1 ? 40 : lengthBits, firstId ?? Uint8List(0), encryptMetadata);
@@ -188,8 +186,8 @@ class StandardSecurityHandler {
     bool encryptMetadata,
   ) {
     // try as the user password
-    var key = _computeClassicKey(_pad(password), o, p, revision, lengthBits,
-        firstId, encryptMetadata);
+    var key = _computeClassicKey(
+        _pad(password), o, p, revision, lengthBits, firstId, encryptMetadata);
     if (_checkUser(key, u, revision, firstId)) return key;
 
     // try as the owner password (Algorithm 7): decrypt /O into the user
@@ -333,13 +331,30 @@ class StandardSecurityHandler {
     return true;
   }
 
+  /// Whether [key] of [dict] is a signature dictionary's /Contents - the
+  /// one string ISO 32000 §7.6.1 exempts from encryption, so the CMS blob (or
+  /// RFC 3161 token) sits in the file as plain hex that the /ByteRange gap
+  /// can be patched with after the rest of the revision is encrypted. A
+  /// signature dictionary is recognised by `/Type /Sig` or `/DocTimeStamp`,
+  /// or - since /Type is optional there - by carrying a /ByteRange. Shared
+  /// by [decryptObjectGraph] and [encryptObjectGraph] so a signature read
+  /// back is byte-for-byte the one written.
+  static bool isSignatureContents(CosDictionary dict, String key) {
+    if (key != 'Contents') return false;
+    final type = dict['Type'];
+    if (type is CosName &&
+        (type.value == 'Sig' || type.value == 'DocTimeStamp')) {
+      return true;
+    }
+    return dict.entries.containsKey('ByteRange');
+  }
+
   /// Decrypts every string in [object]'s graph in place under the
   /// ([objectNumber], [generation]) key. References are leaves, so a single
   /// indirect object's graph is a tree. A stream's payload is left as raw
   /// file bytes for lazy decoding (see [decryptStream]); only its
   /// dictionary strings are touched here.
-  void decryptObjectGraph(
-      CosObject object, int objectNumber, int generation) {
+  void decryptObjectGraph(CosObject object, int objectNumber, int generation) {
     switch (object) {
       case CosArray():
         for (var i = 0; i < object.items.length; i++) {
@@ -356,6 +371,7 @@ class StandardSecurityHandler {
         for (final key in object.entries.keys.toList()) {
           final value = object.entries[key]!;
           if (value is CosString) {
+            if (isSignatureContents(object, key)) continue;
             object.entries[key] = CosString(
                 decryptString(value.bytes, objectNumber, generation),
                 isHex: value.isHex);
@@ -388,8 +404,7 @@ class StandardSecurityHandler {
     CosObject copy(CosObject value) {
       switch (value) {
         case CosString():
-          return CosString(
-              encryptString(value.bytes, objectNumber, generation),
+          return CosString(encryptString(value.bytes, objectNumber, generation),
               isHex: value.isHex);
         case CosArray():
           return CosArray([for (final item in value.items) copy(item)]);
@@ -405,7 +420,8 @@ class StandardSecurityHandler {
           return CosStream(dict, cipher);
         case CosDictionary():
           final out = CosDictionary();
-          value.entries.forEach((key, v) => out[key] = copy(v));
+          value.entries.forEach((key, v) => out[key] =
+              v is CosString && isSignatureContents(value, key) ? v : copy(v));
           return out;
         default:
           return value;
@@ -449,9 +465,7 @@ class StandardSecurityHandler {
         return rc4(_objectKey(objectNumber, generation, aes: false), data);
       case PdfCipher.aes128:
         return Aes.encryptContent(
-            _objectKey(objectNumber, generation, aes: true),
-            data,
-            randomIv());
+            _objectKey(objectNumber, generation, aes: true), data, randomIv());
       case PdfCipher.aes256:
         return Aes.encryptContent(_fileKey, data, randomIv());
     }
@@ -487,8 +501,7 @@ class StandardSecurityHandler {
 
   /// Algorithm 1: file key + object number and generation (+ the AES salt).
   /// AES-256 (R5/R6) uses the file key directly.
-  Uint8List _objectKey(int objectNumber, int generation,
-      {required bool aes}) {
+  Uint8List _objectKey(int objectNumber, int generation, {required bool aes}) {
     if (_memoObject == objectNumber &&
         _memoGeneration == generation &&
         _memoAes == aes) {
