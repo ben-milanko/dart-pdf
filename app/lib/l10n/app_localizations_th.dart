@@ -610,6 +610,15 @@ class AppLocalizationsTh extends AppLocalizations {
       'ไม่สามารถคัดลอกสแนปช็อตไปยังคลิปบอร์ดได้';
 
   @override
+  String get editorSearchTabs => 'ค้นหาแท็บ';
+
+  @override
+  String get editorClearTabSearch => 'ล้างการค้นหา';
+
+  @override
+  String get editorNoMatchingTabs => 'ไม่มีแท็บที่ตรงกัน';
+
+  @override
   String get editorTabs => 'แท็บ';
 
   @override

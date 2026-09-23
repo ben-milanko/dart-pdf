@@ -617,6 +617,15 @@ class AppLocalizationsIt extends AppLocalizations {
       'Impossibile copiare l\'istantanea negli appunti';
 
   @override
+  String get editorSearchTabs => 'Cerca nelle schede';
+
+  @override
+  String get editorClearTabSearch => 'Cancella ricerca';
+
+  @override
+  String get editorNoMatchingTabs => 'Nessuna scheda corrispondente';
+
+  @override
   String get editorTabs => 'Schede';
 
   @override

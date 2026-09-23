@@ -617,6 +617,15 @@ class AppLocalizationsEs extends AppLocalizations {
       'No se pudo copiar la captura al portapapeles';
 
   @override
+  String get editorSearchTabs => 'Buscar pestañas';
+
+  @override
+  String get editorClearTabSearch => 'Borrar búsqueda';
+
+  @override
+  String get editorNoMatchingTabs => 'No hay pestañas que coincidan';
+
+  @override
   String get editorTabs => 'Pestañas';
 
   @override

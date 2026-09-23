@@ -610,6 +610,15 @@ class AppLocalizationsVi extends AppLocalizations {
       'Không thể sao chép ảnh chụp vào bảng nhớ tạm';
 
   @override
+  String get editorSearchTabs => 'Tìm kiếm thẻ';
+
+  @override
+  String get editorClearTabSearch => 'Xóa tìm kiếm';
+
+  @override
+  String get editorNoMatchingTabs => 'Không có thẻ phù hợp';
+
+  @override
   String get editorTabs => 'Thẻ';
 
   @override

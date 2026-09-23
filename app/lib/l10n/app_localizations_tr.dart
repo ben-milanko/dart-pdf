@@ -612,6 +612,15 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorSnapshotCopyFailed => 'Anlık görüntü panoya kopyalanamadı';
 
   @override
+  String get editorSearchTabs => 'Sekmelerde ara';
+
+  @override
+  String get editorClearTabSearch => 'Aramayı temizle';
+
+  @override
+  String get editorNoMatchingTabs => 'Eşleşen sekme yok';
+
+  @override
   String get editorTabs => 'Sekmeler';
 
   @override

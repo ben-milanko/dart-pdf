@@ -612,6 +612,15 @@ class AppLocalizationsHi extends AppLocalizations {
       'स्नैपशॉट क्लिपबोर्ड पर कॉपी नहीं कर सके';
 
   @override
+  String get editorSearchTabs => 'टैब खोजें';
+
+  @override
+  String get editorClearTabSearch => 'खोज साफ़ करें';
+
+  @override
+  String get editorNoMatchingTabs => 'कोई मेल खाता टैब नहीं';
+
+  @override
   String get editorTabs => 'टैब';
 
   @override

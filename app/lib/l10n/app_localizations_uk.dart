@@ -616,6 +616,15 @@ class AppLocalizationsUk extends AppLocalizations {
       'Не вдалося скопіювати знімок у буфер обміну';
 
   @override
+  String get editorSearchTabs => 'Пошук вкладок';
+
+  @override
+  String get editorClearTabSearch => 'Очистити пошук';
+
+  @override
+  String get editorNoMatchingTabs => 'Немає відповідних вкладок';
+
+  @override
   String get editorTabs => 'Вкладки';
 
   @override

@@ -603,6 +603,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorSnapshotCopyFailed => 'スナップショットをクリップボードにコピーできませんでした';
 
   @override
+  String get editorSearchTabs => 'タブを検索';
+
+  @override
+  String get editorClearTabSearch => '検索をクリア';
+
+  @override
+  String get editorNoMatchingTabs => '一致するタブはありません';
+
+  @override
   String get editorTabs => 'タブ';
 
   @override
