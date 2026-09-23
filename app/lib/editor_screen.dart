@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_printing/dart_pdf_printing.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -1220,12 +1221,14 @@ class _EditorScreenState extends State<EditorScreen>
     String? originBookmark,
     String? errorTitle,
     bool defer = false,
+    DocumentTab? into,
   }) async {
-    final loading = _openLoading(
-      title,
-      originPath: originPath,
-      originBookmark: originBookmark,
-    );
+    final loading = into ??
+        _openLoading(
+          title,
+          originPath: originPath,
+          originBookmark: originBookmark,
+        );
     AppDevTools.instance
         .addLog('open-trace: "$title" placeholder shown, awaiting bytes '
             '(defer=$defer, path=${originPath ?? "-"})');
@@ -1730,37 +1733,24 @@ class _EditorScreenState extends State<EditorScreen>
     }
     try {
       final files = await pickPdfFiles(l10n.fileTypePdf);
-      if (files.isEmpty) return;
+      if (files.isEmpty || !mounted) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
       final defer = files.length > 1;
-      for (final file in files) {
+      final placeholders = _openLoadingBatch([
+        for (final file in files)
+          (title: file.name, originPath: originPathForPickedFile(file)),
+      ]);
+      for (var i = 0; i < files.length; i++) {
+        final file = files[i];
+        final loading = placeholders[i];
         if (!mounted) return;
-        final path = originPathForPickedFile(file);
-        final bookmark = await securityBookmarkForPath(path);
-        // A single desktop pick opens progressively (first paint from ranged
-        // reads, full bytes behind it). A batch keeps the deferred whole-file
-        // path so the picker doesn't fan out many concurrent streams.
-        if (!defer && progressiveOpenSupported(path)) {
-          await _openProgressive(
-              title: file.name, path: path!, bookmark: bookmark);
-        } else {
-          // Probe the pick's declared size before the read, so a stalled
-          // readAsBytes shows up as "size known, bytes never ready".
-          int? pickLength;
-          try {
-            pickLength = await file.length();
-          } catch (_) {}
-          AppDevTools.instance.addLog('open-trace: picked "${file.name}" '
-              '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
-              'starting readAsBytes');
-          await _openLoadedBytes(
-            file.readAsBytes(),
-            title: file.name,
-            originPath: path,
-            originBookmark: bookmark,
-            defer: defer,
-          );
+        // Closed while it waited its turn - don't read it at all.
+        if (!_tabs.contains(loading)) continue;
+        try {
+          await _openPickedFile(file, loading, defer: defer);
+        } catch (e) {
+          _failLoading(loading, file.name, e);
         }
       }
     } catch (e) {
@@ -1768,6 +1758,65 @@ class _EditorScreenState extends State<EditorScreen>
           l10n.editorCouldNotOpenSelected(openErrorSummary(e)));
     }
   }
+
+  Future<void> _openPickedFile(XFile file, DocumentTab loading,
+      {required bool defer}) async {
+    final path = originPathForPickedFile(file);
+    final bookmark = await securityBookmarkForPath(path);
+    // A single desktop pick opens progressively (first paint from ranged
+    // reads, full bytes behind it). A batch keeps the deferred whole-file
+    // path so the picker doesn't fan out many concurrent streams.
+    if (!defer && progressiveOpenSupported(path)) {
+      await _openProgressive(
+          title: file.name, path: path!, bookmark: bookmark, into: loading);
+    } else {
+      // Probe the pick's declared size before the read, so a stalled
+      // readAsBytes shows up as "size known, bytes never ready".
+      int? pickLength;
+      try {
+        pickLength = await file.length();
+      } catch (_) {}
+      AppDevTools.instance.addLog('open-trace: picked "${file.name}" '
+          '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
+          'starting readAsBytes');
+      await _openLoadedBytes(
+        file.readAsBytes(),
+        title: file.name,
+        originPath: path,
+        originBookmark: bookmark,
+        defer: defer,
+        into: loading,
+      );
+    }
+  }
+
+  /// Swaps a batch [loading] placeholder whose open threw before reaching its
+  /// own error handling for an error tab, so it never spins forever and the
+  /// rest of the batch still opens.
+  void _failLoading(DocumentTab loading, String title, Object error) {
+    if (!mounted) return;
+    _replaceLoadingTab(
+      loading,
+      DocumentTab.error(title: title, error: _openFailureDetail(title, error)),
+    );
+  }
+
+  /// Puts a loading placeholder tab up for every document of a batch open at
+  /// once, before any of them is touched, and returns them in order - the last
+  /// ends up active, as it would have opening them one by one.
+  ///
+  /// The batch is then read one file at a time into these placeholders. On a
+  /// network location every step of that (the stat, the macOS bookmark, the
+  /// read itself) can take seconds per file; adding each placeholder only
+  /// when its turn came left the welcome screen up with no sign anything was
+  /// happening until the first file had been dealt with, and the rest of the
+  /// batch surfacing one at a time after that.
+  List<DocumentTab> _openLoadingBatch(
+          List<({String title, String? originPath})> documents) =>
+      [
+        for (final document in documents)
+          _openLoading(document.title, originPath: document.originPath),
+      ];
 
   /// Opens phone/tablet picks through the reference picker (#364): the runner
   /// hands back a token to the *original* file (not a sandbox copy) plus a
@@ -1780,10 +1829,16 @@ class _EditorScreenState extends State<EditorScreen>
   /// a runner without the channel.
   Future<void> _pickAndOpenMobile() async {
     final picks = await pickPdfMobileReferences();
-    if (picks.isEmpty) return;
+    if (picks.isEmpty || !mounted) return;
     final defer = picks.length > 1;
-    for (final pick in picks) {
+    final placeholders = _openLoadingBatch([
+      for (final pick in picks) (title: pick.name, originPath: null),
+    ]);
+    for (var i = 0; i < picks.length; i++) {
+      final pick = picks[i];
+      final loading = placeholders[i];
       if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
       final progressive = !defer && pick.seekable;
       final reason = progressive
           ? 'single-seekable'
@@ -1806,6 +1861,7 @@ class _EditorScreenState extends State<EditorScreen>
           token: pick.token,
           declaredBytes: pick.length,
           provider: pick.provider,
+          into: loading,
         );
       } else {
         // Non-seekable, or a batch we won't fan out into concurrent streams:
@@ -1815,6 +1871,7 @@ class _EditorScreenState extends State<EditorScreen>
           _readMobileOriginFullyWithTrace(pick, reason: reason),
           title: pick.name,
           defer: defer,
+          into: loading,
         );
       }
     }
@@ -2069,14 +2126,23 @@ class _EditorScreenState extends State<EditorScreen>
     // Dropping a batch: parse only the tab that ends up active, deferring the
     // rest until they're visited (see _materializeDeferred).
     final defer = pdfs.length > 1;
-    for (final item in pdfs) {
-      // desktop_drop exposes a real path on desktop; on web it's a blob ref
-      // we don't treat as a writable origin.
-      final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+    // desktop_drop exposes a real path on desktop; on web it's a blob ref
+    // we don't treat as a writable origin.
+    String? pathOf(DropItem item) =>
+        (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+    final placeholders = _openLoadingBatch([
+      for (final item in pdfs) (title: item.name, originPath: pathOf(item)),
+    ]);
+    for (var i = 0; i < pdfs.length; i++) {
+      final item = pdfs[i];
+      final loading = placeholders[i];
+      if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
+      final path = pathOf(item);
       final bookmark = await securityBookmarkForPath(path);
       if (!defer && progressiveOpenSupported(path)) {
         await _openProgressive(
-            title: item.name, path: path!, bookmark: bookmark);
+            title: item.name, path: path!, bookmark: bookmark, into: loading);
       } else {
         await _openLoadedBytes(
           item.readAsBytes(),
@@ -2084,6 +2150,7 @@ class _EditorScreenState extends State<EditorScreen>
           originPath: path,
           originBookmark: bookmark,
           defer: defer,
+          into: loading,
         );
       }
     }

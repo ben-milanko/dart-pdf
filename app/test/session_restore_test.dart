@@ -36,6 +36,26 @@ class _FakeFileSelector extends fs.FileSelectorPlatform {
   }
 }
 
+/// A picked file on a slow network share: its size and bytes arrive only when
+/// the test releases [gate].
+class _StalledXFile extends fs.XFile {
+  _StalledXFile(super.path, this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<int> length() async {
+    await gate.future;
+    return super.length();
+  }
+
+  @override
+  Future<Uint8List> readAsBytes() async {
+    await gate.future;
+    return super.readAsBytes();
+  }
+}
+
 class _DelayedRecoveryStore extends InMemoryUnsavedChangesStore {
   final gate = Completer<List<UnsavedRecord>>();
 
@@ -286,6 +306,41 @@ void main() {
     expect(fake.openedMultiple, isTrue);
     expect(tabTitle('picker-a.pdf'), findsOneWidget);
     expect(tabTitle('picker-b.pdf'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a multi-file pick shows every placeholder before any file is read',
+      (tester) async {
+    final a = seedFile('slow-a.pdf');
+    final b = seedFile('slow-b.pdf');
+    await pumpEditor(tester);
+
+    final gate = Completer<void>();
+    final original = fs.FileSelectorPlatform.instance;
+    fs.FileSelectorPlatform.instance =
+        _FakeFileSelector([_StalledXFile(a, gate), _StalledXFile(b, gate)]);
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Open a PDF'));
+    // Real frames: the picker plumbing hops through platform channels.
+    await tester.runAsync(() => pumpFrames(tester));
+    await tester.pump();
+
+    // Nothing has been read yet, but the welcome screen is gone and both
+    // documents already have a tab.
+    expect(find.byType(WelcomeScreen), findsNothing);
+    expect(tabTitle('slow-a.pdf'), findsOneWidget);
+    expect(tabTitle('slow-b.pdf'), findsOneWidget);
+
+    await tester.runAsync(() async {
+      gate.complete();
+      await pumpFrames(tester);
+    });
+    await tester.pump();
+
+    expect(find.textContaining('Could not open'), findsNothing);
+    expect(tabTitle('slow-a.pdf'), findsOneWidget);
+    expect(tabTitle('slow-b.pdf'), findsOneWidget);
   });
 
   testWidgets('a restored tab left unparsed opens when it is activated',
