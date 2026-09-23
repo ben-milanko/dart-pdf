@@ -20,6 +20,9 @@ constexpr char kIncomingChannelName[] = "dev.milanko.dartpdf/incoming";
 constexpr char kImageClipboardChannelName[] =
     "dev.milanko.dartpdf/image_clipboard";
 constexpr char kMemoryChannelName[] = "dev.milanko.dartpdf/memory";
+// Below this much available RAM (or 5% of it, whichever is larger) the memory
+// snapshot reports lowMemory.
+constexpr uint64_t kLowMemoryFloorBytes = 256ull * 1024 * 1024;
 constexpr char kWindowGeometryChannelName[] =
     "dev.milanko.dartpdf/window_geometry";
 constexpr char kFileDialogChannelName[] =
@@ -186,6 +189,27 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
                         "GlobalMemoryStatusEx failed");
           return;
         }
+        // Low memory means the machine is genuinely short, not merely busy.
+        // This used to be dwMemoryLoad >= 90, but a desktop with a browser
+        // open sits near 90% load for hours (the standby file cache counts as
+        // used), so the flag flickered on and off and every flip halved the
+        // caches - the app starved itself while in the background. Instead:
+        // the kernel's own low-memory notification, or less than
+        // max(256 MB, 5%) of RAM available - the same threshold as Linux.
+        static const HANDLE low_memory_notification =
+            ::CreateMemoryResourceNotification(LowMemoryResourceNotification);
+        BOOL kernel_low = FALSE;
+        if (low_memory_notification != nullptr &&
+            !::QueryMemoryResourceNotification(low_memory_notification,
+                                               &kernel_low)) {
+          kernel_low = FALSE;
+        }
+        const uint64_t five_percent = status.ullTotalPhys / 20;
+        const uint64_t low_threshold =
+            five_percent > kLowMemoryFloorBytes ? five_percent
+                                                : kLowMemoryFloorBytes;
+        const bool low_memory =
+            kernel_low == TRUE || status.ullAvailPhys < low_threshold;
         result->Success(flutter::EncodableValue(flutter::EncodableMap{
             {flutter::EncodableValue("physicalBytes"),
              flutter::EncodableValue(
@@ -194,7 +218,7 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
              flutter::EncodableValue(
                  static_cast<int64_t>(status.ullAvailPhys))},
             {flutter::EncodableValue("lowMemory"),
-             flutter::EncodableValue(status.dwMemoryLoad >= 90)},
+             flutter::EncodableValue(low_memory)},
         }));
       });
 
