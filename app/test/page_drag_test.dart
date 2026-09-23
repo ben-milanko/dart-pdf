@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,10 +11,12 @@ import 'package:dart_pdf_editor_app/tab_drag.dart';
 class _FakeLocator implements TabDropLocator {
   TabDropLocation? location;
   Object? failure;
+  Completer<TabDropLocation?>? pending;
 
   @override
   Future<TabDropLocation?> locate(Iterable<int> windowHandles) async {
     if (failure case final error?) throw error;
+    if (pending case final lookup?) return lookup.future;
     return location;
   }
 }
@@ -103,6 +107,58 @@ void main() {
     expect(await coordinator.drop(drag([0, 1, 2])), PageDragResult.copied);
     expect(other.accepted.single.pageCount, 3);
     expect(source.document.pageCount, 3);
+  });
+
+  test('a source revision during native lookup cancels the transfer', () async {
+    over(2);
+    coordinator.update(drag([1]));
+    await pumpEventQueue();
+    expect(other.markedAt, 1);
+    locator.pending = Completer<TabDropLocation?>();
+    final result = coordinator.drop(drag([1]));
+    source.removePages([0]); // Page 2 is now at slot 0, not slot 1.
+    final revised = source.document;
+    locator.pending!.complete(locator.location);
+
+    expect(await result, PageDragResult.cancelled);
+    expect(other.accepted, isEmpty);
+    expect(other.markedAt, isNull);
+    expect(source.document, same(revised));
+  });
+
+  test('closing the source window during lookup cancels the transfer',
+      () async {
+    over(2);
+    locator.pending = Completer<TabDropLocation?>();
+    final result = coordinator.drop(drag([1]));
+    coordinator.unregister(home);
+    locator.pending!.complete(locator.location);
+
+    expect(await result, PageDragResult.cancelled);
+    expect(other.accepted, isEmpty);
+    expect(source.document.pageCount, 3);
+  });
+
+  test('a drop from an already closed source is ignored', () async {
+    over(2);
+    coordinator.unregister(home);
+
+    expect(await coordinator.drop(drag([1])), PageDragResult.cancelled);
+    expect(other.accepted, isEmpty);
+    expect(source.canUndo, isFalse);
+  });
+
+  test('closing the destination during lookup keeps the source pages',
+      () async {
+    over(2);
+    locator.pending = Completer<TabDropLocation?>();
+    final result = coordinator.drop(drag([1]));
+    coordinator.unregister(other);
+    locator.pending!.complete(locator.location);
+
+    expect(await result, PageDragResult.cancelled);
+    expect(other.accepted, isEmpty);
+    expect(source.canUndo, isFalse);
   });
 
   test('a drop over no window, or its own, does nothing', () async {

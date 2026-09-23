@@ -108,6 +108,13 @@ class PageDragCoordinator {
   Future<PageDragResult> drop(PdfPageDragOut drag) async {
     _generation++;
     _queued = null;
+    final source = drag.controller;
+    final sourceWindow = _sourceWindow(source);
+    final revision = source.document;
+    if (sourceWindow == null) {
+      _clearMarker();
+      return PageDragResult.cancelled;
+    }
     TabDropLocation? location;
     try {
       location = await _locator.locate(_windows.keys);
@@ -115,13 +122,20 @@ class PageDragCoordinator {
       _clearMarker();
       return PageDragResult.failed;
     }
+    // The platform channel yields: a close, undo, or page edit can run while
+    // it locates the destination. Slot numbers only identify pages in the
+    // revision that was released, and a closed session must not be edited.
+    if (!identical(_sourceWindow(source), sourceWindow) ||
+        !identical(source.document, revision)) {
+      _clearMarker();
+      return PageDragResult.cancelled;
+    }
     final target = _targetAt(location, drag);
     final at = target?.pageDropIndexAt(location!.localPoint);
     target?.clearPageDropMarker();
     _clearMarker();
     if (target == null) return PageDragResult.cancelled;
 
-    final source = drag.controller;
     final count = source.document.pageCount;
     final pages = [
       for (final page in drag.pages)
@@ -141,6 +155,13 @@ class PageDragCoordinator {
     return source.removePages(pages)
         ? PageDragResult.moved
         : PageDragResult.copied;
+  }
+
+  PageDropWindow? _sourceWindow(PdfEditingController controller) {
+    for (final window in _windows.values) {
+      if (window.ownsSession(controller)) return window;
+    }
+    return null;
   }
 
   PageDropWindow? _targetAt(TabDropLocation? location, PdfPageDragOut drag) {
