@@ -108,7 +108,7 @@ class X509Certificate {
     final keyBits = spki[1].asBitString;
     cert.subjectPublicKeyBytes = keyBits;
     switch (cert.publicKeyAlgorithmOid) {
-      case _Oid.rsaEncryption:
+      case _Oid.rsaEncryption || _Oid.rsassaPss: // id-RSASSA-PSS keys too
         cert.publicKey = RsaPublicKey.fromPkcs1(keyBits);
       case _Oid.ecPublicKey when algorithm.length > 1:
         final curve = EcCurve.byOid(algorithm[1].asOid);
