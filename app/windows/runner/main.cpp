@@ -69,6 +69,12 @@ BOOL CALLBACK FindProcessWindow(HWND hwnd, LPARAM result) {
   if (process_id != ::GetCurrentProcessId() || !::IsWindowVisible(hwnd)) {
     return TRUE;
   }
+  // Only a document window: an owned popup/tooltip or a tool window is
+  // neither worth restoring from the taskbar nor a sensible dialog owner.
+  if (::GetWindow(hwnd, GW_OWNER) != nullptr ||
+      (::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) {
+    return TRUE;
+  }
   *reinterpret_cast<HWND*>(result) = hwnd;
   return FALSE;
 }
