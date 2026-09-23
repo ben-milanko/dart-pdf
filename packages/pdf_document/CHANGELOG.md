@@ -12,6 +12,18 @@
   selected rows highlighted, for single-select list boxes too, instead of
   showing only the chosen value.
 
+- Author every AcroForm field type, not only text, check box and push
+  button (#934). `PdfFormAdmin` gains `addRadioGroup` (one parent field, a
+  kid widget per on-state with generated /AP /N and /D states) and
+  `addRadioButton` to grow a group later, `addComboBoxField` /
+  `addListBoxField` (/Opt as export/display pairs, Edit and MultiSelect
+  flags) plus `setChoiceOptions`, and `addSignatureField` - an unsigned
+  /FT /Sig widget (with /SigFlags 1) that `saveSigned(fieldName:)` and the
+  PAdES/self-signed paths fill later. `changeFieldType` now converts to all
+  of them, carrying options between choice kinds and on-states into radio
+  groups and choice options; it refuses to retype a signed signature.
+  `PdfFormField` gains the `noToggleToOffFlag` and `multiSelectFlag`
+  constants.
 - Stop the visible signature box clipping its detail lines. On a short, wide
   "sign on this line" placement the top of the first line and the bottom of the
   last were sliced off: the box's flat 4pt inner margin took over 40% of a

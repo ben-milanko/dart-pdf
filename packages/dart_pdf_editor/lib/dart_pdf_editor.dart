@@ -34,6 +34,7 @@ export 'src/editing/signing_identity_store.dart';
 export 'src/editing/editing_annotation_clipboard.dart';
 export 'src/editing/editing_annotation_library.dart';
 export 'src/editing/editing_fonts.dart';
+export 'src/editing/editing_form_options.dart';
 export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_link.dart';
 export 'src/editing/editing_measure.dart';

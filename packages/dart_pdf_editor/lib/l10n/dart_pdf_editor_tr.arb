@@ -628,5 +628,16 @@
   "splitFailed": "Bu PDF bölünemedi.",
   "guidesSnapHint": "Ek açıklama kenarlarına ve merkezlerine yasla • Atlamak için Alt tuşunu basılı tutun",
   "tbToolContentDelete": "Sil",
-  "tbTipContentDelete": "İçeriği sil — bir dikdörtgen sürükleyin veya çokgenin köşelerine tıklayıp bitirmek için çift tıklayın"
+  "tbTipContentDelete": "İçeriği sil — bir dikdörtgen sürükleyin veya çokgenin köşelerine tıklayıp bitirmek için çift tıklayın",
+  "menuConvertToRadioGroup": "Radyo grubuna dönüştür",
+  "menuConvertToComboBox": "Açılan kutuya dönüştür",
+  "menuConvertToListBox": "Liste kutusuna dönüştür",
+  "menuConvertToSignatureField": "İmza alanına dönüştür",
+  "menuEditOptions": "Seçenekleri düzenle…",
+  "menuAddRadioButton": "Gruba düğme ekle",
+  "formOptionsTitle": "Alan seçenekleri",
+  "formOptionsExportValue": "Dışa aktarma değeri",
+  "formOptionsDisplayText": "Görüntülenen metin",
+  "formOptionsAllowCustomText": "Özel metne izin ver",
+  "formOptionsMultiSelect": "Çoklu seçime izin ver"
 }

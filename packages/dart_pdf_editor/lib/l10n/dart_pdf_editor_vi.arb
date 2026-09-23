@@ -628,5 +628,16 @@
   "splitFailed": "Không thể tách PDF này.",
   "guidesSnapHint": "Bám vào cạnh và tâm chú thích • Giữ Alt để bỏ qua",
   "tbToolContentDelete": "Xóa",
-  "tbTipContentDelete": "Xóa nội dung — kéo hình chữ nhật hoặc nhấp các đỉnh đa giác rồi nhấp đúp để hoàn tất"
+  "tbTipContentDelete": "Xóa nội dung — kéo hình chữ nhật hoặc nhấp các đỉnh đa giác rồi nhấp đúp để hoàn tất",
+  "menuConvertToRadioGroup": "Chuyển thành nhóm nút chọn",
+  "menuConvertToComboBox": "Chuyển thành hộp kết hợp",
+  "menuConvertToListBox": "Chuyển thành hộp danh sách",
+  "menuConvertToSignatureField": "Chuyển thành trường chữ ký",
+  "menuEditOptions": "Sửa tùy chọn…",
+  "menuAddRadioButton": "Thêm nút vào nhóm",
+  "formOptionsTitle": "Tùy chọn trường",
+  "formOptionsExportValue": "Giá trị xuất",
+  "formOptionsDisplayText": "Văn bản hiển thị",
+  "formOptionsAllowCustomText": "Cho phép văn bản tùy chỉnh",
+  "formOptionsMultiSelect": "Cho phép chọn nhiều"
 }

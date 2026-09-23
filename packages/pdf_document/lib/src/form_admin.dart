@@ -50,6 +50,210 @@ extension PdfFormAdmin on PdfEditor {
     return field;
   }
 
+  /// Adds a radio group named [name] on [pageIndex]: one parent field with
+  /// a kid widget per entry of [buttons], each selecting its own on-state
+  /// (the value the field takes when that button is chosen). Every widget
+  /// gets generated /AP /N and /D {onState, Off} appearances. [selected]
+  /// pre-selects one of the on-states; the group starts off otherwise.
+  ///
+  /// Throws [ArgumentError] when [buttons] is empty, an on-state is empty,
+  /// "Off" or repeated, [selected] names no button, or [name] is taken.
+  /// Add more buttons later with [addRadioButton].
+  PdfFormField addRadioGroup(
+    int pageIndex,
+    String name,
+    List<(PdfRect rect, String onState)> buttons, {
+    String? selected,
+  }) {
+    if (buttons.isEmpty) {
+      throw ArgumentError.value(buttons, 'buttons', 'must not be empty');
+    }
+    _checkRadioStates(buttons.map((b) => b.$2));
+    if (selected != null && !buttons.any((b) => b.$2 == selected)) {
+      throw ArgumentError.value(selected, 'selected', 'names no button');
+    }
+    _checkFreshName(name);
+    // pre-check the page index before anything is staged
+    document.page(pageIndex);
+    final parent = CosDictionary({
+      'FT': const CosName('Btn'),
+      'T': CosString.fromText(name),
+      'Ff': const CosInteger(
+        PdfFormField.radioFlag | PdfFormField.noToggleToOffFlag,
+      ),
+      'V': CosName(selected ?? 'Off'),
+      'Kids': CosArray(),
+    });
+    final formDict = _ensureAcroFormDict();
+    final parentRef = _updater.addObject(parent);
+    for (final (rect, onState) in buttons) {
+      _appendRadioKid(parent, parentRef, pageIndex, rect, onState);
+    }
+    _appendRootField(formDict, parentRef);
+    _stageAcroForm(formDict);
+    final field = _registeredField(name, [pageIndex]);
+    _generateRadioStates(field);
+    return field;
+  }
+
+  /// Adds another button to the radio group [group] at [rect] on
+  /// [pageIndex] (any page - a group may span several), selecting
+  /// [onState]. Returns the group re-read with the new widget last in
+  /// [PdfFormField.widgets].
+  ///
+  /// Throws [ArgumentError] when [group] is not a radio group or [onState]
+  /// is empty, "Off" or already used by the group, and [StateError] when
+  /// the group is a single merged field/widget dictionary (it has no
+  /// /Kids to extend) or is not an indirect object.
+  PdfFormField addRadioButton(
+    PdfFormField group,
+    int pageIndex,
+    PdfRect rect,
+    String onState,
+  ) {
+    if (group.type != PdfFieldType.radioGroup) {
+      throw ArgumentError.value(
+        group.type,
+        'group',
+        'field "${group.name}" is not a radio group',
+      );
+    }
+    _checkRadioStates([...group.onStates, onState]);
+    final parent = group.dict;
+    final parentRef = document.cos.referenceTo(parent);
+    final kids = document.cos.resolve(parent['Kids']);
+    if (parentRef == null || kids is! CosArray) {
+      throw StateError(
+        'radio group "${group.name}" is a single merged widget - '
+        'it has no /Kids to add a button to',
+      );
+    }
+    document.page(pageIndex);
+    _appendRadioKid(parent, parentRef, pageIndex, rect, onState);
+    _stageFormDict(group, parent);
+    final field = _registeredField(group.name, [pageIndex]);
+    _generateRadioStates(field);
+    return field;
+  }
+
+  /// Adds a combo box (drop-down) named [name] offering [options] as
+  /// (export value, display text) pairs. [editable] sets the Edit flag, so
+  /// a filler may type a value that is not in the list.
+  PdfFormField addComboBoxField(
+    int pageIndex,
+    String name,
+    PdfRect rect,
+    List<(String export, String display)> options, {
+    bool editable = false,
+  }) {
+    final dict = _newFieldDict('Ch', name, rect);
+    dict['Ff'] = CosInteger(
+      PdfFormField.comboFlag | (editable ? PdfFormField.editFlag : 0),
+    );
+    dict['Opt'] = _optArray(options);
+    final field = _installField(pageIndex, name, dict);
+    _regenerateVariableText(field, '');
+    _stageFormDict(field, field.dict);
+    return field;
+  }
+
+  /// Adds a list box named [name] offering [options] as (export value,
+  /// display text) pairs. [multiSelect] sets the MultiSelect flag, letting
+  /// a filler choose more than one option.
+  PdfFormField addListBoxField(
+    int pageIndex,
+    String name,
+    PdfRect rect,
+    List<(String export, String display)> options, {
+    bool multiSelect = false,
+  }) {
+    final dict = _newFieldDict('Ch', name, rect);
+    if (multiSelect) {
+      dict['Ff'] = const CosInteger(PdfFormField.multiSelectFlag);
+    }
+    dict['Opt'] = _optArray(options);
+    final field = _installField(pageIndex, name, dict);
+    _regenerateVariableText(field, '');
+    _stageFormDict(field, field.dict);
+    return field;
+  }
+
+  /// Replaces a combo or list box's /Opt with [options] (export, display)
+  /// pairs and, when given, its Edit ([editable], combo boxes) and
+  /// MultiSelect ([multiSelect], list boxes) flags. A current value no
+  /// longer offered is cleared unless the combo box is editable; the
+  /// appearance is regenerated either way.
+  PdfFormField setChoiceOptions(
+    PdfFormField field,
+    List<(String export, String display)> options, {
+    bool? editable,
+    bool? multiSelect,
+  }) {
+    if (field.type != PdfFieldType.comboBox &&
+        field.type != PdfFieldType.listBox) {
+      throw ArgumentError.value(
+        field.type,
+        'field',
+        'field "${field.name}" is not a choice field',
+      );
+    }
+    var flags = field.flags;
+    if (editable != null && field.type == PdfFieldType.comboBox) {
+      flags = editable
+          ? flags | PdfFormField.editFlag
+          : flags & ~PdfFormField.editFlag;
+    }
+    if (multiSelect != null && field.type == PdfFieldType.listBox) {
+      flags = multiSelect
+          ? flags | PdfFormField.multiSelectFlag
+          : flags & ~PdfFormField.multiSelectFlag;
+    }
+    field.dict['Ff'] = CosInteger(flags);
+    field.dict['Opt'] = _optArray(options);
+    field.dict.entries.remove('I');
+    final value = field.value;
+    final offered = value == null ||
+        options.any((o) => o.$1 == value) ||
+        (field.type == PdfFieldType.comboBox &&
+            flags & PdfFormField.editFlag != 0);
+    if (!offered) field.dict.entries.remove('V');
+    final index = options.indexWhere((o) => o.$1 == value);
+    if (offered &&
+        value != null &&
+        index >= 0 &&
+        field.type == PdfFieldType.listBox) {
+      field.dict['I'] = CosArray([CosInteger(index)]);
+    }
+    _regenerateVariableText(field, _choiceDisplay(field));
+    _finishFieldEdit(field);
+    return field;
+  }
+
+  /// Adds an unsigned signature field named [name]: a visible /FT /Sig
+  /// widget at [rect] for someone to sign later - [PdfSigning.saveSigned]
+  /// and the PAdES/self-signed paths fill it by `fieldName`. The form's
+  /// /SigFlags gains SignaturesExist (bit 1).
+  PdfFormField addSignatureField(int pageIndex, String name, PdfRect rect) {
+    final dict = _newFieldDict('Sig', name, rect);
+    final field = _installField(pageIndex, name, dict);
+    // a blank normal appearance, as for an empty push button, so the
+    // unsigned box is drawable (and flattens) rather than missing
+    final rectangle = field.widgetRect(0)!;
+    _setNormalAppearance(
+      field.dict,
+      _widgetForm(rectangle.width, rectangle.height, ContentWriter()),
+    );
+    _stageFormDict(field, field.dict);
+    final formDict = field.form.dict;
+    final flags = document.cos.resolve(formDict['SigFlags']);
+    final current = flags is CosInteger ? flags.value : 0;
+    if (current & 1 == 0) {
+      formDict['SigFlags'] = CosInteger(current | 1);
+      _stageAcroForm(formDict);
+    }
+    return field;
+  }
+
   /// Renames [field]: rewrites its partial /T so the fully qualified
   /// name becomes its parent prefix joined with [newName]. Throws
   /// [ArgumentError] when [newName] is empty or the resulting name
@@ -149,28 +353,37 @@ extension PdfFormAdmin on PdfEditor {
     return false;
   }
 
-  /// Rebuilds [field] as [newType] (text, check box, or push button) at
-  /// its first widget's page and rectangle, keeping the name - so
-  /// pipelines that resolve fields by name keep working after an
-  /// operator fixes a mis-typed template field.
+  /// Rebuilds [field] as [newType] at its first widget's page and
+  /// rectangle, keeping the name - so pipelines that resolve fields by
+  /// name keep working after an operator fixes a mis-typed template field.
+  ///
+  /// Every creatable type is a target: text, check box, push button,
+  /// radio group, combo box, list box, and (unsigned) signature. What
+  /// carries over is what still means something in the new type: a
+  /// choice field keeps its options between combo and list box; a check
+  /// box becomes a one-button radio group with the same on-state; a radio group becomes a combo or list box offering its
+  /// on-states. Values are not carried over.
   ///
   /// Multi-widget fields collapse to a single widget at the first
   /// widget's rectangle. Throws [StateError] when no page/rect can be
-  /// determined, [ArgumentError] for unsupported target types.
+  /// determined or [field] is a signed signature (retyping would discard
+  /// the signature), [ArgumentError] for [PdfFieldType.unknown].
   PdfFormField changeFieldType(PdfFormField field, PdfFieldType newType) {
-    const supported = {
-      PdfFieldType.text,
-      PdfFieldType.checkBox,
-      PdfFieldType.pushButton,
-    };
-    if (!supported.contains(newType)) {
+    if (newType == PdfFieldType.unknown) {
       throw ArgumentError.value(
         newType,
         'newType',
-        'only ${supported.map((t) => t.name).join('/')} are supported',
+        'a field cannot be converted to an unknown type',
       );
     }
     if (field.type == newType) return field;
+    if (field.type == PdfFieldType.signature &&
+        document.cos.resolve(field.dict['V']) is CosDictionary) {
+      throw StateError(
+        'field "${field.name}" is signed - retyping would discard the '
+        'signature',
+      );
+    }
     final pageIndex = field.widgetPageIndex(0);
     final rect = field.widgetRect(0);
     if (pageIndex < 0 || rect == null) {
@@ -180,11 +393,26 @@ extension PdfFormAdmin on PdfEditor {
       );
     }
     final name = field.name;
+    final options = switch (field.type) {
+      PdfFieldType.comboBox || PdfFieldType.listBox => field.options,
+      PdfFieldType.radioGroup => [for (final s in field.onStates) (s, s)],
+      _ => const <(String, String)>[],
+    };
+    final onState = field.type == PdfFieldType.checkBox ||
+            field.type == PdfFieldType.radioGroup
+        ? field.widgetOnState(0)
+        : null;
     removeField(field);
     return switch (newType) {
       PdfFieldType.text => addTextField(pageIndex, name, rect),
       PdfFieldType.checkBox => addCheckBoxField(pageIndex, name, rect),
-      _ => addPushButtonField(pageIndex, name, rect),
+      PdfFieldType.pushButton => addPushButtonField(pageIndex, name, rect),
+      PdfFieldType.radioGroup =>
+        addRadioGroup(pageIndex, name, [(rect, onState ?? 'Choice1')]),
+      PdfFieldType.comboBox => addComboBoxField(pageIndex, name, rect, options),
+      PdfFieldType.listBox => addListBoxField(pageIndex, name, rect, options),
+      PdfFieldType.signature => addSignatureField(pageIndex, name, rect),
+      PdfFieldType.unknown => throw StateError('unreachable'),
     };
   }
 
@@ -305,66 +533,200 @@ extension PdfFormAdmin on PdfEditor {
   /// Registers [dict] as a root field and a page annotation, creating
   /// the /AcroForm dictionary when the document has none.
   PdfFormField _installField(int pageIndex, String name, CosDictionary dict) {
+    _checkFreshName(name);
+    _prepareWidget(dict, pageIndex);
+    final formDict = _ensureAcroFormDict();
+    final ref = _updater.addObject(dict);
+    _appendRootField(formDict, ref);
+    _PdfPageAnnotationList(this, pageIndex).append(ref);
+    _stageAcroForm(formDict);
+    return _registeredField(name, [pageIndex]);
+  }
+
+  /// A kid widget (no /T - the parent field names it) for a field split
+  /// into several widgets, such as a radio group's buttons.
+  CosDictionary _newKidWidget(PdfRect rect, CosReference parent) =>
+      CosDictionary({
+        'Type': const CosName('Annot'),
+        'Subtype': const CosName('Widget'),
+        'Parent': parent,
+        'Rect': CosArray([
+          CosReal(rect.left),
+          CosReal(rect.bottom),
+          CosReal(rect.right),
+          CosReal(rect.top),
+        ]),
+        'F': const CosInteger(4), // print
+      });
+
+  /// Adds one radio button widget to the group [parent] (already an
+  /// indirect object at [parentRef]) on [pageIndex]: /Kids and the page's
+  /// /Annots gain it, and it carries placeholder /AP state names so
+  /// [_generateRadioStates] can paint them.
+  void _appendRadioKid(
+    CosDictionary parent,
+    CosReference parentRef,
+    int pageIndex,
+    PdfRect rect,
+    String onState,
+  ) {
+    final widget = _newKidWidget(rect, parentRef);
+    final selected = document.cos.resolve(parent['V']);
+    widget['AS'] = CosName(
+      selected is CosName && selected.value == onState ? onState : 'Off',
+    );
+    widget['AP'] = CosDictionary({
+      'N': CosDictionary({
+        onState: CosNull.instance,
+        'Off': CosNull.instance,
+      }),
+    });
+    _prepareWidget(widget, pageIndex);
+    final ref = _updater.addObject(widget);
+    final kids = document.cos.resolve(parent['Kids']);
+    parent['Kids'] = CosArray([
+      if (kids is CosArray) ...kids.items,
+      ref,
+    ]);
+    _PdfPageAnnotationList(this, pageIndex).append(ref);
+  }
+
+  /// Paints the on/off states of every radio widget in [field] that still
+  /// carries the placeholder states [_appendRadioKid] set, through the same
+  /// generator a fill or resize uses, and mirrors /N into /D (the down
+  /// appearance) so the button shows its state while pressed.
+  void _generateRadioStates(PdfFormField field) {
     final cos = document.cos;
-    final existing = acroForm?.fieldNamed(name);
-    if (existing != null) {
+    final widgets = field.widgets;
+    for (var i = 0; i < widgets.length; i++) {
+      final widget = widgets[i];
+      final ap = cos.resolve(widget['AP']);
+      if (ap is! CosDictionary) continue;
+      final n = cos.resolve(ap['N']);
+      if (n is! CosDictionary || n.entries.values.any((v) => v is! CosNull)) {
+        continue;
+      }
+      _regenerateButtonStates(field, i, widget);
+      final fresh = cos.resolve(widget['AP']);
+      if (fresh is CosDictionary) {
+        final normal = cos.resolve(fresh['N']);
+        if (normal is CosDictionary) {
+          fresh['D'] = CosDictionary(Map.of(normal.entries));
+        }
+      }
+      _stageFormDict(field, widget);
+    }
+  }
+
+  static void _checkRadioStates(Iterable<String> states) {
+    final seen = <String>{};
+    for (final state in states) {
+      if (state.isEmpty || state == 'Off') {
+        throw ArgumentError.value(
+          state,
+          'onState',
+          'must be non-empty and not "Off"',
+        );
+      }
+      if (!seen.add(state)) {
+        throw ArgumentError.value(
+          state,
+          'onState',
+          'each button in a group needs its own on-state',
+        );
+      }
+    }
+  }
+
+  /// Rewrites /Opt from [options]: a plain string when the export and
+  /// display forms agree, an [export display] pair otherwise (§12.7.5.4).
+  static CosArray _optArray(List<(String, String)> options) => CosArray([
+        for (final (export, display) in options)
+          if (export == display)
+            CosString.fromText(export)
+          else
+            CosArray([CosString.fromText(export), CosString.fromText(display)]),
+      ]);
+
+  void _checkFreshName(String name) {
+    if (name.isEmpty) {
+      throw ArgumentError.value(name, 'name', 'must be non-empty');
+    }
+    if (acroForm?.fieldNamed(name) != null) {
       throw ArgumentError.value(
         name,
         'name',
         'another field is already named "$name"',
       );
     }
+  }
+
+  /// Page-dependent widget entries: /P, and /MK /R so a widget on a
+  /// rotated page draws upright.
+  void _prepareWidget(CosDictionary widget, int pageIndex) {
     final page = document.page(pageIndex);
     if (page.rotation != 0) {
-      dict['MK'] = CosDictionary({'R': CosInteger(page.rotation)});
+      final mk = document.cos.resolve(widget['MK']);
+      if (mk is CosDictionary) {
+        mk['R'] = CosInteger(page.rotation);
+      } else {
+        widget['MK'] = CosDictionary({'R': CosInteger(page.rotation)});
+      }
     }
+    final pageRef = document.cos.referenceTo(page.dict);
+    if (pageRef != null) widget['P'] = pageRef;
+  }
 
-    var formDict = cos.resolve(document.catalog['AcroForm']);
-    if (formDict is! CosDictionary) {
-      formDict = CosDictionary({
-        'Fields': CosArray(),
-        'DA': CosString.fromText('/Helv 0 Tf 0 g'),
-        'DR': CosDictionary({
-          'Font': CosDictionary({
-            'Helv': _updater.addObject(
-              CosDictionary({
-                'Type': const CosName('Font'),
-                'Subtype': const CosName('Type1'),
-                'BaseFont': const CosName('Helvetica'),
-                'Encoding': const CosName('WinAnsiEncoding'),
-              }),
-            ),
-          }),
+  /// The document's /AcroForm dictionary, created (with a Helvetica /DR
+  /// and an auto-size /DA) when the document has none.
+  CosDictionary _ensureAcroFormDict() {
+    final existing = document.cos.resolve(document.catalog['AcroForm']);
+    if (existing is CosDictionary) return existing;
+    final formDict = CosDictionary({
+      'Fields': CosArray(),
+      'DA': CosString.fromText('/Helv 0 Tf 0 g'),
+      'DR': CosDictionary({
+        'Font': CosDictionary({
+          'Helv': _updater.addObject(
+            CosDictionary({
+              'Type': const CosName('Font'),
+              'Subtype': const CosName('Type1'),
+              'BaseFont': const CosName('Helvetica'),
+              'Encoding': const CosName('WinAnsiEncoding'),
+            }),
+          ),
         }),
-      });
-      document.catalog['AcroForm'] = formDict;
-      _updater.markChanged(document.catalog);
-    }
+      }),
+    });
+    document.catalog['AcroForm'] = formDict;
+    _updater.markChanged(document.catalog);
+    return formDict;
+  }
 
-    final ref = _updater.addObject(dict);
-    // reassign rather than mutate, in case the arrays were indirect
-    final fields = cos.resolve(formDict['Fields']);
+  void _appendRootField(CosDictionary formDict, CosReference ref) {
+    // reassign rather than mutate, in case the array was indirect
+    final fields = document.cos.resolve(formDict['Fields']);
     formDict['Fields'] = CosArray([
       if (fields is CosArray) ...fields.items,
       ref,
     ]);
+  }
 
-    final pageRef = cos.referenceTo(page.dict);
-    if (pageRef != null) dict['P'] = pageRef;
-    _PdfPageAnnotationList(this, pageIndex).append(ref);
-
-    final formRef = cos.referenceTo(formDict);
+  void _stageAcroForm(CosDictionary formDict) {
+    final formRef = document.cos.referenceTo(formDict);
     if (formRef != null) {
       _updater.replaceObject(formRef.objectNumber, formDict);
     } else {
       _updater.markChanged(document.catalog);
     }
+  }
 
+  PdfFormField _registeredField(String name, Iterable<int> pages) {
     final field = PdfAcroForm.of(document)?.fieldNamed(name);
     if (field == null) {
       throw StateError('field "$name" failed to register');
     }
-    _markVisual([pageIndex]);
+    _markVisual(pages);
     return field;
   }
 }
