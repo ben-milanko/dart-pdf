@@ -28,6 +28,9 @@ Two things you can always add on top of any identity:
   own viewer** — the right answer for a first-party ecosystem.
 
 The library ships **no built-in roots**: you always decide what to trust.
+The opt-in public lists (the EU trusted lists, an AATL file you supply) and
+live revocation checking are covered in
+[Validating: trust lists and revocation](#validating-trust-lists-and-revocation).
 
 ## Tier 1 — one-tap self-signed identity
 
@@ -229,3 +232,104 @@ validation material (B-LT/B-LTA) for archival signatures.
 | Tier 2 timestamp | none (free TSA) | trusted *time* | trusted time |
 | Tier 3 Fulcio keyless | OAuth sign-in | validity unknown, real email | trusted if Sigstore root added |
 | Tier 4 Actalis import | manual enrollment | not AATL | trusted (public root) |
+
+## Validating: trust lists and revocation
+
+Signing is half the story; the other half is what a *verifier* concludes.
+`PdfSignature.validate(trustStore:)` checks the chain against anchors you
+supply. Two opt-in additions close the gap with desktop viewers.
+
+### Revocation
+
+`validate()` checks the signer and every intermediate against the revocation
+data embedded in the document's `/DSS` (offline LTV).
+`validateOnline(revocationClient:)` adds a live check through the same
+injected `PdfRevocationClient` PAdES B-LT uses to gather material:
+
+```dart
+final result = await signature.validateOnline(
+  trustStore: store,
+  revocationClient: pdfOnlineRevocationClient(fetch: (request) async {
+    // POST request.body (application/ocsp-request) or GET request.url
+    return responseBytes;
+  }),
+);
+for (final r in result.revocation) {
+  print('${r.certificate.subjectCommonName}: ${r.status} via ${r.source}');
+}
+```
+
+`pdfOnlineRevocationClient` asks each certificate's OCSP responder (from its
+Authority Information Access) with a random nonce, drops an answer that
+echoes a different nonce, and falls back to the CRL distribution points.
+The validator accepts an OCSP answer only when its CertID matches the
+certificate *and* issuer, it is signed by the issuer or by a delegated
+responder the issuer authorized (id-kp-OCSPSigning), and it is current
+(thisUpdate not in the future, nextUpdate not passed, or no older than seven
+days without one). A CRL must be issued and signed by the certificate's
+issuer and be current the same way.
+
+**Policy.** A revoked certificate makes `chainTrusted` false, unless a
+verified RFC 3161 signature timestamp is dated *before* the revocation time;
+then the signature provably predates the revocation and stays valid (the
+entry reports `affectsSignature: false`). The claimed signing time is not used
+for this, because the signer controls it. When a status can't be established
+(no responder, network failure, stale or unverifiable answer) it is reported
+as `PdfRevocationStatus.unknown` and does not by itself untrust the chain,
+which is how desktop viewers soft-fail. Each certificate's verdict carries its
+`source`: `embedded` (/DSS) or `live`.
+
+### Trust lists
+
+`package:pdf_document/trust_lists.dart` is the opt-in trust-anchor library.
+It contains code, not certificates:
+
+- **EU trusted lists (EUTL).** `fetchEuTrustedLists(fetch:)` downloads the
+  Commission's List of Trusted Lists, verifies its XML signature against the
+  pinned LOTL signing certificates (`PdfEuLotl.signerFingerprints`), then
+  downloads each Member State list and verifies it against the certificates
+  the LOTL names for that country. It keeps the active qualified CA services
+  (`CA/QC` and `NationalRootCA-QC` with a granted status). The result
+  serializes to a PEM snapshot (`toPem` / `PdfTrustLists.eutl(pem)`).
+- **Adobe Approved Trust List (AATL).** `parseAatlSecuritySettings(bytes)`
+  reads a `.acrobatsecuritysettings` file you already have. It checks that the
+  file's PDF signature chains to Adobe Root CA G2 (pinned by fingerprint) and
+  keeps the identities marked as trusted roots.
+
+**Why no data is committed.** The AATL is distributed by Adobe for Acrobat
+under its member agreements, and we found no terms that allow a third party to
+redistribute it, so dart-pdf neither bundles nor downloads it; the loader is
+for deployments whose own arrangement with Adobe covers it. The EU lists are
+public, and the LOTL itself is Commission content reusable under Decision
+2011/833/EU, but the national lists are published by each Member State under
+its own terms. Rather than commit a snapshot whose reuse terms we couldn't
+confirm for every country, the library fetches the lists from their official
+sources at run time.
+
+**Refreshing.** `packages/pdf_document/tool/refresh_trust_lists.dart --eutl
+eutl.pem [--aatl aatl.pem]` writes verified PEM snapshots for a host to ship or
+cache. Cadence:
+
+- The DartPDF app refreshes its cached EU snapshot when it is older than
+  **7 days**, and only after a signed document is opened. Member States
+  reissue their lists when a service changes, so weekly keeps them current
+  without re-downloading about 25 MB on every launch.
+- A host that ships a snapshot should refresh it at least **monthly** and
+  before each release.
+- The pinned LOTL signers change only when the Commission publishes new ones
+  in the Official Journal (the most recent change was the TL v6 transition in
+  April 2026). When that happens, cross-check the announcement against the
+  LOTL's pointer to itself and update `PdfEuLotl.signerFingerprints`. Until
+  then the refresh tool accepts `--lotl-signer <sha256>` overrides.
+
+### In the editor and app
+
+`PdfEditingController.trustStore` and `.revocationClient` feed the signature
+panel. It shows whether the signer is trusted, self-signed, or issued by an
+authority you don't trust. It also shows whether the certificate was revoked
+(and whether that was before or after a trusted timestamp), confirmed not
+revoked (online or from embedded data), or couldn't be checked. Outside the
+browser, the DartPDF app wires both by default (`app/lib/signature_trust.dart`):
+an HTTP revocation client, and the EU trusted list fetched and cached as above.
+The web build keeps to embedded data, since browsers block cross-origin
+OCSP/CRL requests.

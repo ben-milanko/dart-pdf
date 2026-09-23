@@ -130,12 +130,22 @@ transports injected via `pades.dart`'s `PdfTimestampClient`/
 `PdfRevocationClient`, no `dart:io`); crypto in `pdf_cos/src/crypto/`
 tsp/ocsp/crl + cms ESS/timestamp helpers (KATs vs OpenSSL in
 `pkix_test.dart`, fixtures from `tool/gen_pkix_fixtures.sh`). validate()
-reports `padesLevel`, `timestamp`, and offline `embeddedRevocation` from the
-/DSS. pyHanko 0.35 judges our B-LTA output VALID + LTV-enabled offline
+reports `padesLevel`, `timestamp`, and per-certificate `revocation` from the
+/DSS; `validateOnline(revocationClient:)` adds live OCSP-then-CRL checks of the
+signer + intermediates (`revocation.dart`: full CertID match, authorized
+delegated responders, freshness; a revoked cert untrusts the chain unless a
+verified timestamp predates the revocation; `pdfOnlineRevocationClient` wraps
+a host HTTP fetch with nonce checks). Roots stay opt-in and uncommitted:
+`package:pdf_document/trust_lists.dart` fetches + XMLDSig-verifies the EU
+trusted lists (pinned LOTL signers) and loads a host-supplied AATL file; the
+app wires both off-web (`app/lib/signature_trust.dart`). See
+doc/dev-log/2026-09-23-trust-lists-and-revocation.md. pyHanko 0.35 judges our B-LTA output VALID + LTV-enabled offline
 (`pdf_document/tool/emit_pades_ltv.dart`). See doc/dev-log.md. Signing
 encrypted files is still refused. Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`; LTV CA/leaf/TSA + revocation
-fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`.
+fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`, and a
+root/intermediate/signer PKI minting OCSP responses + CRLs on demand in
+`test_revocation.dart`.
 One-tap self-signed identities are in: `EcPrivateKey.generate` + RFC 6979
 `ecdsaSign` + `buildSelfSignedCertificate` (pdf_cos - P-256 keygen and an
 X.509 v3 builder, KAT'd against RFC 6979 vectors) feed
