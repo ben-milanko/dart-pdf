@@ -74,7 +74,7 @@ dependencies:
   # Re-encodes a camera capture whose EXIF says it is rotated: PDF embeds JPEG
   # bytes verbatim and has no orientation tag, so the rotation has to be baked
   # into the pixels (lib/camera_capture.dart).
-  image: ^4.9.2
+  image: ^4.10.1
 
 dev_dependencies:
   flutter_test:
