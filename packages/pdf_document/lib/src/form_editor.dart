@@ -46,6 +46,7 @@ extension PdfFormFilling on PdfEditor {
     field.dict['V'] = CosString.fromText(value);
     _regenerateVariableText(field, value, textDirection: textDirection);
     _finishFieldEdit(field);
+    _recalculateAfter(field);
   }
 
   /// Removes the saved vertical preference and regenerates all widgets
@@ -152,6 +153,7 @@ extension PdfFormFilling on PdfEditor {
     }
     _regenerateVariableText(field, display);
     _finishFieldEdit(field);
+    _recalculateAfter(field);
   }
 
   // ---------------------------------------------------------------------
@@ -315,6 +317,7 @@ extension PdfFormFilling on PdfEditor {
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);
     }
     _finishFieldEdit(field);
+    _recalculateAfter(field);
   }
 
   List<String> _widgetStates(CosDictionary widget) {
@@ -497,7 +500,12 @@ extension PdfFormFilling on PdfEditor {
     final embedded = fontDict == null
         ? null
         : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
-    final text = embedded != null ? rawText : sanitizeFieldText(rawText);
+    // a recognised format script (AFNumber_Format, AFDate_FormatEx, ...)
+    // changes only what is shown; /V keeps the raw value
+    final shown = field.type == PdfFieldType.text
+        ? field.displayFor(rawText)
+        : PdfFieldDisplay(rawText);
+    final text = embedded != null ? shown.text : sanitizeFieldText(shown.text);
 
     final widgets = field.widgets;
     for (var widgetIndex = 0; widgetIndex < widgets.length; widgetIndex++) {
@@ -557,7 +565,7 @@ extension PdfFormFilling on PdfEditor {
 
       final resolvedDirection = field.quadding == 2
           ? PdfTextDirection.rtl
-          : textDirection.resolve(rawText);
+          : textDirection.resolve(shown.text);
       final align = switch (field.quadding) {
         1 => PdfTextAlign.center,
         2 => PdfTextAlign.right,
@@ -596,7 +604,9 @@ extension PdfFormFilling on PdfEditor {
         clip: false,
         clampAlign: true,
         measureLine: (s) => measure(s, size),
-        writeColor: (w) => w.raw(da.colorOps),
+        writeColor: (w) => shown.textColor == null
+            ? w.raw(da.colorOps)
+            : w.fillColor(shown.textColor!),
         emitLine: (w, line) {
           final rendered = pdfVisualText(line, resolvedDirection);
           if (embedded != null) {

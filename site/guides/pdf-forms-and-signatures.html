@@ -700,7 +700,7 @@
             "name": "Does DartPDF support XFA forms or form JavaScript?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "No. DartPDF supports AcroForms. XFA forms are not supported, and there is deliberately no JavaScript engine, so calculated fields and format scripts do not run."
+              "text": "DartPDF supports AcroForms; XFA forms are not supported. There is deliberately no JavaScript engine, but the built-in AF helper scripts most forms use are recognised and run natively: AFSimple_Calculate and simplified field notation totals (recalculated in the form's calculation order after every fill), AFNumber, AFPercent, AFDate, AFTime and AFSpecial formats and keystroke checks, and AFRange_Validate. Any other script is skipped and reported, so your app can see what did not run."
             }
           }
         ]
@@ -863,6 +863,28 @@
             including wrapping, auto-sizing, quadding (alignment), borders, backgrounds, and page rotation, and then
             clears <code>/NeedAppearances</code>. The saved file looks the same in every viewer, and it prints
             correctly.</p>
+
+          <h3 id="forms-scripts">Calculated totals, formats, and validation</h3>
+          <p>Most form scripts are calls to a small set of built-in <code>AF*</code> helpers. DartPDF recognises them
+            and runs a Dart version of each, so these work with no JavaScript engine:</p>
+          <ul>
+            <li><strong>Calculations:</strong> <code>AFSimple_Calculate</code> (sum, average, product, min, max) and
+              simplified field notation such as <code>Qty * Price</code>. They re-run in the form's calculation
+              order (<code>/CO</code>) after every fill, including read-only total fields.</li>
+            <li><strong>Formats:</strong> <code>AFNumber_Format</code> (separators, negative styles, currency),
+              <code>AFPercent_Format</code>, <code>AFDate_FormatEx</code>/<code>AFTime_Format</code>, and
+              <code>AFSpecial_Format</code> (zip, zip+4, phone, SSN). The field shows the formatted text and
+              stores the raw value, as Acrobat does.</li>
+            <li><strong>Keystroke and validation:</strong> the matching <code>*_Keystroke</code> helpers and
+              <code>AFRange_Validate</code>. In the Flutter editor a number field won't accept letters, and an
+              out-of-range or unreadable value is refused with a message. From code,
+              <code>editor.enterTextValue(field, text)</code> applies the same checks and throws a
+              <code>PdfFieldInputException</code>. <code>setTextValue</code> stays the unchecked programmatic
+              setter.</li>
+          </ul>
+          <p>Scripts that aren't one of these helpers never run. <code>field.scripts</code> lists which of a field's
+            scripts were recognised and which were skipped, so your app can warn about forms that depend on custom
+            code.</p>
 
           <h3 id="forms-flutter">In a Flutter app</h3>
           <p>Form filling is on by default. <code>PdfEditorView</code> (the full editor) and <code>PdfReader</code>
@@ -1054,9 +1076,14 @@ await session.addDigitalSignature(
           <ul>
             <li><strong>XFA forms.</strong> XFA is the older XML-based Adobe forms format. Pure-XFA (“dynamic”)
               forms won't show their fields. Hybrid forms work through their AcroForm half.</li>
-            <li><strong>Form JavaScript.</strong> There is deliberately no JS engine, so calculated totals,
-              format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
-              app can inspect them.</li>
+            <li><strong>Custom form JavaScript.</strong> There is deliberately no JS engine. The built-in
+              <code>AF*</code> helpers that most forms use do work without one: <code>AFSimple_Calculate</code>
+              and simplified field notation totals re-run in <code>/CO</code> order after every fill,
+              <code>AFNumber</code>/<code>AFPercent</code>/<code>AFDate</code>/<code>AFTime</code>/<code>AFSpecial</code>
+              formats change what a field shows while keeping its stored value, and their keystroke checks plus
+              <code>AFRange_Validate</code> refuse invalid entries with a message. Hand-written scripts, including
+              scripted show/hide, are skipped; each field reports which of its scripts ran and which didn't
+              (<code>field.scripts</code>).</li>
             <li><strong>Comb fields, <code>/MaxLen</code>, and password masking</strong> are not enforced when
               filling.</li>
             <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
