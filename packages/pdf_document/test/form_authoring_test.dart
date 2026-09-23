@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -252,6 +253,105 @@ void main() {
           () => next.setChoiceOptions(
               next.addTextField(0, 't', const PdfRect(0, 0, 9, 9)), const []),
           throwsArgumentError);
+    });
+
+    // appearance checks share #944's list-box renderer
+    String appearance(PdfDocument doc, PdfFormField field) {
+      final ap = doc.cos.resolve(field.widgets.first['AP']) as CosDictionary;
+      final n = doc.cos.resolve(ap['N']) as CosStream;
+      return latin1.decode(doc.cos.decodeStreamData(n));
+    }
+
+    final highlightOp = latin1
+        .decode((ContentWriter()..fillColor(0x99C1DA)).takeBytes())
+        .trim();
+    int highlights(String content) => highlightOp.allMatches(content).length;
+
+    test('an authored list box draws every option row', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      editor.addListBoxField(0, 'l', const PdfRect(50, 400, 250, 480), options);
+      var out = reopen(editor);
+      var content = appearance(out, PdfAcroForm.of(out)!.fieldNamed('l')!);
+      for (final (_, display) in options) {
+        expect(content, contains('($display) Tj'));
+      }
+      expect(highlights(content), 0, reason: 'nothing selected yet');
+
+      final filler = PdfEditor(out);
+      filler.setChoiceValue(filler.acroForm!.fieldNamed('l')!, 'au');
+      out = reopen(filler);
+      content = appearance(out, PdfAcroForm.of(out)!.fieldNamed('l')!);
+      expect(content, contains('(United States) Tj'));
+      expect(highlights(content), 1, reason: 'the /V row is highlighted');
+    });
+
+    test('an authored combo box shows its value, not its rows', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addComboBoxField(
+          0, 'c', const PdfRect(50, 600, 250, 622), options);
+      editor.setChoiceValue(field, 'au');
+      final out = reopen(editor);
+      final content = appearance(out, PdfAcroForm.of(out)!.fieldNamed('c')!);
+      expect(content, contains('(Australia) Tj'));
+      expect(content, isNot(contains('(United States) Tj')));
+      expect(highlights(content), 0);
+    });
+
+    test('setChoiceOptions redraws the rows and keeps the selection', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addListBoxField(
+          0, 'l', const PdfRect(50, 400, 250, 480), options);
+      editor.setChoiceValue(field, 'nz');
+      editor.setChoiceOptions(editor.acroForm!.fieldNamed('l')!,
+          const [('nz', 'New Zealand'), ('fj', 'Fiji')]);
+      final out = reopen(editor);
+      final reread = PdfAcroForm.of(out)!.fieldNamed('l')!;
+      final content = appearance(out, reread);
+      expect(content, contains('(New Zealand) Tj'));
+      expect(content, contains('(Fiji) Tj'));
+      expect(content, isNot(contains('(Australia) Tj')));
+      expect(highlights(content), 1);
+      expect(reread.values, ['nz']);
+      expect(reread.selectedIndices, [0]);
+    });
+
+    test('multi-select authoring round-trips with setChoiceValues', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      editor.addListBoxField(0, 'm', const PdfRect(50, 400, 250, 480), options,
+          multiSelect: true);
+      var out = reopen(editor);
+      var field = PdfAcroForm.of(out)!.fieldNamed('m')!;
+      expect(field.isMultiSelect, isTrue);
+
+      final filler = PdfEditor(out);
+      filler.setChoiceValues(
+          filler.acroForm!.fieldNamed('m')!, const ['nz', 'us']);
+      out = reopen(filler);
+      field = PdfAcroForm.of(out)!.fieldNamed('m')!;
+      expect(field.values, ['us', 'nz'], reason: 'option order');
+      expect(field.selectedIndices, [0, 2]);
+      expect(highlights(appearance(out, field)), 2);
+
+      // editing the options keeps every value still offered ...
+      final edit = PdfEditor(out);
+      edit.setChoiceOptions(edit.acroForm!.fieldNamed('m')!,
+          const [('us', 'USA'), ('nz', 'NZ'), ('fj', 'Fiji')]);
+      out = reopen(edit);
+      field = PdfAcroForm.of(out)!.fieldNamed('m')!;
+      expect(field.values, ['us', 'nz']);
+      expect(field.selectedIndices, [0, 1]);
+      expect(highlights(appearance(out, field)), 2);
+
+      // ... and turning multi-select off keeps only the first
+      final single = PdfEditor(out);
+      single.setChoiceOptions(single.acroForm!.fieldNamed('m')!,
+          const [('us', 'USA'), ('nz', 'NZ'), ('fj', 'Fiji')],
+          multiSelect: false);
+      out = reopen(single);
+      field = PdfAcroForm.of(out)!.fieldNamed('m')!;
+      expect(field.isMultiSelect, isFalse);
+      expect(field.values, ['us']);
+      expect(highlights(appearance(out, field)), 1);
     });
   });
 

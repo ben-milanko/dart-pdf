@@ -28,11 +28,18 @@ authored.
   {editable | multiSelect})`: `/Opt` holds a plain string when the export
   and display text match, and an `[export display]` pair otherwise.
   `field.options` reads both forms back the same way. The appearance is
-  generated up front with `_regenerateVariableText(field, '')`.
+  generated up front through #944's `_regenerateChoice` dispatcher: a list
+  box draws every `/Opt` row (`_regenerateListBox`, selection
+  highlighted) and a combo box shows its value. There is no separate
+  authoring-only path; an early cut rendered `''` and left an authored
+  list box blank until it was filled.
 - `setChoiceOptions(field, options, {editable, multiSelect})` backs the
-  editor's options dialog. It clears a `/V` the new options no longer
-  offer, unless the combo box is editable, and keeps `/I` in step for
-  list boxes.
+  editor's options dialog. It reads `field.values` before rewriting
+  `/Opt` and keeps every value still offered, in option order: all of
+  them for a multi-select list box, the first otherwise. It rewrites `/V`
+  (a string for one value, an array for several), `/I` and `/TI` to match,
+  then redraws through `_regenerateChoice`. An editable combo box keeps its
+  free text.
 - `addSignatureField(page, name, rect)` creates a merged `/FT /Sig` widget
   with no `/V` and a blank `/AP /N`, and ORs `/SigFlags` with 1.
   `_attachSignatureField` in signature_editor.dart already filled an
@@ -48,9 +55,11 @@ authored.
   `_prepareWidget`, `_ensureAcroFormDict`, `_appendRootField`,
   `_stageAcroForm`, `_registeredField`) so the split-field radio path can
   reuse them.
-- `PdfFormField` gained only two constants, `noToggleToOffFlag` and
-  `multiSelectFlag`. Multi-select reading and filling belong to #933, so
-  there is no `isMultiSelect` getter here.
+- Stacked on #944 (#933, multi-select list boxes). This branch takes
+  #944's `multiSelectFlag`, `isMultiSelect`, `values`/`setChoiceValues`
+  and list-box renderer, and adds only `PdfFormField.noToggleToOffFlag`.
+  Tests round-trip authored multi-select list boxes through
+  `setChoiceValues` and `setChoiceOptions`.
 
 ## dart_pdf_editor
 

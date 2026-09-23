@@ -152,7 +152,7 @@ extension PdfFormAdmin on PdfEditor {
     );
     dict['Opt'] = _optArray(options);
     final field = _installField(pageIndex, name, dict);
-    _regenerateVariableText(field, '');
+    _regenerateChoice(field);
     _stageFormDict(field, field.dict);
     return field;
   }
@@ -173,16 +173,19 @@ extension PdfFormAdmin on PdfEditor {
     }
     dict['Opt'] = _optArray(options);
     final field = _installField(pageIndex, name, dict);
-    _regenerateVariableText(field, '');
+    _regenerateChoice(field);
     _stageFormDict(field, field.dict);
     return field;
   }
 
   /// Replaces a combo or list box's /Opt with [options] (export, display)
   /// pairs and, when given, its Edit ([editable], combo boxes) and
-  /// MultiSelect ([multiSelect], list boxes) flags. A current value no
-  /// longer offered is cleared unless the combo box is editable; the
-  /// appearance is regenerated either way.
+  /// MultiSelect ([multiSelect], list boxes) flags. Selected values the new
+  /// options still offer are kept (all of them for a multi-select list box,
+  /// the first otherwise) with /I and /TI rewritten to match; values no
+  /// longer offered are dropped unless the combo box is editable. The
+  /// appearance is regenerated through the same choice renderer filling
+  /// uses, so a list box redraws every option row.
   PdfFormField setChoiceOptions(
     PdfFormField field,
     List<(String export, String display)> options, {
@@ -208,23 +211,40 @@ extension PdfFormAdmin on PdfEditor {
           ? flags | PdfFormField.multiSelectFlag
           : flags & ~PdfFormField.multiSelectFlag;
     }
+    // read the current selection before /Opt changes under it
+    final current = field.values;
     field.dict['Ff'] = CosInteger(flags);
     field.dict['Opt'] = _optArray(options);
-    field.dict.entries.remove('I');
-    final value = field.value;
-    final offered = value == null ||
-        options.any((o) => o.$1 == value) ||
-        (field.type == PdfFieldType.comboBox &&
-            flags & PdfFormField.editFlag != 0);
-    if (!offered) field.dict.entries.remove('V');
-    final index = options.indexWhere((o) => o.$1 == value);
-    if (offered &&
-        value != null &&
-        index >= 0 &&
-        field.type == PdfFieldType.listBox) {
-      field.dict['I'] = CosArray([CosInteger(index)]);
+    for (final key in const ['V', 'I', 'TI']) {
+      field.dict.entries.remove(key);
     }
-    _regenerateVariableText(field, _choiceDisplay(field));
+    final editableCombo = field.type == PdfFieldType.comboBox &&
+        flags & PdfFormField.editFlag != 0;
+    if (editableCombo) {
+      // free text is a legal value, offered or not
+      if (current.isNotEmpty) field.dict['V'] = CosString.fromText(current[0]);
+    } else {
+      // keep what is still offered, in option order, at most one unless
+      // the (list box) field is multi-select
+      final indices = <int>{
+        for (final v in current)
+          if (options.indexWhere((o) => o.$1 == v) case final i when i >= 0) i,
+      }.toList()
+        ..sort();
+      final kept = field.isMultiSelect ? indices : indices.take(1).toList();
+      if (kept.isNotEmpty) {
+        field.dict['V'] = kept.length == 1
+            ? CosString.fromText(options[kept.single].$1)
+            : CosArray([
+                for (final i in kept) CosString.fromText(options[i].$1),
+              ]);
+        if (field.type == PdfFieldType.listBox) {
+          field.dict['I'] = CosArray([for (final i in kept) CosInteger(i)]);
+          _scrollListSelectionIntoView(field, kept);
+        }
+      }
+    }
+    _regenerateChoice(field);
     _finishFieldEdit(field);
     return field;
   }

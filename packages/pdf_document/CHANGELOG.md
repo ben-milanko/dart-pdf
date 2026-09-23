@@ -22,8 +22,9 @@
   PAdES/self-signed paths fill later. `changeFieldType` now converts to all
   of them, carrying options between choice kinds and on-states into radio
   groups and choice options; it refuses to retype a signed signature.
-  `PdfFormField` gains the `noToggleToOffFlag` and `multiSelectFlag`
-  constants.
+  Authored choice fields are drawn by the same renderer filling uses, so a
+  new list box shows every option row (selection highlighted) and a combo
+  box its value. `PdfFormField` gains the `noToggleToOffFlag` constant.
 - Stop the visible signature box clipping its detail lines. On a short, wide
   "sign on this line" placement the top of the first line and the bottom of the
   last were sliced off: the box's flat 4pt inner margin took over 40% of a
