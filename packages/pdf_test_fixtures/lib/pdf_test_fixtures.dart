@@ -11,6 +11,7 @@ export 'src/raster_underlay_sheet.dart';
 export 'src/rtl_text.dart';
 export 'src/signer_identity.dart';
 export 'src/test_fulcio.dart';
+export 'src/test_revocation.dart';
 export 'src/test_tsa.dart';
 
 Uint8List ascii(String s) => Uint8List.fromList(s.codeUnits);

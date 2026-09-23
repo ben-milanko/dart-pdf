@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'document.dart';
 import 'form.dart';
 import 'pades.dart';
+import 'revocation.dart';
 
 /// A signed signature field: the /V signature dictionary of an AcroForm
 /// field with /FT /Sig (§12.8).
@@ -25,8 +26,7 @@ class PdfSignature {
     return [
       for (final field in form.fields)
         if (field.type == PdfFieldType.signature)
-          if (document.cos.resolve(field.dict['V'])
-              case final CosDictionary v)
+          if (document.cos.resolve(field.dict['V']) case final CosDictionary v)
             PdfSignature._(document, field, v),
     ];
   }
@@ -68,8 +68,8 @@ class PdfSignature {
     if (match == null) return null;
     int part(int i, [int fallback = 0]) =>
         match.group(i) == null ? fallback : int.parse(match.group(i)!);
-    var time = DateTime.utc(part(1), part(2, 1), part(3, 1), part(4),
-        part(5), part(6));
+    var time = DateTime.utc(
+        part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
     if (match.group(7) == '+' || match.group(7) == '-') {
       final offset = Duration(hours: part(8), minutes: part(9));
       time = match.group(7) == '+' ? time.subtract(offset) : time.add(offset);
@@ -99,15 +99,153 @@ class PdfSignature {
   ///
   /// With a [trustStore], the signer's certificate chain is also built
   /// and verified up to one of the store's anchors (signatures up the
-  /// chain, issuer matching, validity windows at the signing time;
-  /// revocation is not checked) - see [PdfSignatureValidation.chainTrusted].
-  /// Without one, [PdfSignatureValidation.chainTrusted] stays null.
+  /// chain, issuer matching, validity windows at the signing time) - see
+  /// [PdfSignatureValidation.chainTrusted]. Without one,
+  /// [PdfSignatureValidation.chainTrusted] stays null unless revocation
+  /// makes the signer untrusted.
+  ///
+  /// Revocation is checked offline against the document's /DSS only
+  /// ([PdfSignatureValidation.revocation]); [validateOnline] adds live
+  /// OCSP/CRL lookups.
   PdfSignatureValidation validate({PdfTrustStore? trustStore}) {
+    final base = _validateWithChain(trustStore);
+    return base._withRevocation(
+        _revocationVerdicts(base, trustStore, live: null, now: null),
+        liveChecked: false);
+  }
+
+  /// [validate] plus live revocation checking: the signer certificate and
+  /// every intermediate of its chain are checked through [revocationClient]
+  /// (typically [pdfOnlineRevocationClient] - OCSP via the certificate's
+  /// Authority Information Access first, then its CRL distribution points),
+  /// alongside whatever the document's /DSS embeds. The library still makes
+  /// no network calls of its own; the client is the host's transport.
+  ///
+  /// Live material must verify (issuer / authorized-responder signature,
+  /// CertID match) and be current at [now] (default: the clock). Each
+  /// certificate's verdict and its source (embedded or live) is reported in
+  /// [PdfSignatureValidation.revocation].
+  ///
+  /// **Policy.** A revoked certificate makes the chain untrusted
+  /// ([PdfSignatureValidation.chainTrusted] false) unless the signature
+  /// carries a verified RFC 3161 timestamp dated *before* the revocation
+  /// time - then the signature provably predates the revocation and stays
+  /// valid (reported with [PdfCertificateRevocation.affectsSignature] false).
+  /// The claimed signing time (/M or the signingTime attribute) is not
+  /// trusted for this, since the signer controls it. A certificate whose
+  /// status can't be established (no responder, network failure, stale or
+  /// unverifiable answer) is reported as [PdfRevocationStatus.unknown] and
+  /// does not by itself make the chain untrusted (soft-fail, as desktop
+  /// viewers do). A failing [revocationClient] is caught and reported the
+  /// same way.
+  Future<PdfSignatureValidation> validateOnline({
+    PdfTrustStore? trustStore,
+    required PdfRevocationClient revocationClient,
+    DateTime? now,
+  }) async {
+    final base = _validateWithChain(trustStore);
+    final chain = _revocationChain(base, trustStore);
+    PdfRevocationMaterial? material;
+    String? failure;
+    if (chain.length > 1) {
+      try {
+        material = await revocationClient(chain);
+      } on Object catch (e) {
+        failure = 'live revocation check failed: $e';
+      }
+    }
+    final live = _ParsedMaterial.of(material ?? const PdfRevocationMaterial());
+    final verdicts = _revocationVerdicts(base, trustStore,
+        live: live, now: (now ?? DateTime.now()).toUtc(), chain: chain);
+    return base._withRevocation(
+      failure == null
+          ? verdicts
+          : [
+              for (final v in verdicts)
+                v.status == PdfRevocationStatus.none
+                    ? PdfCertificateRevocation(
+                        certificate: v.certificate,
+                        issuer: v.issuer,
+                        status: PdfRevocationStatus.unknown,
+                        problems: [...v.problems, failure],
+                      )
+                    : v,
+            ],
+      liveChecked: true,
+    );
+  }
+
+  PdfSignatureValidation _validateWithChain(PdfTrustStore? trustStore) {
     var result = _validateSignature();
     if (trustStore != null) {
       result = result._withChain(trustStore, result.signedAt ?? signingTime);
     }
     return result;
+  }
+
+  /// The certificate path revocation is checked along, leaf first: the
+  /// trust chain when one was built to an anchor, otherwise the best path
+  /// through the signature's own and the /DSS's certificates.
+  List<X509Certificate> _revocationChain(
+      PdfSignatureValidation base, PdfTrustStore? trustStore) {
+    final leaf = base.signerCertificate;
+    if (leaf == null) return const [];
+    if (base.trustChain.length > 1) return base.trustChain;
+    final dss = PdfDss.of(document);
+    return verifyCertificateChain(
+      leaf: leaf,
+      intermediates: [
+        ...base.certificates,
+        ...?dss?.certificates,
+        ...?trustStore?.anchors,
+      ],
+      trustAnchors: const [],
+    ).chain;
+  }
+
+  List<PdfCertificateRevocation> _revocationVerdicts(
+    PdfSignatureValidation base,
+    PdfTrustStore? trustStore, {
+    required _ParsedMaterial? live,
+    required DateTime? now,
+    List<X509Certificate>? chain,
+  }) {
+    final path = chain ?? _revocationChain(base, trustStore);
+    if (path.isEmpty) return const [];
+    final dss = PdfDss.of(document);
+    final verdicts = <PdfCertificateRevocation>[];
+    for (var i = 0; i < path.length; i++) {
+      final cert = path[i];
+      final issuer = i + 1 < path.length ? path[i + 1] : null;
+      // A self-signed root (or a directly trusted anchor at the end of the
+      // path) has no issuer to vouch for its status.
+      if (issuer == null &&
+          (_sameDer(cert.subjectDer, cert.issuerDer) || i > 0)) {
+        break;
+      }
+      final embedded = checkCertificateRevocation(
+        certificate: cert,
+        issuer: issuer,
+        ocspResponses: dss?.ocspResponses ?? const [],
+        crls: dss?.crls ?? const [],
+        source: PdfRevocationSource.embedded,
+      );
+      final fromLive = live == null
+          ? null
+          : checkCertificateRevocation(
+              certificate: cert,
+              issuer: issuer,
+              ocspResponses: live.ocsps,
+              crls: live.crls,
+              source: PdfRevocationSource.live,
+              freshAt: now,
+            );
+      verdicts.add(combineRevocation(embedded, fromLive));
+    }
+    final trustedTime = base.timestamp != null && base.timestamp!.valid
+        ? base.timestamp!.time
+        : null;
+    return applyRevocationPolicy(verdicts, trustedTime);
   }
 
   PdfSignatureValidation _validateSignature() {
@@ -134,8 +272,8 @@ class PdfSignature {
         rangesSane = false;
       }
     }
-    final coversWholeDocument = rangesSane &&
-        ranges[2] + ranges[3] == bytes.length;
+    final coversWholeDocument =
+        rangesSane && ranges[2] + ranges[3] == bytes.length;
     if (rangesSane && !coversWholeDocument) {
       problems.add('the document was updated after this signature; only '
           'the signed revision is covered');
@@ -237,13 +375,13 @@ class PdfSignature {
       cms = CmsSignedData.parse(contents);
     } on Object catch (e) {
       problems.add('cannot parse CMS signature: $e');
-      return PdfSignatureValidation._(false, false, coversWholeDocument,
-          null, const [], const [], problems);
+      return PdfSignatureValidation._(false, false, coversWholeDocument, null,
+          const [], const [], problems);
     }
     if (cms.signerInfos.isEmpty) {
       problems.add('CMS has no signer');
-      return PdfSignatureValidation._(false, false, coversWholeDocument,
-          null, cms.certificates, const [], problems);
+      return PdfSignatureValidation._(false, false, coversWholeDocument, null,
+          cms.certificates, const [], problems);
     }
     final signer = cms.signerInfos.first;
 
@@ -274,7 +412,8 @@ class PdfSignature {
     // PAdES extras: the signature timestamp, the baseline level, and the
     // status the embedded /DSS revocation material reports for the signer.
     final timestamp = signer.signatureTimeStampToken != null
-        ? _validateTimestamp(Uint8List.fromList(signer.signatureTimeStampToken!),
+        ? _validateTimestamp(
+            Uint8List.fromList(signer.signatureTimeStampToken!),
             Uint8List.fromList(signer.signature))
         : null;
     if (timestamp != null && !timestamp.valid) {
@@ -306,36 +445,25 @@ class PdfSignature {
   PdfRevocationStatus _embeddedRevocationStatus(X509Certificate? signerCert,
       List<X509Certificate> cmsCerts, PdfDss? dss) {
     if (signerCert == null || dss == null) return PdfRevocationStatus.none;
-    final pool = [...cmsCerts, ...dss.certificates];
     X509Certificate? issuer;
-    for (final c in pool) {
-      if (_sameDer(c.subjectDer, signerCert.issuerDer)) {
+    for (final c in [...cmsCerts, ...dss.certificates]) {
+      if (_sameDer(c.subjectDer, signerCert.issuerDer) &&
+          signerCert.isSignedBy(c)) {
         issuer = c;
         break;
       }
     }
-    for (final ocsp in dss.ocspResponses) {
-      final single = ocsp.forSerial(signerCert.serial);
-      if (single == null) continue;
-      if (issuer != null && !ocsp.signatureValid(issuer)) continue;
-      return switch (single.status) {
-        OcspCertStatus.good => PdfRevocationStatus.good,
-        OcspCertStatus.revoked => PdfRevocationStatus.revoked,
-        OcspCertStatus.unknown => PdfRevocationStatus.unknown,
-      };
+    final verdict = checkCertificateRevocation(
+      certificate: signerCert,
+      issuer: issuer,
+      ocspResponses: dss.ocspResponses,
+      crls: dss.crls,
+      source: PdfRevocationSource.embedded,
+    );
+    if (verdict.status == PdfRevocationStatus.none && !dss.isEmpty) {
+      return PdfRevocationStatus.unknown;
     }
-    for (final crl in dss.crls) {
-      if (issuer != null) {
-        if (!_sameDer(crl.issuerDer, issuer.subjectDer)) continue;
-        if (!crl.signatureValid(issuer)) continue;
-      }
-      return crl.forSerial(signerCert.serial) != null
-          ? PdfRevocationStatus.revoked
-          : PdfRevocationStatus.good;
-    }
-    return dss.isEmpty
-        ? PdfRevocationStatus.none
-        : PdfRevocationStatus.unknown;
+    return verdict.status;
   }
 
   static bool _sameDer(Uint8List a, Uint8List b) {
@@ -357,15 +485,15 @@ class PdfSignature {
     };
     if (certBytes == null) {
       problems.add('adbe.x509.rsa_sha1 signature has no /Cert');
-      return PdfSignatureValidation._(false, false, coversWholeDocument,
-          null, const [], const [], problems);
+      return PdfSignatureValidation._(false, false, coversWholeDocument, null,
+          const [], const [], problems);
     }
     final cert = X509Certificate.parse(certBytes);
     final key = cert.publicKey;
     if (key is! RsaPublicKey) {
       problems.add('unsupported key algorithm ${cert.publicKeyAlgorithmOid}');
-      return PdfSignatureValidation._(false, false, coversWholeDocument,
-          cert, [cert], const [], problems);
+      return PdfSignatureValidation._(
+          false, false, coversWholeDocument, cert, [cert], const [], problems);
     }
     // /Contents is a DER OCTET STRING wrapping the PKCS#1 signature
     var signature = contents;
@@ -411,16 +539,15 @@ class PdfTrustStore {
 
   final List<X509Certificate> anchors = [];
 
-  void addCertificate(X509Certificate certificate) =>
-      anchors.add(certificate);
+  void addCertificate(X509Certificate certificate) => anchors.add(certificate);
 
   void addDer(Uint8List der) => anchors.add(X509Certificate.parse(der));
 
   /// Adds every CERTIFICATE block in [pem].
   void addPem(String pem) {
-    final blocks = RegExp(
-            r'-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----')
-        .allMatches(pem);
+    final blocks =
+        RegExp(r'-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----')
+            .allMatches(pem);
     if (blocks.isEmpty) {
       throw ArgumentError('no CERTIFICATE blocks in PEM input');
     }
@@ -446,7 +573,39 @@ class PdfSignatureValidation {
     this.padesLevel,
     this.timestamp,
     this.embeddedRevocation = PdfRevocationStatus.none,
+    this.revocation = const [],
+    this.liveRevocationChecked = false,
   }) : signedAt = signingTimes.isEmpty ? null : signingTimes.first;
+
+  PdfSignatureValidation _withRevocation(
+      List<PdfCertificateRevocation> verdicts,
+      {required bool liveChecked}) {
+    final revokedProblems = [
+      for (final v in verdicts)
+        if (v.affectsSignature)
+          'certificate "${v.certificate.subjectCommonName ?? 'serial '
+                  '${v.certificate.serial}'}" was revoked'
+              '${v.revocationTime != null ? ' on '
+                  '${v.revocationTime!.toIso8601String()}' : ''}',
+    ];
+    return PdfSignatureValidation._(
+      digestMatches,
+      signatureValid,
+      coversWholeDocument,
+      signerCertificate,
+      certificates,
+      signedAt != null ? [signedAt!] : const [],
+      problems,
+      chainTrusted: revokedProblems.isNotEmpty ? false : chainTrusted,
+      trustChain: trustChain,
+      chainProblems: [...chainProblems, ...revokedProblems],
+      padesLevel: padesLevel,
+      timestamp: timestamp,
+      embeddedRevocation: embeddedRevocation,
+      revocation: verdicts,
+      liveRevocationChecked: liveChecked,
+    );
+  }
 
   PdfSignatureValidation _withChain(PdfTrustStore store, DateTime? at) {
     bool? trusted;
@@ -512,7 +671,9 @@ class PdfSignatureValidation {
   /// Whether the signer chains to a supplied trust anchor: null when
   /// validation ran without a trust store, otherwise the verdict of
   /// signature checks up the chain, issuer matching, and validity
-  /// windows (revocation is not checked).
+  /// windows. A certificate revoked before the signature's trusted time
+  /// (see [PdfSignature.validateOnline]) forces it false, trust store or
+  /// not.
   final bool? chainTrusted;
 
   /// The certificate path that was built, leaf first.
@@ -534,6 +695,49 @@ class PdfSignatureValidation {
   /// signer certificate, checked offline. [PdfRevocationStatus.none] when no
   /// material covers it.
   final PdfRevocationStatus embeddedRevocation;
+
+  /// The revocation verdict for each certificate of the signer's chain that
+  /// has an issuer (leaf first; the root is not checked), from the /DSS and -
+  /// after [PdfSignature.validateOnline] - live OCSP/CRL.
+  final List<PdfCertificateRevocation> revocation;
+
+  /// Whether a live revocation check ran ([PdfSignature.validateOnline]).
+  final bool liveRevocationChecked;
+
+  /// The chain-wide revocation verdict: [PdfRevocationStatus.revoked] when
+  /// any certificate is revoked, [PdfRevocationStatus.good] when every
+  /// checked certificate is good, [PdfRevocationStatus.none] when nothing
+  /// was checked or found, and [PdfRevocationStatus.unknown] otherwise.
+  PdfRevocationStatus get revocationStatus {
+    if (revocation.isEmpty) return PdfRevocationStatus.none;
+    if (revocation.any((r) => r.status == PdfRevocationStatus.revoked)) {
+      return PdfRevocationStatus.revoked;
+    }
+    if (revocation.every((r) => r.status == PdfRevocationStatus.good)) {
+      return PdfRevocationStatus.good;
+    }
+    if (revocation.every((r) => r.status == PdfRevocationStatus.none)) {
+      return PdfRevocationStatus.none;
+    }
+    return PdfRevocationStatus.unknown;
+  }
+
+  /// True when a revoked certificate invalidates this signature under the
+  /// revocation policy (revoked, and not provably after a trusted
+  /// timestamp).
+  bool get revokedBeforeSigning => revocation.any((r) => r.affectsSignature);
+
+  /// True when the signer certificate is self-signed (no CA vouches for it).
+  bool get isSelfSigned {
+    final cert = signerCertificate;
+    if (cert == null || cert.subjectDer.length != cert.issuerDer.length) {
+      return false;
+    }
+    for (var i = 0; i < cert.subjectDer.length; i++) {
+      if (cert.subjectDer[i] != cert.issuerDer[i]) return false;
+    }
+    return true;
+  }
 
   /// The document bytes the signature covers are exactly what was signed.
   bool get intact => digestMatches && signatureValid;
@@ -567,12 +771,14 @@ class PdfTimestampInfo {
   final String? problem;
 }
 
-/// The revocation verdict for a certificate, from embedded LTV material.
+/// The revocation verdict for a certificate.
 enum PdfRevocationStatus {
   /// No OCSP/CRL covering the certificate was found.
   none,
 
-  /// Material was found but is inconclusive (e.g. issuer unavailable).
+  /// Material was found (or a lookup attempted) but is inconclusive: issuer
+  /// unavailable, unverifiable or stale material, a responder that does not
+  /// know the certificate, or a failed network lookup.
   unknown,
 
   /// An OCSP "good" response or a CRL that does not list the serial.
@@ -634,4 +840,32 @@ class PdfDss {
       parsed('CRLs', CertificateRevocationList.parse),
     );
   }
+}
+
+/// Live revocation material, parsed once per [PdfSignature.validateOnline].
+class _ParsedMaterial {
+  _ParsedMaterial(this.ocsps, this.crls);
+
+  factory _ParsedMaterial.of(PdfRevocationMaterial material) {
+    final ocsps = <OcspResponse>[];
+    for (final der in material.ocspResponses) {
+      try {
+        ocsps.add(OcspResponse.parse(der));
+      } on Object {
+        // a malformed response is simply not evidence
+      }
+    }
+    final crls = <CertificateRevocationList>[];
+    for (final der in material.crls) {
+      try {
+        crls.add(CertificateRevocationList.parse(der));
+      } on Object {
+        // likewise
+      }
+    }
+    return _ParsedMaterial(ocsps, crls);
+  }
+
+  final List<OcspResponse> ocsps;
+  final List<CertificateRevocationList> crls;
 }
