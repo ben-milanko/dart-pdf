@@ -92,4 +92,41 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(session.acroForm!.fieldNamed('toppings')!.values, ['pep', 'Olives']);
   });
+
+  testWidgets('a combo box carrying the MultiSelect bit gets a plain menu',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final session = PdfEditingController(buildListBoxFormPdf());
+    final viewer = PdfViewerController();
+    addTearDown(session.dispose);
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          controller: viewer,
+          editing: session,
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(session.acroForm!.fieldNamed('size')!.isMultiSelect, isFalse);
+
+    await tester.tapAt(view(172, 452)); // the size combo box
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    final option = find.byKey(const ValueKey('pdf-form-option-L'));
+    expect(option, findsOneWidget);
+    expect(tester.widget(option), isNot(isA<CheckedPopupMenuItem<String>>()));
+    expect(tester.widget(option), isA<PopupMenuItem<String>>());
+
+    await tester.tap(option);
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(session.acroForm!.fieldNamed('size')!.values, ['L'],
+        reason: 'a pick replaces the value instead of toggling it in');
+    // the controller's picker agrees: replace, never accumulate
+    expect(session.pickFormChoiceOption('size', 'S'), isTrue);
+    expect(session.acroForm!.fieldNamed('size')!.values, ['S']);
+    expect(session.setFormChoiceValues('size', ['S', 'M']), isFalse);
+  });
 }

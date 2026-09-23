@@ -134,4 +134,16 @@ void main() {
     editor.setChoiceValues(form.fieldNamed('crust')!, ['Stuffed']);
     expect(form.fieldNamed('crust')!.values, ['Stuffed']);
   });
+
+  test('a combo box carrying the MultiSelect bit stays single-choice', () {
+    final editor = PdfEditor(PdfDocument.open(buildListBoxFormPdf()));
+    final size = editor.acroForm!.fieldNamed('size')!;
+    expect(size.type, PdfFieldType.comboBox);
+    expect(size.flags & PdfFormField.multiSelectFlag, isNot(0));
+    expect(size.isMultiSelect, isFalse);
+    expect(() => editor.setChoiceValues(size, ['S', 'L']), throwsArgumentError);
+    expect(editor.hasChanges, isFalse);
+    editor.setChoiceValues(size, ['L']);
+    expect(size.values, ['L']);
+  });
 }

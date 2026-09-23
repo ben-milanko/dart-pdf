@@ -177,7 +177,7 @@ extension PdfFormFilling on PdfEditor {
   /// that aren't options throw, as they do there.
   void setChoiceValues(PdfFormField field, List<String> values) {
     _checkFillable(field, const {PdfFieldType.comboBox, PdfFieldType.listBox});
-    if (!field.isMultiSelect || field.type == PdfFieldType.comboBox) {
+    if (!field.isMultiSelect) {
       if (values.length > 1) {
         throw ArgumentError.value(
           values,

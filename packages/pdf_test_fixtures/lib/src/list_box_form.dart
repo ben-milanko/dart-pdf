@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
-/// Builds a one-page PDF whose AcroForm holds two list boxes:
+/// Builds a one-page PDF whose AcroForm holds two list boxes and a combo
+/// box:
 ///
 /// - "toppings": a multi-select (/Ff 2097152, bit 22) list box at
 ///   [72 600 272 700] with /Opt [(Cheese) (Ham) [(pep) (Pepperoni)]
@@ -8,16 +9,19 @@ import 'dart:typed_data';
 ///   tool, with no /I.
 /// - "crust": a single-select list box at [72 500 272 560], /Opt [(Thin)
 ///   (Deep) (Stuffed)], no value.
+/// - "size": a combo box at [72 440 272 464] whose /Ff sets both Combo
+///   (bit 18) and MultiSelect (bit 22) - a malformed-but-seen shape that
+///   must still behave as single-choice. /Opt [(S) (M) (L)], /V (M).
 ///
-/// Both use /DA (/Helv 10 Tf 0 g); /DR maps /Helv to Helvetica. Byte
+/// All use /DA (/Helv 10 Tf 0 g); /DR maps /Helv to Helvetica. Byte
 /// offsets are computed, never hand-written.
 Uint8List buildListBoxFormPdf() {
   final objects = <String>[
-    '<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R 7 0 R] '
+    '<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R 7 0 R 8 0 R] '
         '/DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >> >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
-        '/Contents 4 0 R /Annots [6 0 R 7 0 R] >>',
+        '/Contents 4 0 R /Annots [6 0 R 7 0 R 8 0 R] >>',
     '<< /Length 0 >>\nstream\n\nendstream',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
         '/Encoding /WinAnsiEncoding >>',
@@ -28,6 +32,9 @@ Uint8List buildListBoxFormPdf() {
     '<< /Type /Annot /Subtype /Widget /FT /Ch /T (crust) '
         '/DA (/Helv 10 Tf 0 g) /P 3 0 R /Opt [(Thin) (Deep) (Stuffed)] '
         '/Rect [72 500 272 560] >>',
+    '<< /Type /Annot /Subtype /Widget /FT /Ch /T (size) /Ff 2228224 '
+        '/DA (/Helv 10 Tf 0 g) /P 3 0 R /Opt [(S) (M) (L)] /V (M) '
+        '/Rect [72 440 272 464] >>',
   ];
 
   final buffer = StringBuffer('%PDF-1.4\n');

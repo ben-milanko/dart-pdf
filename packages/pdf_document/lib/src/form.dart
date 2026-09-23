@@ -417,11 +417,14 @@ class PdfFormField {
   bool get isMultiline => flags & multilineFlag != 0;
   bool get isPassword => flags & passwordFlag != 0;
 
-  /// Whether a choice field accepts several selected options at once
-  /// (/Ff bit 22, MultiSelect - meaningful for list boxes, §12.7.5.4).
-  /// Always false for non-choice fields, whose bit 22 means something else.
+  /// Whether a list box accepts several selected options at once (/Ff bit
+  /// 22, MultiSelect, §12.7.5.4). Only list boxes can: a combo box that
+  /// carries the bit (Combo flag set) still holds one value, and bit 22
+  /// means something else on non-choice fields, so both read false. This
+  /// is the one gate every multi-value path (filling, menus, exports)
+  /// checks.
   bool get isMultiSelect =>
-      fieldTypeName == 'Ch' && flags & multiSelectFlag != 0;
+      type == PdfFieldType.listBox && flags & multiSelectFlag != 0;
 
   /// The saved dart-pdf vertical alignment, or null for legacy placement
   /// (top for multiline fields, ascent-centred for single-line fields).

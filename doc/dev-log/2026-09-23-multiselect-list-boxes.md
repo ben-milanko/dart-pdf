@@ -6,9 +6,13 @@ value plus a one-entry /I, and every option menu was single-choice.
 
 ## Model (`pdf_document/lib/src/form.dart`)
 
-- `PdfFormField.multiSelectFlag` / `isMultiSelect`: only true for /FT /Ch.
-  Bit 22 means something else on buttons and text fields, so the getter
-  checks the field type as well as the bit.
+- `PdfFormField.multiSelectFlag` / `isMultiSelect`: only true for a **list
+  box** (/FT /Ch with the Combo flag clear). A combo box that also carries
+  bit 22 still holds one value, and bit 22 means something else on buttons
+  and text fields. Every multi-value path goes through this one getter:
+  `setChoiceValues`, `pickFormChoiceOption`, the four option menus, the CLI
+  and `PdfFieldContext`. The `size` field in `buildListBoxFormPdf()` is the
+  regression case: a combo box with bit 22 set.
 - `values`: a /V array (string entries, in file order) or the single value
   as a one-element list, following the same reconciled-widget precedence as
   `value`. `value` is unchanged and still returns the first array entry, so
