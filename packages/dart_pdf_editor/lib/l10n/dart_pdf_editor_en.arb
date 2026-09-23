@@ -1525,6 +1525,53 @@
       }
     }
   },
+  "sidebarSignatureRevokedStatus": "Revoked",
+  "@sidebarSignatureRevokedStatus": {
+    "description": "Status pill for an otherwise intact signature whose certificate was revoked before it was signed (or with no trusted timestamp proving otherwise)."
+  },
+  "sidebarSignatureSelfSigned": "Self-signed: no authority has confirmed who the signer is",
+  "@sidebarSignatureSelfSigned": {
+    "description": "Detail line when the signer's certificate is self-signed, so only the signer vouches for their identity."
+  },
+  "sidebarSignatureUnknownIssuer": "Issued by {authority}, which is not a trusted authority",
+  "@sidebarSignatureUnknownIssuer": {
+    "description": "Detail line when the signer's certificate was issued by an authority that is not among the trusted roots.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureRevokedOn": "The signer's certificate was revoked {time}",
+  "@sidebarSignatureRevokedOn": {
+    "description": "Detail line when a certificate in the signer's chain was revoked before the signature's trusted time; the signature is not trusted.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureRevokedAfterSigning": "Certificate revoked {time}, after the signature was timestamped",
+  "@sidebarSignatureRevokedAfterSigning": {
+    "description": "Detail line when a certificate was revoked, but a trusted timestamp proves the signature was made before that; the signature still counts.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureRevocationGoodLive": "Certificate not revoked (checked online)",
+  "@sidebarSignatureRevocationGoodLive": {
+    "description": "Detail line when live OCSP/CRL checks confirmed the signer's certificates are not revoked."
+  },
+  "sidebarSignatureRevocationGoodEmbedded": "Certificate not revoked (per data saved in the document)",
+  "@sidebarSignatureRevocationGoodEmbedded": {
+    "description": "Detail line when revocation data embedded in the document confirms the signer's certificates were not revoked."
+  },
+  "sidebarSignatureRevocationUnknown": "Revocation status could not be checked",
+  "@sidebarSignatureRevocationUnknown": {
+    "description": "Detail line when the signer's certificate revocation status could not be established (no responder, network failure, or unverifiable answer)."
+  },
   "sidebarWriteReplyHint": "Write a reply…",
   "@sidebarWriteReplyHint": {
     "description": "Placeholder text in the inline reply text field."

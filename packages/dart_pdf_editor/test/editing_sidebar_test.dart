@@ -1,7 +1,10 @@
+import 'dart:math';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -73,8 +76,8 @@ void main() {
 
     final ok = await editing.addSelfSignedSignature(
       PdfSigningIdentity.generate(name: 'Ada Lovelace'),
-      appearance:
-          const PdfSignatureAppearance(page: 0, rect: PdfRect(72, 640, 320, 720)),
+      appearance: const PdfSignatureAppearance(
+          page: 0, rect: PdfRect(72, 640, 320, 720)),
     );
     expect(ok, isTrue);
     expect(editing.signatures, hasLength(1));
@@ -116,10 +119,106 @@ void main() {
     // validation runs off the build frame; let it land
     await tester.pumpAndSettle();
 
-    // crypto is intact but no anchors are configured, so trust is unjudged
+    // crypto is intact, but the certificate vouches only for itself
     expect(find.text('Valid — unverified'), findsOneWidget);
-    expect(find.text('No trusted authorities are configured'), findsOneWidget);
+    expect(
+        find.text('Self-signed: no authority has confirmed who the signer is'),
+        findsOneWidget);
     expect(find.text('Signed by Ada Lovelace'), findsOneWidget);
+  });
+
+  group('CA-issued signer', () {
+    final pki = TestRevocationPki.generate(random: Random(936));
+    final signed =
+        PdfEditor(PdfDocument.open(buildMultiPagePdf(1))).saveSignedEcdsa(
+      privateKey: pki.signerKey,
+      certificates: pki.chain,
+      signingTime: DateTime.utc(2026, 6, 10),
+      appearance: const PdfSignatureAppearance(
+          page: 0, rect: PdfRect(72, 640, 320, 720)),
+    );
+
+    Future<void> show(WidgetTester tester, PdfEditingController editing) async {
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pumpSidebar(tester, editing, viewer);
+      await tester.pumpAndSettle();
+    }
+
+    PdfRevocationClient answering(OcspCertStatus status) => (chain) async {
+          final now = DateTime.now().toUtc();
+          return PdfRevocationMaterial(ocspResponses: [
+            buildTestOcspResponse(
+              certificate: pki.signer,
+              issuer: pki.intermediate,
+              signerKey: pki.intermediateKey,
+              status: status,
+              revocationTime: DateTime.utc(2026, 6, 1),
+              thisUpdate: now.subtract(const Duration(hours: 1)),
+              nextUpdate: now.add(const Duration(days: 1)),
+            ),
+          ], crls: [
+            buildTestCrl(
+              issuer: pki.root,
+              issuerKey: pki.rootKey,
+              thisUpdate: now.subtract(const Duration(hours: 1)),
+              nextUpdate: now.add(const Duration(days: 1)),
+            ),
+          ]);
+        };
+
+    testWidgets('an issuer outside the trust store reads as unknown',
+        (tester) async {
+      await show(
+          tester,
+          PdfEditingController(signed,
+              trustStore: PdfTrustStore.trusting([
+                PdfSigningIdentity.generate(name: 'Someone else').certificate,
+              ])));
+      expect(find.text('Valid — unverified'), findsOneWidget);
+      expect(
+          find.text('Issued by Revocation Test Intermediate, which is not a '
+              'trusted authority'),
+          findsOneWidget);
+    });
+
+    testWidgets('a live check that finds the certificate revoked',
+        (tester) async {
+      await show(
+          tester,
+          PdfEditingController(signed,
+              trustStore: PdfTrustStore.trusting([pki.root]),
+              revocationClient: answering(OcspCertStatus.revoked)));
+      expect(find.text('Revoked'), findsOneWidget);
+      expect(find.textContaining("The signer's certificate was revoked "),
+          findsOneWidget);
+      expect(find.text('Valid — trusted'), findsNothing);
+    });
+
+    testWidgets('a live check that confirms the certificate is good',
+        (tester) async {
+      await show(
+          tester,
+          PdfEditingController(signed,
+              trustStore: PdfTrustStore.trusting([pki.root]),
+              revocationClient: answering(OcspCertStatus.good)));
+      expect(find.text('Valid — trusted'), findsOneWidget);
+      expect(find.text('Certificate not revoked (checked online)'),
+          findsOneWidget);
+    });
+
+    testWidgets('an unreachable responder reads as revocation unknown',
+        (tester) async {
+      await show(
+          tester,
+          PdfEditingController(signed,
+              trustStore: PdfTrustStore.trusting([pki.root]),
+              revocationClient: (chain) async => throw StateError('offline')));
+      expect(find.text('Valid — trusted'), findsOneWidget);
+      expect(
+          find.text('Revocation status could not be checked'), findsOneWidget);
+    });
   });
 
   testWidgets('a signature reads as trusted when its CA is in the trust store',
@@ -336,15 +435,15 @@ void main() {
     // reachable - the only way back for a locked annotation
     expect(
         find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsNothing);
-    expect(find.byKey(const ValueKey('pdf-annotation-lock-0-0')),
-        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-annotation-lock-0-0')), findsOneWidget);
 
     // unlock it again
     await tester.tap(find.byKey(const ValueKey('pdf-annotation-lock-0-0')));
     await tester.pump();
     expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
-    expect(
-        find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-annotation-delete-0-0')),
+        findsOneWidget);
   });
 
   testWidgets('tapping a tile zooms the viewer to the annotation',
@@ -542,22 +641,20 @@ void main() {
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(2));
     for (var i = 0; i < 16; i++) {
-      editing.addRectangle(
-          0, PdfRect(40.0 + i, 100, 120.0 + i, 150));
+      editing.addRectangle(0, PdfRect(40.0 + i, 100, 120.0 + i, 150));
     }
     editing.addNote(1, 100, 700, 'second page');
     addTearDown(editing.dispose);
     await pumpSidebarOnly(tester, editing);
 
-    final pinnedHeaders = tester
-        .widgetList<SliverPersistentHeader>(find.byType(SliverPersistentHeader));
+    final pinnedHeaders = tester.widgetList<SliverPersistentHeader>(
+        find.byType(SliverPersistentHeader));
     expect(pinnedHeaders, isNotEmpty);
     expect(pinnedHeaders.every((header) => header.pinned), isTrue);
 
     final pageHeader =
         find.byKey(const ValueKey('pdf-annotation-page-header-0'));
-    final scrollView =
-        find.byKey(const ValueKey('pdf-annotation-scroll-view'));
+    final scrollView = find.byKey(const ValueKey('pdf-annotation-scroll-view'));
     final initialTop = tester.getTopLeft(pageHeader).dy;
 
     await tester.drag(scrollView, const Offset(0, -140));

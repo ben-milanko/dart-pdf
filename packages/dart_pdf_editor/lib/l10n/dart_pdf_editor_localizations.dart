@@ -2188,6 +2188,54 @@ abstract class DartPdfEditorLocalizations {
   /// **'PAdES {level}'**
   String sidebarSignatureLevel(String level);
 
+  /// Status pill for an otherwise intact signature whose certificate was revoked before it was signed (or with no trusted timestamp proving otherwise).
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get sidebarSignatureRevokedStatus;
+
+  /// Detail line when the signer's certificate is self-signed, so only the signer vouches for their identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Self-signed: no authority has confirmed who the signer is'**
+  String get sidebarSignatureSelfSigned;
+
+  /// Detail line when the signer's certificate was issued by an authority that is not among the trusted roots.
+  ///
+  /// In en, this message translates to:
+  /// **'Issued by {authority}, which is not a trusted authority'**
+  String sidebarSignatureUnknownIssuer(String authority);
+
+  /// Detail line when a certificate in the signer's chain was revoked before the signature's trusted time; the signature is not trusted.
+  ///
+  /// In en, this message translates to:
+  /// **'The signer\'s certificate was revoked {time}'**
+  String sidebarSignatureRevokedOn(String time);
+
+  /// Detail line when a certificate was revoked, but a trusted timestamp proves the signature was made before that; the signature still counts.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate revoked {time}, after the signature was timestamped'**
+  String sidebarSignatureRevokedAfterSigning(String time);
+
+  /// Detail line when live OCSP/CRL checks confirmed the signer's certificates are not revoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate not revoked (checked online)'**
+  String get sidebarSignatureRevocationGoodLive;
+
+  /// Detail line when revocation data embedded in the document confirms the signer's certificates were not revoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate not revoked (per data saved in the document)'**
+  String get sidebarSignatureRevocationGoodEmbedded;
+
+  /// Detail line when the signer's certificate revocation status could not be established (no responder, network failure, or unverifiable answer).
+  ///
+  /// In en, this message translates to:
+  /// **'Revocation status could not be checked'**
+  String get sidebarSignatureRevocationUnknown;
+
   /// Placeholder text in the inline reply text field.
   ///
   /// In en, this message translates to:

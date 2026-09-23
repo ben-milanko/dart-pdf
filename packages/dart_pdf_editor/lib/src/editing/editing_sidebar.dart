@@ -501,12 +501,15 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     }
     final intact = validation.intact;
     final trusted = validation.chainTrusted == true;
+    final revoked = validation.revokedBeforeSigning;
 
     final (String, Color) status = !intact
         ? (l10n.sidebarSignatureInvalid, Colors.red)
-        : trusted
-            ? (l10n.sidebarSignatureTrusted, Colors.green)
-            : (l10n.sidebarSignatureUnverified, Colors.orange);
+        : revoked
+            ? (l10n.sidebarSignatureRevokedStatus, Colors.red)
+            : trusted
+                ? (l10n.sidebarSignatureTrusted, Colors.green)
+                : (l10n.sidebarSignatureUnverified, Colors.orange);
 
     // (text, accent colour) detail lines; a null colour is a muted line.
     final details = <(String, Color?)>[];
@@ -534,8 +537,19 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               : l10n.sidebarSignatureTrusted,
           Colors.green,
         ));
+      } else if (revoked) {
+        // the revocation lines below say why
+      } else if (validation.isSelfSigned) {
+        // nobody but the signer vouches for this certificate
+        details.add((l10n.sidebarSignatureSelfSigned, Colors.orange));
       } else if (validation.chainTrusted == false) {
-        details.add((l10n.sidebarSignatureUntrustedDetail, Colors.orange));
+        final issuer = validation.signerCertificate?.issuerCommonName;
+        details.add((
+          issuer != null && issuer.isNotEmpty
+              ? l10n.sidebarSignatureUnknownIssuer(issuer)
+              : l10n.sidebarSignatureUntrustedDetail,
+          Colors.orange,
+        ));
       } else {
         // no trust store configured - crypto is checked, trust isn't judged
         details.add((l10n.sidebarSignatureNoAnchors, null));
@@ -545,9 +559,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     if (!validation.coversWholeDocument) {
       details.add((l10n.sidebarSignatureModified, Colors.orange));
     }
-    if (validation.embeddedRevocation == PdfRevocationStatus.revoked) {
-      details.add((l10n.sidebarSignatureRevoked, Colors.red));
-    }
+    details.addAll(_revocationDetails(context, validation));
 
     final timestamp = validation.timestamp;
     if (timestamp != null && timestamp.valid && timestamp.time != null) {
@@ -590,6 +602,62 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         ),
       const SizedBox(height: 6),
     ];
+  }
+
+  /// The revocation lines of a signature's validation: revoked (and whether
+  /// that predates a trusted timestamp), confirmed good (and where from), or
+  /// couldn't be checked. Nothing when no revocation data was consulted.
+  List<(String, Color?)> _revocationDetails(
+      BuildContext context, PdfSignatureValidation validation) {
+    final l10n = pdfL10n(context);
+    final lines = <(String, Color?)>[];
+    final revokedEntries = validation.revocation
+        .where((r) => r.status == PdfRevocationStatus.revoked);
+    if (revokedEntries.isNotEmpty) {
+      final entry = revokedEntries.firstWhere((r) => r.affectsSignature,
+          orElse: () => revokedEntries.first);
+      final time = entry.revocationTime;
+      if (entry.affectsSignature) {
+        lines.add((
+          time != null
+              ? l10n.sidebarSignatureRevokedOn(_formatTime(time))
+              : l10n.sidebarSignatureRevoked,
+          Colors.red,
+        ));
+      } else {
+        lines.add((
+          l10n.sidebarSignatureRevokedAfterSigning(
+              time != null ? _formatTime(time) : ''),
+          Colors.orange,
+        ));
+      }
+      return lines;
+    }
+    if (validation.embeddedRevocation == PdfRevocationStatus.revoked) {
+      // the signer's own /DSS entry, even when no issuer could be matched
+      return [(l10n.sidebarSignatureRevoked, Colors.red)];
+    }
+    switch (validation.revocationStatus) {
+      case PdfRevocationStatus.good:
+        final live = validation.revocation
+            .any((r) => r.source == PdfRevocationSource.live);
+        lines.add((
+          live
+              ? l10n.sidebarSignatureRevocationGoodLive
+              : l10n.sidebarSignatureRevocationGoodEmbedded,
+          null,
+        ));
+      case PdfRevocationStatus.unknown:
+        lines.add((l10n.sidebarSignatureRevocationUnknown, Colors.orange));
+      case PdfRevocationStatus.none:
+        if (validation.liveRevocationChecked &&
+            validation.revocation.isNotEmpty) {
+          lines.add((l10n.sidebarSignatureRevocationUnknown, Colors.orange));
+        }
+      case PdfRevocationStatus.revoked:
+        break; // handled above
+    }
+    return lines;
   }
 
   /// The short PAdES baseline label for a level enum (e.g. `B-LTA`).
