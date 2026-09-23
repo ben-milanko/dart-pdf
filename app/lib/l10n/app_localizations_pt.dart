@@ -617,6 +617,15 @@ class AppLocalizationsPt extends AppLocalizations {
       'Não foi possível copiar o instantâneo para a área de transferência';
 
   @override
+  String get editorSearchTabs => 'Pesquisar abas';
+
+  @override
+  String get editorClearTabSearch => 'Limpar pesquisa';
+
+  @override
+  String get editorNoMatchingTabs => 'Nenhuma aba correspondente';
+
+  @override
   String get editorTabs => 'Abas';
 
   @override

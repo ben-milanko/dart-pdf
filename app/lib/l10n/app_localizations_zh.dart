@@ -600,6 +600,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorSnapshotCopyFailed => '无法将快照复制到剪贴板';
 
   @override
+  String get editorSearchTabs => '搜索标签页';
+
+  @override
+  String get editorClearTabSearch => '清除搜索';
+
+  @override
+  String get editorNoMatchingTabs => '没有匹配的标签页';
+
+  @override
   String get editorTabs => '标签页';
 
   @override
@@ -1791,6 +1800,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorSnapshotCopyFailed => '無法將快照複製到剪貼簿';
+
+  @override
+  String get editorSearchTabs => '搜尋分頁';
+
+  @override
+  String get editorClearTabSearch => '清除搜尋';
+
+  @override
+  String get editorNoMatchingTabs => '沒有相符的分頁';
 
   @override
   String get editorTabs => '分頁';

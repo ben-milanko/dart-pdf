@@ -1077,6 +1077,24 @@ abstract class AppLocalizations {
   /// **'Could not copy snapshot to clipboard'**
   String get editorSnapshotCopyFailed;
 
+  /// Hint of the search field in the open-tabs grid overlay that filters tabs by title.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tabs'**
+  String get editorSearchTabs;
+
+  /// Tooltip of the button that clears the open-tabs grid search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get editorClearTabSearch;
+
+  /// Shown in the open-tabs grid when no tab title matches the search.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching tabs'**
+  String get editorNoMatchingTabs;
+
   /// Header of the open-tabs grid overlay.
   ///
   /// In en, this message translates to:

@@ -8,7 +8,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -4345,96 +4345,56 @@ class _EditorScreenState extends State<EditorScreen>
     required String keyPrefix,
     required double headerTopPadding,
   }) {
-    final scheme = Theme.of(overlayContext).colorScheme;
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(20, headerTopPadding, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  appL10n(overlayContext).editorTabs,
-                  style: Theme.of(overlayContext).textTheme.titleMedium,
-                ),
-              ),
-              IconButton(
-                key: ValueKey('$keyPrefix-tabs-open'),
-                icon: const Icon(Icons.add),
-                tooltip: appL10n(overlayContext).editorOpenPdfNewTab,
-                onPressed: () {
-                  Navigator.of(overlayContext).pop();
-                  unawaited(_pickAndOpen());
-                },
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: GridView.builder(
-            key: ValueKey('$keyPrefix-tabs-grid'),
-            // A tile paints a real PDF thumbnail. Do not build the next row
-            // speculatively: with large documents that work competes with a
-            // fling even though the thumbnails are still off-screen.
-            scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-            padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 220,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.78,
-            ),
-            itemCount: _tabs.length,
-            itemBuilder: (context, index) {
-              final tab = _tabs[index];
-              final selected = index == _activeIndex;
-              // Refresh the modal grid after a mutation (or dismiss it once no
-              // tabs remain); it does not rebuild off the screen's setState.
-              void refreshOverlay() {
-                if (!mounted || !overlayContext.mounted) return;
-                if (_tabs.isEmpty) {
-                  Navigator.of(overlayContext).pop();
-                } else {
-                  setOverlayState(() {});
-                }
-              }
+    // Refresh the modal grid after a mutation (or dismiss it once no tabs
+    // remain); it does not rebuild off the screen's setState.
+    void refreshOverlay() {
+      if (!mounted || !overlayContext.mounted) return;
+      if (_tabs.isEmpty) {
+        Navigator.of(overlayContext).pop();
+      } else {
+        setOverlayState(() {});
+      }
+    }
 
-              return _MobileTabTile(
-                key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
-                tab: tab,
-                selected: selected,
-                onTap: () {
-                  setState(() => _activeIndex = index);
-                  Navigator.of(overlayContext).pop();
-                },
-                onClose: () async {
-                  await _closeTabs([tab]);
-                  refreshOverlay();
-                },
-                onContextMenu: (position) {
-                  // Re-resolve by identity: the grid can reorder under us.
-                  final i = _tabs.indexOf(tab);
-                  if (i < 0) return;
-                  unawaited(
-                    _showTabMenu(i, position, onChanged: refreshOverlay),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Text(
-            appL10n(overlayContext).editorTabsOpenCount(_tabs.length),
-            style: Theme.of(overlayContext)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ),
-      ],
+    void activate(int index) {
+      setState(() => _activeIndex = index);
+      Navigator.of(overlayContext).pop();
+    }
+
+    return _TabsOverview(
+      tabs: _tabs,
+      activeIndex: _activeIndex,
+      keyPrefix: keyPrefix,
+      headerTopPadding: headerTopPadding,
+      // A desktop dialog is typed into straight away; on a phone focusing the
+      // field would raise the keyboard over the grid the user came to see.
+      autofocusSearch: keyPrefix == 'desktop',
+      onOpen: () {
+        Navigator.of(overlayContext).pop();
+        unawaited(_pickAndOpen());
+      },
+      onActivate: activate,
+      tileBuilder: (context, index) {
+        final tab = _tabs[index];
+        return _MobileTabTile(
+          key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
+          tab: tab,
+          selected: index == _activeIndex,
+          onTap: () => activate(index),
+          onClose: () async {
+            await _closeTabs([tab]);
+            refreshOverlay();
+          },
+          onContextMenu: (position) {
+            // Re-resolve by identity: the grid can reorder under us.
+            final i = _tabs.indexOf(tab);
+            if (i < 0) return;
+            unawaited(
+              _showTabMenu(i, position, onChanged: refreshOverlay),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -5384,6 +5344,224 @@ class _OcrStatusChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The open-tabs grid shown in the compact bottom sheet and the desktop
+/// dialog: a title-search field over a thumbnail grid that opens scrolled to
+/// the active tab.
+class _TabsOverview extends StatefulWidget {
+  const _TabsOverview({
+    required this.tabs,
+    required this.activeIndex,
+    required this.keyPrefix,
+    required this.headerTopPadding,
+    required this.autofocusSearch,
+    required this.onOpen,
+    required this.onActivate,
+    required this.tileBuilder,
+  });
+
+  /// The editor's live tab list (indices passed to [tileBuilder] and
+  /// [onActivate] index into it).
+  final List<DocumentTab> tabs;
+  final int activeIndex;
+  final String keyPrefix;
+  final double headerTopPadding;
+  final bool autofocusSearch;
+  final VoidCallback onOpen;
+  final void Function(int index) onActivate;
+  final Widget Function(BuildContext context, int index) tileBuilder;
+
+  static const double _padding = 12;
+  static const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+    maxCrossAxisExtent: 220,
+    mainAxisSpacing: _padding,
+    crossAxisSpacing: _padding,
+    childAspectRatio: 0.78,
+  );
+
+  @override
+  State<_TabsOverview> createState() => _TabsOverviewState();
+}
+
+class _TabsOverviewState extends State<_TabsOverview> {
+  final _query = TextEditingController();
+  ScrollController? _scroll;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    _scroll?.dispose();
+    super.dispose();
+  }
+
+  /// Indices into [_TabsOverview.tabs] whose title matches the search.
+  List<int> _matches() {
+    final query = _query.text.trim().toLowerCase();
+    final tabs = widget.tabs;
+    return [
+      for (var i = 0; i < tabs.length; i++)
+        if (query.isEmpty || tabs[i].title.toLowerCase().contains(query)) i,
+    ];
+  }
+
+  /// The scroll offset that centres the active tab's row in a viewport of
+  /// [size], clamped to the grid's extent, so the grid opens on the current
+  /// tab instead of the first row.
+  double _activeOffset(Size size, int count) {
+    final active = widget.activeIndex;
+    if (active <= 0 || active >= count) return 0;
+    const padding = _TabsOverview._padding;
+    final layout = _TabsOverview.gridDelegate.getLayout(
+      SliverConstraints(
+        axisDirection: AxisDirection.down,
+        growthDirection: GrowthDirection.forward,
+        userScrollDirection: ScrollDirection.idle,
+        scrollOffset: 0,
+        precedingScrollExtent: 0,
+        overlap: 0,
+        remainingPaintExtent: size.height,
+        crossAxisExtent: math.max(0, size.width - 2 * padding),
+        crossAxisDirection: AxisDirection.right,
+        viewportMainAxisExtent: size.height,
+        remainingCacheExtent: size.height,
+        cacheOrigin: 0,
+      ),
+    ) as SliverGridRegularTileLayout;
+    final stride = layout.mainAxisStride;
+    final rows = (count + layout.crossAxisCount - 1) ~/ layout.crossAxisCount;
+    final row = active ~/ layout.crossAxisCount;
+    final contentHeight = 2 * padding + rows * stride - padding;
+    final maxOffset = math.max(0.0, contentHeight - size.height);
+    final centred = padding +
+        row * stride +
+        layout.childMainAxisExtent / 2 -
+        size.height / 2;
+    return centred.clamp(0.0, maxOffset);
+  }
+
+  void _onQueryChanged(String _) {
+    setState(() {});
+    // A new result set starts from its first match.
+    final scroll = _scroll;
+    if (scroll != null && scroll.hasClients) scroll.jumpTo(0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final prefix = widget.keyPrefix;
+    final matches = _matches();
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, widget.headerTopPadding, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child:
+                    Text(l10n.editorTabs, style: theme.textTheme.titleMedium),
+              ),
+              IconButton(
+                key: ValueKey('$prefix-tabs-open'),
+                icon: const Icon(Icons.add),
+                tooltip: l10n.editorOpenPdfNewTab,
+                onPressed: widget.onOpen,
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: TextField(
+            key: ValueKey('$prefix-tabs-search'),
+            controller: _query,
+            autofocus: widget.autofocusSearch,
+            textInputAction: TextInputAction.go,
+            decoration: InputDecoration(
+              hintText: l10n.editorSearchTabs,
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _query.text.isEmpty
+                  ? null
+                  : IconButton(
+                      key: ValueKey('$prefix-tabs-search-clear'),
+                      icon: const Icon(Icons.clear),
+                      tooltip: l10n.editorClearTabSearch,
+                      onPressed: () {
+                        _query.clear();
+                        _onQueryChanged('');
+                      },
+                    ),
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: _onQueryChanged,
+            // Enter opens the best (first) match, like a quick switcher.
+            onSubmitted: (_) {
+              if (matches.isNotEmpty) widget.onActivate(matches.first);
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // The first layout decides where the grid opens: on the
+                  // active tab. The grid does not cache offscreen rows, so a
+                  // measured initial offset (rather than a scroll after the
+                  // first frame) never builds the top rows' thumbnails. The
+                  // grid stays mounted while a search matches nothing so its
+                  // position (reset per query) is never re-seeded from here.
+                  _scroll ??= ScrollController(
+                    initialScrollOffset: _activeOffset(
+                      constraints.biggest,
+                      widget.tabs.length,
+                    ),
+                  );
+                  return GridView.builder(
+                    key: ValueKey('$prefix-tabs-grid'),
+                    controller: _scroll,
+                    // A tile paints a real PDF thumbnail. Do not build the
+                    // next row speculatively: with large documents that work
+                    // competes with a fling even though the thumbnails are
+                    // still off-screen.
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+                    padding: const EdgeInsets.all(_TabsOverview._padding),
+                    gridDelegate: _TabsOverview.gridDelegate,
+                    itemCount: matches.length,
+                    itemBuilder: (context, i) =>
+                        widget.tileBuilder(context, matches[i]),
+                  );
+                },
+              ),
+              if (matches.isEmpty)
+                Center(
+                  key: ValueKey('$prefix-tabs-no-matches'),
+                  child: Text(
+                    l10n.editorNoMatchingTabs,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            l10n.editorTabsOpenCount(widget.tabs.length),
+            style: theme.textTheme.labelMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 }

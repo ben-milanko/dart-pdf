@@ -832,6 +832,18 @@
   "@editorSnapshotCopyFailed": {
     "description": "Toast when copying a captured snapshot to the clipboard failed."
   },
+  "editorSearchTabs": "Search tabs",
+  "@editorSearchTabs": {
+    "description": "Hint of the search field in the open-tabs grid overlay that filters tabs by title."
+  },
+  "editorClearTabSearch": "Clear search",
+  "@editorClearTabSearch": {
+    "description": "Tooltip of the button that clears the open-tabs grid search field."
+  },
+  "editorNoMatchingTabs": "No matching tabs",
+  "@editorNoMatchingTabs": {
+    "description": "Shown in the open-tabs grid when no tab title matches the search."
+  },
   "editorTabs": "Tabs",
   "@editorTabs": {
     "description": "Header of the open-tabs grid overlay."

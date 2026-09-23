@@ -364,26 +364,111 @@ void main() {
           matching: find.byKey(const ValueKey('mobile-tab-tile')),
         );
     expect(tester.widget<GridView>(grid).scrollCacheExtent, isNotNull);
-    expect(tile('tab-19.pdf'), findsNothing);
+    // The grid opens on the active (last-opened) tab, so the first tab is the
+    // one still to be built.
+    expect(tile('tab-0.pdf'), findsNothing);
 
-    // Keep plenty of content below the fling so it retains a high ballistic
+    // Keep plenty of content above the fling so it retains a high ballistic
     // velocity while fresh rows are being constructed.
-    await tester.fling(grid, const Offset(0, -300), 5000);
+    await tester.fling(grid, const Offset(0, 300), 5000);
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pumpAndSettle();
     final position = tester.state<ScrollableState>(scrollable).position;
-    position.jumpTo(position.maxScrollExtent);
+    position.jumpTo(0);
     await tester.pumpAndSettle();
 
-    final lastTile = tile('tab-19.pdf');
-    expect(lastTile, findsOneWidget);
+    final firstTile = tile('tab-0.pdf');
+    expect(firstTile, findsOneWidget);
     expect(
       find.descendant(
-        of: lastTile,
+        of: firstTile,
         matching: find.byKey(const ValueKey('mobile-tab-preview-image')),
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('tab grid opens scrolled to the active tab', (tester) async {
+    await setMobileSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    for (var i = 0; i < 20; i++) {
+      await openTab(tester, 'tab-$i.pdf');
+    }
+
+    Finder tile(String title) => find.ancestor(
+          of: find.descendant(
+            of: find.byKey(const ValueKey('mobile-tabs-grid')),
+            matching: middleText(title),
+          ),
+          matching: find.byKey(const ValueKey('mobile-tab-tile')),
+        );
+
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+    // The last-opened tab is active: the grid lands on it, not the first row.
+    expect(tile('tab-19.pdf'), findsOneWidget);
+    expect(tile('tab-0.pdf'), findsNothing);
+
+    // Activate a tab in the middle, then reopen: the grid follows it.
+    final scrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('mobile-tabs-grid')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(tile('tab-9.pdf'), -200,
+        scrollable: scrollable);
+    await tester.tap(tile('tab-9.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tabs-grid')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+    final viewport = tester.getRect(scrollable);
+    final active = tester.getRect(tile('tab-9.pdf'));
+    expect(viewport.contains(active.topLeft), isTrue);
+    expect(viewport.contains(active.bottomRight), isTrue);
+    expect(tile('tab-0.pdf'), findsNothing);
+  });
+
+  testWidgets('tab grid search filters tabs by title', (tester) async {
+    setDesktopSize(tester);
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    final search = find.byKey(const ValueKey('desktop-tabs-search'));
+    expect(search, findsOneWidget);
+    // The desktop dialog takes typing straight away.
+    expect(tester.testTextInput.hasAnyClients, isTrue);
+
+    await tester.enterText(search, 'BET');
+    await tester.pumpAndSettle();
+    expect(gridTile('beta.pdf'), findsOneWidget);
+    expect(gridTile('alpha.pdf'), findsNothing);
+    expect(gridTile('gamma.pdf'), findsNothing);
+
+    await tester.enterText(search, 'zzz');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tab-tile')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('desktop-tabs-no-matches')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-search-clear')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tab-tile')), findsNWidgets(3));
+
+    // Enter switches to the first match and dismisses the grid.
+    await tester.enterText(search, 'alp');
+    await tester.testTextInput.receiveAction(TextInputAction.go);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
+        FontWeight.w600);
   });
 
   testWidgets('hovering an inactive desktop tab shows its page preview',

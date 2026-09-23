@@ -601,6 +601,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorSnapshotCopyFailed => '스냅샷을 클립보드에 복사할 수 없습니다';
 
   @override
+  String get editorSearchTabs => '탭 검색';
+
+  @override
+  String get editorClearTabSearch => '검색어 지우기';
+
+  @override
+  String get editorNoMatchingTabs => '일치하는 탭이 없습니다';
+
+  @override
   String get editorTabs => '탭';
 
   @override

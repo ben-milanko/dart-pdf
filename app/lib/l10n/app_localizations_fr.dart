@@ -619,6 +619,15 @@ class AppLocalizationsFr extends AppLocalizations {
       'Impossible de copier la capture dans le presse-papiers';
 
   @override
+  String get editorSearchTabs => 'Rechercher des onglets';
+
+  @override
+  String get editorClearTabSearch => 'Effacer la recherche';
+
+  @override
+  String get editorNoMatchingTabs => 'Aucun onglet correspondant';
+
+  @override
   String get editorTabs => 'Onglets';
 
   @override

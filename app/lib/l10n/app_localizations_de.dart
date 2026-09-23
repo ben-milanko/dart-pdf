@@ -620,6 +620,15 @@ class AppLocalizationsDe extends AppLocalizations {
       'Schnappschuss konnte nicht in die Zwischenablage kopiert werden';
 
   @override
+  String get editorSearchTabs => 'Tabs durchsuchen';
+
+  @override
+  String get editorClearTabSearch => 'Suche löschen';
+
+  @override
+  String get editorNoMatchingTabs => 'Keine passenden Tabs';
+
+  @override
   String get editorTabs => 'Tabs';
 
   @override

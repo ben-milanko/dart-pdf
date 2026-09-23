@@ -630,6 +630,15 @@ class AppLocalizationsPl extends AppLocalizations {
       'Nie udało się skopiować migawki do schowka';
 
   @override
+  String get editorSearchTabs => 'Szukaj kart';
+
+  @override
+  String get editorClearTabSearch => 'Wyczyść wyszukiwanie';
+
+  @override
+  String get editorNoMatchingTabs => 'Brak pasujących kart';
+
+  @override
   String get editorTabs => 'Karty';
 
   @override

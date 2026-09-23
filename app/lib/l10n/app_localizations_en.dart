@@ -611,6 +611,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorSnapshotCopyFailed => 'Could not copy snapshot to clipboard';
 
   @override
+  String get editorSearchTabs => 'Search tabs';
+
+  @override
+  String get editorClearTabSearch => 'Clear search';
+
+  @override
+  String get editorNoMatchingTabs => 'No matching tabs';
+
+  @override
   String get editorTabs => 'Tabs';
 
   @override
@@ -1836,6 +1845,15 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get editorSnapshotCopyFailed => 'Could not copy snapshot to clipboard';
 
   @override
+  String get editorSearchTabs => 'Search tabs';
+
+  @override
+  String get editorClearTabSearch => 'Clear search';
+
+  @override
+  String get editorNoMatchingTabs => 'No matching tabs';
+
+  @override
   String get editorTabs => 'Tabs';
 
   @override
@@ -3059,6 +3077,15 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get editorSnapshotCopyFailed => 'Could not copy snapshot to clipboard';
+
+  @override
+  String get editorSearchTabs => 'Search tabs';
+
+  @override
+  String get editorClearTabSearch => 'Clear search';
+
+  @override
+  String get editorNoMatchingTabs => 'No matching tabs';
 
   @override
   String get editorTabs => 'Tabs';
