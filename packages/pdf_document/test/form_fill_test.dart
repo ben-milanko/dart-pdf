@@ -271,4 +271,139 @@ void main() {
     expect(content, contains('(checked     ) Tj'));
     expect(content, isNot(contains('?')));
   });
+
+  group('/MaxLen, comb and password (#931)', () {
+    // the fixture's `name` field: Helvetica 12, a 228pt-wide widget
+    void flag(PdfFormField field, {int? maxLen, int ff = 0, int? q}) {
+      if (maxLen != null) field.dict['MaxLen'] = CosInteger(maxLen);
+      field.dict['Ff'] = CosInteger(ff);
+      if (q != null) field.dict['Q'] = CosInteger(q);
+    }
+
+    List<double> tdXs(String content) => [
+          for (final m
+              in RegExp(r'(-?[\d.]+) (-?[\d.]+) Td').allMatches(content))
+            double.parse(m.group(1)!),
+        ];
+
+    test('maxLength reads an inherited /MaxLen; non-positive is no limit', () {
+      final form = PdfAcroForm.of(PdfDocument.open(buildAcroFormPdf()))!;
+      final field = form.fieldNamed('name')!;
+      expect(field.maxLength, isNull);
+      field.dict['Parent'] = CosDictionary({'MaxLen': const CosInteger(8)});
+      expect(field.maxLength, 8);
+      field.dict['MaxLen'] = const CosInteger(0);
+      expect(field.maxLength, isNull,
+          reason: 'a 0 on the kid overrides but means no limit');
+      expect(form.fieldNamed('agree')!.maxLength, isNull,
+          reason: '/MaxLen is a text-field entry');
+    });
+
+    test('isComb needs /MaxLen and clear multiline/password/file-select', () {
+      final form = PdfAcroForm.of(PdfDocument.open(buildAcroFormPdf()))!;
+      final field = form.fieldNamed('name')!;
+      flag(field, ff: PdfFormField.combFlag);
+      expect(field.isComb, isFalse, reason: 'no /MaxLen');
+      flag(field, maxLen: 6, ff: PdfFormField.combFlag);
+      expect(field.isComb, isTrue);
+      for (final bad in [
+        PdfFormField.multilineFlag,
+        PdfFormField.passwordFlag,
+        PdfFormField.fileSelectFlag,
+      ]) {
+        flag(field, ff: PdfFormField.combFlag | bad);
+        expect(field.isComb, isFalse);
+      }
+    });
+
+    test('setTextValue truncates to /MaxLen by code point', () {
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('name')!;
+        flag(field, maxLen: 4);
+        e.setTextValue(field, 'ABCDEFG');
+        final address = f.fieldNamed('address')!;
+        address.dict['MaxLen'] = const CosInteger(2);
+        e.setTextValue(address, '\u{1F600}\u{1F601}\u{1F602}');
+      });
+      final form = PdfAcroForm.of(doc)!;
+      expect(form.fieldNamed('name')!.value, 'ABCD');
+      expect(widgetAppearance(doc, form.fieldNamed('name')!),
+          contains('(ABCD) Tj'));
+      expect(form.fieldNamed('address')!.value, '\u{1F600}\u{1F601}',
+          reason: 'a surrogate pair counts once and is never split');
+      expect(PdfFormFilling.truncateToMaxLength('abc', null), 'abc');
+      expect(PdfFormFilling.truncateToMaxLength('abc', 3), 'abc');
+    });
+
+    test('a comb field centres one character per cell', () {
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('name')!;
+        flag(field, maxLen: 6, ff: PdfFormField.combFlag);
+        e.setTextValue(field, '1234');
+      });
+      final content =
+          widgetAppearance(doc, PdfAcroForm.of(doc)!.fieldNamed('name')!);
+      for (final d in ['1', '2', '3', '4']) {
+        expect(content, contains('($d) Tj'));
+      }
+      expect(content, isNot(contains('(1234) Tj')));
+      // 228pt / 6 cells = 38pt; a Helvetica digit is 0.556em -> 6.672pt
+      final xs = tdXs(content);
+      expect(xs, hasLength(4));
+      expect(xs.first, closeTo(19 - 6.672 / 2, 1e-3));
+      for (final dx in xs.skip(1)) {
+        expect(dx, closeTo(38, 1e-3), reason: 'Td deltas step one cell');
+      }
+    });
+
+    test('comb quadding anchors short values right or centre', () {
+      for (final (q, firstCell) in [(2, 2), (1, 1)]) {
+        final doc = fill((e, f) {
+          final field = f.fieldNamed('name')!;
+          flag(field, maxLen: 6, ff: PdfFormField.combFlag, q: q);
+          e.setTextValue(field, '1234');
+        });
+        final xs = tdXs(
+            widgetAppearance(doc, PdfAcroForm.of(doc)!.fieldNamed('name')!));
+        expect(xs.first, closeTo(38 * (firstCell + 0.5) - 6.672 / 2, 1e-3),
+            reason: 'Q $q starts in cell $firstCell');
+      }
+    });
+
+    test('an auto-sized comb glyph fits its cell', () {
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('address')!; // /DA size 0, 228 x 80
+        flag(field, maxLen: 40, ff: PdfFormField.combFlag);
+        e.setTextValue(field, 'WWWW');
+      });
+      final content =
+          widgetAppearance(doc, PdfAcroForm.of(doc)!.fieldNamed('address')!);
+      final size = double.parse(
+          RegExp(r'/Helv ([\d.]+) Tf').firstMatch(content)!.group(1)!);
+      // Helvetica W is 0.944em; 228 / 40 = 5.7pt per cell
+      expect(size * 0.944, lessThanOrEqualTo(5.7 + 1e-6));
+    });
+
+    test('a password field appearance masks the value', () {
+      const secret = 'hunter2';
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('name')!;
+        flag(field, ff: PdfFormField.passwordFlag);
+        e.setTextValue(field, secret);
+      });
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      expect(field.isPassword, isTrue);
+      final content = widgetAppearance(doc, field);
+      expect(content, contains('(*******) Tj'));
+      expect(content, isNot(contains(secret)));
+      // re-laying the widget (resize) regenerates from /V - still masked
+      final editor = PdfEditor(doc)
+        ..resizeFormWidget('name', 0, const PdfRect(72, 700, 320, 730));
+      final resized = PdfDocument.open(editor.save());
+      expect(
+          widgetAppearance(
+              resized, PdfAcroForm.of(resized)!.fieldNamed('name')!),
+          isNot(contains(secret)));
+    });
+  });
 }

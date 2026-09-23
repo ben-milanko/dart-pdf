@@ -391,9 +391,8 @@ class PdfFormField {
 
   PdfFieldType get type => switch (fieldTypeName) {
         'Tx' => PdfFieldType.text,
-        'Ch' => flags & comboFlag != 0
-            ? PdfFieldType.comboBox
-            : PdfFieldType.listBox,
+        'Ch' =>
+          flags & comboFlag != 0 ? PdfFieldType.comboBox : PdfFieldType.listBox,
         'Btn' => flags & pushButtonFlag != 0
             ? PdfFieldType.pushButton
             : flags & radioFlag != 0
@@ -411,11 +410,38 @@ class PdfFormField {
   static const pushButtonFlag = 1 << 16; // bit 17
   static const comboFlag = 1 << 17; // bit 18
   static const editFlag = 1 << 18; // bit 19
+  static const fileSelectFlag = 1 << 20; // bit 21
+  static const combFlag = 1 << 24; // bit 25
 
   bool get isReadOnly => flags & readOnlyFlag != 0;
   bool get isRequired => flags & requiredFlag != 0;
   bool get isMultiline => flags & multilineFlag != 0;
   bool get isPassword => flags & passwordFlag != 0;
+
+  /// The /MaxLen text-length limit in characters (inheritable, §12.7.4.3),
+  /// or null when the field has none. Non-positive or non-integer entries
+  /// read as no limit.
+  int? get maxLength {
+    if (type != PdfFieldType.text) return null;
+    final raw = inherited('MaxLen');
+    final value = raw is CosInteger
+        ? raw.value
+        : raw is CosReal
+            ? raw.value.truncate()
+            : null;
+    return value != null && value > 0 ? value : null;
+  }
+
+  /// Whether this is a comb field (/Ff bit 25): the widget width splits
+  /// into [maxLength] equal cells, one character each. Per §12.7.4.3 the
+  /// flag is meaningful only when /MaxLen is set and the multiline,
+  /// password and file-select flags are clear, so it reads false otherwise.
+  bool get isComb {
+    final f = flags;
+    return f & combFlag != 0 &&
+        maxLength != null &&
+        f & (multilineFlag | passwordFlag | fileSelectFlag) == 0;
+  }
 
   /// The saved dart-pdf vertical alignment, or null for legacy placement
   /// (top for multiline fields, ascent-centred for single-line fields).

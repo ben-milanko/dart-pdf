@@ -27,6 +27,12 @@ extension PdfFormFilling on PdfEditor {
   /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
   /// generated appearance replaces characters the byte-encoded
   /// appearance fonts cannot show with spaces.
+  ///
+  /// A field with /MaxLen ([PdfFormField.maxLength]) keeps only the first
+  /// that many characters (Unicode code points) of [value]. A comb field
+  /// ([PdfFormField.isComb]) draws one character per cell, and a password
+  /// field ([PdfFormField.isPassword]) draws one `*` per character instead
+  /// of the value - see [maskedPasswordText].
   void setTextValue(
     PdfFormField field,
     String value, {
@@ -43,6 +49,7 @@ extension PdfFormFilling on PdfEditor {
       );
     }
     _setTextVerticalAlignment(field, verticalAlignment);
+    value = truncateToMaxLength(value, field.maxLength);
     field.dict['V'] = CosString.fromText(value);
     _regenerateVariableText(field, value, textDirection: textDirection);
     _finishFieldEdit(field);
@@ -477,12 +484,42 @@ extension PdfFormFilling on PdfEditor {
     ]);
   }
 
+  /// [value] cut to its first [maxLength] characters (Unicode code points,
+  /// so a surrogate pair is never split); unchanged when [maxLength] is
+  /// null or the value already fits. The /MaxLen rule of [setTextValue].
+  static String truncateToMaxLength(String value, int? maxLength) {
+    if (maxLength == null || value.length <= maxLength) return value;
+    final runes = value.runes;
+    if (runes.length <= maxLength) return value;
+    return String.fromCharCodes(runes.take(maxLength));
+  }
+
+  /// What a password field's appearance shows for [value]: one `*` per
+  /// character, never the value itself.
+  ///
+  /// Asterisks rather than bullets because `*` is the same byte in every
+  /// simple-font encoding (Standard, WinAnsi, MacRoman) and is present in
+  /// practically every embedded subset's source font, whereas U+2022 is
+  /// byte 0x95 only under WinAnsi and would print as a different glyph (or
+  /// nothing) elsewhere. Masking instead of leaving the field blank keeps a
+  /// filled field visibly filled, matching the masked inline editor.
+  static String maskedPasswordText(String value) => '*' * value.runes.length;
+
   void _regenerateVariableText(
     PdfFormField field,
     String rawText, {
     PdfTextDirection textDirection = PdfTextDirection.auto,
   }) {
     final cos = document.cos;
+    final isText = field.type == PdfFieldType.text;
+    final maxLength = isText ? field.maxLength : null;
+    final comb = isText && field.isComb;
+    if (isText) {
+      rawText = truncateToMaxLength(rawText, maxLength);
+      // the value never reaches the page: extraction, search and screen
+      // readers read the appearance, so it carries only the mask
+      if (field.isPassword) rawText = maskedPasswordText(rawText);
+    }
     final da = _parseDefaultAppearance(field.defaultAppearance);
     final verticalAlignment = field.textVerticalAlignment;
     final fontDict = _formFont(field.form, da.fontName);
@@ -542,6 +579,20 @@ extension PdfFormFilling on PdfEditor {
           }
         }
         lines = wrap(size);
+      } else if (comb) {
+        lines = [text.replaceAll('\n', ' ')];
+        if (size == 0) {
+          // auto-size: the height sets the size, then the widest glyph must
+          // fit its cell (a comb spans the full width, no side padding)
+          size = (visual.height - 2 * pad) / lineFactor;
+          final cell = visual.width / maxLength!;
+          var widest = 0.0;
+          for (final r in lines.first.runes) {
+            widest = math.max(widest, measure(String.fromCharCode(r), size));
+          }
+          if (widest > cell && widest > 0) size *= cell / widest;
+          size = size.clamp(4.0, 144.0);
+        }
       } else {
         final single = text.replaceAll('\n', ' ');
         if (size == 0) {
@@ -575,37 +626,56 @@ extension PdfFormFilling on PdfEditor {
         ..rect(visual.left + 1, visual.bottom + 1, visual.width - 2,
             visual.height - 2)
         ..clip();
-      writePdfTextBox(
-        writer,
-        visual,
-        lines,
-        font: font,
-        fontSize: size,
-        align: align,
-        padding: pad,
-        lineHeight: size * lineFactor,
-        vAlign: switch (verticalAlignment) {
-          PdfFormTextVerticalAlignment.top => PdfTextBoxVAlign.top,
-          PdfFormTextVerticalAlignment.center => PdfTextBoxVAlign.centerBlock,
-          PdfFormTextVerticalAlignment.bottom => PdfTextBoxVAlign.bottomBlock,
-          PdfFormTextVerticalAlignment.legacy ||
-          null =>
-            multiline ? PdfTextBoxVAlign.top : PdfTextBoxVAlign.centerLine,
-        },
-        clampVerticalAlign: verticalAlignment != null,
-        clip: false,
-        clampAlign: true,
-        measureLine: (s) => measure(s, size),
-        writeColor: (w) => w.raw(da.colorOps),
-        emitLine: (w, line) {
-          final rendered = pdfVisualText(line, resolvedDirection);
-          if (embedded != null) {
-            w.showGlyphHex(embedded.encodeHex(rendered));
-          } else {
-            w.showText(rendered);
-          }
-        },
-      );
+      void emitRun(ContentWriter w, String rendered) {
+        if (embedded != null) {
+          w.showGlyphHex(embedded.encodeHex(rendered));
+        } else {
+          w.showText(rendered);
+        }
+      }
+
+      if (comb) {
+        _writeCombText(
+          writer,
+          visual,
+          pdfVisualText(lines.first, resolvedDirection),
+          cells: maxLength!,
+          font: font,
+          fontSize: size,
+          align: align,
+          padding: pad,
+          verticalAlignment: verticalAlignment,
+          measure: (s) => measure(s, size),
+          writeColor: (w) => w.raw(da.colorOps),
+          emit: emitRun,
+        );
+      } else {
+        writePdfTextBox(
+          writer,
+          visual,
+          lines,
+          font: font,
+          fontSize: size,
+          align: align,
+          padding: pad,
+          lineHeight: size * lineFactor,
+          vAlign: switch (verticalAlignment) {
+            PdfFormTextVerticalAlignment.top => PdfTextBoxVAlign.top,
+            PdfFormTextVerticalAlignment.center => PdfTextBoxVAlign.centerBlock,
+            PdfFormTextVerticalAlignment.bottom => PdfTextBoxVAlign.bottomBlock,
+            PdfFormTextVerticalAlignment.legacy ||
+            null =>
+              multiline ? PdfTextBoxVAlign.top : PdfTextBoxVAlign.centerLine,
+          },
+          clampVerticalAlign: verticalAlignment != null,
+          clip: false,
+          clampAlign: true,
+          measureLine: (s) => measure(s, size),
+          writeColor: (w) => w.raw(da.colorOps),
+          emitLine: (w, line) =>
+              emitRun(w, pdfVisualText(line, resolvedDirection)),
+        );
+      }
       writer.restore();
       _endWidgetOrientation(writer, rotation);
       writer.raw('EMC');
@@ -621,6 +691,64 @@ extension PdfFormFilling on PdfEditor {
       _setNormalAppearance(widget, form);
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);
     }
+  }
+
+  /// A comb field's single line (§12.7.4.3): [box]'s full width splits
+  /// into [cells] equal cells and each character of [text] (already in
+  /// visual order) is centred in its own cell. Fewer characters than cells
+  /// start in the first cell, or end in the last for right quadding, or sit
+  /// in the middle cells for centred quadding. The baseline follows the
+  /// single-line placement (ascent-centred) unless a vertical preference is
+  /// saved. Characters past [cells] are dropped - callers truncate to
+  /// /MaxLen first.
+  void _writeCombText(
+    ContentWriter writer,
+    PdfRect box,
+    String text, {
+    required int cells,
+    required PdfTextFont font,
+    required double fontSize,
+    required PdfTextAlign align,
+    required double padding,
+    required PdfFormTextVerticalAlignment? verticalAlignment,
+    required double Function(String s) measure,
+    required void Function(ContentWriter w) writeColor,
+    required void Function(ContentWriter w, String glyph) emit,
+  }) {
+    final glyphs = [
+      for (final r in text.runes) String.fromCharCode(r),
+    ].take(cells).toList();
+    final cellWidth = box.width / cells;
+    final first = switch (align) {
+      PdfTextAlign.left => 0,
+      PdfTextAlign.center => (cells - glyphs.length) ~/ 2,
+      PdfTextAlign.right => cells - glyphs.length,
+    };
+    final ascent = fontSize * font.ascent / 1000;
+    final y = switch (verticalAlignment) {
+      PdfFormTextVerticalAlignment.top => box.top - padding - ascent,
+      PdfFormTextVerticalAlignment.bottom =>
+        box.bottom + padding + fontSize - ascent,
+      PdfFormTextVerticalAlignment.center ||
+      PdfFormTextVerticalAlignment.legacy ||
+      null =>
+        box.bottom + math.max(padding, (box.height - ascent) / 2),
+    };
+    writer
+      ..beginText()
+      ..font(font.resourceName, fontSize);
+    writeColor(writer);
+    var prevX = 0.0, prevY = 0.0;
+    for (var i = 0; i < glyphs.length; i++) {
+      final glyph = glyphs[i];
+      if (glyph == ' ') continue;
+      final x = box.left + (first + i + 0.5) * cellWidth - measure(glyph) / 2;
+      writer.textAt(x - prevX, y - prevY);
+      emit(writer, glyph);
+      prevX = x;
+      prevY = y;
+    }
+    writer.endText();
   }
 
   /// Background and border from the widget's /MK appearance
