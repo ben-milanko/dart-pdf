@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'editing_controller.dart';
+
 /// Resolves the insertion index a file drop at a global position would land
 /// on inside one thumbnail panel, or null when the position isn't over it.
 typedef PdfThumbnailDropResolver = int? Function(Offset globalPosition);
@@ -31,7 +33,26 @@ typedef PdfThumbnailDropResolver = int? Function(Offset globalPosition);
 /// index the drop would use; [endDrag] clears it. Pass the same controller
 /// to [PdfThumbnailSidebar] and [PdfThumbnailView] - whichever panel is
 /// under the pointer answers.
+///
+/// The controller also carries drags the *other* way: a page tile dragged
+/// out of the window it lives in. A panel can't see past its own window,
+/// so while such a drag is outside the window it reports it through
+/// [onPageDragOutside] (null once the pointer comes back or the drag ends),
+/// and a release out there goes to [onPageDropOutside] instead of
+/// reordering the strip. Hosts with several windows wire these to move the
+/// pages into whichever window is under the cursor.
 class PdfThumbnailDropController extends ChangeNotifier {
+  /// Called on every pointer move of a page-tile drag while the pointer is
+  /// outside the panel's window, and with null when it returns or the drag
+  /// ends. Hosts use it to mark the drop slot in another window.
+  ValueChanged<PdfPageDragOut?>? onPageDragOutside;
+
+  /// Called when a page-tile drag is released outside the panel's window.
+  /// The panel does not reorder anything for that drop; moving (or copying)
+  /// [PdfPageDragOut.pages] is up to the host. When null, a panel doesn't
+  /// report drags outside its window at all and the drop reorders as usual.
+  ValueChanged<PdfPageDragOut>? onPageDropOutside;
+
   /// The mounted panels, in attach order; the most recently attached one
   /// answers first, so a full-area page grid overlaid on a still-mounted
   /// docked strip wins the position it covers.
@@ -114,6 +135,28 @@ class PdfThumbnailDropController extends ChangeNotifier {
     _index = null;
     super.dispose();
   }
+}
+
+/// A page-tile drag that has left the window its thumbnail panel lives in -
+/// see [PdfThumbnailDropController.onPageDropOutside].
+@immutable
+class PdfPageDragOut {
+  const PdfPageDragOut({
+    required this.controller,
+    required this.pages,
+    required this.globalPosition,
+  });
+
+  /// The edit session the pages are dragged out of.
+  final PdfEditingController controller;
+
+  /// The dragged pages (ascending): the strip's selection when the grabbed
+  /// tile belongs to it, else just the grabbed page.
+  final List<int> pages;
+
+  /// The pointer in the source window's global (view) coordinates - outside
+  /// that window's bounds.
+  final Offset globalPosition;
 }
 
 /// Which edge of a page tile an insertion marker hugs. The docked strip

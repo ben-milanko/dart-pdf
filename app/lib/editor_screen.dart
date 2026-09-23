@@ -42,6 +42,7 @@ import 'reduce_file_size.dart';
 import 'rename_document.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
+import 'page_drag.dart';
 import 'tab_drag.dart';
 import 'unsaved_changes.dart';
 import 'unsaved_changes_store.dart';
@@ -257,7 +258,7 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen>
     with WidgetsBindingObserver
-    implements TabDragWindow {
+    implements TabDragWindow, PageDropWindow {
   PdfEditingPreferences get _prefs => widget.prefs;
 
   /// This window's view mode (pages / reflow / page grid).
@@ -456,15 +457,62 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _registeredTabDragCoordinator
       ?..removeListener(_syncDestinationTabDragOverlay)
-      ..unregister(this);
+      ..unregister(this)
+      ..pages.unregister(this);
     _removeDestinationTabDragOverlay();
     _registeredTabDragCoordinator = null;
+    _thumbnailDrop
+      ..onPageDragOutside = null
+      ..onPageDropOutside = null;
     _nativeWindowHandle = handle;
     if (coordinator != null && handle != null) {
       _registeredTabDragCoordinator = coordinator;
       coordinator.register(this);
+      coordinator.pages.register(this);
       coordinator.addListener(_syncDestinationTabDragOverlay);
+      // a page tile dragged out of this window moves into the one under the
+      // cursor (see page_drag.dart)
+      _thumbnailDrop
+        ..onPageDragOutside = coordinator.pages.update
+        ..onPageDropOutside = (drag) => unawaited(coordinator.pages.drop(drag));
     }
+  }
+
+  @override
+  bool ownsSession(PdfEditingController controller) =>
+      _tabs.any((tab) => identical(tab.session, controller));
+
+  @override
+  int? pageDropIndexAt(Offset localPoint) =>
+      mounted ? _thumbnailDrop.dragOver(localPoint) : null;
+
+  @override
+  void clearPageDropMarker() {
+    if (mounted) _thumbnailDrop.endDrag();
+  }
+
+  @override
+  bool acceptDroppedPages(Uint8List bytes, int pageCount, {int? at}) {
+    if (!mounted) return false;
+    final tab = _active;
+    final session = tab?.session;
+    if (session == null || _readOnly) {
+      // nothing editable open here: the pages become a new document
+      _readOnly = false;
+      _addTab(DocumentTab.document(
+        title: _nextUntitledTitle(),
+        bytes: bytes,
+        preferences: _prefs,
+        initiallyDirty: true,
+      ));
+      return true;
+    }
+    final insertAt = (at ?? (tab!.viewer?.currentPage ?? -1) + 1)
+        .clamp(0, session.document.pageCount)
+        .toInt();
+    session.insertPagesFromBytes(bytes, at: insertAt);
+    _revealInsertedPage(insertAt);
+    return true;
   }
 
   void _syncDestinationTabDragOverlay() {
@@ -604,7 +652,8 @@ class _EditorScreenState extends State<EditorScreen>
         .removeListener(_onLocalAnnotationCopy);
     _registeredTabDragCoordinator
       ?..removeListener(_syncDestinationTabDragOverlay)
-      ..unregister(this);
+      ..unregister(this)
+      ..pages.unregister(this);
     _removeDestinationTabDragOverlay();
     _tabScrollController.dispose();
     _windowCloseCoordinator?.unregister(_windowCloseOwner);

@@ -429,7 +429,11 @@ marker, the host (which owns the platform drag stream) drives
 `PdfEditorView(thumbnailDropController:)` forwards it; the app wires it
 to its `desktop_drop` `DropTarget`, so a positioned drop skips the
 open-or-insert dialog. See
-doc/dev-log/2026-08-06-thumbnail-file-drop-position.md.
+doc/dev-log/2026-08-06-thumbnail-file-drop-position.md. The same controller
+carries strip tiles dragged *out* of a window (`onPageDragOutside`/
+`onPageDropOutside`); the app's `PageDragCoordinator` (page_drag.dart) moves
+them into the window under the cursor - see
+doc/dev-log/2026-09-23-thumbnail-drag-between-windows.md.
 
 ## Development session log
 
