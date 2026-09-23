@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Check signer-chain revocation. `validate()` now reports a verdict for the
+  signer and each intermediate from the document's /DSS
+  (`PdfSignatureValidation.revocation`, `revocationStatus`), and the new
+  `validateOnline(revocationClient:)` adds live OCSP-then-CRL checks through
+  the injected `PdfRevocationClient`. A revoked certificate makes the chain
+  untrusted unless a verified timestamp predates the revocation.
+  `pdfOnlineRevocationClient` turns a host HTTP function into a client.
+- Add `package:pdf_document/trust_lists.dart`, opt-in trust anchors with no
+  bundled data: fetch and XML-signature-verify the EU trusted lists
+  (`fetchEuTrustedLists`, `PdfTrustLists.eutl`), or load an Adobe Approved
+  Trust List file you supply (`parseAatlSecuritySettings`).
+  `tool/refresh_trust_lists.dart` writes verified PEM snapshots.
+
 - Stop the visible signature box clipping its detail lines. On a short, wide
   "sign on this line" placement the top of the first line and the bottom of the
   last were sliced off: the box's flat 4pt inner margin took over 40% of a

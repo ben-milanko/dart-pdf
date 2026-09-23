@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The signature panel checks revocation when the controller has a
+  `revocationClient`. It shows a Revoked status, whether revocation was
+  confirmed online or from embedded data or could not be checked, and it names
+  self-signed signers and untrusted issuers.
+
 - Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
   `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
   default sans, and Helvetica's advances are much wider than Calibri's - with
