@@ -13,6 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dart_pdf_editor_app/devtools.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 
 void main() {
@@ -124,11 +125,16 @@ void main() {
         TargetPlatform.linux,
       }));
 
-  testWidgets('a failing printer surfaces a toast', (tester) async {
+  testWidgets('a failing printer surfaces a toast and logs the cause',
+      (tester) async {
+    AppDevTools.instance.clearLog();
     await pumpWithDoc(
       tester,
       printDocument: ({required bytes, required title}) async {
-        throw StateError('no printer available');
+        throw PlatformException(
+            code: 'print_failed',
+            message: 'Could not start the print job (Windows error 5).',
+            details: 'spooler');
       },
     );
 
@@ -145,6 +151,13 @@ void main() {
     await tester.pump(); // show the snack bar
 
     expect(find.text('Could not print Report.pdf'), findsOneWidget);
+    final failure = AppDevTools.instance.log
+        .lastWhere((entry) => entry.level == DevLogLevel.error);
+    expect(
+        failure.message,
+        startsWith(
+            'print failed: Report.pdf - PlatformException(print_failed): '
+            'Could not start the print job (Windows error 5). [spooler]'));
   });
 
   testWidgets('Windows Print submits our selected destination directly',
