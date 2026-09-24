@@ -142,10 +142,15 @@ delegated responders, freshness; a revoked cert untrusts the chain unless a
 verified timestamp predates the revocation; `pdfOnlineRevocationClient` wraps
 a host HTTP fetch with nonce checks). Roots stay opt-in and uncommitted:
 `package:pdf_document/trust_lists.dart` fetches + XMLDSig-verifies the EU
-trusted lists (pinned LOTL signers, NextUpdate enforced) and loads a
-host-supplied AATL file; the app wires both off-web
-(`app/lib/signature_trust.dart`). See
-doc/dev-log/2026-09-23-trust-lists-and-revocation.md. pyHanko 0.35 judges our
+trusted lists (pinned LOTL signers, NextUpdate enforced) and fetches or loads
+Adobe's AATL (`fetchAatl`, Adobe Root CA G2 pin, 1-year `PdfAatl.maxAge`;
+never bundled); the app wires the EU list + revocation off-web by default and
+the AATL as a one-click opt-in (Settings switch or the panel's
+`PdfEditingController.signatureTrustAction`, weekly re-check, cache deleted
+when turned off - `app/lib/signature_trust.dart`); `PdfTrustStore.sourceOf`
+names the list an anchor came from. See
+doc/dev-log/2026-09-23-trust-lists-and-revocation.md and
+doc/dev-log/2026-09-24-aatl-one-click.md. pyHanko 0.35 judges our
 B-LTA output VALID + LTV-enabled offline
 (`pdf_document/tool/emit_pades_ltv.dart`, `--encrypted=N` for an encrypted
 source). See doc/dev-log.md. Test signer identity in

@@ -1148,9 +1148,11 @@ await session.addDigitalSignature(
               groups, choice fields, or empty signature fields for someone else to sign later.</li>
             <li><strong>Bundled trust roots.</strong> No certificate authorities ship inside the library. You can
               load the EU trusted lists at run time (the DartPDF app does this outside the browser), your
-              organisation's CA, or an Adobe Approved Trust List file you obtain from Adobe. We don't redistribute
-              the AATL itself. A self-signed signature validates as intact, but Acrobat shows its signer as
-              unknown until the certificate is trusted.</li>
+              organisation's CA, or Adobe's Approved Trust List. We never bundle or redistribute the AATL. Instead,
+              the DartPDF app has a one-click, opt-in "Trust Adobe Approved Trust List" option (in Settings, or
+              under an unknown signer in the signature panel) that downloads it from Adobe on your device. Nothing
+              about your documents is sent. A self-signed signature validates as intact, but Acrobat shows its
+              signer as unknown until the certificate is trusted.</li>
             <li><strong>Revocation in the browser.</strong> Live OCSP/CRL checks need a transport that can reach
               the CA's servers, which browsers usually block (CORS), so the web app only uses revocation data
               embedded in the document.</li>

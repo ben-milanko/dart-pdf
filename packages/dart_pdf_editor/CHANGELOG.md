@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `PdfEditingController.signatureTrustAction` lets a host offer a one-click
+  way to trust an unknown signer, for example by loading a trust list. The
+  signature panel now also names the trust list a root came from.
+
 - The signature panel checks revocation when the controller has a
   `revocationClient`. It shows a Revoked status, whether revocation was
   confirmed online or from embedded data or could not be checked, and it names

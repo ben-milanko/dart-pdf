@@ -295,16 +295,24 @@ It contains code, not certificates:
   national list is skipped. The result serializes to a PEM snapshot that
   records when the earliest of its lists expires (`toPem`, `expires`), and
   `PdfTrustLists.eutl(pem)` refuses a snapshot past that date.
-- **Adobe Approved Trust List (AATL).** `parseAatlSecuritySettings(bytes)`
-  reads a `.acrobatsecuritysettings` file you already have. It checks that the
-  file's PDF signature chains to Adobe Root CA G2 (pinned by fingerprint) and
-  keeps the identities marked as trusted roots. The file has no expiry
-  field, only Adobe's signing date, so an age limit is opt-in (`maxAge:`).
+- **Adobe Approved Trust List (AATL).** `fetchAatl(fetch:)` downloads the
+  list from Adobe (`PdfAatl.url`) through the host's transport, and
+  `parseAatlSecuritySettings(bytes)` reads a `.acrobatsecuritysettings` file
+  you already have. Both check that the file's PDF signature chains to Adobe
+  Root CA G2 (pinned by fingerprint) and keep the identities marked as
+  trusted roots. The file has no expiry field, only Adobe's signing date.
+  `fetchAatl` therefore refuses a file Adobe signed more than a year ago
+  (`PdfAatl.maxAge`). Adobe republishes it whenever membership changes,
+  several times a year, so a year never trips on a normal gap, and it limits
+  how long a root Adobe has dropped could stay trusted. For a file you pass
+  in, the age limit is opt-in (`maxAge:`).
 
 **Why no data is committed.** The AATL is distributed by Adobe for Acrobat
 under its member agreements, and we found no terms that allow a third party to
-redistribute it, so dart-pdf neither bundles nor downloads it; the loader is
-for deployments whose own arrangement with Adobe covers it. The EU lists are
+redistribute it. So dart-pdf never bundles or redistributes it. The DartPDF
+app offers a **one-click, opt-in** download instead: the user's own device
+fetches Adobe's published file straight from Adobe, the same way Acrobat
+does, and nothing about the user's documents is sent. The EU lists are
 public, and the LOTL itself is Commission content reusable under Decision
 2011/833/EU, but the national lists are published by each Member State under
 its own terms. Rather than commit a snapshot whose reuse terms we couldn't
@@ -314,6 +322,9 @@ sources at run time.
 **Refreshing.** `packages/pdf_document/tool/refresh_trust_lists.dart --eutl
 eutl.pem [--aatl aatl.pem]` writes verified PEM snapshots for a host to ship or
 cache. Cadence:
+
+- The DartPDF app re-checks its downloaded AATL (when the user has turned it
+  on) **weekly**.
 
 - The DartPDF app refreshes its cached EU snapshot when it is older than
   **7 days** or any list in it has expired, and only after a signed
@@ -342,3 +353,28 @@ browser, the DartPDF app wires both by default (`app/lib/signature_trust.dart`):
 an HTTP revocation client, and the EU trusted list fetched and cached as above.
 The web build keeps to embedded data, since browsers block cross-origin
 OCSP/CRL requests.
+
+The AATL is **opt-in** and off by default. There are two ways to turn it on:
+the "Trust Adobe Approved Trust List" switch under Settings > Signatures, or
+the one-click action the signature panel shows under a signature it can't
+vouch for. That action only appears for an intact signature whose signer is
+neither trusted, self-signed, nor revoked, while the AATL is off and outside
+the browser.
+
+The panel action is a generic library hook, not Adobe-specific code:
+`PdfEditingController.signatureTrustAction` is a `PdfSignatureTrustAction`
+(label, explanation, callback) the host supplies. The Adobe policy lives in
+the app, in `SignatureTrust.setAatlEnabled`.
+
+Once it is on:
+- The list downloads in a background isolate, is verified, and is cached in
+  the app support directory next to the EU cache (`signature_trust/aatl.pem`).
+- It is checked for updates **weekly**. After a failed refresh, the app keeps
+  using the cache only while Adobe's signing date is within `PdfAatl.maxAge`.
+- Its roots join the EU roots in the trust store the panel uses. A trusted
+  signer's line names the list the root came from
+  (`PdfTrustStore.sourceOf`, e.g. "Trusted via … (Adobe Approved Trust
+  List)").
+
+Turning it off drops the AATL roots at once, re-validates, and deletes the
+downloaded copy.

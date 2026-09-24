@@ -4,3 +4,7 @@ import 'package:pdf_document/pdf_document.dart';
 bool get networkTrustAvailable => false;
 
 Future<PdfTrustStore?> loadEuTrustStore() async => null;
+
+Future<PdfTrustStore?> loadAatlTrustStore() async => null;
+
+Future<void> deleteAatlCache() async {}

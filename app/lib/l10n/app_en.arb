@@ -1190,6 +1190,26 @@
   "@settingsSystem": {
     "description": "Section header for system integration settings (default app, dev tools)."
   },
+  "settingsSignatures": "Signatures",
+  "@settingsSignatures": {
+    "description": "Section header in Settings for digital-signature validation options."
+  },
+  "settingsAatlTitle": "Trust Adobe Approved Trust List",
+  "@settingsAatlTitle": {
+    "description": "Settings switch that makes the app download Adobe's list of trusted signing authorities (the AATL) and trust signatures that chain to it."
+  },
+  "settingsAatlSubtitle": "Downloads Adobe's list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.",
+  "@settingsAatlSubtitle": {
+    "description": "Explanation under the Trust Adobe Approved Trust List switch."
+  },
+  "signatureTrustAatlAction": "Trust Adobe Approved Trust List",
+  "@signatureTrustAatlAction": {
+    "description": "Button in the signature panel, under a signature from an unknown signer, that turns on the Adobe Approved Trust List."
+  },
+  "signatureTrustAatlExplanation": "Downloads Adobe's list of trusted signing authorities from Adobe. Nothing about this document is sent.",
+  "@signatureTrustAatlExplanation": {
+    "description": "Short line under the Trust Adobe Approved Trust List button in the signature panel."
+  },
   "settingsThemeDark": "Dark",
   "@settingsThemeDark": {
     "description": "Dark theme mode option."

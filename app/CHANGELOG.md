@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Trust signatures from Adobe Approved Trust List authorities, one click and
+  opt-in. Turn on "Trust Adobe Approved Trust List" in Settings > Signatures,
+  or from the button under an unknown signer in the signature panel. DartPDF
+  then downloads Adobe's list from Adobe, checks it weekly, and says which list
+  a trusted signer's authority came from. Nothing about your documents is
+  sent. Turning it off removes the list. Not available in the web app.
+
 - Fix digital signature boxes cropping their text. Placing a signature on a
   short, wide line cut the top off "Digitally signed by ..." and the bottom off
   the last line; the box now sizes its text to the room it actually has, and a

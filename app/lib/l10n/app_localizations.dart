@@ -1497,6 +1497,36 @@ abstract class AppLocalizations {
   /// **'System'**
   String get settingsSystem;
 
+  /// Section header in Settings for digital-signature validation options.
+  ///
+  /// In en, this message translates to:
+  /// **'Signatures'**
+  String get settingsSignatures;
+
+  /// Settings switch that makes the app download Adobe's list of trusted signing authorities (the AATL) and trust signatures that chain to it.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust Adobe Approved Trust List'**
+  String get settingsAatlTitle;
+
+  /// Explanation under the Trust Adobe Approved Trust List switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.'**
+  String get settingsAatlSubtitle;
+
+  /// Button in the signature panel, under a signature from an unknown signer, that turns on the Adobe Approved Trust List.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust Adobe Approved Trust List'**
+  String get signatureTrustAatlAction;
+
+  /// Short line under the Trust Adobe Approved Trust List button in the signature panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.'**
+  String get signatureTrustAatlExplanation;
+
   /// Dark theme mode option.
   ///
   /// In en, this message translates to:
