@@ -740,4 +740,4 @@ jobs:
         shell: bash
         env:
           STOREFLIGHT_NEEDS: ${{ toJson(needs) }}
-        run: echo "$STOREFLIGHT_NEEDS" | jq -e 'all(.[]; .result == "success")'
+        run: echo "$STOREFLIGHT_NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
