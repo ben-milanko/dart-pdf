@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -1361,6 +1362,22 @@ class PdfEditingController extends ChangeNotifier {
     if (identical(client, _revocationClient)) return;
     _revocationClient = client;
     _invalidateValidations();
+  }
+
+  PdfSignatureTrustAction? _signatureTrustAction;
+
+  /// A host-supplied way to establish trust for a signer the panel can't
+  /// vouch for - e.g. "load a trust list". When set, the signature panel
+  /// offers it under an intact signature whose signer is neither trusted,
+  /// self-signed, nor revoked. The library attaches no policy of its own;
+  /// the host decides what the action does (and clears it when it no longer
+  /// applies). Changes notify listeners so the panel updates.
+  PdfSignatureTrustAction? get signatureTrustAction => _signatureTrustAction;
+
+  set signatureTrustAction(PdfSignatureTrustAction? action) {
+    if (identical(action, _signatureTrustAction)) return;
+    _signatureTrustAction = action;
+    notifyListeners();
   }
 
   void _invalidateValidations() {
@@ -9430,4 +9447,25 @@ class PdfEditingController extends ChangeNotifier {
       return false;
     }
   }
+}
+
+/// An action the signature panel can offer for an intact signature whose
+/// signer isn't trusted (see [PdfEditingController.signatureTrustAction]).
+/// [label] and [explanation] take a context so the host can localize them.
+class PdfSignatureTrustAction {
+  const PdfSignatureTrustAction({
+    required this.label,
+    required this.onPressed,
+    this.explanation,
+  });
+
+  /// The button text, e.g. "Trust Adobe Approved Trust List".
+  final String Function(BuildContext context) label;
+
+  /// A short line under the button saying what the action does.
+  final String Function(BuildContext context)? explanation;
+
+  /// Runs the action. The host re-validates by updating the controller's
+  /// [PdfEditingController.trustStore] once the new anchors are in.
+  final Future<void> Function() onPressed;
 }

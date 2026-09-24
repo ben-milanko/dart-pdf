@@ -337,6 +337,7 @@
   "sidebarSignatureSignedBy": "Signed by {name}",
   "sidebarSignatureSignedAt": "Signed {time}",
   "sidebarSignatureTrustedVia": "Trusted via {authority}",
+  "sidebarSignatureTrustedViaList": "Trusted via {authority} ({list})",
   "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
   "sidebarSignatureNoAnchors": "No trusted authorities are configured",
   "sidebarSignatureModified": "Document was changed after signing",

@@ -2158,6 +2158,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Trusted via {authority}'**
   String sidebarSignatureTrustedVia(String authority);
 
+  /// Detail line naming the trusted authority the signer chains to and the trust list (e.g. EU Trusted List) that authority came from.
+  ///
+  /// In en, this message translates to:
+  /// **'Trusted via {authority} ({list})'**
+  String sidebarSignatureTrustedViaList(String authority, String list);
+
   /// Detail line when the signer does not chain to any configured trust anchor.
   ///
   /// In en, this message translates to:

@@ -20,6 +20,9 @@ typedef PdfTrustListFetch = Future<Uint8List> Function(Uri url);
 
 /// The EU LOTL location and the certificates allowed to sign it.
 abstract final class PdfEuLotl {
+  /// The [PdfTrustStore.sourceOf] name of anchors from these lists.
+  static const sourceName = 'EU Trusted List';
+
   /// Where the Commission publishes the LOTL.
   static final url = Uri.parse('https://ec.europa.eu/tools/lotl/eu-lotl.xml');
 
@@ -147,7 +150,7 @@ class PdfEuTrustListSnapshot {
     for (final e in entries) {
       if (seen.add(base64.encode(e.certificate))) {
         try {
-          store.addDer(e.certificate);
+          store.addDer(e.certificate, source: PdfEuLotl.sourceName);
         } on Object {
           // an unparsable certificate is not an anchor
         }

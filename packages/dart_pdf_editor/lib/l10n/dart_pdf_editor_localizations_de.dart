@@ -1142,6 +1142,11 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
