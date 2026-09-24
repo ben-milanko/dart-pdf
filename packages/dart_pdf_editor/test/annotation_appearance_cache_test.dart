@@ -112,6 +112,149 @@ void main() {
     expect(renders, 6);
   });
 
+  /// A page carrying [count] small rectangles, opened in an editing viewer
+  /// whose appearance renders go through [render].
+  Future<(PdfEditingController, PdfViewerController)> pumpMarkedViewer(
+    WidgetTester tester,
+    int count,
+    Future<ui.Picture?> Function() render,
+  ) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.apply((editor) {
+      for (var i = 0; i < count; i++) {
+        final x = 20.0 + (i % 20) * 25;
+        final y = 700.0 - (i ~/ 20) * 25;
+        editor.addSquare(0, PdfRect(x, y, x + 15, y + 15));
+      }
+    });
+    PdfViewer.debugAnnotationAppearanceRendererOverride =
+        (_, __, ___) => render();
+    addTearDown(
+        () => PdfViewer.debugAnnotationAppearanceRendererOverride = null);
+    final viewer = PdfViewerController();
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+          controller: viewer,
+        ),
+      ),
+    ));
+    return (editing, viewer);
+  }
+
+  ui.Picture dot() {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      const Rect.fromLTWH(0, 0, 1, 1),
+      Paint()..color = const Color(0xFF000000),
+    );
+    return recorder.endRecording();
+  }
+
+  testWidgets('cheap cold appearances batch into a few frames, not one each',
+      (tester) async {
+    var renders = 0;
+    await pumpMarkedViewer(tester, 200, () async {
+      renders++;
+      return dot();
+    });
+
+    // One appearance per engine frame took 200 frames here. Under the frame
+    // budget, trivially cheap appearances all fit the first few grants.
+    var frames = 0;
+    while (renders < 200 && frames < 20) {
+      await tester.pump(const Duration(milliseconds: 16));
+      frames++;
+    }
+    expect(renders, 200);
+    expect(frames, lessThan(20));
+  });
+
+  testWidgets('an appearance that overruns the budget still yields per frame',
+      (tester) async {
+    var renders = 0;
+    final budget = PdfPageRenderScheduler.appearanceFrameBudget;
+    await pumpMarkedViewer(tester, 6, () async {
+      renders++;
+      final spin = Stopwatch()..start();
+      while (spin.elapsed <= budget) {}
+      return dot();
+    });
+
+    // Each render alone spends the budget, so every grant draws exactly one
+    // and the rest wait for later frames - the old pacing, preserved for
+    // heavy appearances.
+    final seen = <int>[];
+    for (var i = 0; i < 12 && renders < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      seen.add(renders);
+    }
+    expect(renders, 6);
+    for (var i = 1; i < seen.length; i++) {
+      expect(seen[i] - seen[i - 1], lessThanOrEqualTo(1),
+          reason: 'frame $i drew more than one over-budget appearance: $seen');
+    }
+  });
+
+  testWidgets('the viewer controller reports overlay drawing until it lands',
+      (tester) async {
+    final budget = PdfPageRenderScheduler.appearanceFrameBudget;
+    final (_, viewer) = await pumpMarkedViewer(tester, 5, () async {
+      final spin = Stopwatch()..start();
+      while (spin.elapsed <= budget) {}
+      return dot();
+    });
+    var notifications = 0;
+    void onActivity() => notifications++;
+    viewer.pageRenderActivity.addListener(onActivity);
+    addTearDown(() => viewer.pageRenderActivity.removeListener(onActivity));
+
+    // Owed from the first frame, before any count is known.
+    expect(viewer.isAnnotationAppearanceBusy, isTrue);
+
+    final progress = <double?>[];
+    for (var i = 0; i < 12 && viewer.isAnnotationAppearanceBusy; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      progress.add(viewer.annotationAppearanceProgress);
+    }
+    await tester.pumpAndSettle();
+
+    expect(viewer.isAnnotationAppearanceBusy, isFalse);
+    expect(viewer.annotationAppearanceProgress, isNull);
+    expect(notifications, greaterThan(0));
+    final fractions = progress.whereType<double>().toList();
+    expect(fractions, isNotEmpty);
+    for (var i = 1; i < fractions.length; i++) {
+      expect(fractions[i], greaterThanOrEqualTo(fractions[i - 1]));
+    }
+    expect(fractions.every((f) => f >= 0 && f <= 1), isTrue);
+  });
+
+  testWidgets('a page without annotations never reads as busy for long',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    final viewer = PdfViewerController();
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+          controller: viewer,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(viewer.isAnnotationAppearanceBusy, isFalse);
+  });
+
   testWidgets('one annotation can own and dispose several appearance pictures',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1));
