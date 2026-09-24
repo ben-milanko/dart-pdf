@@ -128,17 +128,22 @@ if count != 1:
 path.write_text(text)
 PY
 
+# Snapcraft 9 refuses to pack outside the project tree ("Cannot create
+# packages outside of the project tree"), so pack inside $work_dir and copy
+# the result out.
 (
   cd "$work_dir"
   "${snapcraft_command[@]}" pack \
     --destructive-mode \
-    --output "$output"
+    --output "$work_dir/pack"
 )
 
-snap_file="$(find "$output" -maxdepth 1 -type f -name 'dartpdf_*.snap' -print -quit)"
-if [[ -z "$snap_file" ]]; then
-  echo "Snapcraft did not create a DartPDF snap in $output" >&2
+packed="$(find "$work_dir/pack" -maxdepth 1 -type f -name 'dartpdf_*.snap' -print -quit)"
+if [[ -z "$packed" ]]; then
+  echo "Snapcraft did not create a DartPDF snap in $work_dir/pack" >&2
   exit 1
 fi
+cp "$packed" "$output/"
+snap_file="$output/$(basename "$packed")"
 
 echo "Built $snap_file"
