@@ -434,17 +434,28 @@ class PdfFormField {
   static const requiredFlag = 2; // bit 2
   static const multilineFlag = 1 << 12; // bit 13
   static const passwordFlag = 1 << 13; // bit 14
+  static const noToggleToOffFlag = 1 << 14; // bit 15
   static const radioFlag = 1 << 15; // bit 16
   static const pushButtonFlag = 1 << 16; // bit 17
   static const comboFlag = 1 << 17; // bit 18
   static const editFlag = 1 << 18; // bit 19
   static const fileSelectFlag = 1 << 20; // bit 21
+  static const multiSelectFlag = 1 << 21; // bit 22
   static const combFlag = 1 << 24; // bit 25
 
   bool get isReadOnly => flags & readOnlyFlag != 0;
   bool get isRequired => flags & requiredFlag != 0;
   bool get isMultiline => flags & multilineFlag != 0;
   bool get isPassword => flags & passwordFlag != 0;
+
+  /// Whether a list box accepts several selected options at once (/Ff bit
+  /// 22, MultiSelect, §12.7.5.4). Only list boxes can: a combo box that
+  /// carries the bit (Combo flag set) still holds one value, and bit 22
+  /// means something else on non-choice fields, so both read false. This
+  /// is the one gate every multi-value path (filling, menus, exports)
+  /// checks.
+  bool get isMultiSelect =>
+      type == PdfFieldType.listBox && flags & multiSelectFlag != 0;
 
   /// The /MaxLen text-length limit in characters (inheritable, §12.7.4.3),
   /// or null when the field has none. Non-positive or non-integer entries
@@ -545,7 +556,7 @@ class PdfFormField {
 
   /// The current value as text: /V strings come back verbatim, button
   /// state names without the slash, multi-select arrays as their first
-  /// string. Null when the field is empty.
+  /// string (see [values] for all of them). Null when the field is empty.
   ///
   /// For a reconciled field the visible page widget's /V wins when set -
   /// the producer split the form's data across both copies, and the page
@@ -558,6 +569,75 @@ class PdfFormField {
       }
     }
     return _valueText(inherited('V'));
+  }
+
+  /// Every value the field holds: a multi-select list box's /V array in
+  /// file order, or the single [value] as a one-element list. Empty when
+  /// the field is unset. Non-string array entries are skipped.
+  ///
+  /// Reconciled fields follow the same precedence as [value]: a visible
+  /// page widget's non-empty /V wins over the field's own.
+  List<String> get values {
+    if (_reconciled != null) {
+      for (final widget in _reconciled!) {
+        final v = _valueList(_cos.resolve(widget['V']));
+        if (v.any((s) => s.isNotEmpty)) return v;
+      }
+    }
+    return _valueList(inherited('V'));
+  }
+
+  List<String> _valueList(CosObject? v) {
+    if (v is CosArray) {
+      return [
+        for (final item in v.items)
+          if (_cos.resolve(item) case CosString(:final text)) text,
+      ];
+    }
+    final single = _valueText(v);
+    return single == null ? const [] : [single];
+  }
+
+  /// The /I selected-option indices of a choice field (§12.7.5.4), sorted
+  /// ascending and filtered to valid [options] positions. /I is optional
+  /// and disambiguates options sharing an export value; when it is absent
+  /// or disagrees with [values] (another tool changed /V without it) the
+  /// indices are derived from [values] instead - the first option whose
+  /// export value matches each entry.
+  List<int> get selectedIndices {
+    final options = this.options;
+    final current = values;
+    final raw = inherited('I');
+    if (raw is CosArray) {
+      final fromI = <int>{
+        for (final item in raw.items)
+          if (_cos.resolve(item) case CosInteger(:final value)
+              when value >= 0 && value < options.length)
+            value,
+      }.toList()
+        ..sort();
+      final exports = {for (final i in fromI) options[i].$1};
+      if (fromI.length == current.length && current.every(exports.contains)) {
+        return fromI;
+      }
+    }
+    final out = <int>{};
+    for (final v in current) {
+      for (var i = 0; i < options.length; i++) {
+        if (options[i].$1 == v && !out.contains(i)) {
+          out.add(i);
+          break;
+        }
+      }
+    }
+    return out.toList()..sort();
+  }
+
+  /// A list box's /TI top index: the option shown in the first visible row
+  /// (§12.7.5.4). 0 when absent or malformed.
+  int get topIndex {
+    final ti = inherited('TI');
+    return ti is CosInteger && ti.value > 0 ? ti.value : 0;
   }
 
   String? _valueText(CosObject? v) {

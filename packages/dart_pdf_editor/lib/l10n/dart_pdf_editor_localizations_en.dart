@@ -2183,6 +2183,39 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convert to radio group';
+
+  @override
+  String get menuConvertToComboBox => 'Convert to combo box';
+
+  @override
+  String get menuConvertToListBox => 'Convert to list box';
+
+  @override
+  String get menuConvertToSignatureField => 'Convert to signature field';
+
+  @override
+  String get menuEditOptions => 'Edit options…';
+
+  @override
+  String get menuAddRadioButton => 'Add button to group';
+
+  @override
+  String get formOptionsTitle => 'Field options';
+
+  @override
+  String get formOptionsExportValue => 'Export value';
+
+  @override
+  String get formOptionsDisplayText => 'Display text';
+
+  @override
+  String get formOptionsAllowCustomText => 'Allow custom text';
+
+  @override
+  String get formOptionsMultiSelect => 'Allow multiple selections';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4364,6 +4397,39 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipContentDelete =>
       'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convert to radio group';
+
+  @override
+  String get menuConvertToComboBox => 'Convert to combo box';
+
+  @override
+  String get menuConvertToListBox => 'Convert to list box';
+
+  @override
+  String get menuConvertToSignatureField => 'Convert to signature field';
+
+  @override
+  String get menuEditOptions => 'Edit options…';
+
+  @override
+  String get menuAddRadioButton => 'Add button to group';
+
+  @override
+  String get formOptionsTitle => 'Field options';
+
+  @override
+  String get formOptionsExportValue => 'Export value';
+
+  @override
+  String get formOptionsDisplayText => 'Display text';
+
+  @override
+  String get formOptionsAllowCustomText => 'Allow custom text';
+
+  @override
+  String get formOptionsMultiSelect => 'Allow multiple selections';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -6545,4 +6611,37 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipContentDelete =>
       'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convert to radio group';
+
+  @override
+  String get menuConvertToComboBox => 'Convert to combo box';
+
+  @override
+  String get menuConvertToListBox => 'Convert to list box';
+
+  @override
+  String get menuConvertToSignatureField => 'Convert to signature field';
+
+  @override
+  String get menuEditOptions => 'Edit options…';
+
+  @override
+  String get menuAddRadioButton => 'Add button to group';
+
+  @override
+  String get formOptionsTitle => 'Field options';
+
+  @override
+  String get formOptionsExportValue => 'Export value';
+
+  @override
+  String get formOptionsDisplayText => 'Display text';
+
+  @override
+  String get formOptionsAllowCustomText => 'Allow custom text';
+
+  @override
+  String get formOptionsMultiSelect => 'Allow multiple selections';
 }

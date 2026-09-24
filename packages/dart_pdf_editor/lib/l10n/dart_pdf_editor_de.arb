@@ -637,5 +637,16 @@
   "splitFailed": "Diese PDF-Datei konnte nicht aufgeteilt werden.",
   "guidesSnapHint": "Anmerkungskanten und Mittelpunkte einrasten • Zum Umgehen Alt gedrückt halten",
   "tbToolContentDelete": "Löschen",
-  "tbTipContentDelete": "Inhalt löschen – Rechteck ziehen oder Polygonecken anklicken und mit Doppelklick abschließen"
+  "tbTipContentDelete": "Inhalt löschen – Rechteck ziehen oder Polygonecken anklicken und mit Doppelklick abschließen",
+  "menuConvertToRadioGroup": "In Optionsfeldgruppe umwandeln",
+  "menuConvertToComboBox": "In Kombinationsfeld umwandeln",
+  "menuConvertToListBox": "In Listenfeld umwandeln",
+  "menuConvertToSignatureField": "In Signaturfeld umwandeln",
+  "menuEditOptions": "Optionen bearbeiten…",
+  "menuAddRadioButton": "Schaltfläche zur Gruppe hinzufügen",
+  "formOptionsTitle": "Feldoptionen",
+  "formOptionsExportValue": "Exportwert",
+  "formOptionsDisplayText": "Anzeigetext",
+  "formOptionsAllowCustomText": "Eigenen Text zulassen",
+  "formOptionsMultiSelect": "Mehrfachauswahl zulassen"
 }

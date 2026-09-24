@@ -2192,4 +2192,37 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden';
+
+  @override
+  String get menuConvertToRadioGroup => 'Omzetten naar keuzerondjesgroep';
+
+  @override
+  String get menuConvertToComboBox => 'Omzetten naar keuzelijst met invoervak';
+
+  @override
+  String get menuConvertToListBox => 'Omzetten naar keuzelijst';
+
+  @override
+  String get menuConvertToSignatureField => 'Omzetten naar handtekeningveld';
+
+  @override
+  String get menuEditOptions => 'Opties bewerken…';
+
+  @override
+  String get menuAddRadioButton => 'Knop aan groep toevoegen';
+
+  @override
+  String get formOptionsTitle => 'Veldopties';
+
+  @override
+  String get formOptionsExportValue => 'Exportwaarde';
+
+  @override
+  String get formOptionsDisplayText => 'Weergavetekst';
+
+  @override
+  String get formOptionsAllowCustomText => 'Eigen tekst toestaan';
+
+  @override
+  String get formOptionsMultiSelect => 'Meerdere selecties toestaan';
 }

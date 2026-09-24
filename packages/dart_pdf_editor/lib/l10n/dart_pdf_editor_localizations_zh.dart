@@ -2155,6 +2155,39 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipContentDelete => '删除内容 — 拖出矩形，或点击多边形顶点并双击完成';
+
+  @override
+  String get menuConvertToRadioGroup => '转换为单选按钮组';
+
+  @override
+  String get menuConvertToComboBox => '转换为组合框';
+
+  @override
+  String get menuConvertToListBox => '转换为列表框';
+
+  @override
+  String get menuConvertToSignatureField => '转换为签名字段';
+
+  @override
+  String get menuEditOptions => '编辑选项…';
+
+  @override
+  String get menuAddRadioButton => '向组中添加按钮';
+
+  @override
+  String get formOptionsTitle => '字段选项';
+
+  @override
+  String get formOptionsExportValue => '导出值';
+
+  @override
+  String get formOptionsDisplayText => '显示文本';
+
+  @override
+  String get formOptionsAllowCustomText => '允许自定义文本';
+
+  @override
+  String get formOptionsMultiSelect => '允许多选';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4308,4 +4341,37 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbTipContentDelete => '刪除內容 — 拖曳矩形，或點擊多邊形頂點並按兩下完成';
+
+  @override
+  String get menuConvertToRadioGroup => '轉換為選項按鈕群組';
+
+  @override
+  String get menuConvertToComboBox => '轉換為下拉式方塊';
+
+  @override
+  String get menuConvertToListBox => '轉換為清單方塊';
+
+  @override
+  String get menuConvertToSignatureField => '轉換為簽名欄位';
+
+  @override
+  String get menuEditOptions => '編輯選項…';
+
+  @override
+  String get menuAddRadioButton => '將按鈕新增至群組';
+
+  @override
+  String get formOptionsTitle => '欄位選項';
+
+  @override
+  String get formOptionsExportValue => '匯出值';
+
+  @override
+  String get formOptionsDisplayText => '顯示文字';
+
+  @override
+  String get formOptionsAllowCustomText => '允許自訂文字';
+
+  @override
+  String get formOptionsMultiSelect => '允許多重選取';
 }

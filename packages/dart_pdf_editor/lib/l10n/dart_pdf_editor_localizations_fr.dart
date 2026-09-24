@@ -2204,4 +2204,37 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convertir en groupe de boutons radio';
+
+  @override
+  String get menuConvertToComboBox => 'Convertir en liste déroulante';
+
+  @override
+  String get menuConvertToListBox => 'Convertir en zone de liste';
+
+  @override
+  String get menuConvertToSignatureField => 'Convertir en champ de signature';
+
+  @override
+  String get menuEditOptions => 'Modifier les options…';
+
+  @override
+  String get menuAddRadioButton => 'Ajouter un bouton au groupe';
+
+  @override
+  String get formOptionsTitle => 'Options du champ';
+
+  @override
+  String get formOptionsExportValue => 'Valeur d\'exportation';
+
+  @override
+  String get formOptionsDisplayText => 'Texte affiché';
+
+  @override
+  String get formOptionsAllowCustomText => 'Autoriser un texte personnalisé';
+
+  @override
+  String get formOptionsMultiSelect => 'Autoriser la sélection multiple';
 }

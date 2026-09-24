@@ -7,6 +7,19 @@
   confirmed online or from embedded data or could not be checked, and it names
   self-signed signers and untrusted issuers.
 
+- Multi-select list boxes take several values (#933):
+  `PdfEditingController.setFormChoiceValues` and `pickFormChoiceOption`
+  (which toggles an option on a multi-select box), and the form option menus
+  show checkable items for those fields, each pick toggling one option.
+
+- The form tool creates radio groups, combo boxes, list boxes and empty
+  signature fields (#934): `PdfFormFieldKind` gains `radioGroup`,
+  `comboBox`, `listBox` and `signature`, and the new-field and field-type
+  menus list them. A selected radio group offers "Add button to group"
+  (`PdfEditingController.addFormRadioButton`), a selected choice field
+  "Edit options…" (`showPdfFormOptionsDialog` / `PdfFormOptionsEditor`,
+  applied through `setFormFieldOptions`), and every field converts to the
+  new kinds.
 - Draw cold annotation appearances against a frame budget instead of one per
   frame. With an editing or form controller attached, marks are drawn by the
   page's annotation overlay on the platform thread, and each render-scheduler

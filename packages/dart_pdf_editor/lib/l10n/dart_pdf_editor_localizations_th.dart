@@ -2178,4 +2178,37 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'ลบเนื้อหา — ลากสี่เหลี่ยม หรือคลิกจุดยอดของรูปหลายเหลี่ยมแล้วดับเบิลคลิกเพื่อเสร็จสิ้น';
+
+  @override
+  String get menuConvertToRadioGroup => 'แปลงเป็นกลุ่มปุ่มตัวเลือก';
+
+  @override
+  String get menuConvertToComboBox => 'แปลงเป็นกล่องคอมโบ';
+
+  @override
+  String get menuConvertToListBox => 'แปลงเป็นกล่องรายการ';
+
+  @override
+  String get menuConvertToSignatureField => 'แปลงเป็นช่องลายเซ็น';
+
+  @override
+  String get menuEditOptions => 'แก้ไขตัวเลือก…';
+
+  @override
+  String get menuAddRadioButton => 'เพิ่มปุ่มในกลุ่ม';
+
+  @override
+  String get formOptionsTitle => 'ตัวเลือกของช่อง';
+
+  @override
+  String get formOptionsExportValue => 'ค่าส่งออก';
+
+  @override
+  String get formOptionsDisplayText => 'ข้อความที่แสดง';
+
+  @override
+  String get formOptionsAllowCustomText => 'อนุญาตข้อความที่กำหนดเอง';
+
+  @override
+  String get formOptionsMultiSelect => 'อนุญาตให้เลือกหลายรายการ';
 }

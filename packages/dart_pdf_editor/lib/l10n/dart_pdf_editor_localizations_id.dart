@@ -2192,4 +2192,37 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai';
+
+  @override
+  String get menuConvertToRadioGroup => 'Ubah menjadi grup radio';
+
+  @override
+  String get menuConvertToComboBox => 'Ubah menjadi kotak kombo';
+
+  @override
+  String get menuConvertToListBox => 'Ubah menjadi kotak daftar';
+
+  @override
+  String get menuConvertToSignatureField => 'Ubah menjadi bidang tanda tangan';
+
+  @override
+  String get menuEditOptions => 'Edit opsi…';
+
+  @override
+  String get menuAddRadioButton => 'Tambahkan tombol ke grup';
+
+  @override
+  String get formOptionsTitle => 'Opsi bidang';
+
+  @override
+  String get formOptionsExportValue => 'Nilai ekspor';
+
+  @override
+  String get formOptionsDisplayText => 'Teks tampilan';
+
+  @override
+  String get formOptionsAllowCustomText => 'Izinkan teks kustom';
+
+  @override
+  String get formOptionsMultiSelect => 'Izinkan pilihan ganda';
 }

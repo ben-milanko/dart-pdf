@@ -637,5 +637,16 @@
   "splitFailed": "Nie udało się podzielić tego pliku PDF.",
   "guidesSnapHint": "Przyciągaj krawędzie i środki adnotacji • Przytrzymaj Alt, aby pominąć",
   "tbToolContentDelete": "Wymaż",
-  "tbTipContentDelete": "Usuń zawartość — przeciągnij prostokąt lub klikaj wierzchołki wielokąta i kliknij dwukrotnie, aby zakończyć"
+  "tbTipContentDelete": "Usuń zawartość — przeciągnij prostokąt lub klikaj wierzchołki wielokąta i kliknij dwukrotnie, aby zakończyć",
+  "menuConvertToRadioGroup": "Konwertuj na grupę przycisków opcji",
+  "menuConvertToComboBox": "Konwertuj na pole kombi",
+  "menuConvertToListBox": "Konwertuj na pole listy",
+  "menuConvertToSignatureField": "Konwertuj na pole podpisu",
+  "menuEditOptions": "Edytuj opcje…",
+  "menuAddRadioButton": "Dodaj przycisk do grupy",
+  "formOptionsTitle": "Opcje pola",
+  "formOptionsExportValue": "Wartość eksportu",
+  "formOptionsDisplayText": "Wyświetlany tekst",
+  "formOptionsAllowCustomText": "Zezwalaj na własny tekst",
+  "formOptionsMultiSelect": "Zezwalaj na wielokrotny wybór"
 }

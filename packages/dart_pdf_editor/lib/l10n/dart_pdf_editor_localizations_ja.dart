@@ -2164,4 +2164,37 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'コンテンツを削除 — ドラッグで長方形を描くか、多角形の頂点をクリックし、ダブルクリックで完了';
+
+  @override
+  String get menuConvertToRadioGroup => 'ラジオボタングループに変換';
+
+  @override
+  String get menuConvertToComboBox => 'コンボボックスに変換';
+
+  @override
+  String get menuConvertToListBox => 'リストボックスに変換';
+
+  @override
+  String get menuConvertToSignatureField => '署名フィールドに変換';
+
+  @override
+  String get menuEditOptions => 'オプションを編集…';
+
+  @override
+  String get menuAddRadioButton => 'グループにボタンを追加';
+
+  @override
+  String get formOptionsTitle => 'フィールドのオプション';
+
+  @override
+  String get formOptionsExportValue => 'エクスポート値';
+
+  @override
+  String get formOptionsDisplayText => '表示テキスト';
+
+  @override
+  String get formOptionsAllowCustomText => 'カスタムテキストを許可';
+
+  @override
+  String get formOptionsMultiSelect => '複数選択を許可';
 }
