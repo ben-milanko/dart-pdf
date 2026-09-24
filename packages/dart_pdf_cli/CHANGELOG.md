@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- The forms listing reports the whole selection of a multi-select list box:
+  such a field carries `multiSelect: true` and a `values` array alongside
+  `value` (still the first selection), with `valuesTruncated` when the text
+  budget cut the list short.
+- Align dependency constraints with the dart-pdf 5.0.0 package suite.
+
 ## 0.1.8
 
 - Align dependency constraints with the dart-pdf 4.5.0 package suite.

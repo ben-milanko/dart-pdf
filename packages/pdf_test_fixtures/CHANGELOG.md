@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
+- Add `buildListBoxFormPdf`: a multi-select list box whose /V array was
+  written by another tool with no /I, a single-select list box, and a combo
+  box that also carries the MultiSelect flag.
+- Add `buildTabOrderFormPdf`: a two-page form for tab-order tests, with the
+  first page's /Tabs selectable (`firstPageTabs`).
+- Add `buildXfaFormPdf`: a one-page form carrying /AcroForm /XFA, either
+  hybrid (an AcroForm text field alongside the packets) or dynamic
+  (XFA-only), optionally with /NeedsRendering and with /XFA as a packet array
+  or a single stream.
 - Add `TestRevocationPki`, `buildTestOcspResponse` and `buildTestCrl`: an
   in-process root/intermediate/signer hierarchy that mints OCSP responses and
   CRLs on demand.

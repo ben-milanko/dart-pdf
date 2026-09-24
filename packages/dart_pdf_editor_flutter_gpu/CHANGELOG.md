@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Align dependency constraints with the dart-pdf 5.0.0 package suite, whose
+  `dart_pdf_editor` major release changes types this package exposes.
+
 ## 0.3.4
 
 - Outline unembedded standard-14 text from the bundled metric-compatible TeX

@@ -10,8 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  dart_pdf_editor: ^4.5.0
-  pdf_document: ^4.5.0
+  dart_pdf_editor: ^5.0.0
+  pdf_document: ^5.0.0
 
 flutter:
   uses-material-design: true

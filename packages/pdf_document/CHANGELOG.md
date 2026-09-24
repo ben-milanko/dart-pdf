@@ -1,7 +1,67 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
+### Breaking changes
+
+- `PdfFormFilling.setTextValue` now truncates the value to the field's
+  /MaxLen (by code point), then re-runs the form's recognised AF* calculate
+  scripts in /CO order, rewriting the /V of calculated fields - read-only
+  totals included. Appearances apply recognised AF* formats, draw password
+  fields as asterisks and lay comb fields out one character per cell; /V
+  itself stays the raw value. Callers that compared a field's appearance text
+  to the value they set, or relied on calculated fields keeping a stale /V,
+  will see different results.
+- Every fill setter (and `flattenForm`) now removes `/AcroForm /XFA` and the
+  catalog's `/NeedsRendering` through the new `PdfEditor.removeXfa`, so an
+  XFA-aware viewer reads the AcroForm values rather than stale XFA data. A
+  hybrid form's XFA packet no longer survives a fill.
+- List-box appearances now draw every option row, with the selected rows
+  highlighted, instead of only the chosen value - single-select list boxes
+  too. Pixel baselines of filled list boxes change.
+- `PdfSignature.validate()` sets `chainTrusted` to false when revocation data
+  embedded in the document's /DSS says a certificate in the chain is revoked,
+  even without a trust store (unless a verified timestamp predates the
+  revocation). `embeddedRevocation` now requires the issuer to have verified
+  the signer and an OCSP response to match the full CertID, so some documents
+  that used to report embedded revocation data no longer do.
+- `PdfTrustStore.addCertificate` and `addDer` gained an optional named
+  `{String? source}` parameter. Subclasses that override them must add it.
+
+### Changes
+
+- Run the built-in Acrobat AF* helpers that most real forms use, without a
+  JavaScript engine (#930): `AFSimple_Calculate` and simplified field notation
+  (re-run in /CO order after every fill, or on demand with
+  `PdfEditor.recalculateFields`), `AFNumber`/`AFPercent`/`AFDate`/`AFTime`/
+  `AFSpecial` format and keystroke, and `AFRange_Validate`. The new
+  `PdfEditor.enterTextValue` is the user-entry path: it normalises a value
+  (`1.234,50` in a comma-decimal field stores `1234.50`) or throws
+  `PdfFieldInputException` with the helper's message. `setTextValue` stays the
+  unchecked programmatic setter. Arbitrary scripts never run; they are
+  reported, with a reason, on `PdfFormField.scripts`.
+- Honour comb fields, /MaxLen and password masking (#931).
+  `PdfFormField.maxLength` reads the inheritable /MaxLen and `isComb` the comb
+  flag (with the new `fileSelectFlag`/`combFlag` constants).
+  `PdfFormFilling.setPasswordValue` keeps a password out of the file (ISO
+  32000 12.7.4.3): it removes /V, draws a fixed-length mask so the file does
+  not reveal the length, and writes a trailer /ID when the file has none.
+  `pdfPermanentDocumentId` / `pdfTrailerPermanentId` return the identity such
+  a value is filed under.
+- Detect XFA forms (#929): `PdfAcroForm.hasXfa`, `xfaNeedsRendering` and
+  `isDynamicXfa`.
+- Sign encrypted (password-protected) PDFs (#935). Every signing path used to
+  refuse them; the signature's /Contents is now written unencrypted and
+  patched after the rest of the revision is encrypted, and `validate()` reads
+  the raw CMS, which also fixes validating encrypted files signed by other
+  tools. PAdES B-LT/B-LTA and `addDocumentTimestamp` reopen their intermediate
+  revisions with the new `PdfDocument.openAppended`, which reuses the
+  authenticated keys instead of the password. pyHanko validates the encrypted
+  B-LTA output for RC4-40/128, AES-128 and AES-256.
+- Add form tab order (#932): `PdfFormTabOrder`, `PdfTabOrder` and
+  `PdfPage.tabOrder` follow each page's /Tabs (row, column or structure
+  order), fall back to /Annots order, and skip read-only, hidden, push-button
+  and signature fields.
 - `fetchAatl` downloads Adobe's Approved Trust List through a host
   transport, verifies it chains to Adobe Root CA G2 and was signed within a
   year (`PdfAatl.maxAge`), and returns a PEM-serializable snapshot.

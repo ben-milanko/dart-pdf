@@ -1,14 +1,46 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
+- Fill forms that calculate, format and check their own values. The built-in
+  Acrobat helpers most forms use now run: totals and other calculated fields
+  update as you type into the fields they add up, numbers, percentages, dates,
+  times, phone numbers and postcodes show in the form's own format, a number
+  field won't take letters, and a value the form rejects is explained under
+  the field instead of being saved. Custom scripts still don't run.
+- Press Tab to move to the next form field and Shift+Tab to go back, across
+  pages, in the order the form defines. Space ticks check boxes and radio
+  buttons; a drop-down opens its list.
+- Pick several options in a multi-select list box, and see every option of a
+  list box with the chosen ones highlighted.
+- Fill comb fields one character per box, stop text fields at their maximum
+  length, and hide what you type in password fields. A password you type into
+  a form is kept in the device's secure storage, not written into the PDF
+  (on the web it is kept only until you close the tab).
+- Create radio button groups, drop-downs, list boxes and empty signature
+  fields with the form tool, edit a choice field's options, and convert any
+  field to one of these types.
+- Say so when a form only works as XFA and can't be shown, instead of showing
+  no fields. Filling a form that carries both kinds now drops the outdated
+  XFA copy, so other PDF readers show the values you entered.
+- Sign password-protected PDFs. Every way of signing used to refuse an
+  encrypted document, and signatures on encrypted files from other tools now
+  validate correctly too.
+- Check whether a signer's certificate has been revoked. The signature panel
+  asks the certificate's authority online, shows a Revoked status (or that
+  the revocation came after a trusted timestamp), and says whether the check
+  was made online, from data inside the document, or could not be made. It
+  also says when a signer is self-signed and names an untrusted issuer. The
+  web app checks only the data inside the document.
+- Trust signatures from qualified EU trust service providers. When you open a
+  signed document, DartPDF fetches the EU trusted lists, verifies their
+  signatures and keeps them for a week. Not available in the web app.
 - Trust signatures from Adobe Approved Trust List authorities, one click and
   opt-in. Turn on "Trust Adobe Approved Trust List" in Settings > Signatures,
   or from the button under an unknown signer in the signature panel. DartPDF
   then downloads Adobe's list from Adobe, checks it weekly, and says which list
   a trusted signer's authority came from. Nothing about your documents is
   sent. Turning it off removes the list. Not available in the web app.
-
 - Fix digital signature boxes cropping their text. Placing a signature on a
   short, wide line cut the top off "Digitally signed by ..." and the bottom off
   the last line; the box now sizes its text to the room it actually has, and a
@@ -18,6 +50,36 @@
   picking one changed every open window at once; it now belongs to the window
   you picked it in, shared by that window's tabs. The choice is still
   remembered as the mode the next window - and the next launch - opens in.
+- Search open tabs by name in the tabs view, which now opens scrolled to the
+  tab you are on. Enter switches to the first match.
+- Right-click (or long-press) a recent file on the start screen or in the
+  full recent-files list to open it, open it in a new window, show it in the
+  file manager, copy its path or name, or remove it from the list.
+- Drag pages from the thumbnail strip into another DartPDF window to move
+  them there. Undo and redo now work while the thumbnail strip or page grid
+  has focus.
+- Hold Shift while dragging a point of a line, polyline or polygon to snap
+  that segment to the nearest 45° angle, as it already did while drawing.
+- Show a loading tab for every file straight away when you open several at
+  once, instead of leaving the start screen up while slow network files are
+  read one by one.
+- Bring DartPDF to the front when you open a PDF from the file manager on
+  macOS, Windows and Linux.
+- Show pages that carry hundreds of stamps or other markups much sooner, and
+  keep the loading indicator up until the markups are actually on screen.
+- Draw unembedded Calibri text, common in documents printed from Office, in
+  the metric-compatible Carlito font instead of a wider Helvetica look-alike,
+  so letters no longer crowd into each other.
+- Keep thin lines in scanned drawings solid when the page is zoomed out,
+  instead of breaking them into dashes.
+- Keep the spaces between words in the reading view for justified text that
+  used to run together into one long word.
+- Stop the print dialog showing the previous document's page range, and print
+  multiple copies on desktop without rendering every copy again; progress now
+  counts pages, not pages times copies.
+- Stop the page cache on Windows from shrinking to its minimum and staying
+  there when memory was only briefly tight, so pages you go back to no longer
+  have to be redrawn.
 
 ## 4.5.0
 

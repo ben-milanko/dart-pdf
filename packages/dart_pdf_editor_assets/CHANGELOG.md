@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
 - Bundle Carlito, the metric-compatible Calibri clone, in regular, bold,
   italic and bold-italic. Office and its print drivers emit Calibri

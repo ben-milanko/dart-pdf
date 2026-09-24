@@ -1,7 +1,29 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
+### Breaking changes
+
+- `StandardSecurityHandler.decryptObjectGraph` (and `encryptObjectGraph`)
+  now leave a signature dictionary's /Contents untouched, as ISO 32000 7.6.1
+  requires (`StandardSecurityHandler.isSignatureContents`: /Type /Sig or
+  /DocTimeStamp, or a dictionary with a /ByteRange when /Type is missing).
+  Code that decrypted /Contents itself after loading must stop doing so - the
+  loader now hands over the raw CMS bytes.
+- OCSP delegated responders are accepted only when the CA issued and signed
+  them and they carry id-kp-OCSPSigning (`OcspResponse.responderFor`), and
+  `OcspResponse.forCertificate` matches the whole CertID. Responses that used
+  to pass on a serial match alone, or from an unauthorized responder, are now
+  ignored.
+- `X509Certificate` gained members (listed below). Only classes that
+  `implements X509Certificate` need to add them.
+
+### Changes
+
+- Add `CosDocument.openAppended`, which reopens a document after appended
+  updates and reuses its already-authenticated security handler (while the
+  /Encrypt object is unchanged), so follow-on revisions of an encrypted file
+  do not need the password again.
 - Harden OCSP for revocation checking: `OcspResponse.forCertificate` matches
   the whole CertID (serial, issuer name hash and issuer key hash) instead of
   the serial alone, a delegated responder must be issued and signed by the CA

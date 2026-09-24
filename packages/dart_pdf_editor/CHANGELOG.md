@@ -1,6 +1,36 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
+
+### Breaking changes
+
+- `PdfFormFieldKind` gained `radioGroup`, `comboBox`, `listBox` and
+  `signature`. Exhaustive `switch`es over it need the new cases (or a
+  default).
+- `PdfBundledSubstitute` gained `carlito`. Exhaustive `switch`es over it need
+  the new case.
+- `PdfEditingController.setFormFieldText` now treats the value as user entry
+  (`PdfEditor.enterTextValue`): a field's recognised keystroke and validate
+  scripts (AFNumber_Keystroke, AFDate_KeystrokeEx, AFRange_Validate, ...)
+  run first, so it returns false for a refused value and stores the
+  normalised one. Through `setTextValue` it also truncates to /MaxLen,
+  recalculates calculated fields and drops stale /XFA. Call
+  `checkFormFieldText` first to learn why a value would be refused. With a
+  `formSecretStore`, a password field's value goes to the store instead of
+  /V.
+- `PdfEditorView` and `PdfReader` given no `viewMode:` now own a
+  `PdfViewModeController` of their own, seeded from the preferences once they
+  load. The shell no longer follows later writes to
+  `preferences.viewMode` / `showReflowView` / `showThumbnailView`, so a host
+  that switched the shell's mode by writing those must create a
+  `PdfViewModeController` and pass it as `viewMode:`, then drive that.
+- `DartPdfEditorLocalizations` gained abstract getters for the new form,
+  XFA and signature-revocation strings (`formXfaUnsupportedNotice`,
+  `sidebarSignatureRevokedStatus`, `menuConvertToRadioGroup`,
+  `formOptionsTitle`, ...). A custom subclass must implement them; extending a
+  bundled locale class picks them up.
+
+### Changes
 
 - `PdfEditingController.signatureTrustAction` lets a host offer a one-click
   way to trust an unknown signer, for example by loading a trust list. The
@@ -70,6 +100,38 @@
   on each side (every vertex of a polygon, whose ends wrap) takes whichever of
   its two segments the pointer was already closest to lining up. Callout
   leader handles keep their free aim.
+- Run the recognised AF* form scripts while filling (#930): a keystroke
+  script filters typing (a number field won't take letters), Enter on a
+  refused value keeps the inline editor open with the reason under the field,
+  leaving a field with a refused value keeps its old value and shows a toast,
+  and the afterimage shows the formatted value.
+  `PdfEditingController.checkFormFieldText` checks a value without editing.
+- Honour comb fields, /MaxLen and password masking in the inline editors
+  (#931): they cap input at /MaxLen and obscure password fields, their
+  afterimages stay masked, and the Edit value prompts no longer prefill a
+  password. Add `PdfFormSecretStore` with `InMemoryFormSecretStore` and
+  `SecureFormSecretStore` (flutter_secure_storage), keyed by the document's
+  permanent id and the field name. `PdfEditingController(formSecretStore:)`
+  routes password fills there instead of the file, restores stored values on
+  open without dirtying the document, keeps the store in step with undo and
+  redo, and `forgetFormSecrets()` clears a document's values.
+- Show a one-time, closable notice when a form is dynamic XFA instead of
+  silently showing no fields (#929). Hybrid forms fill normally.
+- Tab and Shift+Tab move between form fields (#932), across pages and
+  wrapping at the ends, in each page's /Tabs order. Text fields open their
+  inline editor; check boxes, radio buttons and choice fields get a focus
+  ring (Space toggles, a choice field opens its menu). Multi-line fields move
+  on Tab instead of typing a tab. `PdfViewerController.revealRect` scrolls a
+  rect into view without zooming.
+- A thumbnail reorder drag carried out of the strip's window is reported
+  through `PdfThumbnailDropController.onPageDragOutside` /
+  `onPageDropOutside` (`PdfPageDragOut`) instead of reordering the strip, so a
+  host can move the pages into another window.
+  `PdfEditingController.removePages` removes several pages in one edit. The
+  thumbnail strip and page grid bind undo/redo themselves, so a paste made
+  there can be undone while the panel keeps focus, and undo/redo of a
+  structural edit clears the stale page selection. A held drop is cancelled
+  when an edit changes the document under it.
 
 ## 4.5.0
 
