@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -261,9 +262,10 @@ void main() {
     Future<PdfEditingController> pumpEditor(WidgetTester tester,
         {PdfFormImagePicker? imagePicker,
         PdfTextPrompt? textPrompt,
-        bool toolbar = false}) async {
+        bool toolbar = false,
+        Uint8List? bytes}) async {
       SharedPreferences.setMockInitialValues({});
-      final editing = PdfEditingController(buildAcroFormPdf());
+      final editing = PdfEditingController(bytes ?? buildAcroFormPdf());
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -328,6 +330,32 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-form-text-editor')), findsNothing);
       expect(editing.isEditingText, isFalse);
       expect(editing.acroForm!.fieldNamed('name')!.value, 'Jane');
+      await settle(tester);
+    });
+
+    testWidgets('the form tool edits a password field masked, capped (#931)',
+        (tester) async {
+      final source = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      final name = source.acroForm!.fieldNamed('name')!;
+      name.dict['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+      name.dict['MaxLen'] = const CosInteger(6);
+      source.setTextValue(name, '');
+      final editing = await pumpEditor(tester, bytes: source.save());
+      editing.tool = PdfEditTool.form;
+      await tester.pump();
+
+      await doubleTap(tester, view(186, 712));
+      final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
+      final field = tester.widget<TextField>(editor);
+      expect(field.obscureText, isTrue);
+      expect(field.maxLength, 6);
+      expect(field.maxLines, 1);
+
+      await tester.enterText(editor, 'hunter22');
+      await tap(tester, view(450, 620)); // commit
+      expect(editing.acroForm!.fieldNamed('name')!.value, 'hunter');
+      expect(find.textContaining('hunter'), findsNothing,
+          reason: 'the afterimage stays masked');
       await settle(tester);
     });
 

@@ -826,7 +826,8 @@
               <tbody>
                 <tr>
                   <td>Text (single-line &amp; multiline)</td>
-                  <td>Yes: wrapping, auto-size, alignment, RTL text, custom font/size/colour</td>
+                  <td>Yes: wrapping, auto-size, alignment, RTL text, custom font/size/colour, <code>/MaxLen</code>
+                    limits, comb fields (one character per box), password masking</td>
                   <td>Yes</td>
                 </tr>
                 <tr>
@@ -861,7 +862,13 @@
             looks on the page are stored separately. A library that only sets the value leaves a form that looks
             empty in some viewers, or that Acrobat redraws with its own layout. DartPDF redraws every field it fills,
             including wrapping, auto-sizing, quadding (alignment), borders, backgrounds, and page rotation, and then
-            clears <code>/NeedAppearances</code>. The saved file looks the same in every viewer, and it prints
+            clears <code>/NeedAppearances</code>. A value longer than the field's <code>/MaxLen</code> is cut to
+            fit, a comb field puts one character in each box, and a password field is drawn as asterisks and
+            edited masked, so the password never appears on the page. Give the editing controller a
+            <code>PdfFormSecretStore</code> and a password isn't written into the PDF at all, as the PDF
+            specification asks: the file keeps a fixed-length mask, and the value is kept in the device's
+            keychain, so it comes back when the same document is reopened on that device. The DartPDF app does
+            this on desktop and mobile. On the web it keeps passwords only in memory until the page closes. The saved file looks the same in every viewer, and it prints
             correctly.</p>
 
           <h3 id="forms-flutter">In a Flutter app</h3>
@@ -1066,8 +1073,6 @@ await session.addDigitalSignature(
             <li><strong>Form JavaScript.</strong> There is deliberately no JS engine, so calculated totals,
               format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
               app can inspect them.</li>
-            <li><strong>Comb fields, <code>/MaxLen</code>, and password masking</strong> are not enforced when
-              filling.</li>
             <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
             <li><strong>Multi-select list boxes</strong> take a single value.</li>
             <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
