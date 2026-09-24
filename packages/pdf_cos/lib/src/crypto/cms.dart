@@ -53,7 +53,9 @@ abstract final class _Oid {
 
 /// Maps a digest OID (or a combined signature OID) to its hash.
 crypto.Hash? _hashFor(String oid) => switch (oid) {
-      DigestOid.sha1 || '1.2.840.113549.1.1.5' || '1.2.840.10045.4.1' =>
+      DigestOid.sha1 ||
+      '1.2.840.113549.1.1.5' ||
+      '1.2.840.10045.4.1' =>
         crypto.sha1,
       DigestOid.sha256 ||
       '1.2.840.113549.1.1.11' ||
@@ -106,7 +108,7 @@ class X509Certificate {
     final keyBits = spki[1].asBitString;
     cert.subjectPublicKeyBytes = keyBits;
     switch (cert.publicKeyAlgorithmOid) {
-      case _Oid.rsaEncryption:
+      case _Oid.rsaEncryption || _Oid.rsassaPss: // id-RSASSA-PSS keys too
         cert.publicKey = RsaPublicKey.fromPkcs1(keyBits);
       case _Oid.ecPublicKey when algorithm.length > 1:
         final curve = EcCurve.byOid(algorithm[1].asOid);
@@ -146,6 +148,21 @@ class X509Certificate {
         for (final dp in points.children) {
           _collectGeneralNameUris(dp, crlDistributionUrls);
         }
+      } else if (oid == '2.5.29.37') {
+        // extKeyUsage: SEQUENCE OF KeyPurposeId
+        for (final purpose in DerObject.parse(value.content).children) {
+          if (purpose.tag == DerTag.oid) extendedKeyUsages.add(purpose.asOid);
+        }
+      } else if (oid == '2.5.29.19') {
+        // basicConstraints: SEQUENCE { cA BOOLEAN DEFAULT FALSE, ... }
+        final fields = DerObject.parse(value.content).children;
+        isCa = fields.isNotEmpty &&
+            fields.first.tag == 0x01 &&
+            fields.first.content.isNotEmpty &&
+            fields.first.content.first != 0;
+      } else if (oid == '1.3.6.1.5.5.7.48.1.5') {
+        // id-pkix-ocsp-nocheck (RFC 6960 §4.2.2.2.1)
+        hasOcspNoCheck = true;
       }
     }
   }
@@ -232,6 +249,21 @@ class X509Certificate {
   /// HTTP CRL distribution-point URLs from the CRL Distribution Points
   /// extension.
   final List<String> crlDistributionUrls = [];
+
+  /// Extended key usage purpose OIDs (e.g. `1.3.6.1.5.5.7.3.9`,
+  /// id-kp-OCSPSigning), empty when the extension is absent.
+  final List<String> extendedKeyUsages = [];
+
+  /// basicConstraints cA - true for a certificate authority.
+  bool isCa = false;
+
+  /// The id-pkix-ocsp-nocheck extension: a delegated OCSP responder whose own
+  /// revocation status is not to be checked (RFC 6960 §4.2.2.2.1).
+  bool hasOcspNoCheck = false;
+
+  /// Whether this certificate is valid at [time] (inclusive window).
+  bool isValidAt(DateTime time) =>
+      !time.isBefore(notBefore) && !time.isAfter(notAfter);
 
   Map<String, String> get subject => _nameOf(subjectDer);
   Map<String, String> get issuer => _nameOf(issuerDer);
@@ -424,8 +456,8 @@ CmsVerification cmsVerify(
   if (signer.signedAttrsDer != null) {
     final embedded = signer.messageDigest;
     digestMatches = embedded != null &&
-        CmsSignedData._bytesEqual(Uint8List.fromList(contentDigest),
-            Uint8List.fromList(embedded));
+        CmsSignedData._bytesEqual(
+            Uint8List.fromList(contentDigest), Uint8List.fromList(embedded));
     signedBytes = signer.signedAttrsDer!;
   } else {
     signedBytes = content;
@@ -454,17 +486,14 @@ CmsVerification cmsVerify(
 
   // the signature algorithm may name the digest itself (sha256WithRSA);
   // otherwise the separate digest algorithm applies
-  final signatureHash =
-      _hashFor(signer.signatureAlgorithmOid) ?? hash;
+  final signatureHash = _hashFor(signer.signatureAlgorithmOid) ?? hash;
   final digestOid = _digestOidFor(signatureHash)!;
   final signedDigest = signatureHash.convert(signedBytes).bytes;
 
   switch (cert.publicKey) {
     case final RsaPublicKey key:
-      return CmsVerification(
-          digestMatches,
-          rsaVerify(key, digestOid, signedDigest, signer.signature),
-          null);
+      return CmsVerification(digestMatches,
+          rsaVerify(key, digestOid, signedDigest, signer.signature), null);
     case final EcPublicKey key:
       return CmsVerification(digestMatches,
           ecdsaVerify(key, signedDigest, signer.signature), null);
@@ -778,8 +807,7 @@ CertificateChainResult verifyCertificateChain({
       problems.add('certificate chain is longer than 10 links');
       break;
     }
-    final issuer =
-        _findIssuer(current, [...trustAnchors, ...intermediates]);
+    final issuer = _findIssuer(current, [...trustAnchors, ...intermediates]);
     if (issuer == null) {
       final selfSigned = _sameDer(current.subjectDer, current.issuerDer);
       problems.add(selfSigned

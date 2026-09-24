@@ -1025,7 +1025,8 @@ PdfEditor(PdfDocument.open(form)).saveSigned(
                 <tr>
                   <td>Validation</td>
                   <td>Checks the digest, the signature, and whether the whole document is covered; builds the chain
-                    against your trust store; reports PAdES level, timestamp, and embedded revocation data</td>
+                    against your trust store; checks the signer and each intermediate for revocation (embedded
+                    data, plus live OCSP/CRL through a client you supply); reports PAdES level and timestamp</td>
                 </tr>
               </tbody>
             </table>
@@ -1081,7 +1082,25 @@ await session.addDigitalSignature(
   print(<span class="string">'${sig.signerName}: intact=${result.intact} '</span>
       <span class="string">'trusted=${result.chainTrusted} level=${result.padesLevel}'</span>);
 }</code></pre>
-          <p>The editor's annotations panel shows the same result next to each signature.</p>
+          <p>To also catch a certificate revoked since signing, validate online. The library still makes no
+            network calls of its own. <code>pdfOnlineRevocationClient</code> asks each certificate's OCSP
+            responder and falls back to its CRL, using an HTTP function you pass in:</p>
+          <pre><code><span class="keyword">final</span> result = <span class="keyword">await</span> sig.validateOnline(
+  trustStore: trustStore,
+  revocationClient: pdfOnlineRevocationClient(fetch: myHttpFetch),
+);
+<span class="keyword">for</span> (<span class="keyword">final</span> r <span class="keyword">in</span> result.revocation) {
+  print(<span class="string">'${r.certificate.subjectCommonName}: ${r.status} (${r.source})'</span>);
+}</code></pre>
+          <p>A certificate that was revoked makes the signature untrusted, unless a trusted timestamp proves the
+            document was signed before the revocation. If a status can't be checked (the responder is down, or
+            its answer is stale or doesn't verify), the result says so and leaves the trust verdict alone.
+            Trusted roots are opt-in: <code>package:pdf_document/trust_lists.dart</code> downloads and verifies the
+            EU trusted lists, and can load an Adobe Approved Trust List file you already have.</p>
+          <p>The editor's annotations panel shows the same result next to each signature: trusted, self-signed,
+            issued by an authority you don't trust, revoked, or revocation unknown. The
+            <a href="/">DartPDF app</a> checks revocation online and trusts the EU trusted lists by default
+            outside the browser.</p>
         </section>
 
         <section id="limits">
@@ -1101,10 +1120,14 @@ await session.addDigitalSignature(
             <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
               groups, choice fields, or empty signature fields for someone else to sign later.</li>
             <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
-            <li><strong>Trust roots.</strong> No certificate authorities are bundled. Validation tells you whether
-              the chain reaches a root you supplied (for example, the AATL or your organisation's CA), and it
-              doesn't query live revocation during validation. A self-signed signature validates as intact, but
-              Acrobat shows its signer as unknown until the certificate is trusted.</li>
+            <li><strong>Bundled trust roots.</strong> No certificate authorities ship inside the library. You can
+              load the EU trusted lists at run time (the DartPDF app does this outside the browser), your
+              organisation's CA, or an Adobe Approved Trust List file you obtain from Adobe. We don't redistribute
+              the AATL itself. A self-signed signature validates as intact, but Acrobat shows its signer as
+              unknown until the certificate is trusted.</li>
+            <li><strong>Revocation in the browser.</strong> Live OCSP/CRL checks need a transport that can reach
+              the CA's servers, which browsers usually block (CORS), so the web app only uses revocation data
+              embedded in the document.</li>
           </ul>
           <p>If one of these blocks you, <a href="https://github.com/ben-milanko/dart-pdf/issues">open an issue</a>
             with a sample PDF. Real forms decide what we work on next.</p>

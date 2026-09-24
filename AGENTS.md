@@ -118,8 +118,16 @@ Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` - asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-No trust-store chain validation. Test signer identity in
-`pdf_test_fixtures/src/signer_identity.dart`.
+`validate(trustStore:)` builds the chain to caller-supplied anchors and
+reports per-certificate revocation from the /DSS; `validateOnline(
+revocationClient:)` adds live OCSP-then-CRL checks of the signer and each
+intermediate (`revocation.dart`; a revoked certificate untrusts the chain
+unless a verified timestamp predates the revocation). Encrypted signed files
+validate the same way. Roots stay opt-in: `package:pdf_document/
+trust_lists.dart` fetches and XMLDSig-verifies the EU trusted lists and loads
+a host-supplied AATL file - no root data is committed. Test signer identity in
+`pdf_test_fixtures/src/signer_identity.dart`; revocation PKI in
+`test_revocation.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and

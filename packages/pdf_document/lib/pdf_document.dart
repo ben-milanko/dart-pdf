@@ -28,6 +28,7 @@ export 'src/measure.dart';
 export 'src/office_conversion.dart';
 export 'src/outline.dart';
 export 'src/pades.dart';
+export 'src/revocation.dart';
 export 'src/page.dart';
 export 'src/page_labels.dart';
 export 'src/pdf_a.dart';

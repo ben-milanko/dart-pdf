@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Harden OCSP for revocation checking: `OcspResponse.forCertificate` matches
+  the whole CertID (serial, issuer name hash and issuer key hash) instead of
+  the serial alone, a delegated responder must be issued and signed by the CA
+  and carry id-kp-OCSPSigning (`responderFor`), and the nonce extension and
+  revocation reason are parsed (`nonce`, `echoesNonce`, `ocspNonceValue`).
+- `X509Certificate` exposes `extendedKeyUsages`, `isCa`, `hasOcspNoCheck` and
+  `isValidAt`, and now reads the RSA key of an id-RSASSA-PSS certificate.
+- `issueCertificate` can add OCSP (AIA), CRL distribution point, extended key
+  usage and ocsp-nocheck extensions, and can issue a subordinate CA (`isCa`).
+
 ## 4.5.0
 
 - Align dependency constraints with the dart-pdf 4.5.0 package suite.
