@@ -122,6 +122,15 @@ class PdfPageRenderScheduler {
   /// happens to be passing.
   static int motionSafeHoldRadius = 1;
 
+  /// How long one [paceUiWork] grant may spend drawing annotation
+  /// appearances before the layer publishes and waits for the next frame.
+  ///
+  /// A share of a 120 Hz frame (8.3 ms), leaving room for the build, layout
+  /// and paint of the frame the batch lands in. One appearance always draws
+  /// per grant, however long it takes, so a single heavy appearance behaves
+  /// exactly as it did under the old one-per-frame rule.
+  static Duration appearanceFrameBudget = const Duration(milliseconds: 4);
+
   final _pending = <_RenderRequest>[];
 
   /// Worker records finish independently, so records started one-per-frame can
@@ -348,6 +357,53 @@ class PdfPageRenderScheduler {
     _pending.add(queued);
     _scheduleDrain();
     _activity.ping();
+  }
+
+  /// Annotation appearance layers with drawing still owed, keyed by layer:
+  /// `(done, total)` for the cold appearances the layer's current pass has to
+  /// draw. A layer that is still resolving its page's annotation array (or
+  /// waiting for its first grant) registers `(0, 0)` - owed, count unknown.
+  final _appearanceWork = <Object, (int, int)>{};
+
+  /// Whether an active annotation layer still has appearances to draw.
+  ///
+  /// The page raster and the annotation overlay finish independently: with an
+  /// editing or form controller attached, marks are drawn by the overlay one
+  /// [paceUiWork] grant at a time, after the page itself is sharp. [busy] and
+  /// [hasForegroundWork] describe the page pipeline and read idle through that
+  /// whole window, so a host that waits on them to say "marks are showing"
+  /// clears its loading state long before they are.
+  bool get appearanceWorkPending => _appearanceWork.isNotEmpty;
+
+  /// Fraction of the pending appearance work that is drawn, in `0..1`, or
+  /// null while no layer has a count yet (or nothing is pending).
+  double? get appearanceWorkProgress {
+    if (_appearanceWork.isEmpty) return null;
+    var done = 0;
+    var total = 0;
+    for (final (layerDone, layerTotal) in _appearanceWork.values) {
+      done += layerDone;
+      total += layerTotal;
+    }
+    if (total <= 0) return null;
+    return (done / total).clamp(0.0, 1.0);
+  }
+
+  /// Records that [token]'s layer has drawn [done] of [total] cold
+  /// appearances in its current pass. Pings [activity].
+  void reportAppearanceWork(Object token, {int done = 0, int total = 0}) {
+    if (_disposed) return;
+    final next = (done, total);
+    if (_appearanceWork[token] == next) return;
+    _appearanceWork[token] = next;
+    _activity.ping();
+  }
+
+  /// [token]'s layer has nothing left to draw (finished, cancelled, parked
+  /// off-screen or disposed). Pings [activity] if it was pending.
+  void clearAppearanceWork(Object token) {
+    if (_disposed) return;
+    if (_appearanceWork.remove(token) != null) _activity.ping();
   }
 
   /// Waits for this worker result's platform-thread replay turn.
@@ -611,6 +667,7 @@ class PdfPageRenderScheduler {
     _inFlight.clear();
     _activePriorities.clear();
     _activeMotionSafe.clear();
+    _appearanceWork.clear();
     _activity.ping();
     _activity.dispose();
   }
