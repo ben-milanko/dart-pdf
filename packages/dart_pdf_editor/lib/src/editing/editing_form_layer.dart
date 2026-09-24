@@ -203,7 +203,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
         .firstMatch(field.defaultAppearance ?? '');
     final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
-    _text.text = field.value ?? '';
+    _text.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _editingField = field.name;
       _editRect = viewRect;
@@ -408,7 +408,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         _afterimage(
             _afterRect!,
             _afterPassword
-                ? PdfFormFilling.maskedPasswordText(_afterValue!)
+                ? _controller.formPasswordMask(_afterValue!)
                 : _afterValue!,
             _afterFont,
             _afterSize),

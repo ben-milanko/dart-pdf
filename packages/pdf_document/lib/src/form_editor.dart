@@ -51,7 +51,69 @@ extension PdfFormFilling on PdfEditor {
     _setTextVerticalAlignment(field, verticalAlignment);
     value = truncateToMaxLength(value, field.maxLength);
     field.dict['V'] = CosString.fromText(value);
+    // /V is authoritative again: drop a withheld-password marker
+    field.dict.entries.remove(passwordWithheldKey);
     _regenerateVariableText(field, value, textDirection: textDirection);
+    _finishFieldEdit(field);
+  }
+
+  /// The private field entry marking a password field whose value was
+  /// filled but deliberately not written to /V ([setPasswordValue] with
+  /// `storeValue: false`). It carries no part of the value - only that the
+  /// field is filled - so a later regeneration (resize, rotation) keeps
+  /// drawing the fixed mask instead of blanking the field.
+  static const passwordWithheldKey = 'DartPdfPasswordWithheld';
+
+  /// How many asterisks a withheld password draws, whatever its length.
+  static const withheldPasswordMaskLength = 8;
+
+  /// Fills a password field ([PdfFormField.isPassword]) the way §12.7.4.3
+  /// asks interactive readers to: by default the value is **not** stored in
+  /// the file. Any existing /V is removed (from reconciled widgets too) and
+  /// the appearance shows a fixed [withheldPasswordMaskLength] asterisks
+  /// when [value] is non-empty, or nothing when it is empty. A fixed mask
+  /// rather than one asterisk per character, because the appearance is the
+  /// only trace of the value left in the file and should not give away its
+  /// length. The value itself is the caller's to keep - dart_pdf_editor
+  /// holds it in a `PdfFormSecretStore`.
+  ///
+  /// [storeValue] `true` is plain [setTextValue]: /V holds the value and the
+  /// appearance masks it one asterisk per character.
+  ///
+  /// When the document has no trailer /ID and [value] is withheld, a
+  /// `[documentId documentId]` /ID is written (default: the SHA-256 of the
+  /// bytes the document was opened from, [pdfPermanentDocumentId]), so the
+  /// saved file keeps the identity the caller filed the value under.
+  ///
+  /// [PdfEditor.setTextValue] stays the backward-compatible default for
+  /// library callers - it still writes /V for password fields.
+  void setPasswordValue(
+    PdfFormField field,
+    String value, {
+    bool storeValue = false,
+    Uint8List? documentId,
+  }) {
+    _checkFillable(field, const {PdfFieldType.text});
+    if (!field.isPassword) {
+      throw ArgumentError.value(
+          field.name, 'field', 'is not a password field (/Ff bit 14)');
+    }
+    if (storeValue) {
+      setTextValue(field, value);
+      return;
+    }
+    field.dict.entries.remove('V');
+    if (value.isEmpty) {
+      field.dict.entries.remove(passwordWithheldKey);
+    } else {
+      field.dict[passwordWithheldKey] = const CosBoolean(true);
+      if (pdfTrailerPermanentId(document) == null) {
+        final id = CosString(documentId ?? pdfPermanentDocumentId(document),
+            isHex: true);
+        _updater.setTrailerEntry('ID', CosArray([id, id]));
+      }
+    }
+    _regenerateVariableText(field, '');
     _finishFieldEdit(field);
   }
 
@@ -518,7 +580,12 @@ extension PdfFormFilling on PdfEditor {
       rawText = truncateToMaxLength(rawText, maxLength);
       // the value never reaches the page: extraction, search and screen
       // readers read the appearance, so it carries only the mask
-      if (field.isPassword) rawText = maskedPasswordText(rawText);
+      if (field.isPassword) {
+        rawText = rawText.isEmpty &&
+                field.dict[passwordWithheldKey] == const CosBoolean(true)
+            ? '*' * withheldPasswordMaskLength
+            : maskedPasswordText(rawText);
+      }
     }
     final da = _parseDefaultAppearance(field.defaultAppearance);
     final verticalAlignment = field.textVerticalAlignment;

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -404,6 +405,109 @@ void main() {
           widgetAppearance(
               resized, PdfAcroForm.of(resized)!.fieldNamed('name')!),
           isNot(contains(secret)));
+    });
+  });
+
+  group('setPasswordValue withholds /V (#931)', () {
+    PdfFormField passwordField(PdfAcroForm form) {
+      final field = form.fieldNamed('name')!; // prefilled /V
+      field.dict['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+      return field;
+    }
+
+    test('removes /V and draws a fixed, length-free mask', () {
+      final appearances = <String>[];
+      for (final secret in ['Jb', 'correct horse battery staple']) {
+        final doc =
+            fill((e, f) => e.setPasswordValue(passwordField(f), secret));
+        final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+        expect(field.value, isNull, reason: '/V must not be written');
+        expect(field.dict.containsKey('V'), isFalse);
+        final content = widgetAppearance(doc, field);
+        expect(content, contains('(********) Tj'));
+        expect(content, isNot(contains(secret)));
+        appearances.add(content);
+        expect(latin1.decode(doc.cos.bytes).contains(secret), isFalse,
+            reason: 'the value appears nowhere in the file');
+      }
+      expect(appearances[0], appearances[1],
+          reason: 'the appearance does not reveal the length');
+    });
+
+    test('the mask survives a widget regeneration; empty clears it', () {
+      final filled =
+          fill((e, f) => e.setPasswordValue(passwordField(f), 'hunter2'));
+      final resizedEditor = PdfEditor(filled)
+        ..resizeFormWidget('name', 0, const PdfRect(72, 700, 320, 730));
+      final resized = PdfDocument.open(resizedEditor.save());
+      expect(
+          widgetAppearance(
+              resized, PdfAcroForm.of(resized)!.fieldNamed('name')!),
+          contains('(********) Tj'));
+
+      final clearedEditor = PdfEditor(resized);
+      clearedEditor.setPasswordValue(
+          clearedEditor.acroForm!.fieldNamed('name')!, '');
+      final cleared = PdfDocument.open(clearedEditor.save());
+      final field = PdfAcroForm.of(cleared)!.fieldNamed('name')!;
+      expect(widgetAppearance(cleared, field), isNot(contains('*')));
+      expect(
+          field.dict.containsKey(PdfFormFilling.passwordWithheldKey), isFalse);
+    });
+
+    test('storeValue: true and setTextValue write /V and drop the marker', () {
+      final doc = fill((e, f) {
+        final field = passwordField(f);
+        e.setPasswordValue(field, 'withheld');
+        e.setPasswordValue(field, 'stored', storeValue: true);
+      });
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      expect(field.value, 'stored');
+      expect(
+          field.dict.containsKey(PdfFormFilling.passwordWithheldKey), isFalse);
+      expect(widgetAppearance(doc, field), contains('(******) Tj'));
+    });
+
+    test('refuses a field that is not a password field', () {
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      expect(
+          () => editor.setPasswordValue(
+              editor.acroForm!.fieldNamed('name')!, 'x'),
+          throwsArgumentError);
+    });
+
+    test('writes a trailer /ID when missing so the identity survives a save',
+        () {
+      final original = PdfDocument.open(buildAcroFormPdf());
+      expect(pdfTrailerPermanentId(original), isNull);
+      final before = pdfPermanentDocumentId(original);
+
+      final editor = PdfEditor(original);
+      editor.setPasswordValue(passwordField(editor.acroForm!), 'hunter2');
+      final saved = PdfDocument.open(editor.save());
+      expect(pdfTrailerPermanentId(saved), before);
+      expect(pdfPermanentDocumentId(saved), before);
+
+      // an explicit id wins, and an existing /ID is left alone afterwards
+      final e2 = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      final id = Uint8List.fromList(List.generate(16, (i) => i));
+      e2.setPasswordValue(passwordField(e2.acroForm!), 'a', documentId: id);
+      final withId = PdfDocument.open(e2.save());
+      expect(pdfTrailerPermanentId(withId), id);
+      final e3 = PdfEditor(withId);
+      e3.setPasswordValue(e3.acroForm!.fieldNamed('name')!, 'b',
+          documentId: Uint8List(16));
+      expect(pdfTrailerPermanentId(PdfDocument.open(e3.save())), id);
+    });
+
+    test('flattening a withheld password field burns only the mask', () {
+      const secret = 'hunter2';
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      editor.setPasswordValue(passwordField(editor.acroForm!), secret);
+      final filled = PdfDocument.open(editor.save());
+      final flattener = PdfEditor(filled)..flattenForm();
+      final flat = flattener.save();
+      expect(latin1.decode(flat).contains(secret), isFalse);
     });
   });
 }

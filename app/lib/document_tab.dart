@@ -1,6 +1,8 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
+import 'form_secrets.dart';
+
 /// A detached snapshot used to move a live document into another native
 /// window.
 ///
@@ -66,7 +68,9 @@ class DocumentTab {
     Uint8List bytes,
     PdfEditingPreferences preferences,
   ) =>
-      PdfEditingController(bytes, preferences: preferences)..activateHandMode();
+      PdfEditingController(bytes,
+          preferences: preferences, formSecretStore: appFormSecretStore)
+        ..activateHandMode();
 
   DocumentTab.loading(
       {required this.title,

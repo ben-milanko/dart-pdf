@@ -3609,7 +3609,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final formSize = size > 0 ? size : 12.0;
     _textEditText.resetStyles(_TextEditStyle(
         font: formFont, size: formSize, color: const Color(0xFF000000)));
-    _textEditText.text = field.value ?? '';
+    _textEditText.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
       _textEditPageRect = rect;
@@ -3664,7 +3664,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _clearAfterimage();
       _afterText = (
         rect: rect,
-        text: password ? PdfFormFilling.maskedPasswordText(value) : value,
+        text: password ? _controller.formPasswordMask(value) : value,
         font: font,
         size: size,
         color: const Color(0xFF000000),

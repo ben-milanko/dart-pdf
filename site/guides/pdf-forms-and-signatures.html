@@ -864,7 +864,11 @@
             including wrapping, auto-sizing, quadding (alignment), borders, backgrounds, and page rotation, and then
             clears <code>/NeedAppearances</code>. A value longer than the field's <code>/MaxLen</code> is cut to
             fit, a comb field puts one character in each box, and a password field is drawn as asterisks and
-            edited masked, so the password never appears on the page. The saved file looks the same in every viewer, and it prints
+            edited masked, so the password never appears on the page. Give the editing controller a
+            <code>PdfFormSecretStore</code> and a password isn't written into the PDF at all, as the PDF
+            specification asks: the file keeps a fixed-length mask, and the value is kept in the device's
+            keychain, so it comes back when the same document is reopened on that device. The DartPDF app does
+            this on desktop and mobile. On the web it keeps passwords only in memory until the page closes. The saved file looks the same in every viewer, and it prints
             correctly.</p>
 
           <h3 id="forms-flutter">In a Flutter app</h3>
