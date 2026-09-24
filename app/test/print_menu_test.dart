@@ -125,7 +125,38 @@ void main() {
         TargetPlatform.linux,
       }));
 
-  testWidgets('a failing printer surfaces a toast and logs the cause',
+  testWidgets('a failing printer surfaces a toast and logs the error',
+      (tester) async {
+    AppDevTools.instance.clearLog();
+    await pumpWithDoc(
+      tester,
+      printDocument: ({required bytes, required title}) async {
+        throw StateError('no printer available');
+      },
+    );
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Print item can sit below the fold - scroll it into view before tapping.
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-print')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-print')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.pumpAndSettle(); // close preview and reject the future
+    await tester.pump(); // show the snack bar
+
+    expect(find.text('Could not print Report.pdf'), findsOneWidget);
+    final failure = AppDevTools.instance.log
+        .lastWhere((entry) => entry.level == DevLogLevel.error);
+    expect(
+        failure.message,
+        startsWith(
+            'print failed: Report.pdf - Bad state: no printer available'));
+  });
+
+  testWidgets('a platform print failure logs its code, message and details',
       (tester) async {
     AppDevTools.instance.clearLog();
     await pumpWithDoc(
