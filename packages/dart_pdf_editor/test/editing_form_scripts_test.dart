@@ -132,4 +132,91 @@ void main() {
     // an unknown name has nothing to check
     expect(session.checkFormFieldText('nope', 'x').isValid, isTrue);
   });
+
+  group('password fields', () {
+    /// The fixture's 'name' field as a password field with a 4-digit PIN
+    /// keystroke script and a number format (which must never show).
+    Uint8List pinForm() {
+      CosDictionary js(String script) => CosDictionary({
+            'S': const CosName('JavaScript'),
+            'JS': CosString.fromText(script),
+          });
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      final field = editor.acroForm!.fieldNamed('name')!;
+      field.dict['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+      field.dict['AA'] = CosDictionary({
+        'K': js('AFSpecial_KeystrokeEx("9999");'),
+        'F': js('AFNumber_Format(2, 0, 0, 0, "\$", true);'),
+      });
+      editor.setTextValue(field, '');
+      return editor.save();
+    }
+
+    bool fileContains(Uint8List bytes, String text) =>
+        String.fromCharCodes(bytes).contains(text);
+
+    test('keystroke checks run before the secret store route', () async {
+      final store = InMemoryFormSecretStore();
+      final c = PdfEditingController(pinForm(), formSecretStore: store);
+      addTearDown(c.dispose);
+      await c.formSecretsLoaded;
+
+      expect(c.checkFormFieldText('name', '12a4').isValid, isFalse);
+      expect(c.setFormFieldText('name', '12a4'), isFalse);
+      await c.formSecretsSettled;
+      expect(c.isModified, isFalse);
+      expect(await store.read(c.formSecretDocumentId!, 'name'), isNull);
+
+      expect(c.setFormFieldText('name', '4321'), isTrue);
+      await c.formSecretsSettled;
+      expect(await store.read(c.formSecretDocumentId!, 'name'), '4321');
+      final field = c.acroForm!.fieldNamed('name')!;
+      expect(field.value, isNull, reason: 'never written to /V');
+      expect(fileContains(c.bytes, '4321'), isFalse);
+      expect(fileContains(c.bytes, r'$4,321'), isFalse,
+          reason: 'the format never reaches a password appearance');
+    });
+
+    test('without a store, a valid password still fills /V, masked', () {
+      final c = PdfEditingController(pinForm());
+      addTearDown(c.dispose);
+      expect(c.setFormFieldText('name', 'abcd'), isFalse);
+      expect(c.setFormFieldText('name', '4321'), isTrue);
+      expect(c.acroForm!.fieldNamed('name')!.value, '4321');
+      expect(fileContains(c.bytes, r'$4,321'), isFalse);
+    });
+
+    testWidgets('the afterimage of a password is the mask, not the format',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final session = PdfEditingController(pinForm());
+      final viewer = PdfViewerController();
+      addTearDown(session.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: session,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: session.document,
+              controller: viewer,
+              editing: session,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      await open(tester);
+      await tester.enterText(editorKey, '4321');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      expect(session.acroForm!.fieldNamed('name')!.value, '4321');
+      // neither the formatted value nor the entry is painted anywhere
+      expect(find.textContaining(r'$4,321'), findsNothing);
+      expect(find.textContaining('4321'), findsNothing);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    });
+  });
 }

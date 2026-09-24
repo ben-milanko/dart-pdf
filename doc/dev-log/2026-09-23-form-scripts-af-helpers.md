@@ -140,3 +140,25 @@ ARB files yet.
 - `dart_pdf_editor/test/editing_form_scripts_test.dart`: keystroke filter,
   Enter keeps the editor open with the reason, blur drops the value with a
   toast, and controller check/normalise.
+
+## Interaction with /MaxLen, comb, password and XFA (merged from main)
+
+- `_regenerateVariableText` order: /MaxLen truncates the raw value first.
+  Then a password field shows only its mask and is never formatted (a
+  format such as AFSpecial_Format would re-derive the digits). Anything
+  else is formatted. A comb field lays the formatted text out one cell per
+  character. If the formatted text has more characters than cells (SSN
+  dashes in a 9-cell comb), the raw value is laid out instead, since
+  /MaxLen made it fit, so nothing is silently cut.
+- `PdfEditingController.setFormFieldText` runs `checkInput`
+  (keystroke/validate) first for every text field. A password field with a
+  `formSecretStore` then goes to `_setWithheldPassword` with the checked
+  value; everything else goes to `enterTextValue`. Refusal messages never
+  echo the entered text.
+- Calculations never read a password field (it looks empty to
+  AFSimple_Calculate and simplified field notation) and never target one,
+  so a stored password can't surface in a total's appearance.
+- Recalculation writes go through `_finishFieldEdit`, so they drop a stale
+  /XFA like any other fill.
+- The form layer's afterimage is the formatted value, but a password
+  passes its raw entry to `formPasswordMask`.

@@ -295,6 +295,7 @@
   "searchWholeWord": "Mot entier",
   "shellControls": "Commandes",
   "shellDefaultAuthor": "Auteur par défaut…",
+  "formXfaUnsupportedNotice": "Ce formulaire utilise XFA, qui ne peut pas être rempli ici : ses champs n'apparaissent donc pas. Ouvrez-le dans une application compatible avec les formulaires XFA pour le remplir.",
   "shellHighlightFormFields": "Surligner les champs de formulaire",
   "shellKeyboardShortcutsMenu": "Raccourcis clavier…",
   "shellKeyboardShortcutsTitle": "Raccourcis clavier",

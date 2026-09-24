@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -25,8 +26,7 @@ void main() {
 
     test('an ordinary content stream is encrypted', () {
       expect(
-          h.streamPayloadIsEncrypted(
-              stream(CosDictionary(), 'q Q'), identity),
+          h.streamPayloadIsEncrypted(stream(CosDictionary(), 'q Q'), identity),
           isTrue);
     });
 
@@ -39,8 +39,8 @@ void main() {
     });
 
     test('/Metadata stays encrypted when /EncryptMetadata is true', () {
-      final metadata = stream(
-          CosDictionary({'Type': const CosName('Metadata')}), '<xml/>');
+      final metadata =
+          stream(CosDictionary({'Type': const CosName('Metadata')}), '<xml/>');
       // the revision-3 fixture leaves metadata encrypted by default
       expect(h.encryptMetadata, isTrue);
       expect(h.streamPayloadIsEncrypted(metadata, identity), isTrue);
@@ -51,11 +51,11 @@ void main() {
               buildEncryptedPdf(revision: 4, encryptMetadata: false))
           .encryption!;
       expect(noMetaHandler.encryptMetadata, isFalse);
-      final metadata = stream(
-          CosDictionary({'Type': const CosName('Metadata')}), '<xml/>');
+      final metadata =
+          stream(CosDictionary({'Type': const CosName('Metadata')}), '<xml/>');
       // exempt from encryption - the exempt (false) branch of the policy
-      expect(noMetaHandler.streamPayloadIsEncrypted(metadata, identity),
-          isFalse);
+      expect(
+          noMetaHandler.streamPayloadIsEncrypted(metadata, identity), isFalse);
       // and encrypt-on-write passes such a payload through plain
       final out = noMetaHandler.encryptObjectGraph(metadata, 10, 0,
           resolve: identity, keepsFileCiphertext: (_) => false) as CosStream;
@@ -67,8 +67,8 @@ void main() {
         'Filter': const CosName('Crypt'),
         'DecodeParms': CosDictionary({'Name': const CosName('Identity')}),
       });
-      expect(h.streamPayloadIsEncrypted(stream(dict, 'plain'), identity),
-          isFalse);
+      expect(
+          h.streamPayloadIsEncrypted(stream(dict, 'plain'), identity), isFalse);
     });
 
     test('a /Crypt filter naming a real crypt filter stays encrypted', () {
@@ -76,27 +76,27 @@ void main() {
         'Filter': const CosName('Crypt'),
         'DecodeParms': CosDictionary({'Name': const CosName('StdCF')}),
       });
-      expect(h.streamPayloadIsEncrypted(stream(dict, 'cipher'), identity),
-          isTrue);
+      expect(
+          h.streamPayloadIsEncrypted(stream(dict, 'cipher'), identity), isTrue);
     });
 
     test('a bare /Crypt filter (no parms) defaults to /Identity', () {
       final dict = CosDictionary({'Filter': const CosName('Crypt')});
-      expect(h.streamPayloadIsEncrypted(stream(dict, 'plain'), identity),
-          isFalse);
+      expect(
+          h.streamPayloadIsEncrypted(stream(dict, 'plain'), identity), isFalse);
     });
 
     test('the /Crypt slot is found inside a filter/parms array pair', () {
       final dict = CosDictionary({
-        'Filter': CosArray(
-            [const CosName('FlateDecode'), const CosName('Crypt')]),
+        'Filter':
+            CosArray([const CosName('FlateDecode'), const CosName('Crypt')]),
         'DecodeParms': CosArray([
           CosNull.instance,
           CosDictionary({'Name': const CosName('Identity')}),
         ]),
       });
-      expect(h.streamPayloadIsEncrypted(stream(dict, 'plain'), identity),
-          isFalse);
+      expect(
+          h.streamPayloadIsEncrypted(stream(dict, 'plain'), identity), isFalse);
     });
   });
 
@@ -110,8 +110,8 @@ void main() {
         'Title': CosString(title),
         'Kids': CosArray([CosString(nested)]),
         'Stream': CosStream(
-            CosDictionary({'Author': CosString(h.encryptString(
-                ascii('Nib'), 10, 0))}),
+            CosDictionary(
+                {'Author': CosString(h.encryptString(ascii('Nib'), 10, 0))}),
             payload),
       });
 
@@ -133,22 +133,22 @@ void main() {
       final graph = CosDictionary({
         'Title': CosString.fromText('Plain'),
         // an array so the CosArray branch of the walk is exercised
-        'Names': CosArray([CosString.fromText('Nested'), const CosName('Keep')]),
-        'Content': stream(
-            CosDictionary({'Length': CosInteger(content.length)}),
+        'Names':
+            CosArray([CosString.fromText('Nested'), const CosName('Keep')]),
+        'Content': stream(CosDictionary({'Length': CosInteger(content.length)}),
             'BT (hi) Tj ET'),
       });
 
       final out = h.encryptObjectGraph(graph, 10, 0,
-          resolve: identity, keepsFileCiphertext: (_) => false) as CosDictionary;
+          resolve: identity,
+          keepsFileCiphertext: (_) => false) as CosDictionary;
 
       // the original graph is untouched
       expect((graph['Title'] as CosString).text, 'Plain');
       expect((graph['Content'] as CosStream).rawBytes, content);
 
       // strings round-trip back through the reader, anywhere in the graph
-      expect(
-          h.decryptString((out['Title'] as CosString).bytes, 10, 0),
+      expect(h.decryptString((out['Title'] as CosString).bytes, 10, 0),
           CosString.fromText('Plain').bytes);
       final names = out['Names'] as CosArray;
       expect(h.decryptString((names[0] as CosString).bytes, 10, 0),
@@ -170,8 +170,7 @@ void main() {
       final identityStream = stream(
           CosDictionary({
             'Filter': const CosName('Crypt'),
-            'DecodeParms':
-                CosDictionary({'Name': const CosName('Identity')}),
+            'DecodeParms': CosDictionary({'Name': const CosName('Identity')}),
           }),
           'stays plain');
 
@@ -196,6 +195,80 @@ void main() {
     });
   });
 
+  group('signature /Contents exemption (§7.6.1)', () {
+    final cms = Uint8List.fromList([0x30, 0x82, 0x01, 0x00, 0xAB, 0xCD]);
+
+    CosDictionary sigDict({String? type = 'Sig', bool byteRange = true}) =>
+        CosDictionary({
+          if (type != null) 'Type': CosName(type),
+          'Filter': const CosName('Adobe.PPKLite'),
+          if (byteRange)
+            'ByteRange': CosArray([
+              const CosInteger(0), const CosInteger(10), //
+              const CosInteger(20), const CosInteger(30),
+            ]),
+          'Contents': CosString(cms, isHex: true),
+          'Reason': CosString.fromText('Approval'),
+        });
+
+    test('recognises /Sig, /DocTimeStamp and an untyped /ByteRange dict', () {
+      bool exempt(CosDictionary d) =>
+          StandardSecurityHandler.isSignatureContents(d, 'Contents');
+      expect(exempt(sigDict()), isTrue);
+      expect(exempt(sigDict(type: 'DocTimeStamp', byteRange: false)), isTrue);
+      expect(exempt(sigDict(type: null)), isTrue);
+      expect(StandardSecurityHandler.isSignatureContents(sigDict(), 'Reason'),
+          isFalse);
+      // an annotation's /Contents is ordinary text and stays encrypted
+      expect(
+          exempt(CosDictionary({
+            'Type': const CosName('Annot'),
+            'Contents': CosString.fromText('note'),
+          })),
+          isFalse);
+    });
+
+    test('encrypt leaves /Contents plain and encrypts the other strings', () {
+      final h = handler();
+      final out = h.encryptObjectGraph(sigDict(), 12, 0,
+          resolve: identity,
+          keepsFileCiphertext: (_) => false) as CosDictionary;
+      expect((out['Contents'] as CosString).bytes, cms);
+      expect((out['Contents'] as CosString).isHex, isTrue);
+      expect((out['Reason'] as CosString).bytes,
+          isNot(CosString.fromText('Approval').bytes));
+    });
+
+    test('decrypt reads /Contents raw and round-trips the rest', () {
+      final h = handler();
+      final written = h.encryptObjectGraph(sigDict(), 12, 0,
+          resolve: identity,
+          keepsFileCiphertext: (_) => false) as CosDictionary;
+      h.decryptObjectGraph(written, 12, 0);
+      expect((written['Contents'] as CosString).bytes, cms);
+      expect((written['Reason'] as CosString).text, 'Approval');
+    });
+  });
+
+  test('openAppended reuses the keys for a revision written without them', () {
+    final original = CosDocument.open(
+        buildEncryptedPdf(revision: 6, userPassword: 'user'),
+        password: 'user');
+    final updater = CosIncrementalUpdater(original);
+    final infoRef = original.trailer['Info'] as CosReference;
+    final info = original.resolve(infoRef) as CosDictionary;
+    info['Title'] = CosString.fromText('Rewritten');
+    updater.replaceObject(infoRef.objectNumber, info);
+    final saved = updater.save();
+
+    expect(() => CosDocument.open(saved), throwsA(isA<CosPasswordException>()));
+    final reopened = original.openAppended(saved);
+    expect(reopened.isEncrypted, isTrue);
+    final title = (reopened.resolve(reopened.trailer['Info'])
+        as CosDictionary)['Title'] as CosString;
+    expect(title.text, 'Rewritten');
+  });
+
   test('the /Encrypt string ciphers are the ones the handler advertises', () {
     // sanity: the fixture handler really uses RC4 so the round-trips above
     // are meaningful (a no-op cipher would pass every assertion vacuously).
@@ -207,8 +280,8 @@ void main() {
     // The document loader and this handler now share one exempt policy;
     // this guards against the two drifting apart again.
     final doc = CosDocument.open(buildEncryptedPdf(revision: 4));
-    final page = doc.resolve(
-        (doc.resolve(doc.catalog['Pages']) as CosDictionary)['Kids']);
+    final page = doc
+        .resolve((doc.resolve(doc.catalog['Pages']) as CosDictionary)['Kids']);
     final pageDict = doc.resolve((page as CosArray)[0]) as CosDictionary;
     final contents = doc.resolve(pageDict['Contents']) as CosStream;
     expect(doc.encryption!.streamPayloadIsEncrypted(contents, doc.resolve),

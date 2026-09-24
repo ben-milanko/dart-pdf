@@ -13,6 +13,7 @@ import 'compressor.dart';
 import 'content_elements.dart';
 import 'content_writer.dart';
 import 'document.dart';
+import 'document_identity.dart';
 import 'font_embedder.dart';
 import 'form.dart';
 import 'form_scripts.dart';

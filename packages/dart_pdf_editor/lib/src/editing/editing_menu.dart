@@ -449,7 +449,7 @@ Future<void> showPdfFormFieldMenu({
           onSelected: (_) async {
             final value = await textPrompt(context,
                 title: pdfL10n(context).menuFieldValue,
-                initial: field.value ?? '');
+                initial: field.isPassword ? '' : field.value ?? '');
             if (value != null) controller.setFormFieldText(fieldName, value);
           },
         );

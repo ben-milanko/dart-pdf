@@ -12,13 +12,24 @@ typedef _Field = ({
   Map<String, String> scripts,
   String? value,
   bool readOnly,
+  int flags,
+  int? maxLen,
 });
 
 _Field _field(String name,
         {Map<String, String> scripts = const {},
         String? value,
-        bool readOnly = false}) =>
-    (name: name, scripts: scripts, value: value, readOnly: readOnly);
+        bool readOnly = false,
+        int flags = 0,
+        int? maxLen}) =>
+    (
+      name: name,
+      scripts: scripts,
+      value: value,
+      readOnly: readOnly,
+      flags: flags,
+      maxLen: maxLen,
+    );
 
 /// One page with one text-field widget per entry of [fields] (merged
 /// field/widget dictionaries), the scripts as /JavaScript actions under
@@ -65,7 +76,10 @@ Uint8List _buildScriptedForm(List<_Field> fields,
       'P': pageRef,
       'DA': CosString.fromText('/Helv 10 Tf 0 g'),
       if (f.value != null) 'V': CosString.fromText(f.value!),
-      if (f.readOnly) 'Ff': const CosInteger(PdfFormField.readOnlyFlag),
+      if (f.readOnly || f.flags != 0)
+        'Ff':
+            CosInteger(f.flags | (f.readOnly ? PdfFormField.readOnlyFlag : 0)),
+      if (f.maxLen != null) 'MaxLen': CosInteger(f.maxLen!),
       if (aa.entries.isNotEmpty) 'AA': aa,
     });
     final ref = b.add(dict);
@@ -371,6 +385,128 @@ void main() {
         e.enterTextValue(e.acroForm!.fieldNamed('Free')!, '  anything ');
       });
       expect(PdfAcroForm.of(doc)!.fieldNamed('Free')!.value, '  anything ');
+    });
+  });
+
+  group('with /MaxLen, comb and password fields', () {
+    const password = PdfFormField.passwordFlag;
+    const comb = PdfFormField.combFlag;
+
+    test('/MaxLen truncates the raw value, then the format applies', () {
+      final doc = roundTrip(
+          _buildScriptedForm([
+            _field('Amount', maxLen: 4, scripts: {'F': money}),
+          ]), (e) {
+        e.setTextValue(e.acroForm!.fieldNamed('Amount')!, '123456');
+      });
+      final field = PdfAcroForm.of(doc)!.fieldNamed('Amount')!;
+      expect(field.value, '1234');
+      expect(_appearance(doc, field), contains(r'($1,234.00) Tj'));
+    });
+
+    test('a comb field lays the formatted text out one cell per character', () {
+      final doc = roundTrip(
+          _buildScriptedForm([
+            // 11 cells: the SSN format with its dashes fits
+            _field('SSN',
+                flags: comb,
+                maxLen: 11,
+                scripts: {'F': 'AFSpecial_Format(3);'}),
+            // 9 cells: the formatted text would lose its tail, so the raw
+            // digits (which /MaxLen made fit) are laid out instead
+            _field('Tight',
+                flags: comb, maxLen: 9, scripts: {'F': 'AFSpecial_Format(3);'}),
+          ]), (e) {
+        final form = e.acroForm!;
+        e.setTextValue(form.fieldNamed('SSN')!, '123456789');
+        e.setTextValue(form.fieldNamed('Tight')!, '123456789');
+      });
+      final form = PdfAcroForm.of(doc)!;
+      List<String> shown(String name) => RegExp(r'\(([^)]*)\) Tj')
+          .allMatches(_appearance(doc, form.fieldNamed(name)!))
+          .map((m) => m.group(1)!)
+          .toList();
+
+      expect(form.fieldNamed('SSN')!.value, '123456789');
+      expect(shown('SSN'), '123-45-6789'.split(''),
+          reason: 'one show per cell, dashes included');
+      expect(shown('Tight'), '123456789'.split(''));
+    });
+
+    test('a password field shows only its mask, never the formatted value', () {
+      final doc = roundTrip(
+          _buildScriptedForm([
+            _field('Pin', flags: password, scripts: {
+              'F': 'AFSpecial_Format(3);',
+            }),
+            _field('Withheld', flags: password, scripts: {'F': money}),
+          ]), (e) {
+        final form = e.acroForm!;
+        e.setTextValue(form.fieldNamed('Pin')!, '123456789');
+        e.setPasswordValue(form.fieldNamed('Withheld')!, '42');
+      });
+      final form = PdfAcroForm.of(doc)!;
+      final pin = _appearance(doc, form.fieldNamed('Pin')!);
+      expect(pin, contains('(*********) Tj'));
+      expect(pin, isNot(contains('123')));
+      final withheld = form.fieldNamed('Withheld')!;
+      expect(withheld.value, isNull);
+      expect(_appearance(doc, withheld), contains('(********) Tj'));
+      expect(_appearance(doc, withheld), isNot(contains(r'$')));
+    });
+
+    test('keystroke and validate scripts apply to password fields', () {
+      final editor = PdfEditor(PdfDocument.open(_buildScriptedForm([
+        _field('Pin', flags: password, scripts: {
+          'K': 'AFSpecial_KeystrokeEx("9999");',
+        }),
+      ])));
+      final pin = editor.acroForm!.fieldNamed('Pin')!;
+      final refused = pin.checkInput('12a4');
+      expect(refused.isValid, isFalse);
+      expect(refused.message, isNot(contains('12a4')),
+          reason: 'a refusal never echoes the typed secret');
+      expect(() => editor.enterTextValue(pin, 'abcd'),
+          throwsA(isA<PdfFieldInputException>()));
+      expect(pin.checkInput('1234').isValid, isTrue);
+    });
+
+    test('calculations neither read nor write password fields', () {
+      final doc = roundTrip(
+          _buildScriptedForm([
+            _field('A'),
+            _field('Pin', flags: password),
+            _field('Total', scripts: {
+              'C': 'AFSimple_Calculate("SUM", new Array("A", "Pin"));',
+            }),
+            _field('Secret', flags: password, value: 'kept', scripts: {
+              'C': 'AFSimple_Calculate("SUM", "A");',
+            }),
+          ]), (e) {
+        final form = e.acroForm!;
+        // a stored (not withheld) password is in /V - still not summed
+        e.setTextValue(form.fieldNamed('Pin')!, '1000');
+        e.setTextValue(form.fieldNamed('A')!, '5');
+      });
+      final form = PdfAcroForm.of(doc)!;
+      expect(form.fieldNamed('Total')!.value, '5');
+      expect(form.fieldNamed('Secret')!.value, 'kept');
+      expect(form.calculationOrder.map((f) => f.name), ['Total']);
+    });
+
+    test('recalculation after a fill still drops a stale /XFA', () {
+      final bytes = _buildScriptedForm([
+        _field('A'),
+        _field('Total', scripts: {'C': 'AFSimple_Calculate("SUM", "A");'}),
+      ]);
+      final editor = PdfEditor(PdfDocument.open(bytes));
+      final form = editor.acroForm!;
+      form.dict['XFA'] = CosString.fromText('<xdp/>');
+      editor.setTextValue(form.fieldNamed('A')!, '3');
+      final out = PdfDocument.open(editor.save());
+      final outForm = PdfAcroForm.of(out)!;
+      expect(outForm.dict.containsKey('XFA'), isFalse);
+      expect(outForm.fieldNamed('Total')!.value, '3');
     });
   });
 }

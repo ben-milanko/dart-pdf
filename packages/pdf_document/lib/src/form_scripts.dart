@@ -1719,7 +1719,8 @@ final Expando<List<PdfFormField>> _calculationOrderCache =
 
 /// Calculation-order access on a form.
 extension PdfAcroFormCalculations on PdfAcroForm {
-  /// The text fields that carry a calculate script, in the order they run:
+  /// The text fields (never password fields) that carry a calculate script,
+  /// in the order they run:
   /// the /CO array first (§12.7.3, "calculation order"), then - leniently,
   /// for producers that omit /CO - any other calculated field in field
   /// order. Includes fields whose calculate script is unsupported.
@@ -1751,9 +1752,11 @@ extension PdfAcroFormCalculations on PdfAcroForm {
     for (final field in fields) {
       if (field.scripts.calculate != null && seen.add(field)) out.add(field);
     }
+    // password fields are never calculation targets: their appearance is a
+    // mask and their value is not the form's to derive
     return [
       for (final f in out)
-        if (f.type == PdfFieldType.text) f,
+        if (f.type == PdfFieldType.text && !f.isPassword) f,
     ];
   }
 
@@ -1768,8 +1771,11 @@ extension PdfAcroFormCalculations on PdfAcroForm {
   }) {
     final order = calculationOrder;
     if (order.isEmpty) return const [];
+    // a password field reads as empty: a total over it must not carry its
+    // value into a field that shows it (withheld passwords have no /V
+    // anyway, but a stored one does)
     final values = <String, String?>{
-      for (final f in fields) f.name: f.value,
+      for (final f in fields) f.name: f.isPassword ? null : f.value,
       ...overrides,
     };
     List<String?> lookup(String name) {

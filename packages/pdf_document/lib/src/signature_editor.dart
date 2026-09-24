@@ -349,13 +349,6 @@ extension PdfSigning on PdfEditor {
     int? docMdpPermissions,
     PdfSignatureAppearance? appearance,
   }) {
-    if (document.cos.isEncrypted) {
-      // the signature /Contents and /ByteRange must stay unencrypted and
-      // byte-patchable in the written file; encrypt-on-write would
-      // scramble the placeholders this method patches
-      throw UnsupportedEncryptionException(
-          'signing encrypted documents is not supported yet');
-    }
     // A document certified "no changes" cannot take another signature: the
     // incremental update this writes would break the certification it is
     // appended to. A document timestamp is exempt (see the exception's doc).
@@ -419,6 +412,12 @@ extension PdfSigning on PdfEditor {
       ),
     );
 
+    // On an encrypted document the updater encrypts every string of this
+    // revision - /M, /Name, /Reason, ... - except the signature's /Contents
+    // (§7.6.1, StandardSecurityHandler.isSignatureContents), and /ByteRange
+    // holds integers only. So both placeholders reach the file verbatim, and
+    // every offset below is measured on the bytes exactly as written - after
+    // encryption has settled each string's padded/IV'd length.
     final saved = _updater.save();
 
     final tPatch = PdfPerf.begin();
@@ -577,8 +576,8 @@ extension PdfSigning on PdfEditor {
         final widget = existing.widgets.first;
         final rect = pdfRectFrom(cos, widget['Rect']);
         if (rect != null && rect.width > 1 && rect.height > 1) {
-          _installSignatureAppearance(widget, rect,
-              appearance ?? const PdfSignatureAppearance(), text);
+          _installSignatureAppearance(
+              widget, rect, appearance ?? const PdfSignatureAppearance(), text);
           if (!identical(widget, existing.dict) &&
               cos.referenceTo(widget) != null) {
             _updater.markChanged(widget);
@@ -591,9 +590,8 @@ extension PdfSigning on PdfEditor {
     }
 
     final visible = appearance?.rect;
-    final pageIndex = visible != null
-        ? appearance!.page.clamp(0, document.pageCount - 1)
-        : 0;
+    final pageIndex =
+        visible != null ? appearance!.page.clamp(0, document.pageCount - 1) : 0;
     final page = document.page(pageIndex);
     final pageRef = cos.referenceTo(page.dict);
     final name = fieldName ?? _freshFieldName(form);
@@ -620,7 +618,8 @@ extension PdfSigning on PdfEditor {
     });
     CosReference? formRef;
     if (visible != null) {
-      formRef = _installSignatureAppearance(fieldDict, visible, appearance!, text);
+      formRef =
+          _installSignatureAppearance(fieldDict, visible, appearance!, text);
     }
     final fieldRef = _updater.addObject(fieldDict);
 
@@ -674,8 +673,8 @@ extension PdfSigning on PdfEditor {
   /// out-of-range indices - the "apply to pages" visuals. They are plain,
   /// locked /Stamp annotations, not extra signature widgets, so the signature
   /// stays a single field; they ride the same signed revision.
-  void _repeatSignatureBox(PdfRect rect, CosReference formRef,
-      List<int> pages, int primaryPage) {
+  void _repeatSignatureBox(
+      PdfRect rect, CosReference formRef, List<int> pages, int primaryPage) {
     final cos = document.cos;
     final seen = <int>{primaryPage};
     for (final p in pages) {
@@ -764,8 +763,7 @@ extension PdfSigning on PdfEditor {
         final imageRef =
             _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
         // fit the whole logo inside the box (contain), centered
-        final scale =
-            math.min(w / image.width, h / image.height);
+        final scale = math.min(w / image.width, h / image.height);
         final dw = image.width * scale, dh = image.height * scale;
         writer
           ..save()
@@ -803,9 +801,7 @@ extension PdfSigning on PdfEditor {
         '${config.signedByLabel} $name',
       if (config.showDate && info.time != null)
         '${config.dateLabel} ${_displaySignDate(info.time!)}',
-      if (config.showReason &&
-          info.reason != null &&
-          info.reason!.isNotEmpty)
+      if (config.showReason && info.reason != null && info.reason!.isNotEmpty)
         '${config.reasonLabel} ${info.reason}',
       if (config.showLocation &&
           info.location != null &&
@@ -830,13 +826,12 @@ extension PdfSigning on PdfEditor {
           _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
       final panelW = divider - 2 * pad, panelH = h - 2 * pad;
       if (panelW > 0 && panelH > 0 && image.width > 0 && image.height > 0) {
-        final scale = math.min(
-            panelW / image.width, panelH / image.height);
+        final scale = math.min(panelW / image.width, panelH / image.height);
         final dw = image.width * scale, dh = image.height * scale;
         writer
           ..save()
-          ..concatMatrix(dw, 0, 0, dh, pad + (panelW - dw) / 2,
-              pad + (panelH - dh) / 2)
+          ..concatMatrix(
+              dw, 0, 0, dh, pad + (panelW - dw) / 2, pad + (panelH - dh) / 2)
           ..drawXObject('SigImg')
           ..restore();
         xObjects['SigImg'] = imageRef;
@@ -922,7 +917,8 @@ extension PdfSigning on PdfEditor {
         'Encoding': const CosName('WinAnsiEncoding'),
         'FirstChar': const CosInteger(32),
         'LastChar': const CosInteger(255),
-        'Widths': CosArray([for (final width in font.widths) CosInteger(width)]),
+        'Widths':
+            CosArray([for (final width in font.widths) CosInteger(width)]),
       });
 
   /// Font size at or below which an over-wide run (e.g. a long email with no
@@ -971,10 +967,9 @@ extension PdfSigning on PdfEditor {
           ..._wrapSignatureLine(
               line, boxW, (s) => font.measure(s, size), breakTokens),
       ];
-      final widest = wrapped.fold<double>(
-          0, (m, l) => math.max(m, font.measure(l, size)));
-      final fits =
-          widest <= boxW && wrapped.length * size * 1.3 <= boxH;
+      final widest =
+          wrapped.fold<double>(0, (m, l) => math.max(m, font.measure(l, size)));
+      final fits = widest <= boxW && wrapped.length * size * 1.3 <= boxH;
       if (fits || size <= _signatureMinSize) break;
       size -= 0.5;
     }
@@ -992,9 +987,8 @@ extension PdfSigning on PdfEditor {
       align: align,
       padding: 0,
       lineHeight: size * 1.3,
-      vAlign: centerVertical
-          ? PdfTextBoxVAlign.centerBlock
-          : PdfTextBoxVAlign.top,
+      vAlign:
+          centerVertical ? PdfTextBoxVAlign.centerBlock : PdfTextBoxVAlign.top,
       // A box too short for the block even at the minimum size would otherwise
       // centre the overflow and let the clip slice the first line's ascenders
       // and the last line's descenders at once - the worst of both edges.

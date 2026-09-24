@@ -947,6 +947,10 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'المؤلف الافتراضي…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'يستخدم هذا النموذج تنسيق XFA الذي لا يمكن تعبئته هنا، لذا لا تظهر حقوله. افتحه في تطبيق يدعم نماذج XFA لتعبئته.';
+
+  @override
   String get shellHighlightFormFields => 'تمييز حقول النموذج';
 
   @override
