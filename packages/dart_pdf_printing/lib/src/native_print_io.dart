@@ -1,5 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfPage;
 
 import 'print_printer.dart';
 
@@ -124,36 +125,64 @@ Future<void> _printDocumentPages(
   );
   final vector = info?['vector'] == true;
   final dpi = _resolveDpi(info);
+  // Copies are laid out by the print options as repeated page dictionaries
+  // that share one content stream, so 10 copies of a 2-page file arrive as
+  // 20 pages but only 2 distinct sheets. Lower each distinct sheet once, keep
+  // its bytes while a later copy still needs them, and count progress in
+  // distinct sheets - the user sees "2 of 2", not "20 of 20".
+  final keys = [
+    for (var i = 0; i < document.pageCount; i++) _sheetKey(document.page(i))
+  ];
+  final remaining = <String, int>{};
+  for (final key in keys) {
+    remaining[key] = (remaining[key] ?? 0) + 1;
+  }
+  final total = remaining.length;
+  final encoded = <String, Uint8List>{};
+  final seen = <String>{};
+  var cachedBytes = 0;
   try {
     for (var i = 0; i < document.pageCount; i++) {
-      // Lowering (or JPEG-encoding) a page is heavy CPU on the UI isolate.
-      // Yield first so the engine can service input and paint a frame between
-      // pages - otherwise a large document's print holds the isolate long
-      // enough to make the app unresponsive.
-      await Future<void>.delayed(Duration.zero);
-      final bool? ok;
-      if (vector) {
-        final stream = await encodePageForVectorPrinting(document.page(i));
-        ok = await channel.invokeMethod<bool>(
-          'printPageVector',
-          <String, dynamic>{'page': stream},
-        );
+      final key = keys[i];
+      final left = remaining[key] = remaining[key]! - 1;
+      var bytes = left == 0 ? encoded.remove(key) : encoded[key];
+      var fresh = false;
+      if (bytes != null) {
+        if (left == 0) cachedBytes -= bytes.length;
       } else {
-        final jpeg = await PdfPageExport.exportPage(
-          document.page(i),
-          format: PdfRasterFormat.jpeg,
-          dpi: dpi.toDouble(),
-          jpegQuality: 85,
-        );
-        ok = await channel.invokeMethod<bool>(
-          'printPage',
-          <String, dynamic>{'image': jpeg},
-        );
+        // Lowering (or JPEG-encoding) a page is heavy CPU on the UI isolate.
+        // Yield first so the engine can service input and paint a frame
+        // between pages - otherwise a large document's print holds the
+        // isolate long enough to make the app unresponsive.
+        await Future<void>.delayed(Duration.zero);
+        bytes = vector
+            ? await encodePageForVectorPrinting(document.page(i))
+            : await PdfPageExport.exportPage(
+                document.page(i),
+                format: PdfRasterFormat.jpeg,
+                dpi: dpi.toDouble(),
+                jpegQuality: 85,
+              );
+        if (left > 0 && cachedBytes + bytes.length <= _maxCachedSheetBytes) {
+          encoded[key] = bytes;
+          cachedBytes += bytes.length;
+        }
+        // A copy that did not fit the cache is re-encoded, but was counted.
+        fresh = seen.add(key);
       }
+      final ok = await channel.invokeMethod<bool>(
+        vector ? 'printPageVector' : 'printPage',
+        <String, dynamic>{(vector ? 'page' : 'image'): bytes},
+      );
       if (ok == false) {
         throw StateError('the printer rejected page ${i + 1}');
       }
-      onProgress?.call(i + 1, document.pageCount);
+      // Hold the final tick until the last copy is spooled, so the progress
+      // dialog does not close while copies are still being sent.
+      final last = i == document.pageCount - 1;
+      if (last || (fresh && seen.length < total)) {
+        onProgress?.call(seen.length, total);
+      }
     }
     // endJob returns false when the user cancels the print dialog - that is
     // handled, nothing more to do.
@@ -172,6 +201,18 @@ Future<void> _printDocumentPages(
     );
   }
 }
+
+/// Encoded sheets kept for later copies. A collated job of a long document
+/// re-encodes rather than holding every sheet until its next copy.
+const _maxCachedSheetBytes = 64 << 20;
+
+/// Identifies a composed sheet by what it draws. Copies are distinct page
+/// objects (each has its own /Parent entry) that share their other entries,
+/// including the indirect /Contents reference.
+String _sheetKey(PdfPage page) => [
+      for (final entry in page.dict.entries.entries)
+        if (entry.key != 'Parent') '/${entry.key} ${entry.value}'
+    ].join(' ');
 
 /// Target raster resolution from the runner's [info], clamped so an exotic
 /// printer can't blow up memory. Defaults to 200 dpi when unspecified.
