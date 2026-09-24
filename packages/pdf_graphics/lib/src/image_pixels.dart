@@ -1337,6 +1337,15 @@ PdfDecodedPixels? _scaledGray1Region(
   return PdfDecodedPixels(out, targetWidth, targetHeight);
 }
 
+/// Set-bit count of every byte value, for [_scaledImageMaskRegion].
+final Uint8List _popcount8 = () {
+  final table = Uint8List(256);
+  for (var i = 1; i < 256; i++) {
+    table[i] = table[i >> 1] + (i & 1);
+  }
+  return table;
+}();
+
 PdfDecodedPixels? _scaledImageMaskRegion(
   CosDocument cos,
   CosDictionary dict,
@@ -1367,22 +1376,50 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   // these sheets.
   //
   // Cells partition the source region exactly (tw <= sw, th <= sh), so every
-  // painting bit is counted once. Rows are walked a byte at a time and a byte
+  // painting bit is counted once. Rows are walked a byte at a time: a byte
   // with no painting bits (blank paper - nearly all of a drawing) is skipped
-  // outright, which keeps this close to the old point-sampling cost.
+  // outright, and any other byte is split at cell boundaries and counted with
+  // a popcount per piece, so a dense or /Decode-inverted stencil (where the
+  // paper is what paints) stays within a few times the sparse cost.
   final columnOf = Int32List(sourceWidth);
+  final columnEnd = Int32List(targetWidth);
   final columnSpan = Int32List(targetWidth);
   for (var tx = 0; tx < targetWidth; tx++) {
     final sx0 = tx * sourceWidth ~/ targetWidth;
     final sx1 = (tx + 1) * sourceWidth ~/ targetWidth;
     columnSpan[tx] = sx1 - sx0;
+    columnEnd[tx] = sourceX + sx1;
     for (var sx = sx0; sx < sx1; sx++) {
       columnOf[sx] = tx;
     }
   }
-  final firstByte = sourceX >> 3;
-  final lastByte = (sourceX + sourceWidth - 1) >> 3;
+  // Every row splits its bytes at the same cell boundaries, so the split is
+  // planned once: byte b of the region owns pieces pieceStart[b - firstByte]
+  // up to the next byte's start, each a (column, bit mask) pair. Bits outside
+  // the region are simply in no piece.
   final sourceEnd = sourceX + sourceWidth;
+  final firstByte = sourceX >> 3;
+  final byteCount = ((sourceEnd - 1) >> 3) - firstByte + 1;
+  final pieceStart = Int32List(byteCount + 1);
+  final pieceColumn = Int32List(sourceWidth);
+  final pieceMask = Uint8List(sourceWidth);
+  var pieces = 0;
+  for (var i = 0; i < byteCount; i++) {
+    pieceStart[i] = pieces;
+    final x0 = (firstByte + i) << 3;
+    final byteEnd = x0 + 8 < sourceEnd ? x0 + 8 : sourceEnd;
+    var x = x0 > sourceX ? x0 : sourceX;
+    while (x < byteEnd) {
+      final column = columnOf[x - sourceX];
+      final cellEnd = columnEnd[column];
+      final end = cellEnd < byteEnd ? cellEnd : byteEnd;
+      pieceColumn[pieces] = column;
+      // Bits x..end-1 of the byte, MSB first.
+      pieceMask[pieces++] = (0xff >> (x - x0)) & (0xff << (x0 + 8 - end));
+      x = end;
+    }
+  }
+  pieceStart[byteCount] = pieces;
   final counts = Int32List(targetWidth);
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
@@ -1391,17 +1428,14 @@ PdfDecodedPixels? _scaledImageMaskRegion(
     final sy1 = sourceY + (ty + 1) * sourceHeight ~/ targetHeight;
     counts.fillRange(0, targetWidth, 0);
     for (var sy = sy0; sy < sy1; sy++) {
-      final row = sy * rowBytes;
-      for (var b = firstByte; b <= lastByte; b++) {
-        final byte = data[row + b];
+      final row = sy * rowBytes + firstByte;
+      for (var i = 0; i < byteCount; i++) {
+        final byte = data[row + i];
         final paint = inverted ? byte : byte ^ 0xff;
         if (paint == 0) continue;
-        final x0 = b << 3;
-        for (var k = 0; k < 8; k++) {
-          if ((paint >> (7 - k)) & 1 == 0) continue;
-          final x = x0 + k;
-          if (x < sourceX || x >= sourceEnd) continue;
-          counts[columnOf[x - sourceX]]++;
+        final end = pieceStart[i + 1];
+        for (var p = pieceStart[i]; p < end; p++) {
+          counts[pieceColumn[p]] += _popcount8[paint & pieceMask[p]];
         }
       }
     }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -1273,6 +1274,61 @@ void main() {
         samplesAreDecoded: true)!;
     expect(flipped.rgba[3], 255);
     expect(flipped.rgba[(2 * 4 + 1) * 4 + 3], 255 - 7 * 255 ~/ 16 - 1);
+  });
+
+  test('scaled ImageMask coverage matches a brute-force box filter', () {
+    // Random stencils, odd widths, mid-byte regions and both /Decode
+    // polarities against a per-bit reference of the same cell partition.
+    final random = Random(949);
+    for (var trial = 0; trial < 200; trial++) {
+      final width = 1 + random.nextInt(40);
+      final height = 1 + random.nextInt(12);
+      final rowBytes = (width + 7) >> 3;
+      final bits = Uint8List(rowBytes * height);
+      final density = random.nextInt(4);
+      for (var i = 0; i < bits.length; i++) {
+        bits[i] = switch (density) {
+          0 => 0xff,
+          1 => 0x00,
+          _ => random.nextInt(256),
+        };
+      }
+      final inverted = random.nextBool();
+      final sx = random.nextInt(width);
+      final sy = random.nextInt(height);
+      final sw = 1 + random.nextInt(width - sx);
+      final sh = 1 + random.nextInt(height - sy);
+      final tw = 1 + random.nextInt(sw);
+      final th = 1 + random.nextInt(sh);
+      final stream = image({
+        'ImageMask': const CosBoolean(true),
+        'Width': CosInteger(width),
+        'Height': CosInteger(height),
+        'BitsPerComponent': const CosInteger(1),
+        if (inverted)
+          'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+      }, bits);
+      final pixels = decodePdfImagePixelsRegionScaled(
+          cos, stream, sx, sy, sw, sh, tw, th,
+          samplesAreDecoded: true)!;
+      for (var ty = 0; ty < th; ty++) {
+        final y0 = sy + ty * sh ~/ th, y1 = sy + (ty + 1) * sh ~/ th;
+        for (var tx = 0; tx < tw; tx++) {
+          final x0 = sx + tx * sw ~/ tw, x1 = sx + (tx + 1) * sw ~/ tw;
+          var paint = 0;
+          for (var y = y0; y < y1; y++) {
+            for (var x = x0; x < x1; x++) {
+              final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              if (bit == (inverted ? 1 : 0)) paint++;
+            }
+          }
+          final expected = paint * 255 ~/ ((x1 - x0) * (y1 - y0));
+          expect(pixels.rgba[(ty * tw + tx) * 4 + 3], expected,
+              reason: 'trial $trial ${width}x$height '
+                  'region ($sx,$sy ${sw}x$sh) -> ${tw}x$th at ($tx,$ty)');
+        }
+      }
+    }
   });
 
   test('scaled ImageMask region counts only bits inside the region', () {
