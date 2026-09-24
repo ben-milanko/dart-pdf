@@ -629,5 +629,16 @@
   "splitFailed": "Deze PDF kon niet worden gesplitst.",
   "guidesSnapHint": "Randen en middelpunten van annotaties uitlijnen • Houd Alt ingedrukt om over te slaan",
   "tbToolContentDelete": "Wissen",
-  "tbTipContentDelete": "Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden"
+  "tbTipContentDelete": "Inhoud verwijderen: sleep een rechthoek of klik op de hoekpunten van een veelhoek en dubbelklik om af te ronden",
+  "menuConvertToRadioGroup": "Omzetten naar keuzerondjesgroep",
+  "menuConvertToComboBox": "Omzetten naar keuzelijst met invoervak",
+  "menuConvertToListBox": "Omzetten naar keuzelijst",
+  "menuConvertToSignatureField": "Omzetten naar handtekeningveld",
+  "menuEditOptions": "Opties bewerken…",
+  "menuAddRadioButton": "Knop aan groep toevoegen",
+  "formOptionsTitle": "Veldopties",
+  "formOptionsExportValue": "Exportwaarde",
+  "formOptionsDisplayText": "Weergavetekst",
+  "formOptionsAllowCustomText": "Eigen tekst toestaan",
+  "formOptionsMultiSelect": "Meerdere selecties toestaan"
 }

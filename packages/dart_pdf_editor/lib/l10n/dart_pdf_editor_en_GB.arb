@@ -629,5 +629,16 @@
   "splitFailed": "Could not split this PDF.",
   "guidesSnapHint": "Snap annotation edges and centres • Hold Alt to bypass",
   "tbToolContentDelete": "Erase",
-  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish"
+  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish",
+  "menuConvertToRadioGroup": "Convert to radio group",
+  "menuConvertToComboBox": "Convert to combo box",
+  "menuConvertToListBox": "Convert to list box",
+  "menuConvertToSignatureField": "Convert to signature field",
+  "menuEditOptions": "Edit options…",
+  "menuAddRadioButton": "Add button to group",
+  "formOptionsTitle": "Field options",
+  "formOptionsExportValue": "Export value",
+  "formOptionsDisplayText": "Display text",
+  "formOptionsAllowCustomText": "Allow custom text",
+  "formOptionsMultiSelect": "Allow multiple selections"
 }

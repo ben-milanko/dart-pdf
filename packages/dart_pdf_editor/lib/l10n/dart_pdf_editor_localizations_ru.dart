@@ -2196,4 +2196,37 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Удалить содержимое — нарисуйте прямоугольник или нажмите на вершины многоугольника и завершите двойным щелчком';
+
+  @override
+  String get menuConvertToRadioGroup => 'Преобразовать в группу переключателей';
+
+  @override
+  String get menuConvertToComboBox => 'Преобразовать в поле со списком';
+
+  @override
+  String get menuConvertToListBox => 'Преобразовать в список';
+
+  @override
+  String get menuConvertToSignatureField => 'Преобразовать в поле подписи';
+
+  @override
+  String get menuEditOptions => 'Изменить варианты…';
+
+  @override
+  String get menuAddRadioButton => 'Добавить кнопку в группу';
+
+  @override
+  String get formOptionsTitle => 'Параметры поля';
+
+  @override
+  String get formOptionsExportValue => 'Значение экспорта';
+
+  @override
+  String get formOptionsDisplayText => 'Отображаемый текст';
+
+  @override
+  String get formOptionsAllowCustomText => 'Разрешить свой текст';
+
+  @override
+  String get formOptionsMultiSelect => 'Разрешить множественный выбор';
 }

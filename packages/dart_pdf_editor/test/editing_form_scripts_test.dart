@@ -219,4 +219,90 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
     });
   });
+
+  group('Tab between fields', () {
+    /// The Tab-order fixture with `first` as a currency amount (keystroke,
+    /// format, 0-1000 range) and the read-only `ro` field its calculated
+    /// total - read-only, so Tab skips it.
+    Uint8List tabForm() {
+      CosDictionary js(String script) => CosDictionary({
+            'S': const CosName('JavaScript'),
+            'JS': CosString.fromText(script),
+          });
+      final editor = PdfEditor(PdfDocument.open(buildTabOrderFormPdf()));
+      final form = editor.acroForm!;
+      form.fieldNamed('first')!.dict['AA'] = CosDictionary({
+        'K': js('AFNumber_Keystroke(2, 0, 0, 0, "\$", true);'),
+        'F': js('AFNumber_Format(2, 0, 0, 0, "\$", true);'),
+        'V': js('AFRange_Validate(true, 0, true, 1000);'),
+      });
+      form.fieldNamed('ro')!.dict['AA'] = CosDictionary({
+        'C': js('AFSimple_Calculate("SUM", new Array ("first"));'),
+      });
+      // stage both dictionaries: an entry, then a calculation pass
+      editor.setTextValue(form.fieldNamed('first')!, '');
+      editor.recalculateFields();
+      return editor.save();
+    }
+
+    testWidgets(
+        'a refused value keeps Tab on the field; a valid one moves on and '
+        'recalculates', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final session = PdfEditingController(tabForm());
+      final viewer = PdfViewerController();
+      addTearDown(session.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            controller: viewer,
+            editing: session,
+          ),
+        ),
+      ));
+      await tester.pump();
+      Future<void> tab() async {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      }
+
+      final origin = tester.getRect(find.byType(PdfViewer)).topLeft;
+      await tester.tapAt(origin + view(186, 712));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editorKey, findsOneWidget);
+      final firstRect = tester.getRect(editorKey);
+      // the keystroke filter is on the keyed inline editor
+      await tester.enterText(editorKey, '12a');
+      expect(tester.widget<TextField>(editorKey).controller!.text, '');
+
+      // out of range: Tab refuses, like Enter - same field, reason shown
+      await tester.enterText(editorKey, '5000');
+      await tab();
+      expect(editorKey, findsOneWidget);
+      expect(tester.getRect(editorKey), firstRect);
+      expect(find.byKey(const ValueKey('pdf-form-input-error-label')),
+          findsOneWidget);
+      expect(find.textContaining('less than or equal to 1000'), findsOneWidget);
+      expect(session.acroForm!.fieldNamed('first')!.value, '');
+      expect(session.acroForm!.fieldNamed('ro')!.value, '0');
+
+      // a valid value: Tab commits, moves on to city, and the read-only
+      // total recalculates
+      await tester.enterText(editorKey, '250.5');
+      await tab();
+      expect(editorKey, findsOneWidget);
+      expect(tester.getRect(editorKey).left, greaterThan(firstRect.right),
+          reason: 'moved on to the next field (city)');
+      expect(find.byKey(const ValueKey('pdf-form-input-error-label')),
+          findsNothing);
+      final form = session.acroForm!;
+      expect(form.fieldNamed('first')!.value, '250.5');
+      expect(form.fieldNamed('first')!.formattedValue, r'$250.50');
+      expect(form.fieldNamed('ro')!.value, '250.5');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    });
+  });
 }

@@ -162,3 +162,14 @@ ARB files yet.
   /XFA like any other fill.
 - The form layer's afterimage is the formatted value, but a password
   passes its raw entry to `formPasswordMask`.
+
+## Tab between fields (merged with #946)
+
+`_moveFocus` checks the active text field's value first. A refused value
+keeps the editor open on that field with the red reason and does not move,
+the same as Enter. Otherwise the Tab commit goes through `_commitText`, then
+`setFormFieldText`, then `enterTextValue`, so calculations re-run; read-only
+calculated totals are not Tab stops but still update. The keyed inline
+editor keeps the keystroke input filter. The afterimage stays the formatted
+value, and #946's rule still holds: it clears only when the same field
+reopens.

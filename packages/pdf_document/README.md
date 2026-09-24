@@ -32,7 +32,8 @@ in CLIs and servers, and on the web.
   `dart_pdf_editor` adds `applyOcr` to run a pluggable OCR engine first.
 - Forms: the AcroForm field model, filling with regenerated appearances
   (text, checkbox, radio, choice, auto-size, quadding), and field
-  administration (add, rename, remove, change type, button images,
+  administration (add text/checkbox/radio/combo/list/button/empty
+  signature fields, rename, remove, change type, button images,
   flatten). XFA is detected (`PdfAcroForm.hasXfa` / `isDynamicXfa`) but
   not rendered or filled: hybrid XFA forms fill through their AcroForm
   fields, and filling or flattening removes the stale `/XFA` entry

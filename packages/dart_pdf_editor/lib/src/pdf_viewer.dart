@@ -808,6 +808,14 @@ class PdfViewerController extends ChangeNotifier {
   Future<void> showRect(int pageIndex, PdfRect rect) async =>
       _state?._showRect(pageIndex, rect);
 
+  /// Scrolls just enough to bring [rect] (page space on [pageIndex]) into
+  /// view, without changing the zoom: a no-op when it is already visible,
+  /// otherwise the rect lands centered along the scroll axis (and, while
+  /// zoomed in, across it). What Tab between form fields uses. A no-op
+  /// while no viewer is attached.
+  Future<void> revealRect(int pageIndex, PdfRect rect) async =>
+      _state?._revealRect(pageIndex, rect);
+
   /// The current scroll position and zoom, as a resolution-independent
   /// snapshot - what to persist so reopening the same document lands the
   /// user where they left off. Null while no viewer is attached or it has
@@ -5750,6 +5758,71 @@ class _PdfViewerState extends State<PdfViewer>
     );
   }
 
+  /// See [PdfViewerController.revealRect]: the smallest scroll (and, while
+  /// zoomed in, cross-axis pan) that shows [rect] on page [index] with a
+  /// small margin, centring it on each axis it had to move along.
+  Future<void> _revealRect(int index, PdfRect rect) async {
+    if (!_scroll.hasClients || _viewWidth <= 0 || _pages.isEmpty) return;
+    if (index < 0 || index >= _pages.length) return;
+    final box = _pages[index].cropBox;
+    if (box.width <= 0 || box.height <= 0) return;
+    final geometry = PdfPageGeometry(
+      cropBox: box,
+      rotation: _effectiveRotation(index),
+      viewSize: Size(_pageWidth(index), _pageHeight(index)),
+    );
+    // list space, like _visibleFractionOf: the viewport unprojects as
+    // (p - t) / s, plus the scroll offset along the main axis
+    final m = _transform.value;
+    final scale = m.getMaxScaleOnAxis();
+    final target = geometry
+        .toViewRect(rect)
+        .shift(Offset(_pageContentX(index), _pageContentY(index)))
+        .inflate(24 / scale);
+    final base = _scroll.position.pixels;
+    final mainTranslate = m.storage[_mainTranslate];
+    final crossTranslate = m.storage[_horizontal ? 13 : 12];
+    final viewMain = base - mainTranslate / scale;
+    final viewCross = -crossTranslate / scale;
+    final mainLength = _mainView / scale;
+    final crossLength = _crossView / scale;
+    final targetMainStart = _horizontal ? target.left : target.top;
+    final targetMainEnd = _horizontal ? target.right : target.bottom;
+    final targetCrossStart = _horizontal ? target.top : target.left;
+    final targetCrossEnd = _horizontal ? target.bottom : target.right;
+
+    // where a span should start to show it: centred, or leading-edge
+    // aligned when it can't fit
+    double placed(double start, double end, double length) =>
+        end - start >= length ? start : (start + end) / 2 - length / 2;
+
+    if (scale > 1.01 &&
+        (targetCrossStart < viewCross ||
+            targetCrossEnd > viewCross + crossLength)) {
+      final start = placed(targetCrossStart, targetCrossEnd, crossLength);
+      final t = (-start * scale).clamp(_crossView * (1 - scale), 0.0);
+      _transform.value = m.clone()..storage[_horizontal ? 13 : 12] = t;
+    }
+    if (targetMainStart >= viewMain && targetMainEnd <= viewMain + mainLength) {
+      return;
+    }
+    final start = placed(targetMainStart, targetMainEnd, mainLength);
+    final to =
+        (base + start - viewMain).clamp(0.0, _scroll.position.maxScrollExtent);
+    final distance = (to - base).abs();
+    if (distance > math.max(_mainView * 2, 2400.0)) {
+      // far: snap, like a long page jump, rather than animate every page
+      // in between into view
+      _scroll.jumpTo(to);
+      return;
+    }
+    await _scroll.animateTo(
+      to,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+    );
+  }
+
   /// Page [index]'s extracted text, from the per-revision in-memory cache,
   /// then the persistent [PdfViewer.textCache] (cold reopen, async), then a
   /// fresh extraction. The persistent cache is consulted only for a static
@@ -8991,6 +9064,7 @@ class _PdfViewerState extends State<PdfViewer>
                     onSnapshot: widget.onSnapshot,
                     onPlaceSignature: widget.onPlaceSignature,
                     onAnnotationTap: widget.onAnnotationTap,
+                    onRevealRect: _revealRect,
                     contextMenuEnabled: widget.contextMenuEnabled,
                     showSelectionChip: widget.showSelectionChip,
                     interactionHost: PdfEditingInteractionHost(
@@ -9943,6 +10017,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onSnapshot,
     required this.onPlaceSignature,
     required this.onAnnotationTap,
+    required this.onRevealRect,
     required this.interactionHost,
     required this.interactionSession,
     required this.crossPageGhost,
@@ -10036,6 +10111,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [EditingPageOverlay.onPlaceSignature].
   final PdfSignaturePlacer? onPlaceSignature;
   final PdfAnnotationTapHandler? onAnnotationTap;
+
+  /// Scrolls a page-space rect into view ([PdfViewerController.revealRect]);
+  /// the form layer's Tab moves use it.
+  final Future<void> Function(int pageIndex, PdfRect rect) onRevealRect;
 
   /// The one viewer/interaction bridge used by the editing overlay.
   final PdfEditingInteractionHost interactionHost;
@@ -10425,6 +10504,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 zoom: zoom,
                                 formImagePicker: widget.formImagePicker,
                                 onAnnotationTap: widget.onAnnotationTap,
+                                onRevealField: widget.onRevealRect,
                               ),
                             )
                           : const SizedBox.shrink();

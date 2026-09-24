@@ -20,6 +20,7 @@ export 'src/font_embedder.dart';
 export 'src/fonts/encodings.dart';
 export 'src/form.dart';
 export 'src/form_scripts.dart';
+export 'src/form_tab_order.dart';
 export 'src/fulcio.dart';
 export 'src/image.dart';
 export 'src/image_pdf.dart';

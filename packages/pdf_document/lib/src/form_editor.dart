@@ -249,8 +249,77 @@ extension PdfFormFilling on PdfEditor {
     field.dict['V'] = CosString.fromText(export);
     if (field.type == PdfFieldType.listBox && index >= 0) {
       field.dict['I'] = CosArray([CosInteger(index)]);
+      _scrollListSelectionIntoView(field, [index]);
     }
-    _regenerateVariableText(field, display);
+    if (field.type == PdfFieldType.listBox && options.isNotEmpty) {
+      _regenerateListBox(field);
+    } else {
+      _regenerateVariableText(field, display);
+    }
+    _finishFieldEdit(field);
+  }
+
+  /// Sets a choice field to every option in [values] (export or display
+  /// form; order and duplicates don't matter) - the multi-select
+  /// counterpart of [setChoiceValue] for list boxes with the MultiSelect
+  /// flag ([PdfFormField.isMultiSelect]).
+  ///
+  /// /V is written in option order as an array of export values when two
+  /// or more are selected, as a single text string when exactly one is
+  /// (what Acrobat writes, and what single-value readers expect), and is
+  /// removed when [values] is empty. /I carries the selected option
+  /// indices, sorted ascending (§12.7.5.4). /TI scrolls so the first
+  /// selected row is visible, and the regenerated list-box appearance
+  /// highlights every selected row.
+  ///
+  /// A field that isn't multi-select takes at most one value (throws
+  /// otherwise); one value behaves exactly like [setChoiceValue]. Values
+  /// that aren't options throw, as they do there.
+  void setChoiceValues(PdfFormField field, List<String> values) {
+    _checkFillable(field, const {PdfFieldType.comboBox, PdfFieldType.listBox});
+    if (!field.isMultiSelect) {
+      if (values.length > 1) {
+        throw ArgumentError.value(
+          values,
+          'values',
+          '"${field.name}" is not a multi-select list box',
+        );
+      }
+      if (values.length == 1) {
+        setChoiceValue(field, values.single);
+        return;
+      }
+    }
+    final options = field.options;
+    final indices = <int>{};
+    for (final value in values) {
+      final index = options.indexWhere((o) => o.$1 == value || o.$2 == value);
+      if (index < 0) {
+        throw ArgumentError.value(
+          value,
+          'values',
+          'not an option of "${field.name}" '
+              '(${options.map((o) => o.$1).join(', ')})',
+        );
+      }
+      indices.add(index);
+    }
+    final sorted = indices.toList()..sort();
+    if (sorted.isEmpty) {
+      field.dict.entries.remove('V');
+      field.dict.entries.remove('I');
+    } else {
+      field.dict['V'] = sorted.length == 1
+          ? CosString.fromText(options[sorted.single].$1)
+          : CosArray([
+              for (final i in sorted) CosString.fromText(options[i].$1),
+            ]);
+      if (field.type == PdfFieldType.listBox) {
+        field.dict['I'] = CosArray([for (final i in sorted) CosInteger(i)]);
+        _scrollListSelectionIntoView(field, sorted);
+      }
+    }
+    _regenerateChoice(field);
     _finishFieldEdit(field);
     _recalculateAfter(field);
   }
@@ -392,7 +461,7 @@ extension PdfFormFilling on PdfEditor {
           _stageFormDict(field, field.dict);
         case PdfFieldType.comboBox:
         case PdfFieldType.listBox:
-          _regenerateVariableText(field, _choiceDisplay(field));
+          _regenerateChoice(field);
           _stageFormDict(field, field.dict);
         case PdfFieldType.checkBox:
         case PdfFieldType.radioGroup:
@@ -524,6 +593,166 @@ extension PdfFormFilling on PdfEditor {
     return value;
   }
 
+  /// Regenerates a choice field's appearance from its current value: a
+  /// list box with options draws its rows (selection highlighted, see
+  /// [_regenerateListBox]); a combo box - or a list box without /Opt -
+  /// shows the selected display text like a text field.
+  void _regenerateChoice(PdfFormField field) {
+    if (field.type == PdfFieldType.listBox && field.options.isNotEmpty) {
+      _regenerateListBox(field);
+    } else {
+      _regenerateVariableText(field, _choiceDisplay(field));
+    }
+  }
+
+  /// A list box's auto (/DA size 0) font size - the conventional 12 pt,
+  /// since shrinking every row to fit would make long lists unreadable.
+  static const double _listBoxAutoFontSize = 12;
+
+  /// Row height as a multiple of the font size.
+  static const double _listBoxRowFactor = 1.15;
+
+  /// The selected-row fill interactive viewers conventionally use for list
+  /// boxes (0.6 0.757 0.855 RGB).
+  static const int _listBoxHighlight = 0x99C1DA;
+
+  /// Rows the first widget of list box [field] shows at once (at least 1).
+  int _listVisibleRows(PdfFormField field) {
+    final rect = field.widgetRect(0);
+    if (rect == null) return 1;
+    final rotation = _declaredWidgetRotation(field.widgets.first) ?? 0;
+    final visual = _orientedWidgetRect(rect.width, rect.height, rotation);
+    final da = _parseDefaultAppearance(field.defaultAppearance);
+    final size = da.fontSize > 0 ? da.fontSize : _listBoxAutoFontSize;
+    final rows = ((visual.height - 4) / (size * _listBoxRowFactor)).floor();
+    return rows < 1 ? 1 : rows;
+  }
+
+  /// Updates /TI so the first of the (sorted) [selected] rows is visible,
+  /// leaving it alone when it already is. The appearance reads /TI back
+  /// through [PdfFormField.topIndex].
+  void _scrollListSelectionIntoView(PdfFormField field, List<int> selected) {
+    if (selected.isEmpty) return;
+    final top = field.topIndex;
+    final first = selected.first;
+    if (first >= top && first < top + _listVisibleRows(field)) return;
+    if (first == 0) {
+      field.dict.entries.remove('TI');
+    } else {
+      field.dict['TI'] = CosInteger(first);
+    }
+  }
+
+  /// Draws a list box the way interactive viewers show it: one row per
+  /// /Opt entry from the /TI top index down, with every selected row
+  /// ([PdfFormField.selectedIndices]) filled in the conventional selection
+  /// highlight behind its text. Single- and multi-select list boxes share
+  /// this path; only how many rows are highlighted differs.
+  void _regenerateListBox(PdfFormField field) {
+    final cos = document.cos;
+    final da = _parseDefaultAppearance(field.defaultAppearance);
+    final fontDict = _formFont(field.form, da.fontName);
+    final fontWidths = fontDict == null ? null : _fieldWidthMetrics(fontDict);
+    final embedded = fontDict == null
+        ? null
+        : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
+    final rows = [
+      for (final (_, display) in field.options)
+        embedded != null ? display : sanitizeFieldText(display),
+    ];
+    final selected = field.selectedIndices.toSet();
+    final top = math.min(field.topIndex, math.max(0, rows.length - 1));
+    final size = da.fontSize > 0 ? da.fontSize : _listBoxAutoFontSize;
+    final rowHeight = size * _listBoxRowFactor;
+    const pad = 2.0;
+
+    final widgets = field.widgets;
+    for (var widgetIndex = 0; widgetIndex < widgets.length; widgetIndex++) {
+      final widget = widgets[widgetIndex];
+      final rect = pdfRectFrom(cos, widget['Rect']);
+      if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
+      final w = rect.width, h = rect.height;
+      final rotation = _prepareWidgetRotation(field, widgetIndex, widget);
+      final visual = _orientedWidgetRect(w, h, rotation);
+      embedded?.resetUsage();
+
+      double measure(String s) => embedded != null
+          ? embedded.measure(s, size)
+          : _measureFieldText(fontDict, s, size, widths: fontWidths);
+
+      final font = embedded ??
+          _DaFieldFont(
+            da.fontName,
+            PdfStandardFont.fromName(da.fontName).ascent,
+            (s, _) => measure(s),
+          );
+      final writer = ContentWriter()..raw('/Tx BMC');
+      _beginWidgetOrientation(writer, w, h, rotation);
+      writer.save();
+      _paintWidgetDecorations(writer, widget, visual);
+      writer
+        ..rect(visual.left + 1, visual.bottom + 1, visual.width - 2,
+            visual.height - 2)
+        ..clip();
+      var rowTop = visual.top - pad;
+      for (var i = top; i < rows.length && rowTop > visual.bottom + 1; i++) {
+        final row = PdfRect(
+            visual.left + 1, rowTop - rowHeight, visual.right - 1, rowTop);
+        if (selected.contains(i)) {
+          writer
+            ..fillColor(_listBoxHighlight)
+            ..rect(row.left, row.bottom, row.width, row.height)
+            ..fill();
+        }
+        final direction = field.quadding == 2
+            ? PdfTextDirection.rtl
+            : PdfTextDirection.auto.resolve(rows[i]);
+        writePdfTextBox(
+          writer,
+          row,
+          [rows[i]],
+          font: font,
+          fontSize: size,
+          align: switch (field.quadding) {
+            1 => PdfTextAlign.center,
+            2 => PdfTextAlign.right,
+            _ => direction == PdfTextDirection.rtl
+                ? PdfTextAlign.right
+                : PdfTextAlign.left,
+          },
+          padding: pad - 1,
+          lineHeight: rowHeight,
+          vAlign: PdfTextBoxVAlign.centerLine,
+          clip: false,
+          clampAlign: true,
+          measureLine: measure,
+          writeColor: (w) => w.raw(da.colorOps),
+          emitLine: (w, line) {
+            final rendered = pdfVisualText(line, direction);
+            if (embedded != null) {
+              w.showGlyphHex(embedded.encodeHex(rendered));
+            } else {
+              w.showText(rendered);
+            }
+          },
+        );
+        rowTop -= rowHeight;
+      }
+      writer.restore();
+      _endWidgetOrientation(writer, rotation);
+      writer.raw('EMC');
+
+      final resources = CosDictionary({
+        'Font': embedded != null
+            ? embedded.buildResource(_updater.addObject)
+            : _appearanceFontResource(field.form, da.fontName, fontDict),
+      });
+      _setNormalAppearance(
+          widget, _widgetForm(w, h, writer, resources: resources));
+      if (!identical(widget, field.dict)) _stageFormDict(field, widget);
+    }
+  }
+
   /// Resizes one widget of [fieldName] (index [widgetIndex] within the
   /// field) so its /Rect becomes [to], regenerating the widget's
   /// appearance at the new size instead of stretching it: text and
@@ -552,7 +781,7 @@ extension PdfFormFilling on PdfEditor {
         _regenerateVariableText(field, field.value ?? '');
       case PdfFieldType.comboBox:
       case PdfFieldType.listBox:
-        _regenerateVariableText(field, _choiceDisplay(field));
+        _regenerateChoice(field);
       case PdfFieldType.checkBox:
       case PdfFieldType.radioGroup:
         _regenerateButtonStates(field, widgetIndex, widget);
