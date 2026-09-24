@@ -1356,21 +1356,60 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   final inverted = decode is CosArray &&
       decode.length > 0 &&
       _numOf(cos.resolve(decode[0])) == 1;
+  // Area coverage, not point sampling. A scanned drawing stencil (a 7360px
+  // CCITT sheet shown ~1500px wide) is mostly 1-2px linework: picking one
+  // source bit per destination pixel dropped whole strokes and broke the rest
+  // into dashes. Each destination pixel's alpha is instead the fraction of
+  // painting bits in its cell - the same box filter [_scaledGray1Region] and
+  // [downsamplePdfDecodedPixels] apply (truncating like them, so this stays
+  // pixel-identical to the full-decode fallback) - so a thin line survives as
+  // a lighter but continuous stroke, the way PDFium/Acrobat/Bluebeam show
+  // these sheets.
+  //
+  // Cells partition the source region exactly (tw <= sw, th <= sh), so every
+  // painting bit is counted once. Rows are walked a byte at a time and a byte
+  // with no painting bits (blank paper - nearly all of a drawing) is skipped
+  // outright, which keeps this close to the old point-sampling cost.
+  final columnOf = Int32List(sourceWidth);
+  final columnSpan = Int32List(targetWidth);
+  for (var tx = 0; tx < targetWidth; tx++) {
+    final sx0 = tx * sourceWidth ~/ targetWidth;
+    final sx1 = (tx + 1) * sourceWidth ~/ targetWidth;
+    columnSpan[tx] = sx1 - sx0;
+    for (var sx = sx0; sx < sx1; sx++) {
+      columnOf[sx] = tx;
+    }
+  }
+  final firstByte = sourceX >> 3;
+  final lastByte = (sourceX + sourceWidth - 1) >> 3;
+  final sourceEnd = sourceX + sourceWidth;
+  final counts = Int32List(targetWidth);
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
-  for (var y = 0; y < targetHeight; y++) {
-    final sy = (sourceY + (y + 0.5) * sourceHeight / targetHeight)
-        .floor()
-        .clamp(0, height - 1);
-    for (var x = 0; x < targetWidth; x++) {
-      final sx = (sourceX + (x + 0.5) * sourceWidth / targetWidth)
-          .floor()
-          .clamp(0, width - 1);
-      final bit = (data[sy * rowBytes + (sx >> 3)] >> (7 - (sx & 7))) & 1;
-      final paint = inverted ? bit == 1 : bit == 0;
-      final v = paint ? 255 : 0;
-      out[di] = out[di + 1] = out[di + 2] = v;
-      out[di + 3] = v;
+  for (var ty = 0; ty < targetHeight; ty++) {
+    final sy0 = sourceY + ty * sourceHeight ~/ targetHeight;
+    final sy1 = sourceY + (ty + 1) * sourceHeight ~/ targetHeight;
+    counts.fillRange(0, targetWidth, 0);
+    for (var sy = sy0; sy < sy1; sy++) {
+      final row = sy * rowBytes;
+      for (var b = firstByte; b <= lastByte; b++) {
+        final byte = data[row + b];
+        final paint = inverted ? byte : byte ^ 0xff;
+        if (paint == 0) continue;
+        final x0 = b << 3;
+        for (var k = 0; k < 8; k++) {
+          if ((paint >> (7 - k)) & 1 == 0) continue;
+          final x = x0 + k;
+          if (x < sourceX || x >= sourceEnd) continue;
+          counts[columnOf[x - sourceX]]++;
+        }
+      }
+    }
+    final rows = sy1 - sy0;
+    for (var tx = 0; tx < targetWidth; tx++) {
+      final v = counts[tx] * 255 ~/ (columnSpan[tx] * rows);
+      // Premultiplied white coverage: the device tints it through srcIn.
+      out[di] = out[di + 1] = out[di + 2] = out[di + 3] = v;
       di += 4;
     }
   }
