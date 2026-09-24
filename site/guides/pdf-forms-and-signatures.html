@@ -890,6 +890,10 @@ session.setFormChoiceValue(<span class="string">'country'</span>, <span class="s
 
 <span class="keyword">final</span> Uint8List filled = session.bytes;</code></pre>
           <p>Every change is an incremental revision, so undo and redo work for form input too.</p>
+          <p>On a keyboard, Tab moves to the next field and Shift+Tab to the previous one, across pages. The
+            order follows each page's <code>/Tabs</code> setting (row, column, or structure order) and falls
+            back to the order the fields are stored in. Space toggles a focused checkbox or radio button.
+            Read-only, hidden, button, and signature fields are skipped.</p>
 
           <h3 id="forms-dart">In pure Dart (server, CLI, tests)</h3>
           <p>The form engine is in <code>pdf_document</code>, which has no Flutter dependency. That makes it a good
@@ -1093,6 +1097,9 @@ await session.addDigitalSignature(
             <li><strong>Form JavaScript.</strong> There is deliberately no JS engine, so calculated totals,
               format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
               app can inspect them.</li>
+            <li><strong>Multi-select list boxes</strong> take a single value.</li>
+            <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
+              groups, choice fields, or empty signature fields for someone else to sign later.</li>
             <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
             <li><strong>Trust roots.</strong> No certificate authorities are bundled. Validation tells you whether
               the chain reaches a root you supplied (for example, the AATL or your organisation's CA), and it

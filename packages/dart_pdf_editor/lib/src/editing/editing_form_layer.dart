@@ -10,6 +10,7 @@ import '../page_geometry.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
 import 'editing_text_menu.dart';
+import 'form_tab_navigation.dart';
 import 'text_prompt.dart';
 
 TextDirection _flutterTextDirection(String text) =>
@@ -101,6 +102,13 @@ class FormFieldLabelLayer extends StatelessWidget {
 /// field rects, leaving the rest of the page transparent so scrolling,
 /// link taps, and text selection are untouched. A signed signature field is
 /// a selection target too, exposing its confirmed remove action.
+///
+/// Tab / Shift+Tab moves between fields in the document's
+/// [PdfFormTabOrder] (page /Tabs, across pages, wrapping at the ends): a
+/// text field commits and the next field opens - its inline editor, a
+/// focus ring on a check box or radio button (Space toggles it), or a
+/// choice field's menu. The move is posted through [pdfFormTabRequests] so
+/// the target page's layer can take it, and [onRevealField] scrolls it in.
 class FormInteractionLayer extends StatefulWidget {
   const FormInteractionLayer({
     super.key,
@@ -112,6 +120,7 @@ class FormInteractionLayer extends StatefulWidget {
     this.zoom = 1,
     this.formImagePicker,
     this.onAnnotationTap,
+    this.onRevealField,
   });
 
   final PdfEditingController controller;
@@ -133,6 +142,11 @@ class FormInteractionLayer extends StatefulWidget {
   /// See [PdfViewer.onAnnotationTap].
   final PdfAnnotationTapHandler? onAnnotationTap;
 
+  /// Scrolls a field (page space on a page) into view for a Tab move -
+  /// [PdfViewerController.revealRect]. When null, Tab still moves but
+  /// nothing scrolls.
+  final Future<void> Function(int pageIndex, PdfRect rect)? onRevealField;
+
   @override
   State<FormInteractionLayer> createState() => _FormInteractionLayerState();
 }
@@ -145,6 +159,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   // The text field being edited, if any. Fields die with every revision,
   // so the name is the stable handle; the rest is layout captured at open.
   String? _editingField;
+  int _editingWidget = 0;
   Rect? _editRect; // view space; derived from _editPageRect per build
   // page space is the source of truth: a zoom that re-lays-out the page
   // (the _layoutZoom regime changes geometry.scale) would leave a cached
@@ -165,11 +180,53 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _afterRect;
   PdfStandardFont _afterFont = PdfStandardFont.helvetica;
   double _afterSize = 12;
+  bool _afterMultiline = false;
   bool _afterPassword = false;
+  String? _afterFieldName;
   int? _afterRevisionId;
+
+  // Keyboard focus on a check box / radio / choice widget reached by Tab:
+  // (field name, widget index), outlined and taking Space / Tab.
+  (String, int)? _focusedWidget;
+  late final FocusNode _fieldFocus =
+      FocusNode(debugLabel: 'pdf-form-field', skipTraversal: true)
+        ..addListener(_onFieldFocusChange);
+  // true while a Tab move tears the current field down, and while a choice
+  // menu (which takes focus) is open over the focused field
+  bool _tabbing = false;
+  bool _menuOpen = false;
+
+  late ValueNotifier<PdfFormTabRequest?> _tabRequests =
+      pdfFormTabRequests(widget.controller);
+
+  @override
+  void initState() {
+    super.initState();
+    _tabRequests.addListener(_onTabRequest);
+    // a Tab move onto a page that wasn't built yet: this layer mounting is
+    // the page scrolling in - take the move once laid out
+    if (_tabRequests.value?.pageIndex == widget.pageIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onTabRequest();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(FormInteractionLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      _tabRequests.removeListener(_onTabRequest);
+      _tabRequests = pdfFormTabRequests(widget.controller)
+        ..addListener(_onTabRequest);
+    }
+  }
 
   @override
   void dispose() {
+    _tabRequests.removeListener(_onTabRequest);
+    _fieldFocus.removeListener(_onFieldFocusChange);
+    _fieldFocus.dispose();
     _focus.removeListener(_onFocusChange);
     _focus.dispose();
     _text.dispose();
@@ -199,13 +256,15 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   /// Opens the inline editor over a text field, prefilled with its value
   /// and styled from its /DA font and size.
-  void _openTextEditor(PdfFormField field, Rect viewRect) {
+  void _openTextEditor(PdfFormField field, Rect viewRect,
+      {int widgetIndex = 0}) {
     final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
         .firstMatch(field.defaultAppearance ?? '');
     final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
     _text.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _editingField = field.name;
+      _editingWidget = widgetIndex;
       _editRect = viewRect;
       _editPageRect = widget.geometry.toPageRect(viewRect);
       _editPassword = field.isPassword;
@@ -217,7 +276,11 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       // an auto-size /DA (0 Tf) edits at a readable default; the committed
       // appearance derives its own size as usual
       _editSize = size > 0 ? size : 12;
-      _afterValue = null; // any prior afterimage is superseded
+      // reopening the field supersedes its afterimage; another field's
+      // (the one a Tab just committed) stays until its raster lands
+      if (_afterRevisionId != null && _afterFieldName == field.name) {
+        _afterValue = null;
+      }
     });
     _controller.setEditingText(true);
     // autofocus only fires into an unfocused scope and the tapping
@@ -237,6 +300,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final value = _text.text;
     final font = _editFont;
     final size = _editSize;
+    final multiline = _editMultiline;
     final password = _editPassword;
     _closeEditor();
     final before = _controller.revisionId;
@@ -247,7 +311,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       _afterRect = rect;
       _afterFont = font;
       _afterSize = size;
+      _afterMultiline = multiline;
       _afterPassword = password;
+      _afterFieldName = name;
       _afterRevisionId = _controller.revisionId;
     });
   }
@@ -273,6 +339,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   Future<void> _onFieldTap(
       PdfFormField field, int widgetIndex, Rect viewRect) async {
+    if (_focusedWidget != null && _focusedWidget != (field.name, widgetIndex)) {
+      _clearFieldFocus();
+    }
     if (field.type == PdfFieldType.signature) {
       if (_isSigned(field)) {
         final pageRect = widget.geometry.toPageRect(viewRect);
@@ -287,7 +356,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     if (field.isReadOnly) return;
     switch (field.type) {
       case PdfFieldType.text:
-        _openTextEditor(field, viewRect);
+        _openTextEditor(field, viewRect, widgetIndex: widgetIndex);
       case PdfFieldType.checkBox:
         _controller.toggleFormCheckBox(field.name);
       case PdfFieldType.radioGroup:
@@ -357,6 +426,163 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     if (picked != null) _controller.pickFormChoiceOption(name, picked);
   }
 
+  // ---- Tab / Shift+Tab ----------------------------------------------------
+
+  /// Tab (or Shift+Tab when [backward]) from the field this layer has
+  /// active: commit it, then post a move to the next stop in the
+  /// document's tab order and scroll it into view.
+  void _moveFocus({required bool backward}) {
+    final String? name;
+    final int widgetIndex;
+    if (_editingField != null) {
+      (name, widgetIndex) = (_editingField, _editingWidget);
+    } else if (_focusedWidget != null) {
+      (name, widgetIndex) = _focusedWidget!;
+    } else {
+      (name, widgetIndex) = (null, 0);
+    }
+    _tabbing = true;
+    try {
+      _commitText();
+      _clearFieldFocus();
+    } finally {
+      _tabbing = false;
+    }
+    final next = pdfFormTabOrderOf(_controller).step(
+      pageIndex: widget.pageIndex,
+      fieldName: name,
+      widgetIndex: widgetIndex,
+      backward: backward,
+    );
+    if (next == null) return;
+    final revealed = widget.onRevealField?.call(next.pageIndex, next.rect) ??
+        Future<void>.value();
+    _tabRequests.value = PdfFormTabRequest(
+      pageIndex: next.pageIndex,
+      fieldName: next.fieldName,
+      widgetIndex: next.widgetIndex,
+      revisionId: _controller.revisionId,
+      revealed: revealed,
+    );
+  }
+
+  /// Takes a posted Tab move that lands on this page.
+  void _onTabRequest() {
+    final request = _tabRequests.value;
+    if (request == null || request.pageIndex != widget.pageIndex) return;
+    _tabRequests.value = null;
+    if (request.revisionId != _controller.revisionId) return;
+    for (final (field, widgetIndex, annotation)
+        in _controller.formWidgetsOn(widget.pageIndex)) {
+      if (field.name != request.fieldName ||
+          widgetIndex != request.widgetIndex) {
+        continue;
+      }
+      final viewRect = widget.geometry.toViewRect(annotation.rect);
+      switch (field.type) {
+        case PdfFieldType.text:
+          _openTextEditor(field, viewRect, widgetIndex: widgetIndex);
+        case PdfFieldType.checkBox || PdfFieldType.radioGroup:
+          _focusFieldWidget(field.name, widgetIndex);
+        case PdfFieldType.comboBox || PdfFieldType.listBox:
+          _focusFieldWidget(field.name, widgetIndex);
+          // anchor the menu where the field lands once scrolled in
+          unawaited(request.revealed.whenComplete(() {
+            if (mounted && _focusedWidget == (field.name, widgetIndex)) {
+              unawaited(_activateFocused());
+            }
+          }));
+        case PdfFieldType.pushButton ||
+              PdfFieldType.signature ||
+              PdfFieldType.unknown:
+          break;
+      }
+      return;
+    }
+  }
+
+  /// Puts keyboard focus on a check box / radio / choice widget.
+  void _focusFieldWidget(String name, int widgetIndex) {
+    setState(() => _focusedWidget = (name, widgetIndex));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _focusedWidget != null) _fieldFocus.requestFocus();
+    });
+  }
+
+  void _clearFieldFocus() {
+    if (_focusedWidget == null) return;
+    if (mounted) {
+      setState(() => _focusedWidget = null);
+    } else {
+      _focusedWidget = null;
+    }
+  }
+
+  void _onFieldFocusChange() {
+    // focus went elsewhere (a click off the field): drop the ring - but not
+    // while our own choice menu holds focus over it
+    if (!_fieldFocus.hasFocus && !_tabbing && !_menuOpen) _clearFieldFocus();
+  }
+
+  KeyEventResult _onFieldKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.tab) {
+      _moveFocus(backward: HardwareKeyboard.instance.isShiftPressed);
+      return KeyEventResult.handled;
+    }
+    if (event is KeyRepeatEvent) return KeyEventResult.ignored;
+    if (key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      unawaited(_activateFocused());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      _clearFieldFocus();
+      _fieldFocus.unfocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// Space on the focused widget: toggle a check box, select a radio
+  /// button, open a choice field's menu.
+  Future<void> _activateFocused() async {
+    final focused = _focusedWidget;
+    if (focused == null) return;
+    for (final (field, widgetIndex, annotation)
+        in _controller.formWidgetsOn(widget.pageIndex)) {
+      if (field.name != focused.$1 || widgetIndex != focused.$2) continue;
+      if (field.isReadOnly) return;
+      switch (field.type) {
+        case PdfFieldType.checkBox:
+          _controller.toggleFormCheckBox(field.name);
+        case PdfFieldType.radioGroup:
+          final state = field.widgetOnState(widgetIndex);
+          if (state != null) _controller.setFormRadioValue(field.name, state);
+        case PdfFieldType.comboBox || PdfFieldType.listBox:
+          _menuOpen = true;
+          try {
+            await _pickChoice(
+                field, widget.geometry.toViewRect(annotation.rect));
+          } finally {
+            _menuOpen = false;
+          }
+          // the menu took focus; hand it back so Tab carries on from here
+          if (mounted && _focusedWidget == focused) _fieldFocus.requestFocus();
+        case PdfFieldType.text ||
+              PdfFieldType.pushButton ||
+              PdfFieldType.signature ||
+              PdfFieldType.unknown:
+          break;
+      }
+      return;
+    }
+  }
+
   MouseCursor _cursorFor(PdfFormField field) {
     if (field.type == PdfFieldType.signature && _isSigned(field)) {
       return SystemMouseCursors.click;
@@ -416,6 +642,22 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         if (mounted) _closeEditor();
       });
     }
+    Rect? focusRect;
+    final focused = _focusedWidget;
+    if (focused != null) {
+      for (final (field, widgetIndex, annotation) in fields) {
+        if (field.name == focused.$1 && widgetIndex == focused.$2) {
+          focusRect = geometry.toViewRect(annotation.rect);
+          break;
+        }
+      }
+      // likewise a Tab-focused widget that vanished drops its ring
+      if (focusRect == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _focusedWidget == focused) _clearFieldFocus();
+        });
+      }
+    }
 
     return Stack(children: [
       for (final (field, widgetIndex, annotation) in fields)
@@ -430,8 +672,33 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
                 : _afterValue!,
             _afterFont,
             _afterSize),
+      if (focusRect != null) _focusRing(focusRect),
       if (_editingField != null && _editRect != null) _inlineEditor(),
     ]);
+  }
+
+  /// The keyboard-focus outline over a Tab-focused check box / radio /
+  /// choice widget; its [Focus] takes Space, Enter, Tab and Escape.
+  Widget _focusRing(Rect rect) {
+    final chromeScale = _chromeScale;
+    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
+        const Color(0xFF1E88E5);
+    return Positioned.fromRect(
+      key: const ValueKey('pdf-form-focus-ring'),
+      rect: rect.inflate(2 * chromeScale),
+      child: IgnorePointer(
+        child: Focus(
+          focusNode: _fieldFocus,
+          onKeyEvent: _onFieldKey,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: chromeColor, width: 2 * chromeScale),
+              borderRadius: BorderRadius.circular(2 * chromeScale),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _tapTarget(PdfFormField field, int widgetIndex,
@@ -469,6 +736,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
         const Color(0xFF1E88E5);
     return Positioned.fromRect(
+      // keyed so a Tab from one field of this page to another keeps the
+      // same TextField (and its focus) rather than rebuilding it
+      key: const ValueKey('pdf-form-inline-editor'),
       rect: rect,
       child: Container(
         // cover the old rendered value so it doesn't ghost under the field
@@ -477,10 +747,17 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           border: Border.all(color: chromeColor, width: 1.5 * chromeScale),
         ),
         // Escape cancels here, nearer to the field's focus than the
-        // viewer's shortcuts, so it wins and closes the editor
+        // viewer's shortcuts, so it wins and closes the editor. Tab and
+        // Shift+Tab move to the next / previous field - bound here, so a
+        // multi-line field never types a tab character and the app's focus
+        // traversal never sees the key
         child: CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.escape): _cancelText,
+            const SingleActivator(LogicalKeyboardKey.tab): () =>
+                _moveFocus(backward: false),
+            const SingleActivator(LogicalKeyboardKey.tab, shift: true): () =>
+                _moveFocus(backward: true),
           },
           // the same zoom-space caret treatment the free-text editor gets:
           // Apple's device-pixel nudge cancelled, and the caret gutter
@@ -564,13 +841,14 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Widget _afterimage(
       Rect rect, String value, PdfStandardFont font, double size) {
     return Positioned.fromRect(
+      key: const ValueKey('pdf-form-afterimage'),
       rect: rect,
       child: IgnorePointer(
         child: Container(
           color: widget.pageColor.withValues(alpha: 0.92),
           alignment: _flutterTextDirection(value) == TextDirection.rtl
-              ? (_editMultiline ? Alignment.topRight : Alignment.centerRight)
-              : (_editMultiline ? Alignment.topLeft : Alignment.centerLeft),
+              ? (_afterMultiline ? Alignment.topRight : Alignment.centerRight)
+              : (_afterMultiline ? Alignment.topLeft : Alignment.centerLeft),
           padding: EdgeInsets.all(2 * widget.geometry.scale),
           child: Text(
             value,
@@ -578,7 +856,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             textAlign: _flutterTextDirection(value) == TextDirection.rtl
                 ? TextAlign.right
                 : TextAlign.left,
-            maxLines: _editMultiline ? null : 1,
+            maxLines: _afterMultiline ? null : 1,
             overflow: TextOverflow.clip,
             style: TextStyle(
               color: const Color(0xFF000000),
