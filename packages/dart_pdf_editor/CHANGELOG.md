@@ -7,6 +7,21 @@
   confirmed online or from embedded data or could not be checked, and it names
   self-signed signers and untrusted issuers.
 
+- Draw cold annotation appearances against a frame budget instead of one per
+  frame. With an editing or form controller attached, marks are drawn by the
+  page's annotation overlay on the platform thread, and each render-scheduler
+  grant used to draw exactly one appearance - so a drawing carrying 1,000
+  stamps filled in over eight seconds at 120 Hz (sixteen at 60 Hz) while the
+  thread sat idle for most of every frame. A grant now keeps drawing until
+  `PdfPageRenderScheduler.appearanceFrameBudget` (4 ms) is spent, publishing
+  once per batch rather than once per mark. One appearance still draws per
+  grant however long it takes, so heavy appearances keep the old pacing.
+- Add `PdfViewerController.isAnnotationAppearanceBusy` and
+  `annotationAppearanceProgress`, notified through `pageRenderActivity`. The
+  overlay finishes after the page raster, so `isPageRenderBusy` and
+  `isPageRasterReady` read done while marks are still landing; these report
+  the overlay's own outstanding work on the pages it is live for, from the
+  moment a pass is queued until the frame that paints its last appearance.
 - Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
   `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
   default sans, and Helvetica's advances are much wider than Calibri's - with
