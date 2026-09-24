@@ -1011,7 +1011,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         final value = await widget.textPrompt(
           context,
           title: pdfL10n(context).tbFieldValue,
-          initial: field.value ?? '',
+          initial: field.isPassword ? '' : field.value ?? '',
           multiline: field.isMultiline,
         );
         if (value != null) controller.setFormFieldText(name, value);

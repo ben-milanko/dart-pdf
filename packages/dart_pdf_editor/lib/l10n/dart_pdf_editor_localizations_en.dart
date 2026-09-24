@@ -927,6 +927,10 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Default author…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.';
+
+  @override
   String get shellHighlightFormFields => 'Highlight form fields';
 
   @override
@@ -3103,6 +3107,10 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get shellDefaultAuthor => 'Default author…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.';
+
+  @override
   String get shellHighlightFormFields => 'Highlight form fields';
 
   @override
@@ -5277,6 +5285,10 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get shellDefaultAuthor => 'Default author…';
+
+  @override
+  String get formXfaUnsupportedNotice =>
+      'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.';
 
   @override
   String get shellHighlightFormFields => 'Highlight form fields';

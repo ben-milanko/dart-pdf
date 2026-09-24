@@ -931,6 +931,10 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Autor padrão…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Este formulário usa XFA, que não pode ser preenchido aqui, por isso os campos não aparecem. Abra-o em um aplicativo compatível com formulários XFA para preenchê-lo.';
+
+  @override
   String get shellHighlightFormFields => 'Destacar campos de formulário';
 
   @override

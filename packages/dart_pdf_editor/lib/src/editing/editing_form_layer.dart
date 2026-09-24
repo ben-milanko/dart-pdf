@@ -154,6 +154,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   PdfStandardFont _editFont = PdfStandardFont.helvetica;
   double _editSize = 12;
   bool _editMultiline = false;
+  // /MaxLen caps what the editor accepts; a password field edits masked
+  // and single-line, and its afterimage stays masked (#931)
+  int? _editMaxLength;
+  bool _editPassword = false;
 
   // The just-committed value, painted over the field until the new
   // revision's raster lands (see [widget.rasterCurrent]).
@@ -161,6 +165,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _afterRect;
   PdfStandardFont _afterFont = PdfStandardFont.helvetica;
   double _afterSize = 12;
+  bool _afterPassword = false;
   int? _afterRevisionId;
 
   @override
@@ -198,12 +203,14 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
         .firstMatch(field.defaultAppearance ?? '');
     final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
-    _text.text = field.value ?? '';
+    _text.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _editingField = field.name;
       _editRect = viewRect;
       _editPageRect = widget.geometry.toPageRect(viewRect);
-      _editMultiline = field.isMultiline;
+      _editPassword = field.isPassword;
+      _editMultiline = field.isMultiline && !_editPassword;
+      _editMaxLength = field.maxLength;
       _editFont = tf == null
           ? PdfStandardFont.helvetica
           : PdfStandardFont.fromName(tf.group(1)!);
@@ -230,6 +237,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final value = _text.text;
     final font = _editFont;
     final size = _editSize;
+    final password = _editPassword;
     _closeEditor();
     final before = _controller.revisionId;
     _controller.setFormFieldText(name, value);
@@ -239,6 +247,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       _afterRect = rect;
       _afterFont = font;
       _afterSize = size;
+      _afterPassword = password;
       _afterRevisionId = _controller.revisionId;
     });
   }
@@ -414,7 +423,13 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           _tapTarget(field, widgetIndex, annotation,
               geometry.toViewRect(annotation.rect)),
       if (_afterValue != null && _afterRect != null)
-        _afterimage(_afterRect!, _afterValue!, _afterFont, _afterSize),
+        _afterimage(
+            _afterRect!,
+            _afterPassword
+                ? _controller.formPasswordMask(_afterValue!)
+                : _afterValue!,
+            _afterFont,
+            _afterSize),
       if (_editingField != null && _editRect != null) _inlineEditor(),
     ]);
   }
@@ -478,6 +493,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
               controller: _text,
               focusNode: _focus,
               autofocus: true,
+              obscureText: _editPassword,
+              maxLength: _editMaxLength,
+              // the /MaxLen cap is silent - no counter under the field
+              buildCounter: _noCounter,
               // single-line fields commit on Enter, not a newline
               maxLines: _editMultiline ? null : 1,
               expands: _editMultiline,
@@ -534,6 +553,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       ),
     );
   }
+
+  static Widget? _noCounter(BuildContext context,
+          {required int currentLength,
+          required int? maxLength,
+          required bool isFocused}) =>
+      null;
 
   /// The committed value frozen over the field until the new raster lands.
   Widget _afterimage(

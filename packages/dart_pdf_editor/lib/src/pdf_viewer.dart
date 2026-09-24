@@ -28,6 +28,7 @@ import 'editing/editing_reach.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
+import 'editing/xfa_notice.dart';
 import 'exact_extent_list.dart';
 import 'budgeted_cache.dart';
 import 'l10n/pdf_l10n.dart';
@@ -2467,6 +2468,25 @@ class _PdfViewerState extends State<PdfViewer>
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
     _scheduleTileBackendWarmUp();
+    _scheduleXfaNotice();
+  }
+
+  /// A dynamic XFA form shows no fields here; say so once per revision
+  /// controller rather than leave the form silently empty (#929). Deferred
+  /// to a post-frame callback because the messenger and localizations are
+  /// not reachable from initState.
+  void _scheduleXfaNotice() {
+    final controller = _revisionController;
+    if (controller == null || !widget.active) return;
+    if (!pdfXfaNoticePending(controller)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !widget.active ||
+          !identical(controller, _revisionController)) {
+        return;
+      }
+      showPdfXfaNoticeIfNeeded(context, controller);
+    });
   }
 
   PdfTileRasterBackend? _pendingTileBackendWarmUp;
@@ -4194,6 +4214,7 @@ class _PdfViewerState extends State<PdfViewer>
       _scheduleTileBackendWarmUp();
     }
     _scheduleVisibleTextWarm();
+    _scheduleXfaNotice();
   }
 
   /// The revision controller notified. It owns the document revisions, so a

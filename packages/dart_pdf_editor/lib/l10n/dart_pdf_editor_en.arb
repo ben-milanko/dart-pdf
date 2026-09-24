@@ -1207,6 +1207,10 @@
   "@shellDefaultAuthor": {
     "description": "Menu item that opens a prompt to set the default annotation author name."
   },
+  "formXfaUnsupportedNotice": "This form uses XFA, which can't be filled here, so its fields don't appear. Open it in an app that supports XFA forms to fill it in.",
+  "@formXfaUnsupportedNotice": {
+    "description": "Toast shown once when a document's form is a dynamic XFA form: its fields exist only in the XFA description, which the editor cannot show or fill. XFA is a technical format name; keep it untranslated."
+  },
   "shellHighlightFormFields": "Highlight form fields",
   "@shellHighlightFormFields": {
     "description": "Toggle label controlling whether form fields are highlighted."

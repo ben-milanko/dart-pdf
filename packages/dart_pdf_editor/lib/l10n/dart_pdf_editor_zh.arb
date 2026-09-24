@@ -295,6 +295,7 @@
   "searchWholeWord": "全字匹配",
   "shellControls": "控件",
   "shellDefaultAuthor": "默认作者…",
+  "formXfaUnsupportedNotice": "此表单使用 XFA，无法在此处填写，因此不会显示其字段。请在支持 XFA 表单的应用中打开以填写。",
   "shellHighlightFormFields": "高亮表单字段",
   "shellKeyboardShortcutsMenu": "键盘快捷键…",
   "shellKeyboardShortcutsTitle": "键盘快捷键",

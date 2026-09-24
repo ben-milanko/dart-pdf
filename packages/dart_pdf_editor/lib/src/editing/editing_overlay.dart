@@ -34,6 +34,14 @@ import 'text_prompt.dart';
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
+/// A [TextField.buildCounter] that draws nothing, so a form field's /MaxLen
+/// cap stays silent instead of adding a counter under the field.
+Widget? _noInputCounter(BuildContext context,
+        {required int currentLength,
+        required int? maxLength,
+        required bool isFocused}) =>
+    null;
+
 TextAlign _flutterTextAlign(PdfTextAlign align) => switch (align) {
       PdfTextAlign.left => TextAlign.left,
       PdfTextAlign.center => TextAlign.center,
@@ -995,6 +1003,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // field's /V instead of creating a free-text annotation
   String? _textEditFieldName;
   bool _textEditMultiline = true;
+  // the field's /MaxLen, and whether it is a password field (edited masked
+  // and single-line, its afterimage masked too) - #931
+  int? _textEditMaxLength;
+  bool _textEditPassword = false;
 
   // select-tool drags. A rotated selection resizes in its local frame:
   // _resizeFrom/_resizeRect are then the chrome's local box (the rect
@@ -3597,7 +3609,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final formSize = size > 0 ? size : 12.0;
     _textEditText.resetStyles(_TextEditStyle(
         font: formFont, size: formSize, color: const Color(0xFF000000)));
-    _textEditText.text = field.value ?? '';
+    _textEditText.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
       _textEditPageRect = rect;
@@ -3606,7 +3618,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditAnnotationSlot = null;
       _textEditTool = _tool;
       _textEditFieldName = field.name;
-      _textEditMultiline = field.isMultiline;
+      _textEditPassword = field.isPassword;
+      _textEditMultiline = field.isMultiline && !field.isPassword;
+      _textEditMaxLength = field.maxLength;
       _textEditFont = formFont;
       // an auto-size /DA (0 Tf) edits at a readable default; the
       // committed appearance derives its own size as usual
@@ -3642,6 +3656,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final value = _textEditText.text;
       final font = _textEditFont;
       final size = _textEditSize;
+      final password = _textEditPassword;
       _closeTextEditor();
       final before = _controller.revisionId;
       _controller.setFormFieldText(fieldName, value);
@@ -3649,7 +3664,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _clearAfterimage();
       _afterText = (
         rect: rect,
-        text: value,
+        text: password ? _controller.formPasswordMask(value) : value,
         font: font,
         size: size,
         color: const Color(0xFF000000),
@@ -6671,6 +6686,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     controller: _textEditText,
                                     focusNode: _textEditFocus,
                                     autofocus: true,
+                                    obscureText: _textEditFieldName != null &&
+                                        _textEditPassword,
+                                    maxLength: _textEditFieldName == null
+                                        ? null
+                                        : _textEditMaxLength,
+                                    // the /MaxLen cap is silent: no counter
+                                    buildCounter: _noInputCounter,
                                     // single-line form fields edit single-line:
                                     // Enter commits instead of inserting a newline
                                     maxLines: _textEditFieldName == null ||

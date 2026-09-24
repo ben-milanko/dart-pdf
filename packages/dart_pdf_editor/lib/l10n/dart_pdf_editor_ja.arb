@@ -295,6 +295,7 @@
   "searchWholeWord": "単語単位",
   "shellControls": "コントロール",
   "shellDefaultAuthor": "デフォルトの作成者…",
+  "formXfaUnsupportedNotice": "このフォームは XFA を使用しているため、ここでは入力できず、フィールドも表示されません。入力するには XFA フォームに対応したアプリで開いてください。",
   "shellHighlightFormFields": "フォームフィールドを強調表示",
   "shellKeyboardShortcutsMenu": "キーボードショートカット…",
   "shellKeyboardShortcutsTitle": "キーボードショートカット",

@@ -99,7 +99,12 @@ rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
 encrypt-on-write re-encrypts changed objects on save -
 `StandardSecurityHandler.encryptObjectGraph` (the graph walk + exempt
 policy live on the handler, shared with the loader's `decryptObjectGraph`);
-signing encrypted files stays refused). Annotation authoring is in:
+encrypted files sign in place: a signature dictionary's /Contents is the one
+string exempt both ways (`StandardSecurityHandler.isSignatureContents`,
+§7.6.1), so the placeholder is patched after the rest of the revision is
+encrypted; PAdES's follow-on revisions reopen via `PdfDocument.openAppended`,
+which reuses the authenticated keys. See
+doc/dev-log/2026-09-23-sign-encrypted-pdfs.md). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
 them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
@@ -129,8 +134,8 @@ page lookup with full-walk fallback, gradient /Extend semantics, JPEG
 (selection, highlights, overlays, and hit-testing are rotation-aware;
 the geometry mirrors the renderer's canvas transform).
 The big-gap batch landed next, all KAT-validated against reference
-codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`;
-signing encrypted files still refused), trust-store chain validation
+codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`),
+trust-store chain validation
 (`verifyCertificateChain` in pdf_cos cms.dart, `PdfTrustStore` +
 `validate(trustStore:)` in pdf_document), mesh shadings 4-7
 (`PdfMeshParser`/`PdfMesh`, device `fillMesh`, drawVertices in

@@ -923,6 +923,10 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => '默认作者…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      '此表单使用 XFA，无法在此处填写，因此不会显示其字段。请在支持 XFA 表单的应用中打开以填写。';
+
+  @override
   String get shellHighlightFormFields => '高亮表单字段';
 
   @override
@@ -3069,6 +3073,10 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get shellDefaultAuthor => '預設作者…';
+
+  @override
+  String get formXfaUnsupportedNotice =>
+      '此表單使用 XFA，無法在此處填寫，因此不會顯示其欄位。請在支援 XFA 表單的應用程式中開啟以填寫。';
 
   @override
   String get shellHighlightFormFields => '標示表單欄位';

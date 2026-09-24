@@ -928,6 +928,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Varsayılan yazar…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Bu form XFA kullanıyor ve burada doldurulamıyor, bu yüzden alanları görünmüyor. Doldurmak için XFA formlarını destekleyen bir uygulamada açın.';
+
+  @override
   String get shellHighlightFormFields => 'Form alanlarını vurgula';
 
   @override

@@ -295,6 +295,7 @@
   "searchWholeWord": "Toàn bộ từ",
   "shellControls": "Điều khiển",
   "shellDefaultAuthor": "Tác giả mặc định…",
+  "formXfaUnsupportedNotice": "Biểu mẫu này dùng XFA, không thể điền tại đây nên các trường của nó không hiển thị. Hãy mở trong ứng dụng hỗ trợ biểu mẫu XFA để điền.",
   "shellHighlightFormFields": "Làm nổi bật các trường biểu mẫu",
   "shellKeyboardShortcutsMenu": "Phím tắt…",
   "shellKeyboardShortcutsTitle": "Phím tắt",

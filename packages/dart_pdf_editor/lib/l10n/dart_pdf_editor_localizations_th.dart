@@ -928,6 +928,10 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'ผู้เขียนเริ่มต้น…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'แบบฟอร์มนี้ใช้ XFA ซึ่งกรอกที่นี่ไม่ได้ จึงไม่แสดงช่องต่างๆ โปรดเปิดในแอปที่รองรับแบบฟอร์ม XFA เพื่อกรอก';
+
+  @override
   String get shellHighlightFormFields => 'ไฮไลต์ช่องแบบฟอร์ม';
 
   @override

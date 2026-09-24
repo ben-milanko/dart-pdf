@@ -295,6 +295,7 @@
   "searchWholeWord": "Ganzes Wort",
   "shellControls": "Steuerung",
   "shellDefaultAuthor": "Standardautor…",
+  "formXfaUnsupportedNotice": "Dieses Formular verwendet XFA und kann hier nicht ausgefüllt werden, daher werden seine Felder nicht angezeigt. Öffnen Sie es zum Ausfüllen in einer App, die XFA-Formulare unterstützt.",
   "shellHighlightFormFields": "Formularfelder hervorheben",
   "shellKeyboardShortcutsMenu": "Tastenkürzel…",
   "shellKeyboardShortcutsTitle": "Tastenkürzel",
