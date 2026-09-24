@@ -12,7 +12,8 @@ concurrency:
 
 env:
   FLUTTER_VERSION: 3.47.4
-  PATROL_CLI_VERSION: 4.7.0
+  # The CLI release paired with the example's patrol 4.10.0.
+  PATROL_CLI_VERSION: 4.8.0
   PATROL_ANALYTICS_ENABLED: "false"
   PATROL_PERF_REPETITIONS: 3
   PATROL_NATIVE_PERF_REPETITIONS: 6
@@ -242,7 +243,10 @@ jobs:
   ios:
     name: iOS Simulator
     runs-on: macos-15
-    timeout-minutes: 45
+    # The demo journey plus up to eight native-perf attempts, each with its
+    # own build-for-testing. On a slow runner the demo and five attempts
+    # alone took the whole of the old 45 minutes.
+    timeout-minutes: 60
     permissions:
       actions: read
       contents: read
@@ -269,53 +273,9 @@ jobs:
           echo "device_id=$device_id" >> "$GITHUB_OUTPUT"
       - name: Run Patrol on iOS
         working-directory: ${{ env.EXAMPLE_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          patrol test \
-            --device "${{ steps.simulator.outputs.device_id }}" \
-            --target patrol_test/demo_e2e_test.dart \
-            --dart-define PDF_PERF_LOG=true \
-            --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
-            --show-flutter-logs \
-            --verbose \
-            2>&1 | tee "$RUNNER_TEMP/patrol-ios.log"
-          completed=0
-          attempt=0
-          max_attempts=$((PATROL_NATIVE_PERF_REPETITIONS + 2))
-          while ((completed < PATROL_NATIVE_PERF_REPETITIONS && attempt < max_attempts)); do
-            attempt=$((attempt + 1))
-            attempt_log="$RUNNER_TEMP/patrol-ios-perf-$attempt.log"
-            echo "::group::Patrol native performance attempt $attempt/$max_attempts"
-            patrol test \
-              --device "${{ steps.simulator.outputs.device_id }}" \
-              --target patrol_test/native_perf_e2e_test.dart \
-              --dart-define PDF_PERF_LOG=true \
-              --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
-              --show-flutter-logs \
-              --verbose \
-              2>&1 | tee "$attempt_log"
-            echo "::endgroup::"
-            if dart ../../../tool/patrol_perf_summary.dart \
-              "$attempt_log" \
-              --output "$RUNNER_TEMP/patrol-ios-perf-${attempt}-summary" \
-              --require-scenario-runs native-mobile-tiles=1 \
-              --require-scenario-runs gpu-native-pipeline-warm=1 \
-              --require-scenario-runs gpu-native-page-0-scene-warm=1 \
-              --require-scenario-runs gpu-native-page-0-first-tile=1 \
-              --require-scenario-runs gpu-native-page-0-canvas-tile=1 \
-              --require-scenario-runs gpu-native-page-0-reused-tile=1 \
-              >/dev/null 2>&1; then
-              tee -a "$RUNNER_TEMP/patrol-ios.log" < "$attempt_log" >/dev/null
-              completed=$((completed + 1))
-            else
-              echo "::warning::iOS Patrol attempt $attempt returned without a complete performance marker; retrying"
-            fi
-          done
-          if ((completed < PATROL_NATIVE_PERF_REPETITIONS)); then
-            echo "::error::iOS Patrol produced $completed/$PATROL_NATIVE_PERF_REPETITIONS complete performance repetitions"
-            exit 1
-          fi
+        env:
+          PATROL_IOS_DEVICE: ${{ steps.simulator.outputs.device_id }}
+        run: bash ../../../tool/run_ios_patrol_ci.sh
       - name: Download latest main Patrol iOS baseline
         id: patrol-baseline
         if: always() && github.event_name == 'pull_request'

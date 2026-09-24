@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -19,6 +20,7 @@ import 'editing_preferences.dart';
 import 'editing_signature.dart';
 import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
+import 'form_secret_store.dart';
 import 'editing_stamps.dart';
 import 'line_style.dart';
 import 'saved_annotation.dart';
@@ -296,8 +298,46 @@ class PdfLinkTarget {
 typedef PdfAnnotationEditPredicate = bool Function(PdfAnnotation annotation);
 
 /// The field kinds the form tool can create (and convert fields to) -
-/// the subset of [PdfFieldType] with creation support in [PdfEditor].
-enum PdfFormFieldKind { text, checkBox, pushButton }
+/// every [PdfFieldType] with creation support in [PdfEditor].
+enum PdfFormFieldKind {
+  text,
+  checkBox,
+  pushButton,
+
+  /// A radio group; the form tool creates it with one button and
+  /// [PdfEditingController.addFormRadioButton] adds the rest.
+  radioGroup,
+
+  /// A drop-down; options are edited with
+  /// [PdfEditingController.setFormFieldOptions].
+  comboBox,
+
+  /// A scrolling list; options are edited with
+  /// [PdfEditingController.setFormFieldOptions].
+  listBox,
+
+  /// An empty signature field, placed for someone to sign later.
+  signature;
+
+  /// The [PdfFieldType] this kind creates.
+  PdfFieldType get fieldType => switch (this) {
+        text => PdfFieldType.text,
+        checkBox => PdfFieldType.checkBox,
+        pushButton => PdfFieldType.pushButton,
+        radioGroup => PdfFieldType.radioGroup,
+        comboBox => PdfFieldType.comboBox,
+        listBox => PdfFieldType.listBox,
+        signature => PdfFieldType.signature,
+      };
+
+  /// The kind creating [type], or null for [PdfFieldType.unknown].
+  static PdfFormFieldKind? of(PdfFieldType type) {
+    for (final kind in values) {
+      if (kind.fieldType == type) return kind;
+    }
+    return null;
+  }
+}
 
 /// The text styling of a form text field, read from its /DA, /Q and /Ff -
 /// what the form-field style controls reflect and edit
@@ -410,12 +450,15 @@ class PdfEditingController extends ChangeNotifier {
     PdfSnapshotClipboard? snapshotClipboard,
     PdfAnnotationSnapshotClipboard? annotationClipboard,
     PdfTrustStore? trustStore,
+    PdfRevocationClient? revocationClient,
+    this.formSecretStore,
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
         _trustStore = trustStore,
+        _revocationClient = revocationClient,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
         snapshotClipboard = snapshotClipboard ?? PdfSnapshotClipboard.instance,
@@ -431,6 +474,147 @@ class PdfEditingController extends ChangeNotifier {
     // and for the shared annotation clipboard, so annotations copied in one
     // tab light up Paste in every tab
     this.annotationClipboard.addListener(notifyListeners);
+    if (formSecretStore != null) {
+      // the identity of the document as opened: /ID[0], or the SHA-256 of
+      // these bytes (written as /ID by the first withheld fill, so a saved
+      // copy answers to the same key)
+      _formSecretIdBytes = pdfPermanentDocumentId(_document, bytes: bytes);
+      formSecretsLoaded = _loadFormSecrets();
+    } else {
+      formSecretsLoaded = Future<void>.value();
+    }
+  }
+
+  /// Where password-field values live instead of the PDF (§12.7.4.3), or
+  /// null to keep the library default of writing them to /V.
+  ///
+  /// With a store, [setFormFieldText] on a password field withholds the
+  /// value from the file ([PdfFormFilling.setPasswordValue]: no /V, a
+  /// fixed-length mask as the appearance) and files it here under
+  /// [formSecretDocumentId] + the field name; opening the same document
+  /// again restores it for [formFieldTextValue] (the inline editor's
+  /// prefill) without touching the document. The store follows the
+  /// current revision: undo/redo write the value that revision had.
+  final PdfFormSecretStore? formSecretStore;
+
+  Uint8List? _formSecretIdBytes;
+
+  /// The [PdfFormSecretStore] key of this document ([pdfFormSecretDocumentId]
+  /// of its trailer /ID, or of the SHA-256 of the opened bytes), or null
+  /// without a [formSecretStore].
+  String? get formSecretDocumentId => _formSecretIdBytes == null
+      ? null
+      : pdfFormSecretDocumentId(_formSecretIdBytes!);
+
+  /// Completes once the [formSecretStore]'s values for this document have
+  /// been read (immediately without a store).
+  late final Future<void> formSecretsLoaded;
+
+  /// Parallels [_revisions]: the withheld password values (field name ->
+  /// value, `''` for an explicit clear) in effect at each revision. Maps are
+  /// never mutated after they are recorded - a fill records a fresh copy -
+  /// except that [_loadFormSecrets] fills in names no revision has set.
+  final List<Map<String, String>> _revisionSecrets = [{}];
+
+  /// The map the next committed revision records, set around a password
+  /// fill so [_finishRevision] picks it up.
+  Map<String, String>? _pendingSecrets;
+
+  /// Serialises store writes so they land in commit order.
+  Future<void> _secretWrites = Future<void>.value();
+
+  /// Completes when every store write issued so far has finished.
+  Future<void> get formSecretsSettled => _secretWrites;
+
+  Future<void> _loadFormSecrets() async {
+    final store = formSecretStore!;
+    Map<String, String> loaded;
+    try {
+      loaded = await store.readAll(formSecretDocumentId!);
+    } catch (_) {
+      return; // an unreadable keychain must not break opening the file
+    }
+    if (_disposed || loaded.isEmpty) return;
+    // only fields the file still shows as withheld-and-filled take a value:
+    // a stale entry (the field was cleared or refilled elsewhere) is ignored
+    final form = PdfAcroForm.of(PdfDocument.open(
+        Uint8List.sublistView(_bytes, 0, _revisions.first),
+        password: _password));
+    final usable = <String, String>{};
+    loaded.forEach((name, value) {
+      final field = form?.fieldNamed(name);
+      if (field != null &&
+          field.isPassword &&
+          field.value == null &&
+          field.dict[PdfFormFilling.passwordWithheldKey] ==
+              const CosBoolean(true)) {
+        usable[name] = value;
+      }
+    });
+    if (usable.isEmpty) return;
+    for (final secrets in _revisionSecrets) {
+      usable.forEach((name, value) => secrets.putIfAbsent(name, () => value));
+    }
+    notifyListeners();
+  }
+
+  /// A text field's value as the editing UI should show it: for a password
+  /// field whose value is withheld in the [formSecretStore], the stored
+  /// value; otherwise [PdfFormField.value].
+  String? formFieldTextValue(PdfFormField field) {
+    if (formSecretStore != null && field.isPassword) {
+      final secret = _revisionSecrets[_cursor][field.name];
+      if (secret != null) return secret;
+    }
+    return field.value;
+  }
+
+  /// What a password field's appearance shows once [value] commits - the
+  /// same mask [PdfFormFilling] draws, for UI stand-ins such as the
+  /// afterimage painted until the new raster lands.
+  String formPasswordMask(String value) => formSecretStore == null
+      ? PdfFormFilling.maskedPasswordText(value)
+      : value.isEmpty
+          ? ''
+          : '*' * PdfFormFilling.withheldPasswordMaskLength;
+
+  /// Forgets every password value the [formSecretStore] holds for this
+  /// document. The file keeps its masked appearances; the editor just no
+  /// longer knows the values behind them.
+  Future<void> forgetFormSecrets() async {
+    final store = formSecretStore;
+    if (store == null) return;
+    for (var i = 0; i < _revisionSecrets.length; i++) {
+      _revisionSecrets[i] = {};
+    }
+    _queueSecretWrite(() => store.clearDocument(formSecretDocumentId!));
+    notifyListeners();
+    await _secretWrites;
+  }
+
+  void _queueSecretWrite(Future<void> Function() write) {
+    _secretWrites = _secretWrites.then((_) async {
+      try {
+        await write();
+      } catch (_) {
+        // a failing keychain loses the remembered value, never the edit
+      }
+    });
+  }
+
+  /// Brings the store in line with a move from revision secrets [from] to
+  /// [to] (undo/redo).
+  void _syncFormSecrets(Map<String, String> from, Map<String, String> to) {
+    final store = formSecretStore;
+    if (store == null || identical(from, to)) return;
+    final id = formSecretDocumentId!;
+    for (final name in {...from.keys, ...to.keys}) {
+      final value = to[name] ?? '';
+      if ((from[name] ?? '') == value) continue;
+      _queueSecretWrite(() => value.isEmpty
+          ? store.remove(id, name)
+          : store.write(id, name, value));
+    }
   }
 
   /// The persisted UI preferences that own the tool styles (stroke width,
@@ -687,6 +871,7 @@ class PdfEditingController extends ChangeNotifier {
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
     _cursor--;
+    _syncFormSecrets(_revisionSecrets[_cursor + 1], _revisionSecrets[_cursor]);
     _lastRevisionImpact = impact;
     // The worker keeps the shared prefix and re-reads it - no bytes to append.
     _lastRevisionDelta = impact.pageStructureChanged
@@ -705,6 +890,7 @@ class PdfEditingController extends ChangeNotifier {
     if (!canRedo) return;
     final beforeLength = _revisions[_cursor];
     _cursor++;
+    _syncFormSecrets(_revisionSecrets[_cursor - 1], _revisionSecrets[_cursor]);
     final impact = _revisionImpacts[_cursor];
     _lastRevisionImpact = impact;
     _bumpRenderStamps(impact.visualPages);
@@ -728,6 +914,12 @@ class PdfEditingController extends ChangeNotifier {
     _reloadDocument(grew: grew);
     // the same /Annots slot may hold a different annotation now
     _selected.clear();
+    // undoing a paste/insert (or redoing a removal) can leave the page
+    // selection pointing at pages that are gone or shifted
+    if (_lastRevisionImpact?.pageStructureChanged ?? false) {
+      _selectedPages.clear();
+      _pageSelectionAnchor = null;
+    }
     _invalidateElements();
     notifyListeners();
   }
@@ -894,6 +1086,11 @@ class PdfEditingController extends ChangeNotifier {
   }) {
     _revisions.removeRange(_cursor + 1, _revisions.length);
     _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
+    final secrets = _pendingSecrets ?? _revisionSecrets[_cursor];
+    _pendingSecrets = null;
+    _revisionSecrets
+      ..removeRange(_cursor + 1, _revisionSecrets.length)
+      ..add(secrets);
     _revisions.add(newLength);
     _revisionImpacts.add(impact);
     _bumpRenderStamps(impact.visualPages);
@@ -1133,7 +1330,8 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The trust anchors [validationFor] chains signer certificates up to, so a
   /// signature can read as "trusted" rather than "validity unknown". The
-  /// library ships no built-in roots; a host supplies an AATL/EUTL or
+  /// library ships no built-in roots; a host supplies an EU trusted list /
+  /// AATL bundle (`package:pdf_document/trust_lists.dart`) or an
   /// organisation bundle (e.g. `PdfTrustStore.trusting([...])`). Null leaves
   /// every signature's [PdfSignatureValidation.chainTrusted] null - crypto is
   /// still checked, but the signer is never vouched for.
@@ -1146,10 +1344,51 @@ class PdfEditingController extends ChangeNotifier {
   set trustStore(PdfTrustStore? store) {
     if (identical(store, _trustStore)) return;
     _trustStore = store;
-    _validationCache.clear();
-    _validating.clear();
+    _invalidateValidations();
+  }
+
+  PdfRevocationClient? _revocationClient;
+
+  /// The transport [validationFor] checks certificate revocation through
+  /// (typically `pdfOnlineRevocationClient` over the host's HTTP client).
+  /// When set, each signature is validated with
+  /// [PdfSignature.validateOnline] - OCSP/CRL for the signer and every
+  /// intermediate, next to the document's embedded /DSS - so a certificate
+  /// revoked since signing reads as revoked. Null checks only the embedded
+  /// material. Setting it re-validates, like [trustStore].
+  PdfRevocationClient? get revocationClient => _revocationClient;
+
+  set revocationClient(PdfRevocationClient? client) {
+    if (identical(client, _revocationClient)) return;
+    _revocationClient = client;
+    _invalidateValidations();
+  }
+
+  PdfSignatureTrustAction? _signatureTrustAction;
+
+  /// A host-supplied way to establish trust for a signer the panel can't
+  /// vouch for - e.g. "load a trust list". When set, the signature panel
+  /// offers it under an intact signature whose signer is neither trusted,
+  /// self-signed, nor revoked. The library attaches no policy of its own;
+  /// the host decides what the action does (and clears it when it no longer
+  /// applies). Changes notify listeners so the panel updates.
+  PdfSignatureTrustAction? get signatureTrustAction => _signatureTrustAction;
+
+  set signatureTrustAction(PdfSignatureTrustAction? action) {
+    if (identical(action, _signatureTrustAction)) return;
+    _signatureTrustAction = action;
     notifyListeners();
   }
+
+  void _invalidateValidations() {
+    _validationCache.clear();
+    _validating.clear();
+    // A validation already in flight belongs to the old settings.
+    _validationGeneration++;
+    notifyListeners();
+  }
+
+  int _validationGeneration = 0;
 
   /// [validationFor] results for the current revision, keyed by the signature
   /// field's fully qualified name. Dropped whenever the revision moves (or the
@@ -1185,24 +1424,33 @@ class PdfEditingController extends ChangeNotifier {
     if (cached != null) return cached;
     if (schedule && _validating.add(key)) {
       final revision = _revisionId;
+      final generation = _validationGeneration;
       final store = _trustStore;
+      final revocation = _revocationClient;
+      bool stale() =>
+          _revisionId != revision || _validationGeneration != generation;
       // Off the current frame: opening the panel stays instant even when the
-      // signer's certificate chain is expensive to verify.
-      Future(() {
+      // signer's certificate chain is expensive to verify (or, with a
+      // revocation client, waits on the network).
+      Future(() async {
         // The document may have moved on while this was queued.
-        if (_revisionId != revision) {
-          _validating.remove(key);
+        if (stale()) {
+          if (_revisionId != revision) _validating.remove(key);
           return;
         }
         PdfSignatureValidation? result;
         try {
-          result = signature.validate(trustStore: store);
+          result = revocation == null
+              ? signature.validate(trustStore: store)
+              : await signature.validateOnline(
+                  trustStore: store, revocationClient: revocation);
         } catch (_) {
           // A signature we can't validate simply stays "checking"-free; the
           // panel falls back to showing it without a verdict.
         }
+        if (stale()) return;
         _validating.remove(key);
-        if (_revisionId != revision || result == null) return;
+        if (result == null) return;
         _validationCache[key] = result;
         notifyListeners();
       });
@@ -2582,6 +2830,10 @@ class PdfEditingController extends ChangeNotifier {
   /// discarding undo history. Used by [applyRedactions] (the burned file
   /// is not a prefix of the prior buffer).
   void _resetTo(Uint8List bytes, {required PdfEditImpact impact}) {
+    final secrets = _revisionSecrets[_cursor];
+    _revisionSecrets
+      ..clear()
+      ..add(secrets);
     _bytes = bytes;
     _used = bytes.length;
     _revisions
@@ -4172,6 +4424,23 @@ class PdfEditingController extends ChangeNotifier {
   bool removeSelectedPages() {
     final doomed =
         _selectedPages.where((i) => i >= 0 && i < _document.pageCount).toList();
+    if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    return apply((e) => e.removePages(doomed));
+  }
+
+  /// Removes [indices] in one edit (one undo). Refused (returns false) when
+  /// nothing valid is given or the removal would empty the document - at
+  /// least one page must remain. Clears the page selection, like
+  /// [removeSelectedPages].
+  bool removePages(Iterable<int> indices) {
+    final doomed = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
     if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
     _selected.clear();
     _selectedPages.clear();
@@ -8641,6 +8910,34 @@ class PdfEditingController extends ChangeNotifier {
     return result;
   }
 
+  bool _setWithheldPassword(PdfFormField field, String value) {
+    final name = field.name;
+    value = PdfFormFilling.truncateToMaxLength(value, field.maxLength);
+    final current = _revisionSecrets[_cursor];
+    // unchanged - unless the file still carries a /V (a legacy fill) that
+    // committing should move out of it
+    if ((current[name] ?? '') == value && field.value == null) return false;
+    _pendingSecrets = {...current, name: value};
+    final bool committed;
+    try {
+      committed = _fillField(
+          name,
+          const {PdfFieldType.text},
+          (e, f) =>
+              e.setPasswordValue(f, value, documentId: _formSecretIdBytes));
+    } finally {
+      _pendingSecrets = null;
+    }
+    if (committed) {
+      final store = formSecretStore!;
+      final id = formSecretDocumentId!;
+      _queueSecretWrite(() => value.isEmpty
+          ? store.remove(id, name)
+          : store.write(id, name, value));
+    }
+    return committed;
+  }
+
   /// Shared fill plumbing: resolves the field by [name] (fields die with
   /// every revision, so names are the stable handle), guards type and
   /// read-only, and turns editor complaints into a false return - a UI
@@ -8668,18 +8965,43 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  /// Sets the text field [name]'s value, regenerating its appearance.
-  /// Returns false for missing/read-only fields and unchanged values.
+  /// Sets the text field [name]'s value as user entry, regenerating its
+  /// appearance and re-running the form's calculations
+  /// ([PdfFormScriptFilling.enterTextValue]): a recognised keystroke or
+  /// validate script may normalise the value or refuse it. Returns false
+  /// for missing/read-only fields, unchanged values, and refused values -
+  /// call [checkFormFieldText] first to learn why a value is refused.
+  ///
+  /// With a [formSecretStore], a password field's (checked) value goes to
+  /// the store and never into the file - see [formSecretStore].
   bool setFormFieldText(String name, String value) {
     final field = acroForm?.fieldNamed(name);
-    if (field != null && (field.value ?? '') == value) return false;
+    if (field != null) {
+      // keystroke/validate apply to password fields too, before the value
+      // is routed anywhere
+      final check = field.checkInput(value);
+      if (!check.isValid) return false;
+      if (field.isPassword && formSecretStore != null) {
+        return _setWithheldPassword(field, check.value);
+      }
+      if ((field.value ?? '') == check.value) return false;
+    }
     return _fillField(
         name,
         const {
           PdfFieldType.text,
         },
-        (e, f) => e.setTextValue(f, value));
+        (e, f) => e.enterTextValue(f, value));
   }
+
+  /// Checks [value] against the text field [name]'s keystroke and validate
+  /// scripts (AFNumber_Keystroke, AFDate_KeystrokeEx, AFRange_Validate, ...)
+  /// without editing: the value [setFormFieldText] would store, or the
+  /// message to show when it would refuse it. Valid for fields without
+  /// recognised scripts and for unknown names.
+  PdfFieldInputResult checkFormFieldText(String name, String value) =>
+      acroForm?.fieldNamed(name)?.checkInput(value) ??
+      PdfFieldInputResult.valid(value);
 
   /// Toggles the check box [name].
   bool toggleFormCheckBox(String name) => _fillField(
@@ -8711,6 +9033,48 @@ class PdfEditingController extends ChangeNotifier {
         PdfFieldType.listBox,
       },
       (e, f) => e.setChoiceValue(f, value));
+
+  /// Sets the choice field [name] to every option in [values] (export or
+  /// display values, per [PdfEditor.setChoiceValues]) - the multi-select
+  /// list box fill. Returns false for missing/read-only fields, a
+  /// selection the field can't hold, and an unchanged selection.
+  bool setFormChoiceValues(String name, List<String> values) {
+    final field = acroForm?.fieldNamed(name);
+    if (field != null) {
+      final current = field.values.toSet();
+      final next = {
+        for (final v in values)
+          field.options.where((o) => o.$1 == v || o.$2 == v).firstOrNull?.$1 ??
+              v,
+      };
+      if (current.length == next.length && current.containsAll(next)) {
+        return false;
+      }
+    }
+    return _fillField(
+        name,
+        const {
+          PdfFieldType.comboBox,
+          PdfFieldType.listBox,
+        },
+        (e, f) => e.setChoiceValues(f, values));
+  }
+
+  /// Picks option [export] from the choice field [name]: a multi-select
+  /// list box toggles it in or out of the selection, any other choice
+  /// field selects it alone. What the editor's option menus call.
+  bool pickFormChoiceOption(String name, String export) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null || !field.isMultiSelect) {
+      return setFormChoiceValue(name, export);
+    }
+    final current = field.values;
+    return setFormChoiceValues(name, [
+      for (final v in current)
+        if (v != export) v,
+      if (!current.contains(export)) export,
+    ]);
+  }
 
   /// Fills the push button [name] with [imageBytes] (PNG or JPEG),
   /// aspect-fit - signature and logo fields in template pipelines.
@@ -8760,6 +9124,11 @@ class PdfEditingController extends ChangeNotifier {
   /// the document's /AcroForm when it has none. The name is generated
   /// ('Field 1', 'Field 2', …); rename it via [renameFormField].
   /// Returns the new field's name, or null when nothing was added.
+  ///
+  /// A radio group starts with a single button (on-state 'Choice1') -
+  /// grow it with [addFormRadioButton]; combo and list boxes start with
+  /// no options - fill them with [setFormFieldOptions]; a signature field
+  /// is left unsigned for someone to sign later.
   String? addFormField(PdfFormFieldKind kind, int pageIndex, PdfRect rect) {
     var i = 1;
     while (acroForm?.fieldNamed('Field $i') != null) {
@@ -8775,10 +9144,119 @@ class PdfEditingController extends ChangeNotifier {
             e.addCheckBoxField(pageIndex, name, rect);
           case PdfFormFieldKind.pushButton:
             e.addPushButtonField(pageIndex, name, rect);
+          case PdfFormFieldKind.radioGroup:
+            e.addRadioGroup(pageIndex, name, [(rect, 'Choice1')]);
+          case PdfFormFieldKind.comboBox:
+            e.addComboBoxField(pageIndex, name, rect, const []);
+          case PdfFormFieldKind.listBox:
+            e.addListBoxField(pageIndex, name, rect, const []);
+          case PdfFormFieldKind.signature:
+            e.addSignatureField(pageIndex, name, rect);
         }
       },
     );
     return added ? name : null;
+  }
+
+  /// Adds another button to the radio group [name]
+  /// ([PdfEditor.addRadioButton]) - by default the same size as the
+  /// group's last button, one button-height and a half below it (or
+  /// beside it when that would leave the page), with the next free
+  /// 'ChoiceN' on-state. Pass [pageIndex]/[rect]/[onState] to place it
+  /// exactly. The new button is selected so it can be dragged into place.
+  /// Returns its on-state, or null when [name] is not an extensible radio
+  /// group.
+  String? addFormRadioButton(
+    String name, {
+    int? pageIndex,
+    PdfRect? rect,
+    String? onState,
+  }) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null || field.type != PdfFieldType.radioGroup) return null;
+    final last = field.widgets.length - 1;
+    final page = pageIndex ?? field.widgetPageIndex(last);
+    final anchor = field.widgetRect(last);
+    if (page < 0 || (rect == null && anchor == null)) return null;
+    final PdfRect target;
+    if (rect != null) {
+      target = rect;
+    } else {
+      final a = anchor!;
+      final gap = a.height / 2;
+      final below =
+          PdfRect(a.left, a.bottom - gap - a.height, a.right, a.bottom - gap);
+      final pageBox = _page(page).cropBox;
+      target = below.bottom >= pageBox.bottom
+          ? below
+          : PdfRect(a.right + gap, a.bottom, a.right + gap + a.width, a.top);
+    }
+    final taken = field.onStates.toSet();
+    var state = onState;
+    if (state == null) {
+      var n = field.widgets.length + 1;
+      while (taken.contains('Choice$n')) {
+        n++;
+      }
+      state = 'Choice$n';
+    }
+    final chosen = state;
+    try {
+      final added = apply((e) {
+        final f = e.acroForm?.fieldNamed(name);
+        if (f != null) e.addRadioButton(f, page, target, chosen);
+      });
+      if (!added) return null;
+    } on ArgumentError {
+      return null;
+    } on StateError {
+      return null;
+    }
+    selectFormWidgetAt(
+      page,
+      (target.left + target.right) / 2,
+      (target.bottom + target.top) / 2,
+    );
+    return chosen;
+  }
+
+  /// Replaces the combo or list box [name]'s options with [options]
+  /// (export value, display text) pairs, and its Edit ([editable]) and
+  /// MultiSelect ([multiSelect]) flags when given
+  /// ([PdfEditor.setChoiceOptions]). Returns false when [name] is not a
+  /// choice field or nothing changed.
+  bool setFormFieldOptions(
+    String name,
+    List<(String, String)> options, {
+    bool? editable,
+    bool? multiSelect,
+  }) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null ||
+        (field.type != PdfFieldType.comboBox &&
+            field.type != PdfFieldType.listBox)) {
+      return false;
+    }
+    final flags = field.flags;
+    final sameOptions = listEquals(field.options, options);
+    final sameEditable = editable == null ||
+        field.type != PdfFieldType.comboBox ||
+        (flags & PdfFormField.editFlag != 0) == editable;
+    final sameMulti = multiSelect == null ||
+        field.type != PdfFieldType.listBox ||
+        (flags & PdfFormField.multiSelectFlag != 0) == multiSelect;
+    if (sameOptions && sameEditable && sameMulti) return false;
+    try {
+      return apply((e) {
+        final f = e.acroForm?.fieldNamed(name);
+        if (f != null) {
+          e.setChoiceOptions(f, options,
+              editable: editable, multiSelect: multiSelect);
+        }
+      });
+    } on ArgumentError {
+      return false;
+    }
   }
 
   /// Renames the field [name] to [newName]. Returns false when the
@@ -8814,11 +9292,7 @@ class PdfEditingController extends ChangeNotifier {
   bool changeFormFieldKind(String name, PdfFormFieldKind kind) {
     final field = acroForm?.fieldNamed(name);
     if (field == null) return false;
-    final type = switch (kind) {
-      PdfFormFieldKind.text => PdfFieldType.text,
-      PdfFormFieldKind.checkBox => PdfFieldType.checkBox,
-      PdfFormFieldKind.pushButton => PdfFieldType.pushButton,
-    };
+    final type = kind.fieldType;
     if (field.type == type) return false;
     final reselect = selectedWidgetFieldName == name;
     try {
@@ -8973,4 +9447,25 @@ class PdfEditingController extends ChangeNotifier {
       return false;
     }
   }
+}
+
+/// An action the signature panel can offer for an intact signature whose
+/// signer isn't trusted (see [PdfEditingController.signatureTrustAction]).
+/// [label] and [explanation] take a context so the host can localize them.
+class PdfSignatureTrustAction {
+  const PdfSignatureTrustAction({
+    required this.label,
+    required this.onPressed,
+    this.explanation,
+  });
+
+  /// The button text, e.g. "Trust Adobe Approved Trust List".
+  final String Function(BuildContext context) label;
+
+  /// A short line under the button saying what the action does.
+  final String Function(BuildContext context)? explanation;
+
+  /// Runs the action. The host re-validates by updating the controller's
+  /// [PdfEditingController.trustStore] once the new anchors are in.
+  final Future<void> Function() onPressed;
 }

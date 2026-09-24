@@ -610,6 +610,15 @@ class AppLocalizationsTh extends AppLocalizations {
       'ไม่สามารถคัดลอกสแนปช็อตไปยังคลิปบอร์ดได้';
 
   @override
+  String get editorSearchTabs => 'ค้นหาแท็บ';
+
+  @override
+  String get editorClearTabSearch => 'ล้างการค้นหา';
+
+  @override
+  String get editorNoMatchingTabs => 'ไม่มีแท็บที่ตรงกัน';
+
+  @override
   String get editorTabs => 'แท็บ';
 
   @override
@@ -871,6 +880,23 @@ class AppLocalizationsTh extends AppLocalizations {
   String get settingsSystem => 'ระบบ';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'มืด';
 
   @override
@@ -916,6 +942,18 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get undo => 'เลิกทำ';
+
+  @override
+  String get welcomeCopyName => 'คัดลอกชื่อ';
+
+  @override
+  String get welcomeCopyPath => 'คัดลอกเส้นทาง';
+
+  @override
+  String get welcomeOpen => 'เปิด';
+
+  @override
+  String get welcomeOpenInNewWindow => 'เปิดในหน้าต่างใหม่';
 
   @override
   String get welcomeOpenPdf => 'เปิด PDF';

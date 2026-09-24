@@ -86,7 +86,12 @@ rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
 encrypt-on-write re-encrypts changed objects on save -
 `StandardSecurityHandler.encryptObjectGraph` (the graph walk + exempt
 policy live on the handler, shared with the loader's `decryptObjectGraph`);
-signing encrypted files stays refused). Annotation authoring is in:
+encrypted files sign in place: a signature dictionary's /Contents is the one
+string exempt both ways (`StandardSecurityHandler.isSignatureContents`,
+§7.6.1), so the placeholder is patched after the rest of the revision is
+encrypted; PAdES's follow-on revisions reopen via `PdfDocument.openAppended`,
+which reuses the authenticated keys. See
+doc/dev-log/2026-09-23-sign-encrypted-pdfs.md). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
 them into page content. A template stamp records its design - unresolved,
@@ -130,12 +135,29 @@ transports injected via `pades.dart`'s `PdfTimestampClient`/
 `PdfRevocationClient`, no `dart:io`); crypto in `pdf_cos/src/crypto/`
 tsp/ocsp/crl + cms ESS/timestamp helpers (KATs vs OpenSSL in
 `pkix_test.dart`, fixtures from `tool/gen_pkix_fixtures.sh`). validate()
-reports `padesLevel`, `timestamp`, and offline `embeddedRevocation` from the
-/DSS. pyHanko 0.35 judges our B-LTA output VALID + LTV-enabled offline
-(`pdf_document/tool/emit_pades_ltv.dart`). See doc/dev-log.md. Signing
-encrypted files is still refused. Test signer identity in
+reports `padesLevel`, `timestamp`, and per-certificate `revocation` from the
+/DSS; `validateOnline(revocationClient:)` adds live OCSP-then-CRL checks of the
+signer + intermediates (`revocation.dart`: full CertID match, authorized
+delegated responders, freshness; a revoked cert untrusts the chain unless a
+verified timestamp predates the revocation; `pdfOnlineRevocationClient` wraps
+a host HTTP fetch with nonce checks). Roots stay opt-in and uncommitted:
+`package:pdf_document/trust_lists.dart` fetches + XMLDSig-verifies the EU
+trusted lists (pinned LOTL signers, NextUpdate enforced) and fetches or loads
+Adobe's AATL (`fetchAatl`, Adobe Root CA G2 pin, 1-year `PdfAatl.maxAge`;
+never bundled); the app wires the EU list + revocation off-web by default and
+the AATL as a one-click opt-in (Settings switch or the panel's
+`PdfEditingController.signatureTrustAction`, weekly re-check, cache deleted
+when turned off - `app/lib/signature_trust.dart`); `PdfTrustStore.sourceOf`
+names the list an anchor came from. See
+doc/dev-log/2026-09-23-trust-lists-and-revocation.md and
+doc/dev-log/2026-09-24-aatl-one-click.md. pyHanko 0.35 judges our
+B-LTA output VALID + LTV-enabled offline
+(`pdf_document/tool/emit_pades_ltv.dart`, `--encrypted=N` for an encrypted
+source). See doc/dev-log.md. Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`; LTV CA/leaf/TSA + revocation
-fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`.
+fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`, and a
+root/intermediate/signer PKI minting OCSP responses + CRLs on demand in
+`test_revocation.dart`.
 One-tap self-signed identities are in: `EcPrivateKey.generate` + RFC 6979
 `ecdsaSign` + `buildSelfSignedCertificate` (pdf_cos - P-256 keygen and an
 X.509 v3 builder, KAT'd against RFC 6979 vectors) feed
@@ -225,8 +247,8 @@ page lookup with full-walk fallback, gradient /Extend semantics, JPEG
 (selection, highlights, overlays, and hit-testing are rotation-aware;
 the geometry mirrors the renderer's canvas transform).
 The big-gap batch landed next, all KAT-validated against reference
-codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`;
-signing encrypted files still refused), trust-store chain validation
+codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`),
+trust-store chain validation
 (`verifyCertificateChain` in pdf_cos cms.dart, `PdfTrustStore` +
 `validate(trustStore:)` in pdf_document), mesh shadings 4-7
 (`PdfMeshParser`/`PdfMesh`, device `fillMesh`, drawVertices in
@@ -429,7 +451,11 @@ marker, the host (which owns the platform drag stream) drives
 `PdfEditorView(thumbnailDropController:)` forwards it; the app wires it
 to its `desktop_drop` `DropTarget`, so a positioned drop skips the
 open-or-insert dialog. See
-doc/dev-log/2026-08-06-thumbnail-file-drop-position.md.
+doc/dev-log/2026-08-06-thumbnail-file-drop-position.md. The same controller
+carries strip tiles dragged *out* of a window (`onPageDragOutside`/
+`onPageDropOutside`); the app's `PageDragCoordinator` (page_drag.dart) moves
+them into the window under the cursor - see
+doc/dev-log/2026-09-23-thumbnail-drag-between-windows.md.
 
 ## Development session log
 

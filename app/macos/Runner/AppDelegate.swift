@@ -137,8 +137,42 @@ class AppDelegate: FlutterAppDelegate {
     sender.reply(toOpenOrPrint: .success)
   }
 
+  /// Brings DartPDF forward for a file the OS just handed us. LaunchServices
+  /// usually activates the app for a Finder open, but not for every sender,
+  /// and activation alone never unhides the app (Cmd-H) or restores a window
+  /// minimized to the Dock - the document would open in a tab nobody can see.
+  /// On a cold start there is no window yet and this only activates.
+  private func surfaceForIncomingFile() {
+    let app = NSApplication.shared
+    if app.isHidden { app.unhide(nil) }
+    if #available(macOS 14.0, *) {
+      app.activate()
+    } else {
+      app.activate(ignoringOtherApps: true)
+    }
+    guard let window = documentWindow() else { return }
+    if window.isMiniaturized { window.deminiaturize(nil) }
+    window.makeKeyAndOrderFront(nil)
+  }
+
+  /// The window the incoming file lands in: the single-window runner's main
+  /// window, or in multi-window mode the frontmost Dart-owned window (never
+  /// the hidden services window), falling back to a minimized one.
+  private func documentWindow() -> NSWindow? {
+    guard DartPdfWindowingBootstrap.isEnabled else { return mainFlutterWindow }
+    let candidates = NSApplication.shared.orderedWindows.filter {
+      $0 !== windowingServicesWindow && $0.contentViewController is FlutterViewController
+    }
+    return candidates.first(where: { $0.isVisible })
+      ?? NSApplication.shared.windows.first(where: {
+        $0 !== windowingServicesWindow && $0.isMiniaturized
+          && $0.contentViewController is FlutterViewController
+      })
+  }
+
   /// Sends a freshly opened file to Dart, or buffers it until the engine is up.
   private func deliver(path: String) {
+    surfaceForIncomingFile()
     // Finder can deliver an iCloud/OneDrive placeholder during cold launch.
     // Reading it or resolving its security scope here blocks AppKit's main
     // thread and produces a beachball before Flutter can paint. Build the

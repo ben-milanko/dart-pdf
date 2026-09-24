@@ -32,8 +32,16 @@ in CLIs and servers, and on the web.
   `dart_pdf_editor` adds `applyOcr` to run a pluggable OCR engine first.
 - Forms: the AcroForm field model, filling with regenerated appearances
   (text, checkbox, radio, choice, auto-size, quadding), and field
-  administration (add, rename, remove, change type, button images,
-  flatten).
+  administration (add text/checkbox/radio/combo/list/button/empty
+  signature fields, rename, remove, change type, button images,
+  flatten). XFA is detected (`PdfAcroForm.hasXfa` / `isDynamicXfa`) but
+  not rendered or filled: hybrid XFA forms fill through their AcroForm
+  fields, and filling or flattening removes the stale `/XFA` entry
+  (`PdfEditor.removeXfa`). Form scripts without a JS engine: the built-in
+  `AF*` helpers (`AFSimple_Calculate` and simplified field notation in /CO
+  order, `AFNumber`/`AFPercent`/`AFDate`/`AFTime`/`AFSpecial` format and
+  keystroke, `AFRange_Validate`) are recognised and run in Dart;
+  `field.scripts` reports anything skipped.
 - Signatures: read and validate (`PdfSignature.validate`, optional
   trust-store chain validation) and sign (`PdfEditor.saveSigned`,
   `adbe.pkcs7.detached`).

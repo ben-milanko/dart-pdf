@@ -600,6 +600,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorSnapshotCopyFailed => '无法将快照复制到剪贴板';
 
   @override
+  String get editorSearchTabs => '搜索标签页';
+
+  @override
+  String get editorClearTabSearch => '清除搜索';
+
+  @override
+  String get editorNoMatchingTabs => '没有匹配的标签页';
+
+  @override
   String get editorTabs => '标签页';
 
   @override
@@ -858,6 +867,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSystem => '系统';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => '深色';
 
   @override
@@ -902,6 +928,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get undo => '撤销';
+
+  @override
+  String get welcomeCopyName => '复制名称';
+
+  @override
+  String get welcomeCopyPath => '复制路径';
+
+  @override
+  String get welcomeOpen => '打开';
+
+  @override
+  String get welcomeOpenInNewWindow => '在新窗口中打开';
 
   @override
   String get welcomeOpenPdf => '打开 PDF';
@@ -1781,6 +1819,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get editorSnapshotCopyFailed => '無法將快照複製到剪貼簿';
 
   @override
+  String get editorSearchTabs => '搜尋分頁';
+
+  @override
+  String get editorClearTabSearch => '清除搜尋';
+
+  @override
+  String get editorNoMatchingTabs => '沒有相符的分頁';
+
+  @override
   String get editorTabs => '分頁';
 
   @override
@@ -2039,6 +2086,23 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsSystem => '系統';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => '深色';
 
   @override
@@ -2083,6 +2147,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get undo => '復原';
+
+  @override
+  String get welcomeCopyName => '複製名稱';
+
+  @override
+  String get welcomeCopyPath => '複製路徑';
+
+  @override
+  String get welcomeOpen => '開啟';
+
+  @override
+  String get welcomeOpenInNewWindow => '在新視窗中開啟';
 
   @override
   String get welcomeOpenPdf => '開啟 PDF';

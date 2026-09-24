@@ -923,6 +923,10 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => '默认作者…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      '此表单使用 XFA，无法在此处填写，因此不会显示其字段。请在支持 XFA 表单的应用中打开以填写。';
+
+  @override
   String get shellHighlightFormFields => '高亮表单字段';
 
   @override
@@ -1128,6 +1132,11 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1150,6 +1159,40 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => '写回复…';
@@ -2117,6 +2160,39 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipContentDelete => '删除内容 — 拖出矩形，或点击多边形顶点并双击完成';
+
+  @override
+  String get menuConvertToRadioGroup => '转换为单选按钮组';
+
+  @override
+  String get menuConvertToComboBox => '转换为组合框';
+
+  @override
+  String get menuConvertToListBox => '转换为列表框';
+
+  @override
+  String get menuConvertToSignatureField => '转换为签名字段';
+
+  @override
+  String get menuEditOptions => '编辑选项…';
+
+  @override
+  String get menuAddRadioButton => '向组中添加按钮';
+
+  @override
+  String get formOptionsTitle => '字段选项';
+
+  @override
+  String get formOptionsExportValue => '导出值';
+
+  @override
+  String get formOptionsDisplayText => '显示文本';
+
+  @override
+  String get formOptionsAllowCustomText => '允许自定义文本';
+
+  @override
+  String get formOptionsMultiSelect => '允许多选';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3038,6 +3114,10 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get shellDefaultAuthor => '預設作者…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      '此表單使用 XFA，無法在此處填寫，因此不會顯示其欄位。請在支援 XFA 表單的應用程式中開啟以填寫。';
+
+  @override
   String get shellHighlightFormFields => '標示表單欄位';
 
   @override
@@ -3243,6 +3323,11 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -3265,6 +3350,40 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => '撰寫回覆…';
@@ -4232,4 +4351,37 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbTipContentDelete => '刪除內容 — 拖曳矩形，或點擊多邊形頂點並按兩下完成';
+
+  @override
+  String get menuConvertToRadioGroup => '轉換為選項按鈕群組';
+
+  @override
+  String get menuConvertToComboBox => '轉換為下拉式方塊';
+
+  @override
+  String get menuConvertToListBox => '轉換為清單方塊';
+
+  @override
+  String get menuConvertToSignatureField => '轉換為簽名欄位';
+
+  @override
+  String get menuEditOptions => '編輯選項…';
+
+  @override
+  String get menuAddRadioButton => '將按鈕新增至群組';
+
+  @override
+  String get formOptionsTitle => '欄位選項';
+
+  @override
+  String get formOptionsExportValue => '匯出值';
+
+  @override
+  String get formOptionsDisplayText => '顯示文字';
+
+  @override
+  String get formOptionsAllowCustomText => '允許自訂文字';
+
+  @override
+  String get formOptionsMultiSelect => '允許多重選取';
 }

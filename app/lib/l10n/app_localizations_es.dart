@@ -617,6 +617,15 @@ class AppLocalizationsEs extends AppLocalizations {
       'No se pudo copiar la captura al portapapeles';
 
   @override
+  String get editorSearchTabs => 'Buscar pestañas';
+
+  @override
+  String get editorClearTabSearch => 'Borrar búsqueda';
+
+  @override
+  String get editorNoMatchingTabs => 'No hay pestañas que coincidan';
+
+  @override
   String get editorTabs => 'Pestañas';
 
   @override
@@ -884,6 +893,23 @@ class AppLocalizationsEs extends AppLocalizations {
   String get settingsSystem => 'Sistema';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Oscuro';
 
   @override
@@ -929,6 +955,18 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get undo => 'Deshacer';
+
+  @override
+  String get welcomeCopyName => 'Copiar nombre';
+
+  @override
+  String get welcomeCopyPath => 'Copiar ruta';
+
+  @override
+  String get welcomeOpen => 'Abrir';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Abrir en una ventana nueva';
 
   @override
   String get welcomeOpenPdf => 'Abrir un PDF';

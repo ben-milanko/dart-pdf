@@ -925,6 +925,10 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => '기본 작성자…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      '이 양식은 XFA를 사용하므로 여기에서 작성할 수 없으며 필드가 표시되지 않습니다. 작성하려면 XFA 양식을 지원하는 앱에서 여세요.';
+
+  @override
   String get shellHighlightFormFields => '양식 필드 강조';
 
   @override
@@ -1131,6 +1135,11 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1153,6 +1162,40 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => '답글 작성…';
@@ -2127,4 +2170,37 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       '콘텐츠 삭제 — 사각형을 드래그하거나 다각형의 꼭짓점을 클릭한 후 두 번 클릭하여 완료';
+
+  @override
+  String get menuConvertToRadioGroup => '라디오 그룹으로 변환';
+
+  @override
+  String get menuConvertToComboBox => '콤보 상자로 변환';
+
+  @override
+  String get menuConvertToListBox => '목록 상자로 변환';
+
+  @override
+  String get menuConvertToSignatureField => '서명 필드로 변환';
+
+  @override
+  String get menuEditOptions => '옵션 편집…';
+
+  @override
+  String get menuAddRadioButton => '그룹에 버튼 추가';
+
+  @override
+  String get formOptionsTitle => '필드 옵션';
+
+  @override
+  String get formOptionsExportValue => '내보내기 값';
+
+  @override
+  String get formOptionsDisplayText => '표시 텍스트';
+
+  @override
+  String get formOptionsAllowCustomText => '사용자 지정 텍스트 허용';
+
+  @override
+  String get formOptionsMultiSelect => '여러 항목 선택 허용';
 }

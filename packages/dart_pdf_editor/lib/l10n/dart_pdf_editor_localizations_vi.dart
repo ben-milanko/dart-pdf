@@ -930,6 +930,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Tác giả mặc định…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Biểu mẫu này dùng XFA, không thể điền tại đây nên các trường của nó không hiển thị. Hãy mở trong ứng dụng hỗ trợ biểu mẫu XFA để điền.';
+
+  @override
   String get shellHighlightFormFields => 'Làm nổi bật các trường biểu mẫu';
 
   @override
@@ -1137,6 +1141,11 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1159,6 +1168,40 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Viết câu trả lời…';
@@ -2145,4 +2188,37 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Xóa nội dung — kéo hình chữ nhật hoặc nhấp các đỉnh đa giác rồi nhấp đúp để hoàn tất';
+
+  @override
+  String get menuConvertToRadioGroup => 'Chuyển thành nhóm nút chọn';
+
+  @override
+  String get menuConvertToComboBox => 'Chuyển thành hộp kết hợp';
+
+  @override
+  String get menuConvertToListBox => 'Chuyển thành hộp danh sách';
+
+  @override
+  String get menuConvertToSignatureField => 'Chuyển thành trường chữ ký';
+
+  @override
+  String get menuEditOptions => 'Sửa tùy chọn…';
+
+  @override
+  String get menuAddRadioButton => 'Thêm nút vào nhóm';
+
+  @override
+  String get formOptionsTitle => 'Tùy chọn trường';
+
+  @override
+  String get formOptionsExportValue => 'Giá trị xuất';
+
+  @override
+  String get formOptionsDisplayText => 'Văn bản hiển thị';
+
+  @override
+  String get formOptionsAllowCustomText => 'Cho phép văn bản tùy chỉnh';
+
+  @override
+  String get formOptionsMultiSelect => 'Cho phép chọn nhiều';
 }

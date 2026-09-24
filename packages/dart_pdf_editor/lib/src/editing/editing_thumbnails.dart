@@ -230,6 +230,21 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// the whole selection's page count.
   int? _reorderPage;
 
+  // Page indices belong to the revision where the drag began. Undo/redo or
+  // a host edit can replace it while the pointer is still held.
+  PdfDocument? _reorderDocument;
+
+  /// The pages the live reorder drag carries while its pointer is outside
+  /// this window, or null when it's inside (or no drag is live). A release
+  /// out there is a drop into another window, handed to the host through
+  /// [PdfThumbnailDropController.onPageDropOutside].
+  PdfPageDragOut? _dragOut;
+
+  /// Set when a reorder drag ended outside the window: the list still
+  /// completes its drop animation and reports an in-strip reorder, which
+  /// must not happen - the pages went somewhere else.
+  bool _suppressReorder = false;
+
   /// This strip's hit-test, registered with
   /// [PdfThumbnailSidebar.fileDropController]. Held in a field so attach
   /// and detach pass the *same* closure (a method tear-off is a fresh
@@ -237,6 +252,45 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   late final PdfThumbnailDropResolver _dropResolver = _dropIndexAt;
 
   PdfEditingPreferences get _preferences => widget.controller.preferences;
+
+  /// Follows a live reorder drag's pointer past this window's edge. The
+  /// list's own drag keeps the pointer captured, so moves keep arriving
+  /// (in this view's coordinates) after it has left the window; outside
+  /// the view's bounds the drag is reported to the host as a drag out.
+  void _trackDragOut(PointerMoveEvent event) {
+    final grabbed = _reorderPage;
+    if (grabbed == null ||
+        widget.fileDropController?.onPageDropOutside == null) {
+      return;
+    }
+    if (!identical(_reorderDocument, widget.controller.document)) {
+      _setDragOut(null);
+      return;
+    }
+    final view = View.maybeOf(context);
+    if (view == null) return;
+    final bounds = Offset.zero & (view.physicalSize / view.devicePixelRatio);
+    final position = event.position;
+    if (bounds.contains(position)) {
+      _setDragOut(null);
+      return;
+    }
+    final controller = widget.controller;
+    final pages = controller.isPageSelected(grabbed)
+        ? controller.selectedPages
+        : [grabbed];
+    _setDragOut(PdfPageDragOut(
+      controller: controller,
+      pages: pages,
+      globalPosition: position,
+    ));
+  }
+
+  void _setDragOut(PdfPageDragOut? drag) {
+    if (drag == null && _dragOut == null) return;
+    _dragOut = drag;
+    widget.fileDropController?.onPageDragOutside?.call(drag);
+  }
 
   /// The pages the strip is previewing as a shift-click range: empty
   /// unless Shift is held over a hovered tile.
@@ -388,6 +442,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
               _pastePages,
           const SingleActivator(LogicalKeyboardKey.delete): _deletePages,
           const SingleActivator(LogicalKeyboardKey.backspace): _deletePages,
+          ..._undoShortcuts(widget.controller),
         },
       };
 
@@ -467,6 +522,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
 
   @override
   void dispose() {
+    _setDragOut(null);
     _detachDrop(widget.fileDropController);
     widget.viewerController.removeListener(_onViewerChanged);
     _preferences.removeListener(_onPreferences);
@@ -890,9 +946,25 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                             : EdgeInsets.fromLTRB(
                                 inset, 8, _extraRightPadding + inset, 8),
                         itemCount: controller.document.pageCount,
-                        onReorderStart: (index) =>
-                            setState(() => _reorderPage = index),
+                        onReorderStart: (index) {
+                          _suppressReorder = false;
+                          _setDragOut(null);
+                          _reorderDocument = controller.document;
+                          setState(() => _reorderPage = index);
+                        },
                         onReorderEnd: (_) {
+                          final out = _dragOut;
+                          if (!identical(
+                              _reorderDocument, controller.document)) {
+                            _suppressReorder = true;
+                            _setDragOut(null);
+                          } else if (out != null) {
+                            _suppressReorder = true;
+                            _setDragOut(null);
+                            widget.fileDropController?.onPageDropOutside
+                                ?.call(out);
+                          }
+                          _reorderDocument = null;
                           if (mounted) setState(() => _reorderPage = null);
                         },
                         proxyDecorator: (child, index, animation) {
@@ -903,7 +975,13 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                               ? _MultiPageDragProxy(count: count, child: child)
                               : child;
                         },
-                        onReorderItem: controller.movePage,
+                        onReorderItem: (from, to) {
+                          if (_suppressReorder) {
+                            _suppressReorder = false;
+                            return;
+                          }
+                          controller.movePage(from, to);
+                        },
                         itemBuilder: (context, index) {
                           Widget tile = _PageTile(
                             key: _tileKeys[index] ??= GlobalKey(),
@@ -957,6 +1035,22 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                               : KeyedSubtree(key: ValueKey(index), child: tile);
                         },
                       ),
+                    );
+                    // a reorder drag carried out of the window becomes a
+                    // page drop into another one (see _trackDragOut). Always
+                    // in the tree: the host may wire its callbacks after the
+                    // strip mounts, and inserting a wrapper then would
+                    // remount the list mid-drag.
+                    tiles = Listener(
+                      onPointerMove: _trackDragOut,
+                      onPointerCancel: (_) {
+                        _setDragOut(null);
+                        _reorderDocument = null;
+                        if (_reorderPage != null) {
+                          setState(() => _reorderPage = null);
+                        }
+                      },
+                      child: tiles,
                     );
                     if (horizontal) {
                       tiles = Stack(children: [
@@ -1750,6 +1844,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
               _pastePages,
           const SingleActivator(LogicalKeyboardKey.delete): _deletePages,
           const SingleActivator(LogicalKeyboardKey.backspace): _deletePages,
+          ..._undoShortcuts(widget.controller),
         },
       };
 
@@ -2309,6 +2404,26 @@ class _DragFeedback extends StatelessWidget {
     );
   }
 }
+
+/// ⌘/Ctrl+Z undo and ⌘/Ctrl+Shift+Z / Ctrl+Y redo for a thumbnail panel.
+/// The viewer binds the same keys, but only while it holds focus - a
+/// panel that just pasted, cut, or deleted pages keeps the focus itself,
+/// so without these the edit it made couldn't be taken back from the
+/// keyboard.
+Map<ShortcutActivator, VoidCallback> _undoShortcuts(
+        PdfEditingController controller) =>
+    {
+      const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+          controller.undo,
+      const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+          controller.undo,
+      const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
+          controller.redo,
+      const SingleActivator(LogicalKeyboardKey.keyZ,
+          control: true, shift: true): controller.redo,
+      const SingleActivator(LogicalKeyboardKey.keyY, control: true):
+          controller.redo,
+    };
 
 /// Starts a tile drag immediately for mouse pointers (the desktop
 /// expectation - a mouse drag never means scrolling) but only after a

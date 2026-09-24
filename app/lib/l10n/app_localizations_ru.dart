@@ -617,6 +617,15 @@ class AppLocalizationsRu extends AppLocalizations {
       'Не удалось скопировать снимок в буфер обмена';
 
   @override
+  String get editorSearchTabs => 'Поиск по вкладкам';
+
+  @override
+  String get editorClearTabSearch => 'Очистить поиск';
+
+  @override
+  String get editorNoMatchingTabs => 'Нет подходящих вкладок';
+
+  @override
   String get editorTabs => 'Вкладки';
 
   @override
@@ -890,6 +899,23 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settingsSystem => 'Система';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Тёмная';
 
   @override
@@ -935,6 +961,18 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get undo => 'Отменить';
+
+  @override
+  String get welcomeCopyName => 'Копировать имя';
+
+  @override
+  String get welcomeCopyPath => 'Копировать путь';
+
+  @override
+  String get welcomeOpen => 'Открыть';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Открыть в новом окне';
 
   @override
   String get welcomeOpenPdf => 'Открыть PDF';

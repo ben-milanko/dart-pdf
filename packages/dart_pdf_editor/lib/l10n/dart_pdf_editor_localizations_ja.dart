@@ -925,6 +925,10 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'デフォルトの作成者…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'このフォームは XFA を使用しているため、ここでは入力できず、フィールドも表示されません。入力するには XFA フォームに対応したアプリで開いてください。';
+
+  @override
   String get shellHighlightFormFields => 'フォームフィールドを強調表示';
 
   @override
@@ -1130,6 +1134,11 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1152,6 +1161,40 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => '返信を入力…';
@@ -2126,4 +2169,37 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'コンテンツを削除 — ドラッグで長方形を描くか、多角形の頂点をクリックし、ダブルクリックで完了';
+
+  @override
+  String get menuConvertToRadioGroup => 'ラジオボタングループに変換';
+
+  @override
+  String get menuConvertToComboBox => 'コンボボックスに変換';
+
+  @override
+  String get menuConvertToListBox => 'リストボックスに変換';
+
+  @override
+  String get menuConvertToSignatureField => '署名フィールドに変換';
+
+  @override
+  String get menuEditOptions => 'オプションを編集…';
+
+  @override
+  String get menuAddRadioButton => 'グループにボタンを追加';
+
+  @override
+  String get formOptionsTitle => 'フィールドのオプション';
+
+  @override
+  String get formOptionsExportValue => 'エクスポート値';
+
+  @override
+  String get formOptionsDisplayText => '表示テキスト';
+
+  @override
+  String get formOptionsAllowCustomText => 'カスタムテキストを許可';
+
+  @override
+  String get formOptionsMultiSelect => '複数選択を許可';
 }

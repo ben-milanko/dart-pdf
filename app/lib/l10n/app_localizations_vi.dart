@@ -610,6 +610,15 @@ class AppLocalizationsVi extends AppLocalizations {
       'Không thể sao chép ảnh chụp vào bảng nhớ tạm';
 
   @override
+  String get editorSearchTabs => 'Tìm kiếm thẻ';
+
+  @override
+  String get editorClearTabSearch => 'Xóa tìm kiếm';
+
+  @override
+  String get editorNoMatchingTabs => 'Không có thẻ phù hợp';
+
+  @override
   String get editorTabs => 'Thẻ';
 
   @override
@@ -875,6 +884,23 @@ class AppLocalizationsVi extends AppLocalizations {
   String get settingsSystem => 'Hệ thống';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Tối';
 
   @override
@@ -920,6 +946,18 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get undo => 'Hoàn tác';
+
+  @override
+  String get welcomeCopyName => 'Sao chép tên';
+
+  @override
+  String get welcomeCopyPath => 'Sao chép đường dẫn';
+
+  @override
+  String get welcomeOpen => 'Mở';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Mở trong cửa sổ mới';
 
   @override
   String get welcomeOpenPdf => 'Mở một PDF';

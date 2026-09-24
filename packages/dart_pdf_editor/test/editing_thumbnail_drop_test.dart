@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -358,6 +359,180 @@ void main() {
       expect(notifications, 3);
       drop.endDrag(); // already clear
       expect(notifications, 3);
+    });
+  });
+
+  group('PdfThumbnailSidebar page drags out of the window', () {
+    Future<({PdfEditingController editing, PdfThumbnailDropController drop})>
+        pumpDragStrip(WidgetTester tester, {int pages = 3}) async {
+      wideScreen(tester);
+      final editing = PdfEditingController(buildMultiPagePdf(pages));
+      final viewer = PdfViewerController();
+      final drop = PdfThumbnailDropController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(drop.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(
+              controller: editing,
+              viewerController: viewer,
+              fileDropController: drop,
+            ),
+            const Expanded(child: SizedBox.expand()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+      return (editing: editing, drop: drop);
+    }
+
+    testWidgets('a release outside the window hands the pages to the host',
+        (tester) async {
+      final refs = await pumpDragStrip(tester);
+      final moves = <PdfPageDragOut?>[];
+      final drops = <PdfPageDragOut>[];
+      refs.drop
+        ..onPageDragOutside = moves.add
+        ..onPageDropOutside = drops.add;
+      final before = refs.editing.document;
+
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(1)),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      // inside the window: an ordinary reorder drag, nothing reported
+      await mouse.moveBy(const Offset(0, 40));
+      await tester.pump();
+      expect(moves, isEmpty);
+      // past the window's right edge (the view is 1000 wide)
+      await mouse.moveTo(const Offset(1200, 300));
+      await tester.pump();
+      expect(moves.last?.pages, [1]);
+      expect(moves.last?.globalPosition, const Offset(1200, 300));
+      await mouse.up();
+      await tester.pumpAndSettle();
+
+      expect(drops, hasLength(1));
+      expect(drops.single.pages, [1]);
+      expect(identical(drops.single.controller, refs.editing), isTrue);
+      // the host decides what happens - the strip didn't reorder anything
+      expect(identical(refs.editing.document, before), isTrue);
+      expect(moves.last, isNull, reason: 'the drag-out ends with the drop');
+      await drain(tester);
+    });
+
+    testWidgets('a drag that comes back inside still reorders', (tester) async {
+      final refs = await pumpDragStrip(tester);
+      final moves = <PdfPageDragOut?>[];
+      final drops = <PdfPageDragOut>[];
+      refs.drop
+        ..onPageDragOutside = moves.add
+        ..onPageDropOutside = drops.add;
+
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(0)),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await mouse.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await mouse.moveTo(const Offset(1200, 300));
+      await tester.pump();
+      expect(moves.last, isNotNull);
+      // back over the strip, below the last tile
+      await mouse
+          .moveTo(tester.getBottomLeft(stripTile(2)) + const Offset(40, -4));
+      await tester.pump();
+      expect(moves.last, isNull);
+      await mouse.up();
+      await tester.pumpAndSettle();
+
+      expect(drops, isEmpty);
+      expect(refs.editing.document.pageCount, 3);
+      expect(refs.editing.canUndo, isTrue, reason: 'reordered in place');
+      await drain(tester);
+    });
+
+    testWidgets('a revision during the drag cancels the external drop',
+        (tester) async {
+      final refs = await pumpDragStrip(tester);
+      final drops = <PdfPageDragOut>[];
+      refs.drop.onPageDropOutside = drops.add;
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(1)),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await mouse.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await mouse.moveTo(const Offset(1200, 300));
+      await tester.pump();
+
+      // A same-count edit (including undo/redo of a reorder) doesn't cancel
+      // Flutter's reorder recognizer, but changes what the grabbed slot means.
+      refs.editing.movePage(1, 0);
+      final revised = refs.editing.document;
+      await tester.pump();
+      await mouse.moveTo(const Offset(1220, 300));
+      await tester.pump();
+      await mouse.up();
+      await tester.pumpAndSettle();
+
+      expect(drops, isEmpty);
+      expect(refs.editing.document, same(revised));
+      await drain(tester);
+    });
+
+    testWidgets('a selected tile carries the whole selection', (tester) async {
+      final refs = await pumpDragStrip(tester, pages: 4);
+      final drops = <PdfPageDragOut>[];
+      refs.drop.onPageDropOutside = drops.add;
+      refs.editing
+        ..selectPage(0)
+        ..togglePageSelection(2);
+      await tester.pump();
+
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(2)),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await mouse.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await mouse.moveTo(const Offset(-200, 300));
+      await tester.pump();
+      await mouse.up();
+      await tester.pumpAndSettle();
+
+      expect(drops.single.pages, [0, 2]);
+      expect(refs.editing.document.pageCount, 4);
+      await drain(tester);
+    });
+
+    testWidgets('cancelling a drag clears the companion preview and marker',
+        (tester) async {
+      final refs = await pumpDragStrip(tester);
+      final moves = <PdfPageDragOut?>[];
+      final drops = <PdfPageDragOut>[];
+      refs.drop
+        ..onPageDragOutside = moves.add
+        ..onPageDropOutside = drops.add;
+      refs.editing
+        ..selectPage(0)
+        ..togglePageSelection(1);
+      await tester.pump();
+      final mouse = await tester.startGesture(tester.getCenter(stripTile(1)),
+          kind: PointerDeviceKind.mouse);
+      await mouse.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await mouse.moveTo(const Offset(1200, 300));
+      await tester.pump();
+      final companion =
+          find.byKey(const ValueKey('pdf-thumbnail-reorder-companion-0'));
+      expect(companion, findsOneWidget);
+
+      await mouse.cancel();
+      await tester.pumpAndSettle();
+      expect(companion, findsNothing);
+      expect(moves.last, isNull);
+      expect(drops, isEmpty);
+      expect(refs.editing.canUndo, isFalse);
+      await drain(tester);
     });
   });
 }

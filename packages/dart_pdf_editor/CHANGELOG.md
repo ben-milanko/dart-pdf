@@ -1,5 +1,138 @@
 # Changelog
 
+## 5.0.0
+
+### Breaking changes
+
+- `PdfFormFieldKind` gained `radioGroup`, `comboBox`, `listBox` and
+  `signature`. Exhaustive `switch`es over it need the new cases (or a
+  default).
+- `PdfBundledSubstitute` gained `carlito`. Exhaustive `switch`es over it need
+  the new case.
+- `PdfEditingController.setFormFieldText` now treats the value as user entry
+  (`PdfEditor.enterTextValue`): a field's recognised keystroke and validate
+  scripts (AFNumber_Keystroke, AFDate_KeystrokeEx, AFRange_Validate, ...)
+  run first, so it returns false for a refused value and stores the
+  normalised one. Through `setTextValue` it also truncates to /MaxLen,
+  recalculates calculated fields and drops stale /XFA. Call
+  `checkFormFieldText` first to learn why a value would be refused. With a
+  `formSecretStore`, a password field's value goes to the store instead of
+  /V.
+- `PdfEditorView` and `PdfReader` given no `viewMode:` now own a
+  `PdfViewModeController` of their own, seeded from the preferences once they
+  load. The shell no longer follows later writes to
+  `preferences.viewMode` / `showReflowView` / `showThumbnailView`, so a host
+  that switched the shell's mode by writing those must create a
+  `PdfViewModeController` and pass it as `viewMode:`, then drive that.
+- `DartPdfEditorLocalizations` gained abstract getters for the new form,
+  XFA and signature-revocation strings (`formXfaUnsupportedNotice`,
+  `sidebarSignatureRevokedStatus`, `menuConvertToRadioGroup`,
+  `formOptionsTitle`, ...). A custom subclass must implement them; extending a
+  bundled locale class picks them up.
+
+### Changes
+
+- `PdfEditingController.signatureTrustAction` lets a host offer a one-click
+  way to trust an unknown signer, for example by loading a trust list. The
+  signature panel now also names the trust list a root came from.
+
+- The signature panel checks revocation when the controller has a
+  `revocationClient`. It shows a Revoked status, whether revocation was
+  confirmed online or from embedded data or could not be checked, and it names
+  self-signed signers and untrusted issuers.
+
+- Multi-select list boxes take several values (#933):
+  `PdfEditingController.setFormChoiceValues` and `pickFormChoiceOption`
+  (which toggles an option on a multi-select box), and the form option menus
+  show checkable items for those fields, each pick toggling one option.
+
+- The form tool creates radio groups, combo boxes, list boxes and empty
+  signature fields (#934): `PdfFormFieldKind` gains `radioGroup`,
+  `comboBox`, `listBox` and `signature`, and the new-field and field-type
+  menus list them. A selected radio group offers "Add button to group"
+  (`PdfEditingController.addFormRadioButton`), a selected choice field
+  "Edit options…" (`showPdfFormOptionsDialog` / `PdfFormOptionsEditor`,
+  applied through `setFormFieldOptions`), and every field converts to the
+  new kinds.
+- Draw cold annotation appearances against a frame budget instead of one per
+  frame. With an editing or form controller attached, marks are drawn by the
+  page's annotation overlay on the platform thread, and each render-scheduler
+  grant used to draw exactly one appearance - so a drawing carrying 1,000
+  stamps filled in over eight seconds at 120 Hz (sixteen at 60 Hz) while the
+  thread sat idle for most of every frame. A grant now keeps drawing until
+  `PdfPageRenderScheduler.appearanceFrameBudget` (4 ms) is spent, publishing
+  once per batch rather than once per mark. One appearance still draws per
+  grant however long it takes, so heavy appearances keep the old pacing.
+- Add `PdfViewerController.isAnnotationAppearanceBusy` and
+  `annotationAppearanceProgress`, notified through `pageRenderActivity`. The
+  overlay finishes after the page raster, so `isPageRenderBusy` and
+  `isPageRasterReady` read done while marks are still landing; these report
+  the overlay's own outstanding work on the pages it is live for, from the
+  moment a pass is queued until the frame that paints its last appearance.
+- Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
+  `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
+  default sans, and Helvetica's advances are much wider than Calibri's - with
+  every character pinned to the PDF's own pen offset by
+  `exactSubstitutedGlyphPlacement`, the surplus had nowhere to go and the
+  glyphs crowded into each other - which is what an Office-printed cover page
+  looked like. Carlito matches Calibri's advances exactly, in all four styles.
+  The faces come from the optional `dart_pdf_editor_assets` package; without
+  it, the fallback chain now names a host Carlito or Calibri before anything
+  else. `PdfBundledSubstitute` gained `assetSuffix` (Carlito is TrueType where
+  the TeX Gyre faces are CFF) and `fontFaceFormat`, which the web worker's
+  `FontFace` now names instead of assuming `opentype`.
+- Give each window its own view mode. `PdfEditingPreferences` is one object per
+  process, so reading the live mode off it meant switching to the page grid (or
+  reflow) in one window switched every other window with it. The live mode now
+  belongs to the window: `PdfViewModeController` holds it, `PdfEditorView` and
+  `PdfReader` take it as `viewMode:`, and a multi-window host creates one per
+  window and hands it to every shell that window builds - so all of that
+  window's tabs share a mode and no other window follows.
+  `PdfEditingPreferences.viewMode` still persists each choice, now as the mode
+  the NEXT window starts in and the one the next launch restores. A shell given
+  no controller owns one seeded from - and written back to - the preferences,
+  so a single-window host is unchanged. `pdfShellViewModeControls` takes
+  `viewMode:` in place of `preferences:`, and `PdfShellViewOptionsButton` takes
+  an optional `viewMode:` that falls back to its preferences.
+- Hold Shift while dragging a line, polyline or polygon vertex handle to
+  straighten the segment being reshaped onto the nearest 45° axis, the same
+  constraint the tools already apply while drawing. A vertex with a neighbour
+  on each side (every vertex of a polygon, whose ends wrap) takes whichever of
+  its two segments the pointer was already closest to lining up. Callout
+  leader handles keep their free aim.
+- Run the recognised AF* form scripts while filling (#930): a keystroke
+  script filters typing (a number field won't take letters), Enter on a
+  refused value keeps the inline editor open with the reason under the field,
+  leaving a field with a refused value keeps its old value and shows a toast,
+  and the afterimage shows the formatted value.
+  `PdfEditingController.checkFormFieldText` checks a value without editing.
+- Honour comb fields, /MaxLen and password masking in the inline editors
+  (#931): they cap input at /MaxLen and obscure password fields, their
+  afterimages stay masked, and the Edit value prompts no longer prefill a
+  password. Add `PdfFormSecretStore` with `InMemoryFormSecretStore` and
+  `SecureFormSecretStore` (flutter_secure_storage), keyed by the document's
+  permanent id and the field name. `PdfEditingController(formSecretStore:)`
+  routes password fills there instead of the file, restores stored values on
+  open without dirtying the document, keeps the store in step with undo and
+  redo, and `forgetFormSecrets()` clears a document's values.
+- Show a one-time, closable notice when a form is dynamic XFA instead of
+  silently showing no fields (#929). Hybrid forms fill normally.
+- Tab and Shift+Tab move between form fields (#932), across pages and
+  wrapping at the ends, in each page's /Tabs order. Text fields open their
+  inline editor; check boxes, radio buttons and choice fields get a focus
+  ring (Space toggles, a choice field opens its menu). Multi-line fields move
+  on Tab instead of typing a tab. `PdfViewerController.revealRect` scrolls a
+  rect into view without zooming.
+- A thumbnail reorder drag carried out of the strip's window is reported
+  through `PdfThumbnailDropController.onPageDragOutside` /
+  `onPageDropOutside` (`PdfPageDragOut`) instead of reordering the strip, so a
+  host can move the pages into another window.
+  `PdfEditingController.removePages` removes several pages in one edit. The
+  thumbnail strip and page grid bind undo/redo themselves, so a paste made
+  there can be undone while the panel keeps focus, and undo/redo of a
+  structural edit clears the stale page selection. A held drop is cancelled
+  when an edit changes the document under it.
+
 ## 4.5.0
 
 - Group the view-options menu around what its rows actually do. Reflow text

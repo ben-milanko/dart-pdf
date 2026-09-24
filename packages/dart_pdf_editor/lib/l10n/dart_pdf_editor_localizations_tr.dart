@@ -928,6 +928,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Varsayılan yazar…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Bu form XFA kullanıyor ve burada doldurulamıyor, bu yüzden alanları görünmüyor. Doldurmak için XFA formlarını destekleyen bir uygulamada açın.';
+
+  @override
   String get shellHighlightFormFields => 'Form alanlarını vurgula';
 
   @override
@@ -1136,6 +1140,11 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1158,6 +1167,40 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Bir yanıt yazın…';
@@ -2150,4 +2193,37 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'İçeriği sil — bir dikdörtgen sürükleyin veya çokgenin köşelerine tıklayıp bitirmek için çift tıklayın';
+
+  @override
+  String get menuConvertToRadioGroup => 'Radyo grubuna dönüştür';
+
+  @override
+  String get menuConvertToComboBox => 'Açılan kutuya dönüştür';
+
+  @override
+  String get menuConvertToListBox => 'Liste kutusuna dönüştür';
+
+  @override
+  String get menuConvertToSignatureField => 'İmza alanına dönüştür';
+
+  @override
+  String get menuEditOptions => 'Seçenekleri düzenle…';
+
+  @override
+  String get menuAddRadioButton => 'Gruba düğme ekle';
+
+  @override
+  String get formOptionsTitle => 'Alan seçenekleri';
+
+  @override
+  String get formOptionsExportValue => 'Dışa aktarma değeri';
+
+  @override
+  String get formOptionsDisplayText => 'Görüntülenen metin';
+
+  @override
+  String get formOptionsAllowCustomText => 'Özel metne izin ver';
+
+  @override
+  String get formOptionsMultiSelect => 'Çoklu seçime izin ver';
 }

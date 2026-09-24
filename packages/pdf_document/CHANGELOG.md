@@ -1,5 +1,119 @@
 # Changelog
 
+## 5.0.0
+
+### Breaking changes
+
+- `PdfFormFilling.setTextValue` now truncates the value to the field's
+  /MaxLen (by code point), then re-runs the form's recognised AF* calculate
+  scripts in /CO order, rewriting the /V of calculated fields - read-only
+  totals included. Appearances apply recognised AF* formats, draw password
+  fields as asterisks and lay comb fields out one character per cell; /V
+  itself stays the raw value. Callers that compared a field's appearance text
+  to the value they set, or relied on calculated fields keeping a stale /V,
+  will see different results.
+- Every fill setter (and `flattenForm`) now removes `/AcroForm /XFA` and the
+  catalog's `/NeedsRendering` through the new `PdfEditor.removeXfa`, so an
+  XFA-aware viewer reads the AcroForm values rather than stale XFA data. A
+  hybrid form's XFA packet no longer survives a fill.
+- List-box appearances now draw every option row, with the selected rows
+  highlighted, instead of only the chosen value - single-select list boxes
+  too. Pixel baselines of filled list boxes change.
+- `PdfSignature.validate()` sets `chainTrusted` to false when revocation data
+  embedded in the document's /DSS says a certificate in the chain is revoked,
+  even without a trust store (unless a verified timestamp predates the
+  revocation). `embeddedRevocation` now requires the issuer to have verified
+  the signer and an OCSP response to match the full CertID, so some documents
+  that used to report embedded revocation data no longer do.
+- `PdfTrustStore.addCertificate` and `addDer` gained an optional named
+  `{String? source}` parameter. Subclasses that override them must add it.
+
+### Changes
+
+- Run the built-in Acrobat AF* helpers that most real forms use, without a
+  JavaScript engine (#930): `AFSimple_Calculate` and simplified field notation
+  (re-run in /CO order after every fill, or on demand with
+  `PdfEditor.recalculateFields`), `AFNumber`/`AFPercent`/`AFDate`/`AFTime`/
+  `AFSpecial` format and keystroke, and `AFRange_Validate`. The new
+  `PdfEditor.enterTextValue` is the user-entry path: it normalises a value
+  (`1.234,50` in a comma-decimal field stores `1234.50`) or throws
+  `PdfFieldInputException` with the helper's message. `setTextValue` stays the
+  unchecked programmatic setter. Arbitrary scripts never run; they are
+  reported, with a reason, on `PdfFormField.scripts`.
+- Honour comb fields, /MaxLen and password masking (#931).
+  `PdfFormField.maxLength` reads the inheritable /MaxLen and `isComb` the comb
+  flag (with the new `fileSelectFlag`/`combFlag` constants).
+  `PdfFormFilling.setPasswordValue` keeps a password out of the file (ISO
+  32000 12.7.4.3): it removes /V, draws a fixed-length mask so the file does
+  not reveal the length, and writes a trailer /ID when the file has none.
+  `pdfPermanentDocumentId` / `pdfTrailerPermanentId` return the identity such
+  a value is filed under.
+- Detect XFA forms (#929): `PdfAcroForm.hasXfa`, `xfaNeedsRendering` and
+  `isDynamicXfa`.
+- Sign encrypted (password-protected) PDFs (#935). Every signing path used to
+  refuse them; the signature's /Contents is now written unencrypted and
+  patched after the rest of the revision is encrypted, and `validate()` reads
+  the raw CMS, which also fixes validating encrypted files signed by other
+  tools. PAdES B-LT/B-LTA and `addDocumentTimestamp` reopen their intermediate
+  revisions with the new `PdfDocument.openAppended`, which reuses the
+  authenticated keys instead of the password. pyHanko validates the encrypted
+  B-LTA output for RC4-40/128, AES-128 and AES-256.
+- Add form tab order (#932): `PdfFormTabOrder`, `PdfTabOrder` and
+  `PdfPage.tabOrder` follow each page's /Tabs (row, column or structure
+  order), fall back to /Annots order, and skip read-only, hidden, push-button
+  and signature fields.
+- `fetchAatl` downloads Adobe's Approved Trust List through a host
+  transport, verifies it chains to Adobe Root CA G2 and was signed within a
+  year (`PdfAatl.maxAge`), and returns a PEM-serializable snapshot.
+  `PdfTrustStore.sourceOf` names the list an anchor came from.
+
+- Check signer-chain revocation. `validate()` now reports a verdict for the
+  signer and each intermediate from the document's /DSS
+  (`PdfSignatureValidation.revocation`, `revocationStatus`), and the new
+  `validateOnline(revocationClient:)` adds live OCSP-then-CRL checks through
+  the injected `PdfRevocationClient`. A revoked certificate makes the chain
+  untrusted unless a verified timestamp predates the revocation.
+  `pdfOnlineRevocationClient` turns a host HTTP function into a client.
+- Add `package:pdf_document/trust_lists.dart`, opt-in trust anchors with no
+  bundled data: fetch and XML-signature-verify the EU trusted lists
+  (`fetchEuTrustedLists`, `PdfTrustLists.eutl`), or load an Adobe Approved
+  Trust List file you supply (`parseAatlSecuritySettings`).
+  `tool/refresh_trust_lists.dart` writes verified PEM snapshots.
+
+- Fill multi-select list boxes (#933). `PdfFormField` gains `isMultiSelect`
+  (/Ff bit 22), `values` (a /V string or array as a list; `value` still
+  returns the first entry), `selectedIndices` (/I, falling back to /V when /I
+  is missing or stale) and `topIndex` (/TI). `PdfEditor.setChoiceValues`
+  writes /V as an array of export values in option order (a plain string for
+  exactly one, removed for none), /I as sorted indices, and scrolls /TI to the
+  first selection. List-box appearances now draw every option row with the
+  selected rows highlighted, for single-select list boxes too, instead of
+  showing only the chosen value.
+
+- Author every AcroForm field type, not only text, check box and push
+  button (#934). `PdfFormAdmin` gains `addRadioGroup` (one parent field, a
+  kid widget per on-state with generated /AP /N and /D states) and
+  `addRadioButton` to grow a group later, `addComboBoxField` /
+  `addListBoxField` (/Opt as export/display pairs, Edit and MultiSelect
+  flags) plus `setChoiceOptions`, and `addSignatureField` - an unsigned
+  /FT /Sig widget (with /SigFlags 1) that `saveSigned(fieldName:)` and the
+  PAdES/self-signed paths fill later. `changeFieldType` now converts to all
+  of them, carrying options between choice kinds and on-states into radio
+  groups and choice options; it refuses to retype a signed signature.
+  Authored choice fields are drawn by the same renderer filling uses, so a
+  new list box shows every option row (selection highlighted) and a combo
+  box its value. `PdfFormField` gains the `noToggleToOffFlag` constant.
+- Stop the visible signature box clipping its detail lines. On a short, wide
+  "sign on this line" placement the top of the first line and the bottom of the
+  last were sliced off: the box's flat 4pt inner margin took over 40% of a
+  ~20pt-tall box, the auto-fit loop gave up at a hard 4pt floor while the text
+  block was still taller than the room left, and centring that overflow ran it
+  past the clip at both ends at once. The margin is now proportional on small
+  boxes (never more than a tenth of the shorter side), the loop shrinks to 2pt
+  before giving up, and a block that still overflows is top-anchored so the
+  clip can only take the tail. A signature graphic also gets the reclaimed
+  room, so it no longer floats small in a short box.
+
 ## 4.5.0
 
 - Measure and declare the whole WinAnsi range (codes 32-255) for base-14

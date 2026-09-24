@@ -1077,6 +1077,24 @@ abstract class AppLocalizations {
   /// **'Could not copy snapshot to clipboard'**
   String get editorSnapshotCopyFailed;
 
+  /// Hint of the search field in the open-tabs grid overlay that filters tabs by title.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tabs'**
+  String get editorSearchTabs;
+
+  /// Tooltip of the button that clears the open-tabs grid search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get editorClearTabSearch;
+
+  /// Shown in the open-tabs grid when no tab title matches the search.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching tabs'**
+  String get editorNoMatchingTabs;
+
   /// Header of the open-tabs grid overlay.
   ///
   /// In en, this message translates to:
@@ -1479,6 +1497,36 @@ abstract class AppLocalizations {
   /// **'System'**
   String get settingsSystem;
 
+  /// Section header in Settings for digital-signature validation options.
+  ///
+  /// In en, this message translates to:
+  /// **'Signatures'**
+  String get settingsSignatures;
+
+  /// Settings switch that makes the app download Adobe's list of trusted signing authorities (the AATL) and trust signatures that chain to it.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust Adobe Approved Trust List'**
+  String get settingsAatlTitle;
+
+  /// Explanation under the Trust Adobe Approved Trust List switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.'**
+  String get settingsAatlSubtitle;
+
+  /// Button in the signature panel, under a signature from an unknown signer, that turns on the Adobe Approved Trust List.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust Adobe Approved Trust List'**
+  String get signatureTrustAatlAction;
+
+  /// Short line under the Trust Adobe Approved Trust List button in the signature panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.'**
+  String get signatureTrustAatlExplanation;
+
   /// Dark theme mode option.
   ///
   /// In en, this message translates to:
@@ -1556,6 +1604,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Undo'**
   String get undo;
+
+  /// Recent-file context-menu item that copies the document name to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy name'**
+  String get welcomeCopyName;
+
+  /// Recent-file context-menu item that copies the document's file path to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy path'**
+  String get welcomeCopyPath;
+
+  /// Recent-file context-menu item that opens the document.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get welcomeOpen;
+
+  /// Recent-file context-menu item that opens the document in a second application window.
+  ///
+  /// In en, this message translates to:
+  /// **'Open in new window'**
+  String get welcomeOpenInNewWindow;
 
   /// Primary button on the welcome screen that opens a PDF file.
   ///

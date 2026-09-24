@@ -927,6 +927,10 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Default author…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.';
+
+  @override
   String get shellHighlightFormFields => 'Highlight form fields';
 
   @override
@@ -1134,6 +1138,11 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1156,6 +1165,40 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Write a reply…';
@@ -2145,6 +2188,39 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convert to radio group';
+
+  @override
+  String get menuConvertToComboBox => 'Convert to combo box';
+
+  @override
+  String get menuConvertToListBox => 'Convert to list box';
+
+  @override
+  String get menuConvertToSignatureField => 'Convert to signature field';
+
+  @override
+  String get menuEditOptions => 'Edit options…';
+
+  @override
+  String get menuAddRadioButton => 'Add button to group';
+
+  @override
+  String get formOptionsTitle => 'Field options';
+
+  @override
+  String get formOptionsExportValue => 'Export value';
+
+  @override
+  String get formOptionsDisplayText => 'Display text';
+
+  @override
+  String get formOptionsAllowCustomText => 'Allow custom text';
+
+  @override
+  String get formOptionsMultiSelect => 'Allow multiple selections';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -3070,6 +3146,10 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get shellDefaultAuthor => 'Default author…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.';
+
+  @override
   String get shellHighlightFormFields => 'Highlight form fields';
 
   @override
@@ -3277,6 +3357,11 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -3299,6 +3384,40 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Write a reply…';
@@ -4288,6 +4407,39 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipContentDelete =>
       'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convert to radio group';
+
+  @override
+  String get menuConvertToComboBox => 'Convert to combo box';
+
+  @override
+  String get menuConvertToListBox => 'Convert to list box';
+
+  @override
+  String get menuConvertToSignatureField => 'Convert to signature field';
+
+  @override
+  String get menuEditOptions => 'Edit options…';
+
+  @override
+  String get menuAddRadioButton => 'Add button to group';
+
+  @override
+  String get formOptionsTitle => 'Field options';
+
+  @override
+  String get formOptionsExportValue => 'Export value';
+
+  @override
+  String get formOptionsDisplayText => 'Display text';
+
+  @override
+  String get formOptionsAllowCustomText => 'Allow custom text';
+
+  @override
+  String get formOptionsMultiSelect => 'Allow multiple selections';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -5213,6 +5365,10 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get shellDefaultAuthor => 'Default author…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.';
+
+  @override
   String get shellHighlightFormFields => 'Highlight form fields';
 
   @override
@@ -5420,6 +5576,11 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -5442,6 +5603,40 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Write a reply…';
@@ -6431,4 +6626,37 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipContentDelete =>
       'Delete content — drag a rectangle, or click polygon vertices and double-click to finish';
+
+  @override
+  String get menuConvertToRadioGroup => 'Convert to radio group';
+
+  @override
+  String get menuConvertToComboBox => 'Convert to combo box';
+
+  @override
+  String get menuConvertToListBox => 'Convert to list box';
+
+  @override
+  String get menuConvertToSignatureField => 'Convert to signature field';
+
+  @override
+  String get menuEditOptions => 'Edit options…';
+
+  @override
+  String get menuAddRadioButton => 'Add button to group';
+
+  @override
+  String get formOptionsTitle => 'Field options';
+
+  @override
+  String get formOptionsExportValue => 'Export value';
+
+  @override
+  String get formOptionsDisplayText => 'Display text';
+
+  @override
+  String get formOptionsAllowCustomText => 'Allow custom text';
+
+  @override
+  String get formOptionsMultiSelect => 'Allow multiple selections';
 }

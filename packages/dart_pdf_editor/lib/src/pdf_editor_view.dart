@@ -223,6 +223,7 @@ class PdfEditorView extends StatefulWidget {
     this.controller,
     this.viewerController,
     this.preferences,
+    this.viewMode,
     this.performance,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.autoRenderWorker = true,
@@ -319,6 +320,7 @@ class PdfEditorView extends StatefulWidget {
     this.errorBuilder,
     this.viewerController,
     this.preferences,
+    this.viewMode,
     this.performance,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.autoRenderWorker = true,
@@ -449,6 +451,16 @@ class PdfEditorView extends StatefulWidget {
   /// The persisted preferences backing tool styles and panel state.
   /// Only with [bytes]; an external [controller] brings its own.
   final PdfEditingPreferences? preferences;
+
+  /// The window's live view mode (pages / reflow / page grid).
+  ///
+  /// The mode belongs to the window, not to the process: a host with more
+  /// than one window creates one [PdfViewModeController] per window and
+  /// passes the same one to every shell that window builds, so switching this
+  /// one to the page grid leaves the other windows on their own mode. Null
+  /// makes the shell own a controller seeded from - and written back to - the
+  /// preferences, which is what a single-window host wants.
+  final PdfViewModeHolder? viewMode;
 
   /// Optional adaptive/fixed performance controller. Null creates an owned
   /// Auto controller. Worker-count recommendations apply only when this shell
@@ -687,6 +699,29 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   bool get _isSource => widget.source != null;
 
+  /// Owned only when the host passes no view mode of its own - a
+  /// single-window host, where the mode may as well follow the preferences
+  /// it is persisted in.
+  PdfViewModeController? _ownedViewMode;
+
+  PdfViewModeHolder get _viewMode => widget.viewMode ?? _ownedViewMode!;
+
+  /// Keeps the owned controller in step with who owns the mode and which
+  /// preferences it persists into - both can change under a live shell.
+  void _syncOwnedViewMode() {
+    final owned = _ownedViewMode;
+    if (widget.viewMode != null) {
+      _ownedViewMode = null;
+      owned?.dispose();
+      return;
+    }
+    if (owned != null && identical(owned.preferences, _prefs)) return;
+    // The window's mode outlives the swap; only where it persists changes.
+    _ownedViewMode = PdfViewModeController(
+        preferences: _prefs, initialMode: owned?.viewMode);
+    owned?.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -706,6 +741,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       onSessionChanged: _onSessionChanged,
     );
     _reportedLength = _session.bytes.length;
+    _syncOwnedViewMode();
     _attachPencil();
   }
 
@@ -763,11 +799,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       _reportedLength = _session.bytes.length;
       _attachPencil();
     }
+    _syncOwnedViewMode();
   }
 
   @override
   void dispose() {
     _pencil?.dispose();
+    _ownedViewMode?.dispose();
     if (!_isSource) _shell.dispose();
     super.dispose();
   }
@@ -790,6 +828,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         documentId: widget.documentId,
         viewerController: widget.viewerController,
         preferences: widget.preferences,
+        viewMode: widget.viewMode,
         performance: widget.performance,
         tileRasterBackend: widget.tileRasterBackend,
         autoRenderWorker: complete && widget.autoRenderWorker,
@@ -945,10 +984,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       return ListenableBuilder(
         // the session owns the document revisions: the viewer must
         // rebuild with the current document whenever it notifies
-        listenable: Listenable.merge([_session, _prefs]),
+        listenable: Listenable.merge([_session, _prefs, _viewMode]),
         builder: (context, _) {
           final session = _session;
           final prefs = _prefs;
+          final viewMode = _viewMode;
           final pageColor = widget.pageColor ?? prefs.pageColor;
           // the persistent thumbnail cache, bound to this document, so the
           // page grid/strip persist their rasters and reopen onto them
@@ -1089,7 +1129,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 fileDropController: features.pageEditing
                     ? widget.thumbnailDropController
                     : null,
-                onOpenPage: (_) => prefs.showThumbnailView = false,
+                onOpenPage: (_) => viewMode.viewMode = PdfViewMode.pages,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
               );
@@ -1099,9 +1139,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // clears reflow). [altView] is "the viewer is hidden" - it
           // suppresses the docked panels, the editing toolbar, and the
           // viewer-only header controls, just as reflow does.
-          final gridActive = features.thumbnails && prefs.showThumbnailView;
-          final reflowActive =
-              features.reflowView && prefs.showReflowView && !gridActive;
+          final gridActive =
+              features.thumbnails && viewMode.viewMode == PdfViewMode.pageGrid;
+          final reflowActive = features.reflowView &&
+              viewMode.viewMode == PdfViewMode.reflow &&
+              !gridActive;
           final altView = reflowActive || gridActive;
           // The navigational panels (Pages, Bookmarks) drive the reflow view
           // through the shared controller, so they stay available while
@@ -1375,7 +1417,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // opening Settings from here and scrolling to a checkbox.
           final viewModeControls = pdfShellViewModeControls(
             context,
-            preferences: prefs,
+            viewMode: viewMode,
             reflow: features.reflowView,
             pageGrid: features.thumbnails,
           );
@@ -1475,6 +1517,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (features.viewOptions)
                     PdfShellViewOptionsButton(
                         preferences: prefs,
+                        viewMode: viewMode,
                         reflow: features.reflowView,
                         pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,

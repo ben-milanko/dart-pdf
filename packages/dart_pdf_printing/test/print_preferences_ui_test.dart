@@ -116,6 +116,21 @@ void main() {
     expect(next()!.settings.copies, 1);
   });
 
+  testWidgets('a previous document\'s page list is not carried outside Range',
+      (tester) async {
+    final preferences = await PrintPreferences.load();
+    await preferences.saveSettings(PrintSettings(pages: [0]),
+        range: 'all', customRange: '1-14');
+    await open(tester, pageCount: 2);
+    expect(
+        tester
+            .widget<TextField>(
+                find.byKey(const ValueKey('print-preview-range')))
+            .controller!
+            .text,
+        '1-2');
+  });
+
   testWidgets('custom input remains editable when saved pages do not exist',
       (tester) async {
     final preferences = await PrintPreferences.load();

@@ -28,6 +28,7 @@ import 'editing/editing_reach.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
+import 'editing/xfa_notice.dart';
 import 'exact_extent_list.dart';
 import 'budgeted_cache.dart';
 import 'l10n/pdf_l10n.dart';
@@ -624,7 +625,29 @@ class PdfViewerController extends ChangeNotifier {
   bool isPageRasterReady(int index) =>
       _state?._rasteredPages.contains(index) ?? false;
 
-  /// Notifies whenever [isPageRenderBusy] may have changed. Never null - it
+  /// Whether an annotation overlay on a page near the reading position still
+  /// has appearances to draw. False when no viewer is attached.
+  ///
+  /// With an editing or form controller attached, annotations are not part of
+  /// the page raster: an overlay draws them after the page, a frame budget at
+  /// a time, so on a heavily marked drawing the marks keep landing well after
+  /// [isPageRenderBusy] and [isPageRasterReady] report the page done. This is
+  /// the signal a host needs to keep "loading markups" chrome up until the
+  /// marks are actually on screen. It covers the pages the overlay is live
+  /// for - the current page and its immediate neighbours - not the whole
+  /// document. Listen to [pageRenderActivity] before re-reading it.
+  bool get isAnnotationAppearanceBusy =>
+      _state?._renderScheduler.appearanceWorkPending ?? false;
+
+  /// How much of the pending annotation-overlay work is drawn, in `0..1`, or
+  /// null when there is none or its size is not known yet (a page still
+  /// resolving its annotation array). Pairs with [isAnnotationAppearanceBusy]
+  /// for a determinate indicator; listen to [pageRenderActivity].
+  double? get annotationAppearanceProgress =>
+      _state?._renderScheduler.appearanceWorkProgress;
+
+  /// Notifies whenever [isPageRenderBusy], [isAnnotationAppearanceBusy] or
+  /// [annotationAppearanceProgress] may have changed. Never null - it
   /// forwards whichever viewer is attached, so a listener survives the viewer
   /// being swapped underneath it.
   Listenable get pageRenderActivity => _pageRenderActivity;
@@ -784,6 +807,14 @@ class PdfViewerController extends ChangeNotifier {
   /// annotation sidebar uses this to zoom to an annotation.
   Future<void> showRect(int pageIndex, PdfRect rect) async =>
       _state?._showRect(pageIndex, rect);
+
+  /// Scrolls just enough to bring [rect] (page space on [pageIndex]) into
+  /// view, without changing the zoom: a no-op when it is already visible,
+  /// otherwise the rect lands centered along the scroll axis (and, while
+  /// zoomed in, across it). What Tab between form fields uses. A no-op
+  /// while no viewer is attached.
+  Future<void> revealRect(int pageIndex, PdfRect rect) async =>
+      _state?._revealRect(pageIndex, rect);
 
   /// The current scroll position and zoom, as a resolution-independent
   /// snapshot - what to persist so reopening the same document lands the
@@ -2467,6 +2498,25 @@ class _PdfViewerState extends State<PdfViewer>
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
     _scheduleTileBackendWarmUp();
+    _scheduleXfaNotice();
+  }
+
+  /// A dynamic XFA form shows no fields here; say so once per revision
+  /// controller rather than leave the form silently empty (#929). Deferred
+  /// to a post-frame callback because the messenger and localizations are
+  /// not reachable from initState.
+  void _scheduleXfaNotice() {
+    final controller = _revisionController;
+    if (controller == null || !widget.active) return;
+    if (!pdfXfaNoticePending(controller)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !widget.active ||
+          !identical(controller, _revisionController)) {
+        return;
+      }
+      showPdfXfaNoticeIfNeeded(context, controller);
+    });
   }
 
   PdfTileRasterBackend? _pendingTileBackendWarmUp;
@@ -4194,6 +4244,7 @@ class _PdfViewerState extends State<PdfViewer>
       _scheduleTileBackendWarmUp();
     }
     _scheduleVisibleTextWarm();
+    _scheduleXfaNotice();
   }
 
   /// The revision controller notified. It owns the document revisions, so a
@@ -5703,6 +5754,71 @@ class _PdfViewerState extends State<PdfViewer>
     await _scroll.animateTo(
       scroll,
       duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  /// See [PdfViewerController.revealRect]: the smallest scroll (and, while
+  /// zoomed in, cross-axis pan) that shows [rect] on page [index] with a
+  /// small margin, centring it on each axis it had to move along.
+  Future<void> _revealRect(int index, PdfRect rect) async {
+    if (!_scroll.hasClients || _viewWidth <= 0 || _pages.isEmpty) return;
+    if (index < 0 || index >= _pages.length) return;
+    final box = _pages[index].cropBox;
+    if (box.width <= 0 || box.height <= 0) return;
+    final geometry = PdfPageGeometry(
+      cropBox: box,
+      rotation: _effectiveRotation(index),
+      viewSize: Size(_pageWidth(index), _pageHeight(index)),
+    );
+    // list space, like _visibleFractionOf: the viewport unprojects as
+    // (p - t) / s, plus the scroll offset along the main axis
+    final m = _transform.value;
+    final scale = m.getMaxScaleOnAxis();
+    final target = geometry
+        .toViewRect(rect)
+        .shift(Offset(_pageContentX(index), _pageContentY(index)))
+        .inflate(24 / scale);
+    final base = _scroll.position.pixels;
+    final mainTranslate = m.storage[_mainTranslate];
+    final crossTranslate = m.storage[_horizontal ? 13 : 12];
+    final viewMain = base - mainTranslate / scale;
+    final viewCross = -crossTranslate / scale;
+    final mainLength = _mainView / scale;
+    final crossLength = _crossView / scale;
+    final targetMainStart = _horizontal ? target.left : target.top;
+    final targetMainEnd = _horizontal ? target.right : target.bottom;
+    final targetCrossStart = _horizontal ? target.top : target.left;
+    final targetCrossEnd = _horizontal ? target.bottom : target.right;
+
+    // where a span should start to show it: centred, or leading-edge
+    // aligned when it can't fit
+    double placed(double start, double end, double length) =>
+        end - start >= length ? start : (start + end) / 2 - length / 2;
+
+    if (scale > 1.01 &&
+        (targetCrossStart < viewCross ||
+            targetCrossEnd > viewCross + crossLength)) {
+      final start = placed(targetCrossStart, targetCrossEnd, crossLength);
+      final t = (-start * scale).clamp(_crossView * (1 - scale), 0.0);
+      _transform.value = m.clone()..storage[_horizontal ? 13 : 12] = t;
+    }
+    if (targetMainStart >= viewMain && targetMainEnd <= viewMain + mainLength) {
+      return;
+    }
+    final start = placed(targetMainStart, targetMainEnd, mainLength);
+    final to =
+        (base + start - viewMain).clamp(0.0, _scroll.position.maxScrollExtent);
+    final distance = (to - base).abs();
+    if (distance > math.max(_mainView * 2, 2400.0)) {
+      // far: snap, like a long page jump, rather than animate every page
+      // in between into view
+      _scroll.jumpTo(to);
+      return;
+    }
+    await _scroll.animateTo(
+      to,
+      duration: const Duration(milliseconds: 200),
       curve: Curves.easeInOut,
     );
   }
@@ -8948,6 +9064,7 @@ class _PdfViewerState extends State<PdfViewer>
                     onSnapshot: widget.onSnapshot,
                     onPlaceSignature: widget.onPlaceSignature,
                     onAnnotationTap: widget.onAnnotationTap,
+                    onRevealRect: _revealRect,
                     contextMenuEnabled: widget.contextMenuEnabled,
                     showSelectionChip: widget.showSelectionChip,
                     interactionHost: PdfEditingInteractionHost(
@@ -9510,6 +9627,7 @@ class _AnnotationAppearanceLayerState
         !identical(oldWidget.renderScheduler, widget.renderScheduler);
     if (schedulerChanged) {
       oldWidget.renderScheduler.cancel(_scheduleToken);
+      oldWidget.renderScheduler.clearAppearanceWork(_scheduleToken);
     }
     final pageChanged = !identical(oldWidget.page, widget.page) ||
         oldWidget.rotation != widget.rotation ||
@@ -9530,6 +9648,7 @@ class _AnnotationAppearanceLayerState
     } else if (oldWidget.active && !widget.active) {
       _generation++;
       widget.renderScheduler.cancel(_scheduleToken);
+      widget.renderScheduler.clearAppearanceWork(_scheduleToken);
     } else if (oldWidget.focusDistance != widget.focusDistance &&
         widget.active) {
       // Refresh a pending request so the newly-current page moves to the head
@@ -9542,6 +9661,7 @@ class _AnnotationAppearanceLayerState
   void dispose() {
     _generation++;
     widget.renderScheduler.cancel(_scheduleToken);
+    widget.renderScheduler.clearAppearanceWork(_scheduleToken);
     _disposePictures();
     _disposeCache();
     super.dispose();
@@ -9574,7 +9694,12 @@ class _AnnotationAppearanceLayerState
   void _notifyReady(int generation) {
     if (!mounted || generation != _generation) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && generation == _generation) widget.onReady();
+      if (!mounted || generation != _generation) return;
+      // The frame that paints the finished layer has been produced, so its
+      // marks are on screen: only now is the layer's work really done. A
+      // newer pass that started in between owns the registration instead.
+      widget.renderScheduler.clearAppearanceWork(_scheduleToken);
+      widget.onReady();
     });
   }
 
@@ -9582,7 +9707,13 @@ class _AnnotationAppearanceLayerState
     final generation = ++_generation;
     widget.renderScheduler.cancel(_scheduleToken);
     if (!keepCurrent) _disposePictures();
-    if (!widget.active) return;
+    if (!widget.active) {
+      widget.renderScheduler.clearAppearanceWork(_scheduleToken);
+      return;
+    }
+    // Owed from the moment the pass is queued, before the page's annotation
+    // array is even resolved - see [PdfPageRenderScheduler.appearanceWorkPending].
+    widget.renderScheduler.reportAppearanceWork(_scheduleToken);
     unawaited(_renderScheduled(generation));
   }
 
@@ -9659,10 +9790,18 @@ class _AnnotationAppearanceLayerState
   /// [PdfPageRenderer.renderAnnotationPicture] performs a synchronous scan
   /// before its first await. A `Future.wait` comprehension therefore ran that
   /// scan for *every* annotation during the opening frame; 740 annotations in
-  /// one real-world engineering pack produced a half-second build. The
-  /// viewer's shared render scheduler starts one appearance per engine frame
-  /// across *all* mounted pages, giving input and painting a turn between
-  /// scans while [_publish] exposes each completed appearance progressively.
+  /// one real-world engineering pack produced a half-second build. Each grant
+  /// from the viewer's shared render scheduler instead draws appearances until
+  /// [PdfPageRenderScheduler.appearanceFrameBudget] is spent, then publishes
+  /// what it has and queues behind the shared next-frame gate for the rest,
+  /// giving input and painting a turn between batches.
+  ///
+  /// The budget replaced a fixed one appearance per grant. Most appearances -
+  /// a stamp, a line, a short ink stroke - draw in well under a millisecond,
+  /// so one per frame left a 1,000-mark drawing filling in over eight seconds
+  /// at 120 Hz while the thread sat idle for almost all of every frame. A
+  /// batch also publishes once instead of once per mark, and every publish
+  /// rebuilds the page's whole ordered picture list.
   Future<void> _renderMissing(
     int generation,
     PdfPage page,
@@ -9671,11 +9810,20 @@ class _AnnotationAppearanceLayerState
     Size pageSize,
     int rotation,
   ) async {
+    final scheduler = widget.renderScheduler;
+    scheduler.reportAppearanceWork(_scheduleToken, total: missing.length);
+    // The preparation pass already owns the first frame's grant.
+    final grant = Stopwatch()..start();
     for (var i = 0; i < missing.length; i++) {
-      // The preparation pass already owns the first frame's grant. Every
-      // subsequent annotation queues behind the shared next-frame gate.
-      if (i > 0) {
-        final permitted = await widget.renderScheduler.paceUiWork(
+      if (i > 0 &&
+          grant.elapsed >= PdfPageRenderScheduler.appearanceFrameBudget) {
+        _publish(generation, annotations, pageSize, ready: false);
+        scheduler.reportAppearanceWork(
+          _scheduleToken,
+          done: i,
+          total: missing.length,
+        );
+        final permitted = await scheduler.paceUiWork(
           _scheduleToken,
           widget.pageIndex,
           motion: PdfRenderMotionClass.quiet,
@@ -9687,6 +9835,7 @@ class _AnnotationAppearanceLayerState
             !widget.active) {
           return;
         }
+        grant.reset();
       }
 
       final annotation = missing[i];
@@ -9708,10 +9857,14 @@ class _AnnotationAppearanceLayerState
           }
         }
       }
-
-      final last = i == missing.length - 1;
-      _publish(generation, annotations, pageSize, ready: last);
     }
+
+    scheduler.reportAppearanceWork(
+      _scheduleToken,
+      done: missing.length,
+      total: missing.length,
+    );
+    _publish(generation, annotations, pageSize);
   }
 
   /// Rebuilds the ordered picture list from [_cache] and repaints, then frees
@@ -9864,6 +10017,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onSnapshot,
     required this.onPlaceSignature,
     required this.onAnnotationTap,
+    required this.onRevealRect,
     required this.interactionHost,
     required this.interactionSession,
     required this.crossPageGhost,
@@ -9957,6 +10111,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [EditingPageOverlay.onPlaceSignature].
   final PdfSignaturePlacer? onPlaceSignature;
   final PdfAnnotationTapHandler? onAnnotationTap;
+
+  /// Scrolls a page-space rect into view ([PdfViewerController.revealRect]);
+  /// the form layer's Tab moves use it.
+  final Future<void> Function(int pageIndex, PdfRect rect) onRevealRect;
 
   /// The one viewer/interaction bridge used by the editing overlay.
   final PdfEditingInteractionHost interactionHost;
@@ -10346,6 +10504,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 zoom: zoom,
                                 formImagePicker: widget.formImagePicker,
                                 onAnnotationTap: widget.onAnnotationTap,
+                                onRevealField: widget.onRevealRect,
                               ),
                             )
                           : const SizedBox.shrink();

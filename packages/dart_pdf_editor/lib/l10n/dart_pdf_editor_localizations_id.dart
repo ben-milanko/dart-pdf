@@ -930,6 +930,10 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Penulis bawaan…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Formulir ini menggunakan XFA, yang tidak dapat diisi di sini, sehingga bidangnya tidak muncul. Buka di aplikasi yang mendukung formulir XFA untuk mengisinya.';
+
+  @override
   String get shellHighlightFormFields => 'Sorot bidang formulir';
 
   @override
@@ -1137,6 +1141,11 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1159,6 +1168,40 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Tulis balasan…';
@@ -2154,4 +2197,37 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai';
+
+  @override
+  String get menuConvertToRadioGroup => 'Ubah menjadi grup radio';
+
+  @override
+  String get menuConvertToComboBox => 'Ubah menjadi kotak kombo';
+
+  @override
+  String get menuConvertToListBox => 'Ubah menjadi kotak daftar';
+
+  @override
+  String get menuConvertToSignatureField => 'Ubah menjadi bidang tanda tangan';
+
+  @override
+  String get menuEditOptions => 'Edit opsi…';
+
+  @override
+  String get menuAddRadioButton => 'Tambahkan tombol ke grup';
+
+  @override
+  String get formOptionsTitle => 'Opsi bidang';
+
+  @override
+  String get formOptionsExportValue => 'Nilai ekspor';
+
+  @override
+  String get formOptionsDisplayText => 'Teks tampilan';
+
+  @override
+  String get formOptionsAllowCustomText => 'Izinkan teks kustom';
+
+  @override
+  String get formOptionsMultiSelect => 'Izinkan pilihan ganda';
 }

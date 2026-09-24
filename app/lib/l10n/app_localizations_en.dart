@@ -611,6 +611,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorSnapshotCopyFailed => 'Could not copy snapshot to clipboard';
 
   @override
+  String get editorSearchTabs => 'Search tabs';
+
+  @override
+  String get editorClearTabSearch => 'Clear search';
+
+  @override
+  String get editorNoMatchingTabs => 'No matching tabs';
+
+  @override
   String get editorTabs => 'Tabs';
 
   @override
@@ -873,6 +882,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsSystem => 'System';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Dark';
 
   @override
@@ -918,6 +944,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get undo => 'Undo';
+
+  @override
+  String get welcomeCopyName => 'Copy name';
+
+  @override
+  String get welcomeCopyPath => 'Copy path';
+
+  @override
+  String get welcomeOpen => 'Open';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Open in new window';
 
   @override
   String get welcomeOpenPdf => 'Open a PDF';
@@ -1824,6 +1862,15 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get editorSnapshotCopyFailed => 'Could not copy snapshot to clipboard';
 
   @override
+  String get editorSearchTabs => 'Search tabs';
+
+  @override
+  String get editorClearTabSearch => 'Clear search';
+
+  @override
+  String get editorNoMatchingTabs => 'No matching tabs';
+
+  @override
   String get editorTabs => 'Tabs';
 
   @override
@@ -2086,6 +2133,23 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get settingsSystem => 'System';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Dark';
 
   @override
@@ -2131,6 +2195,18 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get undo => 'Undo';
+
+  @override
+  String get welcomeCopyName => 'Copy name';
+
+  @override
+  String get welcomeCopyPath => 'Copy path';
+
+  @override
+  String get welcomeOpen => 'Open';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Open in new window';
 
   @override
   String get welcomeOpenPdf => 'Open a PDF';
@@ -3037,6 +3113,15 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String get editorSnapshotCopyFailed => 'Could not copy snapshot to clipboard';
 
   @override
+  String get editorSearchTabs => 'Search tabs';
+
+  @override
+  String get editorClearTabSearch => 'Clear search';
+
+  @override
+  String get editorNoMatchingTabs => 'No matching tabs';
+
+  @override
   String get editorTabs => 'Tabs';
 
   @override
@@ -3299,6 +3384,23 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String get settingsSystem => 'System';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Dark';
 
   @override
@@ -3344,6 +3446,18 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get undo => 'Undo';
+
+  @override
+  String get welcomeCopyName => 'Copy name';
+
+  @override
+  String get welcomeCopyPath => 'Copy path';
+
+  @override
+  String get welcomeOpen => 'Open';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Open in new window';
 
   @override
   String get welcomeOpenPdf => 'Open a PDF';

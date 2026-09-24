@@ -95,6 +95,19 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="5.0.0" date="2026-09-25">
+      <description>
+        <ul>
+          <li>Forms calculate totals, format values and check what you type.</li>
+          <li>Tab between form fields; pick several items in list boxes.</li>
+          <li>Form passwords stay in secure device storage, never in the PDF.</li>
+          <li>Create radio buttons, drop-downs, list boxes and signature fields.</li>
+          <li>Sign password-protected PDFs.</li>
+          <li>Revocation checks for signatures; EU and optional Adobe trust lists.</li>
+          <li>Calibri text from Office documents now looks right.</li>
+        </ul>
+      </description>
+    </release>
     <release version="4.5.0" date="2026-09-16">
       <description>
         <ul>

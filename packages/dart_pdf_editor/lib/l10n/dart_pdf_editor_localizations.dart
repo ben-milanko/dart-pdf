@@ -1786,6 +1786,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Default author…'**
   String get shellDefaultAuthor;
 
+  /// Toast shown once when a document's form is a dynamic XFA form: its fields exist only in the XFA description, which the editor cannot show or fill. XFA is a technical format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.'**
+  String get formXfaUnsupportedNotice;
+
   /// Toggle label controlling whether form fields are highlighted.
   ///
   /// In en, this message translates to:
@@ -2152,6 +2158,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Trusted via {authority}'**
   String sidebarSignatureTrustedVia(String authority);
 
+  /// Detail line naming the trusted authority the signer chains to and the trust list (e.g. EU Trusted List) that authority came from.
+  ///
+  /// In en, this message translates to:
+  /// **'Trusted via {authority} ({list})'**
+  String sidebarSignatureTrustedViaList(String authority, String list);
+
   /// Detail line when the signer does not chain to any configured trust anchor.
   ///
   /// In en, this message translates to:
@@ -2187,6 +2199,54 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'PAdES {level}'**
   String sidebarSignatureLevel(String level);
+
+  /// Status pill for an otherwise intact signature whose certificate was revoked before it was signed (or with no trusted timestamp proving otherwise).
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get sidebarSignatureRevokedStatus;
+
+  /// Detail line when the signer's certificate is self-signed, so only the signer vouches for their identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Self-signed: no authority has confirmed who the signer is'**
+  String get sidebarSignatureSelfSigned;
+
+  /// Detail line when the signer's certificate was issued by an authority that is not among the trusted roots.
+  ///
+  /// In en, this message translates to:
+  /// **'Issued by {authority}, which is not a trusted authority'**
+  String sidebarSignatureUnknownIssuer(String authority);
+
+  /// Detail line when a certificate in the signer's chain was revoked before the signature's trusted time; the signature is not trusted.
+  ///
+  /// In en, this message translates to:
+  /// **'The signer\'s certificate was revoked {time}'**
+  String sidebarSignatureRevokedOn(String time);
+
+  /// Detail line when a certificate was revoked, but a trusted timestamp proves the signature was made before that; the signature still counts.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate revoked {time}, after the signature was timestamped'**
+  String sidebarSignatureRevokedAfterSigning(String time);
+
+  /// Detail line when live OCSP/CRL checks confirmed the signer's certificates are not revoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate not revoked (checked online)'**
+  String get sidebarSignatureRevocationGoodLive;
+
+  /// Detail line when revocation data embedded in the document confirms the signer's certificates were not revoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate not revoked (per data saved in the document)'**
+  String get sidebarSignatureRevocationGoodEmbedded;
+
+  /// Detail line when the signer's certificate revocation status could not be established (no responder, network failure, or unverifiable answer).
+  ///
+  /// In en, this message translates to:
+  /// **'Revocation status could not be checked'**
+  String get sidebarSignatureRevocationUnknown;
 
   /// Placeholder text in the inline reply text field.
   ///
@@ -3909,6 +3969,72 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Delete content — drag a rectangle, or click polygon vertices and double-click to finish'**
   String get tbTipContentDelete;
+
+  /// Form-field menu item that converts the field to a radio group.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to radio group'**
+  String get menuConvertToRadioGroup;
+
+  /// Form-field menu item that converts the field to a combo box (drop-down list).
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to combo box'**
+  String get menuConvertToComboBox;
+
+  /// Form-field menu item that converts the field to a list box.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to list box'**
+  String get menuConvertToListBox;
+
+  /// Form-field menu item that converts the field to an empty signature field.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to signature field'**
+  String get menuConvertToSignatureField;
+
+  /// Form-field menu item that opens the editor for a combo/list box's options.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit options…'**
+  String get menuEditOptions;
+
+  /// Form-field menu item that adds another button to the selected radio group.
+  ///
+  /// In en, this message translates to:
+  /// **'Add button to group'**
+  String get menuAddRadioButton;
+
+  /// Title of the dialog that edits a combo/list box's options.
+  ///
+  /// In en, this message translates to:
+  /// **'Field options'**
+  String get formOptionsTitle;
+
+  /// Options dialog column: the value saved when the option is chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Export value'**
+  String get formOptionsExportValue;
+
+  /// Options dialog column: the text shown to the person filling the form.
+  ///
+  /// In en, this message translates to:
+  /// **'Display text'**
+  String get formOptionsDisplayText;
+
+  /// Options dialog switch: a combo box accepts typed values not in the list.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow custom text'**
+  String get formOptionsAllowCustomText;
+
+  /// Options dialog switch: a list box allows several options to be chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow multiple selections'**
+  String get formOptionsMultiSelect;
 }
 
 class _DartPdfEditorLocalizationsDelegate

@@ -40,6 +40,57 @@ const _substitutes = <String, PdfStandardFont>{
 const _quoteCode = 0x27;
 const _quoteRight = 0x2019;
 
+/// Calibri's own advances, per style, for WinAnsi codes 32-126.
+///
+/// Calibri is not one of the standard 14, so there is no AFM table to check
+/// Carlito against - but a page that names it unembedded carries a /Widths
+/// array, and that array *is* the contract: those are the offsets the renderer
+/// places each character at. These tables were read out of the /Widths of a
+/// Windows document printed through a GDI driver, merged across its pages;
+/// -1 marks a code no page in it showed, which this test skips rather than
+/// guess at.
+///
+/// Carlito matching them to the unit is what makes it substitutable. Falling
+/// through to Heros instead put Helvetica's much wider advances on Calibri's
+/// pen offsets - `C` 722 against 529, `s` 556 against 399 - and crowded every
+/// glyph into the next.
+const _calibriWidths = <String, List<int>>{
+  'Regular': [
+    226, -1, -1, 498, -1, 715, 682, 221, 303, 303, -1, 498, 250, 306, 252, //
+    386, 507, 507, 507, 507, 507, 507, 507, 507, 507, 507, 268, 268, -1, 498,
+    -1, 463, 894, 579, 544, 533, 615, 488, 459, 631, 623, 252, 319, 520, 420,
+    855, 646, 662, 517, 673, 543, 459, 487, 642, 567, 890, 519, 487, 468, -1,
+    -1, -1, -1, 498, -1, 479, 525, 423, 525, 498, 305, 471, 525, 229, 239, 455,
+    229, 799, 525, 527, 525, 525, 349, 391, 335, 525, 452, 715, 433, 453, 395,
+    -1, 460, -1, -1,
+  ],
+  'Bold': [
+    226, -1, -1, -1, -1, -1, 705, -1, 312, 312, -1, 498, 258, 306, 267, 430, //
+    507, 507, 507, 507, 507, 507, 507, 507, 507, 507, 276, -1, -1, -1, -1, -1,
+    -1, 606, 561, 529, 630, 488, 459, 637, 631, 267, 331, 547, 423, 874, 659,
+    676, 532, 686, 563, 473, 495, 653, 591, 906, 551, 520, -1, -1, -1, -1, -1,
+    -1, -1, 494, 537, 418, 537, 503, 316, 474, 537, 246, 255, 480, 246, 813,
+    537, 538, 537, 537, 355, 399, 347, 537, 473, 745, 459, 474, 397, -1, 475,
+    -1, -1,
+  ],
+  'Italic': [
+    226, -1, -1, -1, -1, -1, 682, -1, 303, 303, -1, -1, 250, 306, 252, -1, //
+    507, 507, 507, 507, 507, 507, 507, 507, 507, 507, 268, -1, -1, -1, -1, -1,
+    -1, 579, 544, 522, 615, -1, 459, -1, 623, 252, -1, -1, 420, 855, -1, 654,
+    517, -1, 543, 452, 487, -1, -1, 890, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    514, 514, 416, 514, 478, 305, 514, 514, 229, 239, 455, 229, 791, 514, 513,
+    514, -1, 343, 389, 335, 514, 446, 715, 433, 447, -1, -1, -1, -1, -1,
+  ],
+  'BoldItalic': [
+    226, -1, -1, -1, -1, -1, -1, -1, 312, 312, -1, -1, 258, 306, -1, -1, 507, //
+    507, 507, 507, 507, 507, 507, -1, 507, 507, 276, -1, -1, -1, -1, -1, -1,
+    606, -1, 519, 630, 488, 459, 637, -1, 267, -1, 547, 423, 874, 656, 668,
+    532, -1, 563, 465, 495, 653, -1, 907, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    528, 528, 412, 528, 491, 316, 528, -1, 246, 255, 480, 246, 804, 527, 527,
+    528, -1, 352, 394, 347, 527, 469, 745, -1, 470, -1, -1, -1, -1, -1,
+  ],
+};
+
 void main() {
   group('bundled metric-compatible substitutes', () {
     _substitutes.forEach((file, standard) {
@@ -70,6 +121,35 @@ void main() {
               reason: '$file advance for ${String.fromCharCode(code)}'
                   ' (code $code) must match ${standard.baseFont}');
         }
+      });
+    });
+
+    _calibriWidths.forEach((style, widths) {
+      test('Carlito-$style.ttf carries Calibri advances', () {
+        final bytes = File('assets/fonts/Carlito-$style.ttf').readAsBytesSync();
+        final font = TrueTypeFont.parse(bytes);
+        expect(font, isNotNull,
+            reason: 'Carlito-$style.ttf is a TrueType face');
+        var checked = 0;
+        for (var code = 32; code <= 126; code++) {
+          final expected = widths[code - 32];
+          if (expected < 0) continue;
+          final gid = font!.gidForUnicode(code);
+          expect(gid, isNot(0),
+              reason: 'Carlito-$style.ttf has no glyph for code $code');
+          final advance = font.advanceForGlyph(gid);
+          expect(advance, isNotNull,
+              reason: 'Carlito-$style.ttf advance for code $code');
+          expect((advance! * 1000).round(), expected,
+              reason: 'Carlito-$style.ttf advance for'
+                  ' ${String.fromCharCode(code)} (code $code) must match'
+                  ' Calibri-$style');
+          checked++;
+        }
+        // Guards the table itself: an all -1 column would pass vacuously.
+        expect(checked, greaterThan(50),
+            reason:
+                'Calibri-$style reference table must cover the ASCII range');
       });
     });
 

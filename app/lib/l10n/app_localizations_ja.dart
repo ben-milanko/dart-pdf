@@ -603,6 +603,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorSnapshotCopyFailed => 'スナップショットをクリップボードにコピーできませんでした';
 
   @override
+  String get editorSearchTabs => 'タブを検索';
+
+  @override
+  String get editorClearTabSearch => '検索をクリア';
+
+  @override
+  String get editorNoMatchingTabs => '一致するタブはありません';
+
+  @override
   String get editorTabs => 'タブ';
 
   @override
@@ -861,6 +870,23 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsSystem => 'システム';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'ダーク';
 
   @override
@@ -905,6 +931,18 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get undo => '元に戻す';
+
+  @override
+  String get welcomeCopyName => '名前をコピー';
+
+  @override
+  String get welcomeCopyPath => 'パスをコピー';
+
+  @override
+  String get welcomeOpen => '開く';
+
+  @override
+  String get welcomeOpenInNewWindow => '新しいウィンドウで開く';
 
   @override
   String get welcomeOpenPdf => 'PDF を開く';

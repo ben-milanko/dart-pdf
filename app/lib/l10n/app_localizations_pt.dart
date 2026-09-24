@@ -617,6 +617,15 @@ class AppLocalizationsPt extends AppLocalizations {
       'Não foi possível copiar o instantâneo para a área de transferência';
 
   @override
+  String get editorSearchTabs => 'Pesquisar abas';
+
+  @override
+  String get editorClearTabSearch => 'Limpar pesquisa';
+
+  @override
+  String get editorNoMatchingTabs => 'Nenhuma aba correspondente';
+
+  @override
   String get editorTabs => 'Abas';
 
   @override
@@ -882,6 +891,23 @@ class AppLocalizationsPt extends AppLocalizations {
   String get settingsSystem => 'Sistema';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Escuro';
 
   @override
@@ -927,6 +953,18 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get undo => 'Desfazer';
+
+  @override
+  String get welcomeCopyName => 'Copiar nome';
+
+  @override
+  String get welcomeCopyPath => 'Copiar caminho';
+
+  @override
+  String get welcomeOpen => 'Abrir';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Abrir em uma nova janela';
 
   @override
   String get welcomeOpenPdf => 'Abrir um PDF';

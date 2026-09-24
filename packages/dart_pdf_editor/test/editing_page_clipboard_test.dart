@@ -59,6 +59,32 @@ void main() {
   });
 
   group('controller copy / paste', () {
+    test('removePages drops the given pages in one undoable edit', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4),
+          pageClipboard: PdfPageClipboard());
+      addTearDown(editing.dispose);
+      editing.selectPage(3);
+
+      expect(editing.removePages([2, 0, 2, 9]), isTrue);
+      expect(labelsOf(editing.document), ['Page 2', 'Page 4']);
+      expect(editing.hasPageSelection, isFalse);
+
+      editing.undo();
+      expect(
+          labelsOf(editing.document), ['Page 1', 'Page 2', 'Page 3', 'Page 4']);
+    });
+
+    test('removePages refuses nothing valid, or emptying the document', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2),
+          pageClipboard: PdfPageClipboard());
+      addTearDown(editing.dispose);
+      expect(editing.removePages(const []), isFalse);
+      expect(editing.removePages([5, -1]), isFalse);
+      expect(editing.removePages([0, 1]), isFalse);
+      expect(editing.document.pageCount, 2);
+      expect(editing.canUndo, isFalse);
+    });
+
     test('copy fills the clipboard without touching the document', () {
       final clip = PdfPageClipboard();
       final editing =
@@ -306,6 +332,39 @@ void main() {
       await drain(tester);
     });
 
+    testWidgets('Ctrl+Z undoes a paste and Ctrl+Shift+Z redoes it',
+        (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 2);
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      refs.editing.copyPages([0]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2', 'Page 1']);
+      expect(refs.editing.selectedPages, [2]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2']);
+      // the pasted page is gone, so is its selection
+      expect(refs.editing.hasPageSelection, isFalse);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2', 'Page 1']);
+      await drain(tester);
+    });
+
     testWidgets('⌘X cuts the selection', (tester) async {
       wideScreen(tester);
       final refs = await pumpGrid(tester, pages: 3);
@@ -487,6 +546,35 @@ void main() {
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }
+    });
+    testWidgets('⌘/Ctrl+Z in the strip undoes its paste', (tester) async {
+      final refs = await pumpStrip(tester, pages: 3);
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      refs.editing.copyPages([0]);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document),
+          ['Page 1', 'Page 1', 'Page 2', 'Page 3']);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2', 'Page 3']);
+      expect(refs.editing.canRedo, isTrue);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyY);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document),
+          ['Page 1', 'Page 1', 'Page 2', 'Page 3']);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
   });
 }

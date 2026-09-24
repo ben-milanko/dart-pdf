@@ -601,6 +601,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorSnapshotCopyFailed => '스냅샷을 클립보드에 복사할 수 없습니다';
 
   @override
+  String get editorSearchTabs => '탭 검색';
+
+  @override
+  String get editorClearTabSearch => '검색어 지우기';
+
+  @override
+  String get editorNoMatchingTabs => '일치하는 탭이 없습니다';
+
+  @override
   String get editorTabs => '탭';
 
   @override
@@ -859,6 +868,23 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsSystem => '시스템';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => '어둡게';
 
   @override
@@ -903,6 +929,18 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get undo => '실행 취소';
+
+  @override
+  String get welcomeCopyName => '이름 복사';
+
+  @override
+  String get welcomeCopyPath => '경로 복사';
+
+  @override
+  String get welcomeOpen => '열기';
+
+  @override
+  String get welcomeOpenInNewWindow => '새 창에서 열기';
 
   @override
   String get welcomeOpenPdf => 'PDF 열기';

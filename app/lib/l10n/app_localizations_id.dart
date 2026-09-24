@@ -616,6 +616,15 @@ class AppLocalizationsId extends AppLocalizations {
       'Tidak dapat menyalin cuplikan ke papan klip';
 
   @override
+  String get editorSearchTabs => 'Cari tab';
+
+  @override
+  String get editorClearTabSearch => 'Hapus pencarian';
+
+  @override
+  String get editorNoMatchingTabs => 'Tidak ada tab yang cocok';
+
+  @override
   String get editorTabs => 'Tab';
 
   @override
@@ -878,6 +887,23 @@ class AppLocalizationsId extends AppLocalizations {
   String get settingsSystem => 'Sistem';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Gelap';
 
   @override
@@ -923,6 +949,18 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get undo => 'Urungkan';
+
+  @override
+  String get welcomeCopyName => 'Salin nama';
+
+  @override
+  String get welcomeCopyPath => 'Salin jalur';
+
+  @override
+  String get welcomeOpen => 'Buka';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Buka di jendela baru';
 
   @override
   String get welcomeOpenPdf => 'Buka PDF';

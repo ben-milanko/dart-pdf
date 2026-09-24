@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -270,5 +271,243 @@ void main() {
     final content = widgetAppearance(doc, field);
     expect(content, contains('(checked     ) Tj'));
     expect(content, isNot(contains('?')));
+  });
+
+  group('/MaxLen, comb and password (#931)', () {
+    // the fixture's `name` field: Helvetica 12, a 228pt-wide widget
+    void flag(PdfFormField field, {int? maxLen, int ff = 0, int? q}) {
+      if (maxLen != null) field.dict['MaxLen'] = CosInteger(maxLen);
+      field.dict['Ff'] = CosInteger(ff);
+      if (q != null) field.dict['Q'] = CosInteger(q);
+    }
+
+    List<double> tdXs(String content) => [
+          for (final m
+              in RegExp(r'(-?[\d.]+) (-?[\d.]+) Td').allMatches(content))
+            double.parse(m.group(1)!),
+        ];
+
+    test('maxLength reads an inherited /MaxLen; non-positive is no limit', () {
+      final form = PdfAcroForm.of(PdfDocument.open(buildAcroFormPdf()))!;
+      final field = form.fieldNamed('name')!;
+      expect(field.maxLength, isNull);
+      field.dict['Parent'] = CosDictionary({'MaxLen': const CosInteger(8)});
+      expect(field.maxLength, 8);
+      field.dict['MaxLen'] = const CosInteger(0);
+      expect(field.maxLength, isNull,
+          reason: 'a 0 on the kid overrides but means no limit');
+      expect(form.fieldNamed('agree')!.maxLength, isNull,
+          reason: '/MaxLen is a text-field entry');
+    });
+
+    test('isComb needs /MaxLen and clear multiline/password/file-select', () {
+      final form = PdfAcroForm.of(PdfDocument.open(buildAcroFormPdf()))!;
+      final field = form.fieldNamed('name')!;
+      flag(field, ff: PdfFormField.combFlag);
+      expect(field.isComb, isFalse, reason: 'no /MaxLen');
+      flag(field, maxLen: 6, ff: PdfFormField.combFlag);
+      expect(field.isComb, isTrue);
+      for (final bad in [
+        PdfFormField.multilineFlag,
+        PdfFormField.passwordFlag,
+        PdfFormField.fileSelectFlag,
+      ]) {
+        flag(field, ff: PdfFormField.combFlag | bad);
+        expect(field.isComb, isFalse);
+      }
+    });
+
+    test('setTextValue truncates to /MaxLen by code point', () {
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('name')!;
+        flag(field, maxLen: 4);
+        e.setTextValue(field, 'ABCDEFG');
+        final address = f.fieldNamed('address')!;
+        address.dict['MaxLen'] = const CosInteger(2);
+        e.setTextValue(address, '\u{1F600}\u{1F601}\u{1F602}');
+      });
+      final form = PdfAcroForm.of(doc)!;
+      expect(form.fieldNamed('name')!.value, 'ABCD');
+      expect(widgetAppearance(doc, form.fieldNamed('name')!),
+          contains('(ABCD) Tj'));
+      expect(form.fieldNamed('address')!.value, '\u{1F600}\u{1F601}',
+          reason: 'a surrogate pair counts once and is never split');
+      expect(PdfFormFilling.truncateToMaxLength('abc', null), 'abc');
+      expect(PdfFormFilling.truncateToMaxLength('abc', 3), 'abc');
+    });
+
+    test('a comb field centres one character per cell', () {
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('name')!;
+        flag(field, maxLen: 6, ff: PdfFormField.combFlag);
+        e.setTextValue(field, '1234');
+      });
+      final content =
+          widgetAppearance(doc, PdfAcroForm.of(doc)!.fieldNamed('name')!);
+      for (final d in ['1', '2', '3', '4']) {
+        expect(content, contains('($d) Tj'));
+      }
+      expect(content, isNot(contains('(1234) Tj')));
+      // 228pt / 6 cells = 38pt; a Helvetica digit is 0.556em -> 6.672pt
+      final xs = tdXs(content);
+      expect(xs, hasLength(4));
+      expect(xs.first, closeTo(19 - 6.672 / 2, 1e-3));
+      for (final dx in xs.skip(1)) {
+        expect(dx, closeTo(38, 1e-3), reason: 'Td deltas step one cell');
+      }
+    });
+
+    test('comb quadding anchors short values right or centre', () {
+      for (final (q, firstCell) in [(2, 2), (1, 1)]) {
+        final doc = fill((e, f) {
+          final field = f.fieldNamed('name')!;
+          flag(field, maxLen: 6, ff: PdfFormField.combFlag, q: q);
+          e.setTextValue(field, '1234');
+        });
+        final xs = tdXs(
+            widgetAppearance(doc, PdfAcroForm.of(doc)!.fieldNamed('name')!));
+        expect(xs.first, closeTo(38 * (firstCell + 0.5) - 6.672 / 2, 1e-3),
+            reason: 'Q $q starts in cell $firstCell');
+      }
+    });
+
+    test('an auto-sized comb glyph fits its cell', () {
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('address')!; // /DA size 0, 228 x 80
+        flag(field, maxLen: 40, ff: PdfFormField.combFlag);
+        e.setTextValue(field, 'WWWW');
+      });
+      final content =
+          widgetAppearance(doc, PdfAcroForm.of(doc)!.fieldNamed('address')!);
+      final size = double.parse(
+          RegExp(r'/Helv ([\d.]+) Tf').firstMatch(content)!.group(1)!);
+      // Helvetica W is 0.944em; 228 / 40 = 5.7pt per cell
+      expect(size * 0.944, lessThanOrEqualTo(5.7 + 1e-6));
+    });
+
+    test('a password field appearance masks the value', () {
+      const secret = 'hunter2';
+      final doc = fill((e, f) {
+        final field = f.fieldNamed('name')!;
+        flag(field, ff: PdfFormField.passwordFlag);
+        e.setTextValue(field, secret);
+      });
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      expect(field.isPassword, isTrue);
+      final content = widgetAppearance(doc, field);
+      expect(content, contains('(*******) Tj'));
+      expect(content, isNot(contains(secret)));
+      // re-laying the widget (resize) regenerates from /V - still masked
+      final editor = PdfEditor(doc)
+        ..resizeFormWidget('name', 0, const PdfRect(72, 700, 320, 730));
+      final resized = PdfDocument.open(editor.save());
+      expect(
+          widgetAppearance(
+              resized, PdfAcroForm.of(resized)!.fieldNamed('name')!),
+          isNot(contains(secret)));
+    });
+  });
+
+  group('setPasswordValue withholds /V (#931)', () {
+    PdfFormField passwordField(PdfAcroForm form) {
+      final field = form.fieldNamed('name')!; // prefilled /V
+      field.dict['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+      return field;
+    }
+
+    test('removes /V and draws a fixed, length-free mask', () {
+      final appearances = <String>[];
+      for (final secret in ['Jb', 'correct horse battery staple']) {
+        final doc =
+            fill((e, f) => e.setPasswordValue(passwordField(f), secret));
+        final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+        expect(field.value, isNull, reason: '/V must not be written');
+        expect(field.dict.containsKey('V'), isFalse);
+        final content = widgetAppearance(doc, field);
+        expect(content, contains('(********) Tj'));
+        expect(content, isNot(contains(secret)));
+        appearances.add(content);
+        expect(latin1.decode(doc.cos.bytes).contains(secret), isFalse,
+            reason: 'the value appears nowhere in the file');
+      }
+      expect(appearances[0], appearances[1],
+          reason: 'the appearance does not reveal the length');
+    });
+
+    test('the mask survives a widget regeneration; empty clears it', () {
+      final filled =
+          fill((e, f) => e.setPasswordValue(passwordField(f), 'hunter2'));
+      final resizedEditor = PdfEditor(filled)
+        ..resizeFormWidget('name', 0, const PdfRect(72, 700, 320, 730));
+      final resized = PdfDocument.open(resizedEditor.save());
+      expect(
+          widgetAppearance(
+              resized, PdfAcroForm.of(resized)!.fieldNamed('name')!),
+          contains('(********) Tj'));
+
+      final clearedEditor = PdfEditor(resized);
+      clearedEditor.setPasswordValue(
+          clearedEditor.acroForm!.fieldNamed('name')!, '');
+      final cleared = PdfDocument.open(clearedEditor.save());
+      final field = PdfAcroForm.of(cleared)!.fieldNamed('name')!;
+      expect(widgetAppearance(cleared, field), isNot(contains('*')));
+      expect(
+          field.dict.containsKey(PdfFormFilling.passwordWithheldKey), isFalse);
+    });
+
+    test('storeValue: true and setTextValue write /V and drop the marker', () {
+      final doc = fill((e, f) {
+        final field = passwordField(f);
+        e.setPasswordValue(field, 'withheld');
+        e.setPasswordValue(field, 'stored', storeValue: true);
+      });
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      expect(field.value, 'stored');
+      expect(
+          field.dict.containsKey(PdfFormFilling.passwordWithheldKey), isFalse);
+      expect(widgetAppearance(doc, field), contains('(******) Tj'));
+    });
+
+    test('refuses a field that is not a password field', () {
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      expect(
+          () => editor.setPasswordValue(
+              editor.acroForm!.fieldNamed('name')!, 'x'),
+          throwsArgumentError);
+    });
+
+    test('writes a trailer /ID when missing so the identity survives a save',
+        () {
+      final original = PdfDocument.open(buildAcroFormPdf());
+      expect(pdfTrailerPermanentId(original), isNull);
+      final before = pdfPermanentDocumentId(original);
+
+      final editor = PdfEditor(original);
+      editor.setPasswordValue(passwordField(editor.acroForm!), 'hunter2');
+      final saved = PdfDocument.open(editor.save());
+      expect(pdfTrailerPermanentId(saved), before);
+      expect(pdfPermanentDocumentId(saved), before);
+
+      // an explicit id wins, and an existing /ID is left alone afterwards
+      final e2 = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      final id = Uint8List.fromList(List.generate(16, (i) => i));
+      e2.setPasswordValue(passwordField(e2.acroForm!), 'a', documentId: id);
+      final withId = PdfDocument.open(e2.save());
+      expect(pdfTrailerPermanentId(withId), id);
+      final e3 = PdfEditor(withId);
+      e3.setPasswordValue(e3.acroForm!.fieldNamed('name')!, 'b',
+          documentId: Uint8List(16));
+      expect(pdfTrailerPermanentId(PdfDocument.open(e3.save())), id);
+    });
+
+    test('flattening a withheld password field burns only the mask', () {
+      const secret = 'hunter2';
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      editor.setPasswordValue(passwordField(editor.acroForm!), secret);
+      final filled = PdfDocument.open(editor.save());
+      final flattener = PdfEditor(filled)..flattenForm();
+      final flat = flattener.save();
+      expect(latin1.decode(flat).contains(secret), isFalse);
+    });
   });
 }

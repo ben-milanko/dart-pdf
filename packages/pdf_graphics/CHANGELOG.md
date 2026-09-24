@@ -1,5 +1,24 @@
 # Changelog
 
+## 5.0.0
+
+- Box-filter downscaled 1-bit /ImageMask stencils instead of point sampling.
+  Each destination pixel's alpha is now the fraction of painting bits in its
+  cell, matching the gray-1 path and the general downsampler, so scanned
+  drawings (large CCITT image masks shown at a fraction of their native size)
+  keep their thin linework instead of rendering dashed. The byte-to-cell split
+  is planned once per image and popcounted per piece, so a dense 7360x5239
+  sheet scales in ~62 ms.
+- Keep the spaces a page actually drew when reflowing text for the reading
+  view. Text justified by per-gap TJ kerns (what LaTeX and InDesign emit)
+  arrives as one run per word with the space inside the run; `reflowPage`
+  trimmed that space and then found no geometric gap, so a justified page
+  read as one run-on word. A drawn space now settles it, and geometry is only
+  consulted when neither side drew one.
+- `PdfFieldContext` gains `values`, every selected option of a multi-select
+  list box (`value` stays the first selection), serialized in `toJson` and
+  listed in the document-context text.
+
 ## 4.5.0
 
 - Give unembedded Times-Bold, Times-Italic and Times-BoldItalic their own AFM

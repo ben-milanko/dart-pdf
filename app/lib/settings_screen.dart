@@ -10,6 +10,7 @@ import 'l10n/app_localizations.dart';
 import 'language_names.dart';
 import 'pdf_cache.dart';
 import 'recents.dart';
+import 'signature_trust.dart';
 import 'update.dart';
 import 'update_install_flow.dart';
 import 'update_installer.dart';
@@ -245,6 +246,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   const Divider(height: 32),
                   CachedDocumentsSettings(recents: widget.recents),
                 ],
+                if (SignatureTrust.platformDefault case final trust?
+                    when trust.aatl != null) ...[
+                  const Divider(height: 32),
+                  _SignatureTrustSection(trust: trust, setting: trust.aatl!),
+                ],
                 const Divider(height: 32),
                 Text(appL10n(context).settingsSystem,
                     style: theme.textTheme.titleSmall),
@@ -440,5 +446,38 @@ class _UpdateSection extends StatelessWidget {
           style: style,
         ),
     };
+  }
+}
+
+/// The Settings "Signatures" block: the opt-in Adobe Approved Trust List
+/// switch (off-web only - the web can't reach Adobe).
+class _SignatureTrustSection extends StatelessWidget {
+  const _SignatureTrustSection({required this.trust, required this.setting});
+
+  final SignatureTrust trust;
+  final AatlTrustSetting setting;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.settingsSignatures,
+            style: Theme.of(context).textTheme.titleSmall),
+        ValueListenableBuilder<bool>(
+          valueListenable: setting,
+          builder: (context, enabled, _) => SwitchListTile(
+            key: const ValueKey('settings-aatl'),
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.verified_user_outlined),
+            title: Text(l10n.settingsAatlTitle),
+            subtitle: Text(l10n.settingsAatlSubtitle),
+            value: enabled,
+            onChanged: (value) => trust.setAatlEnabled(value),
+          ),
+        ),
+      ],
+    );
   }
 }

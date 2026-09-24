@@ -6,12 +6,16 @@ export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
 export 'src/jbig2_encoder.dart';
 export 'src/jpx_fixture.dart';
+export 'src/list_box_form.dart';
 export 'src/pkix_ltv.dart';
 export 'src/raster_underlay_sheet.dart';
 export 'src/rtl_text.dart';
 export 'src/signer_identity.dart';
+export 'src/tab_order_form.dart';
 export 'src/test_fulcio.dart';
+export 'src/test_revocation.dart';
 export 'src/test_tsa.dart';
+export 'src/xfa_forms.dart';
 
 Uint8List ascii(String s) => Uint8List.fromList(s.codeUnits);
 

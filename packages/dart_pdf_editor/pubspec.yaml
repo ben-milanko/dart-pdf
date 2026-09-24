@@ -2,7 +2,7 @@ name: dart_pdf_editor
 description: >-
   Flutter PDF editor and viewer for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 4.5.0
+version: 5.0.0
 homepage: https://dart-pdf.com/flutter-pdf-editor
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
@@ -19,7 +19,7 @@ environment:
   flutter: '>=3.24.0'
 
 dependencies:
-  archive: ^4.2.0
+  archive: ^4.3.0
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -29,15 +29,15 @@ dependencies:
   intl: ^0.20.2
   # Keychain/Keystore-backed persistence for signing identities
   # (SecureIdentityStore); the private key never touches shared_preferences.
-  flutter_secure_storage: ^11.1.1
+  flutter_secure_storage: ^11.2.0
   # Cross-platform HTTP client (VM + web via fetch) for the progressive remote
   # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
   # code. See src/http_byte_source.dart.
   http: ^1.2.0
-  image: ^4.9.2
-  pdf_cos: ^4.5.0
-  pdf_document: ^4.5.0
-  pdf_graphics: ^4.5.0
+  image: ^4.10.1
+  pdf_cos: ^5.0.0
+  pdf_document: ^5.0.0
+  pdf_graphics: ^5.0.0
   shared_preferences: ^2.3.0
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
@@ -47,7 +47,7 @@ dependencies:
   web: ^1.1.0
 
 dev_dependencies:
-  pdf_test_fixtures: '>=1.4.0 <5.0.0'
+  pdf_test_fixtures: '>=1.4.0 <6.0.0'
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

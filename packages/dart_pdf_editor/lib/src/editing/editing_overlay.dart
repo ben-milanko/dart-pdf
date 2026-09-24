@@ -34,6 +34,14 @@ import 'text_prompt.dart';
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
+/// A [TextField.buildCounter] that draws nothing, so a form field's /MaxLen
+/// cap stays silent instead of adding a counter under the field.
+Widget? _noInputCounter(BuildContext context,
+        {required int currentLength,
+        required int? maxLength,
+        required bool isFocused}) =>
+    null;
+
 TextAlign _flutterTextAlign(PdfTextAlign align) => switch (align) {
       PdfTextAlign.left => TextAlign.left,
       PdfTextAlign.center => TextAlign.center,
@@ -995,6 +1003,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // field's /V instead of creating a free-text annotation
   String? _textEditFieldName;
   bool _textEditMultiline = true;
+  // the field's /MaxLen, and whether it is a password field (edited masked
+  // and single-line, its afterimage masked too) - #931
+  int? _textEditMaxLength;
+  bool _textEditPassword = false;
 
   // select-tool drags. A rotated selection resizes in its local frame:
   // _resizeFrom/_resizeRect are then the chrome's local box (the rect
@@ -1630,6 +1642,35 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset _straightSnap(Offset anchor, Offset point) {
     if (!HardwareKeyboard.instance.isShiftPressed) return point;
     return _snap45(anchor, point);
+  }
+
+  /// Constrains a dragged vertex against the vertex it shares a segment with
+  /// while Shift is held, so reshaping a line / polyline / polygon straightens
+  /// the same way drawing one does. A terminal vertex has one neighbour; an
+  /// interior one - and every vertex of a polygon, whose ends wrap - has two,
+  /// and the candidate landing nearest the pointer wins, which is the segment
+  /// the drag was already closest to lining up. Callout handles keep their
+  /// free aim: that leader is tied to the text box, not to a path segment.
+  Offset _snapVertexPosition(List<Offset> points, int index, Offset point) {
+    if (!HardwareKeyboard.instance.isShiftPressed) return point;
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null || annotation.isCallout) return point;
+    if (_selectedLineTool == null || points.length < 2) return point;
+    final closed = annotation.subtype == 'Polygon';
+    final last = points.length - 1;
+    final anchors = <Offset>[
+      if (index > 0) points[index - 1] else if (closed) points[last],
+      if (index < last) points[index + 1] else if (closed) points.first,
+    ];
+    Offset? best;
+    for (final anchor in anchors) {
+      final candidate = _snap45(anchor, point);
+      if (best == null ||
+          (candidate - point).distance < (best - point).distance) {
+        best = candidate;
+      }
+    }
+    return best ?? point;
   }
 
   /// Ink keeps snapping after Shift is released; other tools retain their
@@ -3568,7 +3609,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final formSize = size > 0 ? size : 12.0;
     _textEditText.resetStyles(_TextEditStyle(
         font: formFont, size: formSize, color: const Color(0xFF000000)));
-    _textEditText.text = field.value ?? '';
+    _textEditText.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
       _textEditPageRect = rect;
@@ -3577,7 +3618,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditAnnotationSlot = null;
       _textEditTool = _tool;
       _textEditFieldName = field.name;
-      _textEditMultiline = field.isMultiline;
+      _textEditPassword = field.isPassword;
+      _textEditMultiline = field.isMultiline && !field.isPassword;
+      _textEditMaxLength = field.maxLength;
       _textEditFont = formFont;
       // an auto-size /DA (0 Tf) edits at a readable default; the
       // committed appearance derives its own size as usual
@@ -3613,6 +3656,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final value = _textEditText.text;
       final font = _textEditFont;
       final size = _textEditSize;
+      final password = _textEditPassword;
       _closeTextEditor();
       final before = _controller.revisionId;
       _controller.setFormFieldText(fieldName, value);
@@ -3620,7 +3664,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _clearAfterimage();
       _afterText = (
         rect: rect,
-        text: value,
+        text: password ? _controller.formPasswordMask(value) : value,
         font: font,
         size: size,
         color: const Color(0xFF000000),
@@ -4208,9 +4252,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _rotateCursor = position; // the glyph follows the pointer
       });
     } else if (_vertexHandle != null) {
+      // holding Shift straightens the segment being reshaped to a 45° axis
       setState(() {
         final points = List<Offset>.of(_vertexPoints!);
-        points[_vertexHandle!] = _snapPointToGrid(position);
+        points[_vertexHandle!] = _snapVertexPosition(
+            points, _vertexHandle!, _snapPointToGrid(position));
         _vertexPoints = points;
       });
     } else if (_resizeHandle != null) {
@@ -4969,24 +5015,33 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
+    final multi = field.isMultiSelect;
+    final selected = field.values.toSet();
+    final style =
+        Theme.of(context).textTheme.labelMedium?.copyWith(height: 1.1);
     final picked = await showMenu<String>(
       context: context,
       position: pdfPopupPosition(context, globalPosition),
       items: [
         for (final (export, display) in options)
-          PopupMenuItem(
-            key: ValueKey('pdf-form-option-$export'),
-            value: export,
-            height: 34,
-            child: Text(display,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(height: 1.1)),
-          ),
+          if (multi)
+            CheckedPopupMenuItem(
+              key: ValueKey('pdf-form-option-$export'),
+              value: export,
+              height: 34,
+              checked: selected.contains(export),
+              child: Text(display, style: style),
+            )
+          else
+            PopupMenuItem(
+              key: ValueKey('pdf-form-option-$export'),
+              value: export,
+              height: 34,
+              child: Text(display, style: style),
+            ),
       ],
     );
-    if (picked != null) _controller.setFormChoiceValue(name, picked);
+    if (picked != null) _controller.pickFormChoiceOption(name, picked);
   }
 
   /// Rasterizes this page once for the eyedropper, keyed on the revision id
@@ -6631,6 +6686,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     controller: _textEditText,
                                     focusNode: _textEditFocus,
                                     autofocus: true,
+                                    obscureText: _textEditFieldName != null &&
+                                        _textEditPassword,
+                                    maxLength: _textEditFieldName == null
+                                        ? null
+                                        : _textEditMaxLength,
+                                    // the /MaxLen cap is silent: no counter
+                                    buildCounter: _noInputCounter,
                                     // single-line form fields edit single-line:
                                     // Enter commits instead of inserting a newline
                                     maxLines: _textEditFieldName == null ||

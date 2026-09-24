@@ -10,6 +10,50 @@ doc/marketing/<target>/<platform>/NN-name.png     framed store shots (gradient +
 ```
 
 `<target>` is `app` or `example`; `<platform>` is `ios`, `macos`, or `android`.
+The Windows-only CI path also produces `doc/screenshots/app/windows/`.
+
+## Microsoft Store (Windows CI)
+
+Run **Marketing screenshots** with `windows_only: true` and `source_ref` set
+to the version being submitted (for example, `app-v4.5.0`). Apple and Android
+jobs are skipped. The Windows runner builds that source ref with the current
+screenshot harness, launches the real native app, and captures three scenes:
+the document, the thumbnail workspace, and dark mode.
+
+Download the `screenshots-windows` artifact and visually review all three PNGs
+before replacing the Microsoft Store listing screenshots. These are unframed
+captures of the running Windows app's render surface; do not reuse Apple/Android marketing images
+for this listing. The artifact includes source/harness commits, version,
+dimensions and checksums in `provenance.json`, plus app logs for diagnosis.
+
+`app/tool/capture_windows_screenshots.ps1` waits for a ready file from each
+settled scene, sizes the launched process's window, and requests a capture.
+The app writes the PNG before advancing, so slow runners cannot skip scenes.
+The script checks Store minimum dimensions and blank/duplicate frames. Hosted
+Windows runners have no capturable desktop monitor; the native Flutter engine
+captures its real render surface at 2x using `RenderRepaintBoundary.toImage`.
+The OS title bar is outside that surface and is not included or synthesized. The harness uses the app's native window bootstrap, localization
+delegates and bundled fonts. It changes demo data/preferences only, not the
+release's editor UI. Raw Windows images can be uploaded directly, or composed
+with the same branded headlines and ink/highlighter overlays as the other
+listings. The Microsoft Store versions in `doc/marketing/app/windows/` use
+only these Windows captures, without a synthesized OS frame:
+
+```sh
+dart packages/dart_pdf_editor/example/tool/compose_marketing.dart \
+  --in doc/screenshots/app/windows --out doc/marketing/app/windows \
+  --orientation landscape --width 2560 --height 1600 --target app
+```
+
+Locally on Windows (PowerShell 7, from the repository root):
+
+```powershell
+flutter pub get
+Push-Location app
+flutter build windows --release -t tool/screenshots_main.dart
+Pop-Location
+./app/tool/capture_windows_screenshots.ps1
+```
 
 ## How it works
 

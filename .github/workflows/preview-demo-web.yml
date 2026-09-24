@@ -17,7 +17,8 @@ concurrency:
 
 env:
   FIREBASE_TOOLS_VERSION: 15.22.4
-  PATROL_CLI_VERSION: 4.7.0
+  # The CLI release paired with the example's patrol 4.10.0.
+  PATROL_CLI_VERSION: 4.8.0
   PATROL_ANALYTICS_ENABLED: "false"
   PATROL_PERF_REPETITIONS: 3
 

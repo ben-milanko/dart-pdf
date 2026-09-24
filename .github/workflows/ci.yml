@@ -23,6 +23,8 @@ jobs:
       - run: dart analyze --fatal-infos
       - name: Test Patrol performance summarizer
         run: dart tool/patrol_perf_summary_test.dart
+      - name: Test Patrol attempt triage
+        run: dart tool/patrol_attempt_triage_test.dart
       - name: Test Flutter GPU corpus summarizer
         run: dart tool/gpu_corpus_summary_test.dart
       # Enforce the lockstep versioning invariant: every workspace package

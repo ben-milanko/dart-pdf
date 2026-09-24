@@ -612,6 +612,15 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorSnapshotCopyFailed => 'Anlık görüntü panoya kopyalanamadı';
 
   @override
+  String get editorSearchTabs => 'Sekmelerde ara';
+
+  @override
+  String get editorClearTabSearch => 'Aramayı temizle';
+
+  @override
+  String get editorNoMatchingTabs => 'Eşleşen sekme yok';
+
+  @override
   String get editorTabs => 'Sekmeler';
 
   @override
@@ -874,6 +883,23 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settingsSystem => 'Sistem';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Koyu';
 
   @override
@@ -919,6 +945,18 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get undo => 'Geri al';
+
+  @override
+  String get welcomeCopyName => 'Adı kopyala';
+
+  @override
+  String get welcomeCopyPath => 'Yolu kopyala';
+
+  @override
+  String get welcomeOpen => 'Aç';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Yeni pencerede aç';
 
   @override
   String get welcomeOpenPdf => 'Bir PDF aç';

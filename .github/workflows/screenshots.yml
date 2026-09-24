@@ -14,6 +14,13 @@ on:
       apple_platforms:
         description: 'Apple platforms: ios macos'
         default: 'ios macos'
+      windows_only:
+        description: 'Capture only the Windows app for Microsoft Store'
+        type: boolean
+        default: false
+      source_ref:
+        description: 'Windows app source ref (e.g. app-v4.5.0); blank uses this workflow commit'
+        default: ''
 
 permissions:
   contents: read
@@ -21,6 +28,7 @@ permissions:
 jobs:
   # iOS (simctl) + macOS (window crop) on a macOS runner with a GUI session.
   apple:
+    if: ${{ !inputs.windows_only }}
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -53,6 +61,7 @@ jobs:
 
   # Android via an emulator on Linux (KVM-accelerated).
   android:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -91,3 +100,53 @@ jobs:
             doc/marketing/**
             doc/screenshots/**
           if-no-files-found: warn
+
+  windows:
+    if: ${{ inputs.windows_only }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Build the actual release's UI, with only the capture harness overlaid.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          path: screenshot-source
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+      - name: Prepare capture harness
+        shell: pwsh
+        run: |
+          Copy-Item app/tool/screenshots_main.dart screenshot-source/app/tool/screenshots_main.dart -Force
+      - name: Resolve workspace dependencies
+        working-directory: screenshot-source
+        run: flutter pub get
+      - name: Build Windows capture app
+        working-directory: screenshot-source/app
+        shell: pwsh
+        run: |
+          flutter build windows --release -t tool/screenshots_main.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Windows screenshot build failed' }
+      - name: Capture native Windows scenes
+        shell: pwsh
+        run: |
+          ./app/tool/capture_windows_screenshots.ps1 -SourceRoot screenshot-source -OutputDirectory doc/screenshots/app/windows
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: windows-capture-build-debug
+          path: screenshot-source/app/build/windows/x64/runner/Release/
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshots-windows
+          path: doc/screenshots/app/windows/
+          if-no-files-found: error

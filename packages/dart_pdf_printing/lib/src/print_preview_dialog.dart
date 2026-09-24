@@ -169,7 +169,13 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
               .where((value) => value.name == preferences.range)
               .firstOrNull ??
           PrintPageRange.all;
-      _rangeInput.text = preferences.customRange ?? _rangeInput.text;
+      // A typed page list belongs to the document it was typed for. Only
+      // bring it back when the job resumes in Range mode; otherwise the field
+      // keeps this document's own default instead of, say, a previous
+      // 14-page file's "1-14".
+      if (_range == PrintPageRange.custom) {
+        _rangeInput.text = preferences.customRange ?? _rangeInput.text;
+      }
       _settings = preferences.settingsFor(_pages);
       _rangeInvalid = _pages.isEmpty;
       if (_range == PrintPageRange.current) _previewSlot = 0;

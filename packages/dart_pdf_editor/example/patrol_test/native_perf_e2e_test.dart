@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
+import 'patrol_support.dart';
+
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
 const _mb = 1024 * 1024;
 
@@ -19,6 +21,10 @@ void main() {
   if (_buildCommit.isNotEmpty) {
     PdfPerfLog.buildTag = 'commit=$_buildCommit';
   }
+  // CI reads the scenario markers back from this file rather than from the
+  // streamed device log, which Patrol cuts off when the native runner exits.
+  mirrorPerfTraceToFile();
+  guardPlatformSemanticsToggles();
 
   patrolTest('fills and settles the native mobile tile budget', ($) async {
     expect($.isWeb, isFalse);

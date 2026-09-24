@@ -943,6 +943,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Автор за замовчуванням…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Ця форма використовує XFA, яку тут не можна заповнити, тому її поля не відображаються. Щоб заповнити її, відкрийте в застосунку з підтримкою форм XFA.';
+
+  @override
   String get shellHighlightFormFields => 'Підсвічувати поля форми';
 
   @override
@@ -1153,6 +1157,11 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -1175,6 +1184,40 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String sidebarSignatureLevel(String level) {
     return 'PAdES $level';
   }
+
+  @override
+  String get sidebarSignatureRevokedStatus => 'Revoked';
+
+  @override
+  String get sidebarSignatureSelfSigned =>
+      'Self-signed: no authority has confirmed who the signer is';
+
+  @override
+  String sidebarSignatureUnknownIssuer(String authority) {
+    return 'Issued by $authority, which is not a trusted authority';
+  }
+
+  @override
+  String sidebarSignatureRevokedOn(String time) {
+    return 'The signer\'s certificate was revoked $time';
+  }
+
+  @override
+  String sidebarSignatureRevokedAfterSigning(String time) {
+    return 'Certificate revoked $time, after the signature was timestamped';
+  }
+
+  @override
+  String get sidebarSignatureRevocationGoodLive =>
+      'Certificate not revoked (checked online)';
+
+  @override
+  String get sidebarSignatureRevocationGoodEmbedded =>
+      'Certificate not revoked (per data saved in the document)';
+
+  @override
+  String get sidebarSignatureRevocationUnknown =>
+      'Revocation status could not be checked';
 
   @override
   String get sidebarWriteReplyHint => 'Напишіть відповідь…';
@@ -2193,4 +2236,37 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Видалити вміст — намалюйте прямокутник або натисніть вершини багатокутника й завершіть подвійним клацанням';
+
+  @override
+  String get menuConvertToRadioGroup => 'Перетворити на групу перемикачів';
+
+  @override
+  String get menuConvertToComboBox => 'Перетворити на поле зі списком';
+
+  @override
+  String get menuConvertToListBox => 'Перетворити на список';
+
+  @override
+  String get menuConvertToSignatureField => 'Перетворити на поле підпису';
+
+  @override
+  String get menuEditOptions => 'Змінити варіанти…';
+
+  @override
+  String get menuAddRadioButton => 'Додати кнопку до групи';
+
+  @override
+  String get formOptionsTitle => 'Параметри поля';
+
+  @override
+  String get formOptionsExportValue => 'Значення експорту';
+
+  @override
+  String get formOptionsDisplayText => 'Відображуваний текст';
+
+  @override
+  String get formOptionsAllowCustomText => 'Дозволити власний текст';
+
+  @override
+  String get formOptionsMultiSelect => 'Дозволити множинний вибір';
 }

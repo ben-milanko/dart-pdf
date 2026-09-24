@@ -5,10 +5,11 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_printing/dart_pdf_printing.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -42,6 +43,7 @@ import 'reduce_file_size.dart';
 import 'rename_document.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
+import 'page_drag.dart';
 import 'tab_drag.dart';
 import 'unsaved_changes.dart';
 import 'unsaved_changes_store.dart';
@@ -257,8 +259,19 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen>
     with WidgetsBindingObserver
-    implements TabDragWindow {
+    implements TabDragWindow, PageDropWindow {
   PdfEditingPreferences get _prefs => widget.prefs;
+
+  /// This window's view mode (pages / reflow / page grid).
+  ///
+  /// The preferences are process-wide - every window shares the one instance
+  /// the app owns - so reading the live mode off them made switching to the
+  /// page grid in one window switch every other window with it. The mode
+  /// belongs to the window: one controller per [EditorScreen], shared by all
+  /// of its tabs and by its View menu, still persisting each choice as the
+  /// mode the next window starts in.
+  late final PdfViewModeController _viewMode =
+      PdfViewModeController(preferences: _prefs);
 
   /// The device document scanner, or null where scanning isn't available. An
   /// injected fake wins; otherwise the platform scanner is used on mobile
@@ -445,15 +458,62 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _registeredTabDragCoordinator
       ?..removeListener(_syncDestinationTabDragOverlay)
-      ..unregister(this);
+      ..unregister(this)
+      ..pages.unregister(this);
     _removeDestinationTabDragOverlay();
     _registeredTabDragCoordinator = null;
+    _thumbnailDrop
+      ..onPageDragOutside = null
+      ..onPageDropOutside = null;
     _nativeWindowHandle = handle;
     if (coordinator != null && handle != null) {
       _registeredTabDragCoordinator = coordinator;
       coordinator.register(this);
+      coordinator.pages.register(this);
       coordinator.addListener(_syncDestinationTabDragOverlay);
+      // a page tile dragged out of this window moves into the one under the
+      // cursor (see page_drag.dart)
+      _thumbnailDrop
+        ..onPageDragOutside = coordinator.pages.update
+        ..onPageDropOutside = (drag) => unawaited(coordinator.pages.drop(drag));
     }
+  }
+
+  @override
+  bool ownsSession(PdfEditingController controller) =>
+      _tabs.any((tab) => identical(tab.session, controller));
+
+  @override
+  int? pageDropIndexAt(Offset localPoint) =>
+      mounted ? _thumbnailDrop.dragOver(localPoint) : null;
+
+  @override
+  void clearPageDropMarker() {
+    if (mounted) _thumbnailDrop.endDrag();
+  }
+
+  @override
+  bool acceptDroppedPages(Uint8List bytes, int pageCount, {int? at}) {
+    if (!mounted) return false;
+    final tab = _active;
+    final session = tab?.session;
+    if (session == null || _readOnly) {
+      // nothing editable open here: the pages become a new document
+      _readOnly = false;
+      _addTab(DocumentTab.document(
+        title: _nextUntitledTitle(),
+        bytes: bytes,
+        preferences: _prefs,
+        initiallyDirty: true,
+      ));
+      return true;
+    }
+    final insertAt = (at ?? (tab!.viewer?.currentPage ?? -1) + 1)
+        .clamp(0, session.document.pageCount)
+        .toInt();
+    session.insertPagesFromBytes(bytes, at: insertAt);
+    _revealInsertedPage(insertAt);
+    return true;
   }
 
   void _syncDestinationTabDragOverlay() {
@@ -593,7 +653,8 @@ class _EditorScreenState extends State<EditorScreen>
         .removeListener(_onLocalAnnotationCopy);
     _registeredTabDragCoordinator
       ?..removeListener(_syncDestinationTabDragOverlay)
-      ..unregister(this);
+      ..unregister(this)
+      ..pages.unregister(this);
     _removeDestinationTabDragOverlay();
     _tabScrollController.dispose();
     _windowCloseCoordinator?.unregister(_windowCloseOwner);
@@ -612,6 +673,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _recents.dispose();
     _recentThumbnails.dispose();
+    _viewMode.dispose();
     _thumbnailDrop.dispose();
     _updates.removeListener(_onUpdateStatus);
     if (_ownsUpdates) _updates.dispose();
@@ -1159,12 +1221,14 @@ class _EditorScreenState extends State<EditorScreen>
     String? originBookmark,
     String? errorTitle,
     bool defer = false,
+    DocumentTab? into,
   }) async {
-    final loading = _openLoading(
-      title,
-      originPath: originPath,
-      originBookmark: originBookmark,
-    );
+    final loading = into ??
+        _openLoading(
+          title,
+          originPath: originPath,
+          originBookmark: originBookmark,
+        );
     AppDevTools.instance
         .addLog('open-trace: "$title" placeholder shown, awaiting bytes '
             '(defer=$defer, path=${originPath ?? "-"})');
@@ -1669,37 +1733,24 @@ class _EditorScreenState extends State<EditorScreen>
     }
     try {
       final files = await pickPdfFiles(l10n.fileTypePdf);
-      if (files.isEmpty) return;
+      if (files.isEmpty || !mounted) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
       final defer = files.length > 1;
-      for (final file in files) {
+      final placeholders = _openLoadingBatch([
+        for (final file in files)
+          (title: file.name, originPath: originPathForPickedFile(file)),
+      ]);
+      for (var i = 0; i < files.length; i++) {
+        final file = files[i];
+        final loading = placeholders[i];
         if (!mounted) return;
-        final path = originPathForPickedFile(file);
-        final bookmark = await securityBookmarkForPath(path);
-        // A single desktop pick opens progressively (first paint from ranged
-        // reads, full bytes behind it). A batch keeps the deferred whole-file
-        // path so the picker doesn't fan out many concurrent streams.
-        if (!defer && progressiveOpenSupported(path)) {
-          await _openProgressive(
-              title: file.name, path: path!, bookmark: bookmark);
-        } else {
-          // Probe the pick's declared size before the read, so a stalled
-          // readAsBytes shows up as "size known, bytes never ready".
-          int? pickLength;
-          try {
-            pickLength = await file.length();
-          } catch (_) {}
-          AppDevTools.instance.addLog('open-trace: picked "${file.name}" '
-              '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
-              'starting readAsBytes');
-          await _openLoadedBytes(
-            file.readAsBytes(),
-            title: file.name,
-            originPath: path,
-            originBookmark: bookmark,
-            defer: defer,
-          );
+        // Closed while it waited its turn - don't read it at all.
+        if (!_tabs.contains(loading)) continue;
+        try {
+          await _openPickedFile(file, loading, defer: defer);
+        } catch (e) {
+          _failLoading(loading, file.name, e);
         }
       }
     } catch (e) {
@@ -1707,6 +1758,65 @@ class _EditorScreenState extends State<EditorScreen>
           l10n.editorCouldNotOpenSelected(openErrorSummary(e)));
     }
   }
+
+  Future<void> _openPickedFile(XFile file, DocumentTab loading,
+      {required bool defer}) async {
+    final path = originPathForPickedFile(file);
+    final bookmark = await securityBookmarkForPath(path);
+    // A single desktop pick opens progressively (first paint from ranged
+    // reads, full bytes behind it). A batch keeps the deferred whole-file
+    // path so the picker doesn't fan out many concurrent streams.
+    if (!defer && progressiveOpenSupported(path)) {
+      await _openProgressive(
+          title: file.name, path: path!, bookmark: bookmark, into: loading);
+    } else {
+      // Probe the pick's declared size before the read, so a stalled
+      // readAsBytes shows up as "size known, bytes never ready".
+      int? pickLength;
+      try {
+        pickLength = await file.length();
+      } catch (_) {}
+      AppDevTools.instance.addLog('open-trace: picked "${file.name}" '
+          '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
+          'starting readAsBytes');
+      await _openLoadedBytes(
+        file.readAsBytes(),
+        title: file.name,
+        originPath: path,
+        originBookmark: bookmark,
+        defer: defer,
+        into: loading,
+      );
+    }
+  }
+
+  /// Swaps a batch [loading] placeholder whose open threw before reaching its
+  /// own error handling for an error tab, so it never spins forever and the
+  /// rest of the batch still opens.
+  void _failLoading(DocumentTab loading, String title, Object error) {
+    if (!mounted) return;
+    _replaceLoadingTab(
+      loading,
+      DocumentTab.error(title: title, error: _openFailureDetail(title, error)),
+    );
+  }
+
+  /// Puts a loading placeholder tab up for every document of a batch open at
+  /// once, before any of them is touched, and returns them in order - the last
+  /// ends up active, as it would have opening them one by one.
+  ///
+  /// The batch is then read one file at a time into these placeholders. On a
+  /// network location every step of that (the stat, the macOS bookmark, the
+  /// read itself) can take seconds per file; adding each placeholder only
+  /// when its turn came left the welcome screen up with no sign anything was
+  /// happening until the first file had been dealt with, and the rest of the
+  /// batch surfacing one at a time after that.
+  List<DocumentTab> _openLoadingBatch(
+          List<({String title, String? originPath})> documents) =>
+      [
+        for (final document in documents)
+          _openLoading(document.title, originPath: document.originPath),
+      ];
 
   /// Opens phone/tablet picks through the reference picker (#364): the runner
   /// hands back a token to the *original* file (not a sandbox copy) plus a
@@ -1719,10 +1829,16 @@ class _EditorScreenState extends State<EditorScreen>
   /// a runner without the channel.
   Future<void> _pickAndOpenMobile() async {
     final picks = await pickPdfMobileReferences();
-    if (picks.isEmpty) return;
+    if (picks.isEmpty || !mounted) return;
     final defer = picks.length > 1;
-    for (final pick in picks) {
+    final placeholders = _openLoadingBatch([
+      for (final pick in picks) (title: pick.name, originPath: null),
+    ]);
+    for (var i = 0; i < picks.length; i++) {
+      final pick = picks[i];
+      final loading = placeholders[i];
       if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
       final progressive = !defer && pick.seekable;
       final reason = progressive
           ? 'single-seekable'
@@ -1745,6 +1861,7 @@ class _EditorScreenState extends State<EditorScreen>
           token: pick.token,
           declaredBytes: pick.length,
           provider: pick.provider,
+          into: loading,
         );
       } else {
         // Non-seekable, or a batch we won't fan out into concurrent streams:
@@ -1754,6 +1871,7 @@ class _EditorScreenState extends State<EditorScreen>
           _readMobileOriginFullyWithTrace(pick, reason: reason),
           title: pick.name,
           defer: defer,
+          into: loading,
         );
       }
     }
@@ -2008,14 +2126,23 @@ class _EditorScreenState extends State<EditorScreen>
     // Dropping a batch: parse only the tab that ends up active, deferring the
     // rest until they're visited (see _materializeDeferred).
     final defer = pdfs.length > 1;
-    for (final item in pdfs) {
-      // desktop_drop exposes a real path on desktop; on web it's a blob ref
-      // we don't treat as a writable origin.
-      final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+    // desktop_drop exposes a real path on desktop; on web it's a blob ref
+    // we don't treat as a writable origin.
+    String? pathOf(DropItem item) =>
+        (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+    final placeholders = _openLoadingBatch([
+      for (final item in pdfs) (title: item.name, originPath: pathOf(item)),
+    ]);
+    for (var i = 0; i < pdfs.length; i++) {
+      final item = pdfs[i];
+      final loading = placeholders[i];
+      if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
+      final path = pathOf(item);
       final bookmark = await securityBookmarkForPath(path);
       if (!defer && progressiveOpenSupported(path)) {
         await _openProgressive(
-            title: item.name, path: path!, bookmark: bookmark);
+            title: item.name, path: path!, bookmark: bookmark, into: loading);
       } else {
         await _openLoadedBytes(
           item.readAsBytes(),
@@ -2023,6 +2150,7 @@ class _EditorScreenState extends State<EditorScreen>
           originPath: path,
           originBookmark: bookmark,
           defer: defer,
+          into: loading,
         );
       }
     }
@@ -2215,6 +2343,67 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  /// Opens a recent entry in a second native window (its context menu's
+  /// "Open in new window"). Null when this host has no multi-window opener, so
+  /// the menu item hides rather than failing on use.
+  void Function(RecentFile entry)? get _openRecentInNewWindow =>
+      widget.onNewWindow == null
+          ? null
+          : (entry) => unawaited(_openRecentInNewWindowAsync(entry));
+
+  /// Reads the entry and hands it to a fresh window. A new window takes a
+  /// document by handoff (bytes in hand), so unlike [_openRecent] this can't
+  /// open progressively; the read failure path mirrors it - the entry is
+  /// dropped from recents, since the source it names is gone.
+  Future<void> _openRecentInNewWindowAsync(RecentFile entry) async {
+    final open = widget.onNewWindow;
+    final readPath = entry.readPath;
+    if (open == null || readPath == null) return;
+    final Uint8List bytes;
+    try {
+      bytes = await readPdfAtPath(readPath, bookmark: entry.bookmark);
+    } catch (e) {
+      AppDevTools.instance.addLog(
+        'recent open in new window failed: ${entry.title} - $e',
+        level: DevLogLevel.error,
+      );
+      if (entry.path == null && entry.cachePath != null) {
+        await _recents.updateCachedAvailability({entry.cachePath!}, {});
+      } else {
+        await _recents.remove(entry.id);
+      }
+      _pruneRecentCache();
+      if (!mounted) return;
+      _toast(
+          appL10n(context).editorCouldNotReopen(pdfDisplayName(entry.title)));
+      return;
+    }
+    if (!mounted) return;
+    final opened = open(
+      context,
+      document: DocumentHandoff(
+        bytes: bytes,
+        title: entry.title,
+        // Untouched since the read: the new window starts clean, not dirty.
+        savedLength: bytes.length,
+        originPath: entry.path,
+        originBookmark: entry.bookmark,
+        cachePath: entry.cachePath,
+      ),
+    );
+    if (!opened) {
+      _toast(appL10n(context).editorUnableToOpenNewWindow);
+      return;
+    }
+    // The document is open (elsewhere), so it belongs at the front of the
+    // shared recents exactly as an in-window open would put it.
+    await _recents.add(
+        title: entry.title,
+        path: entry.path,
+        cachePath: entry.cachePath,
+        bookmark: entry.bookmark);
+  }
+
   List<RecentFile> _recentMenuEntries() {
     return _availableRecentEntries().take(_maxRecentMenuItems).toList();
   }
@@ -2245,6 +2434,7 @@ class _EditorScreenState extends State<EditorScreen>
           thumbnails: _recentThumbnails,
           excludedIds: _openRecentIds(),
           onOpenRecent: (entry) => unawaited(_openRecent(entry)),
+          onOpenRecentInNewWindow: _openRecentInNewWindow,
         ),
       ),
     ));
@@ -2827,10 +3017,22 @@ class _EditorScreenState extends State<EditorScreen>
             useDocumentPageSize: true,
             destination: job.destination);
       }
-    } catch (_) {
+    } catch (error, stack) {
+      // The toast stays generic; the log keeps the cause (a composer error,
+      // or the native runner's "... (Windows error N)" message).
+      AppDevTools.instance.addLog(
+          'print failed: ${tab.title} - ${_describePrintError(error)}\n$stack',
+          level: DevLogLevel.error);
       if (mounted) _toast(appL10n(context).editorCouldNotPrint(tab.title));
     }
   }
+
+  static String _describePrintError(Object error) => switch (error) {
+        PlatformException(:final code, :final message, :final details) =>
+          'PlatformException($code): $message'
+              '${details == null ? '' : ' [$details]'}',
+        _ => '$error',
+      };
 
   /// Adds files to this print job without opening tabs or editing the source.
   Future<List<PdfDocument>> _pickPrintFiles() async {
@@ -3593,15 +3795,16 @@ class _EditorScreenState extends State<EditorScreen>
         Icons.article_outlined,
         pdf.shellReflowText,
         view,
-        _prefs.viewMode == PdfViewMode.reflow,
-        (v) => _prefs.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
+        _viewMode.viewMode == PdfViewMode.reflow,
+        (v) => _viewMode.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
     toggle(
         'view-page-grid',
         Icons.grid_view_outlined,
         pdf.shellPageGrid,
         view,
-        _prefs.viewMode == PdfViewMode.pageGrid,
-        (v) => _prefs.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
+        _viewMode.viewMode == PdfViewMode.pageGrid,
+        (v) =>
+            _viewMode.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
     toggle(
         'view-form-fields',
         Icons.ballot_outlined,
@@ -3839,6 +4042,7 @@ class _EditorScreenState extends State<EditorScreen>
         recents: _recents,
         onOpen: _pickAndOpen,
         onOpenRecent: _openRecent,
+        onOpenRecentInNewWindow: _openRecentInNewWindow,
         // Recents can load before the session list. Starting their first-page
         // renders during that transient welcome frame wastes enough platform-
         // thread work to beachball macOS, only for restore to replace the
@@ -3886,6 +4090,7 @@ class _EditorScreenState extends State<EditorScreen>
         key: ValueKey(tab),
         tab: tab,
         preferences: _prefs,
+        viewMode: _viewMode,
         onAction: _onAction,
         pageRasterCachePolicy: pageRasterCachePolicy,
         pageRasterWarmPolicy: pageRasterWarmPolicy,
@@ -3899,6 +4104,7 @@ class _EditorScreenState extends State<EditorScreen>
         documentId: tab.documentId,
         controller: tab.viewer,
         preferences: _prefs,
+        viewMode: _viewMode,
         onAction: _onAction,
         // View mode is for reading the document as it is: the paper colour is
         // an authoring choice, so the View options menu drops "Page color…"
@@ -3914,6 +4120,7 @@ class _EditorScreenState extends State<EditorScreen>
       documentId: tab.documentId,
       controller: tab.session,
       viewerController: tab.viewer,
+      viewMode: _viewMode,
       pageRasterCachePolicy: pageRasterCachePolicy,
       pageRasterWarmPolicy: pageRasterWarmPolicy,
       tileRasterBackend: tileRasterBackend,
@@ -4217,96 +4424,56 @@ class _EditorScreenState extends State<EditorScreen>
     required String keyPrefix,
     required double headerTopPadding,
   }) {
-    final scheme = Theme.of(overlayContext).colorScheme;
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(20, headerTopPadding, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  appL10n(overlayContext).editorTabs,
-                  style: Theme.of(overlayContext).textTheme.titleMedium,
-                ),
-              ),
-              IconButton(
-                key: ValueKey('$keyPrefix-tabs-open'),
-                icon: const Icon(Icons.add),
-                tooltip: appL10n(overlayContext).editorOpenPdfNewTab,
-                onPressed: () {
-                  Navigator.of(overlayContext).pop();
-                  unawaited(_pickAndOpen());
-                },
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: GridView.builder(
-            key: ValueKey('$keyPrefix-tabs-grid'),
-            // A tile paints a real PDF thumbnail. Do not build the next row
-            // speculatively: with large documents that work competes with a
-            // fling even though the thumbnails are still off-screen.
-            scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-            padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 220,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.78,
-            ),
-            itemCount: _tabs.length,
-            itemBuilder: (context, index) {
-              final tab = _tabs[index];
-              final selected = index == _activeIndex;
-              // Refresh the modal grid after a mutation (or dismiss it once no
-              // tabs remain); it does not rebuild off the screen's setState.
-              void refreshOverlay() {
-                if (!mounted || !overlayContext.mounted) return;
-                if (_tabs.isEmpty) {
-                  Navigator.of(overlayContext).pop();
-                } else {
-                  setOverlayState(() {});
-                }
-              }
+    // Refresh the modal grid after a mutation (or dismiss it once no tabs
+    // remain); it does not rebuild off the screen's setState.
+    void refreshOverlay() {
+      if (!mounted || !overlayContext.mounted) return;
+      if (_tabs.isEmpty) {
+        Navigator.of(overlayContext).pop();
+      } else {
+        setOverlayState(() {});
+      }
+    }
 
-              return _MobileTabTile(
-                key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
-                tab: tab,
-                selected: selected,
-                onTap: () {
-                  setState(() => _activeIndex = index);
-                  Navigator.of(overlayContext).pop();
-                },
-                onClose: () async {
-                  await _closeTabs([tab]);
-                  refreshOverlay();
-                },
-                onContextMenu: (position) {
-                  // Re-resolve by identity: the grid can reorder under us.
-                  final i = _tabs.indexOf(tab);
-                  if (i < 0) return;
-                  unawaited(
-                    _showTabMenu(i, position, onChanged: refreshOverlay),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Text(
-            appL10n(overlayContext).editorTabsOpenCount(_tabs.length),
-            style: Theme.of(overlayContext)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ),
-      ],
+    void activate(int index) {
+      setState(() => _activeIndex = index);
+      Navigator.of(overlayContext).pop();
+    }
+
+    return _TabsOverview(
+      tabs: _tabs,
+      activeIndex: _activeIndex,
+      keyPrefix: keyPrefix,
+      headerTopPadding: headerTopPadding,
+      // A desktop dialog is typed into straight away; on a phone focusing the
+      // field would raise the keyboard over the grid the user came to see.
+      autofocusSearch: keyPrefix == 'desktop',
+      onOpen: () {
+        Navigator.of(overlayContext).pop();
+        unawaited(_pickAndOpen());
+      },
+      onActivate: activate,
+      tileBuilder: (context, index) {
+        final tab = _tabs[index];
+        return _MobileTabTile(
+          key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
+          tab: tab,
+          selected: index == _activeIndex,
+          onTap: () => activate(index),
+          onClose: () async {
+            await _closeTabs([tab]);
+            refreshOverlay();
+          },
+          onContextMenu: (position) {
+            // Re-resolve by identity: the grid can reorder under us.
+            final i = _tabs.indexOf(tab);
+            if (i < 0) return;
+            unawaited(
+              _showTabMenu(i, position, onChanged: refreshOverlay),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -4841,6 +5008,7 @@ class _ProgressivePreview extends StatelessWidget {
     super.key,
     required this.tab,
     required this.preferences,
+    required this.viewMode,
     required this.onAction,
     required this.pageRasterCachePolicy,
     required this.pageRasterWarmPolicy,
@@ -4849,6 +5017,7 @@ class _ProgressivePreview extends StatelessWidget {
 
   final DocumentTab tab;
   final PdfEditingPreferences preferences;
+  final PdfViewModeHolder viewMode;
   final PdfActionHandler onAction;
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
   final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
@@ -4864,6 +5033,7 @@ class _ProgressivePreview extends StatelessWidget {
             documentId: tab.documentId,
             controller: tab.viewer,
             preferences: preferences,
+            viewMode: viewMode,
             onAction: onAction,
             pageRasterCachePolicy: pageRasterCachePolicy,
             pageRasterWarmPolicy: pageRasterWarmPolicy,
@@ -5253,6 +5423,224 @@ class _OcrStatusChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The open-tabs grid shown in the compact bottom sheet and the desktop
+/// dialog: a title-search field over a thumbnail grid that opens scrolled to
+/// the active tab.
+class _TabsOverview extends StatefulWidget {
+  const _TabsOverview({
+    required this.tabs,
+    required this.activeIndex,
+    required this.keyPrefix,
+    required this.headerTopPadding,
+    required this.autofocusSearch,
+    required this.onOpen,
+    required this.onActivate,
+    required this.tileBuilder,
+  });
+
+  /// The editor's live tab list (indices passed to [tileBuilder] and
+  /// [onActivate] index into it).
+  final List<DocumentTab> tabs;
+  final int activeIndex;
+  final String keyPrefix;
+  final double headerTopPadding;
+  final bool autofocusSearch;
+  final VoidCallback onOpen;
+  final void Function(int index) onActivate;
+  final Widget Function(BuildContext context, int index) tileBuilder;
+
+  static const double _padding = 12;
+  static const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+    maxCrossAxisExtent: 220,
+    mainAxisSpacing: _padding,
+    crossAxisSpacing: _padding,
+    childAspectRatio: 0.78,
+  );
+
+  @override
+  State<_TabsOverview> createState() => _TabsOverviewState();
+}
+
+class _TabsOverviewState extends State<_TabsOverview> {
+  final _query = TextEditingController();
+  ScrollController? _scroll;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    _scroll?.dispose();
+    super.dispose();
+  }
+
+  /// Indices into [_TabsOverview.tabs] whose title matches the search.
+  List<int> _matches() {
+    final query = _query.text.trim().toLowerCase();
+    final tabs = widget.tabs;
+    return [
+      for (var i = 0; i < tabs.length; i++)
+        if (query.isEmpty || tabs[i].title.toLowerCase().contains(query)) i,
+    ];
+  }
+
+  /// The scroll offset that centres the active tab's row in a viewport of
+  /// [size], clamped to the grid's extent, so the grid opens on the current
+  /// tab instead of the first row.
+  double _activeOffset(Size size, int count) {
+    final active = widget.activeIndex;
+    if (active <= 0 || active >= count) return 0;
+    const padding = _TabsOverview._padding;
+    final layout = _TabsOverview.gridDelegate.getLayout(
+      SliverConstraints(
+        axisDirection: AxisDirection.down,
+        growthDirection: GrowthDirection.forward,
+        userScrollDirection: ScrollDirection.idle,
+        scrollOffset: 0,
+        precedingScrollExtent: 0,
+        overlap: 0,
+        remainingPaintExtent: size.height,
+        crossAxisExtent: math.max(0, size.width - 2 * padding),
+        crossAxisDirection: AxisDirection.right,
+        viewportMainAxisExtent: size.height,
+        remainingCacheExtent: size.height,
+        cacheOrigin: 0,
+      ),
+    ) as SliverGridRegularTileLayout;
+    final stride = layout.mainAxisStride;
+    final rows = (count + layout.crossAxisCount - 1) ~/ layout.crossAxisCount;
+    final row = active ~/ layout.crossAxisCount;
+    final contentHeight = 2 * padding + rows * stride - padding;
+    final maxOffset = math.max(0.0, contentHeight - size.height);
+    final centred = padding +
+        row * stride +
+        layout.childMainAxisExtent / 2 -
+        size.height / 2;
+    return centred.clamp(0.0, maxOffset);
+  }
+
+  void _onQueryChanged(String _) {
+    setState(() {});
+    // A new result set starts from its first match.
+    final scroll = _scroll;
+    if (scroll != null && scroll.hasClients) scroll.jumpTo(0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final prefix = widget.keyPrefix;
+    final matches = _matches();
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, widget.headerTopPadding, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child:
+                    Text(l10n.editorTabs, style: theme.textTheme.titleMedium),
+              ),
+              IconButton(
+                key: ValueKey('$prefix-tabs-open'),
+                icon: const Icon(Icons.add),
+                tooltip: l10n.editorOpenPdfNewTab,
+                onPressed: widget.onOpen,
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: TextField(
+            key: ValueKey('$prefix-tabs-search'),
+            controller: _query,
+            autofocus: widget.autofocusSearch,
+            textInputAction: TextInputAction.go,
+            decoration: InputDecoration(
+              hintText: l10n.editorSearchTabs,
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _query.text.isEmpty
+                  ? null
+                  : IconButton(
+                      key: ValueKey('$prefix-tabs-search-clear'),
+                      icon: const Icon(Icons.clear),
+                      tooltip: l10n.editorClearTabSearch,
+                      onPressed: () {
+                        _query.clear();
+                        _onQueryChanged('');
+                      },
+                    ),
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: _onQueryChanged,
+            // Enter opens the best (first) match, like a quick switcher.
+            onSubmitted: (_) {
+              if (matches.isNotEmpty) widget.onActivate(matches.first);
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // The first layout decides where the grid opens: on the
+                  // active tab. The grid does not cache offscreen rows, so a
+                  // measured initial offset (rather than a scroll after the
+                  // first frame) never builds the top rows' thumbnails. The
+                  // grid stays mounted while a search matches nothing so its
+                  // position (reset per query) is never re-seeded from here.
+                  _scroll ??= ScrollController(
+                    initialScrollOffset: _activeOffset(
+                      constraints.biggest,
+                      widget.tabs.length,
+                    ),
+                  );
+                  return GridView.builder(
+                    key: ValueKey('$prefix-tabs-grid'),
+                    controller: _scroll,
+                    // A tile paints a real PDF thumbnail. Do not build the
+                    // next row speculatively: with large documents that work
+                    // competes with a fling even though the thumbnails are
+                    // still off-screen.
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+                    padding: const EdgeInsets.all(_TabsOverview._padding),
+                    gridDelegate: _TabsOverview.gridDelegate,
+                    itemCount: matches.length,
+                    itemBuilder: (context, i) =>
+                        widget.tileBuilder(context, matches[i]),
+                  );
+                },
+              ),
+              if (matches.isEmpty)
+                Center(
+                  key: ValueKey('$prefix-tabs-no-matches'),
+                  child: Text(
+                    l10n.editorNoMatchingTabs,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            l10n.editorTabsOpenCount(widget.tabs.length),
+            style: theme.textTheme.labelMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 }

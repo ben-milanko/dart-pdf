@@ -1101,6 +1101,12 @@ class PdfTextReflower {
     return out;
   }
 
+  /// Whether the page drew whitespace on the boundary between [left] and
+  /// [right] - a trailing space on one, or a leading space on the other.
+  static bool _drewSpaceBetween(_LinePiece left, _LinePiece right) =>
+      left.text.trimRight().length != left.text.length ||
+      right.text.trimLeft().length != right.text.length;
+
   static PdfReflowLine _lineFrom(List<_LinePiece> pieces) {
     final logicalOrder = pieces.any((piece) => piece.isRightToLeft);
     final ordered = logicalOrder
@@ -1110,7 +1116,18 @@ class PdfTextReflower {
     _LinePiece? previous;
     for (final piece in ordered) {
       if (previous != null) {
-        if (logicalOrder) {
+        if (_drewSpaceBetween(previous, piece)) {
+          // A space the page actually drew settles it, and geometry cannot
+          // second-guess it. Text justified by per-gap kerns - the shape
+          // LaTeX and InDesign emit - arrives as one run per word with the
+          // space carried INSIDE the run ('Fonts', ' are', ' embedded'), so
+          // consecutive boxes touch and the gap below measures a fraction of
+          // a point. Trimming those pieces and then asking the geometry is
+          // what used to bring a whole justified page back as one run-on
+          // word. Only when neither side drew a space is spacing a question
+          // for the geometry at all.
+          buffer.write(' ');
+        } else if (logicalOrder) {
           final gap =
               piece.startIndex - (previous.startIndex + previous.text.length);
           if (gap > 0) buffer.write(' ');

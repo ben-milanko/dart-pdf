@@ -27,6 +27,7 @@ import 'editing_controller.dart';
 import 'editing_tool_catalog.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
+import 'editing_form_options.dart';
 import 'editing_form_style.dart';
 import 'editing_measure.dart';
 import 'editing_panel.dart';
@@ -400,6 +401,12 @@ enum _SelectedFormOverflowAction {
   typeText,
   typeCheckBox,
   typeButton,
+  typeRadio,
+  typeCombo,
+  typeList,
+  typeSignature,
+  options,
+  addRadio,
   delete,
   flatten,
 }
@@ -1004,7 +1011,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         final value = await widget.textPrompt(
           context,
           title: pdfL10n(context).tbFieldValue,
-          initial: field.value ?? '',
+          initial: field.isPassword ? '' : field.value ?? '',
           multiline: field.isMultiline,
         );
         if (value != null) controller.setFormFieldText(name, value);
@@ -1029,14 +1036,22 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
           items: [
             for (final (export, display) in field.options)
-              PopupMenuItem(
-                key: ValueKey('pdf-selected-form-option-$export'),
-                value: export,
-                child: Text(display),
-              ),
+              if (field.isMultiSelect)
+                CheckedPopupMenuItem(
+                  key: ValueKey('pdf-selected-form-option-$export'),
+                  value: export,
+                  checked: field.values.contains(export),
+                  child: Text(display),
+                )
+              else
+                PopupMenuItem(
+                  key: ValueKey('pdf-selected-form-option-$export'),
+                  value: export,
+                  child: Text(display),
+                ),
           ],
         );
-        if (picked != null) controller.setFormChoiceValue(name, picked);
+        if (picked != null) controller.pickFormChoiceOption(name, picked);
       case PdfFieldType.pushButton:
         final picker = widget.formImagePicker;
         if (picker == null) return;
@@ -1124,6 +1139,25 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         tooltip: pdfL10n(context).tbRenameField,
         onPressed: () => _renameSelectedFormField(context),
       ),
+      if (field.type == PdfFieldType.comboBox ||
+          field.type == PdfFieldType.listBox)
+        IconButton(
+          key: const ValueKey('pdf-selected-form-options'),
+          icon: const Icon(Icons.format_list_bulleted),
+          tooltip: pdfL10n(context).menuEditOptions,
+          onPressed: () => showPdfFormOptionsDialog(
+            context: context,
+            controller: controller,
+            fieldName: field.name,
+          ),
+        ),
+      if (field.type == PdfFieldType.radioGroup)
+        IconButton(
+          key: const ValueKey('pdf-selected-form-add-radio'),
+          icon: const Icon(Icons.add_circle_outline),
+          tooltip: pdfL10n(context).menuAddRadioButton,
+          onPressed: () => controller.addFormRadioButton(field.name),
+        ),
       PdfSelectedFormFieldTypeMenu(
         controller: controller,
         buttonKey: const ValueKey('pdf-selected-form-field-type'),
@@ -1188,6 +1222,24 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             case _SelectedFormOverflowAction.typeButton:
               controller
                   .changeSelectedFormFieldKind(PdfFormFieldKind.pushButton);
+            case _SelectedFormOverflowAction.typeRadio:
+              controller
+                  .changeSelectedFormFieldKind(PdfFormFieldKind.radioGroup);
+            case _SelectedFormOverflowAction.typeCombo:
+              controller.changeSelectedFormFieldKind(PdfFormFieldKind.comboBox);
+            case _SelectedFormOverflowAction.typeList:
+              controller.changeSelectedFormFieldKind(PdfFormFieldKind.listBox);
+            case _SelectedFormOverflowAction.typeSignature:
+              controller
+                  .changeSelectedFormFieldKind(PdfFormFieldKind.signature);
+            case _SelectedFormOverflowAction.options:
+              await showPdfFormOptionsDialog(
+                context: context,
+                controller: controller,
+                fieldName: field.name,
+              );
+            case _SelectedFormOverflowAction.addRadio:
+              controller.addFormRadioButton(field.name);
             case _SelectedFormOverflowAction.delete:
               controller.deleteSelected();
             case _SelectedFormOverflowAction.flatten:
@@ -1224,6 +1276,27 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 title: Text(pdfL10n(context).tbTextStyleEllipsis),
               ),
             ),
+          if (field.type == PdfFieldType.comboBox ||
+              field.type == PdfFieldType.listBox)
+            PopupMenuItem(
+              key: const ValueKey('pdf-selected-form-options'),
+              value: _SelectedFormOverflowAction.options,
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.format_list_bulleted),
+                title: Text(pdfL10n(context).menuEditOptions),
+              ),
+            ),
+          if (field.type == PdfFieldType.radioGroup)
+            PopupMenuItem(
+              key: const ValueKey('pdf-selected-form-add-radio'),
+              value: _SelectedFormOverflowAction.addRadio,
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.add_circle_outline),
+                title: Text(pdfL10n(context).menuAddRadioButton),
+              ),
+            ),
           PopupMenuItem(
             key: const ValueKey('pdf-selected-form-type-text'),
             value: _SelectedFormOverflowAction.typeText,
@@ -1254,6 +1327,46 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               title: Text(pdfL10n(context).tbConvertToImageButton),
             ),
           ),
+          for (final (action, kind, key, icon, label) in [
+            (
+              _SelectedFormOverflowAction.typeRadio,
+              PdfFieldType.radioGroup,
+              'radio',
+              Icons.radio_button_checked,
+              pdfL10n(context).menuConvertToRadioGroup,
+            ),
+            (
+              _SelectedFormOverflowAction.typeCombo,
+              PdfFieldType.comboBox,
+              'combo',
+              Icons.arrow_drop_down_circle_outlined,
+              pdfL10n(context).menuConvertToComboBox,
+            ),
+            (
+              _SelectedFormOverflowAction.typeList,
+              PdfFieldType.listBox,
+              'list',
+              Icons.list_alt,
+              pdfL10n(context).menuConvertToListBox,
+            ),
+            (
+              _SelectedFormOverflowAction.typeSignature,
+              PdfFieldType.signature,
+              'signature',
+              Icons.draw_outlined,
+              pdfL10n(context).menuConvertToSignatureField,
+            ),
+          ])
+            PopupMenuItem(
+              key: ValueKey('pdf-selected-form-type-$key'),
+              value: action,
+              enabled: field.type != kind,
+              child: ListTile(
+                dense: true,
+                leading: Icon(icon),
+                title: Text(label),
+              ),
+            ),
           PopupMenuItem(
             key: const ValueKey('pdf-selected-form-delete'),
             value: _SelectedFormOverflowAction.delete,
@@ -1899,6 +2012,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             PdfFormFieldKind.text => Icons.text_fields,
             PdfFormFieldKind.checkBox => Icons.check_box_outlined,
             PdfFormFieldKind.pushButton => Icons.smart_button,
+            PdfFormFieldKind.radioGroup => Icons.radio_button_checked,
+            PdfFormFieldKind.comboBox => Icons.arrow_drop_down_circle_outlined,
+            PdfFormFieldKind.listBox => Icons.list_alt,
+            PdfFormFieldKind.signature => Icons.draw_outlined,
           }),
           initialValue: controller.newFormFieldKind,
           onSelected: (kind) => controller.newFormFieldKind = kind,
@@ -1921,6 +2038,34 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               height: 34,
               child: Text(pdfL10n(context).tbImageButtonOption),
             ),
+            for (final (kind, key, label) in [
+              (
+                PdfFormFieldKind.radioGroup,
+                'radio',
+                pdfL10n(context).propFieldTypeRadioGroup,
+              ),
+              (
+                PdfFormFieldKind.comboBox,
+                'combo',
+                pdfL10n(context).propFieldTypeComboBox,
+              ),
+              (
+                PdfFormFieldKind.listBox,
+                'list',
+                pdfL10n(context).propFieldTypeListBox,
+              ),
+              (
+                PdfFormFieldKind.signature,
+                'signature',
+                pdfL10n(context).propFieldTypeSignature,
+              ),
+            ])
+              PopupMenuItem(
+                key: ValueKey('pdf-form-type-$key'),
+                value: kind,
+                height: 34,
+                child: Text(label),
+              ),
           ],
         ),
         IconButton(

@@ -630,6 +630,15 @@ class AppLocalizationsPl extends AppLocalizations {
       'Nie udało się skopiować migawki do schowka';
 
   @override
+  String get editorSearchTabs => 'Szukaj kart';
+
+  @override
+  String get editorClearTabSearch => 'Wyczyść wyszukiwanie';
+
+  @override
+  String get editorNoMatchingTabs => 'Brak pasujących kart';
+
+  @override
   String get editorTabs => 'Karty';
 
   @override
@@ -906,6 +915,23 @@ class AppLocalizationsPl extends AppLocalizations {
   String get settingsSystem => 'System';
 
   @override
+  String get settingsSignatures => 'Signatures';
+
+  @override
+  String get settingsAatlTitle => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get settingsAatlSubtitle =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe and checks for updates weekly. Nothing about your documents is sent.';
+
+  @override
+  String get signatureTrustAatlAction => 'Trust Adobe Approved Trust List';
+
+  @override
+  String get signatureTrustAatlExplanation =>
+      'Downloads Adobe\'s list of trusted signing authorities from Adobe. Nothing about this document is sent.';
+
+  @override
   String get settingsThemeDark => 'Ciemny';
 
   @override
@@ -951,6 +977,18 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get undo => 'Cofnij';
+
+  @override
+  String get welcomeCopyName => 'Kopiuj nazwę';
+
+  @override
+  String get welcomeCopyPath => 'Kopiuj ścieżkę';
+
+  @override
+  String get welcomeOpen => 'Otwórz';
+
+  @override
+  String get welcomeOpenInNewWindow => 'Otwórz w nowym oknie';
 
   @override
   String get welcomeOpenPdf => 'Otwórz plik PDF';

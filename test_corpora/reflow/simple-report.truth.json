@@ -1,0 +1,385 @@
+{
+  "name": "simple-report",
+  "description": "Single column prose with a running head, running foot, and page numbers that must stay out of the reading stream.",
+  "pages": 3,
+  "blocks": [
+    {
+      "page": 0,
+      "role": "artifact",
+      "text": "Reading order in untagged documents",
+      "bounds": [
+        72.0,
+        754.13,
+        216.5765,
+        762.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 0,
+      "role": "artifact",
+      "text": "Draft - internal circulation only",
+      "bounds": [
+        72.0,
+        34.13,
+        184.421,
+        42.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 0,
+      "role": "artifact",
+      "text": "1",
+      "bounds": [
+        534.996,
+        34.02,
+        540.0,
+        42.48
+      ],
+      "reading": -1
+    },
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "Inferring structure from geometry",
+      "bounds": [
+        72.0,
+        697.6875,
+        540.0,
+        720.0
+      ],
+      "reading": 0,
+      "level": 1
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "The interpreter walks the content stream once and hands every operator to the device it was built with. A cross reference table maps object numbers to byte offsets so the reader can load an object without scanning the file. Fonts are embedded as programs whose glyph descriptions the rasterizer turns into filled outlines at the requested size. Filters decode a stream lazily, which keeps a large document cheap to open when only a few pages are ever displayed.",
+      "bounds": [
+        72.0,
+        618.1875,
+        540.0,
+        690.6875
+      ],
+      "reading": 1
+    },
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "Inferring reading order",
+      "bounds": [
+        72.0,
+        585.125,
+        540.0,
+        602.1875
+      ],
+      "reading": 2,
+      "level": 2
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns. Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself. Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact.",
+      "bounds": [
+        72.0,
+        520.125,
+        540.0,
+        578.125
+      ],
+      "reading": 3
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page. Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them. Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font. Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy.",
+      "bounds": [
+        72.0,
+        427.125,
+        540.0,
+        514.125
+      ],
+      "reading": 4
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "The interpreter walks the content stream once and hands every operator to the device it was built with. A cross reference table maps object numbers to byte offsets so the reader can load an object without scanning the file. Fonts are embedded as programs whose glyph descriptions the rasterizer turns into filled outlines at the requested size.",
+      "bounds": [
+        72.0,
+        363.125,
+        540.0,
+        421.125
+      ],
+      "reading": 5
+    },
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "Incremental revisions",
+      "bounds": [
+        72.0,
+        330.0625,
+        540.0,
+        347.125
+      ],
+      "reading": 6,
+      "level": 2
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn. A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns. Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself.",
+      "bounds": [
+        72.0,
+        265.0625,
+        540.0,
+        323.0625
+      ],
+      "reading": 7
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact. The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page. Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them. Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font.",
+      "bounds": [
+        72.0,
+        172.0625,
+        540.0,
+        259.0625
+      ],
+      "reading": 8
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy. The interpreter walks the content stream once and hands every operator to the device it was built with. A cross reference table maps object numbers to byte offsets so the reader can load an object without scanning the file.",
+      "bounds": [
+        72.0,
+        108.0625,
+        540.0,
+        166.0625
+      ],
+      "reading": 9
+    },
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "Font programs and glyph outlines",
+      "bounds": [
+        72.0,
+        75.0,
+        540.0,
+        92.0625
+      ],
+      "reading": 10,
+      "level": 2
+    },
+    {
+      "page": 1,
+      "role": "artifact",
+      "text": "Reading order in untagged documents",
+      "bounds": [
+        72.0,
+        754.13,
+        216.5765,
+        762.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 1,
+      "role": "artifact",
+      "text": "Draft - internal circulation only",
+      "bounds": [
+        72.0,
+        34.13,
+        184.421,
+        42.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 1,
+      "role": "artifact",
+      "text": "2",
+      "bounds": [
+        534.996,
+        34.02,
+        540.0,
+        42.48
+      ],
+      "reading": -1
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Filters decode a stream lazily, which keeps a large document cheap to open when only a few pages are ever displayed. Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn. A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns.",
+      "bounds": [
+        72.0,
+        662.0,
+        540.0,
+        720.0
+      ],
+      "reading": 11
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself. Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact. The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page. Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them.",
+      "bounds": [
+        72.0,
+        569.0,
+        540.0,
+        656.0
+      ],
+      "reading": 12
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font. Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy. The interpreter walks the content stream once and hands every operator to the device it was built with.",
+      "bounds": [
+        72.0,
+        505.0,
+        540.0,
+        563.0
+      ],
+      "reading": 13
+    },
+    {
+      "page": 1,
+      "role": "heading",
+      "text": "Column detection failures",
+      "bounds": [
+        72.0,
+        471.9375,
+        540.0,
+        489.0
+      ],
+      "reading": 14,
+      "level": 2
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Fonts are embedded as programs whose glyph descriptions the rasterizer turns into filled outlines at the requested size. Filters decode a stream lazily, which keeps a large document cheap to open when only a few pages are ever displayed. Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn.",
+      "bounds": [
+        72.0,
+        406.9375,
+        540.0,
+        464.9375
+      ],
+      "reading": 15
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns. Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself. Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact. The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page.",
+      "bounds": [
+        72.0,
+        313.9375,
+        540.0,
+        400.9375
+      ],
+      "reading": 16
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them. Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font. Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy.",
+      "bounds": [
+        72.0,
+        249.9375,
+        540.0,
+        307.9375
+      ],
+      "reading": 17
+    },
+    {
+      "page": 1,
+      "role": "heading",
+      "text": "Content streams and the interpreter",
+      "bounds": [
+        72.0,
+        216.875,
+        540.0,
+        233.9375
+      ],
+      "reading": 18,
+      "level": 2
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "A cross reference table maps object numbers to byte offsets so the reader can load an object without scanning the file. Fonts are embedded as programs whose glyph descriptions the rasterizer turns into filled outlines at the requested size. Filters decode a stream lazily, which keeps a large document cheap to open when only a few pages are ever displayed.",
+      "bounds": [
+        72.0,
+        151.875,
+        540.0,
+        209.875
+      ],
+      "reading": 19
+    },
+    {
+      "page": 1,
+      "role": "paragraph",
+      "text": "Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn. A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns. Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself. Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact.",
+      "bounds": [
+        72.0,
+        73.375,
+        540.0,
+        145.875
+      ],
+      "reading": 20
+    },
+    {
+      "page": 2,
+      "role": "artifact",
+      "text": "Reading order in untagged documents",
+      "bounds": [
+        72.0,
+        754.13,
+        216.5765,
+        762.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 2,
+      "role": "artifact",
+      "text": "Draft - internal circulation only",
+      "bounds": [
+        72.0,
+        34.13,
+        184.421,
+        42.12
+      ],
+      "reading": -1
+    },
+    {
+      "page": 2,
+      "role": "artifact",
+      "text": "3",
+      "bounds": [
+        534.996,
+        34.02,
+        540.0,
+        42.48
+      ],
+      "reading": -1
+    },
+    {
+      "page": 2,
+      "role": "paragraph",
+      "text": "The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page. Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them. Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font.",
+      "bounds": [
+        72.0,
+        662.0,
+        540.0,
+        720.0
+      ],
+      "reading": 21
+    }
+  ]
+}

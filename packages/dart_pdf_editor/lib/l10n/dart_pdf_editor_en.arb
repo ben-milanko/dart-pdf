@@ -1178,7 +1178,7 @@
   "@searchReplaceHint": {
     "description": "Placeholder in the search panel's replacement text field."
   },
-  "searchReplaceNotTargetable": "That match can\u2019t be replaced on its own \u2014 use Replace all, or edit it with the content tool",
+  "searchReplaceNotTargetable": "That match can’t be replaced on its own — use Replace all, or edit it with the content tool",
   "@searchReplaceNotTargetable": {
     "description": "Shown when a single search match cannot be pinned to one editable text run, so Replace did nothing."
   },
@@ -1206,6 +1206,10 @@
   "shellDefaultAuthor": "Default author…",
   "@shellDefaultAuthor": {
     "description": "Menu item that opens a prompt to set the default annotation author name."
+  },
+  "formXfaUnsupportedNotice": "This form uses XFA, which can't be filled here, so its fields don't appear. Open it in an app that supports XFA forms to fill it in.",
+  "@formXfaUnsupportedNotice": {
+    "description": "Toast shown once when a document's form is a dynamic XFA form: its fields exist only in the XFA description, which the editor cannot show or fill. XFA is a technical format name; keep it untranslated."
   },
   "shellHighlightFormFields": "Highlight form fields",
   "@shellHighlightFormFields": {
@@ -1491,6 +1495,18 @@
       }
     }
   },
+  "sidebarSignatureTrustedViaList": "Trusted via {authority} ({list})",
+  "@sidebarSignatureTrustedViaList": {
+    "description": "Detail line naming the trusted authority the signer chains to and the trust list (e.g. EU Trusted List) that authority came from.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      },
+      "list": {
+        "type": "String"
+      }
+    }
+  },
   "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
   "@sidebarSignatureUntrustedDetail": {
     "description": "Detail line when the signer does not chain to any configured trust anchor."
@@ -1524,6 +1540,53 @@
         "type": "String"
       }
     }
+  },
+  "sidebarSignatureRevokedStatus": "Revoked",
+  "@sidebarSignatureRevokedStatus": {
+    "description": "Status pill for an otherwise intact signature whose certificate was revoked before it was signed (or with no trusted timestamp proving otherwise)."
+  },
+  "sidebarSignatureSelfSigned": "Self-signed: no authority has confirmed who the signer is",
+  "@sidebarSignatureSelfSigned": {
+    "description": "Detail line when the signer's certificate is self-signed, so only the signer vouches for their identity."
+  },
+  "sidebarSignatureUnknownIssuer": "Issued by {authority}, which is not a trusted authority",
+  "@sidebarSignatureUnknownIssuer": {
+    "description": "Detail line when the signer's certificate was issued by an authority that is not among the trusted roots.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureRevokedOn": "The signer's certificate was revoked {time}",
+  "@sidebarSignatureRevokedOn": {
+    "description": "Detail line when a certificate in the signer's chain was revoked before the signature's trusted time; the signature is not trusted.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureRevokedAfterSigning": "Certificate revoked {time}, after the signature was timestamped",
+  "@sidebarSignatureRevokedAfterSigning": {
+    "description": "Detail line when a certificate was revoked, but a trusted timestamp proves the signature was made before that; the signature still counts.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureRevocationGoodLive": "Certificate not revoked (checked online)",
+  "@sidebarSignatureRevocationGoodLive": {
+    "description": "Detail line when live OCSP/CRL checks confirmed the signer's certificates are not revoked."
+  },
+  "sidebarSignatureRevocationGoodEmbedded": "Certificate not revoked (per data saved in the document)",
+  "@sidebarSignatureRevocationGoodEmbedded": {
+    "description": "Detail line when revocation data embedded in the document confirms the signer's certificates were not revoked."
+  },
+  "sidebarSignatureRevocationUnknown": "Revocation status could not be checked",
+  "@sidebarSignatureRevocationUnknown": {
+    "description": "Detail line when the signer's certificate revocation status could not be established (no responder, network failure, or unverifiable answer)."
   },
   "sidebarWriteReplyHint": "Write a reply…",
   "@sidebarWriteReplyHint": {
@@ -2746,5 +2809,49 @@
     "description": "Smart alignment guides hint. Alt temporarily disables snapping."
   },
   "tbToolContentDelete": "Erase",
-  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish"
+  "tbTipContentDelete": "Delete content — drag a rectangle, or click polygon vertices and double-click to finish",
+  "menuConvertToRadioGroup": "Convert to radio group",
+  "@menuConvertToRadioGroup": {
+    "description": "Form-field menu item that converts the field to a radio group."
+  },
+  "menuConvertToComboBox": "Convert to combo box",
+  "@menuConvertToComboBox": {
+    "description": "Form-field menu item that converts the field to a combo box (drop-down list)."
+  },
+  "menuConvertToListBox": "Convert to list box",
+  "@menuConvertToListBox": {
+    "description": "Form-field menu item that converts the field to a list box."
+  },
+  "menuConvertToSignatureField": "Convert to signature field",
+  "@menuConvertToSignatureField": {
+    "description": "Form-field menu item that converts the field to an empty signature field."
+  },
+  "menuEditOptions": "Edit options…",
+  "@menuEditOptions": {
+    "description": "Form-field menu item that opens the editor for a combo/list box's options."
+  },
+  "menuAddRadioButton": "Add button to group",
+  "@menuAddRadioButton": {
+    "description": "Form-field menu item that adds another button to the selected radio group."
+  },
+  "formOptionsTitle": "Field options",
+  "@formOptionsTitle": {
+    "description": "Title of the dialog that edits a combo/list box's options."
+  },
+  "formOptionsExportValue": "Export value",
+  "@formOptionsExportValue": {
+    "description": "Options dialog column: the value saved when the option is chosen."
+  },
+  "formOptionsDisplayText": "Display text",
+  "@formOptionsDisplayText": {
+    "description": "Options dialog column: the text shown to the person filling the form."
+  },
+  "formOptionsAllowCustomText": "Allow custom text",
+  "@formOptionsAllowCustomText": {
+    "description": "Options dialog switch: a combo box accepts typed values not in the list."
+  },
+  "formOptionsMultiSelect": "Allow multiple selections",
+  "@formOptionsMultiSelect": {
+    "description": "Options dialog switch: a list box allows several options to be chosen."
+  }
 }

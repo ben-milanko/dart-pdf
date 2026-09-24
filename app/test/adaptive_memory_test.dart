@@ -193,8 +193,8 @@ void main() {
     );
 
     expect(decision.pageRasterPolicy.maxBytes, greaterThan(64 * mb));
-    expect(decision.pageRasterPolicy.maxEntryBytes,
-        greaterThanOrEqualTo(16 * mb));
+    expect(
+        decision.pageRasterPolicy.maxEntryBytes, greaterThanOrEqualTo(16 * mb));
     expect(decision.pageRasterPolicy.maxEntryBytes,
         greaterThanOrEqualTo(16515776));
   });
@@ -361,6 +361,149 @@ void main() {
     expect(PdfCacheRegistry.instance.maxTotalWeight,
         greaterThanOrEqualTo(ceilingBefore ~/ 2),
         reason: 'no lasting pressure cap was installed');
+  });
+
+  test('a flickering low-memory flag does not ratchet the budgets down',
+      () async {
+    // The Windows field shape: the platform flag was `dwMemoryLoad >= 90`, and
+    // a desktop with a browser open hovers there, so the flag flipped every
+    // few samples. Each re-entry used to halve the page budget again and
+    // restart the five-minute cooldown, walking it to its floor for good.
+    var now = DateTime(2026, 9, 23, 9);
+    var low = false;
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.desktop,
+      clock: () => now,
+      probe: () async => AppMemorySnapshot(
+        physicalBytes: 16 * gb,
+        availableBytes: 6 * gb,
+        processRssBytes: 400 * mb,
+        lowMemory: low,
+      ),
+    );
+    final cache = heavyCache(200 * mb);
+    await controller.start(periodic: false);
+    addTearDown(controller.dispose);
+    final before = tools.pageRasterCachePolicy.value.maxBytes;
+    final firstPressure = now.add(const Duration(seconds: 15));
+
+    low = true;
+    now = firstPressure;
+    await controller.sample();
+    final pressured = tools.pageRasterCachePolicy.value.maxBytes;
+    expect(pressured, lessThanOrEqualTo(before ~/ 2));
+
+    for (var cycle = 0; cycle < 5; cycle++) {
+      cache.put(0, 200 * mb); // the caches refill between flips
+      low = false;
+      now = now.add(const Duration(seconds: 15));
+      await controller.sample();
+      now = now.add(const Duration(seconds: 15));
+      await controller.sample();
+      low = true;
+      now = now.add(const Duration(seconds: 15));
+      await controller.sample();
+    }
+    expect(tools.pageRasterCachePolicy.value.maxBytes, pressured,
+        reason: 'a repeat inside the cooldown finds the budget already halved');
+    expect(tools.log.map((entry) => entry.message),
+        contains(contains('again within the cooldown; budgets held')));
+
+    // The cooldown ran from the first signal, not the last flicker.
+    low = false;
+    now = firstPressure.add(const Duration(minutes: 5, seconds: 1));
+    await controller.sample();
+    await controller.sample();
+    expect(tools.pageRasterCachePolicy.value.maxBytes, greaterThan(pressured));
+  });
+
+  test('one clear sample does not end a low-memory state', () async {
+    var now = DateTime(2026, 9, 23, 9);
+    var low = true;
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.desktop,
+      clock: () => now,
+      probe: () async => AppMemorySnapshot(
+        physicalBytes: 16 * gb,
+        availableBytes: 6 * gb,
+        processRssBytes: 400 * mb,
+        lowMemory: low,
+      ),
+    );
+    heavyCache(200 * mb);
+    await controller.start(periodic: false);
+    addTearDown(controller.dispose);
+    final halvedLive = PdfLiveRasterBudget.instance.maxBytes;
+
+    low = false;
+    now = now.add(const Duration(seconds: 15));
+    await controller.sample();
+    expect(PdfLiveRasterBudget.instance.maxBytes, halvedLive,
+        reason: 'still inside the hysteresis window');
+
+    now = now.add(const Duration(seconds: 15));
+    await controller.sample();
+    expect(PdfLiveRasterBudget.instance.maxBytes, greaterThan(halvedLive),
+        reason: 'the second clear sample re-derives the budgets');
+  });
+
+  test('an OS pressure callback inside the cooldown reclaims but holds budgets',
+      () {
+    var now = DateTime(2026, 9, 23, 9);
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.desktop,
+      clock: () => now,
+    );
+    final cache = heavyCache(200 * mb);
+    controller.applySnapshot(const AppMemorySnapshot(
+      physicalBytes: 64 * gb,
+      availableBytes: 40 * gb,
+      processRssBytes: 400 * mb,
+    ));
+    controller.didHaveMemoryPressure();
+    final pressured = tools.pageRasterCachePolicy.value.maxBytes;
+    final live = PdfLiveRasterBudget.instance.maxBytes;
+
+    cache.put(0, 200 * mb);
+    now = now.add(const Duration(minutes: 1));
+    controller.didHaveMemoryPressure();
+
+    expect(cache.length, 0, reason: 'a discrete OS signal still reclaims');
+    expect(tools.pageRasterCachePolicy.value.maxBytes, pressured);
+    expect(PdfLiveRasterBudget.instance.maxBytes, live);
+  });
+
+  test('a hidden app does not shrink for other apps\' memory use', () async {
+    var now = DateTime(2026, 9, 23, 9);
+    var available = 12 * gb;
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.desktop,
+      clock: () => now,
+      probe: () async => AppMemorySnapshot(
+        physicalBytes: 16 * gb,
+        availableBytes: available,
+        processRssBytes: 400 * mb,
+      ),
+    );
+    heavyCache(200 * mb);
+    await controller.start(periodic: false);
+    addTearDown(controller.dispose);
+    final before = tools.pageRasterCachePolicy.value.maxBytes;
+    final ceilingBefore = PdfCacheRegistry.instance.maxTotalWeight;
+
+    controller.didChangeAppLifecycleState(AppLifecycleState.hidden);
+    available = 1 * gb; // the user opened something heavy in another app
+    now = now.add(const Duration(seconds: 15));
+    await controller.sample();
+    expect(tools.pageRasterCachePolicy.value.maxBytes, before);
+    expect(PdfCacheRegistry.instance.maxTotalWeight, ceilingBefore);
+
+    controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    for (var i = 0; i < 5; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(tools.pageRasterCachePolicy.value.maxBytes, lessThan(before),
+        reason: 'back in the foreground the machine is tracked again');
   });
 
   test('a fixed page override still obeys the process safety ceiling', () {
