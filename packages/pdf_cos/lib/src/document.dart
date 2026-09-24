@@ -165,7 +165,20 @@ class CosDocument {
   /// buffer coordinates. Null - the default, and every whole-file open - means
   /// the buffer is complete.
   static CosDocument open(Uint8List bytes,
-      {String password = '', List<int>? populatedRanges}) {
+          {String password = '', List<int>? populatedRanges}) =>
+      _open(bytes, password, populatedRanges, null);
+
+  /// Opens [bytes] - this document's own bytes with incremental updates
+  /// appended, such as an editor's save over it - reusing this document's
+  /// already-authenticated security handler, so a revision this process just
+  /// wrote to an encrypted file reopens without the password being threaded
+  /// through again. When the update points at a different /Encrypt object
+  /// (or the document is unencrypted) this is an ordinary [open] with the
+  /// empty password.
+  CosDocument openAppended(Uint8List bytes) => _open(bytes, '', null, this);
+
+  static CosDocument _open(Uint8List bytes, String password,
+      List<int>? populatedRanges, CosDocument? keysFrom) {
     final t0 = PdfPerf.begin();
     // Owned and growable: [applyIncrementalUpdate] extends it in place, and a
     // caller's literal may be neither.
@@ -182,7 +195,7 @@ class CosDocument {
       final shift = _findHeader(bytes);
       try {
         final document = _openFromXref(bytes, shift, populated);
-        document._initEncryption(password);
+        document._initEncryption(password, keysFrom);
         final root = document.resolve(document.trailer['Root']);
         if (root is! CosDictionary) {
           throw CosParseException('trailer /Root does not resolve');
@@ -197,7 +210,7 @@ class CosDocument {
       } on RangeError {
         // ditto: an xref offset pointing outside the file
       }
-      return _recover(bytes, shift, password, populated);
+      return _recover(bytes, shift, password, populated, keysFrom);
     } finally {
       PdfPerf.end(PdfPerfPhase.docOpen, t0);
     }
@@ -313,20 +326,20 @@ class CosDocument {
   /// dictionaries and cross-reference stream dictionaries, indexes any
   /// object streams so compressed objects stay reachable, and - failing a
   /// recovered /Root - locates the catalog by its /Type.
-  static CosDocument _recover(
-      Uint8List bytes, int shift, String password, List<int>? populated) {
+  static CosDocument _recover(Uint8List bytes, int shift, String password,
+      List<int>? populated, CosDocument? keysFrom) {
     final t0 = PdfPerf.begin();
     PdfPerf.add(PdfPerfCount.xrefRecovered);
     PdfPerf.event(PdfPerfEvent.xrefRecoveryTriggered, 'bytes=${bytes.length}');
     try {
-      return _recoverTimed(bytes, shift, password, populated);
+      return _recoverTimed(bytes, shift, password, populated, keysFrom);
     } finally {
       PdfPerf.end(PdfPerfPhase.xrefRecovery, t0);
     }
   }
 
-  static CosDocument _recoverTimed(
-      Uint8List bytes, int shift, String password, List<int>? populated) {
+  static CosDocument _recoverTimed(Uint8List bytes, int shift, String password,
+      List<int>? populated, CosDocument? keysFrom) {
     final entries = _scanObjectHeaders(bytes, shift, populated);
     if (entries.isEmpty) {
       throw CosParseException(
@@ -380,7 +393,7 @@ class CosDocument {
     document._reverseCache.clear();
     document._objectStreams.clear();
 
-    document._initEncryption(password);
+    document._initEncryption(password, keysFrom);
 
     // Index object streams so compressed objects resolve. Direct
     // definitions found by the scan win over compressed ones. The
@@ -513,12 +526,20 @@ class CosDocument {
   /// Installs the security handler when the trailer carries /Encrypt.
   /// Runs before any other object loads, so only the /Encrypt dictionary
   /// itself (whose strings stay raw by design) is parsed undecrypted.
-  void _initEncryption(String password) {
+  /// [keysFrom] ([openAppended]) donates its handler when this revision
+  /// still points at the same /Encrypt object, skipping authentication.
+  void _initEncryption(String password, [CosDocument? keysFrom]) {
     final encryptRef = trailer['Encrypt'];
     final encrypt = resolve(encryptRef);
     if (encrypt is! CosDictionary) return;
     if (encryptRef is CosReference) {
       _encryptObjectNumber = encryptRef.objectNumber;
+    }
+    final donor = keysFrom?._encryption;
+    if (donor != null &&
+        keysFrom?._encryptObjectNumber == _encryptObjectNumber) {
+      _encryption = donor;
+      return;
     }
     Uint8List? firstId;
     final id = resolve(trailer['ID']);
