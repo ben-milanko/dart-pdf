@@ -243,7 +243,10 @@ jobs:
   ios:
     name: iOS Simulator
     runs-on: macos-15
-    timeout-minutes: 45
+    # The demo journey plus up to eight native-perf attempts, each with its
+    # own build-for-testing. On a slow runner the demo and five attempts
+    # alone took the whole of the old 45 minutes.
+    timeout-minutes: 60
     permissions:
       actions: read
       contents: read

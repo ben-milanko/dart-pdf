@@ -21,6 +21,19 @@ if ! [[ "$PATROL_NATIVE_PERF_REPETITIONS" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 bundle_id=dev.milanko.pdfViewerExample
+# One fixed name for every attempt: a different --dart-define per attempt would
+# invalidate the Dart build each time (about a minute per attempt). The file is
+# removed before each attempt instead, so a trace only ever holds one attempt.
+trace_name=patrol-native-perf.log
+
+# Prints the trace's path inside the installed app's data container, if any.
+find_trace() {
+  local container
+  container="$(xcrun simctl get_app_container "$PATROL_IOS_DEVICE" "$bundle_id" data 2>/dev/null)" ||
+    return 0
+  find "$container" -type f -name "$trace_name" -print -quit
+}
+
 scenarios=(
   native-mobile-tiles
   gpu-native-pipeline-warm
@@ -50,9 +63,12 @@ max_attempts=$((PATROL_NATIVE_PERF_REPETITIONS + 2))
 while ((completed < PATROL_NATIVE_PERF_REPETITIONS && attempt < max_attempts)); do
   attempt=$((attempt + 1))
   attempt_log="$RUNNER_TEMP/patrol-ios-perf-$attempt.log"
-  trace_name="patrol-native-perf-$attempt.log"
   trace="$RUNNER_TEMP/patrol-ios-perf-$attempt.trace"
   echo "::group::Patrol native performance attempt $attempt/$max_attempts"
+  stale_trace="$(find_trace)"
+  if [[ -n "$stale_trace" ]]; then
+    rm -f "$stale_trace"
+  fi
   # --no-uninstall keeps the app container (and so the trace) after the run.
   # It also spares each attempt an uninstall/reinstall cycle, which is when
   # the simulator has been seen to "forget" the freshly installed test runner.
@@ -83,8 +99,7 @@ while ((completed < PATROL_NATIVE_PERF_REPETITIONS && attempt < max_attempts)); 
     exit "$patrol_status"
   fi
 
-  container="$(xcrun simctl get_app_container "$PATROL_IOS_DEVICE" "$bundle_id" data)"
-  source_trace="$(find "$container" -type f -name "$trace_name" -print -quit)"
+  source_trace="$(find_trace)"
   if [[ -z "$source_trace" ]]; then
     echo "::error::iOS Patrol attempt $attempt passed but left no $trace_name in the app container"
     exit 1
