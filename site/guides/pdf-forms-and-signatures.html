@@ -700,7 +700,7 @@
             "name": "Does DartPDF support XFA forms or form JavaScript?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "No. DartPDF supports AcroForms. XFA forms are not supported, and there is deliberately no JavaScript engine, so calculated fields and format scripts do not run."
+              "text": "Partly. DartPDF fills AcroForms. Hybrid XFA forms fill through their AcroForm fields, and DartPDF removes the stale XFA copy when you fill them so other viewers show the new values. Dynamic, XFA-only forms can't be filled: DartPDF detects them and the editor says so. There is deliberately no JavaScript engine, so calculated fields and format scripts do not run."
             }
           }
         ]
@@ -1052,8 +1052,12 @@ await session.addDigitalSignature(
           <h2>What isn't supported (yet)</h2>
           <p>These are the gaps you're most likely to hit, so you know before you build on it:</p>
           <ul>
-            <li><strong>XFA forms.</strong> XFA is the older XML-based Adobe forms format. Pure-XFA (“dynamic”)
-              forms won't show their fields. Hybrid forms work through their AcroForm half.</li>
+            <li><strong>Dynamic XFA forms.</strong> XFA is the older XML-based Adobe forms format. Pure-XFA
+              (“dynamic”) forms keep their fields only in the XFA data, so they can't be filled here. The editor
+              shows a notice for them, and <code>PdfAcroForm.isDynamicXfa</code> lets your app detect them.
+              Hybrid forms fill through their AcroForm fields. The first fill (or a flatten) removes the
+              <code>/XFA</code> entry, so XFA-aware viewers show the AcroForm values rather than the old XFA
+              data.</li>
             <li><strong>Form JavaScript.</strong> There is deliberately no JS engine, so calculated totals,
               format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
               app can inspect them.</li>

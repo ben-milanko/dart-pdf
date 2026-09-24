@@ -927,6 +927,10 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'डिफ़ॉल्ट लेखक…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'यह फ़ॉर्म XFA का उपयोग करता है, जिसे यहाँ नहीं भरा जा सकता, इसलिए इसके फ़ील्ड नहीं दिखते। इसे भरने के लिए XFA फ़ॉर्म का समर्थन करने वाले ऐप में खोलें।';
+
+  @override
   String get shellHighlightFormFields => 'फ़ॉर्म फ़ील्ड हाइलाइट करें';
 
   @override

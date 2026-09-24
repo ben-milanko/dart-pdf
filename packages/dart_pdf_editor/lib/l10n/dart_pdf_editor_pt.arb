@@ -295,6 +295,7 @@
   "searchWholeWord": "Palavra inteira",
   "shellControls": "Controles",
   "shellDefaultAuthor": "Autor padrão…",
+  "formXfaUnsupportedNotice": "Este formulário usa XFA, que não pode ser preenchido aqui, por isso os campos não aparecem. Abra-o em um aplicativo compatível com formulários XFA para preenchê-lo.",
   "shellHighlightFormFields": "Destacar campos de formulário",
   "shellKeyboardShortcutsMenu": "Atalhos de teclado…",
   "shellKeyboardShortcutsTitle": "Atalhos de teclado",

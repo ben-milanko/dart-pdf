@@ -74,6 +74,34 @@ class PdfAcroForm {
     return flag is CosBoolean && flag.value;
   }
 
+  /// Whether the form carries an XFA (XML Forms Architecture) description:
+  /// an /XFA entry holding the XDP packet stream or its array of named
+  /// packet streams (§12.7.8). XFA is not rendered or filled here - only
+  /// the AcroForm half of a form is.
+  bool get hasXfa {
+    final xfa = document.cos.resolve(dict['XFA']);
+    if (xfa is CosStream) return true;
+    if (xfa is CosArray) return xfa.items.isNotEmpty;
+    return false;
+  }
+
+  /// The catalog's /NeedsRendering flag: the file asks the viewer to build
+  /// the pages from the XFA description rather than show the stored page
+  /// content (the page content is typically a "please wait" placeholder).
+  bool get xfaNeedsRendering {
+    final flag = document.cos.resolve(document.catalog['NeedsRendering']);
+    return flag is CosBoolean && flag.value;
+  }
+
+  /// Whether this is a dynamic (XFA-only) form that can't be filled here:
+  /// XFA is present and either the file asks for XFA rendering
+  /// ([xfaNeedsRendering]) or there are no AcroForm [fields] to fill.
+  ///
+  /// A hybrid ("static") XFA form - XFA plus a matching AcroForm field tree -
+  /// is not dynamic: its AcroForm fields fill normally, and filling drops the
+  /// stale XFA copy (see `PdfFormFilling.removeXfa`).
+  bool get isDynamicXfa => hasXfa && (xfaNeedsRendering || fields.isEmpty);
+
   List<PdfFormField>? _fields;
 
   /// All terminal (fillable) fields, depth-first across the field tree.
@@ -391,9 +419,8 @@ class PdfFormField {
 
   PdfFieldType get type => switch (fieldTypeName) {
         'Tx' => PdfFieldType.text,
-        'Ch' => flags & comboFlag != 0
-            ? PdfFieldType.comboBox
-            : PdfFieldType.listBox,
+        'Ch' =>
+          flags & comboFlag != 0 ? PdfFieldType.comboBox : PdfFieldType.listBox,
         'Btn' => flags & pushButtonFlag != 0
             ? PdfFieldType.pushButton
             : flags & radioFlag != 0

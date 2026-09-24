@@ -10,6 +10,36 @@ extension PdfFormFilling on PdfEditor {
   /// The document's form, or null if it has none.
   PdfAcroForm? get acroForm => PdfAcroForm.of(document);
 
+  /// Removes the form's XFA description (/AcroForm /XFA) and the catalog's
+  /// /NeedsRendering flag, so XFA-aware viewers show the AcroForm fields and
+  /// their values instead of the XFA data. Returns whether anything was
+  /// removed; a no-op for forms without XFA.
+  ///
+  /// Every field setter calls this: this library fills only the AcroForm
+  /// half of a hybrid form, and an XFA-aware viewer would otherwise keep
+  /// showing the XFA packet's old values. Dropping /XFA is the usual way
+  /// non-XFA tools keep a filled hybrid form consistent. The first fill in
+  /// an edit removes it; later fills find nothing left to remove.
+  bool removeXfa() {
+    final form = acroForm;
+    if (form == null) return false;
+    var removed = false;
+    if (form.dict.entries.remove('XFA') != null) {
+      removed = true;
+      final ref = document.cos.referenceTo(form.dict);
+      if (ref != null) {
+        _updater.replaceObject(ref.objectNumber, form.dict);
+      } else {
+        _updater.markChanged(document.catalog);
+      }
+    }
+    if (document.catalog.entries.remove('NeedsRendering') != null) {
+      removed = true;
+      _updater.markChanged(document.catalog);
+    }
+    return removed;
+  }
+
   /// Sets a text field's value and regenerates its appearance: wrapped
   /// for multiline fields, auto-sized when the /DA font size is 0, and
   /// aligned per /Q quadding.
@@ -864,6 +894,9 @@ extension PdfFormFilling on PdfEditor {
       if (widget.entries.remove('V') != null) _stageFormDict(field, widget);
     }
     _stageFormDict(field, field.dict);
+    // the XFA copy of a hybrid form still holds the old values, and an
+    // XFA-aware viewer would show those instead of what was just filled
+    removeXfa();
     final form = field.form;
     if (form.needsAppearances) {
       // appearances are regenerated here, so viewers must not rebuild

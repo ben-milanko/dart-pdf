@@ -943,6 +943,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Автор за замовчуванням…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Ця форма використовує XFA, яку тут не можна заповнити, тому її поля не відображаються. Щоб заповнити її, відкрийте в застосунку з підтримкою форм XFA.';
+
+  @override
   String get shellHighlightFormFields => 'Підсвічувати поля форми';
 
   @override
