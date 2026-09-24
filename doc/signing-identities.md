@@ -325,7 +325,9 @@ cache. Cadence:
   before each release.
 - The pinned LOTL signers change only when the Commission publishes new ones
   in the Official Journal (the most recent change was the TL v6 transition in
-  April 2026). When that happens, cross-check the announcement against the
+  April 2026). The current set is the six digests in OJ C/2026/1944
+  (https://eur-lex.europa.eu/eli/C/2026/1944/oj), checked digest for digest
+  on 2026-09-24. When a new notice appears, cross-check it against the
   LOTL's pointer to itself and update `PdfEuLotl.signerFingerprints`. Until
   then the refresh tool accepts `--lotl-signer <sha256>` overrides.
 

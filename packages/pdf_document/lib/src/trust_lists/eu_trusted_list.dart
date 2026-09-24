@@ -23,13 +23,13 @@ abstract final class PdfEuLotl {
   /// Where the Commission publishes the LOTL.
   static final url = Uri.parse('https://ec.europa.eu/tools/lotl/eu-lotl.xml');
 
-  /// SHA-256 fingerprints of the certificates allowed to sign the LOTL,
-  /// taken from the LOTL's pointer to itself (sequence 394, issued
-  /// 2026-09-10). The Commission announces these in the Official Journal of
-  /// the EU (most recently for the TL v6 transition in April 2026); a LOTL
-  /// signed by any other certificate is refused. When a new announcement
-  /// lands, cross-check it and update this set - see
-  /// doc/signing-identities.md.
+  /// SHA-256 fingerprints of the certificates allowed to sign the LOTL, as
+  /// published in the Official Journal of the EU, OJ C/2026/1944 (CELEX
+  /// 52026XC01944), and matching the LOTL's pointer to itself (sequence
+  /// 394, issued 2026-09-10). Checked digest-for-digest against the OJ
+  /// notice on 2026-09-24. A LOTL signed by any other certificate is
+  /// refused. When a new announcement lands, cross-check it and update this
+  /// set - see doc/signing-identities.md.
   static const signerFingerprints = {
     'd2064fdd70f6982dcc516b86d9d5c56aea939417c624b2e478c0b29de54f8474',
     'e0a620fbb6747362bb933ac44169d676a553444716cf5f31605f12a22b8396b1',
