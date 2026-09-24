@@ -1786,6 +1786,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Default author…'**
   String get shellDefaultAuthor;
 
+  /// Toast shown once when a document's form is a dynamic XFA form: its fields exist only in the XFA description, which the editor cannot show or fill. XFA is a technical format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'This form uses XFA, which can\'t be filled here, so its fields don\'t appear. Open it in an app that supports XFA forms to fill it in.'**
+  String get formXfaUnsupportedNotice;
+
   /// Toggle label controlling whether form fields are highlighted.
   ///
   /// In en, this message translates to:

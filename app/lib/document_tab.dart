@@ -1,6 +1,7 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
+import 'form_secrets.dart';
 import 'signature_trust.dart';
 
 /// A detached snapshot used to move a live document into another native
@@ -68,7 +69,8 @@ class DocumentTab {
     Uint8List bytes,
     PdfEditingPreferences preferences,
   ) {
-    final controller = PdfEditingController(bytes, preferences: preferences)
+    final controller = PdfEditingController(bytes,
+        preferences: preferences, formSecretStore: appFormSecretStore)
       ..activateHandMode();
     // Off-web: live revocation checks + EU trusted list roots for the
     // signature panel (see signature_trust.dart).

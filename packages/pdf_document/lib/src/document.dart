@@ -34,6 +34,13 @@ class PdfDocument {
       PdfDocument._(CosDocument.open(bytes,
           password: password, populatedRanges: populatedRanges));
 
+  /// Opens [bytes] - this document's bytes with incremental updates appended
+  /// (e.g. a [PdfEditor] save over it) - with this document's already
+  /// authenticated keys, so a freshly written revision of an encrypted file
+  /// reopens without its password. See [CosDocument.openAppended].
+  PdfDocument openAppended(Uint8List bytes) =>
+      PdfDocument._(cos.openAppended(bytes));
+
   /// Opens a document from an asynchronous, random-access [source] - a remote
   /// file over HTTP Range requests, a local file read on demand, or any other
   /// [PdfByteSource]. Only the bytes the parser needs (header, cross-reference

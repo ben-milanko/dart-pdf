@@ -700,7 +700,7 @@
             "name": "Does DartPDF support XFA forms or form JavaScript?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "No. DartPDF supports AcroForms. XFA forms are not supported, and there is deliberately no JavaScript engine, so calculated fields and format scripts do not run."
+              "text": "Partly. DartPDF fills AcroForms. Hybrid XFA forms fill through their AcroForm fields, and DartPDF removes the stale XFA copy when you fill them so other viewers show the new values. Dynamic, XFA-only forms can't be filled: DartPDF detects them and the editor says so. There is deliberately no JavaScript engine, so calculated fields and format scripts do not run."
             }
           }
         ]
@@ -826,7 +826,8 @@
               <tbody>
                 <tr>
                   <td>Text (single-line &amp; multiline)</td>
-                  <td>Yes: wrapping, auto-size, alignment, RTL text, custom font/size/colour</td>
+                  <td>Yes: wrapping, auto-size, alignment, RTL text, custom font/size/colour, <code>/MaxLen</code>
+                    limits, comb fields (one character per box), password masking</td>
                   <td>Yes</td>
                 </tr>
                 <tr>
@@ -861,7 +862,13 @@
             looks on the page are stored separately. A library that only sets the value leaves a form that looks
             empty in some viewers, or that Acrobat redraws with its own layout. DartPDF redraws every field it fills,
             including wrapping, auto-sizing, quadding (alignment), borders, backgrounds, and page rotation, and then
-            clears <code>/NeedAppearances</code>. The saved file looks the same in every viewer, and it prints
+            clears <code>/NeedAppearances</code>. A value longer than the field's <code>/MaxLen</code> is cut to
+            fit, a comb field puts one character in each box, and a password field is drawn as asterisks and
+            edited masked, so the password never appears on the page. Give the editing controller a
+            <code>PdfFormSecretStore</code> and a password isn't written into the PDF at all, as the PDF
+            specification asks: the file keeps a fixed-length mask, and the value is kept in the device's
+            keychain, so it comes back when the same document is reopened on that device. The DartPDF app does
+            this on desktop and mobile. On the web it keeps passwords only in memory until the page closes. The saved file looks the same in every viewer, and it prints
             correctly.</p>
 
           <h3 id="forms-flutter">In a Flutter app</h3>
@@ -982,6 +989,11 @@ Uint8List fillApplication(Uint8List template) {
                     are refused after P=1 certification. General editing APIs do not enforce DocMDP permissions.</td>
                 </tr>
                 <tr>
+                  <td>Password-protected PDFs</td>
+                  <td>Signs RC4, AES-128, and AES-256 encrypted files in place. The document keeps its password
+                    and the signature validates after reopening.</td>
+                </tr>
+                <tr>
                   <td>Multiple signers</td>
                   <td>Each signature is an incremental update, so countersigning leaves earlier signatures
                     valid</td>
@@ -1071,20 +1083,19 @@ await session.addDigitalSignature(
           <h2>What isn't supported (yet)</h2>
           <p>These are the gaps you're most likely to hit, so you know before you build on it:</p>
           <ul>
-            <li><strong>XFA forms.</strong> XFA is the older XML-based Adobe forms format. Pure-XFA (“dynamic”)
-              forms won't show their fields. Hybrid forms work through their AcroForm half.</li>
+            <li><strong>Dynamic XFA forms.</strong> XFA is the older XML-based Adobe forms format. Pure-XFA
+              (“dynamic”) forms keep their fields only in the XFA data, so they can't be filled here. The editor
+              shows a notice for them, and <code>PdfAcroForm.isDynamicXfa</code> lets your app detect them.
+              Hybrid forms fill through their AcroForm fields. The first fill (or a flatten) removes the
+              <code>/XFA</code> entry, so XFA-aware viewers show the AcroForm values rather than the old XFA
+              data.</li>
             <li><strong>Form JavaScript.</strong> There is deliberately no JS engine, so calculated totals,
               format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
               app can inspect them.</li>
-            <li><strong>Comb fields, <code>/MaxLen</code>, and password masking</strong> are not enforced when
-              filling.</li>
             <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
             <li><strong>Multi-select list boxes</strong> take a single value.</li>
             <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
               groups, choice fields, or empty signature fields for someone else to sign later.</li>
-            <li><strong>Signing encrypted (password-protected) PDFs</strong> is refused. Sign an unencrypted
-              copy instead. Adding password encryption afterwards rewrites the signed bytes and invalidates
-              the signature; an encrypted, signed output is not currently supported.</li>
             <li><strong>Bundled trust roots.</strong> No certificate authorities ship inside the library. You can
               load the EU trusted lists at run time (the DartPDF app does this outside the browser), your
               organisation's CA, or an Adobe Approved Trust List file you obtain from Adobe. We don't redistribute
@@ -1112,6 +1123,12 @@ await session.addDigitalSignature(
               the whole document. A certification signature may still forbid the change: DocMDP P=1 forbids
               form filling, while P=2 and P=3 permit it. The editing APIs do not enforce those permissions, so
               check the document's certification policy before filling it.</p>
+
+            <h3>Can I sign a password-protected PDF?</h3>
+            <p>Yes. Open it with its password, fill it, and sign it. The new revision is encrypted like the rest
+              of the file. The one exception is the signature value itself, which the PDF standard leaves
+              unencrypted so any reader can verify it. The file keeps its original protection. Every signing path
+              works this way: plain signatures, all PAdES levels, document timestamps, and certification.</p>
 
             <h3>Can I fill forms without Flutter?</h3>
             <p>Yes. <code>pdf_document</code> is pure Dart with no <code>dart:io</code> or Flutter imports, so the

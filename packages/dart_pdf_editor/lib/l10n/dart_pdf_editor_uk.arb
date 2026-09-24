@@ -303,6 +303,7 @@
   "searchWholeWord": "Слово цілком",
   "shellControls": "Елементи керування",
   "shellDefaultAuthor": "Автор за замовчуванням…",
+  "formXfaUnsupportedNotice": "Ця форма використовує XFA, яку тут не можна заповнити, тому її поля не відображаються. Щоб заповнити її, відкрийте в застосунку з підтримкою форм XFA.",
   "shellHighlightFormFields": "Підсвічувати поля форми",
   "shellKeyboardShortcutsMenu": "Клавіатурні скорочення…",
   "shellKeyboardShortcutsTitle": "Клавіатурні скорочення",

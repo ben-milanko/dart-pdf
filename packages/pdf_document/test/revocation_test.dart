@@ -580,6 +580,71 @@ void main() {
     });
   });
 
+  group('encrypted (AES-256) signed documents', () {
+    Uint8List encryptedSource() => buildEncryptedPdf(
+        revision: 6, userPassword: 'user', ownerPassword: 'owner');
+
+    PdfSignature reopen(Uint8List bytes) {
+      final doc = PdfDocument.open(bytes, password: 'user');
+      expect(doc.cos.isEncrypted, isTrue);
+      return PdfSignature.of(doc).single;
+    }
+
+    test('validateOnline sees a good and a revoked signer', () async {
+      final signed =
+          PdfEditor(PdfDocument.open(encryptedSource(), password: 'user'))
+              .saveSignedEcdsa(
+        privateKey: pki.signerKey,
+        certificates: pki.chain,
+        signingTime: signedAt,
+      );
+      final good = await reopen(signed).validateOnline(
+        trustStore: trust,
+        revocationClient: serve(ocsp: [ocspFor()], crls: [rootCrl()]),
+        now: now,
+      );
+      expect(good.intact, isTrue, reason: '${good.problems}');
+      expect(good.revocationStatus, PdfRevocationStatus.good);
+      expect(good.chainTrusted, isTrue, reason: '${good.chainProblems}');
+
+      final revoked = await reopen(signed).validateOnline(
+        trustStore: trust,
+        revocationClient: serve(ocsp: [
+          ocspFor(
+              status: OcspCertStatus.revoked,
+              revocationTime: DateTime.utc(2026, 8, 1)),
+        ]),
+        now: now,
+      );
+      expect(revoked.revokedBeforeSigning, isTrue);
+      expect(revoked.chainTrusted, isFalse);
+    });
+
+    test('embedded /DSS material in an encrypted B-LT file is read', () async {
+      final signed =
+          await PdfEditor(PdfDocument.open(encryptedSource(), password: 'user'))
+              .saveSignedPadesEcdsa(
+        privateKey: pki.signerKey,
+        certificates: pki.chain,
+        level: PdfPadesLevel.bLT,
+        timestampClient: (req) async =>
+            buildTestTimeStampToken(req, genTime: signedAt),
+        signingTime: signedAt,
+        revocationClient: (chain) async => PdfRevocationMaterial(
+          ocspResponses: [ocspFor()],
+          crls: [rootCrl()],
+        ),
+      );
+      final result = reopen(signed).validate(trustStore: trust);
+      expect(result.intact, isTrue, reason: '${result.problems}');
+      expect(result.revocation.map((r) => (r.status, r.source)), [
+        (PdfRevocationStatus.good, PdfRevocationSource.embedded),
+        (PdfRevocationStatus.good, PdfRevocationSource.embedded),
+      ]);
+      expect(result.chainTrusted, isTrue, reason: '${result.chainProblems}');
+    });
+  });
+
   group('OCSP primitives', () {
     test('forCertificate checks issuer hashes, not just the serial', () {
       final other = TestRevocationPki.generate(random: Random(8));

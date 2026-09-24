@@ -303,6 +303,7 @@
   "searchWholeWord": "كلمة كاملة",
   "shellControls": "عناصر التحكم",
   "shellDefaultAuthor": "المؤلف الافتراضي…",
+  "formXfaUnsupportedNotice": "يستخدم هذا النموذج تنسيق XFA الذي لا يمكن تعبئته هنا، لذا لا تظهر حقوله. افتحه في تطبيق يدعم نماذج XFA لتعبئته.",
   "shellHighlightFormFields": "تمييز حقول النموذج",
   "shellKeyboardShortcutsMenu": "اختصارات لوحة المفاتيح…",
   "shellKeyboardShortcutsTitle": "اختصارات لوحة المفاتيح",

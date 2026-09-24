@@ -931,6 +931,10 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Autore predefinito…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Questo modulo usa XFA, che non può essere compilato qui, quindi i suoi campi non vengono mostrati. Aprilo in un\'app che supporta i moduli XFA per compilarlo.';
+
+  @override
   String get shellHighlightFormFields => 'Evidenzia campi modulo';
 
   @override

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -1221,16 +1222,132 @@ void main() {
     final pixels = decodePdfImagePixelsScaled(cos, stream, 2, 1)!;
     expect(pixels.width, 2);
     expect(pixels.height, 1);
-    expect(pixels.rgba, [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-    ]);
+    // Each 2px cell holds one painting (0) and one clear (1) bit: half cover,
+    // premultiplied white.
+    expect(pixels.rgba, [127, 127, 127, 127, 127, 127, 127, 127]);
+  });
+
+  test('scaled ImageMask keeps 1px linework as coverage', () {
+    // A 16x16 stencil (paint = 0) with a 1px vertical line at x=5 and a 1px
+    // horizontal line at y=10 - scanned-drawing linework shown at 1/4 size.
+    // Point sampling picks one bit per 4x4 cell and loses both lines; area
+    // coverage keeps each as a continuous quarter-alpha stroke.
+    final bits = Uint8List(16 * 2)..fillRange(0, 32, 0xff);
+    for (var y = 0; y < 16; y++) {
+      bits[y * 2] &= ~(1 << (7 - 5)); // x = 5
+    }
+    bits[10 * 2] = bits[10 * 2 + 1] = 0; // y = 10
+    final stream = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(16),
+      'Height': const CosInteger(16),
+      'BitsPerComponent': const CosInteger(1),
+    }, bits);
+
+    final pixels = decodePdfImagePixelsRegionScaled(
+        cos, stream, 0, 0, 16, 16, 4, 4,
+        samplesAreDecoded: true)!;
+    int alpha(int x, int y) => pixels.rgba[(y * 4 + x) * 4 + 3];
+    // Column 1 (x 4..7) carries the vertical line in every row.
+    for (var y = 0; y < 4; y++) {
+      expect(alpha(1, y), y == 2 ? 7 * 255 ~/ 16 : 4 * 255 ~/ 16);
+    }
+    // Row 2 (y 8..11) carries the horizontal line across every column.
+    for (final x in [0, 2, 3]) {
+      expect(alpha(x, 2), 4 * 255 ~/ 16);
+    }
+    expect(alpha(0, 0), 0);
+    expect(alpha(3, 3), 0);
+    // Coverage is premultiplied white for the device's srcIn tint.
+    expect(pixels.rgba[(0 * 4 + 1) * 4], alpha(1, 0));
+
+    // /Decode [1 0] flips which bit paints: coverage is the complement.
+    final inverted = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(16),
+      'Height': const CosInteger(16),
+      'BitsPerComponent': const CosInteger(1),
+      'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+    }, bits);
+    final flipped = decodePdfImagePixelsRegionScaled(
+        cos, inverted, 0, 0, 16, 16, 4, 4,
+        samplesAreDecoded: true)!;
+    expect(flipped.rgba[3], 255);
+    expect(flipped.rgba[(2 * 4 + 1) * 4 + 3], 255 - 7 * 255 ~/ 16 - 1);
+  });
+
+  test('scaled ImageMask coverage matches a brute-force box filter', () {
+    // Random stencils, odd widths, mid-byte regions and both /Decode
+    // polarities against a per-bit reference of the same cell partition.
+    final random = Random(949);
+    for (var trial = 0; trial < 200; trial++) {
+      final width = 1 + random.nextInt(40);
+      final height = 1 + random.nextInt(12);
+      final rowBytes = (width + 7) >> 3;
+      final bits = Uint8List(rowBytes * height);
+      final density = random.nextInt(4);
+      for (var i = 0; i < bits.length; i++) {
+        bits[i] = switch (density) {
+          0 => 0xff,
+          1 => 0x00,
+          _ => random.nextInt(256),
+        };
+      }
+      final inverted = random.nextBool();
+      final sx = random.nextInt(width);
+      final sy = random.nextInt(height);
+      final sw = 1 + random.nextInt(width - sx);
+      final sh = 1 + random.nextInt(height - sy);
+      final tw = 1 + random.nextInt(sw);
+      final th = 1 + random.nextInt(sh);
+      final stream = image({
+        'ImageMask': const CosBoolean(true),
+        'Width': CosInteger(width),
+        'Height': CosInteger(height),
+        'BitsPerComponent': const CosInteger(1),
+        if (inverted)
+          'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+      }, bits);
+      final pixels = decodePdfImagePixelsRegionScaled(
+          cos, stream, sx, sy, sw, sh, tw, th,
+          samplesAreDecoded: true)!;
+      for (var ty = 0; ty < th; ty++) {
+        final y0 = sy + ty * sh ~/ th, y1 = sy + (ty + 1) * sh ~/ th;
+        for (var tx = 0; tx < tw; tx++) {
+          final x0 = sx + tx * sw ~/ tw, x1 = sx + (tx + 1) * sw ~/ tw;
+          var paint = 0;
+          for (var y = y0; y < y1; y++) {
+            for (var x = x0; x < x1; x++) {
+              final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              if (bit == (inverted ? 1 : 0)) paint++;
+            }
+          }
+          final expected = paint * 255 ~/ ((x1 - x0) * (y1 - y0));
+          expect(pixels.rgba[(ty * tw + tx) * 4 + 3], expected,
+              reason: 'trial $trial ${width}x$height '
+                  'region ($sx,$sy ${sw}x$sh) -> ${tw}x$th at ($tx,$ty)');
+        }
+      }
+    }
+  });
+
+  test('scaled ImageMask region counts only bits inside the region', () {
+    // Paint only at x=0, x=8 and x=9. The region x 1..8 starts mid-byte, so
+    // it must not count x=0 or x=9; x=8 lands in the second of two 4px cells.
+    final bits = Uint8List(2)
+      ..[0] = 0x7f
+      ..[1] = 0x3f;
+    final stream = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(16),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, bits);
+    final pixels = decodePdfImagePixelsRegionScaled(
+        cos, stream, 1, 0, 8, 1, 2, 1,
+        samplesAreDecoded: true)!;
+    expect(pixels.rgba[3], 0);
+    expect(pixels.rgba[7], 255 ~/ 4);
   });
 
   test('scaled Indexed Flate with stencil mask avoids full RGBA expansion', () {

@@ -303,6 +303,7 @@
   "searchWholeWord": "Tam sözcük",
   "shellControls": "Denetimler",
   "shellDefaultAuthor": "Varsayılan yazar…",
+  "formXfaUnsupportedNotice": "Bu form XFA kullanıyor ve burada doldurulamıyor, bu yüzden alanları görünmüyor. Doldurmak için XFA formlarını destekleyen bir uygulamada açın.",
   "shellHighlightFormFields": "Form alanlarını vurgula",
   "shellKeyboardShortcutsMenu": "Klavye kısayolları…",
   "shellKeyboardShortcutsTitle": "Klavye kısayolları",

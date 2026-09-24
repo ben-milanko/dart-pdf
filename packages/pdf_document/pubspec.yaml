@@ -16,9 +16,9 @@ environment:
   sdk: ^3.5.0
 
 dependencies:
-  archive: ^4.2.0
+  archive: ^4.3.0
   crypto: ^3.0.0
-  image: ^4.9.2
+  image: ^4.10.1
   pdf_cos: ^4.5.0
 
 dev_dependencies:

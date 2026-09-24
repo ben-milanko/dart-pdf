@@ -303,6 +303,7 @@
   "searchWholeWord": "全字相符",
   "shellControls": "控制項",
   "shellDefaultAuthor": "預設作者…",
+  "formXfaUnsupportedNotice": "此表單使用 XFA，無法在此處填寫，因此不會顯示其欄位。請在支援 XFA 表單的應用程式中開啟以填寫。",
   "shellHighlightFormFields": "標示表單欄位",
   "shellKeyboardShortcutsMenu": "鍵盤快速鍵…",
   "shellKeyboardShortcutsTitle": "鍵盤快速鍵",

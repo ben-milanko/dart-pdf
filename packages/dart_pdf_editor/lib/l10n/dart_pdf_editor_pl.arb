@@ -303,6 +303,7 @@
   "searchWholeWord": "Całe słowo",
   "shellControls": "Sterowanie",
   "shellDefaultAuthor": "Domyślny autor…",
+  "formXfaUnsupportedNotice": "Ten formularz używa XFA, którego nie można tu wypełnić, więc jego pola nie są wyświetlane. Aby go wypełnić, otwórz go w aplikacji obsługującej formularze XFA.",
   "shellHighlightFormFields": "Podświetl pola formularza",
   "shellKeyboardShortcutsMenu": "Skróty klawiszowe…",
   "shellKeyboardShortcutsTitle": "Skróty klawiszowe",

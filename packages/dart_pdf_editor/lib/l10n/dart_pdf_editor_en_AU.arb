@@ -275,6 +275,7 @@
   "searchWholeWord": "Whole word",
   "shellControls": "Controls",
   "shellDefaultAuthor": "Default author…",
+  "formXfaUnsupportedNotice": "This form uses XFA, which can't be filled here, so its fields don't appear. Open it in an app that supports XFA forms to fill it in.",
   "shellHighlightFormFields": "Highlight form fields",
   "shellKeyboardShortcutsMenu": "Keyboard shortcuts…",
   "shellKeyboardShortcutsTitle": "Keyboard shortcuts",

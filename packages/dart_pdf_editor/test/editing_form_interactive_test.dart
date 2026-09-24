@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_form_layer.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,9 +41,10 @@ void main() {
     PdfEditTool? tool,
     double? zoom,
     PdfAnnotationTapHandler? onAnnotationTap,
+    Uint8List? bytes,
   }) async {
     SharedPreferences.setMockInitialValues({});
-    final session = PdfEditingController(buildAcroFormPdf());
+    final session = PdfEditingController(bytes ?? buildAcroFormPdf());
     final viewer = PdfViewerController();
     addTearDown(session.dispose);
     addTearDown(viewer.dispose);
@@ -90,6 +93,55 @@ void main() {
       expect(session.isEditingText, isFalse);
       expect(session.acroForm!.fieldNamed('name')!.value, 'Jane');
       await settle(tester);
+    });
+
+    /// The fixture with its `name` field re-flagged (and refilled so the
+    /// flags are written into the saved revision).
+    Uint8List flaggedNameField(
+        {int ff = 0, int? maxLen, String value = 'prefilled'}) {
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      final field = editor.acroForm!.fieldNamed('name')!;
+      field.dict['Ff'] = CosInteger(ff);
+      if (maxLen != null) field.dict['MaxLen'] = CosInteger(maxLen);
+      editor.setTextValue(field, value);
+      return editor.save();
+    }
+
+    testWidgets('/MaxLen caps the inline editor (#931)', (tester) async {
+      final session = await pumpViewer(tester,
+          bytes: flaggedNameField(maxLen: 5, value: 'AB'));
+      await tap(tester, view(186, 712));
+      final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
+      expect(tester.widget<TextField>(editor).maxLength, 5);
+      expect(tester.widget<TextField>(editor).obscureText, isFalse);
+      await tester.enterText(editor, 'ABCDEFGH');
+      expect(tester.widget<TextField>(editor).controller!.text, 'ABCDE');
+      // silent cap: no "5/5" counter under the field
+      expect(find.text('5/5'), findsNothing);
+      await tap(tester, view(450, 620));
+      expect(session.acroForm!.fieldNamed('name')!.value, 'ABCDE');
+      await settle(tester);
+    });
+
+    testWidgets('a password field edits and settles masked (#931)',
+        (tester) async {
+      final session = await pumpViewer(tester,
+          bytes: flaggedNameField(
+              ff: PdfFormField.passwordFlag, value: 'old-secret'));
+      await tap(tester, view(186, 712));
+      final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
+      final field = tester.widget<TextField>(editor);
+      expect(field.obscureText, isTrue);
+      expect(field.maxLines, 1);
+
+      await tester.enterText(editor, 'hunter2');
+      await tap(tester, view(450, 620)); // commit
+      expect(session.acroForm!.fieldNamed('name')!.value, 'hunter2');
+      // the afterimage painted until the raster lands never shows the value
+      expect(find.text('hunter2'), findsNothing);
+      expect(find.textContaining('hunter2'), findsNothing);
+      await settle(tester);
+      expect(find.textContaining('hunter2'), findsNothing);
     });
 
     testWidgets('text field fills in the reader (formController, no editing)',

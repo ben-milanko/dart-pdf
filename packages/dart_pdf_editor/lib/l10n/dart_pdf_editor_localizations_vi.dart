@@ -930,6 +930,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Tác giả mặc định…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Biểu mẫu này dùng XFA, không thể điền tại đây nên các trường của nó không hiển thị. Hãy mở trong ứng dụng hỗ trợ biểu mẫu XFA để điền.';
+
+  @override
   String get shellHighlightFormFields => 'Làm nổi bật các trường biểu mẫu';
 
   @override

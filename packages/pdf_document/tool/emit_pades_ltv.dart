@@ -1,6 +1,9 @@
 // Dev tool: emits a PAdES B-LTA file (leaf signer, CA-issued TSA, full /DSS)
 // to the path in argv[0], for cross-validation with pyHanko / Adobe.
 //   dart run tool/emit_pades_ltv.dart /tmp/pades_blta.pdf
+// Pass --encrypted=N to sign a password-protected source instead: N is the
+// security handler revision (2 RC4-40, 3 RC4-128, 4 AES-128, 6 AES-256; a
+// bare --encrypted means 6). User password "user", owner password "owner".
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,7 +12,14 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 Future<void> main(List<String> args) async {
-  final out = args.isNotEmpty ? args[0] : '/tmp/pades_blta.pdf';
+  final encryptArg = args.where((a) => a.startsWith('--encrypted')).firstOrNull;
+  final encrypted = encryptArg != null;
+  final revision = int.tryParse(encryptArg?.split('=').last ?? '') ?? 6;
+  final paths = [
+    for (final a in args)
+      if (!a.startsWith('--')) a
+  ];
+  final out = paths.isNotEmpty ? paths[0] : '/tmp/pades_blta.pdf';
   final leafKey = RsaPrivateKey.fromDer(pkixLeafKey);
 
   // an in-process TSA signing with the CA-issued TSA cert+key
@@ -20,7 +30,12 @@ Future<void> main(List<String> args) async {
         genTime: DateTime.utc(2026, 6, 15, 10, 0, 0),
       );
 
-  final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)));
+  final editor = PdfEditor(encrypted
+      ? PdfDocument.open(
+          buildEncryptedPdf(
+              revision: revision, userPassword: 'user', ownerPassword: 'owner'),
+          password: 'user')
+      : PdfDocument.open(buildMultiPagePdf(2)));
   final bytes = await editor.saveSignedPades(
     privateKey: leafKey,
     certificates: [pkixLeafCert, pkixCaCert],

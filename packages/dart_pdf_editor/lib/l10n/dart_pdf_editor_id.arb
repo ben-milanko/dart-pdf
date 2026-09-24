@@ -303,6 +303,7 @@
   "searchWholeWord": "Seluruh kata",
   "shellControls": "Kontrol",
   "shellDefaultAuthor": "Penulis bawaan…",
+  "formXfaUnsupportedNotice": "Formulir ini menggunakan XFA, yang tidak dapat diisi di sini, sehingga bidangnya tidak muncul. Buka di aplikasi yang mendukung formulir XFA untuk mengisinya.",
   "shellHighlightFormFields": "Sorot bidang formulir",
   "shellKeyboardShortcutsMenu": "Pintasan papan ketik…",
   "shellKeyboardShortcutsTitle": "Pintasan papan ketik",

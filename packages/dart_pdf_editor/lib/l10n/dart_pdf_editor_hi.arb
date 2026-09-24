@@ -303,6 +303,7 @@
   "searchWholeWord": "पूरा शब्द",
   "shellControls": "नियंत्रण",
   "shellDefaultAuthor": "डिफ़ॉल्ट लेखक…",
+  "formXfaUnsupportedNotice": "यह फ़ॉर्म XFA का उपयोग करता है, जिसे यहाँ नहीं भरा जा सकता, इसलिए इसके फ़ील्ड नहीं दिखते। इसे भरने के लिए XFA फ़ॉर्म का समर्थन करने वाले ऐप में खोलें।",
   "shellHighlightFormFields": "फ़ॉर्म फ़ील्ड हाइलाइट करें",
   "shellKeyboardShortcutsMenu": "कीबोर्ड शॉर्टकट…",
   "shellKeyboardShortcutsTitle": "कीबोर्ड शॉर्टकट",

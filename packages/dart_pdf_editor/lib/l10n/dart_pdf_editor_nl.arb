@@ -303,6 +303,7 @@
   "searchWholeWord": "Heel woord",
   "shellControls": "Bediening",
   "shellDefaultAuthor": "Standaardauteur…",
+  "formXfaUnsupportedNotice": "Dit formulier gebruikt XFA, dat hier niet kan worden ingevuld, dus de velden worden niet getoond. Open het in een app die XFA-formulieren ondersteunt om het in te vullen.",
   "shellHighlightFormFields": "Formuliervelden markeren",
   "shellKeyboardShortcutsMenu": "Sneltoetsen…",
   "shellKeyboardShortcutsTitle": "Sneltoetsen",

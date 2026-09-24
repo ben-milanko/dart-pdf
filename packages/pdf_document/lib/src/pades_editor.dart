@@ -168,7 +168,9 @@ extension PdfPadesSigning on PdfEditor {
     // CMS signingTime attribute is always UTC.
     final time = signingTime ?? DateTime.now();
     final signerCert = X509Certificate.parse(certificates.first);
-    final signerChain = [for (final c in certificates) X509Certificate.parse(c)];
+    final signerChain = [
+      for (final c in certificates) X509Certificate.parse(c)
+    ];
 
     // --- B-B / B-T: the CAdES-baseline signature in the /Contents ---
     final revision = _emitSignatureRevision(
@@ -190,8 +192,7 @@ extension PdfPadesSigning on PdfEditor {
       signingTime: time.toUtc(),
       essCertificate: signerCert,
     );
-    final signature =
-        signAttributes(crypto.sha256.convert(signedAttrs).bytes);
+    final signature = signAttributes(crypto.sha256.convert(signedAttrs).bytes);
 
     final unsigned = <Uint8List>[];
     var tsaChain = const <X509Certificate>[];
@@ -235,20 +236,19 @@ extension PdfPadesSigning on PdfEditor {
   /// the whole current file as a fresh incremental update - the archive
   /// timestamp that B-LTA renews. Standalone too: call it on an already
   /// signed file to extend (or initiate) long-term assurance.
-  Future<Uint8List> addDocumentTimestamp(
-          PdfTimestampClient timestampClient) =>
+  Future<Uint8List> addDocumentTimestamp(PdfTimestampClient timestampClient) =>
       _addDocumentTimestamp(document.cos.bytes, timestampClient);
 
   Future<Uint8List> _addDocumentTimestamp(
       Uint8List bytes, PdfTimestampClient timestampClient) async {
-    final editor = PdfEditor(PdfDocument.open(bytes));
+    final editor = PdfEditor(document.openAppended(bytes));
     final revision = editor._emitSignatureRevision(
       subFilter: 'ETSI.RFC3161',
       capacity: PdfSigning._timestampTokenReserve,
       docTimeStamp: true,
     );
-    final request = buildTimeStampRequest(
-        messageImprint: revision.digestSha256());
+    final request =
+        buildTimeStampRequest(messageImprint: revision.digestSha256());
     final token = await timestampClient(request);
     PdfSigning._writeContents(revision, token);
     return revision.saved;
@@ -259,7 +259,7 @@ extension PdfPadesSigning on PdfEditor {
   /// update on top of [bytes]. This is what makes a signature LTV-enabled.
   Uint8List _addValidationData(
       Uint8List bytes, Uint8List cms, PdfRevocationMaterial material) {
-    final editor = PdfEditor(PdfDocument.open(bytes));
+    final editor = PdfEditor(document.openAppended(bytes));
     final vriKey = _vriKey(cms);
     editor._writeDss(material, vriKey);
     return editor._updater.save();
