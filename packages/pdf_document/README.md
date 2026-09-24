@@ -37,7 +37,11 @@ in CLIs and servers, and on the web.
   flatten). XFA is detected (`PdfAcroForm.hasXfa` / `isDynamicXfa`) but
   not rendered or filled: hybrid XFA forms fill through their AcroForm
   fields, and filling or flattening removes the stale `/XFA` entry
-  (`PdfEditor.removeXfa`).
+  (`PdfEditor.removeXfa`). Form scripts without a JS engine: the built-in
+  `AF*` helpers (`AFSimple_Calculate` and simplified field notation in /CO
+  order, `AFNumber`/`AFPercent`/`AFDate`/`AFTime`/`AFSpecial` format and
+  keystroke, `AFRange_Validate`) are recognised and run in Dart;
+  `field.scripts` reports anything skipped.
 - Signatures: read and validate (`PdfSignature.validate`, optional
   trust-store chain validation) and sign (`PdfEditor.saveSigned`,
   `adbe.pkcs7.detached`).

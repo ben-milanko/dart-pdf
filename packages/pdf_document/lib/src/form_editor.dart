@@ -85,6 +85,7 @@ extension PdfFormFilling on PdfEditor {
     field.dict.entries.remove(passwordWithheldKey);
     _regenerateVariableText(field, value, textDirection: textDirection);
     _finishFieldEdit(field);
+    _recalculateAfter(field);
   }
 
   /// The private field entry marking a password field whose value was
@@ -320,6 +321,7 @@ extension PdfFormFilling on PdfEditor {
     }
     _regenerateChoice(field);
     _finishFieldEdit(field);
+    _recalculateAfter(field);
   }
 
   // ---------------------------------------------------------------------
@@ -483,6 +485,7 @@ extension PdfFormFilling on PdfEditor {
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);
     }
     _finishFieldEdit(field);
+    _recalculateAfter(field);
   }
 
   List<String> _widgetStates(CosDictionary widget) {
@@ -835,15 +838,29 @@ extension PdfFormFilling on PdfEditor {
     final isText = field.type == PdfFieldType.text;
     final maxLength = isText ? field.maxLength : null;
     final comb = isText && field.isComb;
+    // Order: /MaxLen truncates the raw value; then a password field shows
+    // only its mask (never formatted - a format such as AFSpecial_Format
+    // would re-derive the digits); otherwise a recognised format script
+    // (AFNumber_Format, AFDate_FormatEx, ...) changes what is shown while
+    // /V keeps the raw value.
+    var shown = PdfFieldDisplay(rawText);
     if (isText) {
       rawText = truncateToMaxLength(rawText, maxLength);
       // the value never reaches the page: extraction, search and screen
       // readers read the appearance, so it carries only the mask
       if (field.isPassword) {
-        rawText = rawText.isEmpty &&
+        shown = PdfFieldDisplay(rawText.isEmpty &&
                 field.dict[passwordWithheldKey] == const CosBoolean(true)
             ? '*' * withheldPasswordMaskLength
-            : maskedPasswordText(rawText);
+            : maskedPasswordText(rawText));
+      } else {
+        shown = field.displayFor(rawText);
+        // a comb shows one character per cell: a formatted text with more
+        // characters than cells (SSN dashes in a 9-cell comb) would lose
+        // its tail, so the raw value - which /MaxLen made fit - is shown
+        if (comb && shown.text.runes.length > maxLength!) {
+          shown = PdfFieldDisplay(rawText, textColor: shown.textColor);
+        }
       }
     }
     final da = _parseDefaultAppearance(field.defaultAppearance);
@@ -860,7 +877,7 @@ extension PdfFormFilling on PdfEditor {
     final embedded = fontDict == null
         ? null
         : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
-    final text = embedded != null ? rawText : sanitizeFieldText(rawText);
+    final text = embedded != null ? shown.text : sanitizeFieldText(shown.text);
 
     final widgets = field.widgets;
     for (var widgetIndex = 0; widgetIndex < widgets.length; widgetIndex++) {
@@ -934,7 +951,7 @@ extension PdfFormFilling on PdfEditor {
 
       final resolvedDirection = field.quadding == 2
           ? PdfTextDirection.rtl
-          : textDirection.resolve(rawText);
+          : textDirection.resolve(shown.text);
       final align = switch (field.quadding) {
         1 => PdfTextAlign.center,
         2 => PdfTextAlign.right,
@@ -952,6 +969,10 @@ extension PdfFormFilling on PdfEditor {
         ..rect(visual.left + 1, visual.bottom + 1, visual.width - 2,
             visual.height - 2)
         ..clip();
+      void writeColor(ContentWriter w) => shown.textColor == null
+          ? w.raw(da.colorOps)
+          : w.fillColor(shown.textColor!);
+
       void emitRun(ContentWriter w, String rendered) {
         if (embedded != null) {
           w.showGlyphHex(embedded.encodeHex(rendered));
@@ -972,7 +993,7 @@ extension PdfFormFilling on PdfEditor {
           padding: pad,
           verticalAlignment: verticalAlignment,
           measure: (s) => measure(s, size),
-          writeColor: (w) => w.raw(da.colorOps),
+          writeColor: writeColor,
           emit: emitRun,
         );
       } else {
@@ -997,7 +1018,7 @@ extension PdfFormFilling on PdfEditor {
           clip: false,
           clampAlign: true,
           measureLine: (s) => measure(s, size),
-          writeColor: (w) => w.raw(da.colorOps),
+          writeColor: writeColor,
           emitLine: (w, line) =>
               emitRun(w, pdfVisualText(line, resolvedDirection)),
         );

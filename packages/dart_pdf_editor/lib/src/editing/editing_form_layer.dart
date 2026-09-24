@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../annotation_tap.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
+import '../toast.dart';
 import 'editing_controller.dart';
 import 'editing_text_menu.dart';
 import 'form_tab_navigation.dart';
@@ -169,6 +170,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   PdfStandardFont _editFont = PdfStandardFont.helvetica;
   double _editSize = 12;
   bool _editMultiline = false;
+  // The edited field's /AA scripts: the keystroke helper filters typing,
+  // and a refused commit shows [_editError] under the field.
+  PdfFieldScripts _editScripts = PdfFieldScripts.none;
+  String? _editError;
   // /MaxLen caps what the editor accepts; a password field edits masked
   // and single-line, and its afterimage stays masked (#931)
   int? _editMaxLength;
@@ -234,7 +239,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   }
 
   void _onTextChanged() {
-    if (_editingField != null && mounted) setState(() {});
+    if (_editingField != null && mounted) {
+      setState(() => _editError = null);
+    }
   }
 
   PdfEditingController get _controller => widget.controller;
@@ -267,6 +274,8 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       _editingWidget = widgetIndex;
       _editRect = viewRect;
       _editPageRect = widget.geometry.toPageRect(viewRect);
+      _editScripts = field.scripts;
+      _editError = null;
       _editPassword = field.isPassword;
       _editMultiline = field.isMultiline && !_editPassword;
       _editMaxLength = field.maxLength;
@@ -290,9 +299,28 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     });
   }
 
+  /// Enter in a single-line field: a value the field's keystroke/validate
+  /// script refuses keeps the editor open with the reason shown under it;
+  /// anything else unfocuses, which commits (the stock Enter behaviour).
+  void _onEditingComplete() {
+    final name = _editingField;
+    if (name == null) return;
+    final check = _controller.checkFormFieldText(name, _text.text);
+    if (!check.isValid) {
+      setState(() => _editError = check.message);
+      return;
+    }
+    _text.clearComposing();
+    _focus.unfocus();
+  }
+
   /// Commits the inline editor into the field's /V. Empty is a legitimate
   /// value (clearing the field). Keeps the entered text painted over the
   /// field until the new raster lands so it doesn't flash.
+  ///
+  /// A value the field's scripts refuse (AFNumber_Keystroke,
+  /// AFRange_Validate, ...) is dropped - the field keeps its old value, as
+  /// in other viewers - and the reason is shown as a toast.
   void _commitText() {
     final name = _editingField;
     final rect = _editRect;
@@ -300,14 +328,24 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final value = _text.text;
     final font = _editFont;
     final size = _editSize;
+    final check = _controller.checkFormFieldText(name, value);
     final multiline = _editMultiline;
     final password = _editPassword;
     _closeEditor();
+    if (!check.isValid) {
+      _showInputError(check.message!);
+      return;
+    }
     final before = _controller.revisionId;
     _controller.setFormFieldText(name, value);
     if (before == _controller.revisionId) return;
     setState(() {
-      _afterValue = value;
+      // the appearance shows the format script's text (AFNumber_Format ...);
+      // a password's afterimage is masked from the raw entry below, never
+      // formatted (a format could re-derive what the mask hides)
+      _afterValue = password
+          ? value
+          : _controller.acroForm?.fieldNamed(name)?.formattedValue ?? value;
       _afterRect = rect;
       _afterFont = font;
       _afterSize = size;
@@ -316,6 +354,16 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       _afterFieldName = name;
       _afterRevisionId = _controller.revisionId;
     });
+  }
+
+  void _showInputError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      key: const ValueKey('pdf-form-input-error'),
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+      margin: pdfFloatingToastMargin(context),
+    ));
   }
 
   /// Escape: discard the edit and close (the typed value is dropped).
@@ -328,11 +376,13 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         _editingField = null;
         _editRect = null;
         _editPageRect = null;
+        _editError = null;
       });
     } else {
       _editingField = null;
       _editRect = null;
       _editPageRect = null;
+      _editError = null;
     }
     _controller.setEditingText(false);
   }
@@ -431,7 +481,20 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   /// Tab (or Shift+Tab when [backward]) from the field this layer has
   /// active: commit it, then post a move to the next stop in the
   /// document's tab order and scroll it into view.
+  ///
+  /// A text value the field's keystroke/validate script refuses stops the
+  /// move, exactly like Enter: the editor stays open on the field with the
+  /// reason shown under it.
   void _moveFocus({required bool backward}) {
+    final editing = _editingField;
+    if (editing != null) {
+      final check = _controller.checkFormFieldText(editing, _text.text);
+      if (!check.isValid) {
+        setState(() => _editError = check.message);
+        _focus.requestFocus();
+        return;
+      }
+    }
     final String? name;
     final int widgetIndex;
     if (_editingField != null) {
@@ -674,6 +737,8 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             _afterSize),
       if (focusRect != null) _focusRing(focusRect),
       if (_editingField != null && _editRect != null) _inlineEditor(),
+      if (_editingField != null && _editRect != null && _editError != null)
+        _inputError(_editRect!, _editError!),
     ]);
   }
 
@@ -777,7 +842,19 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
               // single-line fields commit on Enter, not a newline
               maxLines: _editMultiline ? null : 1,
               expands: _editMultiline,
-              onSubmitted: (_) => _commitText(),
+              // after a refusal in [_onEditingComplete] the editor stays open
+              onSubmitted: (_) {
+                if (_editError == null) _commitText();
+              },
+              onEditingComplete: _editMultiline ? null : _onEditingComplete,
+              // a recognised keystroke script (AFNumber_Keystroke,
+              // AFSpecial_Keystroke, ...) refuses characters as they are
+              // typed, like other viewers
+              inputFormatters: [
+                if (_editScripts.keystroke?.isSupported ?? false)
+                  TextInputFormatter.withFunction((before, after) =>
+                      _editScripts.acceptsPartial(after.text) ? after : before),
+              ],
               // tapping off the field commits it - the viewer suppresses its
               // own focus steal while editing, so the field keeps focus
               // until this fires
@@ -824,6 +901,34 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
                   2 * scale,
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Why the field's scripts refused the entered value, under the editor.
+  Widget _inputError(Rect rect, String message) {
+    final chromeScale = _chromeScale;
+    return Positioned(
+      left: rect.left,
+      top: rect.bottom + 2 * chromeScale,
+      child: IgnorePointer(
+        child: Transform.scale(
+          scale: chromeScale,
+          alignment: Alignment.topLeft,
+          child: Container(
+            key: const ValueKey('pdf-form-input-error-label'),
+            constraints: const BoxConstraints(maxWidth: 320),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFB3261E),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              message,
+              style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12),
             ),
           ),
         ),

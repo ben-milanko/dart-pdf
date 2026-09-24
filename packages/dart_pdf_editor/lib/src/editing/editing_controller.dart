@@ -8948,24 +8948,43 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  /// Sets the text field [name]'s value, regenerating its appearance.
-  /// Returns false for missing/read-only fields and unchanged values.
+  /// Sets the text field [name]'s value as user entry, regenerating its
+  /// appearance and re-running the form's calculations
+  /// ([PdfFormScriptFilling.enterTextValue]): a recognised keystroke or
+  /// validate script may normalise the value or refuse it. Returns false
+  /// for missing/read-only fields, unchanged values, and refused values -
+  /// call [checkFormFieldText] first to learn why a value is refused.
   ///
-  /// With a [formSecretStore], a password field's value goes to the store
-  /// and never into the file - see [formSecretStore].
+  /// With a [formSecretStore], a password field's (checked) value goes to
+  /// the store and never into the file - see [formSecretStore].
   bool setFormFieldText(String name, String value) {
     final field = acroForm?.fieldNamed(name);
-    if (field != null && field.isPassword && formSecretStore != null) {
-      return _setWithheldPassword(field, value);
+    if (field != null) {
+      // keystroke/validate apply to password fields too, before the value
+      // is routed anywhere
+      final check = field.checkInput(value);
+      if (!check.isValid) return false;
+      if (field.isPassword && formSecretStore != null) {
+        return _setWithheldPassword(field, check.value);
+      }
+      if ((field.value ?? '') == check.value) return false;
     }
-    if (field != null && (field.value ?? '') == value) return false;
     return _fillField(
         name,
         const {
           PdfFieldType.text,
         },
-        (e, f) => e.setTextValue(f, value));
+        (e, f) => e.enterTextValue(f, value));
   }
+
+  /// Checks [value] against the text field [name]'s keystroke and validate
+  /// scripts (AFNumber_Keystroke, AFDate_KeystrokeEx, AFRange_Validate, ...)
+  /// without editing: the value [setFormFieldText] would store, or the
+  /// message to show when it would refuse it. Valid for fields without
+  /// recognised scripts and for unknown names.
+  PdfFieldInputResult checkFormFieldText(String name, String value) =>
+      acroForm?.fieldNamed(name)?.checkInput(value) ??
+      PdfFieldInputResult.valid(value);
 
   /// Toggles the check box [name].
   bool toggleFormCheckBox(String name) => _fillField(
