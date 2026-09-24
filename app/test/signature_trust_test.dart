@@ -87,8 +87,8 @@ void main() {
     expect(loads, 1);
     await ready;
     await Future<void>.delayed(Duration.zero);
-    expect(withSignature.trustStore, same(anchors));
-    expect(unsigned.trustStore, same(anchors));
+    expect(withSignature.trustStore?.anchors, anchors.anchors);
+    expect(unsigned.trustStore?.anchors, anchors.anchors);
     trust.detach(unsigned);
     trust.detach(withSignature);
   });

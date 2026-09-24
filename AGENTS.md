@@ -124,8 +124,9 @@ revocationClient:)` adds live OCSP-then-CRL checks of the signer and each
 intermediate (`revocation.dart`; a revoked certificate untrusts the chain
 unless a verified timestamp predates the revocation). Encrypted signed files
 validate the same way. Roots stay opt-in: `package:pdf_document/
-trust_lists.dart` fetches and XMLDSig-verifies the EU trusted lists and loads
-a host-supplied AATL file - no root data is committed. Test signer identity in
+trust_lists.dart` fetches and XMLDSig-verifies the EU trusted lists and
+fetches (one-click opt-in in the app) or loads Adobe's AATL - no root data is
+committed or redistributed. Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`; revocation PKI in
 `test_revocation.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via

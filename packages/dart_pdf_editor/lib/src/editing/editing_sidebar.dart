@@ -531,10 +531,16 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             ? (validation.trustChain.last.subjectCommonName ??
                 validation.trustChain.last.issuerCommonName)
             : validation.signerCertificate?.issuerCommonName;
+        // Which trust list vouched for the anchor, when the store knows.
+        final list = validation.trustChain.isNotEmpty
+            ? widget.controller.trustStore?.sourceOf(validation.trustChain.last)
+            : null;
         details.add((
-          authority != null && authority.isNotEmpty
-              ? l10n.sidebarSignatureTrustedVia(authority)
-              : l10n.sidebarSignatureTrusted,
+          authority == null || authority.isEmpty
+              ? l10n.sidebarSignatureTrusted
+              : list != null
+                  ? l10n.sidebarSignatureTrustedViaList(authority, list)
+                  : l10n.sidebarSignatureTrustedVia(authority),
           Colors.green,
         ));
       } else if (revoked) {
@@ -600,7 +606,47 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 ?.copyWith(color: color ?? cs.onSurfaceVariant),
           ),
         ),
+      ..._trustActionFor(context, validation),
       const SizedBox(height: 6),
+    ];
+  }
+
+  /// The host's [PdfEditingController.signatureTrustAction] under an intact
+  /// signature whose signer is unknown: not trusted, not self-signed (no
+  /// list can vouch for that), and not revoked.
+  List<Widget> _trustActionFor(
+      BuildContext context, PdfSignatureValidation validation) {
+    final action = widget.controller.signatureTrustAction;
+    if (action == null ||
+        !validation.intact ||
+        validation.chainTrusted == true ||
+        validation.isSelfSigned ||
+        validation.revokedBeforeSigning) {
+      return const [];
+    }
+    final explanation = action.explanation?.call(context);
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(48, 2, 12, 0),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('pdf-signature-trust-action'),
+            icon: const Icon(Icons.verified_user_outlined, size: 18),
+            label: Text(action.label(context)),
+            onPressed: () => action.onPressed(),
+          ),
+        ),
+      ),
+      if (explanation != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 0, 12, 2),
+          child: Text(
+            explanation,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ),
     ];
   }
 

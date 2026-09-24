@@ -1138,6 +1138,11 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -3352,6 +3357,11 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   }
 
   @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
+  }
+
+  @override
   String get sidebarSignatureUntrustedDetail =>
       'Signer is not from a trusted authority';
 
@@ -5563,6 +5573,11 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String sidebarSignatureTrustedVia(String authority) {
     return 'Trusted via $authority';
+  }
+
+  @override
+  String sidebarSignatureTrustedViaList(String authority, String list) {
+    return 'Trusted via $authority ($list)';
   }
 
   @override

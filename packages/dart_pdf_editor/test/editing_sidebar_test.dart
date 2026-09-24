@@ -219,6 +219,91 @@ void main() {
       expect(
           find.text('Revocation status could not be checked'), findsOneWidget);
     });
+
+    group('host trust action', () {
+      PdfSignatureTrustAction action(void Function() onPressed) =>
+          PdfSignatureTrustAction(
+            label: (_) => 'Trust the test list',
+            explanation: (_) => 'Downloads the test list.',
+            onPressed: () async => onPressed(),
+          );
+
+      PdfTrustStore unrelated() => PdfTrustStore.trusting([
+            PdfSigningIdentity.generate(name: 'Someone else').certificate,
+          ]);
+
+      testWidgets('is offered for an unknown signer and re-validates',
+          (tester) async {
+        final editing = PdfEditingController(signed, trustStore: unrelated());
+        var pressed = 0;
+        editing.signatureTrustAction = action(() {
+          pressed++;
+          // what a host does once the list is in: new anchors, labelled
+          editing.trustStore = PdfTrustStore()
+            ..addDer(pki.root, source: 'Test List');
+          editing.signatureTrustAction = null;
+        });
+        await show(tester, editing);
+        expect(find.text('Valid — unverified'), findsOneWidget);
+        expect(find.text('Trust the test list'), findsOneWidget);
+        expect(find.text('Downloads the test list.'), findsOneWidget);
+
+        await tester
+            .tap(find.byKey(const ValueKey('pdf-signature-trust-action')));
+        await tester.pumpAndSettle();
+        expect(pressed, 1);
+        expect(find.text('Valid — trusted'), findsOneWidget);
+        expect(find.text('Trusted via Revocation Test Root (Test List)'),
+            findsOneWidget);
+        expect(find.text('Trust the test list'), findsNothing);
+      });
+
+      testWidgets('is not offered without a host action', (tester) async {
+        await show(
+            tester, PdfEditingController(signed, trustStore: unrelated()));
+        expect(find.byKey(const ValueKey('pdf-signature-trust-action')),
+            findsNothing);
+      });
+
+      testWidgets('is not offered for a trusted signer', (tester) async {
+        final editing = PdfEditingController(signed,
+            trustStore: PdfTrustStore.trusting([pki.root]))
+          ..signatureTrustAction = action(() {});
+        await show(tester, editing);
+        expect(find.text('Valid — trusted'), findsOneWidget);
+        expect(find.byKey(const ValueKey('pdf-signature-trust-action')),
+            findsNothing);
+      });
+
+      testWidgets('is not offered for a self-signed signer', (tester) async {
+        final editing = PdfEditingController(buildMultiPagePdf(1))
+          ..signatureTrustAction = action(() {});
+        final viewer = PdfViewerController();
+        addTearDown(editing.dispose);
+        addTearDown(viewer.dispose);
+        await editing.addSelfSignedSignature(
+          PdfSigningIdentity.generate(name: 'Ada Lovelace'),
+          appearance: const PdfSignatureAppearance(
+              page: 0, rect: PdfRect(72, 640, 320, 720)),
+        );
+        await pumpSidebar(tester, editing, viewer);
+        await tester.pumpAndSettle();
+        expect(find.textContaining('Self-signed'), findsOneWidget);
+        expect(find.byKey(const ValueKey('pdf-signature-trust-action')),
+            findsNothing);
+      });
+
+      testWidgets('is not offered for a revoked signer', (tester) async {
+        final editing = PdfEditingController(signed,
+            trustStore: unrelated(),
+            revocationClient: answering(OcspCertStatus.revoked))
+          ..signatureTrustAction = action(() {});
+        await show(tester, editing);
+        expect(find.text('Revoked'), findsOneWidget);
+        expect(find.byKey(const ValueKey('pdf-signature-trust-action')),
+            findsNothing);
+      });
+    });
   });
 
   testWidgets('a signature reads as trusted when its CA is in the trust store',

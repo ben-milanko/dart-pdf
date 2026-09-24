@@ -1495,6 +1495,18 @@
       }
     }
   },
+  "sidebarSignatureTrustedViaList": "Trusted via {authority} ({list})",
+  "@sidebarSignatureTrustedViaList": {
+    "description": "Detail line naming the trusted authority the signer chains to and the trust list (e.g. EU Trusted List) that authority came from.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      },
+      "list": {
+        "type": "String"
+      }
+    }
+  },
   "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
   "@sidebarSignatureUntrustedDetail": {
     "description": "Detail line when the signer does not chain to any configured trust anchor."

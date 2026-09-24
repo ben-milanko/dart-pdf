@@ -28,11 +28,42 @@ abstract final class PdfAatl {
   /// must chain to.
   static const adobeRootFingerprint =
       '458e0e219698b18d2d4093d6336a12547953a54c05dd967c3a5a268b772d1b22';
+
+  /// The [PdfTrustStore.sourceOf] name of anchors from this list.
+  static const sourceName = 'Adobe Approved Trust List';
+
+  /// How old (from Adobe's signing time) a downloaded file may be before
+  /// [fetchAatl] refuses it. The file carries no expiry of its own; Adobe
+  /// re-signs and republishes it whenever membership changes, several times
+  /// a year. A year bounds how long a root Adobe has since dropped could
+  /// stay trusted, while never tripping over a normal publishing gap.
+  static const maxAge = Duration(days: 365);
+}
+
+/// Downloads the AATL from [PdfAatl.url] through the host's [fetch] (the
+/// library performs no I/O), verifies that its signature chains to Adobe
+/// Root CA G2 and that it was signed within [maxAge] of [now], and returns
+/// its trusted roots. Throws [FormatException] when verification fails.
+///
+/// This fetches Adobe's own published file on the user's device; nothing
+/// about the documents being validated is sent. dart-pdf never bundles or
+/// redistributes the list.
+Future<PdfAatlSnapshot> fetchAatl({
+  required Future<Uint8List> Function(Uri url) fetch,
+  DateTime? now,
+  Duration maxAge = PdfAatl.maxAge,
+  String rootFingerprint = PdfAatl.adobeRootFingerprint,
+}) async {
+  final at = (now ?? DateTime.now()).toUtc();
+  final snapshot = parseAatlSecuritySettings(await fetch(PdfAatl.url),
+      maxAge: maxAge, now: at, rootFingerprint: rootFingerprint);
+  return PdfAatlSnapshot(snapshot.anchors,
+      signedAt: snapshot.signedAt, signer: snapshot.signer, fetchedAt: at);
 }
 
 /// The trust anchors read from an AATL file.
 class PdfAatlSnapshot {
-  PdfAatlSnapshot(this.anchors, {this.signedAt, this.signer});
+  PdfAatlSnapshot(this.anchors, {this.signedAt, this.signer, this.fetchedAt});
 
   /// DER certificates Acrobat would use as trusted roots.
   final List<Uint8List> anchors;
@@ -41,14 +72,62 @@ class PdfAatlSnapshot {
   final DateTime? signedAt;
   final String? signer;
 
-  PdfTrustStore toTrustStore() => PdfTrustStore.trusting(anchors);
+  /// When it was downloaded (set by [fetchAatl]).
+  final DateTime? fetchedAt;
 
-  /// A PEM bundle of [anchors] - what `PdfTrustStore.addPem` reads.
-  String toPem() => [
-        '# Adobe Approved Trust List anchors'
-            '${signedAt != null ? ' (signed ${signedAt!.toIso8601String()})' : ''}\n',
-        for (final der in anchors) pemEncode('CERTIFICATE', der),
-      ].join();
+  /// Whether the file was signed no more than [maxAge] before [now]. A
+  /// snapshot with no signing time is never current.
+  bool isCurrentAt(DateTime now, {Duration maxAge = PdfAatl.maxAge}) {
+    final signed = signedAt;
+    return signed != null && now.difference(signed) <= maxAge;
+  }
+
+  PdfTrustStore toTrustStore() {
+    final store = PdfTrustStore();
+    for (final der in anchors) {
+      store.addDer(der, source: PdfAatl.sourceName);
+    }
+    return store;
+  }
+
+  /// A PEM bundle of [anchors] with provenance headers - what
+  /// [PdfAatlSnapshot.fromPem] and `PdfTrustStore.addPem` read.
+  String toPem() {
+    final out = StringBuffer('# Adobe Approved Trust List anchors\n');
+    if (signedAt != null) {
+      out.writeln('# signed: ${signedAt!.toUtc().toIso8601String()}');
+    }
+    if (signer != null) out.writeln('# signer: $signer');
+    if (fetchedAt != null) {
+      out.writeln('# fetched-at: ${fetchedAt!.toUtc().toIso8601String()}');
+    }
+    for (final der in anchors) {
+      out.write(pemEncode('CERTIFICATE', der));
+    }
+    return out.toString();
+  }
+
+  /// Reads a [toPem] bundle back.
+  factory PdfAatlSnapshot.fromPem(String pem) {
+    String? header(String key) =>
+        RegExp('^# $key: (.+)\$', multiLine: true).firstMatch(pem)?.group(1);
+    DateTime? time(String key) {
+      final value = header(key);
+      return value == null ? null : DateTime.tryParse(value.trim());
+    }
+
+    return PdfAatlSnapshot(
+      [
+        for (final m in RegExp(
+                r'-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----')
+            .allMatches(pem))
+          pemBytes(m.group(0)!),
+      ],
+      signedAt: time('signed'),
+      signer: header('signer')?.trim(),
+      fetchedAt: time('fetched-at'),
+    );
+  }
 }
 
 /// Reads the trusted roots out of an AATL `.acrobatsecuritysettings` file.

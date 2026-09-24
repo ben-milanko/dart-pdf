@@ -366,6 +366,79 @@ ${service('NationalRootCA-QC', 'granted', otherCa.root, 'YY national root')}
       // ...and refused against the real Adobe pin.
       expect(() => parseAatlSecuritySettings(signed), throwsFormatException);
     });
+
+    group('fetchAatl', () {
+      final signed = PdfEditor(PdfDocument.open(aatlFile(xml))).saveSignedEcdsa(
+        privateKey: pki.signerKey,
+        certificates: pki.chain,
+        signingTime: DateTime.utc(2026, 9, 10),
+      );
+      final rootPrint = crypto.sha256.convert(pki.root).toString();
+      final requested = <Uri>[];
+      Future<Uint8List> fake(Uri url) async {
+        requested.add(url);
+        return signed;
+      }
+
+      test('downloads Adobe\'s URL, verifies, and stamps the fetch time',
+          () async {
+        requested.clear();
+        final snapshot =
+            await fetchAatl(fetch: fake, now: now, rootFingerprint: rootPrint);
+        expect(requested, [PdfAatl.url]);
+        expect(snapshot.anchors, [pki.root, otherCa.root]);
+        expect(snapshot.fetchedAt, now);
+        expect(snapshot.isCurrentAt(now), isTrue);
+      });
+
+      test('refuses a file under any other root', () async {
+        await expectLater(
+            fetchAatl(fetch: fake, now: now), throwsFormatException);
+      });
+
+      test('refuses a file signed longer ago than maxAge', () async {
+        await expectLater(
+            fetchAatl(
+                fetch: fake,
+                now: DateTime.utc(2026, 9, 10)
+                    .add(PdfAatl.maxAge + const Duration(days: 1)),
+                rootFingerprint: rootPrint),
+            throwsFormatException);
+      });
+
+      test('the PEM round-trips and anchors carry their list name', () async {
+        final snapshot =
+            await fetchAatl(fetch: fake, now: now, rootFingerprint: rootPrint);
+        final back = PdfAatlSnapshot.fromPem(snapshot.toPem());
+        expect(back.anchors, snapshot.anchors);
+        expect(back.signedAt, snapshot.signedAt);
+        expect(back.fetchedAt, now);
+        expect(back.signer, 'Revocation Test Signer');
+        expect(back.isCurrentAt(now.add(const Duration(days: 400))), isFalse);
+
+        final store = back.toTrustStore();
+        expect(store.sourceOf(store.anchors.first), PdfAatl.sourceName);
+        final combined = PdfTrustLists.combine([PdfTrustStore(), store]);
+        expect(combined.sourceOf(combined.anchors.first), PdfAatl.sourceName);
+      });
+
+      test('a signer under an AATL root validates as trusted', () async {
+        final store =
+            (await fetchAatl(fetch: fake, now: now, rootFingerprint: rootPrint))
+                .toTrustStore();
+        final doc =
+            PdfEditor(PdfDocument.open(buildMultiPagePdf(1))).saveSignedEcdsa(
+          privateKey: pki.signerKey,
+          certificates: pki.chain.sublist(0, 2),
+          signingTime: DateTime.utc(2026, 6, 10),
+        );
+        final result = PdfSignature.of(PdfDocument.open(doc))
+            .single
+            .validate(trustStore: store);
+        expect(result.chainTrusted, isTrue, reason: '${result.chainProblems}');
+        expect(store.sourceOf(result.trustChain.last), PdfAatl.sourceName);
+      });
+    });
   });
 }
 

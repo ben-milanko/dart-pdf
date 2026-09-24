@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -539,9 +540,23 @@ class PdfTrustStore {
 
   final List<X509Certificate> anchors = [];
 
-  void addCertificate(X509Certificate certificate) => anchors.add(certificate);
+  /// Anchor DER (base64) -> the list it came from, when the adder said.
+  final Map<String, String> _sources = {};
 
-  void addDer(Uint8List der) => anchors.add(X509Certificate.parse(der));
+  /// Adds [certificate] as an anchor. [source] names the list it came from
+  /// (e.g. "EU Trusted List"), reported back by [sourceOf].
+  void addCertificate(X509Certificate certificate, {String? source}) {
+    anchors.add(certificate);
+    if (source != null) _sources[_key(certificate)] ??= source;
+  }
+
+  void addDer(Uint8List der, {String? source}) =>
+      addCertificate(X509Certificate.parse(der), source: source);
+
+  /// The trust list [anchor] was added from, or null when none was named.
+  String? sourceOf(X509Certificate anchor) => _sources[_key(anchor)];
+
+  static String _key(X509Certificate c) => base64.encode(c.der);
 
   /// Adds every CERTIFICATE block in [pem].
   void addPem(String pem) {

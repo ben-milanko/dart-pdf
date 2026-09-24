@@ -52,11 +52,21 @@ abstract final class PdfTrustLists {
   static PdfTrustStore aatl(Uint8List securitySettings) =>
       parseAatlSecuritySettings(securitySettings).toTrustStore();
 
+  /// Downloads Adobe's AATL through [fetch] and returns its roots - see
+  /// [fetchAatl].
+  static Future<PdfTrustStore> fetchAatlStore({
+    required Future<Uint8List> Function(Uri url) fetch,
+    DateTime? now,
+  }) async =>
+      (await fetchAatl(fetch: fetch, now: now)).toTrustStore();
+
   /// One store holding every anchor of [stores].
   static PdfTrustStore combine(Iterable<PdfTrustStore> stores) {
     final combined = PdfTrustStore();
     for (final store in stores) {
-      store.anchors.forEach(combined.addCertificate);
+      for (final anchor in store.anchors) {
+        combined.addCertificate(anchor, source: store.sourceOf(anchor));
+      }
     }
     return combined;
   }

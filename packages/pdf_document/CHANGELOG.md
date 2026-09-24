@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `fetchAatl` downloads Adobe's Approved Trust List through a host
+  transport, verifies it chains to Adobe Root CA G2 and was signed within a
+  year (`PdfAatl.maxAge`), and returns a PEM-serializable snapshot.
+  `PdfTrustStore.sourceOf` names the list an anchor came from.
+
 - Check signer-chain revocation. `validate()` now reports a verdict for the
   signer and each intermediate from the document's /DSS
   (`PdfSignatureValidation.revocation`, `revocationStatus`), and the new
