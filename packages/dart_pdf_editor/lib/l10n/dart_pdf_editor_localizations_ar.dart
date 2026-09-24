@@ -2197,4 +2197,37 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'حذف المحتوى — اسحب مستطيلاً، أو انقر رؤوس المضلع وانقر مرتين للإنهاء';
+
+  @override
+  String get menuConvertToRadioGroup => 'تحويل إلى مجموعة أزرار اختيار';
+
+  @override
+  String get menuConvertToComboBox => 'تحويل إلى قائمة منسدلة';
+
+  @override
+  String get menuConvertToListBox => 'تحويل إلى مربع قائمة';
+
+  @override
+  String get menuConvertToSignatureField => 'تحويل إلى حقل توقيع';
+
+  @override
+  String get menuEditOptions => 'تحرير الخيارات…';
+
+  @override
+  String get menuAddRadioButton => 'إضافة زر إلى المجموعة';
+
+  @override
+  String get formOptionsTitle => 'خيارات الحقل';
+
+  @override
+  String get formOptionsExportValue => 'قيمة التصدير';
+
+  @override
+  String get formOptionsDisplayText => 'النص المعروض';
+
+  @override
+  String get formOptionsAllowCustomText => 'السماح بنص مخصص';
+
+  @override
+  String get formOptionsMultiSelect => 'السماح بتحديدات متعددة';
 }

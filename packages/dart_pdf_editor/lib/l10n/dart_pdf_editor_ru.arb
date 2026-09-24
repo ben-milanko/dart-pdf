@@ -629,5 +629,16 @@
   "splitFailed": "Не удалось разделить этот PDF.",
   "guidesSnapHint": "Привязка к краям и центрам аннотаций • Удерживайте Alt для обхода",
   "tbToolContentDelete": "Стереть",
-  "tbTipContentDelete": "Удалить содержимое — нарисуйте прямоугольник или нажмите на вершины многоугольника и завершите двойным щелчком"
+  "tbTipContentDelete": "Удалить содержимое — нарисуйте прямоугольник или нажмите на вершины многоугольника и завершите двойным щелчком",
+  "menuConvertToRadioGroup": "Преобразовать в группу переключателей",
+  "menuConvertToComboBox": "Преобразовать в поле со списком",
+  "menuConvertToListBox": "Преобразовать в список",
+  "menuConvertToSignatureField": "Преобразовать в поле подписи",
+  "menuEditOptions": "Изменить варианты…",
+  "menuAddRadioButton": "Добавить кнопку в группу",
+  "formOptionsTitle": "Параметры поля",
+  "formOptionsExportValue": "Значение экспорта",
+  "formOptionsDisplayText": "Отображаемый текст",
+  "formOptionsAllowCustomText": "Разрешить свой текст",
+  "formOptionsMultiSelect": "Разрешить множественный выбор"
 }

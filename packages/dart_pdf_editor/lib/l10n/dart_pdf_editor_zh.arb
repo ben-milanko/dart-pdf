@@ -629,5 +629,16 @@
   "splitFailed": "无法拆分此 PDF。",
   "guidesSnapHint": "吸附批注边缘和中心 • 按住 Alt 跳过",
   "tbToolContentDelete": "擦除",
-  "tbTipContentDelete": "删除内容 — 拖出矩形，或点击多边形顶点并双击完成"
+  "tbTipContentDelete": "删除内容 — 拖出矩形，或点击多边形顶点并双击完成",
+  "menuConvertToRadioGroup": "转换为单选按钮组",
+  "menuConvertToComboBox": "转换为组合框",
+  "menuConvertToListBox": "转换为列表框",
+  "menuConvertToSignatureField": "转换为签名字段",
+  "menuEditOptions": "编辑选项…",
+  "menuAddRadioButton": "向组中添加按钮",
+  "formOptionsTitle": "字段选项",
+  "formOptionsExportValue": "导出值",
+  "formOptionsDisplayText": "显示文本",
+  "formOptionsAllowCustomText": "允许自定义文本",
+  "formOptionsMultiSelect": "允许多选"
 }

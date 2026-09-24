@@ -629,5 +629,16 @@
   "splitFailed": "تعذر تقسيم ملف PDF هذا.",
   "guidesSnapHint": "محاذاة حواف التعليقات التوضيحية ومراكزها • اضغط مطولاً على Alt للتجاوز",
   "tbToolContentDelete": "محو",
-  "tbTipContentDelete": "حذف المحتوى — اسحب مستطيلاً، أو انقر رؤوس المضلع وانقر مرتين للإنهاء"
+  "tbTipContentDelete": "حذف المحتوى — اسحب مستطيلاً، أو انقر رؤوس المضلع وانقر مرتين للإنهاء",
+  "menuConvertToRadioGroup": "تحويل إلى مجموعة أزرار اختيار",
+  "menuConvertToComboBox": "تحويل إلى قائمة منسدلة",
+  "menuConvertToListBox": "تحويل إلى مربع قائمة",
+  "menuConvertToSignatureField": "تحويل إلى حقل توقيع",
+  "menuEditOptions": "تحرير الخيارات…",
+  "menuAddRadioButton": "إضافة زر إلى المجموعة",
+  "formOptionsTitle": "خيارات الحقل",
+  "formOptionsExportValue": "قيمة التصدير",
+  "formOptionsDisplayText": "النص المعروض",
+  "formOptionsAllowCustomText": "السماح بنص مخصص",
+  "formOptionsMultiSelect": "السماح بتحديدات متعددة"
 }

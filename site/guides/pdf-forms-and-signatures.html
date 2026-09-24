@@ -684,7 +684,7 @@
             "name": "Does DartPDF support fillable AcroForm fields?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes. It reads and fills text, checkbox, radio, combo box, list box, and push-button fields, regenerates their appearance streams so the filled values print and display in other viewers, and can flatten the form into page content. It can also add text, checkbox, and push-button fields to a PDF."
+              "text": "Yes. It reads and fills text, checkbox, radio, combo box, list box, and push-button fields, regenerates their appearance streams so the filled values print and display in other viewers, and can flatten the form into page content. It can also add every one of those field types to a PDF, plus empty signature fields for someone to sign later."
             }
           },
           {
@@ -842,7 +842,7 @@
                 </tr>
                 <tr>
                   <td>Combo box / list box</td>
-                  <td>Yes: by export or display value; editable combos accept free text</td>
+                  <td>Yes: by export or display value; editable combos accept free text; multi-select list boxes take several values</td>
                   <td>Not yet</td>
                 </tr>
                 <tr>
@@ -914,11 +914,30 @@ Uint8List fillApplication(Uint8List template) {
 
   <span class="keyword">return</span> editor.save();
 }</code></pre>
-          <p>To add fields, use <code>addTextField</code>, <code>addCheckBoxField</code>, and
-            <code>addPushButtonField</code>. <code>renameField</code>, <code>removeField</code>, and
-            <code>changeFieldType</code> handle field management. If the document has no AcroForm yet, the first
-            new field creates one. The editor UI has matching tools, so users can draw fields onto a plain PDF and
-            turn it into a fillable form.</p>
+          <p>To add fields, use <code>addTextField</code>, <code>addCheckBoxField</code>,
+            <code>addPushButtonField</code>, <code>addRadioGroup</code> (one field, one button per option, grown
+            later with <code>addRadioButton</code>), <code>addComboBoxField</code> and <code>addListBoxField</code>
+            (options as export/display pairs, edited later with <code>setChoiceOptions</code>), and
+            <code>addSignatureField</code> (an empty box for someone to sign later). <code>renameField</code>,
+            <code>removeField</code>, and <code>changeFieldType</code> handle field management. If the document has
+            no AcroForm yet, the first new field creates one. Every new field gets its appearance generated the
+            same way filling does. The editor UI has matching tools, so users can draw fields onto a plain PDF and
+            turn it into a fillable form, then edit a choice field's options or add buttons to a radio group.</p>
+          <pre><code><span class="keyword">final</span> editor = PdfEditor(PdfDocument.open(plainPdf));
+editor.addRadioGroup(0, <span class="string">'size'</span>, [
+  (PdfRect(72, 500, 88, 516), <span class="string">'S'</span>),
+  (PdfRect(100, 500, 116, 516), <span class="string">'M'</span>),
+]);
+editor.addComboBoxField(0, <span class="string">'country'</span>, PdfRect(72, 450, 272, 472), [
+  (<span class="string">'AU'</span>, <span class="string">'Australia'</span>),
+  (<span class="string">'NZ'</span>, <span class="string">'New Zealand'</span>),
+]);
+editor.addSignatureField(0, <span class="string">'Approver'</span>, PdfRect(72, 72, 272, 132));
+<span class="keyword">final</span> Uint8List form = editor.save();
+
+<span class="comment">// Later, whoever signs fills the placed field by name:</span>
+PdfEditor(PdfDocument.open(form)).saveSigned(
+  privateKey: key, certificates: chain, fieldName: <span class="string">'Approver'</span>);</code></pre>
         </section>
 
         <section id="drawn">
@@ -981,7 +1000,8 @@ Uint8List fillApplication(Uint8List template) {
                 </tr>
                 <tr>
                   <td>Existing fields</td>
-                  <td>Signs into an empty signature field a form designer already placed</td>
+                  <td>Signs into an empty signature field a form designer already placed, including one added with
+                    <code>addSignatureField</code> or the editor's form tool</td>
                 </tr>
                 <tr>
                   <td>Certification</td>
@@ -1074,9 +1094,6 @@ await session.addDigitalSignature(
               format/validation scripts, and scripted show/hide don't run. Scripts are exposed read-only so your
               app can inspect them.</li>
             <li><strong>Tab to the next field</strong> isn't implemented yet. Users tap each field.</li>
-            <li><strong>Multi-select list boxes</strong> take a single value.</li>
-            <li><strong>Authoring</strong> covers text, checkbox, and image-button fields. You can't yet add radio
-              groups, choice fields, or empty signature fields for someone else to sign later.</li>
             <li><strong>Trust roots.</strong> No certificate authorities are bundled. Validation tells you whether
               the chain reaches a root you supplied (for example, the AATL or your organisation's CA), and it
               doesn't query live revocation during validation. A self-signed signature validates as intact, but

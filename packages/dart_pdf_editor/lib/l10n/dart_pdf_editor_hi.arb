@@ -629,5 +629,16 @@
   "splitFailed": "यह PDF विभाजित नहीं किया जा सका।",
   "guidesSnapHint": "टिप्पणियों के किनारों और केंद्रों को संरेखित करें • छोड़ने के लिए Alt दबाए रखें",
   "tbToolContentDelete": "मिटाएँ",
-  "tbTipContentDelete": "सामग्री हटाएँ — आयत खींचें या बहुभुज के शीर्षों पर क्लिक करें और पूरा करने के लिए डबल-क्लिक करें"
+  "tbTipContentDelete": "सामग्री हटाएँ — आयत खींचें या बहुभुज के शीर्षों पर क्लिक करें और पूरा करने के लिए डबल-क्लिक करें",
+  "menuConvertToRadioGroup": "रेडियो समूह में बदलें",
+  "menuConvertToComboBox": "कॉम्बो बॉक्स में बदलें",
+  "menuConvertToListBox": "सूची बॉक्स में बदलें",
+  "menuConvertToSignatureField": "हस्ताक्षर फ़ील्ड में बदलें",
+  "menuEditOptions": "विकल्प संपादित करें…",
+  "menuAddRadioButton": "समूह में बटन जोड़ें",
+  "formOptionsTitle": "फ़ील्ड विकल्प",
+  "formOptionsExportValue": "निर्यात मान",
+  "formOptionsDisplayText": "प्रदर्शित पाठ",
+  "formOptionsAllowCustomText": "कस्टम पाठ की अनुमति दें",
+  "formOptionsMultiSelect": "एकाधिक चयन की अनुमति दें"
 }

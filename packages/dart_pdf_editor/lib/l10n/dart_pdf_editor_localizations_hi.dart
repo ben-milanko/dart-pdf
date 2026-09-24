@@ -2153,4 +2153,37 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'सामग्री हटाएँ — आयत खींचें या बहुभुज के शीर्षों पर क्लिक करें और पूरा करने के लिए डबल-क्लिक करें';
+
+  @override
+  String get menuConvertToRadioGroup => 'रेडियो समूह में बदलें';
+
+  @override
+  String get menuConvertToComboBox => 'कॉम्बो बॉक्स में बदलें';
+
+  @override
+  String get menuConvertToListBox => 'सूची बॉक्स में बदलें';
+
+  @override
+  String get menuConvertToSignatureField => 'हस्ताक्षर फ़ील्ड में बदलें';
+
+  @override
+  String get menuEditOptions => 'विकल्प संपादित करें…';
+
+  @override
+  String get menuAddRadioButton => 'समूह में बटन जोड़ें';
+
+  @override
+  String get formOptionsTitle => 'फ़ील्ड विकल्प';
+
+  @override
+  String get formOptionsExportValue => 'निर्यात मान';
+
+  @override
+  String get formOptionsDisplayText => 'प्रदर्शित पाठ';
+
+  @override
+  String get formOptionsAllowCustomText => 'कस्टम पाठ की अनुमति दें';
+
+  @override
+  String get formOptionsMultiSelect => 'एकाधिक चयन की अनुमति दें';
 }

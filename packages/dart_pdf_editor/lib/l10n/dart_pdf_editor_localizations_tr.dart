@@ -2154,4 +2154,37 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'İçeriği sil — bir dikdörtgen sürükleyin veya çokgenin köşelerine tıklayıp bitirmek için çift tıklayın';
+
+  @override
+  String get menuConvertToRadioGroup => 'Radyo grubuna dönüştür';
+
+  @override
+  String get menuConvertToComboBox => 'Açılan kutuya dönüştür';
+
+  @override
+  String get menuConvertToListBox => 'Liste kutusuna dönüştür';
+
+  @override
+  String get menuConvertToSignatureField => 'İmza alanına dönüştür';
+
+  @override
+  String get menuEditOptions => 'Seçenekleri düzenle…';
+
+  @override
+  String get menuAddRadioButton => 'Gruba düğme ekle';
+
+  @override
+  String get formOptionsTitle => 'Alan seçenekleri';
+
+  @override
+  String get formOptionsExportValue => 'Dışa aktarma değeri';
+
+  @override
+  String get formOptionsDisplayText => 'Görüntülenen metin';
+
+  @override
+  String get formOptionsAllowCustomText => 'Özel metne izin ver';
+
+  @override
+  String get formOptionsMultiSelect => 'Çoklu seçime izin ver';
 }

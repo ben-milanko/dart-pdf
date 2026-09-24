@@ -5015,24 +5015,33 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
+    final multi = field.isMultiSelect;
+    final selected = field.values.toSet();
+    final style =
+        Theme.of(context).textTheme.labelMedium?.copyWith(height: 1.1);
     final picked = await showMenu<String>(
       context: context,
       position: pdfPopupPosition(context, globalPosition),
       items: [
         for (final (export, display) in options)
-          PopupMenuItem(
-            key: ValueKey('pdf-form-option-$export'),
-            value: export,
-            height: 34,
-            child: Text(display,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(height: 1.1)),
-          ),
+          if (multi)
+            CheckedPopupMenuItem(
+              key: ValueKey('pdf-form-option-$export'),
+              value: export,
+              height: 34,
+              checked: selected.contains(export),
+              child: Text(display, style: style),
+            )
+          else
+            PopupMenuItem(
+              key: ValueKey('pdf-form-option-$export'),
+              value: export,
+              height: 34,
+              child: Text(display, style: style),
+            ),
       ],
     );
-    if (picked != null) _controller.setFormChoiceValue(name, picked);
+    if (picked != null) _controller.pickFormChoiceOption(name, picked);
   }
 
   /// Rasterizes this page once for the eyedropper, keyed on the revision id
