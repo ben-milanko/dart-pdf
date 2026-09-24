@@ -130,7 +130,9 @@ PY
 
 # Snapcraft 9 refuses to pack outside the project tree ("Cannot create
 # packages outside of the project tree"), so pack inside $work_dir and copy
-# the result out.
+# the result out. Snapcraft 9 reads --output as a file name unless it names an
+# existing directory, so create it first.
+mkdir -p "$work_dir/pack"
 (
   cd "$work_dir"
   "${snapcraft_command[@]}" pack \
@@ -143,7 +145,7 @@ if [[ -z "$packed" ]]; then
   echo "Snapcraft did not create a DartPDF snap in $work_dir/pack" >&2
   exit 1
 fi
-cp "$packed" "$output/"
 snap_file="$output/$(basename "$packed")"
+cp "$packed" "$snap_file"
 
 echo "Built $snap_file"
