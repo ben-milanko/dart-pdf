@@ -256,9 +256,9 @@ for indexing, password handling, validation, and extraction semantics.
 2. ✅ Incremental-update writer (signature-preserving); first edits:
    metadata, page rotation
 3. ✅ Encryption: opening RC4/AES-128/AES-256 documents (user and owner
-   passwords) and encrypt-on-write, so encrypted documents are editable.
-   Signing them is still refused, since the signature byte ranges must
-   stay plaintext-patchable.
+   passwords) and encrypt-on-write, so encrypted documents are editable
+   and signable (the signature's /Contents stays plain per ISO 32000
+   §7.6.1; every other string in the signed revision is encrypted).
 4. ✅ Content-stream interpreter with an abstract device interface
 5. ✅ Font engine: TrueType/CFF glyph outlines, CID fonts, CMaps, ToUnicode
 6. ✅ Flutter rendering device + viewer widget

@@ -13,6 +13,7 @@ export 'src/signer_identity.dart';
 export 'src/tab_order_form.dart';
 export 'src/test_fulcio.dart';
 export 'src/test_tsa.dart';
+export 'src/xfa_forms.dart';
 
 Uint8List ascii(String s) => Uint8List.fromList(s.codeUnits);
 

@@ -925,6 +925,10 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'デフォルトの作成者…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'このフォームは XFA を使用しているため、ここでは入力できず、フィールドも表示されません。入力するには XFA フォームに対応したアプリで開いてください。';
+
+  @override
   String get shellHighlightFormFields => 'フォームフィールドを強調表示';
 
   @override

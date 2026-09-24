@@ -930,6 +930,10 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get shellDefaultAuthor => 'Penulis bawaan…';
 
   @override
+  String get formXfaUnsupportedNotice =>
+      'Formulir ini menggunakan XFA, yang tidak dapat diisi di sini, sehingga bidangnya tidak muncul. Buka di aplikasi yang mendukung formulir XFA untuk mengisinya.';
+
+  @override
   String get shellHighlightFormFields => 'Sorot bidang formulir';
 
   @override

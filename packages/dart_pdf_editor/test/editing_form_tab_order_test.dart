@@ -2,6 +2,8 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,12 +17,15 @@ void main() {
 
   Future<(PdfEditingController, PdfViewerController)> pumpViewer(
       WidgetTester tester,
-      {FocusNode? outside}) async {
+      {FocusNode? outside,
+      Uint8List? bytes,
+      PdfFormSecretStore? secrets}) async {
     SharedPreferences.setMockInitialValues({});
     // /Tabs /R on page 0 (first, city, agree, color#0, color#1), then page
     // 1 in /Annots order (notes, size); read-only / hidden / push-button /
     // signature fields are not stops
-    final session = PdfEditingController(buildTabOrderFormPdf());
+    final session = PdfEditingController(bytes ?? buildTabOrderFormPdf(),
+        formSecretStore: secrets);
     final viewer = PdfViewerController();
     addTearDown(session.dispose);
     addTearDown(viewer.dispose);
@@ -156,6 +161,38 @@ void main() {
     expect(editorRect(tester).width, closeTo(468 * scale, 1));
     expect(tester.widget<TextField>(find.byKey(editorKey)).controller!.text,
         'line one\nline two');
+  });
+
+  testWidgets(
+      'Tab into a password field opens it masked, from the secret store',
+      (tester) async {
+    // the fixture with `city` (the stop after `first`) made a password field
+    final editor = PdfEditor(PdfDocument.open(buildTabOrderFormPdf()));
+    final city = editor.acroForm!.fieldNamed('city')!;
+    city.dict['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+    editor.setTextValue(city, ''); // writes the flag into the revision
+    final (session, _) = await pumpViewer(tester,
+        bytes: editor.save(), secrets: InMemoryFormSecretStore());
+    final origin = viewport(tester).topLeft;
+    await tester.tapAt(origin + const Offset(186 * scale, (792 - 712) * scale));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tab(tester);
+    var field = tester.widget<TextField>(find.byKey(editorKey));
+    expect(field.obscureText, isTrue);
+    expect(field.maxLines, 1);
+    await tester.enterText(find.byKey(editorKey), 'hunter2');
+
+    // Tab commits it: the value is withheld from /V and never painted
+    await tab(tester);
+    expect(value(session, 'city'), isNot('hunter2'));
+    expect(find.textContaining('hunter2'), findsNothing);
+
+    // Shift+Tab back reopens it masked, prefilled from the secret store
+    await tab(tester, shift: true);
+    field = tester.widget<TextField>(find.byKey(editorKey));
+    expect(field.obscureText, isTrue);
+    expect(field.controller!.text, 'hunter2');
   });
 
   testWidgets('Enter still commits a single-line field', (tester) async {

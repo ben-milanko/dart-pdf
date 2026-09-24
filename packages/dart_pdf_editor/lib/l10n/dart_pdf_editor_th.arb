@@ -295,6 +295,7 @@
   "searchWholeWord": "ทั้งคำ",
   "shellControls": "การควบคุม",
   "shellDefaultAuthor": "ผู้เขียนเริ่มต้น…",
+  "formXfaUnsupportedNotice": "แบบฟอร์มนี้ใช้ XFA ซึ่งกรอกที่นี่ไม่ได้ จึงไม่แสดงช่องต่างๆ โปรดเปิดในแอปที่รองรับแบบฟอร์ม XFA เพื่อกรอก",
   "shellHighlightFormFields": "ไฮไลต์ช่องแบบฟอร์ม",
   "shellKeyboardShortcutsMenu": "แป้นพิมพ์ลัด…",
   "shellKeyboardShortcutsTitle": "แป้นพิมพ์ลัด",

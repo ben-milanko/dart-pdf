@@ -66,6 +66,12 @@ moves back. The walk crosses pages and wraps at both ends.
   only clears when the same field reopens, so the field a Tab just committed
   keeps showing its new value until its raster lands.
   `_afterMultiline`/`_afterFieldName` store the afterimage's own layout.
+- Password fields (#943) need nothing extra. A Tab move opens the editor
+  through the same `_openTextEditor` a tap uses, so it is prefilled from
+  `controller.formFieldTextValue` (the secret store, not /V), obscured,
+  single-line and capped by /MaxLen. The afterimage stays masked through
+  `formPasswordMask`. Covered by the password test in
+  `editing_form_tab_order_test.dart`.
 
 ## Tests
 
