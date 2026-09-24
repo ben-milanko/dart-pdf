@@ -3017,10 +3017,22 @@ class _EditorScreenState extends State<EditorScreen>
             useDocumentPageSize: true,
             destination: job.destination);
       }
-    } catch (_) {
+    } catch (error, stack) {
+      // The toast stays generic; the log keeps the cause (a composer error,
+      // or the native runner's "... (Windows error N)" message).
+      AppDevTools.instance.addLog(
+          'print failed: ${tab.title} - ${_describePrintError(error)}\n$stack',
+          level: DevLogLevel.error);
       if (mounted) _toast(appL10n(context).editorCouldNotPrint(tab.title));
     }
   }
+
+  static String _describePrintError(Object error) => switch (error) {
+        PlatformException(:final code, :final message, :final details) =>
+          'PlatformException($code): $message'
+              '${details == null ? '' : ' [$details]'}',
+        _ => '$error',
+      };
 
   /// Adds files to this print job without opening tabs or editing the source.
   Future<List<PdfDocument>> _pickPrintFiles() async {
