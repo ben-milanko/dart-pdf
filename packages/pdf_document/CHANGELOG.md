@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Check signer-chain revocation. `validate()` now reports a verdict for the
+  signer and each intermediate from the document's /DSS
+  (`PdfSignatureValidation.revocation`, `revocationStatus`), and the new
+  `validateOnline(revocationClient:)` adds live OCSP-then-CRL checks through
+  the injected `PdfRevocationClient`. A revoked certificate makes the chain
+  untrusted unless a verified timestamp predates the revocation.
+  `pdfOnlineRevocationClient` turns a host HTTP function into a client.
+- Add `package:pdf_document/trust_lists.dart`, opt-in trust anchors with no
+  bundled data: fetch and XML-signature-verify the EU trusted lists
+  (`fetchEuTrustedLists`, `PdfTrustLists.eutl`), or load an Adobe Approved
+  Trust List file you supply (`parseAatlSecuritySettings`).
+  `tool/refresh_trust_lists.dart` writes verified PEM snapshots.
+
 - Fill multi-select list boxes (#933). `PdfFormField` gains `isMultiSelect`
   (/Ff bit 22), `values` (a /V string or array as a list; `value` still
   returns the first entry), `selectedIndices` (/I, falling back to /V when /I

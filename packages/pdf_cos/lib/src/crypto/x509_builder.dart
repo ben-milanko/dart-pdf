@@ -26,6 +26,11 @@ abstract final class _CertOid {
   static const extSubjectKeyId = '2.5.29.14';
   static const extAuthorityKeyId = '2.5.29.35';
   static const extSubjectAltName = '2.5.29.17';
+  static const extExtendedKeyUsage = '2.5.29.37';
+  static const extCrlDistributionPoints = '2.5.29.31';
+  static const extAuthorityInfoAccess = '1.3.6.1.5.5.7.1.1';
+  static const adOcsp = '1.3.6.1.5.5.7.48.1';
+  static const ocspNoCheck = '1.3.6.1.5.5.7.48.1.5';
 }
 
 /// The ecdsa-with-SHAx AlgorithmIdentifier for [hash] - a bare OID, with no
@@ -134,6 +139,12 @@ Uint8List buildCaCertificate({
 /// [buildCaCertificate]). The issuer Name is copied from the CA certificate's
 /// subject, and an authorityKeyIdentifier links the two. Pair the returned
 /// leaf with the CA certificate as the chain of a signing identity.
+///
+/// Optional extensions: [ocspResponderUrl] (an Authority Information Access
+/// OCSP entry), [crlDistributionUrls] (CRL Distribution Points),
+/// [extendedKeyUsages] (purpose OIDs, e.g. id-kp-OCSPSigning for a delegated
+/// responder), [ocspNoCheck] (id-pkix-ocsp-nocheck), and [isCa] to issue a
+/// subordinate CA (keyCertSign + cRLSign, cA=TRUE) instead of an end entity.
 Uint8List issueCertificate({
   required EcPrivateKey issuerKey,
   required Uint8List issuerCertificate,
@@ -146,7 +157,33 @@ Uint8List issueCertificate({
   BigInt? serialNumber,
   Random? random,
   crypto.Hash hash = crypto.sha256,
+  String? ocspResponderUrl,
+  List<String> crlDistributionUrls = const [],
+  List<String> extendedKeyUsages = const [],
+  bool ocspNoCheck = false,
+  bool isCa = false,
 }) {
+  final extensions = isCa
+      ? [
+          _extension(_CertOid.extBasicConstraints,
+              critical: true, value: derSequence([derBoolean(true)])),
+          _extension(_CertOid.extKeyUsage,
+              critical: true,
+              value: derEncode(DerTag.bitString, const [1, 0x06])),
+          _extension(_CertOid.extSubjectKeyId,
+              value: derOctetString(
+                  crypto.sha1.convert(subjectPublicKey.sec1).bytes)),
+          _extension(_CertOid.extAuthorityKeyId,
+              value: derSequence([
+                derContextPrimitive(
+                    0, crypto.sha1.convert(issuerKey.publicKey.sec1).bytes),
+              ])),
+        ]
+      : _endEntityExtensions(
+          subjectPublicKey,
+          email: email,
+          authorityKey: issuerKey.publicKey,
+        );
   return _assembleCertificate(
     signingKey: issuerKey,
     issuerName: _subjectNameOf(issuerCertificate),
@@ -156,11 +193,33 @@ Uint8List issueCertificate({
     notAfter: notAfter,
     serial: serialNumber ?? _randomSerial(random ?? Random.secure()),
     hash: hash,
-    extensions: _endEntityExtensions(
-      subjectPublicKey,
-      email: email,
-      authorityKey: issuerKey.publicKey,
-    ),
+    extensions: [
+      ...extensions,
+      if (extendedKeyUsages.isNotEmpty)
+        _extension(_CertOid.extExtendedKeyUsage,
+            value: derSequence(
+                [for (final oid in extendedKeyUsages) derOid(oid)])),
+      if (ocspNoCheck) _extension(_CertOid.ocspNoCheck, value: derNull()),
+      if (ocspResponderUrl != null)
+        _extension(_CertOid.extAuthorityInfoAccess,
+            value: derSequence([
+              derSequence([
+                derOid(_CertOid.adOcsp),
+                derContextPrimitive(6, ascii.encode(ocspResponderUrl)),
+              ]),
+            ])),
+      if (crlDistributionUrls.isNotEmpty)
+        _extension(_CertOid.extCrlDistributionPoints,
+            value: derSequence([
+              for (final url in crlDistributionUrls)
+                // DistributionPoint { distributionPoint [0] { fullName [0]
+                //   GeneralNames { uniformResourceIdentifier [6] } } }
+                derSequence([
+                  derContext(0,
+                      derContext(0, derContextPrimitive(6, ascii.encode(url)))),
+                ]),
+            ])),
+    ],
   );
 }
 
@@ -241,10 +300,12 @@ Uint8List _name(String commonName, String? organization) => derSequence([
     ]);
 
 Uint8List _rdn(String oid, String value) => derSet([
-      derSequence([derOid(oid), derEncode(DerTag.utf8String, utf8.encode(value))]),
+      derSequence(
+          [derOid(oid), derEncode(DerTag.utf8String, utf8.encode(value))]),
     ]);
 
-Uint8List _extension(String oid, {bool critical = false, required Uint8List value}) =>
+Uint8List _extension(String oid,
+        {bool critical = false, required Uint8List value}) =>
     derSequence([
       derOid(oid),
       if (critical) derBoolean(true),

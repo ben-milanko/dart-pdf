@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `TestRevocationPki`, `buildTestOcspResponse` and `buildTestCrl`: an
+  in-process root/intermediate/signer hierarchy that mints OCSP responses and
+  CRLs on demand.
+
 ## 4.5.0
 
 - Align dependency constraints with the dart-pdf 4.5.0 package suite.

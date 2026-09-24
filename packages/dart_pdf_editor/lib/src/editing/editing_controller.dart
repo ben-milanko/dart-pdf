@@ -449,6 +449,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfSnapshotClipboard? snapshotClipboard,
     PdfAnnotationSnapshotClipboard? annotationClipboard,
     PdfTrustStore? trustStore,
+    PdfRevocationClient? revocationClient,
     this.formSecretStore,
   })  : _bytes = bytes,
         _used = bytes.length,
@@ -456,6 +457,7 @@ class PdfEditingController extends ChangeNotifier {
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
         _trustStore = trustStore,
+        _revocationClient = revocationClient,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
         snapshotClipboard = snapshotClipboard ?? PdfSnapshotClipboard.instance,
@@ -1327,7 +1329,8 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The trust anchors [validationFor] chains signer certificates up to, so a
   /// signature can read as "trusted" rather than "validity unknown". The
-  /// library ships no built-in roots; a host supplies an AATL/EUTL or
+  /// library ships no built-in roots; a host supplies an EU trusted list /
+  /// AATL bundle (`package:pdf_document/trust_lists.dart`) or an
   /// organisation bundle (e.g. `PdfTrustStore.trusting([...])`). Null leaves
   /// every signature's [PdfSignatureValidation.chainTrusted] null - crypto is
   /// still checked, but the signer is never vouched for.
@@ -1340,10 +1343,35 @@ class PdfEditingController extends ChangeNotifier {
   set trustStore(PdfTrustStore? store) {
     if (identical(store, _trustStore)) return;
     _trustStore = store;
+    _invalidateValidations();
+  }
+
+  PdfRevocationClient? _revocationClient;
+
+  /// The transport [validationFor] checks certificate revocation through
+  /// (typically `pdfOnlineRevocationClient` over the host's HTTP client).
+  /// When set, each signature is validated with
+  /// [PdfSignature.validateOnline] - OCSP/CRL for the signer and every
+  /// intermediate, next to the document's embedded /DSS - so a certificate
+  /// revoked since signing reads as revoked. Null checks only the embedded
+  /// material. Setting it re-validates, like [trustStore].
+  PdfRevocationClient? get revocationClient => _revocationClient;
+
+  set revocationClient(PdfRevocationClient? client) {
+    if (identical(client, _revocationClient)) return;
+    _revocationClient = client;
+    _invalidateValidations();
+  }
+
+  void _invalidateValidations() {
     _validationCache.clear();
     _validating.clear();
+    // A validation already in flight belongs to the old settings.
+    _validationGeneration++;
     notifyListeners();
   }
+
+  int _validationGeneration = 0;
 
   /// [validationFor] results for the current revision, keyed by the signature
   /// field's fully qualified name. Dropped whenever the revision moves (or the
@@ -1379,24 +1407,33 @@ class PdfEditingController extends ChangeNotifier {
     if (cached != null) return cached;
     if (schedule && _validating.add(key)) {
       final revision = _revisionId;
+      final generation = _validationGeneration;
       final store = _trustStore;
+      final revocation = _revocationClient;
+      bool stale() =>
+          _revisionId != revision || _validationGeneration != generation;
       // Off the current frame: opening the panel stays instant even when the
-      // signer's certificate chain is expensive to verify.
-      Future(() {
+      // signer's certificate chain is expensive to verify (or, with a
+      // revocation client, waits on the network).
+      Future(() async {
         // The document may have moved on while this was queued.
-        if (_revisionId != revision) {
-          _validating.remove(key);
+        if (stale()) {
+          if (_revisionId != revision) _validating.remove(key);
           return;
         }
         PdfSignatureValidation? result;
         try {
-          result = signature.validate(trustStore: store);
+          result = revocation == null
+              ? signature.validate(trustStore: store)
+              : await signature.validateOnline(
+                  trustStore: store, revocationClient: revocation);
         } catch (_) {
           // A signature we can't validate simply stays "checking"-free; the
           // panel falls back to showing it without a verdict.
         }
+        if (stale()) return;
         _validating.remove(key);
-        if (_revisionId != revision || result == null) return;
+        if (result == null) return;
         _validationCache[key] = result;
         notifyListeners();
       });

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The signature panel checks revocation when the controller has a
+  `revocationClient`. It shows a Revoked status, whether revocation was
+  confirmed online or from embedded data or could not be checked, and it names
+  self-signed signers and untrusted issuers.
+
 - Multi-select list boxes take several values (#933):
   `PdfEditingController.setFormChoiceValues` and `pickFormChoiceOption`
   (which toggles an option on a multi-select box), and the form option menus
