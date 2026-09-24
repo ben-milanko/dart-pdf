@@ -625,7 +625,29 @@ class PdfViewerController extends ChangeNotifier {
   bool isPageRasterReady(int index) =>
       _state?._rasteredPages.contains(index) ?? false;
 
-  /// Notifies whenever [isPageRenderBusy] may have changed. Never null - it
+  /// Whether an annotation overlay on a page near the reading position still
+  /// has appearances to draw. False when no viewer is attached.
+  ///
+  /// With an editing or form controller attached, annotations are not part of
+  /// the page raster: an overlay draws them after the page, a frame budget at
+  /// a time, so on a heavily marked drawing the marks keep landing well after
+  /// [isPageRenderBusy] and [isPageRasterReady] report the page done. This is
+  /// the signal a host needs to keep "loading markups" chrome up until the
+  /// marks are actually on screen. It covers the pages the overlay is live
+  /// for - the current page and its immediate neighbours - not the whole
+  /// document. Listen to [pageRenderActivity] before re-reading it.
+  bool get isAnnotationAppearanceBusy =>
+      _state?._renderScheduler.appearanceWorkPending ?? false;
+
+  /// How much of the pending annotation-overlay work is drawn, in `0..1`, or
+  /// null when there is none or its size is not known yet (a page still
+  /// resolving its annotation array). Pairs with [isAnnotationAppearanceBusy]
+  /// for a determinate indicator; listen to [pageRenderActivity].
+  double? get annotationAppearanceProgress =>
+      _state?._renderScheduler.appearanceWorkProgress;
+
+  /// Notifies whenever [isPageRenderBusy], [isAnnotationAppearanceBusy] or
+  /// [annotationAppearanceProgress] may have changed. Never null - it
   /// forwards whichever viewer is attached, so a listener survives the viewer
   /// being swapped underneath it.
   Listenable get pageRenderActivity => _pageRenderActivity;
@@ -9605,6 +9627,7 @@ class _AnnotationAppearanceLayerState
         !identical(oldWidget.renderScheduler, widget.renderScheduler);
     if (schedulerChanged) {
       oldWidget.renderScheduler.cancel(_scheduleToken);
+      oldWidget.renderScheduler.clearAppearanceWork(_scheduleToken);
     }
     final pageChanged = !identical(oldWidget.page, widget.page) ||
         oldWidget.rotation != widget.rotation ||
@@ -9625,6 +9648,7 @@ class _AnnotationAppearanceLayerState
     } else if (oldWidget.active && !widget.active) {
       _generation++;
       widget.renderScheduler.cancel(_scheduleToken);
+      widget.renderScheduler.clearAppearanceWork(_scheduleToken);
     } else if (oldWidget.focusDistance != widget.focusDistance &&
         widget.active) {
       // Refresh a pending request so the newly-current page moves to the head
@@ -9637,6 +9661,7 @@ class _AnnotationAppearanceLayerState
   void dispose() {
     _generation++;
     widget.renderScheduler.cancel(_scheduleToken);
+    widget.renderScheduler.clearAppearanceWork(_scheduleToken);
     _disposePictures();
     _disposeCache();
     super.dispose();
@@ -9669,7 +9694,12 @@ class _AnnotationAppearanceLayerState
   void _notifyReady(int generation) {
     if (!mounted || generation != _generation) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && generation == _generation) widget.onReady();
+      if (!mounted || generation != _generation) return;
+      // The frame that paints the finished layer has been produced, so its
+      // marks are on screen: only now is the layer's work really done. A
+      // newer pass that started in between owns the registration instead.
+      widget.renderScheduler.clearAppearanceWork(_scheduleToken);
+      widget.onReady();
     });
   }
 
@@ -9677,7 +9707,13 @@ class _AnnotationAppearanceLayerState
     final generation = ++_generation;
     widget.renderScheduler.cancel(_scheduleToken);
     if (!keepCurrent) _disposePictures();
-    if (!widget.active) return;
+    if (!widget.active) {
+      widget.renderScheduler.clearAppearanceWork(_scheduleToken);
+      return;
+    }
+    // Owed from the moment the pass is queued, before the page's annotation
+    // array is even resolved - see [PdfPageRenderScheduler.appearanceWorkPending].
+    widget.renderScheduler.reportAppearanceWork(_scheduleToken);
     unawaited(_renderScheduled(generation));
   }
 
@@ -9754,10 +9790,18 @@ class _AnnotationAppearanceLayerState
   /// [PdfPageRenderer.renderAnnotationPicture] performs a synchronous scan
   /// before its first await. A `Future.wait` comprehension therefore ran that
   /// scan for *every* annotation during the opening frame; 740 annotations in
-  /// one real-world engineering pack produced a half-second build. The
-  /// viewer's shared render scheduler starts one appearance per engine frame
-  /// across *all* mounted pages, giving input and painting a turn between
-  /// scans while [_publish] exposes each completed appearance progressively.
+  /// one real-world engineering pack produced a half-second build. Each grant
+  /// from the viewer's shared render scheduler instead draws appearances until
+  /// [PdfPageRenderScheduler.appearanceFrameBudget] is spent, then publishes
+  /// what it has and queues behind the shared next-frame gate for the rest,
+  /// giving input and painting a turn between batches.
+  ///
+  /// The budget replaced a fixed one appearance per grant. Most appearances -
+  /// a stamp, a line, a short ink stroke - draw in well under a millisecond,
+  /// so one per frame left a 1,000-mark drawing filling in over eight seconds
+  /// at 120 Hz while the thread sat idle for almost all of every frame. A
+  /// batch also publishes once instead of once per mark, and every publish
+  /// rebuilds the page's whole ordered picture list.
   Future<void> _renderMissing(
     int generation,
     PdfPage page,
@@ -9766,11 +9810,20 @@ class _AnnotationAppearanceLayerState
     Size pageSize,
     int rotation,
   ) async {
+    final scheduler = widget.renderScheduler;
+    scheduler.reportAppearanceWork(_scheduleToken, total: missing.length);
+    // The preparation pass already owns the first frame's grant.
+    final grant = Stopwatch()..start();
     for (var i = 0; i < missing.length; i++) {
-      // The preparation pass already owns the first frame's grant. Every
-      // subsequent annotation queues behind the shared next-frame gate.
-      if (i > 0) {
-        final permitted = await widget.renderScheduler.paceUiWork(
+      if (i > 0 &&
+          grant.elapsed >= PdfPageRenderScheduler.appearanceFrameBudget) {
+        _publish(generation, annotations, pageSize, ready: false);
+        scheduler.reportAppearanceWork(
+          _scheduleToken,
+          done: i,
+          total: missing.length,
+        );
+        final permitted = await scheduler.paceUiWork(
           _scheduleToken,
           widget.pageIndex,
           motion: PdfRenderMotionClass.quiet,
@@ -9782,6 +9835,7 @@ class _AnnotationAppearanceLayerState
             !widget.active) {
           return;
         }
+        grant.reset();
       }
 
       final annotation = missing[i];
@@ -9803,10 +9857,14 @@ class _AnnotationAppearanceLayerState
           }
         }
       }
-
-      final last = i == missing.length - 1;
-      _publish(generation, annotations, pageSize, ready: last);
     }
+
+    scheduler.reportAppearanceWork(
+      _scheduleToken,
+      done: missing.length,
+      total: missing.length,
+    );
+    _publish(generation, annotations, pageSize);
   }
 
   /// Rebuilds the ordered picture list from [_cache] and repaints, then frees

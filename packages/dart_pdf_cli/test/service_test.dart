@@ -155,6 +155,21 @@ void main() {
       expect(size['options'], hasLength(3));
     });
 
+    test('forms list reports every multi-select list box value', () {
+      final result =
+          const DartPdfService().open(buildListBoxFormPdf()).listForms();
+      final fields =
+          (result['fields']! as List<Object?>).cast<Map<String, Object?>>();
+      final toppings =
+          fields.singleWhere((field) => field['name'] == 'toppings');
+      expect(toppings['multiSelect'], isTrue);
+      expect(toppings['value'], 'Ham');
+      expect(toppings['values'], ['Ham', 'Olives']);
+      final crust = fields.singleWhere((field) => field['name'] == 'crust');
+      expect(crust.containsKey('multiSelect'), isFalse);
+      expect(crust.containsKey('values'), isFalse);
+    });
+
     test('forms list bounds nested widgets and options globally', () {
       const service = DartPdfService(
         limits: DartPdfLimits(

@@ -365,10 +365,25 @@ class DartPdfDocument {
       'readOnly': field.isReadOnly,
       'required': field.isRequired,
       if (field.type == PdfFieldType.text) 'multiline': field.isMultiline,
+      if (field.isMultiSelect) 'multiSelect': true,
     };
     budget.text.add(item, 'name', field.name);
     if (!field.isPassword) budget.text.add(item, 'value', field.value);
     if (field.isPassword && field.value != null) item['valueRedacted'] = true;
+    if (field.isMultiSelect) {
+      // `value` stays the first selection for single-value consumers; the
+      // whole selection rides alongside.
+      final values = <String>[];
+      for (final value in field.values) {
+        if (!budget.text.canTake(value)) {
+          item['valuesTruncated'] = true;
+          budget.text.markTruncated();
+          break;
+        }
+        values.add(budget.text.take(value));
+      }
+      item['values'] = values;
+    }
 
     final options = field.options;
     if (options.isNotEmpty) {

@@ -36,12 +36,8 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
   /// Shows the current type beside the icon, for a labelled panel row.
   final bool showLabel;
 
-  static PdfFormFieldKind? _kind(PdfFieldType type) => switch (type) {
-        PdfFieldType.text => PdfFormFieldKind.text,
-        PdfFieldType.checkBox => PdfFormFieldKind.checkBox,
-        PdfFieldType.pushButton => PdfFormFieldKind.pushButton,
-        _ => null,
-      };
+  static PdfFormFieldKind? _kind(PdfFieldType type) =>
+      PdfFormFieldKind.of(type);
 
   static String _label(BuildContext context, PdfFieldType type) =>
       switch (type) {
@@ -94,6 +90,18 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
           height: 34,
           child: Text(pdfL10n(context).propFieldTypeImageButton),
         ),
+        for (final (kind, key) in const [
+          (PdfFormFieldKind.radioGroup, 'radio'),
+          (PdfFormFieldKind.comboBox, 'combo'),
+          (PdfFormFieldKind.listBox, 'list'),
+          (PdfFormFieldKind.signature, 'signature'),
+        ])
+          PopupMenuItem(
+            key: ValueKey('$itemKeyPrefix-$key'),
+            value: kind,
+            height: 34,
+            child: Text(_label(context, kind.fieldType)),
+          ),
       ],
       icon: showLabel ? null : Icon(_icon(type)),
       child: showLabel

@@ -2131,4 +2131,37 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       '콘텐츠 삭제 — 사각형을 드래그하거나 다각형의 꼭짓점을 클릭한 후 두 번 클릭하여 완료';
+
+  @override
+  String get menuConvertToRadioGroup => '라디오 그룹으로 변환';
+
+  @override
+  String get menuConvertToComboBox => '콤보 상자로 변환';
+
+  @override
+  String get menuConvertToListBox => '목록 상자로 변환';
+
+  @override
+  String get menuConvertToSignatureField => '서명 필드로 변환';
+
+  @override
+  String get menuEditOptions => '옵션 편집…';
+
+  @override
+  String get menuAddRadioButton => '그룹에 버튼 추가';
+
+  @override
+  String get formOptionsTitle => '필드 옵션';
+
+  @override
+  String get formOptionsExportValue => '내보내기 값';
+
+  @override
+  String get formOptionsDisplayText => '표시 텍스트';
+
+  @override
+  String get formOptionsAllowCustomText => '사용자 지정 텍스트 허용';
+
+  @override
+  String get formOptionsMultiSelect => '여러 항목 선택 허용';
 }

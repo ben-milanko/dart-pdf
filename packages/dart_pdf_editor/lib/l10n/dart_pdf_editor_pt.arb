@@ -629,5 +629,16 @@
   "splitFailed": "Não foi possível dividir este PDF.",
   "guidesSnapHint": "Alinhar bordas e centros das anotações • Mantenha Alt pressionado para ignorar",
   "tbToolContentDelete": "Apagar",
-  "tbTipContentDelete": "Excluir conteúdo — arraste um retângulo ou clique nos vértices do polígono e clique duas vezes para concluir"
+  "tbTipContentDelete": "Excluir conteúdo — arraste um retângulo ou clique nos vértices do polígono e clique duas vezes para concluir",
+  "menuConvertToRadioGroup": "Converter em grupo de opções",
+  "menuConvertToComboBox": "Converter em caixa de combinação",
+  "menuConvertToListBox": "Converter em caixa de listagem",
+  "menuConvertToSignatureField": "Converter em campo de assinatura",
+  "menuEditOptions": "Editar opções…",
+  "menuAddRadioButton": "Adicionar botão ao grupo",
+  "formOptionsTitle": "Opções do campo",
+  "formOptionsExportValue": "Valor de exportação",
+  "formOptionsDisplayText": "Texto exibido",
+  "formOptionsAllowCustomText": "Permitir texto personalizado",
+  "formOptionsMultiSelect": "Permitir seleção múltipla"
 }

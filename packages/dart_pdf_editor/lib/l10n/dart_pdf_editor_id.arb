@@ -629,5 +629,16 @@
   "splitFailed": "PDF ini tidak dapat dipisahkan.",
   "guidesSnapHint": "Jepret tepi dan pusat anotasi • Tahan Alt untuk melewati",
   "tbToolContentDelete": "Hapus",
-  "tbTipContentDelete": "Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai"
+  "tbTipContentDelete": "Hapus konten — seret persegi panjang, atau klik titik sudut poligon dan klik dua kali untuk selesai",
+  "menuConvertToRadioGroup": "Ubah menjadi grup radio",
+  "menuConvertToComboBox": "Ubah menjadi kotak kombo",
+  "menuConvertToListBox": "Ubah menjadi kotak daftar",
+  "menuConvertToSignatureField": "Ubah menjadi bidang tanda tangan",
+  "menuEditOptions": "Edit opsi…",
+  "menuAddRadioButton": "Tambahkan tombol ke grup",
+  "formOptionsTitle": "Opsi bidang",
+  "formOptionsExportValue": "Nilai ekspor",
+  "formOptionsDisplayText": "Teks tampilan",
+  "formOptionsAllowCustomText": "Izinkan teks kustom",
+  "formOptionsMultiSelect": "Izinkan pilihan ganda"
 }

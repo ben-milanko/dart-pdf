@@ -2197,4 +2197,37 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Видалити вміст — намалюйте прямокутник або натисніть вершини багатокутника й завершіть подвійним клацанням';
+
+  @override
+  String get menuConvertToRadioGroup => 'Перетворити на групу перемикачів';
+
+  @override
+  String get menuConvertToComboBox => 'Перетворити на поле зі списком';
+
+  @override
+  String get menuConvertToListBox => 'Перетворити на список';
+
+  @override
+  String get menuConvertToSignatureField => 'Перетворити на поле підпису';
+
+  @override
+  String get menuEditOptions => 'Змінити варіанти…';
+
+  @override
+  String get menuAddRadioButton => 'Додати кнопку до групи';
+
+  @override
+  String get formOptionsTitle => 'Параметри поля';
+
+  @override
+  String get formOptionsExportValue => 'Значення експорту';
+
+  @override
+  String get formOptionsDisplayText => 'Відображуваний текст';
+
+  @override
+  String get formOptionsAllowCustomText => 'Дозволити власний текст';
+
+  @override
+  String get formOptionsMultiSelect => 'Дозволити множинний вибір';
 }

@@ -171,7 +171,7 @@ void main() {
       final name = editor.acroForm!.fieldNamed('name')!;
       expect(editor.changeFieldType(name, PdfFieldType.text), name);
       expect(editor.hasChanges, isFalse);
-      expect(() => editor.changeFieldType(name, PdfFieldType.comboBox),
+      expect(() => editor.changeFieldType(name, PdfFieldType.unknown),
           throwsArgumentError);
     });
   });

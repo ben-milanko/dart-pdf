@@ -629,5 +629,16 @@
   "splitFailed": "이 PDF를 분할할 수 없습니다.",
   "guidesSnapHint": "주석 가장자리와 중심에 맞춤 • Alt 키를 눌러 건너뛰기",
   "tbToolContentDelete": "지우기",
-  "tbTipContentDelete": "콘텐츠 삭제 — 사각형을 드래그하거나 다각형의 꼭짓점을 클릭한 후 두 번 클릭하여 완료"
+  "tbTipContentDelete": "콘텐츠 삭제 — 사각형을 드래그하거나 다각형의 꼭짓점을 클릭한 후 두 번 클릭하여 완료",
+  "menuConvertToRadioGroup": "라디오 그룹으로 변환",
+  "menuConvertToComboBox": "콤보 상자로 변환",
+  "menuConvertToListBox": "목록 상자로 변환",
+  "menuConvertToSignatureField": "서명 필드로 변환",
+  "menuEditOptions": "옵션 편집…",
+  "menuAddRadioButton": "그룹에 버튼 추가",
+  "formOptionsTitle": "필드 옵션",
+  "formOptionsExportValue": "내보내기 값",
+  "formOptionsDisplayText": "표시 텍스트",
+  "formOptionsAllowCustomText": "사용자 지정 텍스트 허용",
+  "formOptionsMultiSelect": "여러 항목 선택 허용"
 }

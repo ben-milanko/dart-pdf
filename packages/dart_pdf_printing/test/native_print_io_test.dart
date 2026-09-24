@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'package:dart_pdf_printing/src/native_print_io.dart';
@@ -223,6 +224,43 @@ void main() {
       }
       expect(ends, 1);
       expect(progress, [(1, 2), (2, 2)]);
+    });
+  });
+
+  testWidgets('copies reuse each sheet and progress counts distinct sheets',
+      (tester) async {
+    await tester.runAsync(() async {
+      final streams = <Uint8List>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            throw MissingPluginException('no printPdf on this platform');
+          case 'beginJob':
+            return {'vector': true};
+          case 'printPageVector':
+            streams.add((call.arguments as Map)['page'] as Uint8List);
+            return true;
+          case 'endJob':
+            return true;
+        }
+        return null;
+      });
+
+      final source = PdfDocument.open(buildMultiPagePdf(3));
+      final job = preparePrintDocument(
+          source, PrintSettings(pages: [0, 1, 2], copies: 10));
+      final progress = <(int, int)>[];
+      await printDocumentPages(job,
+          name: 'Copies',
+          useDocumentPageSize: true,
+          onProgress: (rendered, total) => progress.add((rendered, total)));
+
+      expect(streams, hasLength(30));
+      // Collated: every copy replays the same three encoded sheets in order.
+      for (var i = 3; i < streams.length; i++) {
+        expect(streams[i], streams[i % 3], reason: '$i');
+      }
+      expect(progress, [(1, 3), (2, 3), (3, 3)]);
     });
   });
 

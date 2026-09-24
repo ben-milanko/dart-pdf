@@ -9,6 +9,7 @@ import '../popup_position.dart';
 import 'annotation_presentation.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_form_options.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
 
@@ -431,11 +432,10 @@ Future<void> showPdfFormFieldMenu({
   final field = controller.acroForm?.fieldNamed(fieldName);
   if (field == null) return;
   final type = field.type;
-  bool convertsTo(PdfFormFieldKind kind) => switch (kind) {
-        PdfFormFieldKind.text => type != PdfFieldType.text,
-        PdfFormFieldKind.checkBox => type != PdfFieldType.checkBox,
-        PdfFormFieldKind.pushButton => type != PdfFieldType.pushButton,
-      };
+  // a signed signature is never retyped (PdfEditor.changeFieldType)
+  final signed = type == PdfFieldType.signature &&
+      controller.signatureByFieldName.containsKey(fieldName);
+  bool convertsTo(PdfFormFieldKind kind) => !signed && kind.fieldType != type;
 
   PdfAnnotationMenuItem? editItem() {
     final enabled = !field.isReadOnly;
@@ -489,16 +489,27 @@ Future<void> showPdfFormFieldMenu({
               position: pdfPopupPosition(context, position),
               items: [
                 for (final (export, display) in field.options)
-                  PopupMenuItem(
-                    key: ValueKey('pdf-form-edit-option-$export'),
-                    value: export,
-                    height: _densePopupMenuHeight,
-                    child: Text(display, style: _densePopupTextStyle(context)),
-                  ),
+                  if (field.isMultiSelect)
+                    CheckedPopupMenuItem(
+                      key: ValueKey('pdf-form-edit-option-$export'),
+                      value: export,
+                      height: _densePopupMenuHeight,
+                      checked: field.values.contains(export),
+                      child:
+                          Text(display, style: _densePopupTextStyle(context)),
+                    )
+                  else
+                    PopupMenuItem(
+                      key: ValueKey('pdf-form-edit-option-$export'),
+                      value: export,
+                      height: _densePopupMenuHeight,
+                      child:
+                          Text(display, style: _densePopupTextStyle(context)),
+                    ),
               ],
             );
             if (picked != null) {
-              controller.setFormChoiceValue(fieldName, picked);
+              controller.pickFormChoiceOption(fieldName, picked);
             }
           },
         );
@@ -544,6 +555,24 @@ Future<void> showPdfFormFieldMenu({
           );
         },
       ),
+    if (type == PdfFieldType.comboBox || type == PdfFieldType.listBox)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-form-menu-options'),
+        label: pdfL10n(context).menuEditOptions,
+        icon: Icons.format_list_bulleted,
+        onSelected: (_) => showPdfFormOptionsDialog(
+          context: context,
+          controller: controller,
+          fieldName: fieldName,
+        ),
+      ),
+    if (type == PdfFieldType.radioGroup)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-form-menu-add-radio'),
+        label: pdfL10n(context).menuAddRadioButton,
+        icon: Icons.add_circle_outline,
+        onSelected: (_) => controller.addFormRadioButton(fieldName),
+      ),
   ];
   final structure = <PdfAnnotationMenuItem>[
     PdfAnnotationMenuItem(
@@ -583,6 +612,39 @@ Future<void> showPdfFormFieldMenu({
       onSelected: (_) => controller.changeFormFieldKind(
           fieldName, PdfFormFieldKind.pushButton),
     ),
+    for (final (kind, key, label, icon) in [
+      (
+        PdfFormFieldKind.radioGroup,
+        'radio',
+        pdfL10n(context).menuConvertToRadioGroup,
+        Icons.radio_button_checked,
+      ),
+      (
+        PdfFormFieldKind.comboBox,
+        'combo',
+        pdfL10n(context).menuConvertToComboBox,
+        Icons.arrow_drop_down_circle_outlined,
+      ),
+      (
+        PdfFormFieldKind.listBox,
+        'list',
+        pdfL10n(context).menuConvertToListBox,
+        Icons.list_alt,
+      ),
+      (
+        PdfFormFieldKind.signature,
+        'signature',
+        pdfL10n(context).menuConvertToSignatureField,
+        Icons.draw_outlined,
+      ),
+    ])
+      PdfAnnotationMenuItem(
+        key: ValueKey('pdf-form-menu-$key'),
+        label: label,
+        icon: icon,
+        enabled: convertsTo(kind),
+        onSelected: (_) => controller.changeFormFieldKind(fieldName, kind),
+      ),
   ];
   final destructive = <PdfAnnotationMenuItem>[
     PdfAnnotationMenuItem(

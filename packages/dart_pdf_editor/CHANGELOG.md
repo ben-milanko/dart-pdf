@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Multi-select list boxes take several values (#933):
+  `PdfEditingController.setFormChoiceValues` and `pickFormChoiceOption`
+  (which toggles an option on a multi-select box), and the form option menus
+  show checkable items for those fields, each pick toggling one option.
+
+- The form tool creates radio groups, combo boxes, list boxes and empty
+  signature fields (#934): `PdfFormFieldKind` gains `radioGroup`,
+  `comboBox`, `listBox` and `signature`, and the new-field and field-type
+  menus list them. A selected radio group offers "Add button to group"
+  (`PdfEditingController.addFormRadioButton`), a selected choice field
+  "Edit options…" (`showPdfFormOptionsDialog` / `PdfFormOptionsEditor`,
+  applied through `setFormFieldOptions`), and every field converts to the
+  new kinds.
+- Draw cold annotation appearances against a frame budget instead of one per
+  frame. With an editing or form controller attached, marks are drawn by the
+  page's annotation overlay on the platform thread, and each render-scheduler
+  grant used to draw exactly one appearance - so a drawing carrying 1,000
+  stamps filled in over eight seconds at 120 Hz (sixteen at 60 Hz) while the
+  thread sat idle for most of every frame. A grant now keeps drawing until
+  `PdfPageRenderScheduler.appearanceFrameBudget` (4 ms) is spent, publishing
+  once per batch rather than once per mark. One appearance still draws per
+  grant however long it takes, so heavy appearances keep the old pacing.
+- Add `PdfViewerController.isAnnotationAppearanceBusy` and
+  `annotationAppearanceProgress`, notified through `pageRenderActivity`. The
+  overlay finishes after the page raster, so `isPageRenderBusy` and
+  `isPageRasterReady` read done while marks are still landing; these report
+  the overlay's own outstanding work on the pages it is live for, from the
+  moment a pass is queued until the frame that paints its last appearance.
 - Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
   `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
   default sans, and Helvetica's advances are much wider than Calibri's - with

@@ -629,5 +629,16 @@
   "splitFailed": "ไม่สามารถแยก PDF นี้ได้",
   "guidesSnapHint": "จัดแนวขอบและจุดกึ่งกลางของคำอธิบายประกอบ • กด Alt ค้างไว้เพื่อข้าม",
   "tbToolContentDelete": "ลบ",
-  "tbTipContentDelete": "ลบเนื้อหา — ลากสี่เหลี่ยม หรือคลิกจุดยอดของรูปหลายเหลี่ยมแล้วดับเบิลคลิกเพื่อเสร็จสิ้น"
+  "tbTipContentDelete": "ลบเนื้อหา — ลากสี่เหลี่ยม หรือคลิกจุดยอดของรูปหลายเหลี่ยมแล้วดับเบิลคลิกเพื่อเสร็จสิ้น",
+  "menuConvertToRadioGroup": "แปลงเป็นกลุ่มปุ่มตัวเลือก",
+  "menuConvertToComboBox": "แปลงเป็นกล่องคอมโบ",
+  "menuConvertToListBox": "แปลงเป็นกล่องรายการ",
+  "menuConvertToSignatureField": "แปลงเป็นช่องลายเซ็น",
+  "menuEditOptions": "แก้ไขตัวเลือก…",
+  "menuAddRadioButton": "เพิ่มปุ่มในกลุ่ม",
+  "formOptionsTitle": "ตัวเลือกของช่อง",
+  "formOptionsExportValue": "ค่าส่งออก",
+  "formOptionsDisplayText": "ข้อความที่แสดง",
+  "formOptionsAllowCustomText": "อนุญาตข้อความที่กำหนดเอง",
+  "formOptionsMultiSelect": "อนุญาตให้เลือกหลายรายการ"
 }
