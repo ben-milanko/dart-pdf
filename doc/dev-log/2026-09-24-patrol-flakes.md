@@ -25,11 +25,15 @@ Fix: `patrol_test/patrol_support.dart` `mirrorPerfTraceToFile()` sets
 `Directory.systemTemp/<PDF_PATROL_PERF_TRACE>`, which is inside the app's data
 container. It uses one `RandomAccessFile` opened for append, so each line is one
 unbuffered `write(2)`: the line survives the app being killed and costs no
-fsync. `tool/run_ios_patrol_ci.sh` passes a trace name for each attempt, runs
-`patrol test --no-uninstall` so the container is still there afterwards, finds
-the file under `xcrun simctl get_app_container <udid> <bundle> data`, and gives
-that file to the summarizer. Once patrol has passed, an incomplete trace is a
-hard error; there is no silent retry.
+fsync. `tool/run_ios_patrol_ci.sh` deletes any old trace, runs `patrol test
+--no-uninstall` so the container is still there afterwards, finds the file
+under `xcrun simctl get_app_container <udid> <bundle> data`, and gives that
+file to the summarizer. The trace name stays the same on every attempt. The
+first version used one name per attempt, but changing the `--dart-define`
+rebuilt the Dart side each time, added about a minute per attempt, and pushed
+the job past its 45-minute timeout. The iOS job timeout is now 60 minutes,
+because the retry budget has to fit inside it. Once patrol has passed, an
+incomplete trace is a hard error; there is no silent retry.
 
 Android reads the same lines out of the emulator's logcat buffer instead
 (`adb logcat -c` before each repetition, then `adb logcat -d -v raw -s flutter`,
