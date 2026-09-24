@@ -2191,4 +2191,37 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Usuń zawartość — przeciągnij prostokąt lub klikaj wierzchołki wielokąta i kliknij dwukrotnie, aby zakończyć';
+
+  @override
+  String get menuConvertToRadioGroup => 'Konwertuj na grupę przycisków opcji';
+
+  @override
+  String get menuConvertToComboBox => 'Konwertuj na pole kombi';
+
+  @override
+  String get menuConvertToListBox => 'Konwertuj na pole listy';
+
+  @override
+  String get menuConvertToSignatureField => 'Konwertuj na pole podpisu';
+
+  @override
+  String get menuEditOptions => 'Edytuj opcje…';
+
+  @override
+  String get menuAddRadioButton => 'Dodaj przycisk do grupy';
+
+  @override
+  String get formOptionsTitle => 'Opcje pola';
+
+  @override
+  String get formOptionsExportValue => 'Wartość eksportu';
+
+  @override
+  String get formOptionsDisplayText => 'Wyświetlany tekst';
+
+  @override
+  String get formOptionsAllowCustomText => 'Zezwalaj na własny tekst';
+
+  @override
+  String get formOptionsMultiSelect => 'Zezwalaj na wielokrotny wybór';
 }

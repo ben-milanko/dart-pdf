@@ -296,8 +296,46 @@ class PdfLinkTarget {
 typedef PdfAnnotationEditPredicate = bool Function(PdfAnnotation annotation);
 
 /// The field kinds the form tool can create (and convert fields to) -
-/// the subset of [PdfFieldType] with creation support in [PdfEditor].
-enum PdfFormFieldKind { text, checkBox, pushButton }
+/// every [PdfFieldType] with creation support in [PdfEditor].
+enum PdfFormFieldKind {
+  text,
+  checkBox,
+  pushButton,
+
+  /// A radio group; the form tool creates it with one button and
+  /// [PdfEditingController.addFormRadioButton] adds the rest.
+  radioGroup,
+
+  /// A drop-down; options are edited with
+  /// [PdfEditingController.setFormFieldOptions].
+  comboBox,
+
+  /// A scrolling list; options are edited with
+  /// [PdfEditingController.setFormFieldOptions].
+  listBox,
+
+  /// An empty signature field, placed for someone to sign later.
+  signature;
+
+  /// The [PdfFieldType] this kind creates.
+  PdfFieldType get fieldType => switch (this) {
+        text => PdfFieldType.text,
+        checkBox => PdfFieldType.checkBox,
+        pushButton => PdfFieldType.pushButton,
+        radioGroup => PdfFieldType.radioGroup,
+        comboBox => PdfFieldType.comboBox,
+        listBox => PdfFieldType.listBox,
+        signature => PdfFieldType.signature,
+      };
+
+  /// The kind creating [type], or null for [PdfFieldType.unknown].
+  static PdfFormFieldKind? of(PdfFieldType type) {
+    for (final kind in values) {
+      if (kind.fieldType == type) return kind;
+    }
+    return null;
+  }
+}
 
 /// The text styling of a form text field, read from its /DA, /Q and /Ff -
 /// what the form-field style controls reflect and edit
@@ -8825,6 +8863,11 @@ class PdfEditingController extends ChangeNotifier {
   /// the document's /AcroForm when it has none. The name is generated
   /// ('Field 1', 'Field 2', …); rename it via [renameFormField].
   /// Returns the new field's name, or null when nothing was added.
+  ///
+  /// A radio group starts with a single button (on-state 'Choice1') -
+  /// grow it with [addFormRadioButton]; combo and list boxes start with
+  /// no options - fill them with [setFormFieldOptions]; a signature field
+  /// is left unsigned for someone to sign later.
   String? addFormField(PdfFormFieldKind kind, int pageIndex, PdfRect rect) {
     var i = 1;
     while (acroForm?.fieldNamed('Field $i') != null) {
@@ -8840,10 +8883,119 @@ class PdfEditingController extends ChangeNotifier {
             e.addCheckBoxField(pageIndex, name, rect);
           case PdfFormFieldKind.pushButton:
             e.addPushButtonField(pageIndex, name, rect);
+          case PdfFormFieldKind.radioGroup:
+            e.addRadioGroup(pageIndex, name, [(rect, 'Choice1')]);
+          case PdfFormFieldKind.comboBox:
+            e.addComboBoxField(pageIndex, name, rect, const []);
+          case PdfFormFieldKind.listBox:
+            e.addListBoxField(pageIndex, name, rect, const []);
+          case PdfFormFieldKind.signature:
+            e.addSignatureField(pageIndex, name, rect);
         }
       },
     );
     return added ? name : null;
+  }
+
+  /// Adds another button to the radio group [name]
+  /// ([PdfEditor.addRadioButton]) - by default the same size as the
+  /// group's last button, one button-height and a half below it (or
+  /// beside it when that would leave the page), with the next free
+  /// 'ChoiceN' on-state. Pass [pageIndex]/[rect]/[onState] to place it
+  /// exactly. The new button is selected so it can be dragged into place.
+  /// Returns its on-state, or null when [name] is not an extensible radio
+  /// group.
+  String? addFormRadioButton(
+    String name, {
+    int? pageIndex,
+    PdfRect? rect,
+    String? onState,
+  }) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null || field.type != PdfFieldType.radioGroup) return null;
+    final last = field.widgets.length - 1;
+    final page = pageIndex ?? field.widgetPageIndex(last);
+    final anchor = field.widgetRect(last);
+    if (page < 0 || (rect == null && anchor == null)) return null;
+    final PdfRect target;
+    if (rect != null) {
+      target = rect;
+    } else {
+      final a = anchor!;
+      final gap = a.height / 2;
+      final below =
+          PdfRect(a.left, a.bottom - gap - a.height, a.right, a.bottom - gap);
+      final pageBox = _page(page).cropBox;
+      target = below.bottom >= pageBox.bottom
+          ? below
+          : PdfRect(a.right + gap, a.bottom, a.right + gap + a.width, a.top);
+    }
+    final taken = field.onStates.toSet();
+    var state = onState;
+    if (state == null) {
+      var n = field.widgets.length + 1;
+      while (taken.contains('Choice$n')) {
+        n++;
+      }
+      state = 'Choice$n';
+    }
+    final chosen = state;
+    try {
+      final added = apply((e) {
+        final f = e.acroForm?.fieldNamed(name);
+        if (f != null) e.addRadioButton(f, page, target, chosen);
+      });
+      if (!added) return null;
+    } on ArgumentError {
+      return null;
+    } on StateError {
+      return null;
+    }
+    selectFormWidgetAt(
+      page,
+      (target.left + target.right) / 2,
+      (target.bottom + target.top) / 2,
+    );
+    return chosen;
+  }
+
+  /// Replaces the combo or list box [name]'s options with [options]
+  /// (export value, display text) pairs, and its Edit ([editable]) and
+  /// MultiSelect ([multiSelect]) flags when given
+  /// ([PdfEditor.setChoiceOptions]). Returns false when [name] is not a
+  /// choice field or nothing changed.
+  bool setFormFieldOptions(
+    String name,
+    List<(String, String)> options, {
+    bool? editable,
+    bool? multiSelect,
+  }) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null ||
+        (field.type != PdfFieldType.comboBox &&
+            field.type != PdfFieldType.listBox)) {
+      return false;
+    }
+    final flags = field.flags;
+    final sameOptions = listEquals(field.options, options);
+    final sameEditable = editable == null ||
+        field.type != PdfFieldType.comboBox ||
+        (flags & PdfFormField.editFlag != 0) == editable;
+    final sameMulti = multiSelect == null ||
+        field.type != PdfFieldType.listBox ||
+        (flags & PdfFormField.multiSelectFlag != 0) == multiSelect;
+    if (sameOptions && sameEditable && sameMulti) return false;
+    try {
+      return apply((e) {
+        final f = e.acroForm?.fieldNamed(name);
+        if (f != null) {
+          e.setChoiceOptions(f, options,
+              editable: editable, multiSelect: multiSelect);
+        }
+      });
+    } on ArgumentError {
+      return false;
+    }
   }
 
   /// Renames the field [name] to [newName]. Returns false when the
@@ -8879,11 +9031,7 @@ class PdfEditingController extends ChangeNotifier {
   bool changeFormFieldKind(String name, PdfFormFieldKind kind) {
     final field = acroForm?.fieldNamed(name);
     if (field == null) return false;
-    final type = switch (kind) {
-      PdfFormFieldKind.text => PdfFieldType.text,
-      PdfFormFieldKind.checkBox => PdfFieldType.checkBox,
-      PdfFormFieldKind.pushButton => PdfFieldType.pushButton,
-    };
+    final type = kind.fieldType;
     if (field.type == type) return false;
     final reselect = selectedWidgetFieldName == name;
     try {

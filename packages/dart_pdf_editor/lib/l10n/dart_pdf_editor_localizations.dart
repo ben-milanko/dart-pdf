@@ -3909,6 +3909,72 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Delete content — drag a rectangle, or click polygon vertices and double-click to finish'**
   String get tbTipContentDelete;
+
+  /// Form-field menu item that converts the field to a radio group.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to radio group'**
+  String get menuConvertToRadioGroup;
+
+  /// Form-field menu item that converts the field to a combo box (drop-down list).
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to combo box'**
+  String get menuConvertToComboBox;
+
+  /// Form-field menu item that converts the field to a list box.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to list box'**
+  String get menuConvertToListBox;
+
+  /// Form-field menu item that converts the field to an empty signature field.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to signature field'**
+  String get menuConvertToSignatureField;
+
+  /// Form-field menu item that opens the editor for a combo/list box's options.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit options…'**
+  String get menuEditOptions;
+
+  /// Form-field menu item that adds another button to the selected radio group.
+  ///
+  /// In en, this message translates to:
+  /// **'Add button to group'**
+  String get menuAddRadioButton;
+
+  /// Title of the dialog that edits a combo/list box's options.
+  ///
+  /// In en, this message translates to:
+  /// **'Field options'**
+  String get formOptionsTitle;
+
+  /// Options dialog column: the value saved when the option is chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Export value'**
+  String get formOptionsExportValue;
+
+  /// Options dialog column: the text shown to the person filling the form.
+  ///
+  /// In en, this message translates to:
+  /// **'Display text'**
+  String get formOptionsDisplayText;
+
+  /// Options dialog switch: a combo box accepts typed values not in the list.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow custom text'**
+  String get formOptionsAllowCustomText;
+
+  /// Options dialog switch: a list box allows several options to be chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow multiple selections'**
+  String get formOptionsMultiSelect;
 }
 
 class _DartPdfEditorLocalizationsDelegate

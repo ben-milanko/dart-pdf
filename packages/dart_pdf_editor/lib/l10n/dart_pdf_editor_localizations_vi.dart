@@ -2145,4 +2145,37 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tbTipContentDelete =>
       'Xóa nội dung — kéo hình chữ nhật hoặc nhấp các đỉnh đa giác rồi nhấp đúp để hoàn tất';
+
+  @override
+  String get menuConvertToRadioGroup => 'Chuyển thành nhóm nút chọn';
+
+  @override
+  String get menuConvertToComboBox => 'Chuyển thành hộp kết hợp';
+
+  @override
+  String get menuConvertToListBox => 'Chuyển thành hộp danh sách';
+
+  @override
+  String get menuConvertToSignatureField => 'Chuyển thành trường chữ ký';
+
+  @override
+  String get menuEditOptions => 'Sửa tùy chọn…';
+
+  @override
+  String get menuAddRadioButton => 'Thêm nút vào nhóm';
+
+  @override
+  String get formOptionsTitle => 'Tùy chọn trường';
+
+  @override
+  String get formOptionsExportValue => 'Giá trị xuất';
+
+  @override
+  String get formOptionsDisplayText => 'Văn bản hiển thị';
+
+  @override
+  String get formOptionsAllowCustomText => 'Cho phép văn bản tùy chỉnh';
+
+  @override
+  String get formOptionsMultiSelect => 'Cho phép chọn nhiều';
 }

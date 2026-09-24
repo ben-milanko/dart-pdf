@@ -406,6 +406,7 @@ class PdfFormField {
   static const requiredFlag = 2; // bit 2
   static const multilineFlag = 1 << 12; // bit 13
   static const passwordFlag = 1 << 13; // bit 14
+  static const noToggleToOffFlag = 1 << 14; // bit 15
   static const radioFlag = 1 << 15; // bit 16
   static const pushButtonFlag = 1 << 16; // bit 17
   static const comboFlag = 1 << 17; // bit 18

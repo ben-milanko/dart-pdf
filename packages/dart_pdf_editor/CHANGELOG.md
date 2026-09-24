@@ -7,6 +7,14 @@
   (which toggles an option on a multi-select box), and the form option menus
   show checkable items for those fields, each pick toggling one option.
 
+- The form tool creates radio groups, combo boxes, list boxes and empty
+  signature fields (#934): `PdfFormFieldKind` gains `radioGroup`,
+  `comboBox`, `listBox` and `signature`, and the new-field and field-type
+  menus list them. A selected radio group offers "Add button to group"
+  (`PdfEditingController.addFormRadioButton`), a selected choice field
+  "Edit options…" (`showPdfFormOptionsDialog` / `PdfFormOptionsEditor`,
+  applied through `setFormFieldOptions`), and every field converts to the
+  new kinds.
 - Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
   `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
   default sans, and Helvetica's advances are much wider than Calibri's - with

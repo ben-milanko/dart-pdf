@@ -628,5 +628,16 @@
   "splitFailed": "Impossible de scinder ce PDF.",
   "guidesSnapHint": "Aligner les bords et les centres des annotations • Maintenir Alt pour ignorer",
   "tbToolContentDelete": "Effacer",
-  "tbTipContentDelete": "Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer"
+  "tbTipContentDelete": "Supprimer du contenu : tracez un rectangle ou cliquez sur les sommets du polygone, puis double-cliquez pour terminer",
+  "menuConvertToRadioGroup": "Convertir en groupe de boutons radio",
+  "menuConvertToComboBox": "Convertir en liste déroulante",
+  "menuConvertToListBox": "Convertir en zone de liste",
+  "menuConvertToSignatureField": "Convertir en champ de signature",
+  "menuEditOptions": "Modifier les options…",
+  "menuAddRadioButton": "Ajouter un bouton au groupe",
+  "formOptionsTitle": "Options du champ",
+  "formOptionsExportValue": "Valeur d'exportation",
+  "formOptionsDisplayText": "Texte affiché",
+  "formOptionsAllowCustomText": "Autoriser un texte personnalisé",
+  "formOptionsMultiSelect": "Autoriser la sélection multiple"
 }
