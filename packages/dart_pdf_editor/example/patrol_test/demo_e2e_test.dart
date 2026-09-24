@@ -7,6 +7,8 @@ import 'package:pdf_document/pdf_document.dart' show PdfFormField;
 import 'package:pdf_viewer_example/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'patrol_support.dart';
+
 const _preferencePrefix = 'dart_pdf_editor.editing.';
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
 const _testPreferences = <String, Object>{
@@ -39,6 +41,7 @@ void main() {
   if (_buildCommit.isNotEmpty) {
     PdfPerfLog.buildTag = 'commit=$_buildCommit';
   }
+  guardPlatformSemanticsToggles();
 
   patrolTest('launches the demo and exercises PDF actions and overlays',
       ($) async {
