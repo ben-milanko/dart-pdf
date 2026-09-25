@@ -1596,6 +1596,14 @@
   "@sigTitle": {
     "description": "Title of the hand-drawn signature pad dialog."
   },
+  "sigUseTrackpad": "Use trackpad",
+  "@sigUseTrackpad": {
+    "description": "Signature pad button that starts drawing the signature with a finger on the laptop trackpad (like macOS Preview)."
+  },
+  "sigTrackpadHint": "Draw on your trackpad with one finger. Press any key when finished.",
+  "@sigTrackpadHint": {
+    "description": "Hint shown over the signature pad while trackpad drawing is active."
+  },
   "signIdCreate": "Create",
   "@signIdCreate": {
     "description": "Confirm button label in the create-signing-identity dialog."

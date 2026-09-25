@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count}개 선택됨} other{{count}개 선택됨}}",
   "sidebarWriteReplyHint": "답글 작성…",
   "sigTitle": "서명",
+  "sigUseTrackpad": "트랙패드 사용",
+  "sigTrackpadHint": "한 손가락으로 트랙패드에 그리세요. 완료되면 아무 키나 누르세요.",
   "signIdCreate": "만들기",
   "signIdEmail": "이메일(선택 사항)",
   "signIdName": "이름",

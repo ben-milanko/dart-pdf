@@ -1209,6 +1209,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get sigTitle => 'İmza';
 
   @override
+  String get sigUseTrackpad => 'İzleme dörtgenini kullan';
+
+  @override
+  String get sigTrackpadHint =>
+      'İzleme dörtgeninde tek parmakla çizin. Bitirdiğinizde herhangi bir tuşa basın.';
+
+  @override
   String get signIdCreate => 'Oluştur';
 
   @override

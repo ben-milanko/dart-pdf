@@ -16,6 +16,7 @@ import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 import 'tab_drag.dart';
+import 'trackpad_signature.dart';
 import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -54,6 +55,10 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // keeps the full-featured editor. A viewer-only app would drop the
     // dart_pdf_editor_assets dependency and this call to save the ~1.7 MB.
     registerBundledEditorAssets();
+    // Preview-style "draw your signature on the trackpad" in the signature
+    // pad on macOS, Windows and Android (the runners supply the absolute
+    // finger positions).
+    PlatformTrackpadSignatureCapture.installIfSupported();
     // Competitive-harness-only zero-copy presentation experiment. Keeping it
     // URL-gated means normal users and correctness suites stay on the complete
     // SkWasm renderer while `PERF_DART_QUERY=domSurface=1` can A/B the worker-

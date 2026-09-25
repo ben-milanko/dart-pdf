@@ -1229,6 +1229,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get sigTitle => 'التوقيع';
 
   @override
+  String get sigUseTrackpad => 'استخدام لوحة التتبع';
+
+  @override
+  String get sigTrackpadHint =>
+      'ارسم على لوحة التتبع بإصبع واحد. اضغط أي مفتاح عند الانتهاء.';
+
+  @override
   String get signIdCreate => 'إنشاء';
 
   @override

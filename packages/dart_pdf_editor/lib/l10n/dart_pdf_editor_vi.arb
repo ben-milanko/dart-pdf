@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{Đã chọn {count}} other{Đã chọn {count}}}",
   "sidebarWriteReplyHint": "Viết câu trả lời…",
   "sigTitle": "Chữ ký",
+  "sigUseTrackpad": "Dùng bàn di chuột",
+  "sigTrackpadHint": "Vẽ trên bàn di chuột bằng một ngón tay. Nhấn phím bất kỳ khi hoàn tất.",
   "signIdCreate": "Tạo",
   "signIdEmail": "Email (tùy chọn)",
   "signIdName": "Tên",

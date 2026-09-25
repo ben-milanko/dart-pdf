@@ -1207,6 +1207,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get sigTitle => 'ลายเซ็น';
 
   @override
+  String get sigUseTrackpad => 'ใช้แทร็กแพด';
+
+  @override
+  String get sigTrackpadHint =>
+      'วาดบนแทร็กแพดด้วยนิ้วเดียว กดปุ่มใดก็ได้เมื่อเสร็จ';
+
+  @override
   String get signIdCreate => 'สร้าง';
 
   @override

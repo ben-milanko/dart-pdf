@@ -1207,6 +1207,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get sigTitle => 'हस्ताक्षर';
 
   @override
+  String get sigUseTrackpad => 'ट्रैकपैड का उपयोग करें';
+
+  @override
+  String get sigTrackpadHint =>
+      'एक उंगली से अपने ट्रैकपैड पर बनाएँ। पूरा होने पर कोई भी कुंजी दबाएँ।';
+
+  @override
   String get signIdCreate => 'बनाएँ';
 
   @override

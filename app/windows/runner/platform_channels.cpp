@@ -1,5 +1,6 @@
 #include "platform_channels.h"
 
+#include <flutter/event_stream_handler_functions.h>
 #include <flutter/standard_method_codec.h>
 
 #include <cstdint>
@@ -29,6 +30,10 @@ constexpr char kFileDialogChannelName[] =
     "dev.milanko.dartpdf/file_dialogs";
 constexpr char kFileAccessChannelName[] =
     "dev.milanko.dartpdf/file_access";
+constexpr char kTrackpadSignatureChannelName[] =
+    "dev.milanko.dartpdf/trackpad_signature";
+constexpr char kTrackpadSignatureSupportChannelName[] =
+    "dev.milanko.dartpdf/trackpad_signature_support";
 
 const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
                                       const char* key) {
@@ -409,6 +414,65 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
         result->Success(
             flutter::EncodableValue(dart_pdf::RevealFileInExplorer(path)));
       });
+
+  // Preview-style trackpad signatures: Precision Touchpad contacts streamed
+  // while the signature pad listens (see trackpad_signature.h).
+  trackpad_support_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kTrackpadSignatureSupportChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  trackpad_support_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "isAvailable") {
+          result->NotImplemented();
+          return;
+        }
+        result->Success(flutter::EncodableValue(
+            dart_pdf::TrackpadSignatureCapture::IsAvailable()));
+      });
+  trackpad_channel_ =
+      std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
+          messenger, kTrackpadSignatureChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  trackpad_channel_->SetStreamHandler(
+      std::make_unique<
+          flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
+          [this](const flutter::EncodableValue* arguments,
+                 std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&
+                     events)
+              -> std::unique_ptr<
+                  flutter::StreamHandlerError<flutter::EncodableValue>> {
+            trackpad_sink_ = std::move(events);
+            const bool started = trackpad_capture_.Start(
+                [this](const char* phase, double x, double y) {
+                  if (!trackpad_sink_) return;
+                  trackpad_sink_->Success(
+                      flutter::EncodableValue(flutter::EncodableMap{
+                          {flutter::EncodableValue(std::string("phase")),
+                           flutter::EncodableValue(std::string(phase))},
+                          {flutter::EncodableValue(std::string("x")),
+                           flutter::EncodableValue(x)},
+                          {flutter::EncodableValue(std::string("y")),
+                           flutter::EncodableValue(y)},
+                      }));
+                });
+            if (!started) {
+              // Nothing to capture from: end the stream so the pad leaves
+              // trackpad mode straight away.
+              auto sink = std::move(trackpad_sink_);
+              sink->EndOfStream();
+            }
+            return nullptr;
+          },
+          [this](const flutter::EncodableValue* arguments)
+              -> std::unique_ptr<
+                  flutter::StreamHandlerError<flutter::EncodableValue>> {
+            trackpad_capture_.Stop();
+            trackpad_sink_.reset();
+            return nullptr;
+          }));
 }
 
 void DartPdfPlatformChannels::DeliverFileToFlutter(
