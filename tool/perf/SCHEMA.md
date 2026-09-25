@@ -60,6 +60,28 @@ Rules:
 - `tool/perf/targets.json` holds aspirational per-scenario budgets checked
   against `metrics` — informational only, never a gate.
 
+## `nightly-verdicts.jsonl` (perf-data only)
+
+perf-nightly appends one record per measured night to
+`history/nightly-verdicts.jsonl` on the `perf-data` branch. It is `.jsonl`,
+not `.ndjson`, because it is not an envelope: the dashboard skips it when
+loading envelopes and draws its verdict table (and the red rings on the
+charts) from it.
+
+```jsonc
+{
+  "date": "2026-09-27T04:02:11Z",
+  "sha": "...",          // the commit measured tonight = tomorrow's baseline
+  "prevSha": "...",      // the nightly ratio check's baseline, or null
+  "acceptedSha": null,   // tool/perf/baselines/nightly-accepted.sha when the
+                         // weekly check ran
+  "verdict": "regressed", // ok | regressed | error
+  "checks": { "nightly": "regressed", "accepted": "not-run" },
+                         // ok | regressed | error | skipped | not-run
+  "runId": "..."
+}
+```
+
 Producers: `packages/pdf_graphics/tool/perf_sweep.dart` (vm-sweep),
 `packages/pdf_graphics/tool/benchmark_interpret.dart` (vm-interpret),
 `benchmark/pdfium_benchmark.py` (pdfium),

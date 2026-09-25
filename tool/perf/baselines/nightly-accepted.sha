@@ -1,0 +1,16 @@
+# The accepted baseline of perf-nightly's weekly ratio check
+# (.github/workflows/perf-nightly.yml): on Sundays, or on a dispatch with
+# check_accepted, HEAD is re-measured against this commit on the same runner
+# and the job fails on a >15% median regression. The nightly check's baseline
+# moves every night; this one only moves in a reviewed PR - bump it when a
+# cost is deliberately accepted, and say why in that PR (the counterpart of
+# `tool/perf.sh gate --update-baseline` for counters.json).
+#
+# 812f8e5d = #755 (GWG Output Suite V5 conformance). It takes in #602's
+# colorant buffer, whose cost is accepted in
+# doc/dev-log/2026-07-25-overprint-colorant-buffer.md, and #755's own
+# OutputIntent/overprint cost, which is still open (#956 took back its
+# glyph-outline share): a fix for it reads as "improved" here, and anything
+# that lands after it is judged on its own. See
+# doc/dev-log/2026-09-26-perf-nightly-ratchet.md.
+812f8e5d51fb31d3ef8e9efa655b886c65b6ad6c

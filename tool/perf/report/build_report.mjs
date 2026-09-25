@@ -55,6 +55,21 @@ if (existsSync(historyDir)) {
 const whenOf = (r) => String(r.rev?.date ?? r.ts ?? '');
 runs.sort((a, b) => whenOf(a).localeCompare(whenOf(b)));
 
+// perf-nightly's per-night verdicts (nightly-verdicts.jsonl - .jsonl so the
+// envelope loader above skips it): {date, sha, prevSha, verdict, checks}.
+const verdicts = [];
+const verdictsPath = join(historyDir, 'nightly-verdicts.jsonl');
+if (existsSync(verdictsPath)) {
+  for (const line of readFileSync(verdictsPath, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try { verdicts.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
+  }
+}
+// Commits a nightly judged red: their points get a ring on every chart.
+const redShas = new Set(verdicts
+  .filter((v) => v.verdict && v.verdict !== 'ok')
+  .map((v) => v.sha));
+
 const groups = new Map(); // "suite / scenario" -> runs
 for (const r of runs) {
   const key = `${r.suite ?? r.tool ?? 'unknown'}${r.scenario ? ` · ${r.scenario}` : ''}`;
@@ -95,6 +110,9 @@ function chart(metric, series, budget) {
   const hover = series.map((p, i) =>
     `<circle class="hit" cx="${x(i)}" cy="${y(p.v)}" r="8"><title>${esc(p.label)}</title></circle>`
   ).join('');
+  const red = series.map((p, i) => p.red
+    ? `<circle class="red" cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"/>`
+    : '').join('');
 
   return `<figure class="chart${miss ? ' miss' : ''}">
   <figcaption>${esc(metric)}
@@ -105,7 +123,7 @@ function chart(metric, series, budget) {
     ${gridLines}${budgetLine}
     <polyline class="line" points="${pts.join(' ')}"/>
     <circle class="dot" cx="${x(series.length - 1)}" cy="${y(last.v)}" r="3.5"/>
-    ${hover}
+    ${red}${hover}
     <text class="axis" x="${PL}" y="${H - 6}">${esc(series[0].date)}</text>
     <text class="axis" x="${W - PR}" y="${H - 6}" text-anchor="end">${esc(last.date)}</text>
   </svg>
@@ -201,6 +219,34 @@ const tilesHtml = tiles.filter(Boolean).length
   ? `<div class="tiles">${tiles.filter(Boolean).join('\n')}</div>`
   : '';
 
+// ---- Nightly verdicts -------------------------------------------------------
+// The last two weeks of perf-nightly checks, newest first: which commit, what
+// it was compared against, and how each check came out.
+let verdictsHtml = '';
+if (verdicts.length) {
+  const short = (s) => (s ? String(s).slice(0, 8) : '—');
+  const cell = (state) => {
+    const s = state ?? '—';
+    const cls = s === 'ok' ? 'pass' : s === 'regressed' || s === 'error' ? 'fail' : '';
+    return `<td class="${cls}">${esc(s)}</td>`;
+  };
+  const rows = verdicts.slice(-14).reverse().map((v) => `<tr>
+    <td>${esc(String(v.date ?? '').slice(0, 10))}</td>
+    <td><code>${esc(short(v.sha))}</code></td>
+    <td><code>${esc(short(v.prevSha))}</code></td>
+    ${cell(v.checks?.nightly)}${cell(v.checks?.accepted)}
+    ${cell(v.verdict)}</tr>`).join('');
+  verdictsHtml = `<section>
+  <h2>Nightly verdicts</h2>
+  <p class="meta">perf-nightly's checks per night: the VM ratio check vs the previous
+    nightly and the weekly one vs tool/perf/baselines/nightly-accepted.sha.
+    Red nights are ringed on the charts below.</p>
+  <table><thead><tr><th>night</th><th>commit</th><th>vs</th><th>nightly</th>
+    <th>accepted</th><th>verdict</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+</section>`;
+}
+
 // ---- Sections --------------------------------------------------------------
 let sections = '';
 for (const [key, groupRuns] of groups) {
@@ -226,7 +272,8 @@ for (const [key, groupRuns] of groups) {
       .map((r) => ({
         v: r.metrics[metric],
         date: whenOf(r).slice(0, 10),
-        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}`,
+        red: redShas.has(r.rev?.sha),
+        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}${redShas.has(r.rev?.sha) ? '  (nightly: red)' : ''}`,
       }));
     if (series.length === 0) return '';
     return chart(metric, series, scenarioTargets[metric]?.max);
@@ -310,6 +357,7 @@ const html = `<!doctype html>
   .line { fill: none; stroke: var(--series-1); stroke-width: 2;
     stroke-linejoin: round; stroke-linecap: round; }
   .dot { fill: var(--series-1); }
+  .red { fill: none; stroke: var(--fail); stroke-width: 1.5; }
   .grid { stroke: var(--grid); stroke-width: 1; }
   .budget { stroke: var(--budget); stroke-width: 1; stroke-dasharray: 4 3; }
   .axis { fill: var(--text-secondary); font-size: 9px; }
@@ -345,6 +393,7 @@ const html = `<!doctype html>
     ${runs.length} runs on record · budgets from tool/perf/targets.json
     (aspirational targets, never PR gates)</p>
   ${tilesHtml}
+  ${verdictsHtml}
   ${sections}
 </div>
 </body>
