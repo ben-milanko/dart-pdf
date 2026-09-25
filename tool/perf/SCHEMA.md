@@ -78,8 +78,10 @@ charts) from it.
   "date": "2026-09-27T04:02:11Z",
   "sha": "...",          // the commit measured tonight = tomorrow's baseline
   "prevSha": "...",      // the nightly ratio check's baseline, or null
-  "acceptedSha": null,   // tool/perf/baselines/nightly-accepted.sha when the
-                         // weekly check ran
+  "acceptedSha": null,   // the commit tool/perf/baselines/nightly-accepted.sha
+                         // names, when the weekly check ran (null if the
+                         // file named no single commit: checks.accepted is
+                         // then "error")
   "verdict": "regressed", // ok | regressed | error
   "checks": { "nightly": "ok", "accepted": "not-run",
               "renderTrend": "regressed" }, // ok | regressed | error |

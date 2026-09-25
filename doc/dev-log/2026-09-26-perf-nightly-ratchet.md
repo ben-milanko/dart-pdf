@@ -44,15 +44,23 @@ anything new. This session makes it a per-night signal again.
    the nightly writes that file, whereas perf-backfill appends OLD commits
    to the envelope history, so the envelope tail can't be trusted. Until
    the verdict file exists it falls back to the vm-sweep tail.
-2. **Sweeps** (`id: sweeps`), unchanged.
-3. **Ratio checks** (`id: ratio`, `continue-on-error: true`). The `nightly`
-   check runs against the previous nightly. The `accepted` check runs
-   against `tool/perf/baselines/nightly-accepted.sha`, on Sundays
-   (`date -u +%u` = 7) or when the `check_accepted` dispatch input is set.
+2. **Sweeps** (`id: sweeps`), unchanged apart from a step timeout.
+3. **Ratio checks**, one step per baseline, both `continue-on-error: true`
+   and both running `tool/perf/nightly_ratio_check.sh`:
+   - `id: ratio` checks against the previous nightly.
+   - `id: accepted` checks against `tool/perf/baselines/nightly-accepted.sha`
+     on Sundays (`date -u +%u` = 7) or when the `check_accepted` dispatch
+     input is set, and records `not-run` otherwise.
+
    Each check records `ok|regressed|error|skipped` as a step output.
-   perf_diff's exit 1 counts as `regressed`; any other failure counts as
-   `error`. `ghent-suite-open` now runs 4 interleaved iterations instead of
-   2, because it carries firstPageMs, which is a few ms per file.
+   `regressed` needs perf_diff's `VERDICT: REGRESSED` line as well as its
+   exit 1, because perf_diff.sh also exits 1 when a side produced no
+   envelopes (merge_runs.dart) or a `set -e` command fails. Any other
+   failure is `error`. An empty or unknown previous-nightly sha is
+   `skipped`, but a `nightly-accepted.sha` that does not name exactly one
+   commit is `error`, so a typo can't quietly turn the weekly check off.
+   `ghent-suite-open` now runs 4 interleaved iterations instead of 2,
+   because it carries firstPageMs, which is a few ms per file.
    `save-incremental` stays at 2.
 4. **Render trend** (`id: render_trend`, `continue-on-error: true`). This
    runs `tool/perf/render_trend.dart` on tonight's
@@ -62,7 +70,9 @@ anything new. This session makes it a per-night signal again.
    `{date, sha, prevSha, acceptedSha, verdict, checks{nightly, accepted,
    renderTrend}, runId}`. It runs only when the sweeps succeeded.
 6. **Upload tonight's envelopes** (`if: always()`, 90 days), so a failed
-   append no longer loses a night.
+   append no longer loses a night. The artifact name carries
+   `github.run_attempt`, because a re-run keeps the run id and
+   upload-artifact refuses a duplicate name.
 7. **Append** (`if: !cancelled() && steps.sweeps.outcome == 'success'`). It
    also appends the verdict line to perf-data's
    `history/nightly-verdicts.jsonl` and puts the verdict in the commit
@@ -70,9 +80,32 @@ anything new. This session makes it a per-night signal again.
    sweep, that would append partial history and make an unmeasured commit
    the next night's baseline.
 8. **Fail on a red verdict.** This is the last step, so a red night still
-   emails the maintainer after the history is safe. `timeout-minutes` goes
-   from 90 to 150. Going by the 09-24 log timings, a weekday is about 66
-   min and a Sunday with both baselines about 110 min.
+   emails the maintainer after the history is safe.
+
+**Timeouts.** A job timeout is a cancellation, and the append is
+`!cancelled()`, so a job that times out loses the night. That makes it the
+one failure this design must never hit. Every step from the sweeps through
+the append has its own `timeout-minutes`: sweeps 45, each ratio check 80,
+render trend 10, verdict 5, upload 10, append 15. A check that runs past
+its own limit fails its step, `continue-on-error` absorbs it, the verdict
+records `error`, and the history still lands. The job's limit (270, under
+the hosted runner's 360) covers the sum of those step limits plus 20 min
+of setup, which is measured at under 1.5 min. `tool/perf/nightly_test.dart`
+holds the workflow to that budget.
+
+The runtime projection comes from the 68 logged nights 07-20..09-25:
+
+- Sweeps take 15-28 min.
+- One side run takes about 2.4-4.6 min for save-incremental and 2.7-5.2
+  min for ghent-suite-open. That puts one baseline's check (2+2 and 4+4
+  side runs) at about 32-60 min, median 52.
+- **A weekday runs about 49-90 min, median about 80. A Sunday with both
+  baselines runs about 81-150 min, median about 131.**
+
+The first cut of this change set the job to 150 min with no step limits,
+and its figures (66 and 110 min) came from the fast 09-24 night. On the
+slowest logged night a Sunday projects to about 150 min, right at that
+limit, so a slow Sunday would have timed the job out mid-check.
 
 Also changed:
 
@@ -81,10 +114,13 @@ Also changed:
   counters.json and `--update-baseline`. It is the first commit past both
   known steps. #602's cost is accepted in its dev-log. #755's
   OutputIntent/first-page cost is still open, so a fix for it will read
-  "improved" and everything after it is judged. Expect the weekly
-  interpretMs to read about 1.07-1.12x from #811/#812 (1.07x in a local
-  A/B, about 1.12x on the CI nights). Bump the file past them if they are
-  accepted.
+  "improved" and everything after it is judged. #956 (glyph outline paths
+  built only where they are read) already takes back part of #755's
+  interpret cost, so it reads "improved" here. #811/#812 push the other
+  way, about 1.07-1.12x interpretMs on small overprint pages (1.07x in a
+  local A/B, about 1.12x on the CI nights), so the first Sunday's
+  interpretMs is the net of the two. Bump the file past #811/#812 if they
+  are accepted.
 - `tool/perf/render_trend.dart` + `render_trend_test.dart` (wired into
   ci.yml next to the other tool tests). Per scenario:
   - Each file's baseline is the median of its renderMs over up to 5 prior
@@ -97,6 +133,17 @@ Also changed:
   - Nights are ordered by commit date, then ts, like the dashboard, so
     backfilled points sit where they belong.
   - `--replay <history>` prints every night's verdict.
+  - **The reset has a price.** The night after a flag is judged against
+    that one night alone. If the flag was a noise spike, a real step no
+    bigger than the spike that lands in the next night or two reads about
+    1.0x and is absorbed without its own flag. A spike that just recedes
+    is harmless: the next night reads "improved", and the spike drops out
+    of the median as nights accumulate. A spike followed by a step can't be
+    told apart from a step that held, and without the reset every real step
+    flags three nights running, so the reset stays. None of the 277
+    replayed verdicts was a noise flag (the noisiest unflagged night was
+    1.22x). If a flagged night looks like noise, watch the dashboard for
+    the next two nights. render_trend_test.dart pins both behaviours.
 - Envelope `env` gains `flutter` (from `PDF_PERF_FLUTTER_VERSION`, which
   nightly.sh exports from `flutter --version --machine`) and `runnerImage`
   (`$ImageOS/$ImageVersion`, set on hosted runners). These go in
@@ -108,17 +155,21 @@ Also changed:
   table for the last 14 nights, rings red nights' points on every chart,
   and puts the Flutter version and runner image in each section's meta
   line. With no verdict file its output is unchanged apart from one CSS
-  rule.
+  rule. Both loaders skip a line that parses to something other than an
+  object (`null`, a number, an array). Before, a `null` line threw a
+  TypeError, and because the page is rebuilt in the step that commits the
+  history, one bad line would have frozen perf-data again every night.
 
 ## Evidence
 
-- **Workflow emulation (27 checks, all pass).** A small emulator ran the
+- **Workflow emulation (32 checks, all pass).** A small emulator ran the
   real YAML's `run:` scripts with `bash -eo pipefail` in step order. It
   honoured `if:` (with the implicit `success()`), `continue-on-error`,
-  step `env:` expressions, `$GITHUB_OUTPUT` and the step summary. The runs
-  used a throwaway repo (a bare origin with main + perf-data frozen like
-  today, and a fresh clone per night) with stub `nightly.sh`,
-  `perf_diff.sh` and `date`. Results:
+  step `env:` expressions, `$GITHUB_OUTPUT`, the step summary, and step
+  and job `timeout-minutes` scaled to 0.5 s per minute. A job timeout
+  cancels the job. The runs used a throwaway repo (a bare origin with
+  main + perf-data frozen like today, and a fresh clone per night) with
+  stub `nightly.sh`, `perf_diff.sh` and `date`. Results:
   - Nightly regressed: the job goes red in its last step, the history and
     a `regressed` verdict line are appended, and the artifact is uploaded.
     The next night compares against that night's commit, not the frozen
@@ -130,7 +181,15 @@ Also changed:
     does not.
   - Render step: red once. The next night is judged against the new level
     and is green.
-  - A perf_diff error: recorded as `error`, not `regressed`.
+  - A perf_diff error, including exit 1 with no verdict line: recorded
+    as `error`, not `regressed`.
+  - A typo in `nightly-accepted.sha` on a Sunday: `error`, red, nothing
+    measured.
+  - A slow Sunday (every perf_diff call 50 min): the accepted check runs
+    past its 80-min step limit and records `error`, and the verdict and
+    history are appended. The pre-fix version of this workflow (one ratio
+    step, no step limits, 150-min job) times out mid-check in the same
+    run, and perf-data is untouched.
   - Failed sweep or cancellation: perf-data is untouched. The upload still
     runs.
   - The origin/main workflow under the same stubs reproduces the bug: the
@@ -149,8 +208,19 @@ Also changed:
   - First night after this lands, with history frozen at 07-25 and 09-23's
     envelopes: ghent-render 7.65x is red. jbig2 is skipped because it has
     no history before 07-26. The next night reads 0.92x.
+- **`tool/perf/nightly_test.dart` (25 checks, in ci.yml).** It runs
+  nightly_ratio_check.sh against a stub perf_diff in a throwaway git repo,
+  holds the workflow to its timeout budget, and feeds build_report.mjs
+  `null`/array/number lines. Reverting any one of the fixes fails it:
+  - mapping every exit 1 to `regressed` fails 1 check;
+  - the old concatenate-and-skip reading of the sha file fails 4;
+  - dropping the ratio steps' timeouts fails 1, and so does a 200-min job
+    limit;
+  - the old loaders fail 2;
+  - the old artifact name fails 1.
 - **Lint.** actionlint (with shellcheck) is clean on the workflow.
-  shellcheck is clean on nightly.sh. PyYAML parses the workflow.
+  shellcheck is clean on nightly.sh and nightly_ratio_check.sh. PyYAML
+  parses the workflow.
 
 ## Expect after merge
 
@@ -166,6 +236,12 @@ Also changed:
 
 - `continue-on-error` makes `steps.X.conclusion` success while
   `steps.X.outcome` stays failure. Gate on `outcome`.
+- A step that runs past its own `timeout-minutes` is marked Failed, and
+  the runner then applies `continue-on-error` as it would for any other
+  failure (`ApplyContinueOnError` in actions/runner). Outputs the step
+  wrote before it was killed are kept, because the file commands are
+  processed in a `finally`. A **job** timeout is different: it cancels
+  the job, and every `!cancelled()` step is skipped.
 - The verdict file is `.jsonl` on purpose. build_report.mjs charts every
   `*.ndjson` line as an envelope, so a verdict line there would show up as
   an "unknown" section.
@@ -184,6 +260,7 @@ Also changed:
 ## Files
 
 `.github/workflows/perf-nightly.yml`, `.github/workflows/ci.yml`,
+`tool/perf/nightly_ratio_check.sh`, `tool/perf/nightly_test.dart`,
 `tool/perf/render_trend.dart`, `tool/perf/render_trend_test.dart`,
 `tool/perf/baselines/nightly-accepted.sha`, `tool/perf/nightly.sh`,
 `tool/perf/report/build_report.mjs`, `tool/perf/SCHEMA.md`,

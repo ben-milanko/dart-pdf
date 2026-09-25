@@ -3,8 +3,9 @@
 # Wall-time numbers from a shared runner are only comparable within one job,
 # so VM regressions are judged by the BASELINE-RERUN RATIO CHECK: a baseline
 # commit is checked out into a worktree and re-measured on this same runner,
-# interleaved with the current tree (tool/perf/perf_diff.sh), and a >15%
-# median regression is red. Two baselines:
+# interleaved with the current tree (tool/perf/nightly_ratio_check.sh, over
+# tool/perf/perf_diff.sh), and a >15% median regression is red. Two baselines,
+# each in its own step:
 #   - nightly: the previous nightly's commit. A regression is red on the night
 #     it lands, naming its own commit range, and is the baseline from the next
 #     night on.
@@ -43,9 +44,17 @@ concurrency:
 jobs:
   nightly:
     runs-on: ubuntu-latest
-    # Sweeps ~25 min, then ~40 min of ratio checks per baseline (two on
-    # Sundays).
-    timeout-minutes: 150
+    # A job timeout is a cancellation, which skips the append below and loses
+    # the night, so it must never be what stops a slow check. Every step from
+    # the sweeps through the append has its own timeout-minutes (a check that
+    # runs out of time fails its step, is recorded as `error`, and the history
+    # still lands), and the job allows their sum plus 20 min of setup:
+    # 45 + 80 + 80 + 10 + 5 + 10 + 15 + 20 = 265 (tool/perf/nightly_test.dart
+    # holds the workflow to that). Over the 68 logged nights 07-20..09-25 the
+    # sweeps took 15-28 min and one baseline's ratio check projects to 32-60
+    # min at these iteration counts: a weekday runs ~50-90 min, a Sunday
+    # (two baselines) ~80-150 min.
+    timeout-minutes: 270
     steps:
       - uses: actions/checkout@v7
         with:
@@ -86,61 +95,34 @@ jobs:
 
       - name: Run CI-safe scenario sweeps
         id: sweeps
+        timeout-minutes: 45
         run: tool/perf/nightly.sh out/perf-history
 
-      # continue-on-error: a red verdict must not skip the append below. The
-      # last step turns the job red instead.
-      - name: Baseline-rerun ratio checks
+      # continue-on-error: a red verdict - or a check that runs out its
+      # timeout-minutes, which fails the step the same way - must not skip the
+      # append below. The last step turns the job red instead.
+      - name: Ratio check vs the previous nightly
         id: ratio
         continue-on-error: true
+        timeout-minutes: 80
         env:
           PREV_SHA: ${{ steps.prev.outputs.sha }}
+        run: tool/perf/nightly_ratio_check.sh nightly "$PREV_SHA"
+
+      - name: Ratio check vs the accepted baseline (Sundays)
+        id: accepted
+        continue-on-error: true
+        timeout-minutes: 80
+        env:
           CHECK_ACCEPTED: ${{ inputs.check_accepted }}
         run: |
-          set +e
-          status=0
-          # ratio_check <label> <sha>: both VM scenarios against one baseline;
-          # sets <label>=ok|regressed|error|skipped in the step outputs.
-          ratio_check() {
-            local label="$1" sha="$2" verdict=ok rc scenario iterations
-            if [ -z "$sha" ] || ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-              echo "$label: no usable baseline commit - skipped"
-              echo "$label=skipped" >> "$GITHUB_OUTPUT"
-              return
-            fi
-            if [ "$(git rev-parse "$sha")" = "$(git rev-parse HEAD)" ]; then
-              echo "$label: baseline is HEAD (no new commits) - skipped"
-              echo "$label=skipped" >> "$GITHUB_OUTPUT"
-              return
-            fi
-            echo "$label: ratio check vs $sha (same-runner, interleaved)"
-            for scenario in save-incremental ghent-suite-open; do
-              # ghent-suite-open carries firstPageMs, a few ms per file: two
-              # interleaved runs are too thin for it night over night.
-              iterations=2
-              [ "$scenario" = ghent-suite-open ] && iterations=4
-              tool/perf/perf_diff.sh "$sha" "$scenario" \
-                --iterations "$iterations" --threshold 1.15 --clean
-              rc=$?
-              if [ "$rc" = 1 ]; then
-                verdict=regressed
-              elif [ "$rc" != 0 ] && [ "$verdict" = ok ]; then
-                verdict=error
-              fi
-            done
-            echo "$label: $verdict"
-            echo "$label=$verdict" >> "$GITHUB_OUTPUT"
-            [ "$verdict" = ok ] || status=1
-          }
-          ratio_check nightly "$PREV_SHA"
           if [ "$(date -u +%u)" = 7 ] || [ "$CHECK_ACCEPTED" = true ]; then
-            accepted=$(sed 's/#.*//' tool/perf/baselines/nightly-accepted.sha | tr -d '[:space:]')
-            echo "accepted_sha=$accepted" >> "$GITHUB_OUTPUT"
-            ratio_check accepted "$accepted"
+            tool/perf/nightly_ratio_check.sh accepted \
+              --sha-file tool/perf/baselines/nightly-accepted.sha
           else
+            echo "accepted: runs on Sundays or with the check_accepted input - not tonight"
             echo "accepted=not-run" >> "$GITHUB_OUTPUT"
           fi
-          exit "$status"
 
       # Tonight's flutter-render envelopes vs the previous nights' (suite
       # median of per-file renderMs ratios against the median of up to 5 prior
@@ -149,6 +131,7 @@ jobs:
       - name: Render trend check vs the previous nights
         id: render_trend
         continue-on-error: true
+        timeout-minutes: 10
         run: |
           set +e
           prior="$RUNNER_TEMP/flutter-render-prior.ndjson"
@@ -172,12 +155,14 @@ jobs:
       - name: Record tonight's verdict
         id: verdict
         if: ${{ !cancelled() && steps.sweeps.outcome == 'success' }}
+        timeout-minutes: 5
         env:
           PREV_SHA: ${{ steps.prev.outputs.sha }}
           NIGHTLY: ${{ steps.ratio.outputs.nightly }}
-          ACCEPTED: ${{ steps.ratio.outputs.accepted }}
-          ACCEPTED_SHA: ${{ steps.ratio.outputs.accepted_sha }}
           RATIO_OUTCOME: ${{ steps.ratio.outcome }}
+          ACCEPTED: ${{ steps.accepted.outputs.accepted }}
+          ACCEPTED_SHA: ${{ steps.accepted.outputs.accepted_sha }}
+          ACCEPTED_OUTCOME: ${{ steps.accepted.outcome }}
           TREND: ${{ steps.render_trend.outputs.verdict }}
           TREND_OUTCOME: ${{ steps.render_trend.outcome }}
           RUN_ID: ${{ github.run_id }}
@@ -187,11 +172,11 @@ jobs:
           import datetime, json, os, subprocess
           env = os.environ
           def died(outcome):
-              # A step that failed before recording its own verdict.
+              # A step that failed (or timed out) before recording its verdict.
               return 'error' if outcome == 'failure' else 'skipped'
           checks = {
               'nightly': env.get('NIGHTLY') or died(env.get('RATIO_OUTCOME')),
-              'accepted': env.get('ACCEPTED') or died(env.get('RATIO_OUTCOME')),
+              'accepted': env.get('ACCEPTED') or died(env.get('ACCEPTED_OUTCOME')),
               'renderTrend': env.get('TREND') or died(env.get('TREND_OUTCOME')),
           }
           states = set(checks.values())
@@ -218,11 +203,14 @@ jobs:
 
       # The night's envelopes survive even if the append below fails; before
       # this, the only copy of a red night was the (90-day) Actions log.
+      # The name carries the attempt: a re-run keeps the run id, and
+      # upload-artifact refuses a second artifact of the same name in one run.
       - name: Upload tonight's envelopes
         if: always()
+        timeout-minutes: 10
         uses: actions/upload-artifact@v7
         with:
-          name: perf-history-${{ github.run_id }}
+          name: perf-history-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             out/perf-history/
             out/nightly-verdict.jsonl
@@ -234,6 +222,7 @@ jobs:
       # next night's baseline.
       - name: Append history + rebuild dashboard on perf-data
         if: ${{ !cancelled() && steps.sweeps.outcome == 'success' }}
+        timeout-minutes: 15
         env:
           VERDICT: ${{ steps.verdict.outputs.verdict }}
         run: |
@@ -263,10 +252,11 @@ jobs:
           git push origin HEAD:perf-data
 
       - name: Fail on a red verdict
-        if: ${{ !cancelled() && (steps.ratio.outcome == 'failure' || steps.render_trend.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.ratio.outcome == 'failure' || steps.accepted.outcome == 'failure' || steps.render_trend.outcome == 'failure') }}
+        timeout-minutes: 5
         env:
           NIGHTLY: ${{ steps.ratio.outputs.nightly }}
-          ACCEPTED: ${{ steps.ratio.outputs.accepted }}
+          ACCEPTED: ${{ steps.accepted.outputs.accepted }}
           TREND: ${{ steps.render_trend.outputs.verdict }}
         run: |
           echo "::error::perf-nightly: nightly=${NIGHTLY:-error} accepted=${ACCEPTED:-error} renderTrend=${TREND:-error} - see the check steps above; tonight's history was still recorded"

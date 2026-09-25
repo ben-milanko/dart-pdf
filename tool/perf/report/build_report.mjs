@@ -38,14 +38,26 @@ const targets = existsSync(targetsPath)
   : {};
 
 // ---- Load history ----------------------------------------------------------
+// A line that parses to something other than an object (`null`, a number, an
+// array) is skipped like a corrupt one: perf-nightly rebuilds this page in
+// the step that commits the history, so a throw here would freeze perf-data
+// until someone hand-fixed the file.
+const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+function readRecords(path) {
+  const records = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let v;
+    try { v = JSON.parse(line); } catch { continue; /* skip corrupt line */ }
+    if (isRecord(v)) records.push(v);
+  }
+  return records;
+}
 const runs = [];
 if (existsSync(historyDir)) {
   for (const f of readdirSync(historyDir)) {
     if (!f.endsWith('.ndjson')) continue;
-    for (const line of readFileSync(join(historyDir, f), 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      try { runs.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
-    }
+    runs.push(...readRecords(join(historyDir, f)));
   }
 }
 // Order the trend by COMMIT date (rev.date), not the day the sweep ran, so
@@ -57,14 +69,8 @@ runs.sort((a, b) => whenOf(a).localeCompare(whenOf(b)));
 
 // perf-nightly's per-night verdicts (nightly-verdicts.jsonl - .jsonl so the
 // envelope loader above skips it): {date, sha, prevSha, verdict, checks}.
-const verdicts = [];
 const verdictsPath = join(historyDir, 'nightly-verdicts.jsonl');
-if (existsSync(verdictsPath)) {
-  for (const line of readFileSync(verdictsPath, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    try { verdicts.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
-  }
-}
+const verdicts = existsSync(verdictsPath) ? readRecords(verdictsPath) : [];
 // Commits a nightly judged red: their points get a ring on every chart.
 const redShas = new Set(verdicts
   .filter((v) => v.verdict && v.verdict !== 'ok')

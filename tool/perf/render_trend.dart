@@ -20,6 +20,19 @@
 // commit date (rev.date, then ts), like the dashboard, so backfilled points
 // land where they belong instead of posing as last night.
 //
+// The price of the reset: the night after a flag is judged against that one
+// night alone. If the flag was a noise spike, a real step no bigger than the
+// spike that lands in the next night or two reads ~1.0x and is absorbed
+// without a flag of its own (a spike that simply recedes is harmless: it
+// reads "improved" and drops out of the median as nights accumulate). Nights
+// that each look like a step cannot tell a spike-then-step from a step that
+// held, and without the reset every real step flags three nights running (the
+// lagging median), so the reset stays. Across the 277 night x scenario
+// verdicts replayed when this was written the only flags were real steps and
+// the noisiest unflagged night read 1.22x, so a 1.4x spike has not happened
+// yet. Treat a flagged night that looks like noise as a reason to watch the
+// dashboard for the next two nights.
+//
 // Exit 1 when any scenario regressed tonight, 2 on bad input. --replay walks
 // the whole history instead and prints every night's verdict (exit 0).
 import 'dart:convert';

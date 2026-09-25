@@ -97,6 +97,42 @@ void main() {
   _check(twoFlagged.join(',') == '9,11',
       'back-to-back steps each flag once (got $twoFlagged)');
 
+  // The documented price of the reset (render_trend.dart's header), pinned so
+  // a change to it is deliberate. A noise spike that recedes flags once and
+  // then reads "improved"; nothing after it flags.
+  final receding = walkScenario([
+    for (var d = 1; d <= 12; d++) _night('s', d, _suite(d, d == 6 ? 160 : 100)),
+  ]);
+  final recedingFlags = [
+    for (final (i, v) in receding.indexed)
+      if (v.regressed) i + 1,
+  ];
+  _check(recedingFlags.join(',') == '6' && receding[6].label(1.4) == 'improved',
+      'a receding spike flags once, then reads improved (got $recedingFlags)');
+  // But a real step no bigger than the spike, landing the next night, reads
+  // ~1x against the spike night alone and is absorbed without a flag.
+  final spikeThenStep = walkScenario([
+    for (var d = 1; d <= 12; d++)
+      _night(
+          's',
+          d,
+          _suite(
+              d,
+              d == 6
+                  ? 160
+                  : d >= 7
+                      ? 150
+                      : 100)),
+  ]);
+  final spikeThenStepFlags = [
+    for (final (i, v) in spikeThenStep.indexed)
+      if (v.regressed) i + 1,
+  ];
+  _check(
+      spikeThenStepFlags.join(',') == '6' && spikeThenStep[6].ratio! < 1.4,
+      'a step the night after a spike is absorbed - the known trade-off '
+      '(got $spikeThenStepFlags, night 7 ${spikeThenStep[6].ratio})');
+
   // One file 10x slower in a five-file suite is listed, never decisive.
   final spike = [
     for (var d = 1; d <= 6; d++)
