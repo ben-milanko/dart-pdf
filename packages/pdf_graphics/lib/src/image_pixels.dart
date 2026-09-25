@@ -25,6 +25,7 @@ import 'color.dart';
 import 'color_context.dart';
 import 'color_space.dart';
 import 'icc.dart';
+import 'unit_clamp.dart';
 
 /// A fully decoded image: premultiplied RGBA8888, ready to hand straight to
 /// `decodeImageFromPixels` with no further per-pixel work. [decodePdfImagePixels]
@@ -1727,9 +1728,9 @@ _DctCmykImage? _decodeDctCmyk(
               final cr = yy - 128;
               final cb = m - 128;
               final yScaled = c << 8;
-              c = 255 - _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
-              m = 255 - _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
-              yy = 255 - _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
+              c = 255 - clampByte(_shiftR(yScaled + 359 * cr, 8));
+              m = 255 - clampByte(_shiftR(yScaled - 88 * cb - 183 * cr, 8));
+              yy = 255 - clampByte(_shiftR(yScaled + 454 * cb, 8));
             }
             sums[0] += c;
             sums[1] += m;
@@ -1779,9 +1780,9 @@ _DctCmykImage? _decodeDctCmyk(
         // unchanged - pdf.js leaves it to a /Decode array, and matching the
         // reference renderer matters more than MuPDF's all-four-inverted
         // convention, which disagrees on K.
-        c = 255 - _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
-        m = 255 - _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
-        yy = 255 - _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
+        c = 255 - clampByte(_shiftR(yScaled + 359 * cr, 8));
+        m = 255 - clampByte(_shiftR(yScaled - 88 * cb - 183 * cr, 8));
+        yy = 255 - clampByte(_shiftR(yScaled + 454 * cb, 8));
       }
 
       final i = (y * width + x) * 4;
@@ -2221,12 +2222,13 @@ List<(double, double)>? pdfImageDecodeRanges(
 }
 
 /// A 256-entry lookup table mapping a raw 8-bit sample through a /Decode
-/// range back to an 8-bit value.
+/// range back to an 8-bit value. Filled with int-typed values for the same
+/// dart2js reason as the Indexed palette (see [_indexedPalette]).
 Uint8List _decodeLut((double, double) range) {
   final (min, max) = range;
   final lut = Uint8List(256);
   for (var s = 0; s < 256; s++) {
-    lut[s] = ((min + s / 255 * (max - min)) * 255).round().clamp(0, 255);
+    lut[s] = clampByte(((min + s / 255 * (max - min)) * 255).round());
   }
   return lut;
 }
@@ -2467,25 +2469,37 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   if (space == 'DeviceGray' && bits == 1) {
     final (min, max) = ranges?[0] ?? (0.0, 1.0);
     final values = [
-      (min * 255).round().clamp(0, 255),
-      (max * 255).round().clamp(0, 255),
+      clampByte((min * 255).round()),
+      clampByte((max * 255).round()),
     ];
     final key = colorKey;
+    // A 1-bit sample has only two values, so convert each once into a
+    // two-entry RGBA table and expand the bits through it. Converting per
+    // pixel cost a PdfColor and three round/clamps each - and, under a CMYK
+    // OutputIntent, a full A2B evaluation - on every JBIG2 page (JBIG2 has no
+    // scaled path) and every 1-bit image the scaled path does not take.
+    final table = Uint8List(8);
+    for (var on = 0; on < 2; on++) {
+      final color = luminosityMask
+          ? PdfColor.gray(values[on] / 255)
+          : colorContext.deviceGray(values[on] / 255, intent: renderingIntent);
+      table[on * 4] = clampByte((color.red * 255).round());
+      table[on * 4 + 1] = clampByte((color.green * 255).round());
+      table[on * 4 + 2] = clampByte((color.blue * 255).round());
+      table[on * 4 + 3] =
+          key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
+    }
     final rowBytes = (width + 7) ~/ 8;
+    var i = 0;
     for (var y = 0; y < height; y++) {
+      final row = y * rowBytes;
       for (var x = 0; x < width; x++) {
-        final byte = data[y * rowBytes + (x >> 3)];
-        final on = (byte >> (7 - (x & 7))) & 1;
-        final i = (y * width + x) * 4;
-        final color = luminosityMask
-            ? PdfColor.gray(values[on] / 255)
-            : colorContext.deviceGray(values[on] / 255,
-                intent: renderingIntent);
-        out[i] = (color.red * 255).round().clamp(0, 255);
-        out[i + 1] = (color.green * 255).round().clamp(0, 255);
-        out[i + 2] = (color.blue * 255).round().clamp(0, 255);
-        out[i + 3] =
-            key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
+        final t = ((data[row + (x >> 3)] >> (7 - (x & 7))) & 1) << 2;
+        out[i] = table[t];
+        out[i + 1] = table[t + 1];
+        out[i + 2] = table[t + 2];
+        out[i + 3] = table[t + 3];
+        i += 4;
       }
     }
     return out;
@@ -3198,7 +3212,10 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   } else {
     return null;
   }
-  // convert the palette to RGB once, indices then just copy triplets
+  // convert the palette to RGB once, indices then just copy triplets.
+  // Store int-typed values only: a `.clamp(0, 255)` result is typed `num`, and
+  // dart2js carries that into this list and makes every per-pixel store from
+  // it in [_indexedToRgba] a checked, out-of-line `$indexSet`.
   final paletteCount = lookup.length ~/ components;
   final palette = Uint8List(paletteCount * 3);
   for (var p = 0; p < paletteCount; p++) {
@@ -3209,18 +3226,18 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       final color = PdfColorContext.forDocument(cos).pcsToSrgb(
           labBase.toPcsFromSamples(samples), fallback,
           intent: intent);
-      palette[p * 3] = (color.red * 255).round().clamp(0, 255);
-      palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
-      palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
+      palette[p * 3] = clampByte((color.red * 255).round());
+      palette[p * 3 + 1] = clampByte((color.green * 255).round());
+      palette[p * 3 + 2] = clampByte((color.blue * 255).round());
       continue;
     }
     final managedBase = tintBase ?? iccBase;
     if (managedBase != null) {
       final color = managedBase.toSrgbFromSamplesIntent(
           [for (var c = 0; c < components; c++) lookup[src + c]], intent);
-      palette[p * 3] = (color.red * 255).round().clamp(0, 255);
-      palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
-      palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
+      palette[p * 3] = clampByte((color.red * 255).round());
+      palette[p * 3 + 1] = clampByte((color.green * 255).round());
+      palette[p * 3 + 2] = clampByte((color.blue * 255).round());
       continue;
     }
     switch (components) {

@@ -9,6 +9,32 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
+/// An otherwise empty document whose catalog names a CMYK press profile as
+/// its PDF/X output intent, so DeviceGray/DeviceCMYK and ICC sources decode
+/// through it.
+CosDocument cmykOutputIntentDocument() {
+  final builder = CosDocumentBuilder();
+  final pages = builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Kids': CosArray(),
+    'Count': const CosInteger(0),
+  }));
+  final profile = builder.add(
+      CosStream(CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()));
+  final catalog = builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': pages,
+    'OutputIntents': CosArray([
+      CosDictionary({
+        'Type': const CosName('OutputIntent'),
+        'S': const CosName('GTS_PDFX'),
+        'DestOutputProfile': profile,
+      }),
+    ]),
+  }));
+  return CosDocument.open(builder.build(root: catalog));
+}
+
 /// Direct coverage of the pure-Dart image decode that a render worker calls
 /// (no `dart:ui`). The `dart:ui` glue is exercised separately by
 /// dart_pdf_editor's image_decoder_test; here we pin the pixels the worker
@@ -1869,6 +1895,91 @@ void main() {
       List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
       expect(pixelAt(0), pixelAt(1)); // same InkA, InkB ignored
       expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
+    });
+  });
+
+  group('1-bit DeviceGray', () {
+    // An odd width, so every row ends mid-byte.
+    const width = 13, height = 5;
+    const rowBytes = (width + 7) ~/ 8;
+    final data = [
+      for (var i = 0; i < rowBytes * height; i++) (i * 73 + 29) & 0xff,
+    ];
+
+    CosStream oneBit({List<double>? decode, (int, int)? key}) => image({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(1),
+          'ColorSpace': const CosName('DeviceGray'),
+          if (decode != null)
+            'Decode': CosArray([for (final d in decode) CosReal(d)]),
+          if (key != null)
+            'Mask': CosArray([CosInteger(key.$1), CosInteger(key.$2)]),
+        }, data);
+
+    // The historical per-pixel conversion, pixel by pixel.
+    List<int> perPixel(CosDocument doc,
+        {List<double>? decode, (int, int)? key, bool luminosity = false}) {
+      final context = PdfColorContext.forDocument(doc);
+      final values = [
+        ((decode?[0] ?? 0.0) * 255).round().clamp(0, 255),
+        ((decode?[1] ?? 1.0) * 255).round().clamp(0, 255),
+      ];
+      return [
+        for (var y = 0; y < height; y++)
+          for (var x = 0; x < width; x++)
+            ...() {
+              final on = (data[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              final color = luminosity
+                  ? PdfColor.gray(values[on] / 255)
+                  : context.deviceGray(values[on] / 255);
+              return [
+                (color.red * 255).round().clamp(0, 255),
+                (color.green * 255).round().clamp(0, 255),
+                (color.blue * 255).round().clamp(0, 255),
+                key != null && on >= key.$1 && on <= key.$2 ? 0 : 255,
+              ];
+            }(),
+      ];
+    }
+
+    void expectTableMatchesPerPixel(CosDocument doc) {
+      for (final decode in [
+        null,
+        const [1.0, 0.0],
+        const [0.2, 0.7]
+      ]) {
+        for (final key in [null, (0, 0), (1, 1)]) {
+          for (final luminosity in [false, true]) {
+            final base = decodePdfImageBase(
+                doc, oneBit(decode: decode, key: key),
+                luminosityMask: luminosity)!;
+            expect(base.rgba,
+                perPixel(doc, decode: decode, key: key, luminosity: luminosity),
+                reason: 'decode $decode key $key luminosity $luminosity');
+          }
+        }
+      }
+    }
+
+    test('the two-value table matches a per-pixel conversion', () {
+      expectTableMatchesPerPixel(cos);
+    });
+
+    test('the two-value table matches under a CMYK OutputIntent', () {
+      final doc = cmykOutputIntentDocument();
+      expect(PdfColorContext.forDocument(doc).outputProfile?.channels, 4);
+      expectTableMatchesPerPixel(doc);
+    });
+
+    test('the two-value table matches under GWG173\'s OutputIntent', () {
+      final file = File(
+          '../../test_corpora/ghent/1-CMYK/GWG173_JBIG2_compression_X4.pdf');
+      if (!file.existsSync()) {
+        markTestSkipped('test_corpora/ghent not found');
+        return;
+      }
+      expectTableMatchesPerPixel(CosDocument.open(file.readAsBytesSync()));
     });
   });
 
