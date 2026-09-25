@@ -185,6 +185,49 @@ void main() {
     });
   });
 
+  testWidgets('the run cache keys on exact values, NaN included',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Lowercase text with no offset table is neither placed (#649) nor
+      // composed (#454), so every run below is a whole-run layout in the run
+      // cache - one entry per distinct key.
+      CanvasPdfDevice.clearTextLayoutCache();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+      void draw(PdfColor color, {double fillAlpha = 1}) =>
+          device.drawText(PdfTextRun(
+            text: 'office hours',
+            transform: const PdfMatrix(12, 0, 0, 12, 20, 80),
+            color: color,
+            fillAlpha: fillAlpha,
+            width: 6,
+            fontName: 'Helvetica',
+            fontSize: 12,
+          ));
+
+      draw(const PdfColor(0.2, 0.2, 0.2));
+      draw(const PdfColor(0.2, 0.2, 0.2));
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 1,
+          reason: 'an identical run reuses its layout');
+
+      // Closer than one 8-bit step: the painter bakes the exact colour in, so
+      // the two must not share a layout.
+      draw(const PdfColor(0.2, 0.2, 0.2001));
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 2);
+
+      // A NaN that reaches the key must still find its own entry. A key
+      // unequal to itself would add a fresh entry per draw - and could never
+      // be found again to evict.
+      draw(const PdfColor(0.2, 0.2, 0.2), fillAlpha: double.nan);
+      draw(const PdfColor(0.2, 0.2, 0.2), fillAlpha: double.nan);
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 3,
+          reason: 'NaN must compare equal to itself in the key');
+      recorder.endRecording().dispose();
+      CanvasPdfDevice.clearTextLayoutCache();
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 0);
+    });
+  });
+
   testWidgets('clearTextLayoutCache empties both caches', (tester) async {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);

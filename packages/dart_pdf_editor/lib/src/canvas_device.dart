@@ -178,12 +178,13 @@ class CanvasPdfDevice
   /// Process-wide cache of laid-out substituted-text painters. Shaping is the
   /// dominant paint-pass cost and the same runs recur across pages and
   /// re-renders, so this is shared by every render (like the decoded-image
-  /// cache). Keyed by (text, font, colour); bounded by entry count, evicting
+  /// cache). Keyed by [_RunLayoutKey] - (text, font, colour, spacing, and the
+  /// pen offsets of an exactly placed run); bounded by entry count, evicting
   /// the least-recently-used layout and disposing its painter. Registered with
   /// [PdfCacheRegistry] so a memory-pressure signal reaches it too (it used to
   /// be deaf to pressure); [clearTextLayoutCache] drops it on demand.
-  static final PdfBudgetedCache<String, _TextLayout> _textCache =
-      PdfBudgetedCache<String, _TextLayout>(
+  static final PdfBudgetedCache<_RunLayoutKey, _TextLayout> _textCache =
+      PdfBudgetedCache<_RunLayoutKey, _TextLayout>(
     maxEntries: 2048,
     disposer: (layout) => layout.dispose(),
     clearsUnderMemoryPressure: true,
@@ -1270,17 +1271,13 @@ class CanvasPdfDevice
     // Composed runs are transient (built per paint from the glyph cache), so
     // they skip the run cache and its miss/hit instrumentation entirely.
     if (compose) return _composeLayout(run);
-    final c = run.color;
-    final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
-        '${run.letterSpacing},${run.wordSpacing}';
-    return _cachedLayout(key, () => _shapeLayout(run));
+    return _cachedLayout(_RunLayoutKey(run, null), () => _shapeLayout(run));
   }
 
   /// The run-cache lookup, with the shaping instrumentation (#454) wrapped
   /// around it: [build] runs only on a miss, so timing it isolates the shaping
   /// cost and the flag separates miss from hit.
-  _TextLayout _cachedLayout(String key, _TextLayout Function() build) {
+  _TextLayout _cachedLayout(_RunLayoutKey key, _TextLayout Function() build) {
     if (!PdfPerfLog.enabled) return _textCache.getOrAdd(key, build);
     var missed = false;
     final layout = _textCache.getOrAdd(key, () {
@@ -1374,14 +1371,10 @@ class CanvasPdfDevice
   /// carries the offsets as well as everything [_styleFor] reads, because the
   /// same text under different advances is a different layout.
   _TextLayout _placedLayout(PdfTextRun run, List<double> offsets) {
-    final c = run.color;
     // Tc/Tw are in the key as well as the offsets: they set the shape scale
     // and where the pieces are cut, and two runs can share an offset table
     // without sharing them.
-    final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
-        '${run.letterSpacing},${run.wordSpacing} '
-        'p${_offsetsHash(offsets)}';
+    final key = _RunLayoutKey(run, _offsetsHash(offsets));
     // A run with nothing to scale against falls back to whole-run shaping,
     // cached under this key too so the failed attempt is not repeated.
     return _cachedLayout(
@@ -2020,12 +2013,81 @@ class CanvasPdfDevice
     }
   }
 
-  static Float64List _toFloat64(PdfMatrix m) => Float64List.fromList([
-        m.a, m.b, 0, 0, //
-        m.c, m.d, 0, 0, //
-        0, 0, 1, 0, //
-        m.e, m.f, 0, 1,
-      ]);
+  /// [m] as a column-major 4x4, filled directly: a list literal copied through
+  /// `Float64List.fromList` costs a second allocation and a copy per text run.
+  /// Fresh per call, never a shared scratch buffer - a gradient hands its
+  /// matrix to a [ui.Gradient], and web engine objects have been caught
+  /// holding a mutable matrix before reading it (#659's lazy `Path.addPath`).
+  static Float64List _toFloat64(PdfMatrix m) => Float64List(16)
+    ..[0] = m.a
+    ..[1] = m.b
+    ..[4] = m.c
+    ..[5] = m.d
+    ..[10] = 1
+    ..[12] = m.e
+    ..[13] = m.f
+    ..[15] = 1;
+}
+
+/// The run-layout cache key: everything [CanvasPdfDevice._styleFor] reads
+/// (text, font, exact colour + fill alpha, Tc/Tw) plus, for an exactly placed
+/// run, the hash of its pen offsets.
+///
+/// It replaces a string that formatted six doubles per drawn run - on a page of
+/// ~1,700 short substituted runs that formatting, hashing and comparing was a
+/// fifth of the whole replay, cache hit or not. The hash is computed once, and
+/// the cheap fields are compared before the text. Doubles compare exactly, not
+/// quantized (runs whose colours differ below 1/255 are distinct layouts, as
+/// they always were), and NaN equals NaN: a key unequal to itself could never
+/// be found again to evict, and on dart2js that spins the cache's trim loop.
+final class _RunLayoutKey {
+  _RunLayoutKey(PdfTextRun run, this.offsetsHash)
+      : text = run.text,
+        font = run.fontName,
+        red = run.color.red,
+        green = run.color.green,
+        blue = run.color.blue,
+        alpha = run.fillAlpha,
+        letterSpacing = run.letterSpacing,
+        wordSpacing = run.wordSpacing,
+        hashCode = Object.hash(
+            run.text,
+            run.fontName,
+            _h(run.color.red),
+            _h(run.color.green),
+            _h(run.color.blue),
+            _h(run.fillAlpha),
+            _h(run.letterSpacing),
+            _h(run.wordSpacing),
+            offsetsHash);
+
+  final String text;
+  final String? font;
+  final double red, green, blue, alpha, letterSpacing, wordSpacing;
+
+  /// [CanvasPdfDevice._offsetsHash] of an exactly placed run's pen offsets;
+  /// null for a whole-run layout, so the two never share an entry.
+  final int? offsetsHash;
+
+  @override
+  final int hashCode;
+
+  static int _h(double d) => d.isNaN ? 0x7ff8 : d.hashCode;
+  static bool _same(double a, double b) => a == b || (a.isNaN && b.isNaN);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _RunLayoutKey &&
+      other.hashCode == hashCode &&
+      other.offsetsHash == offsetsHash &&
+      _same(other.red, red) &&
+      _same(other.green, green) &&
+      _same(other.blue, blue) &&
+      _same(other.alpha, alpha) &&
+      _same(other.letterSpacing, letterSpacing) &&
+      _same(other.wordSpacing, wordSpacing) &&
+      other.font == font &&
+      other.text == text;
 }
 
 /// A laid-out substituted-text painter plus the metrics the renderer needs.
