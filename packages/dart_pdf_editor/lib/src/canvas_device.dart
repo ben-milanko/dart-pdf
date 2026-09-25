@@ -258,6 +258,7 @@ class CanvasPdfDevice
   static void clearTextLayoutCache() {
     _textCache.clear();
     _glyphCache.clear();
+    _kernFreeFaces.clear();
   }
 
   /// Number of cached text layouts — test hook.
@@ -1329,10 +1330,11 @@ class CanvasPdfDevice
   /// Laid out without the run's Tc/Tw: a per-character layout is positioned by
   /// its caller, which knows the real advances, so baking spacing into the
   /// glyph would double-count it - and it would make the key a lie.
-  _TextLayout _glyphLayout(int rune, PdfTextRun run) {
-    final c = run.color;
-    final key = '$rune ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue},${run.fillAlpha}';
+  ///
+  /// [suffix] is [_glyphKeySuffix] of [run], passed in by a caller that looks
+  /// up many characters of one run.
+  _TextLayout _glyphLayout(int rune, PdfTextRun run, [String? suffix]) {
+    final key = '$rune${suffix ?? _glyphKeySuffix(run)}';
     return _glyphCache.getOrAdd(key, () {
       debugTextPainterBuilds++;
       final painter = TextPainter(
@@ -1345,6 +1347,17 @@ class CanvasPdfDevice
           painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
       return _TextLayout(painter, painter.width, baseline);
     });
+  }
+
+  /// The part of a [_glyphLayout] key every character of [run] shares - what
+  /// [_styleFor] reads with spacing off: the font name, colour and fill alpha.
+  /// Built once per run: formatting the four doubles on every character
+  /// lookup was a large share of a placed run's cold build once its pieces
+  /// stopped being shaped one by one.
+  static String _glyphKeySuffix(PdfTextRun run) {
+    final c = run.color;
+    return ' ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha}';
   }
 
   /// The per-character pen offsets to paint [run] at, or null when this run
@@ -1418,6 +1431,10 @@ class CanvasPdfDevice
   /// Null when there is nothing measurable to scale against.
   _TextLayout? _buildPlacedLayout(PdfTextRun run, List<double> offsets) {
     final text = run.text;
+    final suffix = _glyphKeySuffix(run);
+    // Each ink-bearing character's glyph-cache layout, by code-unit index,
+    // resolved once here for the cut and emit passes below to share.
+    final glyphs = List<_TextLayout?>.filled(text.length, null);
     var natural = 0.0; // Σ natural width of the ink-bearing glyphs
     var advance = 0.0; // Σ width the PDF gives the same glyphs, spacing off
     for (var i = 0; i < text.length;) {
@@ -1425,28 +1442,65 @@ class CanvasPdfDevice
       if (!_isTrimWhitespace(text.codeUnitAt(i))) {
         final width = run.glyphWidthAt(i, step);
         if (width == null) return null;
-        natural += _glyphLayout(_runeAt(text, i), run).width;
+        final glyph = glyphs[i] = _glyphLayout(_runeAt(text, i), run, suffix);
+        natural += glyph.width;
         advance += width;
       }
       i += step;
     }
     if (natural <= 0 || advance <= 0) return null;
 
+    // The resolved layouts are borrowed from the glyph cache, not owned, so a
+    // run with more distinct characters than the cache holds could have an
+    // early one evicted - and disposed - by a later insert. Such a one is
+    // looked up again; one still alive is safe to retain whether or not the
+    // cache still lists it.
+    _TextLayout glyphAt(int i) {
+      final glyph = glyphs[i]!;
+      if (!glyph._disposed) return glyph;
+      return glyphs[i] = _glyphLayout(_runeAt(text, i), run, suffix);
+    }
+
     final k = natural / advance; // layout units per em
-    final style = _styleFor(run, foreground: null, applySpacing: false);
     final parts = <_GlyphRun>[];
     double? baseline;
+    TextStyle? style;
+    bool? kernFree;
 
-    // Emits `[from, to)` as one part, drawn at the offset the PDF gives its
-    // first character. A single character is served from the glyph cache the
+    // Emits `[from, to)` drawn from the offset the PDF gives its first
+    // character. A single character is served from the glyph cache the
     // measuring pass above has already filled: retaining that painter beats
     // shaping a fresh paragraph for every character of every unique CAD label,
     // and the retained reference keeps it alive if the glyph-cache LRU later
     // drops its own ownership (disposing this layout releases it again).
     void emit(int from, int to) {
-      final part = to - from == _runeLengthAt(text, from)
-          ? _glyphLayout(_runeAt(text, from), run).retain()
-          : _shapeString(text.substring(from, to), style);
+      if (to - from == _runeLengthAt(text, from)) {
+        final glyph = glyphAt(from).retain();
+        baseline ??= glyph.baseline;
+        parts.add(_GlyphRun(glyph, offsets[from] * k));
+        return;
+      }
+      if (_composableSpan(text, from, to) &&
+          (kernFree ??= _kernFreeFace(run))) {
+        // A piece with no kernable adjacency (#454's gate: digits, capitals
+        // beside digits or spaces, plain punctuation), in a face that kerns
+        // none of those pairs, is laid out by its glyphs' own advances - so
+        // the glyph layouts placed end to end from the piece's origin are
+        // that piece, without shaping a paragraph for it. Unique CAD labels -
+        // coordinates, dimensions, grid refs - are nearly all of this shape,
+        // and shaping each of them made their cold paint several times the
+        // cost it had under #454's composition.
+        var dx = offsets[from] * k;
+        for (var j = from; j < to; j += _runeLengthAt(text, j)) {
+          final glyph = glyphAt(j).retain();
+          baseline ??= glyph.baseline;
+          parts.add(_GlyphRun(glyph, dx));
+          dx += glyph.width;
+        }
+        return;
+      }
+      style ??= _styleFor(run, foreground: null, applySpacing: false);
+      final part = _shapeString(text.substring(from, to), style!);
       baseline ??= part.baseline;
       parts.add(_GlyphRun(part, offsets[from] * k));
     }
@@ -1481,7 +1535,7 @@ class CanvasPdfDevice
         // The substitute's own advance stands in for where the shaped piece
         // puts this character: cross-character kerning is unaccounted for, a
         // fraction of the tolerance, and it can only cut a piece sooner.
-        shaped += _glyphLayout(_runeAt(text, j), run).width;
+        shaped += glyphAt(j).width;
         j += _runeLengthAt(text, j);
       }
       emit(start, end);
@@ -1585,17 +1639,19 @@ class CanvasPdfDevice
   /// tabular digits and isolated letters do not kern - a real-Chrome probe put
   /// the whole-run-vs-composed pixel diff at 0% for such runs and 20-56% for
   /// kerning-pair uppercase words (PAY, AVENUE, WATER), which this gate excludes.
-  static bool _composableRun(String text) {
-    if (text.isEmpty) return false;
-    final u = text.codeUnits;
-    for (var i = 0; i < u.length; i++) {
-      final cu = u[i];
+  static bool _composableRun(String text) =>
+      text.isNotEmpty && _composableSpan(text, 0, text.length);
+
+  /// [_composableRun] over `text[from, to)`, without cutting the substring.
+  static bool _composableSpan(String text, int from, int to) {
+    for (var i = from; i < to; i++) {
+      final cu = text.codeUnitAt(i);
       if (!_composableChar(cu)) return false;
       // A letter may only sit next to a digit or a space; a letter beside
       // another letter or beside punctuation is a kerning pair in the
       // substitute fonts, so the whole run falls back to whole-run shaping.
-      if (i > 0) {
-        final prev = u[i - 1];
+      if (i > from) {
+        final prev = text.codeUnitAt(i - 1);
         final curLetter = _isAsciiUpper(cu);
         final prevLetter = _isAsciiUpper(prev);
         if (curLetter && !(_isAsciiDigit(prev) || prev == 0x20)) return false;
@@ -1604,6 +1660,98 @@ class CanvasPdfDevice
     }
     return true;
   }
+
+  /// Whether the face that draws [run] kerns none of the pairs
+  /// [_composableSpan] admits, so that [_buildPlacedLayout] may lay such a
+  /// piece out from its glyph layouts instead of shaping it.
+  ///
+  /// [_composableSpan]'s gate was drawn around the faces #454 probed, not
+  /// around every face a substituted run can reach. Of the bundled
+  /// substitutes, TeX Gyre Heros, Termes and Cursor kern none of the pairs it
+  /// admits, but Adventor kerns `7.`, `.1` and `1.` by up to 0.135 em and
+  /// Carlito kerns `.-`; and a host that leaves out `dart_pdf_editor_assets`
+  /// draws Helvetica/Arial text in a system face that kerns `11`. Composing
+  /// any of those would move glyphs a shaped piece puts elsewhere, so only
+  /// Heros/Termes/Cursor runs qualify - and only once the face that actually
+  /// resolves for them has been shown to be kern-free. Whether the bundled
+  /// face is registered cannot be asked of the engine, so it is measured:
+  /// [_kernProbe] shaped with and without the `kern` feature differs in width
+  /// wherever any admitted pair kerns. Once per face and style per process
+  /// (and per [clearTextLayoutCache]).
+  bool _kernFreeFace(PdfTextRun run) {
+    final name = run.fontName ?? '';
+    if (name.contains('ZapfDingbats') ||
+        name.contains('Symbol') ||
+        _cjkPrimaryFontFor(name) != null) {
+      return false;
+    }
+    final substitute = pdfBundledSubstituteFor(name);
+    switch (substitute) {
+      case PdfBundledSubstitute.heros ||
+            PdfBundledSubstitute.termes ||
+            PdfBundledSubstitute.cursor:
+        break;
+      case PdfBundledSubstitute.carlito || PdfBundledSubstitute.adventor:
+        return false;
+    }
+    final face = substitute.index * 4 +
+        (pdfSubstituteIsBold(name) ? 2 : 0) +
+        (pdfSubstituteIsItalic(name) ? 1 : 0);
+    return _kernFreeFaces[face] ??= _probeKernFree(run);
+  }
+
+  /// [_kernFreeFace]'s measurement: [_kernProbe] in [run]'s face, shaped as
+  /// the renderer shapes it and again with kerning off.
+  bool _probeKernFree(PdfTextRun run) {
+    final style = _styleFor(run, foreground: null, applySpacing: false);
+    double widthOf(TextStyle style) {
+      debugTextPainterBuilds++;
+      final painter = TextPainter(
+        text: TextSpan(text: _kernProbe, style: style),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final width = painter.maxIntrinsicWidth;
+      painter.dispose();
+      return width;
+    }
+
+    return widthOf(style) ==
+        widthOf(style
+            .copyWith(fontFeatures: const [ui.FontFeature.disable('kern')]));
+  }
+
+  /// [_kernFreeFace]'s verdicts, by substitute, weight and slant.
+  static final Map<int, bool> _kernFreeFaces = {};
+
+  /// Every adjacent pair [_composableSpan] admits, in one string that admits
+  /// nothing else: each ordered pair of digits, spaces and punctuation, then
+  /// each capital between each digit or space on both sides. Kerning in any of
+  /// them shows as a width difference with the `kern` feature off (short of
+  /// kerns that cancel to the last bit).
+  static final String _kernProbe = () {
+    // A capital may sit beside these; anything else in the set may sit beside
+    // anything but a capital.
+    final beside = [for (var cu = 0x30; cu <= 0x39; cu++) cu, 0x20];
+    final free = [...beside, ..._composablePunct];
+    final probe = StringBuffer();
+    for (final a in free) {
+      for (final b in free) {
+        probe
+          ..writeCharCode(a)
+          ..writeCharCode(b);
+      }
+    }
+    for (var letter = 0x41; letter <= 0x5A; letter++) {
+      for (final neighbour in beside) {
+        probe
+          ..writeCharCode(neighbour)
+          ..writeCharCode(letter)
+          ..writeCharCode(neighbour);
+      }
+    }
+    // End on ink, not on the space the last capital sat beside.
+    return (probe..writeCharCode(0x30)).toString();
+  }();
 
   static bool _isAsciiUpper(int cu) => cu >= 0x41 && cu <= 0x5A;
   static bool _isAsciiDigit(int cu) => cu >= 0x30 && cu <= 0x39;
