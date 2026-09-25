@@ -234,15 +234,15 @@ if (verdicts.length) {
     <td>${esc(String(v.date ?? '').slice(0, 10))}</td>
     <td><code>${esc(short(v.sha))}</code></td>
     <td><code>${esc(short(v.prevSha))}</code></td>
-    ${cell(v.checks?.nightly)}${cell(v.checks?.accepted)}
+    ${cell(v.checks?.nightly)}${cell(v.checks?.accepted)}${cell(v.checks?.renderTrend)}
     ${cell(v.verdict)}</tr>`).join('');
   verdictsHtml = `<section>
   <h2>Nightly verdicts</h2>
   <p class="meta">perf-nightly's checks per night: the VM ratio check vs the previous
-    nightly and the weekly one vs tool/perf/baselines/nightly-accepted.sha.
-    Red nights are ringed on the charts below.</p>
+    nightly, the weekly one vs tool/perf/baselines/nightly-accepted.sha, and the
+    flutter-render trend. Red nights are ringed on the charts below.</p>
   <table><thead><tr><th>night</th><th>commit</th><th>vs</th><th>nightly</th>
-    <th>accepted</th><th>verdict</th></tr></thead>
+    <th>accepted</th><th>render trend</th><th>verdict</th></tr></thead>
   <tbody>${rows}</tbody></table>
 </section>`;
 }

@@ -76,8 +76,9 @@ charts) from it.
   "acceptedSha": null,   // tool/perf/baselines/nightly-accepted.sha when the
                          // weekly check ran
   "verdict": "regressed", // ok | regressed | error
-  "checks": { "nightly": "regressed", "accepted": "not-run" },
-                         // ok | regressed | error | skipped | not-run
+  "checks": { "nightly": "ok", "accepted": "not-run",
+              "renderTrend": "regressed" }, // ok | regressed | error |
+                                            // skipped | not-run
   "runId": "..."
 }
 ```

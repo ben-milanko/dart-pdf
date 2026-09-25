@@ -12,6 +12,8 @@
 #     tool/perf/baselines/nightly-accepted.sha, which only moves in a reviewed
 #     PR (like the counter gate's --update-baseline). It catches creep that
 #     stays under 15% a night, and anything not yet accepted.
+# The flutter-render suites are too slow to re-measure a baseline, so they are
+# judged night over night instead (tool/perf/render_trend.dart).
 #
 # No verdict stops the history: the absolute numbers and each night's verdict
 # land on the perf-data branch on a red night too - skipping the append on red
@@ -140,6 +142,29 @@ jobs:
           fi
           exit "$status"
 
+      # Tonight's flutter-render envelopes vs the previous nights' (suite
+      # median of per-file renderMs ratios against the median of up to 5 prior
+      # nights, red at 1.4x; a flagged night is the new level, so a step is red
+      # once). Reads perf-data before the append below adds tonight.
+      - name: Render trend check vs the previous nights
+        id: render_trend
+        continue-on-error: true
+        run: |
+          set +e
+          prior="$RUNNER_TEMP/flutter-render-prior.ndjson"
+          git show perf-data:history/flutter-render.ndjson > "$prior" 2>/dev/null || : > "$prior"
+          dart tool/perf/render_trend.dart --history "$prior" \
+            --current out/perf-history/flutter-render.ndjson \
+            --nights 5 --threshold 1.4 --summary "$GITHUB_STEP_SUMMARY"
+          rc=$?
+          case "$rc" in
+            0) verdict=ok ;;
+            1) verdict=regressed ;;
+            *) verdict=error ;;
+          esac
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
       # One line per measured night, appended to perf-data's
       # history/nightly-verdicts.jsonl (.jsonl, not .ndjson: the dashboard
       # charts every *.ndjson line as an envelope; it draws its verdict strip
@@ -153,6 +178,8 @@ jobs:
           ACCEPTED: ${{ steps.ratio.outputs.accepted }}
           ACCEPTED_SHA: ${{ steps.ratio.outputs.accepted_sha }}
           RATIO_OUTCOME: ${{ steps.ratio.outcome }}
+          TREND: ${{ steps.render_trend.outputs.verdict }}
+          TREND_OUTCOME: ${{ steps.render_trend.outcome }}
           RUN_ID: ${{ github.run_id }}
         run: |
           mkdir -p out
@@ -165,6 +192,7 @@ jobs:
           checks = {
               'nightly': env.get('NIGHTLY') or died(env.get('RATIO_OUTCOME')),
               'accepted': env.get('ACCEPTED') or died(env.get('RATIO_OUTCOME')),
+              'renderTrend': env.get('TREND') or died(env.get('TREND_OUTCOME')),
           }
           states = set(checks.values())
           verdict = ('regressed' if 'regressed' in states
@@ -235,10 +263,11 @@ jobs:
           git push origin HEAD:perf-data
 
       - name: Fail on a red verdict
-        if: ${{ !cancelled() && steps.ratio.outcome == 'failure' }}
+        if: ${{ !cancelled() && (steps.ratio.outcome == 'failure' || steps.render_trend.outcome == 'failure') }}
         env:
           NIGHTLY: ${{ steps.ratio.outputs.nightly }}
           ACCEPTED: ${{ steps.ratio.outputs.accepted }}
+          TREND: ${{ steps.render_trend.outputs.verdict }}
         run: |
-          echo "::error::perf-nightly: nightly=${NIGHTLY:-error} accepted=${ACCEPTED:-error} - see the check steps above; tonight's history was still recorded"
+          echo "::error::perf-nightly: nightly=${NIGHTLY:-error} accepted=${ACCEPTED:-error} renderTrend=${TREND:-error} - see the check steps above; tonight's history was still recorded"
           exit 1
