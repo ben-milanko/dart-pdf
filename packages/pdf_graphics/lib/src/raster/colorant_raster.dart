@@ -621,69 +621,104 @@ class PdfColorantRaster {
   /// First cell whose centre (`x + 0.5`) is at or past [edge].
   static int _cellFrom(double edge) => (edge - 0.5).ceil();
 
+  // Edge table and per-scanline crossings, reused across draws: a page issues
+  // thousands of them. Typed arrays with explicit counts, not growable lists:
+  // a List<double> boxes every element, and on the VM `clear()` drops a
+  // growable list's backing store, so "reused" lists regrew from nothing on
+  // every draw (the edges) and every scanline (the crossings). These only
+  // ever grow, by doubling.
+  Float64List _xTop = Float64List(64);
+  Float64List _slope = Float64List(64);
+  Float64List _yTop = Float64List(64);
+  Float64List _yBottom = Float64List(64);
+  Int32List _winding = Int32List(64);
+  Float64List _crossings = Float64List(64);
+  Int32List _crossingWinding = Int32List(64);
+  final _SpanBuilder _spans = _SpanBuilder();
+
+  /// Grows the edge table to hold at least [edges] edges, keeping the first
+  /// [used].
+  void _growEdges(int edges, int used) {
+    var capacity = _xTop.length * 2;
+    while (capacity < edges) {
+      capacity *= 2;
+    }
+    Float64List grow(Float64List from) =>
+        Float64List(capacity)..setRange(0, used, from);
+    _xTop = grow(_xTop);
+    _slope = grow(_slope);
+    _yTop = grow(_yTop);
+    _yBottom = grow(_yBottom);
+    _winding = Int32List(capacity)..setRange(0, used, _winding);
+  }
+
   /// Scanline fill of already-flattened, cell-space [subpaths]. Coverage is
   /// binary, sampled at cell centres; a fill treats every subpath as closed
   /// (§8.5.3.3.2), which is what the modulo wrap of the segment loop does.
-  // Edge table and per-scanline crossing lists, reused across draws: a page
-  // issues thousands of them and a fresh growable list per draw was pure
-  // allocation churn.
-  final List<double> _xTop = [];
-  final List<double> _slope = [];
-  final List<double> _yTop = [];
-  final List<double> _yBottom = [];
-  final List<int> _winding = [];
-  final List<double> _crossings = [];
-  final List<int> _crossingWinding = [];
-  final _SpanBuilder _spans = _SpanBuilder();
-
   ColorantSpans _spansOf(List<FlatSubpath> subpaths, bool evenOdd) {
-    final xTop = _xTop..clear();
-    final slope = _slope..clear();
-    final yTop = _yTop..clear();
-    final yBottom = _yBottom..clear();
-    final winding = _winding..clear();
+    var edges = 0;
     var minY = double.infinity, maxY = double.negativeInfinity;
     for (final sub in subpaths) {
       final p = sub.points;
       final count = p.length ~/ 2;
       if (count < 2) continue;
+      // A subpath of n points adds at most n edges.
+      if (edges + count > _xTop.length) _growEdges(edges + count, edges);
+      final xTop = _xTop, slope = _slope, yTop = _yTop;
+      final yBottom = _yBottom, winding = _winding;
       for (var i = 0; i < count; i++) {
         final j = i + 1 == count ? 0 : i + 1;
         final ax = p[i * 2], ay = p[i * 2 + 1];
         final bx = p[j * 2], by = p[j * 2 + 1];
         if (ay == by) continue;
         final up = ay < by;
-        yTop.add(up ? ay : by);
-        yBottom.add(up ? by : ay);
-        xTop.add(up ? ax : bx);
-        slope.add((bx - ax) / (by - ay));
-        winding.add(up ? 1 : -1);
+        yTop[edges] = up ? ay : by;
+        yBottom[edges] = up ? by : ay;
+        xTop[edges] = up ? ax : bx;
+        slope[edges] = (bx - ax) / (by - ay);
+        winding[edges] = up ? 1 : -1;
+        edges++;
         if (ay < minY) minY = ay;
         if (by < minY) minY = by;
         if (ay > maxY) maxY = ay;
         if (by > maxY) maxY = by;
       }
     }
-    if (xTop.isEmpty) return ColorantSpans.empty;
+    if (edges == 0) return ColorantSpans.empty;
     final yStart = _cellFrom(minY).clamp(0, height);
     final yEnd = _cellFrom(maxY).clamp(0, height);
     if (yEnd <= yStart) return ColorantSpans.empty;
     final out = _spans..reset();
+    // A scanline crosses each edge at most once, so [edges] slots always
+    // suffice and the row loop needs no capacity check.
+    if (_crossings.length < edges) {
+      var capacity = _crossings.length * 2;
+      while (capacity < edges) {
+        capacity *= 2;
+      }
+      _crossings = Float64List(capacity);
+      _crossingWinding = Int32List(capacity);
+    }
+    final xTop = _xTop, slope = _slope, yTop = _yTop;
+    final yBottom = _yBottom, winding = _winding;
     final xs = _crossings;
     final ws = _crossingWinding;
     for (var y = yStart; y < yEnd; y++) {
       final sampleY = y + 0.5;
-      xs.clear();
-      ws.clear();
-      for (var e = 0; e < xTop.length; e++) {
+      // Every edge, in index order: the gathering order decides where the
+      // insertion sort leaves a NaN crossing (off-page or non-finite
+      // geometry), so it is part of the result, not an implementation detail.
+      var n = 0;
+      for (var e = 0; e < edges; e++) {
         if (sampleY < yTop[e] || sampleY >= yBottom[e]) continue;
-        xs.add(xTop[e] + (sampleY - yTop[e]) * slope[e]);
-        ws.add(winding[e]);
+        xs[n] = xTop[e] + (sampleY - yTop[e]) * slope[e];
+        ws[n] = winding[e];
+        n++;
       }
-      if (xs.length < 2) continue;
+      if (n < 2) continue;
       // Insertion sort keeps the parallel winding list in step; crossing
       // counts per scanline stay tiny even on dense art.
-      for (var i = 1; i < xs.length; i++) {
+      for (var i = 1; i < n; i++) {
         final x = xs[i], w = ws[i];
         var j = i - 1;
         while (j >= 0 && xs[j] > x) {
@@ -695,7 +730,7 @@ class PdfColorantRaster {
         ws[j + 1] = w;
       }
       var count = 0;
-      for (var i = 0; i < xs.length - 1; i++) {
+      for (var i = 0; i < n - 1; i++) {
         count += evenOdd ? 1 : ws[i];
         if (evenOdd ? count.isEven : count == 0) continue;
         final x0 = _cellFrom(xs[i]).clamp(0, width);

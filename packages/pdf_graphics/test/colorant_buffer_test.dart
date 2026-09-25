@@ -1,7 +1,7 @@
 // Unit coverage for the CMYK/spot colorant buffer that makes overprint
 // faithful (issue #502).
 //
-// Three layers, each pinned directly rather than through a rendered page:
+// Four layers, each pinned directly rather than through a rendered page:
 //
 //   1. the ink-space composite rule ([PdfInkColorants.over]) - which colorants
 //      a colour space writes, and what the overprint mode does to that;
@@ -11,6 +11,8 @@
 //      backdrop lookup and the "reuse the exact colour this reproduces" rule
 //      that keeps a resolved overprint pixel-identical to the paint it
 //      matches.
+//   4. the scanline rasterizer under it ([PdfColorantRaster]) - geometry a
+//      broken generator can emit.
 //
 // The GWG030 render guard (dart_pdf_editor overprint_render_test.dart) covers
 // the same ground end to end; these are the pieces, so a failure names one.
@@ -19,6 +21,7 @@ import 'dart:typed_data';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_graphics/src/raster/colorant_raster.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
@@ -615,6 +618,105 @@ void main() {
         {for (final region in regions!) region.color},
         containsAll([green, inkColor]),
       );
+    });
+  });
+
+  group('the colorant rasterizer', () {
+    // An identity mapping, so the coordinates below are cells.
+    PdfColorantRaster raster() => PdfColorantRaster(
+          width: 100,
+          height: 100,
+          mapping: const ColorantPageMapping(PdfMatrix.identity, 1),
+        );
+
+    List<(int, int, int)> spansOf(ColorantSpans spans) => [
+          for (var i = 0; i < spans.length; i++)
+            (spans.yAt(i), spans.startAt(i), spans.endAt(i)),
+        ];
+
+    const triangle = [
+      PdfMoveTo(10, 10),
+      PdfLineTo(80, 20),
+      PdfLineTo(40, 90),
+      PdfClosePath(),
+    ];
+
+    test('geometry far off the page neither drops nor wraps the rest', () {
+      // Broken generators print FLT_MAX with %f and pdf_cos parses it, so an
+      // edge can sit anywhere. The scan keeps such an edge as it is - no
+      // integer row index for it to overflow: a subpath out there covers no
+      // row, and a spike out to it is a vertical edge on the page.
+      final r = raster();
+      final alone =
+          spansOf(r.fillSpans(const PdfPath(triangle), evenOdd: false));
+      expect(alone, isNotEmpty);
+      for (final far in [
+        1e12,
+        -1e12,
+        3e9,
+        -4294967396.0, // 2^32 rows up: wraps to row 300 in 32 bits
+        1e19, // past the VM's int range
+        -1e19,
+        3.4028234663852886e38, // FLT_MAX
+      ]) {
+        for (final evenOdd in [false, true]) {
+          final offPage = PdfPath([
+            ...triangle,
+            PdfMoveTo(0, far),
+            PdfLineTo(50, far * 1.001),
+            PdfLineTo(100, far),
+            const PdfClosePath(),
+          ]);
+          expect(spansOf(r.fillSpans(offPage, evenOdd: evenOdd)), alone,
+              reason: 'subpath at y = $far');
+          final spike = PdfPath([
+            const PdfMoveTo(10, 50),
+            const PdfLineTo(80, 50),
+            PdfLineTo(40, far),
+            const PdfClosePath(),
+          ]);
+          expect(
+              spansOf(r.fillSpans(spike, evenOdd: evenOdd)),
+              spansOf(far > 0
+                  ? r.boxSpans(10, 50, 80, 100)
+                  : r.boxSpans(10, 0, 80, 50)),
+              reason: 'spike to y = $far');
+        }
+      }
+    });
+
+    test('a vertex at infinite x drops out without disturbing the rest', () {
+      // The page mapping has no shear, so an infinite x maps to a NaN cell y
+      // (0 x infinity) and every crossing of the two edges meeting there is
+      // NaN. Edges are gathered in path order, so on every row those NaNs
+      // come after the finite crossings, where the insertion sort leaves them
+      // and no run reads them: the fill is the one without the vertex.
+      // Gathered any earlier, a NaN would open or close a run instead.
+      const square = [
+        PdfMoveTo(10, 10),
+        PdfLineTo(70, 10),
+        PdfLineTo(70, 90),
+        PdfLineTo(10, 90),
+        PdfClosePath(),
+      ];
+      const sliver = [PdfMoveTo(80, 60), PdfLineTo(90, 20), PdfLineTo(85, 60)];
+      final r = raster();
+      for (final evenOdd in [false, true]) {
+        final without = spansOf(r.fillSpans(
+            const PdfPath([...square, ...sliver, PdfClosePath()]),
+            evenOdd: evenOdd));
+        expect(without, isNotEmpty);
+        for (final x in [double.infinity, double.negativeInfinity]) {
+          final withVertex = PdfPath([
+            ...square,
+            ...sliver,
+            PdfLineTo(x, 40),
+            const PdfClosePath(),
+          ]);
+          expect(spansOf(r.fillSpans(withVertex, evenOdd: evenOdd)), without,
+              reason: 'x = $x, evenOdd: $evenOdd');
+        }
+      }
     });
   });
 }
