@@ -351,7 +351,7 @@ void main() {
   });
 
   group('stale-raster text restyles', () {
-    testWidgets('wash the old FreeText footprint under the new appearance',
+    testWidgets('paint the new appearance without washing the page',
         (tester) async {
       const pageColor = Color(0xFFB3E5FC);
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -391,8 +391,8 @@ void main() {
       final painter = overlayPainter(tester);
       final after = painter.afterGhost;
       expect(after, isNotNull);
-      expect(after.source, isNotNull);
-      expect(after.sourceWash, pageColor);
+      // No paper wash over the old footprint: the page raster never carries
+      // annotations, and the appearance layer drops the stale picture itself.
       expect(after.to, geometry.toViewRect(editing.selectedAnnotation!.rect));
     });
   });
