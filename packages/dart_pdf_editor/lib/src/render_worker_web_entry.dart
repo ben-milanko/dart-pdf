@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'dart:js_interop';
@@ -1950,6 +1951,11 @@ Future<Uint8List> _inflateBrowserFlateSamples(
   // Start the reader before writing so stream backpressure cannot deadlock a
   // large inflated image waiting for a consumer.
   final output = web.Response(decompressor.readable).arrayBuffer().toDart;
+  // When the browser rejects the payload (trailing bytes after the zlib
+  // stream, say) the write below throws and this future is never awaited.
+  // Its rejection must not surface as an uncaught error: that fires the
+  // Worker's onerror, and the host then gives up on the whole worker.
+  output.ignore();
   final writer = decompressor.writable.getWriter();
   await writer.write(owned.toJS).toDart;
   await writer.close().toDart;
