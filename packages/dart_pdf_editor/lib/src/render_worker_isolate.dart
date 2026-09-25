@@ -802,10 +802,12 @@ void _workerMain(_WorkerInit init) {
   final cancelPort = ReceivePort();
   init.reply.send([requests.sendPort, cancelPort.sendPort]);
 
-  // The worker's own copy of the document image. It grows in place as
-  // append-only revisions arrive ('update' messages), so the buffer the open
-  // document parses from stays valid across edits.
+  // The worker's own copy of the document image. [workerBytes] is capacity:
+  // its first [workerLength] bytes are the revision the worker reflects. It
+  // grows in place as append-only revisions arrive ('update' messages), so the
+  // buffer the open document parses from stays valid across edits.
   var workerBytes = init.bytes.materialize().asUint8List();
+  var workerLength = workerBytes.length;
   var populatedRanges = init.populatedRanges;
   PdfDocument? document;
   // One decoded-image cache per open document, mirroring the web backend: a
@@ -875,13 +877,38 @@ void _workerMain(_WorkerInit init) {
         if (newLength != baseLength + appended.length) {
           throw ArgumentError('inconsistent revision length');
         }
+        if (baseLength > workerLength) {
+          throw ArgumentError('revision base past the held prefix');
+        }
         final changed = (request[5] as List?)?.cast<int>().toSet();
-        final rebuilt = Uint8List(baseLength + appended.length)
-          ..setRange(0, baseLength, workerBytes)
-          ..setRange(baseLength, baseLength + appended.length, appended);
-        final live = Uint8List.sublistView(rebuilt, 0, newLength);
         final nextRanges =
             renderWorkerRevisionRanges(populatedRanges, baseLength, newLength);
+        // Everything above is validation; nothing is written until here.
+        //
+        // Append the tail in place: the shared prefix below [baseLength] is
+        // already in the buffer, so only the tail is copied and an undo is just
+        // a shorter view. Rebuilding an exact-size buffer per revision cost a
+        // whole-document allocation + copy per worker per edit/undo/redo, and
+        // the cached streams' views into each superseded buffer kept every one
+        // of them alive (~one document per worker per edit).
+        //
+        // The write lands at or past [baseLength]. For a forward append that is
+        // past everything the open document views. Any other shape (an undo, or
+        // a coalesced undo+edit whose base is below the live revision) has
+        // [baseLength] != the document's length, so it re-opens below and
+        // evicts every cache that referenced the old document before anything
+        // reads the overwritten bytes again.
+        //
+        // Grow with ~6% slack, not doubling: every worker isolate owns its
+        // buffer, so doubling would park up to a document of dead capacity in
+        // each one. The slack absorbs thousands of annotation-sized tails.
+        var buffer = workerBytes;
+        if (newLength > buffer.length) {
+          buffer = Uint8List(newLength + (newLength >> 4) + (1 << 20))
+            ..setRange(0, baseLength, workerBytes);
+        }
+        buffer.setRange(baseLength, newLength, appended);
+        final live = Uint8List.sublistView(buffer, 0, newLength);
         var incremental = false;
         final doc = document;
         if (doc != null && baseLength == doc.cos.bytes.length) {
@@ -901,8 +928,8 @@ void _workerMain(_WorkerInit init) {
             document = null;
           }
         }
-        // Commit the grown buffer only once the document reflects it.
-        workerBytes = rebuilt;
+        workerBytes = buffer;
+        workerLength = newLength;
         populatedRanges = nextRanges;
         // On the in-place fast path only the changed pages' cached commands are
         // stale; a re-open makes a fresh document, so every cached command
@@ -912,8 +939,9 @@ void _workerMain(_WorkerInit init) {
         suspendedRecord.evict(incremental ? changed : null);
         textCache.evictPages(incremental ? changed : null);
       } catch (_) {
-        // Malformed update: leave the document and buffer as they were and just
-        // free the worker slot below so it keeps serving other pages.
+        // Malformed update (rejected before anything was written): leave the
+        // document and buffer as they were and just free the worker slot below
+        // so it keeps serving other pages.
       }
       init.reply.send([id, null]);
       return;

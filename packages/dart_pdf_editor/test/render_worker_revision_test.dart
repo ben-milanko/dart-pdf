@@ -16,7 +16,8 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 /// caching wrapper stores and later serves it from cache.
 class _FakeBackend extends PdfRenderWorker {
   final recordCounts = <int, int>{};
-  final updates = <({int base, int appended, int newLength, Set<int>? pages})>[];
+  final updates =
+      <({int base, int appended, int newLength, Set<int>? pages})>[];
   bool _active = true;
 
   // Completer gate for the in-flight test; when set, `record` waits on it.
@@ -122,7 +123,8 @@ void main() {
     expect(backend.recordCounts[2], 2);
   });
 
-  test('an in-flight decode for a changed page is not cached (stale)', () async {
+  test('an in-flight decode for a changed page is not cached (stale)',
+      () async {
     final backend = _FakeBackend();
     final worker = PdfCachingRenderWorker(backend);
 
@@ -142,7 +144,8 @@ void main() {
     // Its result must not have been cached: a fresh request re-records.
     await worker.record(7);
     expect(backend.recordCounts[7], 2,
-        reason: 'a decode dispatched before the edit must not cache its result');
+        reason:
+            'a decode dispatched before the edit must not cache its result');
   });
 
   test('a stale in-flight completion does not evict a newer in-flight decode',
@@ -219,7 +222,8 @@ void main() {
       // Undo: the live revision shrinks back to the original prefix (no bytes to
       // append). The isolate can't apply that as a forward append, so it
       // re-opens from the shorter prefix and page 0 renders as it did before.
-      worker.updateRevision(original.length, Uint8List(0), original.length, {0});
+      worker
+          .updateRevision(original.length, Uint8List(0), original.length, {0});
       final undone0 = await worker.record(0);
       expect(undone0, isNotNull);
       expect(undone0!.length, before0.length,
@@ -257,4 +261,143 @@ void main() {
       expect(after9!.length, before9!.length);
     });
   });
+
+  // The isolate worker appends each revision's tail to its buffer in place and
+  // reads an undo as a shorter view of it. These drive a real editing session,
+  // whose own buffer is overwritten in place by an edit after an undo, and
+  // check every step against a fresh worker opened on a copy of the bytes.
+  testWidgets(
+      'the isolate worker applies revisions in place: edit, undo, an '
+      'overwriting edit, redo', (tester) async {
+    await tester.runAsync(() async {
+      final controller = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(controller.dispose);
+      // One platform worker behind the pool's router and no record cache, so
+      // every record below really walks the worker's own document.
+      final worker =
+          PdfPooledRenderWorker(controller.bytes, 1, copySource: false);
+      addTearDown(worker.dispose);
+      const pages = [0, 1, 2];
+      for (final page in pages) {
+        await worker.record(page); // warm the caches revisions must evict
+      }
+      final originalLength = controller.bytes.length;
+
+      controller.apply((e) => e.addSquare(0, const PdfRect(20, 20, 120, 120)));
+      _feed(worker, controller);
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'edit A');
+      final afterA = Uint8List.fromList(controller.bytes);
+
+      controller.apply((e) => e.addCircle(1, const PdfRect(30, 30, 90, 90)));
+      _feed(worker, controller);
+      controller.undo();
+      _feed(worker, controller);
+      controller.undo();
+      _feed(worker, controller);
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'undo back to the original');
+
+      // Edit C is written where A's bytes were.
+      controller
+          .apply((e) => e.addCircle(0, const PdfRect(200, 200, 260, 300)));
+      _feed(worker, controller);
+      final overlap = afterA.length < controller.bytes.length
+          ? afterA.length
+          : controller.bytes.length;
+      expect(Uint8List.sublistView(controller.bytes, originalLength, overlap),
+          isNot(Uint8List.sublistView(afterA, originalLength, overlap)),
+          reason: 'edit C must overwrite the undone bytes');
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'edit C over the undone revisions');
+
+      controller.undo();
+      _feed(worker, controller);
+      controller.redo();
+      _feed(worker, controller);
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'undo + redo of C');
+    });
+  });
+
+  testWidgets(
+      'a coalesced undo + edit (base below the worker revision) re-opens '
+      'exactly', (tester) async {
+    await tester.runAsync(() async {
+      final controller = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(controller.dispose);
+      final worker =
+          PdfPooledRenderWorker(controller.bytes, 1, copySource: false);
+      addTearDown(worker.dispose);
+      const pages = [0, 1, 2];
+
+      controller.apply((e) => e.addSquare(0, const PdfRect(20, 20, 120, 120)));
+      _feed(worker, controller);
+      controller
+          .apply((e) => e.addSquare(0, const PdfRect(150, 150, 220, 220)));
+      _feed(worker, controller);
+      for (final page in pages) {
+        await worker.record(page);
+      }
+
+      // The worker misses both undos and hears only edit C, whose base is
+      // below the revision it holds: C's tail lands on bytes its open document
+      // still views, so it has to re-open rather than append.
+      controller.undo();
+      controller.undo();
+      controller.apply((e) => e.addCircle(0, const PdfRect(40, 300, 140, 380)));
+      _feed(worker, controller);
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'coalesced undo + edit');
+      // Then an ordinary forward append on top.
+      controller.apply((e) => e.addSquare(1, const PdfRect(10, 10, 50, 50)));
+      _feed(worker, controller);
+
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'coalesced undo + edit, then an append');
+    });
+  });
+}
+
+/// Feeds [controller]'s latest revision to [worker] with a private copy of its
+/// tail, as [PdfRenderWorker.updateRevision] callers must.
+void _feed(PdfRenderWorker worker, PdfEditingController controller) {
+  final delta = controller.lastRevisionDelta!;
+  worker.updateRevision(
+    delta.baseLength,
+    Uint8List.fromList(Uint8List.sublistView(
+        controller.bytes, delta.baseLength, delta.newLength)),
+    delta.newLength,
+    delta.changedPages,
+  );
+}
+
+/// [pageIndex]'s record from [worker] in wire form, byte-comparable across
+/// workers.
+Future<Uint8List?> _recorded(PdfRenderWorker worker, int pageIndex,
+    {int priority = 0}) async {
+  final commands = await worker.record(pageIndex, priority: priority);
+  return commands == null ? null : serializeCommands(commands);
+}
+
+/// Expects [worker] to record [pages] (at [priority]) byte-identically to a
+/// fresh worker opened on a private copy of [bytes].
+Future<void> _expectMatchesFresh(
+  PdfRenderWorker worker,
+  Uint8List bytes,
+  List<int> pages, {
+  int priority = 0,
+  required String step,
+}) async {
+  final fresh = PdfPooledRenderWorker(Uint8List.fromList(bytes), 1);
+  try {
+    for (final page in pages) {
+      final want = await _recorded(fresh, page);
+      expect(want, isNotNull, reason: '$step: reference page $page');
+      expect(await _recorded(worker, page, priority: priority), want,
+          reason: '$step: page $page');
+    }
+  } finally {
+    fresh.dispose();
+  }
 }
