@@ -65,8 +65,7 @@ void main() {
           final name = file.path.startsWith(root)
               ? file.path.substring(root.length)
               : file.uri.pathSegments.last;
-          final res =
-              await _benchFile(file, scale, maxPages, name);
+          final res = await _benchFile(file, scale, maxPages, name);
           final prev = best[file.path];
           final better = prev == null ||
               (res['error'] == null &&
@@ -78,7 +77,8 @@ void main() {
           }
         }
         // ignore: avoid_print
-        print('  dart-render pass ${r + 1}/$repeat done (${files.length} files)');
+        print(
+            '  dart-render pass ${r + 1}/$repeat done (${files.length} files)');
       }
 
       String git(List<String> a) {
@@ -87,6 +87,9 @@ void main() {
       }
 
       final resultList = [for (final f in files) best[f.path]];
+      final flutterVersion = Platform.environment['PDF_PERF_FLUTTER_VERSION'];
+      final imageOs = Platform.environment['ImageOS'];
+      final imageVersion = Platform.environment['ImageVersion'];
       final payload = {
         // Envelope fields (tool/perf/SCHEMA.md); the legacy fields below are
         // unchanged so benchmark/compare.py keeps working.
@@ -106,10 +109,17 @@ void main() {
         'env': {
           'os': Platform.operatingSystem,
           'cpus': Platform.numberOfProcessors,
+          'dart': Platform.version.split(' ').first,
           'ci': Platform.environment['CI'] == 'true',
           'runner': Platform.environment['RUNNER_OS'] != null
               ? 'github-actions'
               : 'local',
+          // Toolchain + runner image, as perf_run_context.dart's envInfo
+          // records them (inlined: this file is grafted onto old commits).
+          if (flutterVersion != null && flutterVersion.isNotEmpty)
+            'flutter': flutterVersion,
+          if (imageOs != null && imageVersion != null)
+            'runnerImage': '$imageOs/$imageVersion',
         },
         'ts': DateTime.now().toUtc().toIso8601String(),
         'tool': 'dart-pdf-render',
@@ -170,9 +180,9 @@ Future<Map<String, Object?>> _benchFile(
   final walk = Stopwatch()..start();
   for (var i = 0; i < limit; i++) {
     try {
-      final image = await PdfPageRenderer.renderImage(doc.page(i),
-              pixelRatio: scale)
-          .timeout(const Duration(seconds: 60));
+      final image =
+          await PdfPageRenderer.renderImage(doc.page(i), pixelRatio: scale)
+              .timeout(const Duration(seconds: 60));
       // Force the readback so rasterization is fully realized, then free it.
       await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       image.dispose();
@@ -187,7 +197,8 @@ Future<Map<String, Object?>> _benchFile(
     'pages': pages,
     'pagesRendered': rendered,
     'openMs': double.parse(openMs.toStringAsFixed(3)),
-    'renderMs': double.parse((walk.elapsedMicroseconds / 1000).toStringAsFixed(3)),
+    'renderMs':
+        double.parse((walk.elapsedMicroseconds / 1000).toStringAsFixed(3)),
     'error': error,
   };
 }
@@ -202,6 +213,7 @@ Map<String, Object?> _aggregate(List<Map<String, Object?>?> results) {
     final s = [...v]..sort();
     return s[((p / 100) * (s.length - 1)).round()];
   }
+
   List<double> vals(String key, {bool perPage = false}) => [
         for (final r in rows)
           if (r['error'] == null &&

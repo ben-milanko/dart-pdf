@@ -23,7 +23,9 @@ unknown keys).
   "params": {},                // suite-specific knobs (repeat, timeoutS, ...)
   "rev":  { "sha": "...", "branch": "main", "dirty": false, "date": "..." },
   "env":  { "os": "macos-arm64", "osVersion": "...", "cpus": 10,
-            "dart": "3.9.0", "ci": false, "runner": "local" },
+            "dart": "3.9.0", "ci": false, "runner": "local",
+            "flutter": "3.47.4",       // when known (tool/perf/nightly.sh)
+            "runnerImage": "ubuntu24/20260920.314.1" }, // hosted runners only
   "ts": "2026-07-18T09:00:00.000Z",
   "metrics": {                 // run-level aggregates; dashboards read ONLY
                                // this - never re-derive from results
@@ -59,6 +61,9 @@ Rules:
   metric by the **median ratio** across files with 3-MAD outlier exclusion.
 - `tool/perf/targets.json` holds aspirational per-scenario budgets checked
   against `metrics` — informational only, never a gate.
+- `env.flutter` / `env.runnerImage` name the Flutter SDK and the hosted
+  runner image; a step in the trend that coincides with a change in either
+  is a toolchain effect until shown otherwise.
 
 ## `nightly-verdicts.jsonl` (perf-data only)
 

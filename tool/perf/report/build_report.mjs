@@ -290,11 +290,17 @@ for (const [key, groupRuns] of groups) {
   }).join('');
 
   const last = recent[recent.length - 1];
+  // Toolchain + runner image (recorded since the nightly started to): an SDK
+  // bump or image rollover explains a step no commit does.
+  const toolchain = [
+    last.env?.flutter ? `Flutter ${last.env.flutter}` : null,
+    last.env?.runnerImage ? `image ${last.env.runnerImage}` : null,
+  ].filter(Boolean).join(', ');
   sections += `<section>
   <h2>${esc(key)}</h2>
   <p class="meta">${recent.length} runs · latest ${esc(String(last.ts ?? '').slice(0, 16).replace('T', ' '))}
     @ <code>${esc(String(last.rev?.sha ?? '').slice(0, 8))}</code> on ${esc(last.env?.os ?? '?')}
-    (${esc(last.env?.runner ?? '?')})</p>
+    (${esc(last.env?.runner ?? '?')}${toolchain ? `, ${esc(toolchain)}` : ''})</p>
   <div class="charts">${charts}</div>
   <details><summary>Latest run vs targets</summary>
     <table><thead><tr><th>metric</th><th>latest</th><th>budget</th><th>verdict</th></tr></thead>
