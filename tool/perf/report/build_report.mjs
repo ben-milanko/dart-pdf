@@ -71,10 +71,20 @@ runs.sort((a, b) => whenOf(a).localeCompare(whenOf(b)));
 // envelope loader above skips it): {date, sha, prevSha, verdict, checks}.
 const verdictsPath = join(historyDir, 'nightly-verdicts.jsonl');
 const verdicts = existsSync(verdictsPath) ? readRecords(verdictsPath) : [];
-// Commits a nightly judged red: their points get a ring on every chart.
-const redShas = new Set(verdicts
-  .filter((v) => v.verdict && v.verdict !== 'ok')
-  .map((v) => v.sha));
+// Each commit's latest verdict (a re-check of the same commit supersedes the
+// night before it). A `regressed` commit's points get a red ring on every
+// chart; an `error` one - a check broke, nothing was judged - a dashed grey
+// one, so a broken check never reads as a regression.
+const nightOf = new Map();
+for (const v of verdicts) {
+  if (v.verdict === 'regressed' || v.verdict === 'error' || v.verdict === 'ok') {
+    nightOf.set(v.sha, v.verdict);
+  }
+}
+const ringOf = (sha) => {
+  const v = nightOf.get(sha);
+  return v === 'regressed' ? 'red' : v === 'error' ? 'err' : null;
+};
 
 const groups = new Map(); // "suite / scenario" -> runs
 for (const r of runs) {
@@ -116,8 +126,8 @@ function chart(metric, series, budget) {
   const hover = series.map((p, i) =>
     `<circle class="hit" cx="${x(i)}" cy="${y(p.v)}" r="8"><title>${esc(p.label)}</title></circle>`
   ).join('');
-  const red = series.map((p, i) => p.red
-    ? `<circle class="red" cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"/>`
+  const red = series.map((p, i) => p.ring
+    ? `<circle class="${p.ring}" cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"/>`
     : '').join('');
 
   return `<figure class="chart${miss ? ' miss' : ''}">
@@ -233,7 +243,7 @@ if (verdicts.length) {
   const short = (s) => (s ? String(s).slice(0, 8) : '—');
   const cell = (state) => {
     const s = state ?? '—';
-    const cls = s === 'ok' ? 'pass' : s === 'regressed' || s === 'error' ? 'fail' : '';
+    const cls = s === 'ok' ? 'pass' : s === 'regressed' ? 'fail' : s === 'error' ? 'err' : '';
     return `<td class="${cls}">${esc(s)}</td>`;
   };
   const rows = verdicts.slice(-14).reverse().map((v) => `<tr>
@@ -246,7 +256,8 @@ if (verdicts.length) {
   <h2>Nightly verdicts</h2>
   <p class="meta">perf-nightly's checks per night: the VM ratio check vs the previous
     nightly, the weekly one vs tool/perf/baselines/nightly-accepted.sha, and the
-    flutter-render trend. Red nights are ringed on the charts below.</p>
+    flutter-render trend. Regressed nights are ringed red on the charts below,
+    nights whose check errored (nothing judged) dashed grey.</p>
   <table><thead><tr><th>night</th><th>commit</th><th>vs</th><th>nightly</th>
     <th>accepted</th><th>render trend</th><th>verdict</th></tr></thead>
   <tbody>${rows}</tbody></table>
@@ -278,8 +289,8 @@ for (const [key, groupRuns] of groups) {
       .map((r) => ({
         v: r.metrics[metric],
         date: whenOf(r).slice(0, 10),
-        red: redShas.has(r.rev?.sha),
-        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}${redShas.has(r.rev?.sha) ? '  (nightly: red)' : ''}`,
+        ring: ringOf(r.rev?.sha),
+        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}${ringOf(r.rev?.sha) ? `  (nightly: ${nightOf.get(r.rev?.sha)})` : ''}`,
       }));
     if (series.length === 0) return '';
     return chart(metric, series, scenarioTargets[metric]?.max);
@@ -370,6 +381,9 @@ const html = `<!doctype html>
     stroke-linejoin: round; stroke-linecap: round; }
   .dot { fill: var(--series-1); }
   .red { fill: none; stroke: var(--fail); stroke-width: 1.5; }
+  circle.err { fill: none; stroke: var(--text-secondary); stroke-width: 1.2;
+    stroke-dasharray: 2 2; }
+  td.err { color: var(--text-secondary); font-style: italic; }
   .grid { stroke: var(--grid); stroke-width: 1; }
   .budget { stroke: var(--budget); stroke-width: 1; stroke-dasharray: 4 3; }
   .axis { fill: var(--text-secondary); font-size: 9px; }

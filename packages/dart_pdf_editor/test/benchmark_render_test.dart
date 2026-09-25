@@ -118,7 +118,10 @@ void main() {
           // records them (inlined: this file is grafted onto old commits).
           if (flutterVersion != null && flutterVersion.isNotEmpty)
             'flutter': flutterVersion,
-          if (imageOs != null && imageVersion != null)
+          if (imageOs != null &&
+              imageOs.isNotEmpty &&
+              imageVersion != null &&
+              imageVersion.isNotEmpty)
             'runnerImage': '$imageOs/$imageVersion',
         },
         'ts': DateTime.now().toUtc().toIso8601String(),

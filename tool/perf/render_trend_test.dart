@@ -184,6 +184,53 @@ void main() {
   _check(tonight.single.window == 5 && !tonight.single.regressed,
       'tonight is judged after the whole history, ignoring append order');
 
+  // Lines of the wrong shape are skipped like corrupt ones (the review
+  // finding: `results` as an object threw, and the CLI exited 255 - an
+  // `error` every night until perf-data was hand-edited).
+  _check(
+      TrendNight.fromEnvelope({
+                'scenario': 's',
+                'results': {'file': 'x'},
+              }) ==
+              null &&
+          TrendNight.fromEnvelope({'scenario': 's'}) == null,
+      'an envelope without a results list is skipped');
+  final odd = TrendNight.fromEnvelope({
+    'scenario': 's',
+    'rev': ['not', 'a', 'map'],
+    'ts': 7,
+    'results': [
+      'text',
+      null,
+      ['a.pdf', 1],
+      {'file': 'a.pdf', 'renderMs': 12.5, 'error': null},
+      {'file': 3, 'renderMs': 4},
+      {'file': 'b.pdf', 'renderMs': '9'},
+    ],
+  });
+  _check(odd != null && odd.values.length == 1 && odd.values['a.pdf'] == 12.5,
+      'rows and fields of the wrong type are skipped, the good row read');
+
+  // A night at tonight's own commit (a re-run, a dispatch on the same commit,
+  // a night with no new commits) is left out: tonight repeats that night's
+  // comparison instead of reading ~1x against itself (the review finding).
+  final base = [for (var d = 1; d <= 5; d++) _night('r', d, _suite(d, 100))];
+  final stepNight = _night('r', 6, _suite(6, 200));
+  final recheck = judgeTonight(
+      [...base, stepNight], [_night('r', 7, _suite(6, 200), commitDay: 6)]);
+  _check(
+      recheck.single.regressed && recheck.single.window == 5,
+      'a re-check of a flagged commit flags again, against the nights before '
+      'it (got ${recheck.single.ratio}, window ${recheck.single.window})');
+  final moved =
+      judgeTonight([...base, stepNight], [_night('r', 7, _suite(7, 200))]);
+  _check(!moved.single.regressed && moved.single.window == 1,
+      'the next commit is judged against the new level as before');
+  final quiet = judgeTonight([...base, _night('r', 6, _suite(6, 104))],
+      [_night('r', 7, _suite(6, 104), commitDay: 6)]);
+  _check(!quiet.single.regressed && quiet.single.window == 5,
+      'a quiet night repeats an ok comparison and stays ok');
+
   // The frozen-history case: months of gap, one red night, then a new level.
   final gap = [
     for (var d = 1; d <= 5; d++) _night('g', d, _suite(d, 10)),
@@ -232,6 +279,20 @@ void main() {
         missing.exitCode != 0 && missing.exitCode != 1,
         'CLI fails as bad input, not as a regression, without tonight '
         '(got ${missing.exitCode})');
+    // One wrong-shape line in the history no longer crashes the CLI.
+    File('${tmp.path}/odd.ndjson').writeAsStringSync([
+      File('${tmp.path}/prior.ndjson').readAsStringSync(),
+      '{"suite":"flutter-render","scenario":"s","results":{"file":"x"}}',
+      '{"scenario":"s","rev":"x","results":["y"]}',
+    ].join('\n'));
+    final odd = run([
+      '--history', '${tmp.path}/odd.ndjson', //
+      '--current', '${tmp.path}/slow.ndjson',
+    ]);
+    _check(
+        odd.exitCode == 1 && '${odd.stdout}'.contains('REGRESSED'),
+        'CLI skips wrong-shape history lines and still judges tonight '
+        '(got ${odd.exitCode}: ${'${odd.stderr}'.split('\n').first})');
     final noHistory = run([
       '--history', '${tmp.path}/absent.ndjson', //
       '--current', '${tmp.path}/slow.ndjson',

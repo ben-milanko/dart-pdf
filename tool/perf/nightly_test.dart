@@ -2,6 +2,9 @@
 // tool tests). Checks perf-nightly's plumbing outside GitHub:
 //   - tool/perf/nightly_ratio_check.sh against a stub perf_diff.sh in a
 //     throwaway git repo (verdict mapping, iterations, the accepted-sha file);
+//   - tool/perf/nightly_state.dart: the baseline rules (ratchet, re-check of
+//     a red night, one carry past an errored night), the weekly backstop, and
+//     a re-run reading and replacing its earlier attempt on a perf-data branch;
 //   - .github/workflows/perf-nightly.yml's timeout budget, so a slow check
 //     fails its own step instead of timing out the job and losing the append;
 //   - tool/perf/report/build_report.mjs on history lines that are not objects.
@@ -9,6 +12,8 @@
 // the dashboard check also needs node (skipped without it).
 import 'dart:convert';
 import 'dart:io';
+
+import 'nightly_state.dart';
 
 var _failures = 0;
 
@@ -276,6 +281,22 @@ void _testWorkflowBudget() {
               .hasMatch(uploadText),
       'workflow: the artifact name is unique per attempt (a re-run keeps '
       'the run id)');
+  // A re-run finds its earlier append by the trailer nightly_state.dart
+  // greps for, and every perf-data read goes through the prev step's base
+  // (the tip, or the state before this run's first attempt).
+  _check(uploadText.contains('-m "$nightTrailer: \$RUN_ID"'),
+      'workflow: the append commit carries the trailer a re-run looks for');
+  _check(
+      uploadText.contains('git show "\$BASE:history/flutter-render.ndjson"') &&
+          !uploadText.contains('git show perf-data:'),
+      'workflow: the render trend reads the prev step\'s base, not the tip');
+  final appendRun = uploadText.substring(
+      uploadText.indexOf('- name: Append history'),
+      uploadText.indexOf('- name: Fail on a red verdict'));
+  _check(
+      appendRun.contains('drop-run --commit "\$RUN_COMMIT"') &&
+          appendRun.indexOf('drop-run') < appendRun.indexOf('cat "\$f" >>'),
+      'workflow: a re-run drops its earlier attempt before appending');
 }
 
 void _testDashboardRobustness() {
@@ -287,26 +308,37 @@ void _testDashboardRobustness() {
   final tmp = Directory.systemTemp.createTempSync('nightly_test_report');
   try {
     final history = Directory('${tmp.path}/history')..createSync();
-    final envelope = jsonEncode({
-      'schema': 1,
-      'suite': 'vm-sweep',
-      'scenario': 's',
-      'rev': {'sha': 'abc12345', 'date': '2026-07-01T00:00:00Z'},
-      'ts': '2026-07-01T01:00:00Z',
-      'env': {'os': 'linux'},
-      'metrics': {'p50OpenMs': 1.5},
-    });
-    final verdict = jsonEncode({
-      'date': '2026-07-01T04:00:00Z',
-      'sha': 'abc12345',
-      'verdict': 'regressed',
-      'checks': {'nightly': 'regressed'},
-    });
+    String envelope(String sha, int day) => jsonEncode({
+          'schema': 1,
+          'suite': 'vm-sweep',
+          'scenario': 's',
+          'rev': {'sha': sha, 'date': '2026-07-0${day}T00:00:00Z'},
+          'ts': '2026-07-0${day}T01:00:00Z',
+          'env': {'os': 'linux'},
+          'metrics': {'p50OpenMs': 1.5 + day},
+        });
+    String verdict(String sha, String v) => jsonEncode({
+          'date': '2026-07-01T04:00:00Z',
+          'sha': sha,
+          'verdict': v,
+          'checks': {'nightly': v},
+        });
     const junk = ['null', '[]', '7', '"text"', 'true', '{not json'];
-    File('${history.path}/vm-sweep.ndjson')
-        .writeAsStringSync([envelope, ...junk, ''].join('\n'));
-    File('${history.path}/nightly-verdicts.jsonl')
-        .writeAsStringSync([...junk, verdict, ''].join('\n'));
+    File('${history.path}/vm-sweep.ndjson').writeAsStringSync([
+      envelope('abc12345', 1),
+      ...junk,
+      envelope('def67890', 2),
+      envelope('0a1b2c3d', 3),
+      '',
+    ].join('\n'));
+    File('${history.path}/nightly-verdicts.jsonl').writeAsStringSync([
+      ...junk,
+      verdict('abc12345', 'regressed'),
+      verdict('def67890', 'error'),
+      verdict('0a1b2c3d', 'regressed'),
+      verdict('0a1b2c3d', 'ok'), // a re-check cleared it
+      '',
+    ].join('\n'));
     final out = '${tmp.path}/index.html';
     final r = Process.runSync('node', [
       '${_perfDir.path}/report/build_report.mjs',
@@ -320,16 +352,317 @@ void _testDashboardRobustness() {
     final html = r.exitCode == 0 ? File(out).readAsStringSync() : '';
     _check(
         html.contains('Nightly verdicts') &&
-            html.contains('class="red"') &&
-            html.contains('1 runs on record'),
+            html.contains('class="fail"') &&
+            html.contains('3 runs on record'),
         'dashboard: the good records around them still render');
+    // The review finding: `error` nights (a check broke) were ringed and
+    // labelled like regressions.
+    int count(String s) => s.allMatches(html).length;
+    _check(
+        count('<circle class="red"') == 1 &&
+            count('<circle class="err"') == 1 &&
+            html.contains('@abc12345  (nightly: regressed)') &&
+            html.contains('@def67890  (nightly: error)') &&
+            !html.contains('@0a1b2c3d  (nightly') &&
+            !html.contains('(nightly: red)'),
+        'dashboard: only regressed nights get the red ring, an error night a '
+        'distinct one, and a later ok re-check clears a commit\'s ring');
   } finally {
     tmp.deleteSync(recursive: true);
   }
 }
 
+/// A verdict record as the workflow writes it.
+NightRecord _record(String sha, String? prev, String nightly,
+        {String accepted = 'not-run',
+        String date = '2026-09-20T04:00:00Z',
+        String runId = '1'}) =>
+    {
+      'date': date,
+      'sha': sha,
+      'prevSha': prev,
+      'verdict': nightly == 'regressed' || nightly == 'error' ? nightly : 'ok',
+      'checks': {
+        'nightly': nightly,
+        'accepted': accepted,
+        'renderTrend': 'ok',
+      },
+      'runId': runId,
+    };
+
+void _testBaselineRules() {
+  String? pick(List<NightRecord> records, String head,
+          {bool haveVerdicts = true, String? vmTail}) =>
+      resolveBaseline(
+              records: records,
+              haveVerdicts: haveVerdicts,
+              head: head,
+              vmSweepTail: vmTail)
+          .sha;
+  String rule(List<NightRecord> records, String head) =>
+      resolveBaseline(records: records, haveVerdicts: true, head: head).rule;
+
+  _check(
+      pick(const [], 'c5', haveVerdicts: false, vmTail: 'c1') == 'c1' &&
+          pick(const [], 'c5', haveVerdicts: false) == null,
+      'baseline: before the verdict file exists, the vm-sweep tail (or none)');
+  final nights = [_record('c1', 'c0', 'ok'), _record('c2', 'c1', 'ok')];
+  _check(pick(nights, 'c3') == 'c2' && rule(nights, 'c3') == 'previous',
+      'baseline: the last recorded night - the ratchet');
+
+  // The review finding: a corrupt LAST line fell back to the vm-sweep tail,
+  // which can be an old backfilled commit.
+  final text = [
+    ...nights.map(jsonEncode),
+    '{"sha": "c9", "checks": {"nightly": "ok"',
+    '[]',
+    '{"date": "x"}',
+  ].join('\n');
+  final parsed = parseRecords(text);
+  _check(
+      parsed.length == 2 && pick(parsed, 'c3', vmTail: 'c0') == 'c2',
+      'baseline: corrupt trailing lines are skipped, not a reason to fall '
+      'back to the vm-sweep tail (got ${pick(parsed, 'c3', vmTail: 'c0')})');
+  _check(
+      pick(parseRecords('null\n{broken\n'), 'c3', vmTail: 'c0') == null,
+      'baseline: a verdict file with no readable record is none, not an old '
+      'vm-sweep sha');
+  _check(
+      lastEnvelopeSha('{"rev": {"sha": "c1"}}\n{"rev": {"sha": "c2"}}\n{bad\n'
+              '[1]\n') ==
+          'c2',
+      'baseline: the vm-sweep fallback skips unreadable trailing lines too');
+
+  // The review finding: a re-run or a dispatch on the same commit compared
+  // HEAD with itself and read green while the regression was still there.
+  for (final state in ['regressed', 'error']) {
+    final red = [...nights, _record('c3', 'c2', state)];
+    _check(
+        pick(red, 'c3') == 'c2' && rule(red, 'c3') == 'recheck',
+        'baseline: when the last night is HEAD and read $state, its own '
+        'baseline is re-checked, not HEAD (got ${pick(red, 'c3')})');
+  }
+  final green = [...nights, _record('c3', 'c2', 'ok')];
+  _check(pick(green, 'c3') == 'c3' && rule(green, 'c3') == 'unchanged',
+      'baseline: a green night at HEAD leaves nothing to check');
+  final renderRed = [
+    ...nights,
+    _record('c3', 'c2', 'ok')..['verdict'] = 'regressed',
+  ];
+  _check(pick(renderRed, 'c3') == 'c3',
+      'baseline: only the nightly check\'s own red is re-checked');
+
+  // The review finding: an errored night (a check that timed out) advanced
+  // the baseline, so its range was never judged.
+  final errored = [...nights, _record('c3', 'c2', 'error')];
+  _check(
+      pick(errored, 'c4') == 'c2' && rule(errored, 'c4') == 'carry',
+      'baseline: an errored night\'s baseline is carried into the next '
+      '(got ${pick(errored, 'c4')})');
+  final carriedTwice = [...errored, _record('c4', 'c2', 'error')];
+  _check(
+      pick(carriedTwice, 'c5') == 'c4',
+      'baseline: carried once only - a baseline that keeps failing cannot '
+      'freeze the ratchet (got ${pick(carriedTwice, 'c5')})');
+  final recheckedCarry = [...carriedTwice, _record('c4', 'c2', 'error')];
+  _check(pick(recheckedCarry, 'c5') == 'c4',
+      'baseline: a re-check of a carried night does not renew the carry');
+  _check(pick([_record('c3', 'c1', 'error')], 'c4') == 'c1',
+      'baseline: the first recorded night can carry too');
+}
+
+void _testAcceptedDue() {
+  final now = DateTime.utc(2026, 9, 29, 4);
+  NightRecord at(int daysAgo, String accepted) => _record('c', 'b', 'ok',
+      accepted: accepted,
+      date: now.subtract(Duration(days: daysAgo)).toIso8601String());
+  _check(acceptedDue(const [], now).due,
+      'accepted: due with no accepted check on record');
+  _check(
+      acceptedDue([at(8, 'ok'), at(1, 'not-run')], now).due,
+      'accepted: due when the last one that ran is 8 days old (a dropped '
+      'Sunday)');
+  _check(!acceptedDue([at(8, 'ok'), at(2, 'regressed')], now).due,
+      'accepted: not due two days after one ran');
+  _check(!acceptedDue([at(1, 'error')], now).due,
+      'accepted: an errored check counts as having run');
+  _check(acceptedDue([at(3, 'skipped'), at(1, 'not-run')], now).due,
+      'accepted: skipped / not-run nights are not a check');
+}
+
+void _testDropAppended() {
+  var r = dropAppended('a\nb\nx\ny\nz\n', 'a\nb\n', 'a\nb\nx\ny\n');
+  _check(r.text == 'a\nb\nz\n' && r.missing == 0,
+      'drop: an attempt\'s lines go, a later night\'s stay (got ${jsonEncode(r.text)})');
+  // Attempt 2 replaced attempt 1 (dropped x, appended w): dropping attempt 2
+  // removes w only.
+  r = dropAppended('a\nb\nw\nz\n', 'a\nb\nx\n', 'a\nb\nw\n');
+  _check(r.text == 'a\nb\nz\n' && r.missing == 0,
+      'drop: a replacing attempt\'s removals are not re-added');
+  r = dropAppended('a\n', 'a\n', 'a\nq\n');
+  _check(r.text == 'a\n' && r.missing == 1,
+      'drop: a line already gone is counted, not fatal');
+}
+
+/// resolve + drop-run against a throwaway repo with a perf-data branch: a
+/// first attempt, its re-run, a dispatch on the same commit, a third attempt,
+/// and a re-run after a later night was recorded.
+void _testStateCli() {
+  final dir = Directory.systemTemp.createTempSync('nightly_state_test').path;
+  final script = '${_perfDir.path}/nightly_state.dart';
+  try {
+    void git(List<String> args, [String? at]) => _git(at ?? dir, args);
+    git(['init', '-q', '-b', 'main']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'test']);
+    File('$dir/a.txt').writeAsStringSync('main\n');
+    git(['add', '-A']);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'c1']);
+    final prev = _git(dir, ['rev-parse', 'HEAD']);
+    File('$dir/a.txt').writeAsStringSync('main 2\n');
+    git(['-c', 'commit.gpgsign=false', 'commit', '-qam', 'c2']);
+    final head = _git(dir, ['rev-parse', 'HEAD']);
+
+    // perf-data: one recorded night (run 100 at `prev`), in a worktree.
+    final pd = '$dir-pd';
+    git(['worktree', 'add', '-q', '--detach', pd]);
+    git(['checkout', '-q', '--orphan', 'perf-data'], pd);
+    git(['rm', '-rfq', '.'], pd);
+    Directory('$pd/history').createSync();
+    String env(String sha, String tag) => jsonEncode({
+          'suite': 'vm-sweep',
+          'rev': {'sha': sha},
+          'ts': tag
+        });
+    void append(String file, String line) => File('$pd/history/$file')
+        .writeAsStringSync('$line\n', mode: FileMode.append);
+    void commit(String runId) {
+      git(['add', '-A'], pd);
+      git([
+        '-c', 'commit.gpgsign=false', 'commit', '-q', //
+        '-m', 'perf-nightly: night (run $runId)',
+        '-m', '$nightTrailer: $runId',
+      ], pd);
+    }
+
+    append('vm-sweep.ndjson', env(prev, 'n0'));
+    append('nightly-verdicts.jsonl',
+        jsonEncode(_record(prev, null, 'skipped', runId: '100')));
+    commit('100');
+    final before = _git(pd, ['rev-parse', 'HEAD']);
+
+    Map<String, String> resolve(String runId) {
+      final r = Process.runSync(
+          Platform.resolvedExecutable,
+          [
+            script, 'resolve', '--ref', 'perf-data', '--head', head, //
+            '--run-id', runId, '--now', '2026-09-20T05:00:00Z',
+          ],
+          workingDirectory: dir);
+      if (r.exitCode != 0) throw StateError('resolve: ${r.stderr}');
+      return {
+        for (final l in const LineSplitter().convert('${r.stdout}'))
+          if (l.contains('='))
+            l.substring(0, l.indexOf('=')): l.substring(l.indexOf('=') + 1),
+      };
+    }
+
+    void dropRun(String commit) {
+      final r = Process.runSync(Platform.resolvedExecutable,
+          [script, 'drop-run', '--commit', commit, '--dir', pd]);
+      if (r.exitCode != 0) throw StateError('drop-run: ${r.stderr}');
+    }
+
+    var o = resolve('200');
+    _check(
+        o['base'] == before &&
+            o['sha'] == prev &&
+            o['rule'] == 'previous' &&
+            o['run_commit'] == '' &&
+            o['superseded'] == 'false',
+        'state: a first attempt reads the tip and compares against the last '
+        'night (got $o)');
+
+    // Attempt 1 of run 200: red, appended.
+    append('vm-sweep.ndjson', env(head, 'attempt 1'));
+    append('nightly-verdicts.jsonl',
+        jsonEncode(_record(head, prev, 'regressed', runId: '200')));
+    commit('200');
+    final attempt1 = _git(pd, ['rev-parse', 'HEAD']);
+
+    o = resolve('200');
+    _check(
+        o['base'] == before &&
+            o['sha'] == prev &&
+            o['run_commit'] == attempt1 &&
+            o['superseded'] == 'false',
+        'state: a re-run reads perf-data as it was before its first attempt '
+        'and repeats that comparison (got $o)');
+    o = resolve('300');
+    _check(o['base'] == attempt1 && o['sha'] == prev && o['rule'] == 'recheck',
+        'state: a new run on the same commit re-checks the red night (got $o)');
+
+    // Attempt 2 replaces attempt 1's night.
+    dropRun(attempt1);
+    append('vm-sweep.ndjson', env(head, 'attempt 2'));
+    append('nightly-verdicts.jsonl',
+        jsonEncode(_record(head, prev, 'ok', runId: '200')));
+    commit('200');
+    final attempt2 = _git(pd, ['rev-parse', 'HEAD']);
+    final vm = File('$pd/history/vm-sweep.ndjson').readAsStringSync();
+    final verdicts = parseRecords(
+        File('$pd/history/nightly-verdicts.jsonl').readAsStringSync());
+    _check(
+        !vm.contains('attempt 1') &&
+            vm.contains('attempt 2') &&
+            verdicts.length == 2 &&
+            verdicts.last['checks'] is Map &&
+            (verdicts.last['checks'] as Map)['nightly'] == 'ok',
+        'state: the re-run replaces its earlier attempt\'s night instead of '
+        'recording it twice');
+
+    o = resolve('200');
+    _check(o['base'] == before && o['run_commit'] == attempt2,
+        'state: a third attempt still reads from before the first (got $o)');
+    dropRun(attempt2);
+    _check(
+        File('$pd/history/vm-sweep.ndjson').readAsStringSync() ==
+            '${env(prev, 'n0')}\n',
+        'state: dropping the latest attempt leaves the history as before '
+        'the run');
+    git(['checkout', '-q', '--', '.'], pd);
+
+    // A backfill commit (no trailer) is not a later night.
+    append('vm-sweep.ndjson', env(prev, 'backfill'));
+    git(['add', '-A'], pd);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'perf-backfill'], pd);
+    o = resolve('200');
+    _check(o['superseded'] == 'false' && o['run_commit'] == attempt2,
+        'state: a backfill appended since does not supersede a re-run (got $o)');
+
+    // A later night is recorded, then run 200 is re-run again.
+    append('nightly-verdicts.jsonl',
+        jsonEncode(_record('later', head, 'ok', runId: '400')));
+    commit('400');
+    o = resolve('200');
+    _check(o['superseded'] == 'true' && o['base'] == before,
+        'state: a re-run after a later night leaves perf-data alone (got $o)');
+  } finally {
+    Process.runSync('git', ['worktree', 'remove', '--force', '$dir-pd'],
+        workingDirectory: dir);
+    Directory(dir).deleteSync(recursive: true);
+    if (Directory('$dir-pd').existsSync()) {
+      Directory('$dir-pd').deleteSync(recursive: true);
+    }
+  }
+}
+
 void main() {
   _testRatioCheck();
+  _testBaselineRules();
+  _testAcceptedDue();
+  _testDropAppended();
+  _testStateCli();
   _testWorkflowBudget();
   _testDashboardRobustness();
   if (_failures > 0) {

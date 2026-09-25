@@ -37,20 +37,46 @@ anything new. This session makes it a per-night signal again.
 
 `.github/workflows/perf-nightly.yml`, in step order:
 
-1. **Resolve the previous nightly's commit** (`id: prev`). This runs first,
-   before anything touches perf-data: the append step's worktree advances
-   the local perf-data ref, so a later read would return HEAD. The previous
-   commit comes from the last line of `history/nightly-verdicts.jsonl`. Only
-   the nightly writes that file, whereas perf-backfill appends OLD commits
-   to the envelope history, so the envelope tail can't be trusted. Until
-   the verdict file exists it falls back to the vm-sweep tail.
+1. **Resolve the previous nightly's commit** (`id: prev`,
+   `tool/perf/nightly_state.dart resolve`). This runs first, before anything
+   touches perf-data: the append step's worktree advances the local
+   perf-data ref, so a later read would return HEAD. The baseline comes
+   from `history/nightly-verdicts.jsonl`. Only the nightly writes that file,
+   whereas perf-backfill appends OLD commits to the envelope history, so the
+   envelope tail can't be trusted. Unreadable lines are skipped, so the last
+   *readable* record decides. Only when the verdict file does not exist yet
+   does it fall back to the vm-sweep tail. The rules (`prevRule` in the
+   record):
+   - `previous`: the last recorded night's commit. This is the ratchet.
+   - `recheck`: the last night is HEAD itself and its nightly check read
+     `regressed` or `error`. This covers a re-run, a dispatch on the same
+     commit, and a night with no new commits. That night's baseline is
+     checked again, instead of HEAD against itself.
+   - `unchanged`: the last night is HEAD and read ok. There is nothing new,
+     so the check skips.
+   - `carry`: the last night's nightly check read `error`, so it judged
+     nothing (a perf_diff failure, or a check that ran out of its 80 min).
+     Its baseline is carried into tonight's comparison, so its range is
+     judged together with tonight's instead of being absorbed. This happens
+     once only: a night whose own baseline was already carried, or
+     re-checked past the night before it, is not carried again, so a
+     baseline that keeps failing cannot freeze the ratchet.
+
+   It also reads perf-data at a `base`. That is the tip, except on a re-run
+   (below), where it is perf-data as it stood before this run's first
+   attempt appended. And it says whether the weekly accepted check is
+   overdue.
 2. **Sweeps** (`id: sweeps`), unchanged apart from a step timeout.
 3. **Ratio checks**, one step per baseline, both `continue-on-error: true`
    and both running `tool/perf/nightly_ratio_check.sh`:
    - `id: ratio` checks against the previous nightly.
    - `id: accepted` checks against `tool/perf/baselines/nightly-accepted.sha`
-     on Sundays (`date -u +%u` = 7) or when the `check_accepted` dispatch
-     input is set, and records `not-run` otherwise.
+     on Sundays (`date -u +%u` = 7), when the `check_accepted` dispatch
+     input is set, or when the last accepted check on record is 7 days old
+     or there is none. That last condition is a backstop for a Sunday run
+     that GitHub dropped or whose sweeps failed. Otherwise it records
+     `not-run`. An `error` counts as a check that ran, so a typo in the sha
+     file is red every Sunday rather than every night.
 
    Each check records `ok|regressed|error|skipped` as a step output.
    `regressed` needs perf_diff's `VERDICT: REGRESSED` line as well as its
@@ -64,23 +90,63 @@ anything new. This session makes it a per-night signal again.
    `save-incremental` stays at 2.
 4. **Render trend** (`id: render_trend`, `continue-on-error: true`). This
    runs `tool/perf/render_trend.dart` on tonight's
-   `out/perf-history/flutter-render.ndjson` against perf-data's
-   `history/flutter-render.ndjson`. It writes a table to the step summary.
+   `out/perf-history/flutter-render.ndjson` against
+   `history/flutter-render.ndjson` at the prev step's `base`. It writes a
+   table to the step summary.
 5. **Record tonight's verdict.** This writes one JSON line:
-   `{date, sha, prevSha, acceptedSha, verdict, checks{nightly, accepted,
-   renderTrend}, runId}`. It runs only when the sweeps succeeded.
+   `{date, sha, prevSha, prevRule, acceptedSha, verdict, checks{nightly,
+   accepted, renderTrend}, runId, attempt}`. It runs only when the sweeps
+   succeeded.
 6. **Upload tonight's envelopes** (`if: always()`, 90 days), so a failed
    append no longer loses a night. The artifact name carries
    `github.run_attempt`, because a re-run keeps the run id and
    upload-artifact refuses a duplicate name.
 7. **Append** (`if: !cancelled() && steps.sweeps.outcome == 'success'`). It
    also appends the verdict line to perf-data's
-   `history/nightly-verdicts.jsonl` and puts the verdict in the commit
-   subject. It does not use a bare `always()`: after a failed or cancelled
-   sweep, that would append partial history and make an unmeasured commit
-   the next night's baseline.
+   `history/nightly-verdicts.jsonl`. The commit subject carries the verdict
+   and the run (`(regressed, run <id>)`), and a `Perf-Nightly-Run: <id>`
+   trailer lets a re-run find it. It does not use a bare `always()`: after
+   a failed or cancelled sweep, that would append partial history and make
+   an unmeasured commit the next night's baseline.
 8. **Fail on a red verdict.** This is the last step, so a red night still
-   emails the maintainer after the history is safe.
+   emails the maintainer after the history is safe. Its message says how to
+   re-check the night and, when the nightly check errored, what happens to
+   that night's range.
+
+**Re-runs.** "Re-run jobs" keeps the run id and the commit, and attempt 1
+has already appended its night. Before this was handled, attempt 2 resolved
+HEAD as its own baseline, so the nightly check read `skipped`. The render
+trend was judged against attempt 1's flagged night (about 1.0x). The run
+page then showed green with the regression still there, and the night was
+recorded twice. Now:
+- The prev step finds this run's appends on perf-data by the trailer. It
+  reads everything (verdicts, render history, the accepted-check age) from
+  the parent of the first one, so attempt N repeats attempt 1's
+  comparisons exactly.
+- The append drops the latest attempt's lines (`nightly_state.dart
+  drop-run`: the lines that commit added, removed once each from the end,
+  so a later backfill's lines stay) and appends this attempt's. The night
+  is recorded once, with the latest numbers and verdict.
+- If a later night has been recorded since, the re-run leaves perf-data
+  alone. Its result stays on the run page and in its artifact, because
+  appending an old night after a newer one would make it the next
+  baseline.
+
+A **dispatch on the same commit** is a new run, so it is recorded as a
+night of its own. The `recheck` rule gives it the red night's baseline. The
+render trend leaves out every history night at tonight's commit, so it is
+judged against the nights before that commit, not against itself. A
+scheduled night with no new commits after a red night gets the same
+treatment: it stays red until a commit lands, rather than going green
+because it compared HEAD with itself. After a green night it skips, as
+before.
+
+**To re-check a red night:** re-run the job, or dispatch the workflow on the
+same commit. **An `error` night** judged nothing. The next night carries its
+baseline once. If that errors too, the range has been measured by nothing
+but the weekly accepted check, so check it by hand with
+`tool/perf.sh diff <prevSha>`. A large slowdown is the likeliest cause of an
+80-min timeout, which is why the carry exists.
 
 **Timeouts.** A job timeout is a cancellation, and the append is
 `!cancelled()`, so a job that times out loses the night. That makes it the
@@ -125,8 +191,12 @@ Also changed:
   ci.yml next to the other tool tests). Per scenario:
   - Each file's baseline is the median of its renderMs over up to 5 prior
     nights.
-  - The verdict is the median of the per-file ratios, red at >= 1.4x. One
-    slow file is listed but never decides it.
+  - The verdict is the median of the per-file ratios, red at >= 1.4x. In
+    ghent-render (54 files) that damps one noisy file: the worst files are
+    listed, not counted. image-render, devicen-render and
+    jbig2-scanned-render render one file each, so for them that one file's
+    ratio is the verdict. Single-file noise reached 1.27x in the replay.
+  - Nights at tonight's own commit are left out (see Re-runs above).
   - A flagged night starts a new level: later nights never look back past
     it. So a step is red once, the same one-alert-per-step behaviour as the
     VM ratchet, and the two-month history gap costs one red night.
@@ -142,43 +212,68 @@ Also changed:
     told apart from a step that held, and without the reset every real step
     flags three nights running, so the reset stays. None of the 277
     replayed verdicts was a noise flag (the noisiest unflagged night was
-    1.22x). If a flagged night looks like noise, watch the dashboard for
-    the next two nights. render_trend_test.dart pins both behaviours.
+    1.27x). If a flagged night looks like noise, watch the dashboard for
+    the next two nights, or re-run it. render_trend_test.dart pins both
+    behaviours.
+  - A history line of the wrong shape (valid JSON, but `results` not a
+    list, or rows that are not objects) is skipped like a corrupt one.
+    Before, it threw, the CLI exited 255, and the check would have read
+    `error` every night until someone hand-edited perf-data.
 - Envelope `env` gains `flutter` (from `PDF_PERF_FLUTTER_VERSION`, which
   nightly.sh exports from `flutter --version --machine`) and `runnerImage`
   (`$ImageOS/$ImageVersion`, set on hosted runners). These go in
   `perf_run_context.dart`'s envInfo and in benchmark_render_test.dart
   (inlined there because render_backfill grafts that file onto old
-  commits). Mid-series the CI Flutter went 3.44.8 -> 3.47.0 -> 3.47.4 and
+  commits). Both need both variables to be non-empty, so an empty
+  `ImageVersion` cannot produce a half value like `ubuntu24/`. Mid-series the CI Flutter went 3.44.8 -> 3.47.0 -> 3.47.4 and
   the runner image rolled over, with nothing on record to show it.
 - `build_report.mjs` reads `nightly-verdicts.jsonl`. It shows a verdict
-  table for the last 14 nights, rings red nights' points on every chart,
-  and puts the Flutter version and runner image in each section's meta
-  line. With no verdict file its output is unchanged apart from one CSS
-  rule. Both loaders skip a line that parses to something other than an
+  table for the last 14 nights and puts the Flutter version and runner image
+  in each section's meta line. On every chart it rings each commit's points
+  by that commit's latest verdict: red for `regressed`, dashed grey for
+  `error` (a check broke and nothing was judged), and nothing once a
+  re-check comes back ok. With no verdict file its output is unchanged
+  apart from three CSS rules. Both loaders skip a line that parses to something other than an
   object (`null`, a number, an array). Before, a `null` line threw a
   TypeError, and because the page is rebuilt in the step that commits the
   history, one bad line would have frozen perf-data again every night.
 
 ## Evidence
 
-- **Workflow emulation (32 checks, all pass).** A small emulator ran the
+- **Workflow emulation (47 checks, all pass).** A small emulator ran the
   real YAML's `run:` scripts with `bash -eo pipefail` in step order. It
   honoured `if:` (with the implicit `success()`), `continue-on-error`,
   step `env:` expressions, `$GITHUB_OUTPUT`, the step summary, and step
   and job `timeout-minutes` scaled to 0.5 s per minute. A job timeout
   cancels the job. The runs used a throwaway repo (a bare origin with
   main + perf-data frozen like today, and a fresh clone per night) with
-  stub `nightly.sh`, `perf_diff.sh` and `date`. Results:
+  stub `nightly.sh`, `perf_diff.sh` and `date`. Each night has its own
+  run id, and a re-run keeps the id with a higher `run_attempt`. Results:
   - Nightly regressed: the job goes red in its last step, the history and
     a `regressed` verdict line are appended, and the artifact is uploaded.
     The next night compares against that night's commit, not the frozen
-    one.
+    one. With no accepted check on record, the first night runs it too.
   - Clean night: green, and the verdict is appended.
-  - Unchanged HEAD: the check is skipped and the night is still recorded.
+  - Unchanged HEAD after a green night: the check is skipped and the night
+    is still recorded.
   - Accepted baseline regressed (dispatch input): red, with
     `checks.accepted = regressed`. Sunday runs the accepted check; Monday
     does not.
+  - Re-run of a red night (nightly and render both red): attempt 2 is red
+    again. It makes the same 2 perf_diff calls against attempt 1's
+    baseline, and perf-data ends with one verdict line and one
+    flutter-render night for the commit (attempt 2's, `attempt 2` in the
+    subject). The round-1 version of this workflow, given the same run,
+    reads green against itself with 0 perf_diff calls and records the
+    night twice. That was the review finding.
+  - A new dispatch on the same commit re-checks the red night (`recheck`)
+    and is red. A re-run of it where the red was noise comes back green
+    and replaces that night with `ok`. The next commit then compares
+    against it.
+  - A re-run after a later night has been recorded makes attempt 1's
+    comparison, and perf-data is left untouched.
+  - An errored nightly check: the next night compares against the errored
+    night's baseline (`carry`), and the night after that advances.
   - Render step: red once. The next night is judged against the new level
     and is green.
   - A perf_diff error, including exit 1 with no verdict line: recorded
@@ -198,9 +293,15 @@ Also changed:
 - **Render-trend replay.** The replay covered 277 night x scenario
   verdicts: perf-data's history through 07-25 plus the flutter-render
   envelopes printed in the 62 nightly logs, 07-25..09-24.
+  - Each night is judged as the workflow would have judged it, after the
+    nights before it and leaving out nights at its own commit. 36 of the
+    217 (scenario, commit) pairs were measured on more than one night.
   - With the level reset, it flags exactly 08-25: ghent-render 9.52x and
     jbig2-scanned-render 1.845x. There are no other flags. The highest
-    unflagged ratio is 1.223x (jbig2, 08-28).
+    unflagged ratio is 1.271x (jbig2, on 09-21, the second night of an
+    unchanged commit, judged against the commits before it). Judged
+    against its own earlier night, as the round-1 rule did, the highest
+    was 1.223x.
   - The plain rule, "median of the prior 5" with no reset, flags
     08-25, 08-26 and 08-27 for both suites: three red nights per step. Its
     highest unflagged ratio is 1.29x, on the night the window straddles
@@ -208,16 +309,29 @@ Also changed:
   - First night after this lands, with history frozen at 07-25 and 09-23's
     envelopes: ghent-render 7.65x is red. jbig2 is skipped because it has
     no history before 07-26. The next night reads 0.92x.
-- **`tool/perf/nightly_test.dart` (25 checks, in ci.yml).** It runs
-  nightly_ratio_check.sh against a stub perf_diff in a throwaway git repo,
-  holds the workflow to its timeout budget, and feeds build_report.mjs
-  `null`/array/number lines. Reverting any one of the fixes fails it:
+- **`tool/perf/nightly_test.dart` (58 checks, in ci.yml).** It runs
+  nightly_ratio_check.sh against a stub perf_diff in a throwaway git repo
+  and holds the workflow to its timeout budget and wiring. It checks
+  nightly_state.dart's rules: the ratchet, a re-check, one carry and no
+  second, corrupt trailing verdict lines, the weekly backstop, and
+  line-dropping. It also runs `resolve`/`drop-run` against a throwaway
+  perf-data branch through a first attempt, its re-run, a same-commit
+  dispatch, a third attempt, a backfill that does not supersede a re-run,
+  and a later night that does. And it feeds
+  build_report.mjs `null`/array/number lines and a regressed/error/re-checked
+  set of verdicts. Reverting any one of the fixes fails it:
   - mapping every exit 1 to `regressed` fails 1 check;
   - the old concatenate-and-skip reading of the sha file fails 4;
   - dropping the ratio steps' timeouts fails 1, and so does a 200-min job
     limit;
-  - the old loaders fail 2;
-  - the old artifact name fails 1.
+  - the old loaders fail 3 (every dashboard check);
+  - the old artifact name fails 1;
+  - the round-1 dashboard rings fail 1.
+- **`tool/perf/render_trend_test.dart` (29 checks).** The round-1
+  `results` cast crashes the test, and without the same-commit exclusion
+  the re-check case fails.
+- **`packages/pdf_graphics/test/perf_run_context_test.dart`** pins
+  `toolchainEnv`, including the empty-`ImageVersion` case.
 - **Lint.** actionlint (with shellcheck) is clean on the workflow.
   shellcheck is clean on nightly.sh and nightly_ratio_check.sh. PyYAML
   parses the workflow.
@@ -229,8 +343,9 @@ Also changed:
   next night compares against that commit.
 - The render trend is also red once on that first night. perf-data's
   render history ends at 07-25, before #755's 9.5x ghent-render step.
-- The first Sunday's accepted check (against #755) is the first real
-  reading of everything after #755.
+- There is no accepted check on record yet, so the first run also runs the
+  accepted check (against #755). That is the first real reading of
+  everything after #755. After that it runs on Sundays.
 
 ## Gotchas
 
@@ -256,13 +371,19 @@ Also changed:
 - A moving baseline absorbs creep under 15% a night. The weekly accepted
   check covers that for the VM sweeps. For the render suites, the
   now-updating dashboard is the backstop.
+- "Re-run jobs" keeps `github.run_id` and `GITHUB_SHA` and bumps
+  `github.run_attempt`, so the run id is what ties attempts together. That
+  is why the perf-data commit carries a `Perf-Nightly-Run:` trailer, and
+  why the verdict record keeps `runId` and `attempt`.
 
 ## Files
 
 `.github/workflows/perf-nightly.yml`, `.github/workflows/ci.yml`,
-`tool/perf/nightly_ratio_check.sh`, `tool/perf/nightly_test.dart`,
+`tool/perf/nightly_ratio_check.sh`, `tool/perf/nightly_state.dart`,
+`tool/perf/nightly_test.dart`,
 `tool/perf/render_trend.dart`, `tool/perf/render_trend_test.dart`,
 `tool/perf/baselines/nightly-accepted.sha`, `tool/perf/nightly.sh`,
 `tool/perf/report/build_report.mjs`, `tool/perf/SCHEMA.md`,
 `packages/pdf_graphics/tool/perf_run_context.dart`,
+`packages/pdf_graphics/test/perf_run_context_test.dart`,
 `packages/dart_pdf_editor/test/benchmark_render_test.dart`.

@@ -10,8 +10,20 @@
 //
 // Per scenario, each file's baseline is the MEDIAN of its metric over the
 // prior N nights, and the verdict is the median of the per-file ratios
-// (tonight / baseline): REGRESSED at >= --threshold. A single file never
-// decides it - the worst files are listed, not counted.
+// (tonight / baseline): REGRESSED at >= --threshold. In a multi-file suite
+// (ghent-render) that damps one noisy file - the worst files are listed, not
+// counted - but image-render, devicen-render and jbig2-scanned-render render
+// one file each, so that one file's ratio is the verdict (single-file noise
+// reached 1.27x in the replay below, against the 1.4x threshold).
+//
+// A history night at tonight's commit is an earlier measurement of the same
+// code - a re-run, a dispatch on the same commit, a night with no new
+// commits - so it is left out: tonight is judged against the nights before
+// that commit, repeating the comparison instead of reading ~1.0x against
+// itself. So a flagged commit stays red on every night until a new commit
+// lands, like the nightly ratio check's `recheck`
+// (tool/perf/nightly_state.dart), and an ok one takes another sample of the
+// same comparison.
 //
 // A night the rule flags starts a new level: later nights never reach back
 // past it. So a step is red on the night it lands and is the baseline from
@@ -29,12 +41,14 @@
 // held, and without the reset every real step flags three nights running (the
 // lagging median), so the reset stays. Across the 277 night x scenario
 // verdicts replayed when this was written the only flags were real steps and
-// the noisiest unflagged night read 1.22x, so a 1.4x spike has not happened
-// yet. Treat a flagged night that looks like noise as a reason to watch the
-// dashboard for the next two nights.
+// the noisiest unflagged night read 1.27x (a single-file suite, on a second
+// night at an unchanged commit), so a 1.4x spike has not happened yet. Treat
+// a flagged night that looks like noise as a reason to re-run the night, or
+// to watch the dashboard for the next two nights.
 //
-// Exit 1 when any scenario regressed tonight, 2 on bad input. --replay walks
-// the whole history instead and prints every night's verdict (exit 0).
+// Exit 1 when any scenario regressed tonight, 2 on bad input. --replay judges
+// every night in the history instead, each as the workflow would have after
+// the nights before it, and prints the verdicts (exit 0).
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -57,14 +71,19 @@ class TrendNight {
   final Map<String, double> values;
 
   /// Reads [envelope]'s per-file [metric]; null for an envelope without a
-  /// scenario. Rows with an error or a non-positive value are skipped.
+  /// scenario or a `results` list (a line of the wrong shape is skipped like
+  /// a corrupt one: a throw here would read `error` every night until someone
+  /// hand-edited perf-data). Rows with an error or a non-positive value are
+  /// skipped.
   static TrendNight? fromEnvelope(Map<String, Object?> envelope,
       {String metric = 'renderMs'}) {
     final scenario = envelope['scenario'];
     if (scenario is! String || scenario.isEmpty) return null;
+    final results = envelope['results'];
+    if (results is! List) return null;
     final rev = envelope['rev'] is Map ? envelope['rev'] as Map : const {};
     final values = <String, double>{};
-    for (final r in (envelope['results'] as List? ?? const [])) {
+    for (final r in results) {
       if (r is! Map || r['error'] != null) continue;
       final file = r['file'], v = r[metric];
       if (file is String && v is num && v > 0) values[file] = v.toDouble();
@@ -183,6 +202,18 @@ List<TrendVerdict> walkScenario(List<TrendNight> ordered,
   return verdicts;
 }
 
+/// [night]'s verdict after the [history] nights of its scenario (in commit
+/// order, [night] last), leaving out the nights at [night]'s own commit.
+TrendVerdict judgeAfter(List<TrendNight> history, TrendNight night,
+        {int nights = 5, double threshold = 1.4}) =>
+    walkScenario([
+      ...orderNights(history.where((h) =>
+          h.scenario == night.scenario &&
+          (night.sha.isEmpty || h.sha != night.sha))),
+      night,
+    ], nights: nights, threshold: threshold)
+        .last;
+
 /// Tonight's verdict per scenario in [current]: each is judged after the
 /// [history] nights of the same scenario (current envelopes always last).
 List<TrendVerdict> judgeTonight(
@@ -194,11 +225,7 @@ List<TrendVerdict> judgeTonight(
   }
   return [
     for (final n in tonight.values)
-      walkScenario([
-        ...orderNights(history.where((h) => h.scenario == n.scenario)),
-        n,
-      ], nights: nights, threshold: threshold)
-          .last,
+      judgeAfter(history, n, nights: nights, threshold: threshold),
   ];
 }
 
@@ -281,12 +308,18 @@ void main(List<String> argv) {
       : <TrendNight>[];
 
   if (replay) {
+    // Each night as the workflow would have judged it: after the nights
+    // before it, in commit order.
     final scenarios = {for (final n in history) n.scenario};
-    final all = [
-      for (final s in scenarios)
-        ...walkScenario(orderNights(history.where((n) => n.scenario == s)),
-            nights: nights, threshold: threshold),
-    ]..sort((a, b) => a.night.ts.compareTo(b.night.ts));
+    final all = <TrendVerdict>[];
+    for (final s in scenarios) {
+      final ordered = orderNights(history.where((n) => n.scenario == s));
+      for (var i = 0; i < ordered.length; i++) {
+        all.add(judgeAfter(ordered.sublist(0, i), ordered[i],
+            nights: nights, threshold: threshold));
+      }
+    }
+    all.sort((a, b) => a.night.ts.compareTo(b.night.ts));
     for (final v in all) {
       final day = v.night.ts.length >= 10 ? v.night.ts.substring(0, 10) : '?';
       final sha =

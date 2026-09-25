@@ -59,7 +59,10 @@ Map<String, String> toolchainEnv(Map<String, String> environment) {
   final imageVersion = environment['ImageVersion'];
   return {
     if (flutter != null && flutter.isNotEmpty) 'flutter': flutter,
-    if (imageOs != null && imageVersion != null)
+    if (imageOs != null &&
+        imageOs.isNotEmpty &&
+        imageVersion != null &&
+        imageVersion.isNotEmpty)
       'runnerImage': '$imageOs/$imageVersion',
   };
 }
