@@ -15,9 +15,9 @@ import 'icc.dart';
 /// differently. The Ghent output-suite source-profile, output-intent and
 /// equivalent-gray patches are deliberately constructed around that error.
 ///
-/// This context resolves the first usable `/DestOutputProfile` once per COS
-/// revision and uses its device-to-PCS transform for display. Documents with
-/// no usable output intent retain the historical device conversions.
+/// This context resolves the first usable `/DestOutputProfile` and uses its
+/// device-to-PCS transform for display. Documents with no usable output intent
+/// retain the historical device conversions.
 class PdfColorContext {
   PdfColorContext._(this.outputProfile);
 
@@ -26,20 +26,55 @@ class PdfColorContext {
 
   final Map<(PdfColor, PdfRenderingIntent), List<double>> _outputCmykCache = {};
 
-  /// Resolves the colour context for [cos]. The cache is revision-aware so an
-  /// editor that replaces `/OutputIntents` cannot retain the prior profile.
+  /// [deviceCmyk] and [deviceGray] results under a CMYK output profile, by
+  /// their exact clamped input. Each miss is a full A2B evaluation, and the
+  /// same few process colours come back constantly - fill and stroke
+  /// operators, the vertex colours of a mesh shading, the palette of an
+  /// overprinted image. Bounded: past [_maxProcessColors] it stops learning
+  /// rather than grow with a page that sweeps a continuous ramp.
+  final Map<_ProcessColorKey, PdfColor> _processColors = {};
+  static const int _maxProcessColors = 4096;
+
+  /// Resolves the colour context for [cos].
+  ///
+  /// The context belongs to the document's output profile *streams*, by
+  /// identity, not to its revision. An incremental edit bumps
+  /// [CosDocument.revision] but only evicts the objects it redefines, so an
+  /// edit that leaves `/OutputIntents` alone resolves to the very same profile
+  /// streams and keeps this context - no re-inflate, no re-parse of a
+  /// megabyte-scale press profile in every isolate on every edit. An edit that
+  /// does change the output condition has to write a new stream object or
+  /// redefine the old one, and either way the stream list stops matching.
+  ///
+  /// Identity is also the only invalidation that stays coherent: array colour
+  /// spaces are cached per COS object and keep the context they were parsed
+  /// under, and image-overprint substitutes are memoised per context. A
+  /// revision-keyed context was replaced under both on every edit.
   static PdfColorContext forDocument(CosDocument cos) {
     final cached = _contexts[cos];
     if (cached != null && cached.revision == cos.revision) {
       return cached.context;
     }
-    final context = PdfColorContext._(_outputProfile(cos));
-    _contexts[cos] = (revision: cos.revision, context: context);
+    final streams = _outputProfileStreams(cos);
+    final context = cached != null && _sameStreams(cached.streams, streams)
+        ? cached.context
+        : PdfColorContext._(_outputProfile(cos, streams));
+    _contexts[cos] =
+        (revision: cos.revision, streams: streams, context: context);
     return context;
   }
 
-  static final Expando<({int revision, PdfColorContext context})> _contexts =
-      Expando<({int revision, PdfColorContext context})>('pdfColorContext');
+  static final Expando<
+          ({int revision, List<CosStream> streams, PdfColorContext context})>
+      _contexts = Expando('pdfColorContext');
+
+  static bool _sameStreams(List<CosStream> a, List<CosStream> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!identical(a[i], b[i])) return false;
+    }
+    return true;
+  }
 
   /// Converts an untagged process colour through the output condition.
   ///
@@ -53,12 +88,19 @@ class PdfColorContext {
       {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
     final profile = outputProfile;
     if (profile != null && profile.channels == 4) {
-      return profile.toSrgb([
-        cyan.clamp(0.0, 1.0).toDouble(),
-        magenta.clamp(0.0, 1.0).toDouble(),
-        yellow.clamp(0.0, 1.0).toDouble(),
-        black.clamp(0.0, 1.0).toDouble(),
-      ], intent: PdfRenderingIntent.relativeColorimetric);
+      final c = cyan.clamp(0.0, 1.0).toDouble();
+      final m = magenta.clamp(0.0, 1.0).toDouble();
+      final y = yellow.clamp(0.0, 1.0).toDouble();
+      final k = black.clamp(0.0, 1.0).toDouble();
+      final key = _ProcessColorKey(c, m, y, k);
+      final cached = _processColors[key];
+      if (cached != null) return cached;
+      final color = profile.toSrgb([c, m, y, k],
+          intent: PdfRenderingIntent.relativeColorimetric);
+      if (_processColors.length < _maxProcessColors) {
+        _processColors[key] = color;
+      }
+      return color;
     }
     return PdfColor.cmyk(cyan, magenta, yellow, black);
   }
@@ -70,8 +112,15 @@ class PdfColorContext {
     final value = gray.clamp(0.0, 1.0).toDouble();
     final profile = outputProfile;
     if (profile != null && profile.channels == 4) {
-      return profile.toSrgb([0, 0, 0, 1 - value],
+      final key = _ProcessColorKey(-1, 0, 0, value);
+      final cached = _processColors[key];
+      if (cached != null) return cached;
+      final color = profile.toSrgb([0, 0, 0, 1 - value],
           intent: PdfRenderingIntent.relativeColorimetric);
+      if (_processColors.length < _maxProcessColors) {
+        _processColors[key] = color;
+      }
+      return color;
     }
     if (profile != null && profile.channels == 1) {
       return profile
@@ -252,14 +301,26 @@ class PdfColorContext {
     return direct ?? outputCmyk(fallback, intent: intent);
   }
 
-  static IccProfile? _outputProfile(CosDocument cos) {
+  /// Every `/OutputIntents[i]/DestOutputProfile` stream, in order - the
+  /// candidates [_outputProfile] picks from, and so the whole of what the
+  /// context depends on. All of them, not just the one that parses: an edit
+  /// that repairs or replaces a later intent must not be masked by an
+  /// unchanged but unusable first one.
+  static List<CosStream> _outputProfileStreams(CosDocument cos) {
     final intents = cos.resolve(cos.catalog['OutputIntents']);
-    if (intents is! CosArray) return null;
+    if (intents is! CosArray) return const [];
+    final streams = <CosStream>[];
     for (final item in intents.items) {
       final intent = cos.resolve(item);
       if (intent is! CosDictionary) continue;
       final stream = cos.resolve(intent['DestOutputProfile']);
-      if (stream is! CosStream) continue;
+      if (stream is CosStream) streams.add(stream);
+    }
+    return streams;
+  }
+
+  static IccProfile? _outputProfile(CosDocument cos, List<CosStream> streams) {
+    for (final stream in streams) {
       try {
         final profile = IccProfile.parse(cos.decodeStreamData(stream));
         if (profile != null) return profile;
@@ -269,4 +330,29 @@ class PdfColorContext {
     }
     return null;
   }
+}
+
+/// A key for [PdfColorContext._processColors]: the clamped DeviceCMYK
+/// components [PdfColorContext.deviceCmyk] converts, or a DeviceGray level as
+/// `(-1, 0, 0, gray)`, which no clamped CMYK tuple can equal.
+///
+/// Plain `==` on each component is exact here. The components are clamped
+/// before they are keyed, and clamping sends NaN to 1.0 and -0.0 to 0.0, so
+/// two keys compare equal exactly when the conversion would see the same
+/// four doubles.
+final class _ProcessColorKey {
+  const _ProcessColorKey(this.c, this.m, this.y, this.k);
+
+  final double c, m, y, k;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ProcessColorKey &&
+      other.c == c &&
+      other.m == m &&
+      other.y == y &&
+      other.k == k;
+
+  @override
+  int get hashCode => Object.hash(c, m, y, k);
 }
