@@ -238,7 +238,8 @@ const int pdfRenderWorkerPoolMinPages = 12;
 /// [copySource] is forwarded to [PdfPooledRenderWorker]; it defaults to false
 /// here because every caller of this entry point starts the worker over a
 /// document image whose bytes don't change under it (the read-only reader, or
-/// the edit session's grow-only buffer, which is replaced rather than mutated).
+/// a view of the edit session's current revision, whose bytes hold until the
+/// next revision is fed in - see [PdfRenderWorker.updateRevisionTo]).
 /// Skipping the pool's defensive snapshot saves a full-document allocation per
 /// worker generation - the single-worker branch never copied either.
 /// [populatedRanges] follows [PdfDocument.open]'s sparse-buffer contract.
@@ -607,6 +608,33 @@ abstract class PdfRenderWorker {
     Set<int>? changedPages,
   ) {}
 
+  /// [updateRevision] given the whole new revision rather than only its tail:
+  /// [revisionBytes] is the complete revision (its length is the new length),
+  /// and its first [baseLength] bytes are the prefix the worker already holds.
+  /// [PdfRenderWorkerHost] feeds edits through this.
+  ///
+  /// [revisionBytes] is typically a view into the edit session's grow-only
+  /// buffer, and that buffer is written in place: the session always writes
+  /// just past its current revision, so after an undo the next edit
+  /// overwrites the undone revisions' bytes. The bytes *inside* the view still
+  /// stay unchanged until the next revision is fed in. Only an undo followed
+  /// by a new edit reaches bytes an earlier view covered, and the controller
+  /// notifies (and the host syncs) the undo before that edit lands. An
+  /// override may keep [revisionBytes] until the next revision arrives (the
+  /// pool's lazy urgent lane opens it rather than rebuilding a private
+  /// full-document copy per edit), and must copy anything it needs longer.
+  ///
+  /// The default copies out the tail and forwards to [updateRevision], so a
+  /// backend that implements only [updateRevision] keeps working unchanged.
+  void updateRevisionTo(
+    Uint8List revisionBytes,
+    int baseLength,
+    Set<int>? changedPages,
+  ) {
+    updateRevision(baseLength, _revisionTail(revisionBytes, baseLength),
+        revisionBytes.length, changedPages);
+  }
+
   /// Whether this worker actually offloads. False for the null fallback, so
   /// callers can skip the round-trip and render locally without asking.
   bool get isActive;
@@ -626,6 +654,15 @@ abstract class PdfRenderWorker {
   /// null). Idempotent.
   void dispose();
 }
+
+/// A private copy of [revision]'s bytes past [baseLength] - the append an
+/// [PdfRenderWorker.updateRevision] carries. Copied because the queued update
+/// may ship after the session has overwritten that range (see
+/// [PdfRenderWorker.updateRevisionTo]). Empty for an undo.
+Uint8List _revisionTail(Uint8List revision, int baseLength) =>
+    revision.length > baseLength
+        ? Uint8List.fromList(Uint8List.sublistView(revision, baseLength))
+        : Uint8List(0);
 
 /// Fans [record] calls across a fixed set of platform workers so up to N pages
 /// decode at once instead of one at a time. A single worker serializes every
@@ -682,12 +719,12 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   ///
   /// [copySource] defaults to true: the pool takes its own `Uint8List.fromList`
   /// snapshot so it is decoupled from a caller that may mutate its buffer. Pass
-  /// false when the caller guarantees the buffer's *contents* never change under
-  /// the worker (the edit session's grow-only buffer is only ever replaced, not
-  /// mutated in place - see [startPdfRenderWorker]); the pool then seeds directly
-  /// from [bytes], saving a full-document-sized allocation on every (re)start -
-  /// worth ~one document copy per worker generation on the big files #359 makes
-  /// common.
+  /// false when the caller guarantees the *contents* of [bytes] don't change
+  /// until it feeds the pool its next revision (a view of the edit session's
+  /// current revision qualifies - see [PdfRenderWorker.updateRevisionTo]); the
+  /// pool then seeds directly from [bytes], saving a full-document-sized
+  /// allocation on every (re)start - worth ~one document copy per worker
+  /// generation on the big files #359 makes common.
   /// [populatedRanges] is copied with the shared snapshot; if omitted, the map
   /// attached to [bytes] is inherited.
   factory PdfPooledRenderWorker(Uint8List bytes, int size,
@@ -758,8 +795,9 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   // The bytes a lazily-created one-off urgent worker opens - the same snapshot
   // instance the pool workers were seeded from. Kept at the current revision by
-  // [updateRevision] so a long-jump preview after an edit opens the edited
-  // document, not the stale spawn snapshot. Null in the test seam.
+  // [updateRevisionTo] (which adopts the host's view of it) or [updateRevision]
+  // (which has to rebuild it) so a long-jump preview after an edit opens the
+  // edited document, not the stale spawn snapshot. Null in the test seam.
   Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
 
@@ -1132,7 +1170,9 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     }
     // Roll the urgent-worker seed bytes forward to the new revision and drop
     // any live one-off worker so the next long-jump preview reopens the edited
-    // document instead of the snapshot it was spawned on.
+    // document instead of the snapshot it was spawned on. Only the tail is to
+    // hand here, so the seed is rebuilt as a full copy on the calling (UI)
+    // isolate - [updateRevisionTo] skips that.
     final urgentBytes = _urgentBytes;
     if (urgentBytes != null &&
         baseLength <= urgentBytes.length &&
@@ -1140,13 +1180,45 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       final next = Uint8List(newLength);
       next.setRange(0, baseLength, urgentBytes);
       next.setRange(baseLength, newLength, appendedBytes);
-      final ranges = renderWorkerRevisionRanges(
-          cosSparseBufferRanges[urgentBytes], baseLength, newLength);
-      if (ranges != null) cosSparseBufferRanges[next] = ranges;
-      _urgentBytes = next;
+      _rollUrgentBytes(next, baseLength);
     }
     _urgentWorker?.dispose();
     _urgentWorker = null;
+  }
+
+  @override
+  void updateRevisionTo(
+    Uint8List revisionBytes,
+    int baseLength,
+    Set<int>? changedPages,
+  ) {
+    final newLength = revisionBytes.length;
+    // One tail copy, shared by every platform worker (each ships it to its
+    // isolate at dispatch).
+    final appended = _revisionTail(revisionBytes, baseLength);
+    for (final worker in _workers) {
+      worker.updateRevision(baseLength, appended, newLength, changedPages);
+    }
+    // The urgent lane seeds from the caller's view of the revision itself:
+    // its bytes hold until the next revision arrives here, and a spawn copies
+    // them synchronously. Rebuilding a private copy instead cost a
+    // full-document allocation + copy on the UI isolate per edit/undo/redo
+    // (10+ ms on a 60 MB file), and kept one extra document resident.
+    if (_urgentBytes != null && baseLength <= newLength) {
+      _rollUrgentBytes(revisionBytes, baseLength);
+    }
+    _urgentWorker?.dispose();
+    _urgentWorker = null;
+  }
+
+  // Makes [next] - the revision reached from the current urgent seed by keeping
+  // its first [baseLength] bytes - the new seed, carrying the seed's
+  // sparse-buffer holes over (the map is keyed by buffer identity).
+  void _rollUrgentBytes(Uint8List next, int baseLength) {
+    final ranges = renderWorkerRevisionRanges(
+        cosSparseBufferRanges[_urgentBytes!], baseLength, next.length);
+    if (ranges != null) cosSparseBufferRanges[next] = ranges;
+    _urgentBytes = next;
   }
 
   @override
@@ -1174,9 +1246,10 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     }
     final bytes = _urgentBytes;
     if (!start || bytes == null) return null;
-    // No defensive copy: the backend copies internally, and _urgentBytes is only
-    // ever replaced (never mutated in place), so the urgent worker can share the
-    // pool's snapshot like the ordinary workers do.
+    // No defensive copy: the backend copies synchronously as it spawns, and
+    // _urgentBytes' contents hold until the next revision replaces it (see
+    // updateRevisionTo), so the urgent worker can share the pool's snapshot
+    // like the ordinary workers do.
     return _urgentWorker = _spawnWorker(bytes);
   }
 }
@@ -1330,6 +1403,21 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     int newLength,
     Set<int>? changedPages,
   ) {
+    _invalidateRevision(changedPages);
+    _inner.updateRevision(baseLength, appendedBytes, newLength, changedPages);
+  }
+
+  @override
+  void updateRevisionTo(
+    Uint8List revisionBytes,
+    int baseLength,
+    Set<int>? changedPages,
+  ) {
+    _invalidateRevision(changedPages);
+    _inner.updateRevisionTo(revisionBytes, baseLength, changedPages);
+  }
+
+  void _invalidateRevision(Set<int>? changedPages) {
     _epoch++;
     if (changedPages == null) {
       _globalInvalidatedAt = _epoch;
@@ -1343,7 +1431,6 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       _cache.evictWhere((key) => changedPages.contains(key.$1));
       _inflight.removeWhere((key, _) => changedPages.contains(key.$1));
     }
-    _inner.updateRevision(baseLength, appendedBytes, newLength, changedPages);
   }
 
   @override
