@@ -4,6 +4,15 @@ import 'dart:typed_data';
 /// (§7.6.2, §7.6.4.3): content decryption (16-byte IV prefix, PKCS#7
 /// padding) and the unpadded CBC encryption inside the AES-256 password
 /// hash (Algorithm 2.B). Pure Dart so it runs on the VM and the web.
+///
+/// Word-oriented (the classic "T-table" formulation): the state is four
+/// big-endian 32-bit columns held in locals, and each inner round is sixteen
+/// lookups into tables that combine SubBytes, ShiftRows and MixColumns
+/// (`_te*`, `_td*`). That is about 7x the throughput of byte-at-a-time
+/// rounds, natively and under dart2js - it matters because every AES stream
+/// a render worker decodes and every Algorithm 2.B open runs through here.
+/// Only `>>>`, `&` and `^` on 32-bit values, so dart2js computes the same
+/// bytes as the VM.
 class Aes {
   /// Key must be 16, 24, or 32 bytes.
   Aes(List<int> key)
@@ -14,6 +23,11 @@ class Aes {
   final int _rounds;
   final Uint32List _roundKeys;
 
+  /// Round keys for the equivalent inverse cipher (FIPS 197 §5.3.5). Built
+  /// on the first decrypt only, so encrypt-only users (Algorithm 2.B builds
+  /// a fresh cipher per round) never pay for them.
+  late final Uint32List _decryptKeys = _equivalentInverseKeys();
+
   // --- CBC convenience entry points ---
 
   /// Decrypts a PDF content payload: leading 16-byte IV, then ciphertext.
@@ -23,9 +37,8 @@ class Aes {
   static Uint8List decryptContent(List<int> key, Uint8List data) {
     if (data.length < 32) return Uint8List(0);
     final blocks = (data.length - 16) & ~15;
-    final plain = Aes(key)
-        .cbcDecrypt(Uint8List.sublistView(data, 0, 16),
-            Uint8List.sublistView(data, 16, 16 + blocks));
+    final plain = Aes(key).cbcDecrypt(Uint8List.sublistView(data, 0, 16),
+        Uint8List.sublistView(data, 16, 16 + blocks));
     final pad = plain.isEmpty ? 0 : plain.last;
     return pad >= 1 && pad <= 16
         ? Uint8List.sublistView(plain, 0, plain.length - pad)
@@ -51,15 +64,56 @@ class Aes {
   Uint8List cbcEncrypt(List<int> iv, Uint8List data) {
     assert(data.length % 16 == 0);
     final out = Uint8List(data.length);
-    var prev = Uint8List.fromList(iv);
-    final block = Uint8List(16);
-    for (var offset = 0; offset < data.length; offset += 16) {
-      for (var i = 0; i < 16; i++) {
-        block[i] = data[offset + i] ^ prev[i];
+    // nothing to chain: don't touch the IV (a short one only ever threw
+    // when a block used it)
+    if (out.isEmpty) return out;
+    final rk = _roundKeys;
+    final rounds = _rounds;
+    final t0 = _te0, t1 = _te1, t2 = _te2, t3 = _te3, sb = _sbox;
+    // the chaining value: the IV, then each ciphertext block as written
+    var p0 = _ivWord(iv, 0), p1 = _ivWord(iv, 4);
+    var p2 = _ivWord(iv, 8), p3 = _ivWord(iv, 12);
+    for (var off = 0; off < data.length; off += 16) {
+      var s0 = _word(data, off) ^ p0 ^ rk[0];
+      var s1 = _word(data, off + 4) ^ p1 ^ rk[1];
+      var s2 = _word(data, off + 8) ^ p2 ^ rk[2];
+      var s3 = _word(data, off + 12) ^ p3 ^ rk[3];
+      var k = 4;
+      for (var r = 1; r < rounds; r++) {
+        final a0 = t0[s0 >>> 24] ^
+            t1[(s1 >>> 16) & 0xFF] ^
+            t2[(s2 >>> 8) & 0xFF] ^
+            t3[s3 & 0xFF] ^
+            rk[k];
+        final a1 = t0[s1 >>> 24] ^
+            t1[(s2 >>> 16) & 0xFF] ^
+            t2[(s3 >>> 8) & 0xFF] ^
+            t3[s0 & 0xFF] ^
+            rk[k + 1];
+        final a2 = t0[s2 >>> 24] ^
+            t1[(s3 >>> 16) & 0xFF] ^
+            t2[(s0 >>> 8) & 0xFF] ^
+            t3[s1 & 0xFF] ^
+            rk[k + 2];
+        final a3 = t0[s3 >>> 24] ^
+            t1[(s0 >>> 16) & 0xFF] ^
+            t2[(s1 >>> 8) & 0xFF] ^
+            t3[s2 & 0xFF] ^
+            rk[k + 3];
+        s0 = a0;
+        s1 = a1;
+        s2 = a2;
+        s3 = a3;
+        k += 4;
       }
-      _encryptBlock(block);
-      out.setRange(offset, offset + 16, block);
-      prev = Uint8List.sublistView(out, offset, offset + 16);
+      p0 = _lastRound(sb, s0, s1, s2, s3) ^ rk[k];
+      p1 = _lastRound(sb, s1, s2, s3, s0) ^ rk[k + 1];
+      p2 = _lastRound(sb, s2, s3, s0, s1) ^ rk[k + 2];
+      p3 = _lastRound(sb, s3, s0, s1, s2) ^ rk[k + 3];
+      _put(out, off, p0);
+      _put(out, off + 4, p1);
+      _put(out, off + 8, p2);
+      _put(out, off + 12, p3);
     }
     return out;
   }
@@ -68,110 +122,116 @@ class Aes {
   Uint8List cbcDecrypt(List<int> iv, Uint8List data) {
     assert(data.length % 16 == 0);
     final out = Uint8List(data.length);
-    final block = Uint8List(16);
-    var prev = iv;
-    for (var offset = 0; offset < data.length; offset += 16) {
-      block.setRange(0, 16, data, offset);
-      final cipher = Uint8List.fromList(block);
-      _decryptBlock(block);
-      for (var i = 0; i < 16; i++) {
-        out[offset + i] = block[i] ^ prev[i];
+    if (out.isEmpty) return out;
+    final dk = _decryptKeys;
+    final rounds = _rounds;
+    final t0 = _td0, t1 = _td1, t2 = _td2, t3 = _td3, sb = _invSbox;
+    // the previous ciphertext block, kept as words: no per-block copy
+    var p0 = _ivWord(iv, 0), p1 = _ivWord(iv, 4);
+    var p2 = _ivWord(iv, 8), p3 = _ivWord(iv, 12);
+    for (var off = 0; off < data.length; off += 16) {
+      final c0 = _word(data, off), c1 = _word(data, off + 4);
+      final c2 = _word(data, off + 8), c3 = _word(data, off + 12);
+      var s0 = c0 ^ dk[0], s1 = c1 ^ dk[1], s2 = c2 ^ dk[2], s3 = c3 ^ dk[3];
+      var k = 4;
+      for (var r = 1; r < rounds; r++) {
+        final a0 = t0[s0 >>> 24] ^
+            t1[(s3 >>> 16) & 0xFF] ^
+            t2[(s2 >>> 8) & 0xFF] ^
+            t3[s1 & 0xFF] ^
+            dk[k];
+        final a1 = t0[s1 >>> 24] ^
+            t1[(s0 >>> 16) & 0xFF] ^
+            t2[(s3 >>> 8) & 0xFF] ^
+            t3[s2 & 0xFF] ^
+            dk[k + 1];
+        final a2 = t0[s2 >>> 24] ^
+            t1[(s1 >>> 16) & 0xFF] ^
+            t2[(s0 >>> 8) & 0xFF] ^
+            t3[s3 & 0xFF] ^
+            dk[k + 2];
+        final a3 = t0[s3 >>> 24] ^
+            t1[(s2 >>> 16) & 0xFF] ^
+            t2[(s1 >>> 8) & 0xFF] ^
+            t3[s0 & 0xFF] ^
+            dk[k + 3];
+        s0 = a0;
+        s1 = a1;
+        s2 = a2;
+        s3 = a3;
+        k += 4;
       }
-      prev = cipher;
+      _put(out, off, _lastRound(sb, s0, s3, s2, s1) ^ dk[k] ^ p0);
+      _put(out, off + 4, _lastRound(sb, s1, s0, s3, s2) ^ dk[k + 1] ^ p1);
+      _put(out, off + 8, _lastRound(sb, s2, s1, s0, s3) ^ dk[k + 2] ^ p2);
+      _put(out, off + 12, _lastRound(sb, s3, s2, s1, s0) ^ dk[k + 3] ^ p3);
+      p0 = c0;
+      p1 = c1;
+      p2 = c2;
+      p3 = c3;
     }
     return out;
   }
 
-  // --- block primitives ---
+  // --- word helpers ---
 
-  void _encryptBlock(Uint8List b) {
-    _addRoundKey(b, 0);
-    for (var round = 1; round < _rounds; round++) {
-      for (var i = 0; i < 16; i++) {
-        b[i] = _sbox[b[i]];
-      }
-      _shiftRows(b);
-      _mixColumns(b);
-      _addRoundKey(b, round);
-    }
-    for (var i = 0; i < 16; i++) {
-      b[i] = _sbox[b[i]];
-    }
-    _shiftRows(b);
-    _addRoundKey(b, _rounds);
+  /// Big-endian word at [o]. A misaligned tail reads past the end and
+  /// throws, as the byte-wise implementation did.
+  @pragma('vm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
+  static int _word(Uint8List b, int o) =>
+      (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+
+  /// Big-endian IV word. The IV is any `List<int>`; only each element's low
+  /// byte counts, exactly as when it was XORed into a byte buffer.
+  static int _ivWord(List<int> iv, int o) =>
+      ((iv[o] & 0xFF) << 24) |
+      ((iv[o + 1] & 0xFF) << 16) |
+      ((iv[o + 2] & 0xFF) << 8) |
+      (iv[o + 3] & 0xFF);
+
+  @pragma('vm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
+  static void _put(Uint8List out, int o, int w) {
+    out[o] = w >>> 24;
+    out[o + 1] = (w >>> 16) & 0xFF;
+    out[o + 2] = (w >>> 8) & 0xFF;
+    out[o + 3] = w & 0xFF;
   }
 
-  void _decryptBlock(Uint8List b) {
-    _addRoundKey(b, _rounds);
-    _invShiftRows(b);
-    for (var i = 0; i < 16; i++) {
-      b[i] = _invSbox[b[i]];
-    }
-    for (var round = _rounds - 1; round >= 1; round--) {
-      _addRoundKey(b, round);
-      _invMixColumns(b);
-      _invShiftRows(b);
-      for (var i = 0; i < 16; i++) {
-        b[i] = _invSbox[b[i]];
-      }
-    }
-    _addRoundKey(b, 0);
-  }
+  /// The final round's SubBytes (or InvSubBytes, per [sb]) with the row
+  /// shift folded in: byte 0 of the result from [a], 1 from [b], 2 from
+  /// [c], 3 from [d].
+  @pragma('vm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
+  static int _lastRound(Uint8List sb, int a, int b, int c, int d) =>
+      (sb[a >>> 24] << 24) |
+      (sb[(b >>> 16) & 0xFF] << 16) |
+      (sb[(c >>> 8) & 0xFF] << 8) |
+      sb[d & 0xFF];
 
-  void _addRoundKey(Uint8List b, int round) {
+  /// The encryption schedule reversed, with InvMixColumns applied to the
+  /// inner round keys so decryption rounds have the same table shape as
+  /// encryption ones. `_td*[_sbox[x]]` is InvMixColumns of the byte x in
+  /// the matching row, since InvSubBytes undoes the S-box.
+  Uint32List _equivalentInverseKeys() {
+    final ek = _roundKeys;
+    final rounds = _rounds;
+    final dk = Uint32List(ek.length);
     for (var c = 0; c < 4; c++) {
-      final w = _roundKeys[round * 4 + c];
-      b[c * 4] ^= w >>> 24;
-      b[c * 4 + 1] ^= (w >>> 16) & 0xFF;
-      b[c * 4 + 2] ^= (w >>> 8) & 0xFF;
-      b[c * 4 + 3] ^= w & 0xFF;
+      dk[c] = ek[rounds * 4 + c];
+      dk[rounds * 4 + c] = ek[c];
     }
-  }
-
-  static void _shiftRows(Uint8List b) {
-    for (var r = 1; r < 4; r++) {
-      for (var shift = 0; shift < r; shift++) {
-        final t = b[r];
-        b[r] = b[r + 4];
-        b[r + 4] = b[r + 8];
-        b[r + 8] = b[r + 12];
-        b[r + 12] = t;
+    for (var r = 1; r < rounds; r++) {
+      for (var c = 0; c < 4; c++) {
+        final w = ek[(rounds - r) * 4 + c];
+        dk[r * 4 + c] = _td0[_sbox[w >>> 24]] ^
+            _td1[_sbox[(w >>> 16) & 0xFF]] ^
+            _td2[_sbox[(w >>> 8) & 0xFF]] ^
+            _td3[_sbox[w & 0xFF]];
       }
     }
-  }
-
-  static void _invShiftRows(Uint8List b) {
-    for (var r = 1; r < 4; r++) {
-      for (var shift = 0; shift < r; shift++) {
-        final t = b[r + 12];
-        b[r + 12] = b[r + 8];
-        b[r + 8] = b[r + 4];
-        b[r + 4] = b[r];
-        b[r] = t;
-      }
-    }
-  }
-
-  static void _mixColumns(Uint8List b) {
-    for (var c = 0; c < 4; c++) {
-      final i = c * 4;
-      final a0 = b[i], a1 = b[i + 1], a2 = b[i + 2], a3 = b[i + 3];
-      b[i] = _mul2[a0] ^ _mul3[a1] ^ a2 ^ a3;
-      b[i + 1] = a0 ^ _mul2[a1] ^ _mul3[a2] ^ a3;
-      b[i + 2] = a0 ^ a1 ^ _mul2[a2] ^ _mul3[a3];
-      b[i + 3] = _mul3[a0] ^ a1 ^ a2 ^ _mul2[a3];
-    }
-  }
-
-  static void _invMixColumns(Uint8List b) {
-    for (var c = 0; c < 4; c++) {
-      final i = c * 4;
-      final a0 = b[i], a1 = b[i + 1], a2 = b[i + 2], a3 = b[i + 3];
-      b[i] = _mul14[a0] ^ _mul11[a1] ^ _mul13[a2] ^ _mul9[a3];
-      b[i + 1] = _mul9[a0] ^ _mul14[a1] ^ _mul11[a2] ^ _mul13[a3];
-      b[i + 2] = _mul13[a0] ^ _mul9[a1] ^ _mul14[a2] ^ _mul11[a3];
-      b[i + 3] = _mul11[a0] ^ _mul13[a1] ^ _mul9[a2] ^ _mul14[a3];
-    }
+    return dk;
   }
 
   static Uint32List _expandKey(List<int> key) {
@@ -246,18 +306,38 @@ class Aes {
     return box;
   }
 
-  static Uint8List _mulTable(int factor) {
-    final table = Uint8List(256);
+  // Round tables, 1 KB each. _te0[x] is the MixColumns column of the
+  // S-boxed byte, rows (2s, s, s, 3s); _td0[x] the InvMixColumns column of
+  // the inverse-S-boxed byte, rows (14i, 9i, 13i, 11i). _te1..3 / _td1..3
+  // are the same words rotated right by 8/16/24 bits - the column position
+  // the byte lands in after ShiftRows.
+  static final Uint32List _te0 = _roundTable(_sbox, 2, 1, 1, 3);
+  static final Uint32List _te1 = _rotate(_te0, 8);
+  static final Uint32List _te2 = _rotate(_te0, 16);
+  static final Uint32List _te3 = _rotate(_te0, 24);
+  static final Uint32List _td0 = _roundTable(_invSbox, 14, 9, 13, 11);
+  static final Uint32List _td1 = _rotate(_td0, 8);
+  static final Uint32List _td2 = _rotate(_td0, 16);
+  static final Uint32List _td3 = _rotate(_td0, 24);
+
+  static Uint32List _roundTable(Uint8List box, int m0, int m1, int m2, int m3) {
+    final table = Uint32List(256);
     for (var i = 0; i < 256; i++) {
-      table[i] = _gfMul(i, factor);
+      final s = box[i];
+      table[i] = (_gfMul(s, m0) << 24) |
+          (_gfMul(s, m1) << 16) |
+          (_gfMul(s, m2) << 8) |
+          _gfMul(s, m3);
     }
     return table;
   }
 
-  static final Uint8List _mul2 = _mulTable(2);
-  static final Uint8List _mul3 = _mulTable(3);
-  static final Uint8List _mul9 = _mulTable(9);
-  static final Uint8List _mul11 = _mulTable(11);
-  static final Uint8List _mul13 = _mulTable(13);
-  static final Uint8List _mul14 = _mulTable(14);
+  static Uint32List _rotate(Uint32List table, int bits) {
+    final out = Uint32List(256);
+    for (var i = 0; i < 256; i++) {
+      final w = table[i];
+      out[i] = (w >>> bits) | ((w << (32 - bits)) & 0xFFFFFFFF);
+    }
+    return out;
+  }
 }
