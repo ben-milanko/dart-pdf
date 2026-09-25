@@ -6,7 +6,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/render_worker_host.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart' show cosSparseBufferRanges;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -18,6 +20,8 @@ class _FakeBackend extends PdfRenderWorker {
   final recordCounts = <int, int>{};
   final updates =
       <({int base, int appended, int newLength, Set<int>? pages})>[];
+  // The appended bytes of each update, as handed over.
+  final tails = <Uint8List>[];
   bool _active = true;
 
   // Completer gate for the in-flight test; when set, `record` waits on it.
@@ -58,6 +62,7 @@ class _FakeBackend extends PdfRenderWorker {
       newLength: newLength,
       pages: changedPages,
     ));
+    tails.add(appendedBytes);
   }
 
   @override
@@ -355,6 +360,173 @@ void main() {
 
       await _expectMatchesFresh(worker, controller.bytes, pages,
           step: 'coalesced undo + edit, then an append');
+    });
+  });
+
+  // updateRevisionTo: the host hands over a view of the whole revision instead
+  // of a tail, so the pool's urgent lane can open that view rather than
+  // rebuild a private full-document copy on the UI isolate per revision.
+  test(
+      'updateRevisionTo gives a backend that only implements updateRevision a '
+      'private copy of the tail', () async {
+    final backend = _FakeBackend();
+    final worker = PdfCachingRenderWorker(backend);
+    await worker.record(5);
+    await worker.record(6);
+
+    // The revision is a view into a session buffer with spare capacity.
+    final session = Uint8List(128)..setRange(100, 103, [7, 8, 9]);
+    worker.updateRevisionTo(Uint8List.sublistView(session, 0, 103), 100, {5});
+
+    final update = backend.updates.single;
+    expect(update.base, 100);
+    expect(update.appended, 3);
+    expect(update.newLength, 103);
+    expect(update.pages, {5});
+    // An undo and a new edit later overwrite that range in the session; the
+    // update (which a real worker ships only once it is idle) keeps its bytes.
+    session.setRange(100, 103, [0, 0, 0]);
+    expect(backend.tails.single, [7, 8, 9]);
+
+    // The caching wrapper invalidated exactly as updateRevision does.
+    await worker.record(5);
+    await worker.record(6);
+    expect(backend.recordCounts[5], 2, reason: 'edited page 5 must re-render');
+    expect(backend.recordCounts[6], 1, reason: 'page 6 must survive the edit');
+  });
+
+  test('the pool seeds its urgent lane from the revision view, not a copy',
+      () async {
+    final session = Uint8List(128);
+    for (var i = 0; i < 64; i++) {
+      session[i] = i;
+    }
+    final seeds = <Uint8List>[];
+    final backends = <_FakeBackend>[];
+    final pool = PdfPooledRenderWorker.withSpawner(
+      Uint8List.sublistView(session, 0, 64),
+      2,
+      (bytes) {
+        seeds.add(bytes);
+        final backend = _FakeBackend();
+        backends.add(backend);
+        return backend;
+      },
+      copySource: false,
+      populatedRanges: const [0, 32],
+    );
+    addTearDown(pool.dispose);
+
+    session.fillRange(64, 80, 0xab);
+    final edited = Uint8List.sublistView(session, 0, 80);
+    pool.updateRevisionTo(edited, 64, {0});
+    for (final lane in backends) {
+      final update = lane.updates.single;
+      expect(update.base, 64);
+      expect(update.appended, 16);
+      expect(update.newLength, 80);
+      expect(update.pages, {0});
+    }
+    expect(
+        identical(backends[0].tails.single, backends[1].tails.single), isTrue,
+        reason: 'one tail copy serves every lane');
+    // The sparse-buffer map follows the seed onto the new view.
+    expect(cosSparseBufferRanges[edited], [0, 32, 64, 80]);
+
+    await pool.record(0, priority: -2000);
+    expect(seeds, hasLength(3), reason: 'the urgent lane was spawned');
+    expect(identical(seeds.last, edited), isTrue,
+        reason: 'the urgent lane opens the revision view itself');
+
+    // An undo is a shorter view, adopted as it is, and the urgent worker that
+    // opened the edited revision is dropped.
+    final undone = Uint8List.sublistView(session, 0, 64);
+    pool.updateRevisionTo(undone, 64, {0});
+    expect(backends[0].updates.last.appended, 0);
+    expect(backends[2].isActive, isFalse);
+    await pool.record(0, priority: -2000);
+    expect(seeds, hasLength(4));
+    expect(identical(seeds.last, undone), isTrue);
+  });
+
+  testWidgets(
+      'through the host, the pool and its urgent lane stay exact across edit, '
+      'undo, an overwriting edit and redo', (tester) async {
+    await tester.runAsync(() async {
+      // The host spawns a raw pool, with no record cache in front of it, so a
+      // priority -2000 record really reaches the lazily spawned urgent lane.
+      PdfPooledRenderWorker? pool;
+      PdfRenderWorkerHost.debugSpawnOverride = (bytes,
+              {required int pageCount,
+              int? workerCount,
+              bool copySource = false}) =>
+          pool = PdfPooledRenderWorker(bytes, 2, copySource: copySource);
+      addTearDown(() => PdfRenderWorkerHost.debugSpawnOverride = null);
+      final controller = PdfEditingController(buildMultiPagePdf(12));
+      final host = PdfRenderWorkerHost();
+      // What the shell does on every session change.
+      void sync() {
+        final delta = controller.lastRevisionDelta;
+        host.sync(
+          document: controller.document,
+          bytes: controller.bytes,
+          pageCount: 12,
+          revision: delta == null
+              ? null
+              : (
+                  baseLength: delta.baseLength,
+                  newLength: delta.newLength,
+                  changedPages: delta.changedPages,
+                ),
+        );
+      }
+
+      sync();
+      controller.addListener(sync);
+      addTearDown(() {
+        controller.removeListener(sync);
+        host.dispose();
+        controller.dispose();
+      });
+      final worker = pool!;
+      const pages = [0, 1, 2, 5];
+      const urgent = -2000;
+      for (final page in pages) {
+        await worker.record(page);
+      }
+      await worker.record(5, priority: urgent); // urgent lane on the original
+      final originalLength = controller.bytes.length;
+
+      controller.apply((e) => e.addSquare(0, const PdfRect(20, 20, 120, 120)));
+      await _expectMatchesFresh(worker, controller.bytes, const [0],
+          priority: urgent, step: 'edit A (urgent lane)');
+      final afterA = Uint8List.fromList(controller.bytes);
+
+      controller.apply((e) => e.addCircle(1, const PdfRect(30, 30, 90, 90)));
+      controller.undo();
+      controller.undo();
+      await _expectMatchesFresh(worker, controller.bytes, const [0, 1],
+          priority: urgent, step: 'undo back to the original (urgent lane)');
+
+      // Edit C is written where A's bytes were.
+      controller
+          .apply((e) => e.addCircle(0, const PdfRect(200, 200, 260, 300)));
+      final overlap = afterA.length < controller.bytes.length
+          ? afterA.length
+          : controller.bytes.length;
+      expect(Uint8List.sublistView(controller.bytes, originalLength, overlap),
+          isNot(Uint8List.sublistView(afterA, originalLength, overlap)),
+          reason: 'edit C must overwrite the undone bytes');
+      await _expectMatchesFresh(worker, controller.bytes, const [0],
+          priority: urgent, step: 'edit C (urgent lane)');
+
+      controller.undo();
+      controller.redo();
+      expect(host.generations, 1, reason: 'every revision applied in place');
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          step: 'undo + redo of C (pool)');
+      await _expectMatchesFresh(worker, controller.bytes, pages,
+          priority: urgent, step: 'undo + redo of C (urgent lane)');
     });
   });
 }
