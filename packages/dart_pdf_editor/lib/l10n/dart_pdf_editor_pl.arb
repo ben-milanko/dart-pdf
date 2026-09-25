@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{Wybrano {count}} few{Wybrano {count}} many{Wybrano {count}} other{Wybrano {count}}}",
   "sidebarWriteReplyHint": "Napisz odpowiedź…",
   "sigTitle": "Podpis",
+  "sigUseTrackpad": "Użyj gładzika",
+  "sigTrackpadHint": "Rysuj jednym palcem na gładziku. Po zakończeniu naciśnij dowolny klawisz.",
   "signIdCreate": "Utwórz",
   "signIdEmail": "E-mail (opcjonalnie)",
   "signIdName": "Imię",

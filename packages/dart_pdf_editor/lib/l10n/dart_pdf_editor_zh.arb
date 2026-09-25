@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{已选 {count} 个} other{已选 {count} 个}}",
   "sidebarWriteReplyHint": "写回复…",
   "sigTitle": "签名",
+  "sigUseTrackpad": "使用触控板",
+  "sigTrackpadHint": "用一根手指在触控板上书写。完成后按任意键。",
   "signIdCreate": "创建",
   "signIdEmail": "电子邮件（可选）",
   "signIdName": "姓名",

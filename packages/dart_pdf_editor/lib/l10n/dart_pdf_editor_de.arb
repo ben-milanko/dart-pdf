@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count} ausgewählt} other{{count} ausgewählt}}",
   "sidebarWriteReplyHint": "Antwort schreiben…",
   "sigTitle": "Unterschrift",
+  "sigUseTrackpad": "Trackpad verwenden",
+  "sigTrackpadHint": "Zeichnen Sie mit einem Finger auf dem Trackpad. Drücken Sie eine beliebige Taste, wenn Sie fertig sind.",
   "signIdCreate": "Erstellen",
   "signIdEmail": "E-Mail (optional)",
   "signIdName": "Name",

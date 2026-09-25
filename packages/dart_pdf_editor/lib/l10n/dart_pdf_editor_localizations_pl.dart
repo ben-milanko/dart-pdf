@@ -1227,6 +1227,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get sigTitle => 'Podpis';
 
   @override
+  String get sigUseTrackpad => 'Użyj gładzika';
+
+  @override
+  String get sigTrackpadHint =>
+      'Rysuj jednym palcem na gładziku. Po zakończeniu naciśnij dowolny klawisz.';
+
+  @override
   String get signIdCreate => 'Utwórz';
 
   @override

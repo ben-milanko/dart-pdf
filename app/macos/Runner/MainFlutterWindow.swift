@@ -61,6 +61,7 @@ final class FileAccessExecutor {
 
 class MainFlutterWindow: NSWindow {
   private let fileAccess = FileAccessExecutor()
+  private let trackpadSignature = TrackpadSignatureCapture()
   private var channelsConfigured = false
 
   override func awakeFromNib() {
@@ -298,6 +299,11 @@ class MainFlutterWindow: NSWindow {
       pasteboard.clearContents()
       result(pasteboard.setData(typed.data, forType: .png))
     }
+
+    let trackpadSignatureChannel = FlutterEventChannel(
+      name: "dev.milanko.dartpdf/trackpad_signature",
+      binaryMessenger: binaryMessenger)
+    trackpadSignatureChannel.setStreamHandler(trackpadSignature)
 
     RegisterGeneratedPlugins(registry: registry)
   }

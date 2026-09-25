@@ -1207,6 +1207,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get sigTitle => 'Signature';
 
   @override
+  String get sigUseTrackpad => 'Use trackpad';
+
+  @override
+  String get sigTrackpadHint =>
+      'Draw on your trackpad with one finger. Press any key when finished.';
+
+  @override
   String get signIdCreate => 'Create';
 
   @override
@@ -3426,6 +3433,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get sigTitle => 'Signature';
 
   @override
+  String get sigUseTrackpad => 'Use trackpad';
+
+  @override
+  String get sigTrackpadHint =>
+      'Draw on your trackpad with one finger. Press any key when finished.';
+
+  @override
   String get signIdCreate => 'Create';
 
   @override
@@ -5643,6 +5657,13 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get sigTitle => 'Signature';
+
+  @override
+  String get sigUseTrackpad => 'Use trackpad';
+
+  @override
+  String get sigTrackpadHint =>
+      'Draw on your trackpad with one finger. Press any key when finished.';
 
   @override
   String get signIdCreate => 'Create';
