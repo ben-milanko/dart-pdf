@@ -50,7 +50,11 @@ import 'package:dart_pdf_editor/render_worker_web.dart';
 void main() => runPdfRenderWorker();
 ''';
 
-Future<int> main(List<String> args) async {
+// `dart run` ignores main's return value, so the status goes through exitCode;
+// otherwise a failed dart2js compile exits 0 and the CI step running it passes.
+Future<void> main(List<String> args) async => exitCode = await _build(args);
+
+Future<int> _build(List<String> args) async {
   if (args.contains('-h') || args.contains('--help')) {
     stdout.writeln(_usage);
     return 0;
