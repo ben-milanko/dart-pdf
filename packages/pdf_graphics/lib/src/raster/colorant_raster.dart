@@ -458,38 +458,53 @@ class PdfColorantRaster {
   /// else null. Both winding rules agree on a simple rectangle, so the caller
   /// need not pass one.
   static List<double>? _axisAlignedRect(PdfPath path) {
-    final segments = path.segments;
-    if (segments.length < 4 || segments.length > 6) return null;
-    if (segments.first is! PdfMoveTo) return null;
-    final xs = <double>[], ys = <double>[];
-    for (final segment in segments) {
-      switch (segment) {
-        case PdfMoveTo(:final x, :final y) || PdfLineTo(:final x, :final y):
-          xs.add(x);
-          ys.add(y);
-        case PdfClosePath():
-          break;
-        case PdfCubicTo(:final x1, :final y1, :final x2, :final y2):
+    final count = path.segmentCount;
+    if (count < 4 || count > 6) return null;
+    // Read through a cursor: [PdfPath.segments] would materialize a packed
+    // interpreter path into segment objects plus a global Expando entry, and
+    // every fill and clip that reaches the buffer comes through here.
+    final reader = path.cursor()..moveNext();
+    if (reader.verb != PdfPathVerb.moveTo) return null;
+    final xs = _rectXs, ys = _rectYs;
+    xs[0] = reader.x1;
+    ys[0] = reader.y1;
+    var points = 1;
+    while (reader.moveNext()) {
+      final double x, y;
+      switch (reader.verb) {
+        case PdfPathVerb.moveTo || PdfPathVerb.lineTo:
+          x = reader.x1;
+          y = reader.y1;
+        case PdfPathVerb.close:
+          continue;
+        case PdfPathVerb.cubicTo:
           // A cubic whose control points sit on its own endpoints is a
           // straight line. Producers emit rectangles this way all the time -
           // `v`/`y` with coincident controls - and the Ghent overprint patches
           // build every patch box and clip out of them, so rejecting the whole
           // path on sight would send exactly the pages that use this buffer
           // down the slow path.
-          final px = xs.last, py = ys.last;
-          final endX = segment.x3, endY = segment.y3;
+          final x1 = reader.x1, y1 = reader.y1;
+          final x2 = reader.x2, y2 = reader.y2;
+          final px = xs[points - 1], py = ys[points - 1];
+          final endX = reader.x3, endY = reader.y3;
           final firstOnEnd =
               (x1 == px && y1 == py) || (x1 == endX && y1 == endY);
           final secondOnEnd =
               (x2 == px && y2 == py) || (x2 == endX && y2 == endY);
           if (!firstOnEnd || !secondOnEnd) return null;
-          xs.add(endX);
-          ys.add(endY);
+          x = endX;
+          y = endY;
       }
+      // Four corners, plus at most one more closing back to the start.
+      if (points == 5) return null;
+      xs[points] = x;
+      ys[points] = y;
+      points++;
     }
-    if (xs.length < 4 || xs.length > 5) return null;
+    if (points < 4) return null;
     // Closing back to the start is allowed as an explicit final lineTo.
-    if (xs.length == 5 && (xs[4] != xs[0] || ys[4] != ys[0])) return null;
+    if (points == 5 && (xs[4] != xs[0] || ys[4] != ys[0])) return null;
     // Corners must alternate: each edge changes exactly one coordinate.
     for (var i = 0; i < 4; i++) {
       final j = (i + 1) & 3;
@@ -506,6 +521,16 @@ class PdfColorantRaster {
     }
     return [left, bottom, right, top];
   }
+
+  // Corner scratch for [_axisAlignedRect]; it runs synchronously and never
+  // re-enters, so one pair per isolate is enough.
+  static final Float64List _rectXs = Float64List(5);
+  static final Float64List _rectYs = Float64List(5);
+
+  /// Whether [fillSpans] takes [path] as a plain box, skipping the flattener
+  /// and the edge table. For tests.
+  static bool debugIsAxisAlignedRect(PdfPath path) =>
+      _axisAlignedRect(path) != null;
 
   /// Spans covered by stroking [path] (page space) with a page-space [width]
   /// and the given cap/join/dash geometry.

@@ -12,7 +12,7 @@
 //      that keeps a resolved overprint pixel-identical to the paint it
 //      matches.
 //   4. the scanline rasterizer under it ([PdfColorantRaster]) - geometry a
-//      broken generator can emit.
+//      broken generator can emit, and the rectangle fast path.
 //
 // The GWG030 render guard (dart_pdf_editor overprint_render_test.dart) covers
 // the same ground end to end; these are the pieces, so a failure names one.
@@ -717,6 +717,49 @@ void main() {
               reason: 'x = $x, evenOdd: $evenOdd');
         }
       }
+    });
+
+    test('a packed rectangle of coincident-control cubics is still a box', () {
+      // The interpreter builds packed paths, and rectangles drawn as `v`/`y`
+      // cubics with their controls on their own endpoints are what the Ghent
+      // overprint patches are made of. The box fast path reads them through
+      // the path cursor and must still recognise them.
+      final packed = (PdfPathBuilder()
+            ..moveTo(10, 20)
+            ..cubicTo(10, 20, 60, 20, 60, 20)
+            ..cubicTo(60, 20, 60, 70, 60, 70)
+            ..cubicTo(60, 70, 10, 70, 10, 70)
+            ..cubicTo(10, 70, 10, 20, 10, 20)
+            ..close())
+          .takePath();
+      expect(packed.segmentCount, 6);
+      expect(PdfColorantRaster.debugIsAxisAlignedRect(packed), isTrue);
+      final r = raster();
+      expect(spansOf(r.fillSpans(packed, evenOdd: false)),
+          spansOf(r.boxSpans(10, 20, 60, 70)));
+      // The render-command decoder's float32 packing, as a plain `re`.
+      final decoded = PdfPath.packedFloat32(Uint8List.fromList([0, 1, 1, 1, 3]),
+          Float32List.fromList([10, 20, 60, 20, 60, 70, 10, 70]), 5);
+      expect(PdfColorantRaster.debugIsAxisAlignedRect(decoded), isTrue);
+
+      // A control off the line makes a curve, and a path must open with a
+      // moveTo to be a rectangle at all.
+      final curved = (PdfPathBuilder()
+            ..moveTo(10, 20)
+            ..cubicTo(10, 20, 60, 25, 60, 20)
+            ..lineTo(60, 70)
+            ..lineTo(10, 70)
+            ..close())
+          .takePath();
+      expect(PdfColorantRaster.debugIsAxisAlignedRect(curved), isFalse);
+      final noMove = (PdfPathBuilder()
+            ..lineTo(10, 20)
+            ..lineTo(60, 20)
+            ..lineTo(60, 70)
+            ..lineTo(10, 70)
+            ..close())
+          .takePath();
+      expect(PdfColorantRaster.debugIsAxisAlignedRect(noMove), isFalse);
     });
   });
 }
