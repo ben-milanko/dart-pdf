@@ -564,6 +564,30 @@ void main() {
     });
   });
 
+  // The layout changes between format versions, and a stale cached or
+  // self-hosted worker can still hand the UI a buffer from another build. That
+  // must fail up front - every caller turns a throw into a local render - not
+  // misparse into a wrong page (or, in a release build, an unchecked assert).
+  test('a buffer from another format version throws FormatException', () {
+    const square = PdfPath([
+      PdfMoveTo(0, 0),
+      PdfLineTo(1, 0),
+      PdfLineTo(1, 1),
+      PdfClosePath(),
+    ]);
+    final bytes = serializeCommands([
+      const PdfFillPathCommand(square, PdfColor.black, PdfFillRule.nonzero, 1),
+    ])!;
+    expect(deserializeCommands(Uint8List.fromList(bytes)), hasLength(1));
+    bytes[0] = bytes[0] - 1;
+    expect(() => deserializeCommands(bytes), throwsFormatException);
+
+    final text =
+        serializePageText(const PdfPageText(pageIndex: 0, text: '', runs: []));
+    text[0] = text[0] + 1;
+    expect(() => deserializePageText(text), throwsFormatException);
+  });
+
   group('image decode offload', () {
     test('uses predecoded image request pixels', () {
       final cos = CosDocument.open(buildClassicPdf());

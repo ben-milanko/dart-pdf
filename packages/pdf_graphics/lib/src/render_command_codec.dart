@@ -52,8 +52,11 @@ import 'text_extraction.dart';
 /// interpret cost - serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
-/// consumer are the same build, shipped together, so a version mismatch is a
-/// programming error, asserted on read.
+/// consumer are the same build, shipped together, and nothing persists a
+/// buffer. A mismatch still happens in the field - a stale cached or
+/// self-hosted web worker script, or mismatched editor/assets packages - so it
+/// is checked on read and throws a [FormatException], which every caller
+/// already turns into a local render instead of misparsing the buffer.
 const int _formatVersion = 9;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
@@ -497,11 +500,21 @@ PdfDecodedPixels _capImageResolution(
 List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   final sw = Stopwatch()..start();
   final r = _Reader(bytes);
-  final version = r.u8();
-  assert(version == _formatVersion, 'render command format version mismatch');
+  _checkFormatVersion(r.u8(), 'render command');
   final commands = _readCommands(r);
   deserializeCommandsMicros += sw.elapsedMicroseconds;
   return commands;
+}
+
+/// A buffer from another format version cannot be read - the layout changes
+/// between versions - so it fails here, before anything is parsed, rather than
+/// half-way through as a misread count or a plausible-looking wrong page.
+void _checkFormatVersion(int version, String codec) {
+  if (version != _formatVersion) {
+    throw FormatException(
+        '$codec buffer is format version $version, this build reads '
+        '$_formatVersion');
+  }
 }
 
 /// Serializes an extracted [PdfPageText] for the render worker → UI-isolate hop
@@ -542,8 +555,7 @@ Uint8List serializePageText(PdfPageText page) {
 /// Reconstructs the [PdfPageText] written by [serializePageText].
 PdfPageText deserializePageText(Uint8List bytes) {
   final r = _Reader(bytes);
-  final version = r.u8();
-  assert(version == _formatVersion, 'page-text codec version mismatch');
+  _checkFormatVersion(r.u8(), 'page-text');
   final pageIndex = r.u32();
   final text = r.str();
   final count = r.u32();
