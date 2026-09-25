@@ -4,6 +4,7 @@ import 'package:archive/archive.dart';
 
 import 'builder.dart';
 import 'document.dart';
+import 'filters/zlib_inflate.dart';
 import 'objects.dart';
 
 /// The outcome of a [CosCompactor] run: the rewritten bytes plus a small
@@ -210,10 +211,18 @@ class _GraphCopier {
         // Inflate only the zlib envelope, NOT the PDF predictor. Retaining
         // the original predictor bytes and /DecodeParms is lossless even
         // for 16-bit images and unusual TIFF/PNG predictor parameters.
-        final inflated = const ZLibDecoder().decodeBytes(payload);
+        // Strict: a damaged stream (bad header, wrong Adler-32) throws on
+        // every platform and is kept below exactly as it was.
+        final inflated = inflateZlib(payload, strict: true);
         final deflated =
             const ZLibEncoder().encodeBytes(inflated, level: _deflateLevel);
-        if (deflated.length < payload.length) {
+        // Nothing inflated from more than an empty stream's framing is
+        // suspect - archive's web inflater returned nothing for any stream
+        // with a trailing EOL - so it never replaces the payload: re-deflated
+        // it would write that loss into the file, for a few bytes saved.
+        final suspect =
+            inflated.isEmpty && payload.length > _maxEmptyZlibLength;
+        if (!suspect && deflated.length < payload.length) {
           payload = deflated;
           streamsDeflated++;
         }
@@ -240,6 +249,10 @@ class _GraphCopier {
     out.dictionary['Length'] = CosInteger(payload.length);
     return outRef;
   }
+
+  /// Longest zlib stream taken at its word when it inflates to nothing: a
+  /// header, an empty block or two (writers emit 8-11 bytes), the Adler-32.
+  static const _maxEmptyZlibLength = 16;
 
   /// A stream is unfiltered when it declares no `/Filter` (or an empty array).
   bool _isUnfiltered(CosDictionary dict) {

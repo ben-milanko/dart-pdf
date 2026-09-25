@@ -73,6 +73,13 @@ jobs:
           flags: pdf_cos
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      # FlateDecode takes a pure-Dart inflater under dart2js (a conditional
+      # import); the VM run above only sees it through a direct import. Run
+      # the same tests compiled to JS so FlateFilter and the compactor are
+      # exercised on the path browsers take.
+      - name: Test pdf_cos zlib inflate under dart2js
+        working-directory: packages/pdf_cos
+        run: dart test -p node test/zlib_inflate_test.dart
 
       - name: Test pdf_document
         working-directory: packages/pdf_document
