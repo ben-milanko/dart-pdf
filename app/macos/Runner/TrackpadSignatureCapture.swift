@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import IOKit
 
 /// Preview-style trackpad signatures for the signature pad
 /// (`MacTrackpadSignatureCapture` in app/lib/trackpad_signature.dart).
@@ -21,6 +22,21 @@ final class TrackpadSignatureCapture: NSObject, FlutterStreamHandler {
   private weak var window: NSWindow?
   private weak var previousResponder: NSResponder?
   private var resignObserver: NSObjectProtocol?
+
+  /// Whether any multitouch surface (built-in trackpad, Magic Trackpad) is
+  /// attached - an iMac on a plain mouse has none, and the pad shouldn't
+  /// offer a mode that can't draw. Assumes one when the registry can't be read.
+  static func isAvailable() -> Bool {
+    var iterator: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(
+      0, IOServiceMatching("AppleMultitouchDevice"), &iterator) == KERN_SUCCESS
+    else { return true }
+    defer { IOObjectRelease(iterator) }
+    let service = IOIteratorNext(iterator)
+    guard service != 0 else { return false }
+    IOObjectRelease(service)
+    return true
+  }
 
   func onListen(
     withArguments arguments: Any?,

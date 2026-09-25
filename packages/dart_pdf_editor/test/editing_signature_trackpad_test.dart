@@ -1,17 +1,24 @@
 // Preview-style trackpad signatures: the host streams absolute finger
 // positions (PdfTrackpadSignatureCapture) and the pad maps the trackpad
-// surface onto itself. The macOS capture itself lives in the app runner;
-// these tests drive the pad with a fake one.
+// surface onto itself. The native captures (macOS, Windows, Android) live in
+// the app runners; these tests drive the pad with a fake one.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
-class _FakeTrackpad implements PdfTrackpadSignatureCapture {
+class _FakeTrackpad extends PdfTrackpadSignatureCapture {
+  _FakeTrackpad({this.available = true});
+
+  final bool available;
   StreamController<PdfTrackpadSignatureEvent>? controller;
   var cancelled = 0;
+
+  @override
+  Future<bool> isAvailable() async => available;
 
   @override
   Stream<PdfTrackpadSignatureEvent> capture() {
@@ -94,6 +101,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(body: PdfSignatureDialog(trackpad: trackpad)),
     ));
+    await tester.pump();
     await tester.tap(find.byKey(trackpadButton));
     await tester.pump();
     trackpad.touch(PdfTrackpadSignaturePhase.down, 0.5, 0.5);
@@ -109,6 +117,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(body: PdfSignatureDialog(trackpad: trackpad)),
     ));
+    await tester.pump();
     await tester.tap(find.byKey(trackpadButton));
     await tester.pump();
     trackpad.touch(PdfTrackpadSignaturePhase.down, 0.2, 0.2);
@@ -120,5 +129,58 @@ void main() {
     final done =
         tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'));
     expect(done.onPressed, isNotNull);
+  });
+
+  testWidgets('no trackpad attached, no trackpad button', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+          body: PdfSignatureDialog(trackpad: _FakeTrackpad(available: false))),
+    ));
+    await tester.pump();
+    expect(find.byKey(trackpadButton), findsNothing);
+  });
+
+  testWidgets('any key finishes the capture, clicks are ignored',
+      (tester) async {
+    final trackpad = _FakeTrackpad();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: PdfSignatureDialog(trackpad: trackpad)),
+    ));
+    await tester.pump();
+    await tester.tap(find.byKey(trackpadButton));
+    await tester.pump();
+    trackpad.touch(PdfTrackpadSignaturePhase.down, 0.2, 0.2);
+    trackpad.touch(PdfTrackpadSignaturePhase.up, 0.6, 0.7);
+    await tester.pump();
+
+    // a tap-to-click on Clear mid-capture must not wipe the pad
+    await tester.tap(find.text('Clear'), warnIfMissed: false);
+    await tester.pump();
+    expect(find.byKey(hint), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'))
+            .onPressed,
+        isNotNull);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.pump();
+    expect(find.byKey(hint), findsNothing);
+    expect(trackpad.cancelled, 1);
+  });
+
+  testWidgets('losing app focus ends the capture', (tester) async {
+    final trackpad = _FakeTrackpad();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: PdfSignatureDialog(trackpad: trackpad)),
+    ));
+    await tester.pump();
+    await tester.tap(find.byKey(trackpadButton));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.byKey(hint), findsNothing);
+    expect(trackpad.cancelled, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   });
 }

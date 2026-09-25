@@ -56,8 +56,9 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // dart_pdf_editor_assets dependency and this call to save the ~1.7 MB.
     registerBundledEditorAssets();
     // Preview-style "draw your signature on the trackpad" in the signature
-    // pad; macOS only (the runner supplies the absolute finger positions).
-    MacTrackpadSignatureCapture.installIfSupported();
+    // pad on macOS, Windows and Android (the runners supply the absolute
+    // finger positions).
+    PlatformTrackpadSignatureCapture.installIfSupported();
     // Competitive-harness-only zero-copy presentation experiment. Keeping it
     // URL-gated means normal users and correctness suites stay on the complete
     // SkWasm renderer while `PERF_DART_QUERY=domSurface=1` can A/B the worker-

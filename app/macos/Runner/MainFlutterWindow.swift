@@ -304,6 +304,16 @@ class MainFlutterWindow: NSWindow {
       name: "dev.milanko.dartpdf/trackpad_signature",
       binaryMessenger: binaryMessenger)
     trackpadSignatureChannel.setStreamHandler(trackpadSignature)
+    FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/trackpad_signature_support",
+      binaryMessenger: binaryMessenger
+    ).setMethodCallHandler { (call, result) in
+      guard call.method == "isAvailable" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(TrackpadSignatureCapture.isAvailable())
+    }
 
     RegisterGeneratedPlugins(registry: registry)
   }

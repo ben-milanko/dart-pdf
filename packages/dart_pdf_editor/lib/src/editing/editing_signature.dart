@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart'
     show pdfInkCurveControls, pdfInkStrokeWidth;
 
@@ -523,15 +524,23 @@ class PdfTrackpadSignatureEvent {
 /// down is the pen down, and a key press ends the capture.
 ///
 /// Absolute finger positions are a native affordance (AppKit's indirect
-/// `NSTouch`es) that Flutter's pointer events don't carry, so the host
-/// supplies the capture: listening to [capture] starts it (the host grabs
-/// the trackpad and parks the cursor), cancelling the subscription or the
-/// stream closing ends it. The DartPDF app installs its macOS
-/// implementation as [platform] at startup; with no capture installed the
-/// signature pad simply doesn't offer the mode.
-abstract interface class PdfTrackpadSignatureCapture {
+/// `NSTouch`es, Windows Precision Touchpad HID reports, Android's captured
+/// `SOURCE_TOUCHPAD` events) that Flutter's pointer events don't carry, so
+/// the host supplies the capture: listening to [capture] starts it (the host
+/// grabs the trackpad and parks the cursor), cancelling the subscription or
+/// the stream closing ends it. The pad itself ends the capture on any key
+/// press or when the app loses focus, and ignores clicks while it runs (a
+/// tap-to-click while dotting an "i" must not press a button), so a host
+/// only has to stream touches. The DartPDF app installs its implementation
+/// as [platform] at startup; with no capture installed, or when
+/// [isAvailable] reports no trackpad, the pad simply doesn't offer the mode.
+abstract class PdfTrackpadSignatureCapture {
   /// The capture [showPdfSignatureDialog] offers when it isn't handed one.
   static PdfTrackpadSignatureCapture? platform;
+
+  /// Whether a trackpad is attached right now; asked each time the pad
+  /// opens. Defaults to true.
+  Future<bool> isAvailable() async => true;
 
   /// Starts a capture on listen; see the class docs.
   Stream<PdfTrackpadSignatureEvent> capture();
@@ -693,7 +702,29 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
 
   StreamSubscription<PdfTrackpadSignatureEvent>? _trackpadCapture;
 
+  /// Whether [PdfSignatureDialog.trackpad] reported a trackpad attached.
+  bool _trackpadAvailable = false;
+
+  /// Takes the keyboard while a capture runs, so any key can finish it.
+  final _trackpadFocus = FocusNode(debugLabel: 'pdf-signature-trackpad');
+
+  /// Ends a capture when the app loses focus, so a host that parked the
+  /// cursor gets it back.
+  AppLifecycleListener? _lifecycle;
+
   bool get _trackpadActive => _trackpadCapture != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final trackpad = widget.trackpad;
+    if (trackpad == null) return;
+    _lifecycle =
+        AppLifecycleListener(onInactive: _stopTrackpad, onHide: _stopTrackpad);
+    trackpad.isAvailable().then((available) {
+      if (mounted && available) setState(() => _trackpadAvailable = true);
+    }, onError: (Object _) {});
+  }
 
   void _startTrackpad() {
     final trackpad = widget.trackpad;
@@ -706,6 +737,15 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
             onDone: _stopTrackpad,
           );
     });
+    _trackpadFocus.requestFocus();
+  }
+
+  /// "Press any key when finished"; every other key is swallowed while the
+  /// capture runs so none reaches the dialog or the document behind it.
+  KeyEventResult _onTrackpadKey(FocusNode node, KeyEvent event) {
+    if (!_trackpadActive) return KeyEventResult.ignored;
+    if (event is KeyDownEvent) _stopTrackpad();
+    return KeyEventResult.handled;
   }
 
   void _stopTrackpad() {
@@ -748,6 +788,8 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
   void dispose() {
     _trackpadCapture?.cancel();
     _trackpadCapture = null;
+    _lifecycle?.dispose();
+    _trackpadFocus.dispose();
     super.dispose();
   }
 
@@ -775,7 +817,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
   @override
   Widget build(BuildContext context) {
     final activeDisplay = _activeDisplay;
-    return AlertDialog(
+    final dialog = AlertDialog(
       title: Text(pdfL10n(context).sigTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -864,7 +906,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
               onTap: _pickInk,
             ),
             const Spacer(),
-            if (widget.trackpad != null)
+            if (_trackpadAvailable)
               TextButton.icon(
                 key: const ValueKey('pdf-signature-trackpad'),
                 onPressed: _trackpadActive ? null : _startTrackpad,
@@ -920,6 +962,14 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
           child: Text(pdfL10n(context).done),
         )),
       ],
+    );
+    if (widget.trackpad == null) return dialog;
+    return Focus(
+      focusNode: _trackpadFocus,
+      onKeyEvent: _onTrackpadKey,
+      // clicks mean nothing mid-capture: with tap-to-click a quick dab on
+      // the trackpad is also a click, and it must not press a button
+      child: AbsorbPointer(absorbing: _trackpadActive, child: dialog),
     );
   }
 }

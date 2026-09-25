@@ -19,6 +19,7 @@ import android.system.OsConstants
 import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -37,6 +38,7 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private var channel: MethodChannel? = null
     private var keyboardChannel: MethodChannel? = null
     private var keyboardInputManager: InputManager? = null
+    private var trackpadSignature: TrackpadSignatureCapture? = null
 
     /// The file the activity was launched with, drained by `getInitialFile`.
     private var pending: Map<String, Any>? = null
@@ -120,6 +122,23 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
                 )
             }
 
+        // Preview-style trackpad signatures (TrackpadSignatureCapture.kt).
+        val trackpad = TrackpadSignatureCapture(this).also { trackpadSignature = it }
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "dev.milanko.dartpdf/trackpad_signature",
+        ).setStreamHandler(trackpad)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "dev.milanko.dartpdf/trackpad_signature_support",
+        ).setMethodCallHandler { call, result ->
+            if (call.method == "isAvailable") {
+                result.success(TrackpadSignatureCapture.isAvailable(this))
+            } else {
+                result.notImplemented()
+            }
+        }
+
         channel = ch
         handleIntent(intent, initial = true)
     }
@@ -140,7 +159,14 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     override fun onInputDeviceRemoved(deviceId: Int) = notifyKeyboardChanged()
     override fun onInputDeviceChanged(deviceId: Int) = notifyKeyboardChanged()
 
+    override fun onPointerCaptureChanged(hasCapture: Boolean) {
+        super.onPointerCaptureChanged(hasCapture)
+        trackpadSignature?.onPointerCaptureChanged(hasCapture)
+    }
+
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        trackpadSignature?.stop()
+        trackpadSignature = null
         keyboardInputManager?.unregisterInputDeviceListener(this)
         keyboardInputManager = null
         keyboardChannel?.setMethodCallHandler(null)

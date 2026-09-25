@@ -3,6 +3,8 @@
 
 #include <flutter/binary_messenger.h>
 #include <flutter/encodable_value.h>
+#include <flutter/event_channel.h>
+#include <flutter/event_sink.h>
 #include <flutter/method_channel.h>
 #include <windows.h>
 
@@ -11,6 +13,7 @@
 #include <string>
 
 #include "file_dialogs.h"
+#include "trackpad_signature.h"
 
 class DartPdfWindowsDropService;
 
@@ -46,6 +49,12 @@ class DartPdfPlatformChannels {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       file_access_channel_;
   std::unique_ptr<DartPdfWindowsDropService> windows_drop_service_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      trackpad_support_channel_;
+  std::unique_ptr<flutter::EventChannel<flutter::EncodableValue>>
+      trackpad_channel_;
+  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> trackpad_sink_;
+  dart_pdf::TrackpadSignatureCapture trackpad_capture_;
 };
 
 #endif  // RUNNER_PLATFORM_CHANNELS_H_
