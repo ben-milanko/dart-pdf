@@ -4,6 +4,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'color.dart';
 import 'icc.dart';
+import 'unit_clamp.dart';
 
 /// Document-level colour conversion state used while rendering PDF device
 /// colours.
@@ -88,10 +89,10 @@ class PdfColorContext {
       {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
     final profile = outputProfile;
     if (profile != null && profile.channels == 4) {
-      final c = cyan.clamp(0.0, 1.0).toDouble();
-      final m = magenta.clamp(0.0, 1.0).toDouble();
-      final y = yellow.clamp(0.0, 1.0).toDouble();
-      final k = black.clamp(0.0, 1.0).toDouble();
+      final c = clampUnit(cyan);
+      final m = clampUnit(magenta);
+      final y = clampUnit(yellow);
+      final k = clampUnit(black);
       final key = _ProcessColorKey(c, m, y, k);
       final cached = _processColors[key];
       if (cached != null) return cached;
@@ -109,7 +110,7 @@ class PdfColorContext {
   /// PDF gray is additive (0 = black, 1 = white), hence `K = 1 - gray`.
   PdfColor deviceGray(double gray,
       {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
-    final value = gray.clamp(0.0, 1.0).toDouble();
+    final value = clampUnit(gray);
     final profile = outputProfile;
     if (profile != null && profile.channels == 4) {
       final key = _ProcessColorKey(-1, 0, 0, value);

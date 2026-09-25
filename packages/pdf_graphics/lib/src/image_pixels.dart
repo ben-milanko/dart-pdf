@@ -2591,16 +2591,36 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         }
         return out;
       }
+      // Under a CMYK OutputIntent (#755) every ICC RGB pixel runs the whole
+      // source A2B -> black-point compensation -> output B2A -> output A2B
+      // chain, which is nearly all of such a decode. #399 measured this tuple
+      // memo flat when a miss was one matrix transform; with that chain a
+      // miss costs microseconds, and flat press artwork repeats a few hundred
+      // tuples across megapixels. A hit is the exact value the chain produced
+      // for the exact tuple, so the output is unchanged byte for byte.
+      final memo = rgbIcc == null ? null : _ColorMemo.forPixels(count, 3);
+      // Reused across misses: the conversion reads it and keeps no reference.
+      final iccValues = rgbIcc == null ? null : Float64List(3);
       for (var i = 0; i < count; i++) {
         final s = i * 3, o = i * 4;
         final r = data[s], g = data[s + 1], b = data[s + 2];
         if (rgbIcc != null) {
-          final c = colorContext.iccToSrgb(
-              rgbIcc, [lut0[r] / 255, lut1[g] / 255, lut2[b] / 255],
-              intent: renderingIntent);
-          out[o] = (c.red * 255).round();
-          out[o + 1] = (c.green * 255).round();
-          out[o + 2] = (c.blue * 255).round();
+          var rgb = memo!.lookup(data, s);
+          if (rgb < 0) {
+            iccValues![0] = lut0[r] / 255;
+            iccValues[1] = lut1[g] / 255;
+            iccValues[2] = lut2[b] / 255;
+            final c = colorContext.iccToSrgb(rgbIcc, iccValues,
+                intent: renderingIntent);
+            // `& 0xff` is exactly what the unclamped byte store did.
+            rgb = (((c.red * 255).round() & 0xff) << 16) |
+                (((c.green * 255).round() & 0xff) << 8) |
+                ((c.blue * 255).round() & 0xff);
+            memo.store(data, s, rgb);
+          }
+          out[o] = (rgb >> 16) & 0xff;
+          out[o + 1] = (rgb >> 8) & 0xff;
+          out[o + 2] = rgb & 0xff;
         } else {
           out[o] = lut0[r];
           out[o + 1] = lut1[g];
@@ -2756,9 +2776,9 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
                 ? colorContext.iccToSrgb(cmykIcc, iccValues,
                     intent: renderingIntent)
                 : cmykTransform.toSrgb(iccValues, intent: renderingIntent);
-            rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
-                ((color.green * 255).round().clamp(0, 255) << 8) |
-                (color.blue * 255).round().clamp(0, 255);
+            rgb = (clampByte((color.red * 255).round()) << 16) |
+                (clampByte((color.green * 255).round()) << 8) |
+                clampByte((color.blue * 255).round());
           } else {
             rgb = _deviceCmykRgb8(lut0[s0], lut1[s1], lut2[s2], lut3[s3]);
           }
@@ -2806,20 +2826,9 @@ Uint8List? _toRgba16(
   if (components <= 0 || data.length < count * components * 2) return null;
   final values = Float64List(components);
   final view = ByteData.sublistView(data);
-  for (var pixel = 0; pixel < count; pixel++) {
-    final sampleBase = pixel * components;
-    var masked = colorKey != null;
-    for (var c = 0; c < components; c++) {
-      final raw = view.getUint16((sampleBase + c) * 2);
-      final range = ranges?[c] ?? (0.0, 1.0);
-      values[c] = (range.$1 + raw / 65535 * (range.$2 - range.$1))
-          .clamp(0.0, 1.0)
-          .toDouble();
-      if (colorKey != null && (raw < colorKey[c].$1 || raw > colorKey[c].$2)) {
-        masked = false;
-      }
-    }
 
+  // The colour of [values], packed as 8-bit RGB.
+  int convert() {
     final PdfColor color;
     if (alternate != null) {
       color = alternate.toSrgbIntent(values, renderingIntent);
@@ -2836,10 +2845,52 @@ Uint8List? _toRgba16(
         _ => colorFromComponents(values, components),
       };
     }
+    return (clampByte((color.red * 255).round()) << 16) |
+        (clampByte((color.green * 255).round()) << 8) |
+        clampByte((color.blue * 255).round());
+  }
+
+  if (components == 1) {
+    // One component: the colour is a function of the raw sample alone, and
+    // there are only 65536 of those, so convert each distinct sample once
+    // into a table filled on demand. Under an OutputIntent (#755) a 16-bit
+    // gray pixel is an ICC chain per pixel otherwise. Wider tuples are not
+    // memoised: 16-bit RGB/CMYK samples almost never repeat.
+    final (min, max) = ranges?[0] ?? (0.0, 1.0);
+    final key = colorKey?[0];
+    final table = Int32List(65536)..fillRange(0, 65536, -1);
+    for (var pixel = 0; pixel < count; pixel++) {
+      final raw = view.getUint16(pixel * 2);
+      var rgb = table[raw];
+      if (rgb < 0) {
+        values[0] = clampUnit(min + raw / 65535 * (max - min));
+        rgb = table[raw] = convert();
+      }
+      final output = pixel * 4;
+      out[output] = rgb >> 16;
+      out[output + 1] = (rgb >> 8) & 0xff;
+      out[output + 2] = rgb & 0xff;
+      out[output + 3] = key != null && raw >= key.$1 && raw <= key.$2 ? 0 : 255;
+    }
+    return out;
+  }
+
+  for (var pixel = 0; pixel < count; pixel++) {
+    final sampleBase = pixel * components;
+    var masked = colorKey != null;
+    for (var c = 0; c < components; c++) {
+      final raw = view.getUint16((sampleBase + c) * 2);
+      final range = ranges?[c] ?? (0.0, 1.0);
+      values[c] = clampUnit(range.$1 + raw / 65535 * (range.$2 - range.$1));
+      if (colorKey != null && (raw < colorKey[c].$1 || raw > colorKey[c].$2)) {
+        masked = false;
+      }
+    }
+    final rgb = convert();
     final output = pixel * 4;
-    out[output] = (color.red * 255).round().clamp(0, 255);
-    out[output + 1] = (color.green * 255).round().clamp(0, 255);
-    out[output + 2] = (color.blue * 255).round().clamp(0, 255);
+    out[output] = rgb >> 16;
+    out[output + 1] = (rgb >> 8) & 0xff;
+    out[output + 2] = rgb & 0xff;
     out[output + 3] = masked ? 0 : 255;
   }
   return out;
@@ -2918,9 +2969,9 @@ int _deviceCmykRgb8(int cyan, int magenta, int yellow, int black) {
               -193.58209356861505) +
       k * (-22.33816807309886 * k + -180.12613974708367);
 
-  return (r.round().clamp(0, 255) << 16) |
-      (g.round().clamp(0, 255) << 8) |
-      b.round().clamp(0, 255);
+  return (clampByte(r.round()) << 16) |
+      (clampByte(g.round()) << 8) |
+      clampByte(b.round());
 }
 
 /// A fixed-size, direct-mapped memo from an 8-bit sample tuple to the packed

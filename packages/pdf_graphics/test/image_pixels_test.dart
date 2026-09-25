@@ -955,6 +955,120 @@ void main() {
         reason: 'the memo handed back a colour belonging to another tuple');
   });
 
+  test('the ICC RGB memo under an OutputIntent survives eviction', () {
+    // Under a CMYK OutputIntent every ICC RGB tuple runs the full source ->
+    // output -> sRGB chain, so the decode memoizes tuple -> colour. Make the
+    // direct-mapped table thrash - 65536 distinct tuples against 16384 slots -
+    // and hold every pixel, colour-keyed ones included, to the chain itself.
+    final doc = cmykOutputIntentDocument();
+    final context = PdfColorContext.forDocument(doc);
+    final profile = IccProfile.parse(adobeRgb1998Icc())!;
+    const size = 256;
+    final samples = Uint8List(size * size * 3);
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        final i = (y * size + x) * 3;
+        samples[i] = x;
+        samples[i + 1] = y;
+        samples[i + 2] = (x * 7 + y * 13) & 0xff;
+      }
+    }
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([
+        const CosName('ICCBased'),
+        CosStream(CosDictionary({'N': const CosInteger(3)}), adobeRgb1998Icc()),
+      ]),
+      'Mask': CosArray([
+        for (var c = 0; c < 3; c++) ...[
+          const CosInteger(0),
+          const CosInteger(40),
+        ],
+      ]),
+    }, samples);
+
+    final base = decodePdfImageBase(doc, stream)!;
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 3, o = p * 4;
+      final r = samples[s], g = samples[s + 1], b = samples[s + 2];
+      final want = context.iccToSrgb(profile, [r / 255, g / 255, b / 255],
+          intent: PdfRenderingIntent.relativeColorimetric);
+      final keyed = r <= 40 && g <= 40 && b <= 40;
+      if (base.rgba[o] != (want.red * 255).round() ||
+          base.rgba[o + 1] != (want.green * 255).round() ||
+          base.rgba[o + 2] != (want.blue * 255).round() ||
+          base.rgba[o + 3] != (keyed ? 0 : 255)) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0);
+  });
+
+  group('16-bit gray', () {
+    // An odd size, samples spanning the whole 16-bit range with repeats, a
+    // /Decode that is not the identity and a colour key in raw sample space.
+    const width = 97, height = 61;
+    final raw = [
+      for (var i = 0; i < width * height; i++) (i * 40503) % 65536,
+    ];
+    CosStream gray16(CosObject colorSpace) => image({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(16),
+          'ColorSpace': colorSpace,
+          'Decode': CosArray([const CosReal(0.1), const CosReal(0.9)]),
+          'Mask': CosArray([const CosInteger(1000), const CosInteger(9000)]),
+        }, [
+          for (final v in raw) ...[v >> 8, v & 0xff],
+        ]);
+
+    List<int> perPixel(PdfColor Function(double) convert) => [
+          for (final v in raw)
+            ...() {
+              final color = convert(
+                  (0.1 + v / 65535 * (0.9 - 0.1)).clamp(0.0, 1.0).toDouble());
+              return [
+                (color.red * 255).round().clamp(0, 255),
+                (color.green * 255).round().clamp(0, 255),
+                (color.blue * 255).round().clamp(0, 255),
+                v >= 1000 && v <= 9000 ? 0 : 255,
+              ];
+            }(),
+        ];
+
+    test('matches a per-pixel conversion', () {
+      final base = decodePdfImageBase(cos, gray16(const CosName('DeviceGray')));
+      expect(base!.rgba, perPixel(PdfColor.gray));
+    });
+
+    test('matches a per-pixel conversion under a CMYK OutputIntent', () {
+      final doc = cmykOutputIntentDocument();
+      final context = PdfColorContext.forDocument(doc);
+      final base = decodePdfImageBase(doc, gray16(const CosName('DeviceGray')));
+      expect(base!.rgba, perPixel(context.deviceGray));
+    });
+
+    test('from an ICC source matches under a CMYK OutputIntent', () {
+      final doc = cmykOutputIntentDocument();
+      final context = PdfColorContext.forDocument(doc);
+      final profile = IccProfile.parse(genericGrayIcc())!;
+      final base = decodePdfImageBase(
+          doc,
+          gray16(CosArray([
+            const CosName('ICCBased'),
+            CosStream(
+                CosDictionary({'N': const CosInteger(1)}), genericGrayIcc()),
+          ])));
+      expect(
+          base!.rgba,
+          perPixel((v) => context.iccToSrgb(profile, [v],
+              intent: PdfRenderingIntent.relativeColorimetric)));
+    });
+  });
+
   test('an ICC-managed CMYK image converts through the memo unchanged', () {
     // The ICCBased CMYK branch is the one #451 measured at 0.85 us/px, and the
     // one this change touches most: it now feeds a reused Float64List to the
