@@ -115,6 +115,13 @@ worker in the app build pipeline.
    your sources, and compiles it to `web/pdf_render_worker.dart.js`, which
    `flutter build web` and `flutter run` serve next to `index.html`.
 
+   The worker is compiled at dart2js `-O3`, which drops the implicit type
+   checks but keeps bounds checks. Page recording in the worker is about
+   1.2x faster than at `-O2`, and the output is the same. Pass
+   `--optimization-level 2` to keep the checks while debugging. `-O4` is
+   accepted but not recommended: it also drops bounds checks, and the parsers
+   rely on those to recover from truncated files.
+
 2. **Point the app at that custom URL** once, before opening a viewer:
 
    ```dart
