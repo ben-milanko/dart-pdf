@@ -18,6 +18,7 @@ export 'jpx.dart';
 export 'lzw.dart';
 export 'predictor.dart';
 export 'run_length.dart';
+export 'zlib_inflate.dart';
 
 /// Decodes one stage of a stream's /Filter chain.
 abstract class CosFilter {
