@@ -205,6 +205,27 @@ class CanvasPdfDevice
     debugLabel: 'glyph-layout',
   );
 
+  /// Word pieces [_buildPlacedLayout] shapes whole, shared across runs. A piece
+  /// is laid out without Tc/Tw, so it depends only on its text and what
+  /// [_glyphLayout]'s key covers - and prose set one line per run repeats its
+  /// words line after line, where the run cache (keyed on the whole line and
+  /// its offsets) misses every new line.
+  ///
+  /// Bounded by entry count alone, and small: a laid-out word holds ~10-15 KB
+  /// of native paragraph memory, and at this size the pieces it keeps are
+  /// mostly ones live run layouts hold anyway. Sharing them is a net saving -
+  /// the text caches of 40 pages of real prose held 169 MB native instead of
+  /// 313 MB. No weigher, deliberately: a weighted insert asks
+  /// [PdfCacheRegistry] to enforce the process budget, whose hard trim may drop
+  /// the entry just inserted before the caller has retained it.
+  static final PdfBudgetedCache<String, _TextLayout> _pieceCache =
+      PdfBudgetedCache<String, _TextLayout>(
+    maxEntries: 1024,
+    disposer: (layout) => layout.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'piece-layout',
+  );
+
   /// Compose substituted-font runs from cached per-character layouts instead of
   /// shaping the whole run (#454). Unique labels (which miss the run cache and
   /// re-shape every time - the replay-bound CAD pathology) then reuse
@@ -258,6 +279,7 @@ class CanvasPdfDevice
   static void clearTextLayoutCache() {
     _textCache.clear();
     _glyphCache.clear();
+    _pieceCache.clear();
     _kernFreeFaces.clear();
   }
 
@@ -268,6 +290,10 @@ class CanvasPdfDevice
   /// Number of cached per-character glyph layouts — test hook (#454).
   @visibleForTesting
   static int get debugGlyphLayoutCacheLength => _glyphCache.length;
+
+  /// Number of cached word-piece layouts — test hook.
+  @visibleForTesting
+  static int get debugPieceLayoutCacheLength => _pieceCache.length;
 
   /// Within-replay substituted-text shaping split (#454). [debugTextShapeUs] is
   /// the time spent in cache-miss `TextPainter` layout — the "shaping" the
@@ -1499,8 +1525,14 @@ class CanvasPdfDevice
         }
         return;
       }
-      style ??= _styleFor(run, foreground: null, applySpacing: false);
-      final part = _shapeString(text.substring(from, to), style!);
+      // Anything else is shaped whole, through the piece cache: the same word
+      // on the next line - a different run - reuses this paragraph, retained
+      // like a glyph so either owner may let go first.
+      final piece = text.substring(from, to);
+      final part = _pieceCache.getOrAdd('$piece\u0000$suffix', () {
+        style ??= _styleFor(run, foreground: null, applySpacing: false);
+        return _shapeString(piece, style!);
+      }).retain();
       baseline ??= part.baseline;
       parts.add(_GlyphRun(part, offsets[from] * k));
     }
@@ -2255,8 +2287,9 @@ class _TextLayout {
   /// glyph-cache layouts this one does NOT own; such a layout is transient -
   /// built per paint, never cached - so the referenced glyphs cannot be
   /// evicted under it on the single thread. With [ownsParts] true (#649's
-  /// word placement) the parts were shaped for this layout alone, which is
-  /// what lets it be cached: nothing else can dispose them out from under it.
+  /// word placement) this layout holds a reference of its own to every part -
+  /// retained from the glyph or word-piece cache - which is what lets it be
+  /// cached: nothing else can dispose them out from under it.
   _TextLayout.composed(List<_GlyphRun> this.parts, this.width, this.baseline,
       {this.ownsParts = false})
       : painter = null;
@@ -2293,8 +2326,8 @@ class _TextLayout {
     }
   }
 
-  /// Disposes what this layout owns: its own painter, and its parts when they
-  /// were shaped for it rather than borrowed from the glyph cache.
+  /// Disposes what this layout owns: its own painter, and its references to
+  /// its parts when it retained them rather than borrowed them.
   void dispose() {
     if (_disposed) return;
     _references--;

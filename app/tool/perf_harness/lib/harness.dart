@@ -715,6 +715,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           'textLayoutCacheEntries', CanvasPdfDevice.debugTextLayoutCacheLength);
       _metric('glyphLayoutCacheEntries',
           CanvasPdfDevice.debugGlyphLayoutCacheLength);
+      _metric('pieceLayoutCacheEntries',
+          CanvasPdfDevice.debugPieceLayoutCacheLength);
       _record('[perf] HARNESS DONE scenario=$_scenario '
           'frames=${_frames.length} lines=${_lines.length}');
       _setGlobal('__perfDone', true.toJS);

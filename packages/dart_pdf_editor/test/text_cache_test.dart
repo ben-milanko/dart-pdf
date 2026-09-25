@@ -73,6 +73,18 @@ Future<Uint8List> _rasterOutlineBatch({
   }
 }
 
+/// A line of substituted text at pen offsets the fixed-pitch test font agrees
+/// with, so each word is one piece.
+PdfTextRun _line(String text, {double y = 80}) => PdfTextRun(
+      text: text,
+      charOffsets: [for (var i = 0; i <= text.length; i++) i.toDouble()],
+      transform: PdfMatrix(8, 0, 0, 8, 10, y),
+      color: const PdfColor(0, 0, 0),
+      width: text.length.toDouble(),
+      fontName: 'Helvetica',
+      fontSize: 8,
+    );
+
 const _copiedArabicLine =
     '\u2067اﻟﺣﻣد لله رب اﻟﻌﺎﻟﻣﯾن) 2 (اﻟرﺣﻣن اﻟرﺣﯾم) 3 (ﻣﺎﻟك ﯾوم\u2069';
 
@@ -228,16 +240,75 @@ void main() {
     });
   });
 
-  testWidgets('clearTextLayoutCache empties both caches', (tester) async {
+  testWidgets('a word placed in two runs is shaped once', (tester) async {
+    await tester.runAsync(() async {
+      // Two lines of prose share a word. Each line is its own run-cache entry
+      // (text and offsets differ), but the shared word is one piece.
+      CanvasPdfDevice.clearTextLayoutCache();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+      device.drawText(_line('office hours'));
+      final afterFirst = CanvasPdfDevice.debugPieceLayoutCacheLength;
+      expect(afterFirst, 2, reason: 'one piece per word');
+      CanvasPdfDevice.debugResetTextShape();
+      device.drawText(_line('office again', y: 60));
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 2);
+      expect(CanvasPdfDevice.debugPieceLayoutCacheLength, afterFirst + 1);
+      // 'again' is new - its three new letters plus the word itself. 'office'
+      // is not shaped again.
+      expect(CanvasPdfDevice.debugTextPainterBuilds, 4);
+      recorder.endRecording().dispose();
+    });
+  });
+
+  testWidgets('shared pieces outlive whichever cache lets go first',
+      (tester) async {
+    await tester.runAsync(() async {
+      CanvasPdfDevice.clearTextLayoutCache();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+
+      // The piece cache drops 'office' (1,024 newer pieces) while the run that
+      // holds it stays cached: a warm repaint of that run must still find its
+      // piece alive.
+      device.drawText(_line('office hours'));
+      for (var i = 0; i < 1100; i++) {
+        device.drawText(_line('w${i}x', y: 10));
+      }
+      device.drawText(_line('office hours'));
+
+      // The run cache drops the run (2,048 newer runs of digits, which compose
+      // and never reach the piece cache) while the piece cache still holds its
+      // words: a new line reusing one must get it alive.
+      CanvasPdfDevice.clearTextLayoutCache();
+      device.drawText(_line('office hours'));
+      for (var i = 0; i < 2100; i++) {
+        device.drawText(_line('${100000 + i}', y: 10));
+      }
+      device.drawText(_line('office again'));
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(200, 100);
+      image.dispose();
+      picture.dispose();
+    });
+  });
+
+  testWidgets('clearTextLayoutCache empties every text cache', (tester) async {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       await _raster(page);
       await _rasterSubstitutedArabic(throughDevice: true);
+      final recorder = ui.PictureRecorder();
+      CanvasPdfDevice(ui.Canvas(recorder)).drawText(_line('office hours'));
+      recorder.endRecording().dispose();
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, greaterThan(0));
       expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, greaterThan(0));
+      expect(CanvasPdfDevice.debugPieceLayoutCacheLength, greaterThan(0));
       CanvasPdfDevice.clearTextLayoutCache();
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, 0);
       expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, 0);
+      expect(CanvasPdfDevice.debugPieceLayoutCacheLength, 0);
     });
   });
 
