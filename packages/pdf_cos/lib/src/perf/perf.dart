@@ -144,6 +144,11 @@ enum PdfPerfCount {
   fontsParsed,
   fontParseFailed,
 
+  /// Text runs whose glyph outlines were baked into one page-space path
+  /// (pdf_graphics). Only a tiling-pattern text fill and a page with a live
+  /// colorant buffer need that path, so an ordinary text page counts 0.
+  glyphOutlinePaths,
+
   /// Style-matched fallback fonts embedded by replaceText.
   fallbackFontEmbedded,
 

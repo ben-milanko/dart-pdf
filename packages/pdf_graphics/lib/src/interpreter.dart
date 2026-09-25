@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -2814,17 +2815,26 @@ class PdfInterpreter {
         final fillText = mode == 0 || mode == 2 || mode == 4 || mode == 6;
         final strokeText = mode == 1 || mode == 2 || mode == 5 || mode == 6;
         final pattern = fillText ? _state.fillPattern : null;
-        final glyphPath =
-            glyphs == null ? null : _glyphOutlinePath(glyphs, transform);
+        // The page-space outline path (_glyphOutlinePath) has two readers:
+        // this tiling fill and the colorant-buffer resolve below. They never
+        // both apply to one run (one needs a tiling pattern, the other no
+        // pattern), so each builds the path itself. An ordinary embedded-font
+        // run reads neither and must not pay for it - building it for every
+        // run (as #755 did) cost up to half of a text page's interpretation.
+        //
         // A tiling pattern can't be flattened to a gradient (shading patterns
         // can - see _gradientOfPattern). Paint it through the glyph outlines as
         // a clip, then emit the run invisibly so it stays selectable without
         // the solid fill colour showing through. Needs embedded outlines; a
         // substituted font falls back to the solid fill colour.
         var paintedAsTiling = false;
-        if (fillText && glyphPath != null && _isTilingPattern(pattern)) {
-          _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
-          paintedAsTiling = true;
+        final tilingFill = fillText && _isTilingPattern(pattern);
+        if (tilingFill && glyphs != null) {
+          final glyphPath = _glyphOutlinePath(glyphs, transform);
+          if (glyphPath != null) {
+            _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
+            paintedAsTiling = true;
+          }
         }
         // Embedded outlines keep the historical fill-only rendering: the
         // device has the real glyph shapes and stroke modes on embedded fonts
@@ -2840,7 +2850,7 @@ class PdfInterpreter {
         // mode also strokes. Only drop the fill if we can't derive a colour.
         var doFill = fillText && !paintedAsTiling;
         var textFill = _state.fillColor;
-        if (!embedded && doFill && _isTilingPattern(pattern)) {
+        if (!embedded && doFill && tilingFill) {
           final tilingColor = _tilingPatternColor(pattern as CosStream);
           if (tilingColor != null) {
             textFill = tilingColor;
@@ -2863,7 +2873,13 @@ class PdfInterpreter {
             : textFill;
         if (mode != 3 && mode != 7 && !paintedAsTiling) {
           final overprint = _overprint;
-          if (overprint != null && glyphPath != null && pattern == null) {
+          // Only a live colorant buffer reads the outlines here; every other
+          // page takes the em-box branch without building them.
+          final glyphPath =
+              overprint != null && pattern == null && glyphs != null
+                  ? _glyphOutlinePath(glyphs, transform)
+                  : null;
+          if (overprint != null && glyphPath != null) {
             // Embedded stroke-only text is historically rendered by filling
             // the glyph outline with the stroking colour. Resolve the same
             // geometry using the stroking overprint tuple, then deliver that
@@ -3300,9 +3316,15 @@ class PdfInterpreter {
   }
 
   /// The combined glyph outlines of a run as one page-space path, for filling
-  /// text with a pattern. Null when no glyph carries an outline.
+  /// text with a tiling pattern or resolving it in the colorant buffer. Null
+  /// when no glyph carries an outline.
+  ///
+  /// A new segment per outline segment, so only those two consumers may call
+  /// it; [PdfPerfCount.glyphOutlinePaths] counts the calls so the counter gate
+  /// sees an ordinary text page start paying for it again.
   PdfPath? _glyphOutlinePath(
       List<PdfGlyphPlacement> glyphs, PdfMatrix transform) {
+    PdfPerf.add(PdfPerfCount.glyphOutlinePaths);
     final segments = <PdfPathSegment>[];
     for (final g in glyphs) {
       final outline = g.outline;

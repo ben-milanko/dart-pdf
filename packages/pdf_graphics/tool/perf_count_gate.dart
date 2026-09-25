@@ -3,9 +3,10 @@
 // programmatic test fixtures, a stable slice of the checked-in Ghent corpus,
 // and the seeded synthetic CAD sheet) and records PdfPerf's structural
 // counters - objects loaded, streams decoded, decoded bytes, content ops,
-// fonts parsed, saved bytes. The numbers are identical on every machine and
-// every run, so the committed baseline (tool/perf/baselines/counters.json)
-// can be compared with a tight tolerance on a noisy shared runner.
+// fonts parsed, glyph outline paths, saved bytes. The numbers are identical
+// on every machine and every run, so the committed baseline
+// (tool/perf/baselines/counters.json) can be compared with a tight tolerance
+// on a noisy shared runner.
 //
 // A counter drift means real work changed: more objects parsed per page,
 // a filter decoding more bytes, an interpreter walking more ops. That is
@@ -59,6 +60,7 @@ const trackedCounts = [
   PdfPerfCount.contentBytes,
   PdfPerfCount.fontsParsed,
   PdfPerfCount.fontParseFailed,
+  PdfPerfCount.glyphOutlinePaths,
   PdfPerfCount.savedBytes,
   PdfPerfCount.savedObjects,
   PdfPerfCount.xrefRecovered,
