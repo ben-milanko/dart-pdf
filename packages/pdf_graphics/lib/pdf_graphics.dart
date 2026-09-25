@@ -26,7 +26,7 @@ export 'src/shading.dart';
 export 'src/struct_text.dart';
 export 'src/matrix.dart';
 export 'src/mesh.dart';
-export 'src/path.dart';
+export 'src/path.dart' hide writePdfPathBlock;
 export 'src/recording_device.dart';
 export 'src/recorded_text.dart';
 export 'src/render_command.dart';

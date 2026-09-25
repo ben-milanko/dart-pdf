@@ -186,6 +186,101 @@ const int _lineTag = 1;
 const int _cubicTag = 2;
 const int _closeTag = 3;
 
+/// Writes [path] as the render-command codec's path block: its verb tags (the
+/// packed 0=move, 1=line, 2=cubic, 3=close) into [bytes] from [verbOffset],
+/// and its coordinates, narrowed to float32, into [floats] from element
+/// [floatOffset]. Returns how many coordinates it wrote.
+///
+/// The count comes from the verbs, not from the coordinate storage's length,
+/// so a packed path carrying spare coordinates writes exactly what its cursor
+/// would read. Packed paths copy straight out of their typed storage instead
+/// of going through [PdfPathCursor] one scalar at a time.
+///
+/// Internal to the codec: the package barrel hides it, so [PdfPath]'s packed
+/// storage stays unreachable (and immutable) from outside the package.
+int writePdfPathBlock(PdfPath path, Uint8List bytes, int verbOffset,
+    Float32List floats, int floatOffset) {
+  final verbs = path._verbs;
+  if (verbs == null) {
+    return _writeSegmentBlock(path, bytes, verbOffset, floats, floatOffset);
+  }
+  final n = path._packedSegmentCount;
+  var count = 0;
+  for (var i = 0; i < n; i++) {
+    final tag = bytes[verbOffset + i] = verbs[i];
+    switch (tag) {
+      case _moveTag || _lineTag:
+        count += 2;
+      case _cubicTag:
+        count += 6;
+      case _closeTag:
+        break;
+      default:
+        throw StateError('invalid packed path verb $tag');
+    }
+  }
+  final coordinates = path._coordinates!;
+  if (coordinates is Float64List) {
+    // Interpreter paths: the float32 narrowing happens on the store.
+    for (var i = 0; i < count; i++) {
+      floats[floatOffset + i] = coordinates[i];
+    }
+  } else if (coordinates is Float32List) {
+    // A decoded path re-serialized (the strip binner's round trip): long runs
+    // are one memmove. Short runs stay element-wise - on dart2js a ranged
+    // setRange allocates a typed-array view, which costs more than a 2-point
+    // stroke's copy.
+    if (count >= 64) {
+      floats.setRange(floatOffset, floatOffset + count, coordinates);
+    } else {
+      for (var i = 0; i < count; i++) {
+        floats[floatOffset + i] = coordinates[i];
+      }
+    }
+  } else {
+    for (var i = 0; i < count; i++) {
+      floats[floatOffset + i] = coordinates[i];
+    }
+  }
+  return count;
+}
+
+int _writeSegmentBlock(PdfPath path, Uint8List bytes, int verbOffset,
+    Float32List floats, int floatOffset) {
+  var v = verbOffset;
+  var f = floatOffset;
+  for (final segment in path._segments!) {
+    switch (segment) {
+      case PdfMoveTo(:final x, :final y):
+        bytes[v++] = _moveTag;
+        floats[f++] = x;
+        floats[f++] = y;
+      case PdfLineTo(:final x, :final y):
+        bytes[v++] = _lineTag;
+        floats[f++] = x;
+        floats[f++] = y;
+      case PdfCubicTo(
+          :final x1,
+          :final y1,
+          :final x2,
+          :final y2,
+          :final x3,
+          :final y3
+        ):
+        bytes[v++] = _cubicTag;
+        floats[f++] = x1;
+        floats[f++] = y1;
+        floats[f++] = x2;
+        floats[f++] = y2;
+        floats[f++] = x3;
+        floats[f++] = y3;
+      case PdfClosePath():
+        bytes[v++] = _closeTag;
+    }
+  }
+  return f - floatOffset;
+}
+
 /// Allocation-conscious path builder used by the content interpreter and
 /// command decoder.
 ///

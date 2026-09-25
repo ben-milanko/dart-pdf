@@ -52,9 +52,16 @@ import 'text_extraction.dart';
 /// interpret cost - serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
-/// consumer are the same build, shipped together, so a version mismatch is a
-/// programming error, asserted on read.
-const int _formatVersion = 9;
+/// consumer are the same build, shipped together, and nothing persists a
+/// buffer. A mismatch still happens in the field - a stale cached or
+/// self-hosted web worker script, or mismatched editor/assets packages - so it
+/// is checked on read and throws a [FormatException], which every caller
+/// already turns into a local render instead of misparsing the buffer.
+///
+/// Version 10: fills and strokes carry their paint as changes against the
+/// previous fill/stroke ([_writeFillPaint]), and paths are verb and
+/// coordinate blocks rather than interleaved scalars ([_writePath]).
+const int _formatVersion = 10;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -497,11 +504,21 @@ PdfDecodedPixels _capImageResolution(
 List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   final sw = Stopwatch()..start();
   final r = _Reader(bytes);
-  final version = r.u8();
-  assert(version == _formatVersion, 'render command format version mismatch');
+  _checkFormatVersion(r.u8(), 'render command');
   final commands = _readCommands(r);
   deserializeCommandsMicros += sw.elapsedMicroseconds;
   return commands;
+}
+
+/// A buffer from another format version cannot be read - the layout changes
+/// between versions - so it fails here, before anything is parsed, rather than
+/// half-way through as a misread count or a plausible-looking wrong page.
+void _checkFormatVersion(int version, String codec) {
+  if (version != _formatVersion) {
+    throw FormatException(
+        '$codec buffer is format version $version, this build reads '
+        '$_formatVersion');
+  }
 }
 
 /// Serializes an extracted [PdfPageText] for the render worker → UI-isolate hop
@@ -542,8 +559,7 @@ Uint8List serializePageText(PdfPageText page) {
 /// Reconstructs the [PdfPageText] written by [serializePageText].
 PdfPageText deserializePageText(Uint8List bytes) {
   final r = _Reader(bytes);
-  final version = r.u8();
-  assert(version == _formatVersion, 'page-text codec version mismatch');
+  _checkFormatVersion(r.u8(), 'page-text');
   final pageIndex = r.u32();
   final text = r.str();
   final count = r.u32();
@@ -648,9 +664,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       ):
       w.u8(_tFillPath);
       _writePath(w, path);
-      _writeColor(w, color);
-      w.u8(rule.index);
-      w.f64(alpha);
+      _writeFillPaint(w, color, rule, alpha);
     case PdfFillPathGradientCommand(
         :final path,
         :final rule,
@@ -674,9 +688,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       ):
       w.u8(_tStrokePath);
       _writePath(w, path);
-      _writeColor(w, color);
-      _writeStroke(w, stroke);
-      w.f64(alpha);
+      _writeStrokePaint(w, color, stroke, alpha);
     case PdfClipPathCommand(:final path, :final rule):
       w.u8(_tClipPath);
       _writePath(w, path);
@@ -1221,10 +1233,14 @@ PdfRenderCommand _readCommand(_Reader r) {
       return const PdfRestoreCommand();
     case _tFillPath:
       final path = _readPath(r);
-      final color = _readColor(r);
-      final rule = PdfFillRule.values[r.u8()];
-      final alpha = r.f64();
-      return PdfFillPathCommand(path, color, rule, alpha);
+      final flags = _readPaintFlags(r, _fillPaintFlags);
+      final color = _readPaintColor(r, flags);
+      final alpha = _readPaintAlpha(r, flags);
+      final rule = flags >> _paintRuleShift;
+      if (rule >= PdfFillRule.values.length) {
+        throw FormatException('unknown fill rule $rule');
+      }
+      return PdfFillPathCommand(path, color, PdfFillRule.values[rule], alpha);
     case _tFillPathGradient:
       final path = _readPath(r);
       final rule = PdfFillRule.values[r.u8()];
@@ -1237,9 +1253,16 @@ PdfRenderCommand _readCommand(_Reader r) {
       return PdfFillMeshCommand(mesh, alpha);
     case _tStrokePath:
       final path = _readPath(r);
-      final color = _readColor(r);
-      final stroke = _readStroke(r);
-      final alpha = r.f64();
+      final flags = _readPaintFlags(r, _strokePaintFlags);
+      final color = _readPaintColor(r, flags);
+      final PdfStroke stroke;
+      if (flags & _paintNewStroke != 0) {
+        stroke = r._paintStroke = _readStroke(r);
+      } else {
+        stroke = r._paintStroke ??
+            (throw const FormatException('stroke reused before one was sent'));
+      }
+      final alpha = _readPaintAlpha(r, flags);
       return PdfStrokePathCommand(path, color, stroke, alpha);
     case _tClipPath:
       final path = _readPath(r);
@@ -1386,69 +1409,200 @@ PdfPath? _readGlyphOutline(_Reader r) {
   }
 }
 
+/// Writes [path] as one block: u32 verb count, the verb bytes (0=move,
+/// 1=line, 2=cubic, 3=close), zero padding to a 4-byte boundary counted from
+/// the start of the buffer, then every coordinate as a contiguous float32 run
+/// in host byte order (producer and consumer share a machine, and nothing
+/// persists a buffer).
+///
+/// Paths are most of a vector page's bytes. Interleaving each tag with its
+/// scalars (format 9) cost a capacity check and a big-endian [ByteData] call
+/// per value on both sides, and a second pass on read to size the coordinate
+/// list; the block is copied in bulk instead ([writePdfPathBlock] on this
+/// side, one whole-buffer [Float32List] view on the reader's).
 void _writePath(_Writer w, PdfPath path) {
-  w.u32(path.segmentCount);
-  final cursor = path.cursor();
-  while (cursor.moveNext()) {
-    switch (cursor.verb) {
-      case PdfPathVerb.moveTo:
-        w.u8(0);
-        w.f32(cursor.x1);
-        w.f32(cursor.y1);
-      case PdfPathVerb.lineTo:
-        w.u8(1);
-        w.f32(cursor.x1);
-        w.f32(cursor.y1);
-      case PdfPathVerb.cubicTo:
-        w.u8(2);
-        w.f32(cursor.x1);
-        w.f32(cursor.y1);
-        w.f32(cursor.x2);
-        w.f32(cursor.y2);
-        w.f32(cursor.x3);
-        w.f32(cursor.y3);
-      case PdfPathVerb.close:
-        w.u8(3);
-    }
+  final n = path.segmentCount;
+  // Worst case: every verb a cubic (6 coordinates), plus the padding.
+  w._ensure(4 + n + 3 + n * 24);
+  final at = w._len;
+  w._view.setUint32(at, n);
+  final verbAt = at + 4;
+  final coordinatesAt = (verbAt + n + 3) & ~3;
+  final buf = w._buf;
+  for (var p = verbAt + n; p < coordinatesAt; p++) {
+    buf[p] = 0;
   }
+  final count =
+      writePdfPathBlock(path, buf, verbAt, w._floats, coordinatesAt >> 2);
+  w._len = coordinatesAt + count * 4;
 }
 
 PdfPath _readPath(_Reader r) {
   final n = r.u32();
-  // Count coordinates without widening them or allocating segment objects.
-  // The wire interleaves one tag with its float32 payload, so this cheap first
-  // pass lets the retained Float32List be exact-sized rather than reserving
-  // six coordinates for every move/line/close as well as every cubic.
-  final start = r._o;
-  var coordinateCount = 0;
-  for (var i = 0; i < n; i++) {
-    final count = switch (r.u8()) {
-      0 || 1 => 2,
-      2 => 6,
-      3 => 0,
-      _ => throw FormatException('unknown path segment tag'),
-    };
-    coordinateCount += count;
-    r._o += count * 4;
+  final bytes = r._bytes;
+  final verbAt = r._o;
+  if (n > bytes.length - verbAt) {
+    throw const FormatException('path verbs run past the buffer');
   }
-
-  r._o = start;
+  // Copy the verbs, validating each tag and totalling the coordinates it
+  // takes, so the coordinate list is exact-sized and a corrupt block fails
+  // here rather than at replay.
   final verbs = Uint8List(n);
-  final coordinates = Float32List(coordinateCount);
-  var coordinateIndex = 0;
+  var count = 0;
   for (var i = 0; i < n; i++) {
-    final tag = verbs[i] = r.u8();
-    final count = switch (tag) {
-      0 || 1 => 2,
-      2 => 6,
-      3 => 0,
-      _ => throw FormatException('unknown path segment tag'),
-    };
-    for (var j = 0; j < count; j++) {
-      coordinates[coordinateIndex++] = r.f32();
+    final tag = verbs[i] = bytes[verbAt + i];
+    switch (tag) {
+      case 0 || 1:
+        count += 2;
+      case 2:
+        count += 6;
+      case 3:
+        break;
+      default:
+        throw FormatException('unknown path segment tag $tag');
     }
   }
+  final coordinatesAt = (verbAt + n + 3) & ~3;
+  if (count * 4 > bytes.length - coordinatesAt) {
+    throw const FormatException('path coordinates run past the buffer');
+  }
+  final coordinates = Float32List(count);
+  final floats = r._floats;
+  if (floats != null) {
+    final base = coordinatesAt >> 2;
+    if (count >= 64) {
+      // One memmove on the VM (one subarray + set on dart2js).
+      coordinates.setRange(0, count, floats, base);
+    } else {
+      // Most CAD strokes and glyphs are a few points: element-wise beats the
+      // typed-array view dart2js allocates for a ranged setRange.
+      for (var i = 0; i < count; i++) {
+        coordinates[i] = floats[base + i];
+      }
+    }
+  } else {
+    final data = r._data;
+    for (var i = 0; i < count; i++) {
+      coordinates[i] = data.getFloat32(coordinatesAt + i * 4, Endian.host);
+    }
+  }
+  r._o = coordinatesAt + count * 4;
   return PdfPath.packedFloat32(verbs, coordinates, n);
+}
+
+// Paint (format 10). A fill or stroke leads its paint with one flags byte and
+// carries only what changed since the previous fill or stroke in the buffer:
+// a CAD sheet strokes hundreds of thousands of paths with a handful of pens,
+// and resending the colour (3 x f64), stroke (width, cap, join, miter, dash)
+// and alpha was 62 of a solid 2-point stroke's 85 bytes. The state runs in
+// write order, which the reader follows exactly - nested soft-mask and
+// tiled-cell lists included, since both sides walk them depth-first inline -
+// and each buffer starts from nothing. The reader hands the previous instance
+// back; [PdfColor] and [PdfStroke] are immutable, so sharing them is
+// invisible.
+const int _paintNewColor = 0x01;
+const int _paintNewStroke = 0x02;
+const int _paintNewAlpha = 0x04;
+
+/// Fill commands keep their [PdfFillRule] index in bits 4-5.
+const int _paintRuleShift = 4;
+const int _fillPaintFlags = _paintNewColor | _paintNewAlpha | 0x30;
+const int _strokePaintFlags = _paintNewColor | _paintNewStroke | _paintNewAlpha;
+
+void _writeFillPaint(
+    _Writer w, PdfColor color, PdfFillRule rule, double alpha) {
+  final newColor = !_sameColor(w._paintColor, color);
+  final newAlpha = !_sameDouble(w._paintAlpha, alpha);
+  w.u8((rule.index << _paintRuleShift) |
+      (newColor ? _paintNewColor : 0) |
+      (newAlpha ? _paintNewAlpha : 0));
+  if (newColor) {
+    _writeColor(w, color);
+    w._paintColor = color;
+  }
+  if (newAlpha) {
+    w.f64(alpha);
+    w._paintAlpha = alpha;
+  }
+}
+
+void _writeStrokePaint(
+    _Writer w, PdfColor color, PdfStroke stroke, double alpha) {
+  final newColor = !_sameColor(w._paintColor, color);
+  final newStroke = !_sameStroke(w._paintStroke, stroke);
+  final newAlpha = !_sameDouble(w._paintAlpha, alpha);
+  w.u8((newColor ? _paintNewColor : 0) |
+      (newStroke ? _paintNewStroke : 0) |
+      (newAlpha ? _paintNewAlpha : 0));
+  if (newColor) {
+    _writeColor(w, color);
+    w._paintColor = color;
+  }
+  if (newStroke) {
+    _writeStroke(w, stroke);
+    w._paintStroke = stroke;
+  }
+  if (newAlpha) {
+    w.f64(alpha);
+    w._paintAlpha = alpha;
+  }
+}
+
+int _readPaintFlags(_Reader r, int allowed) {
+  final flags = r.u8();
+  if (flags & ~allowed != 0) {
+    throw FormatException('unknown paint flags 0x${flags.toRadixString(16)}');
+  }
+  return flags;
+}
+
+PdfColor _readPaintColor(_Reader r, int flags) {
+  if (flags & _paintNewColor != 0) return r._paintColor = _readColor(r);
+  return r._paintColor ??
+      (throw const FormatException('colour reused before one was sent'));
+}
+
+double _readPaintAlpha(_Reader r, int flags) {
+  if (flags & _paintNewAlpha != 0) return r._paintAlpha = r.f64();
+  final alpha = r._paintAlpha;
+  // The writer starts from NaN, which never compares equal, so it always
+  // sends the first alpha (and any NaN one): a reuse while NaN is corrupt.
+  if (alpha.isNaN) {
+    throw const FormatException('alpha reused before one was sent');
+  }
+  return alpha;
+}
+
+/// Bit-exact double equality: `==` except that 0.0 and -0.0 differ, so
+/// deduplicated paint round-trips exactly like the values it replaced. NaN
+/// never matches and is simply resent.
+bool _sameDouble(double a, double b) =>
+    a == b && (a != 0 || a.isNegative == b.isNegative);
+
+bool _sameColor(PdfColor? last, PdfColor color) =>
+    last != null &&
+    (identical(last, color) ||
+        (_sameDouble(last.red, color.red) &&
+            _sameDouble(last.green, color.green) &&
+            _sameDouble(last.blue, color.blue)));
+
+bool _sameStroke(PdfStroke? last, PdfStroke stroke) {
+  if (last == null) return false;
+  if (identical(last, stroke)) return true;
+  if (!_sameDouble(last.width, stroke.width) ||
+      last.cap != stroke.cap ||
+      last.join != stroke.join ||
+      !_sameDouble(last.miterLimit, stroke.miterLimit) ||
+      !_sameDouble(last.dashPhase, stroke.dashPhase)) {
+    return false;
+  }
+  final a = last.dashArray, b = stroke.dashArray;
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!_sameDouble(a[i], b[i])) return false;
+  }
+  return true;
 }
 
 void _writeColor(_Writer w, PdfColor c) {
@@ -1824,12 +1978,22 @@ class _Writer {
   // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
   // dominated the serialize cost. Instead grow one backing buffer and write
   // scalars straight into a [ByteData] view of it at a running offset - no
-  // per-value allocation. The output bytes are unchanged (ByteData defaults to
-  // big-endian, matching the old per-scalar ByteData), so this rewrite is a
-  // pure speed-up: it emits exactly the bytes the BytesBuilder version did.
+  // per-value allocation. Scalars are big-endian (ByteData's default); path
+  // coordinates go through [_floats] instead (see [_writePath]).
   Uint8List _buf = Uint8List(1 << 16);
   late ByteData _view = ByteData.view(_buf.buffer);
+
+  /// The same backing buffer as float32 words, for path coordinate blocks.
+  /// [_buf] starts its own buffer and only ever grows by doubling from 64 KB,
+  /// so the view always covers it exactly.
+  late Float32List _floats = _buf.buffer.asFloat32List();
   int _len = 0;
+
+  /// The paint the last fill or stroke wrote ([_writeFillPaint]). The alpha
+  /// starts as NaN, which matches nothing, so the first one is always sent.
+  PdfColor? _paintColor;
+  PdfStroke? _paintStroke;
+  double _paintAlpha = double.nan;
 
   /// Glyph outlines already written, so a repeated glyph costs an index
   /// instead of its geometry ([_writeGlyphOutline]). Keyed by object
@@ -1848,6 +2012,7 @@ class _Writer {
     final grown = Uint8List(cap)..setRange(0, _len, _buf);
     _buf = grown;
     _view = ByteData.view(grown.buffer);
+    _floats = grown.buffer.asFloat32List();
   }
 
   void u8(int v) {
@@ -1883,12 +2048,6 @@ class _Writer {
     _ensure(8);
     _view.setFloat64(_len, v);
     _len += 8;
-  }
-
-  void f32(double v) {
-    _ensure(4);
-    _view.setFloat32(_len, v);
-    _len += 4;
   }
 
   void boolean(bool v) => u8(v ? 1 : 0);
@@ -1935,11 +2094,27 @@ class _Writer {
 }
 
 class _Reader {
-  _Reader(this._bytes) : _data = ByteData.sublistView(_bytes);
+  _Reader(this._bytes)
+      : _data = ByteData.sublistView(_bytes),
+        _floats = _bytes.offsetInBytes & 3 == 0
+            ? _bytes.buffer
+                .asFloat32List(_bytes.offsetInBytes, _bytes.lengthInBytes >> 2)
+            : null;
 
   final Uint8List _bytes;
   final ByteData _data;
+
+  /// The whole buffer as float32 words - one view per buffer, never one per
+  /// path - that path coordinate blocks copy out of ([_readPath]). Null when
+  /// the buffer does not start 4-byte aligned in its backing store (a view
+  /// into a larger buffer); coordinates then read through [_data].
+  final Float32List? _floats;
   int _o = 0;
+
+  /// The paint the last fill or stroke carried ([_readPaintColor]).
+  PdfColor? _paintColor;
+  PdfStroke? _paintStroke;
+  double _paintAlpha = double.nan;
 
   /// Glyph outlines seen so far, indexed as the writer numbered them
   /// ([_readGlyphOutline]). Repeated glyphs share one [PdfPath] instance -
@@ -1984,12 +2159,6 @@ class _Reader {
   double f64() {
     final v = _data.getFloat64(_o);
     _o += 8;
-    return v;
-  }
-
-  double f32() {
-    final v = _data.getFloat32(_o);
-    _o += 4;
     return v;
   }
 
