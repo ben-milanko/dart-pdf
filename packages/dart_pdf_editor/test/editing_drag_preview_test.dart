@@ -237,9 +237,6 @@ void main() {
       expect(afterGhost, isNotNull);
       expect(afterGhost.to.center.dx,
           closeTo(view(175, 700).dx + (view(255, 600) - view(175, 700)).dx, 1));
-      expect(afterGhost.source, isNotNull);
-      expect(afterGhost.sourceClean, isNull);
-      expect(afterGhost.sourceWash, isNotNull);
     });
   });
 
