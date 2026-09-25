@@ -2490,16 +2490,31 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
     }
     final rowBytes = (width + 7) ~/ 8;
+    // Each table entry is one RGBA pixel. Read back as a 32-bit word through
+    // the table's own buffer it is in host byte order - exactly how a word
+    // store lays it into [out] - so a pixel is one store, eight per byte.
+    final entries = Uint32List.view(table.buffer);
+    final off = entries[0], on = entries[1];
+    final pixels = Uint32List.view(out.buffer, out.offsetInBytes, count);
+    final wholeBytes = width >> 3;
     var i = 0;
     for (var y = 0; y < height; y++) {
       final row = y * rowBytes;
-      for (var x = 0; x < width; x++) {
-        final t = ((data[row + (x >> 3)] >> (7 - (x & 7))) & 1) << 2;
-        out[i] = table[t];
-        out[i + 1] = table[t + 1];
-        out[i + 2] = table[t + 2];
-        out[i + 3] = table[t + 3];
-        i += 4;
+      for (var b = 0; b < wholeBytes; b++) {
+        final byte = data[row + b];
+        pixels[i] = (byte & 0x80) != 0 ? on : off;
+        pixels[i + 1] = (byte & 0x40) != 0 ? on : off;
+        pixels[i + 2] = (byte & 0x20) != 0 ? on : off;
+        pixels[i + 3] = (byte & 0x10) != 0 ? on : off;
+        pixels[i + 4] = (byte & 0x08) != 0 ? on : off;
+        pixels[i + 5] = (byte & 0x04) != 0 ? on : off;
+        pixels[i + 6] = (byte & 0x02) != 0 ? on : off;
+        pixels[i + 7] = (byte & 0x01) != 0 ? on : off;
+        i += 8;
+      }
+      for (var x = wholeBytes << 3; x < width; x++) {
+        pixels[i++] =
+            ((data[row + (x >> 3)] >> (7 - (x & 7))) & 1) != 0 ? on : off;
       }
     }
     return out;
