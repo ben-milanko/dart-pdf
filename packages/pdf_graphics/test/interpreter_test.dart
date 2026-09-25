@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -1125,6 +1126,108 @@ void main() {
       );
       expect(device.gradients, isEmpty);
       expect(device.meshes, hasLength(1));
+    });
+  });
+
+  group('page-space glyph outline paths', () {
+    // A run's outlines baked into one page-space path are read only by a
+    // tiling-pattern text fill and by a page's colorant buffer. #755 built
+    // that path for every embedded-font run and threw it away, which cost up
+    // to half of a text page's interpretation and went unnoticed because no
+    // counter saw it. These pin who pays; the counter gate pins how much.
+    int glyphOutlinePaths(void Function() body) {
+      final wasEnabled = PdfPerf.enabled;
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      try {
+        body();
+        return PdfPerf.snapshot().count(PdfPerfCount.glyphOutlinePaths);
+      } finally {
+        PdfPerf.enabled = wasEnabled;
+      }
+    }
+
+    test('an ordinary embedded-font page builds none', () {
+      final doc = PdfDocument.open(buildEmbeddedFontPdf());
+      final device = RecordingDevice();
+      final built = glyphOutlinePaths(() =>
+          PdfInterpreter(cos: doc.cos, device: device).drawPage(doc.page(0)));
+      expect(device.texts.single.glyphs, isNotEmpty,
+          reason: 'the run must carry embedded outlines to be a real guard');
+      expect(built, 0);
+      expect(glyphOutlinePaths(() => PdfTextExtractor.extract(doc, 0)), 0);
+    });
+
+    test('a tiling-pattern text fill builds one', () {
+      final doc = CosDocument.open(buildEmbeddedFontPdf());
+      final device = RecordingDevice();
+      const cell = '0 0 1 rg 0 0 1 1 re f';
+      final resources = CosDictionary({
+        'Font': CosDictionary({'F1': const CosReference(5, 0)}),
+        'Pattern': CosDictionary({
+          'P1': CosStream(
+            CosDictionary({
+              'PatternType': const CosInteger(1),
+              'PaintType': const CosInteger(1),
+              'BBox': CosArray([
+                const CosInteger(0),
+                const CosInteger(0),
+                const CosInteger(4),
+                const CosInteger(4),
+              ]),
+              'XStep': const CosInteger(4),
+              'YStep': const CosInteger(4),
+              'Length': CosInteger(cell.length),
+            }),
+            Uint8List.fromList(cell.codeUnits),
+          ),
+        }),
+      });
+      final built =
+          glyphOutlinePaths(() => PdfInterpreter(cos: doc, device: device).run(
+                ContentStreamParser.parse(Uint8List.fromList(
+                    '/Pattern cs /P1 scn BT /F1 24 Tf 72 700 Td (A) Tj ET'
+                        .codeUnits)),
+                resources,
+              ));
+      expect(built, 1);
+      expect(device.texts.single.invisible, isTrue,
+          reason: 'the pattern painted through the outlines');
+    });
+
+    test('a page with a colorant buffer builds one per run', () {
+      final doc = PdfDocument.open(buildEmbeddedFontPdf());
+      final page = doc.page(0);
+      // The same page with an overprint ExtGState in its resources: the
+      // interpreter opens a colorant buffer, which resolves the run through
+      // its real outlines rather than its em box.
+      final overprinting = PdfPage(
+        document: doc,
+        dict: CosDictionary({
+          ...page.dict.entries,
+          'Resources': CosDictionary({
+            ...page.resources.entries,
+            'ExtGState': CosDictionary({
+              'GS0': CosDictionary({'OP': const CosBoolean(true)}),
+            }),
+          }),
+        }),
+      );
+      final device = RecordingDevice();
+      expect(
+          glyphOutlinePaths(() => PdfInterpreter(cos: doc.cos, device: device)
+              .drawPage(overprinting)),
+          1);
+      expect(device.texts.single.text, 'AB');
+      // Extraction never opens the buffer, so it never needs the outlines,
+      // even on a page that overprints.
+      expect(
+          glyphOutlinePaths(() => PdfInterpreter(
+                  cos: doc.cos,
+                  device: RecordingDevice(),
+                  resolveOverprint: false)
+              .drawPage(overprinting)),
+          0);
     });
   });
 
