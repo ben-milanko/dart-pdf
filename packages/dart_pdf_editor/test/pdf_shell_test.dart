@@ -983,6 +983,17 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-add-child-0')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-bookmark-title')), 'Section 1.1');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(editing.outline.items.single.children.single.title, 'Section 1.1');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('pdf-bookmark-delete-0')));
       await tester.pump();
       expect(editing.outline.items, isEmpty);
