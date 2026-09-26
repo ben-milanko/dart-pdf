@@ -35,11 +35,13 @@ class PdfDocument {
           password: password, populatedRanges: populatedRanges));
 
   /// Opens [bytes] - this document's bytes with incremental updates appended
-  /// (e.g. a [PdfEditor] save over it) - with this document's already
-  /// authenticated keys, so a freshly written revision of an encrypted file
-  /// reopens without its password. See [CosDocument.openAppended].
-  PdfDocument openAppended(Uint8List bytes) =>
-      PdfDocument._(cos.openAppended(bytes));
+  /// (e.g. a [PdfEditor] save over it), or the prefix an earlier revision
+  /// ended at - with this document's already authenticated keys, so a freshly
+  /// written revision of an encrypted file reopens without its password, and
+  /// an undo does not re-run the password check. A revision whose /Encrypt
+  /// differs authenticates [password] instead. See [CosDocument.openAppended].
+  PdfDocument openAppended(Uint8List bytes, {String password = ''}) =>
+      PdfDocument._(cos.openAppended(bytes, password: password));
 
   /// Opens a document from an asynchronous, random-access [source] - a remote
   /// file over HTTP Range requests, a local file read on demand, or any other

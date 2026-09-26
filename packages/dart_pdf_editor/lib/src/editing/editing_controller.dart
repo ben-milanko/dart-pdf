@@ -981,12 +981,24 @@ class PdfEditingController extends ChangeNotifier {
   ///
   /// [grew] must be true only when [bytes] extends the currently open
   /// document. Undo shrinks the buffer and [_resetTo] replaces it outright,
-  /// and neither is an append - those reopen.
+  /// and neither is an append - those reopen ([_openRevision]).
   void _reloadDocument({required bool grew}) {
     if (grew && _tryApplyIncrementalUpdate()) return;
-    _document = PdfDocument.open(bytes, password: _password);
+    _document = _openRevision(bytes);
     _revisionId++;
   }
+
+  /// Opens [bytes] - another revision of this session's file - with the
+  /// current document's already-authenticated security handler when that
+  /// revision declares the same, unchanged /Encrypt dictionary, else by
+  /// authenticating [_password] like a fresh open.
+  ///
+  /// Every undo target is a byte prefix of the same session buffer, so it
+  /// always qualifies: an undo on an AES-256 file no longer re-runs the
+  /// password hash (Algorithm 2.B - ~30 ms native, 55-95 ms web - on the UI
+  /// isolate). See [PdfDocument.openAppended].
+  PdfDocument _openRevision(Uint8List bytes) =>
+      _document.openAppended(bytes, password: _password);
 
   /// Debug-only sanity check behind the assert in [_tryApplyIncrementalUpdate].
   ///
@@ -2904,7 +2916,10 @@ class PdfEditingController extends ChangeNotifier {
     // viewer blanks each page's raster instead of holding the (now
     // un-redacted) one up while the fresh render lands
     if (impact.destructive) _destructiveStampEpoch++;
-    _document = PdfDocument.open(bytes, password: _password);
+    // the compaction refuses an encrypted file, so a burned file opens plainly
+    // and keys are donated only when nothing burned and the editor saved an
+    // ordinary incremental update
+    _document = _openRevision(bytes);
     _revisionId++;
     _invalidateElements();
     notifyListeners();

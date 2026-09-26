@@ -174,14 +174,19 @@ class CosDocument {
           {String password = '', List<int>? populatedRanges}) =>
       _open(bytes, password, populatedRanges, null);
 
-  /// Opens [bytes] - this document's own bytes with incremental updates
-  /// appended, such as an editor's save over it - reusing this document's
-  /// already-authenticated security handler, so a revision this process just
-  /// wrote to an encrypted file reopens without the password being threaded
-  /// through again. When the update points at a different /Encrypt object
-  /// (or the document is unencrypted) this is an ordinary [open] with the
-  /// empty password.
-  CosDocument openAppended(Uint8List bytes) => _open(bytes, '', null, this);
+  /// Opens [bytes] - another revision of this document: its own bytes with
+  /// incremental updates appended, such as an editor's save over it, or the
+  /// shorter prefix an earlier revision ended at (an editor's undo) - reusing
+  /// this document's already-authenticated security handler, so a revision
+  /// this process just wrote to an encrypted file reopens without the
+  /// password being threaded through again, and without re-running the
+  /// password check (for AES-256, Algorithm 2.B: ~30 ms native, more on the
+  /// web). The handler is donated only while the revision points at the same
+  /// /Encrypt object with the same entries (key material, permissions and
+  /// crypt filters); otherwise (and for an unencrypted document) this is an
+  /// ordinary [open] with [password].
+  CosDocument openAppended(Uint8List bytes, {String password = ''}) =>
+      _open(bytes, password, null, this);
 
   static CosDocument _open(Uint8List bytes, String password,
       List<int>? populatedRanges, CosDocument? keysFrom) {
@@ -540,7 +545,8 @@ class CosDocument {
   /// Runs before any other object loads, so only the /Encrypt dictionary
   /// itself (whose strings stay raw by design) is parsed undecrypted.
   /// [keysFrom] ([openAppended]) donates its handler when this revision
-  /// still points at the same /Encrypt object, skipping authentication.
+  /// still points at the same, unchanged /Encrypt dictionary, skipping
+  /// authentication.
   void _initEncryption(String password, [CosDocument? keysFrom]) {
     final encryptRef = trailer['Encrypt'];
     final encrypt = resolve(encryptRef);
@@ -550,7 +556,8 @@ class CosDocument {
     }
     final donor = keysFrom?._encryption;
     if (donor != null &&
-        keysFrom?._encryptObjectNumber == _encryptObjectNumber) {
+        keysFrom!._encryptObjectNumber == _encryptObjectNumber &&
+        _sameEncryptDictionary(encrypt, keysFrom)) {
       _encryption = donor;
       return;
     }
@@ -562,6 +569,53 @@ class CosDocument {
     }
     _encryption = StandardSecurityHandler.fromEncrypt(
         encrypt, firstId, password, resolve);
+  }
+
+  /// Whether [encrypt] is, entry for entry, the /Encrypt dictionary [donor]
+  /// authenticated. The handler is a function of that dictionary alone (the
+  /// password check and key wrapping in /O, /U, /OE, /UE; the key inputs /P,
+  /// /Length, /EncryptMetadata; the ciphers in /V, /CF, /StmF, /StrF) plus
+  /// /ID[0] - which an editor keeps across revisions (§14.4) - and the
+  /// password. The object number alone does not prove it unchanged: a
+  /// revision may rewrite that object under the same number (new key
+  /// material, or only a different crypt filter), and then must authenticate
+  /// afresh.
+  bool _sameEncryptDictionary(CosDictionary encrypt, CosDocument donor) {
+    final theirs = donor.resolve(donor.trailer['Encrypt']);
+    return theirs is CosDictionary &&
+        _sameCos(encrypt, resolve, theirs, donor.resolve, 0);
+  }
+
+  /// Structural equality of [a] (resolved in [resolveA]) and [b] (in
+  /// [resolveB]): strings by bytes, names/numbers/booleans by value,
+  /// dictionaries and arrays entry for entry. Anything deeper than an
+  /// /Encrypt dictionary's crypt filters answers false, which only costs the
+  /// donation.
+  static bool _sameCos(CosObject? a, CosObject Function(CosObject?) resolveA,
+      CosObject? b, CosObject Function(CosObject?) resolveB, int depth) {
+    final x = resolveA(a), y = resolveB(b);
+    if (x is CosDictionary) {
+      if (y is! CosDictionary ||
+          depth > 4 ||
+          x.entries.length != y.entries.length) {
+        return false;
+      }
+      for (final MapEntry(:key, :value) in x.entries.entries) {
+        if (!y.containsKey(key) ||
+            !_sameCos(value, resolveA, y[key], resolveB, depth + 1)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (x is CosArray) {
+      if (y is! CosArray || depth > 4 || x.length != y.length) return false;
+      for (var i = 0; i < x.length; i++) {
+        if (!_sameCos(x[i], resolveA, y[i], resolveB, depth + 1)) return false;
+      }
+      return true;
+    }
+    return x == y; // CosString compares its bytes
   }
 
   /// The version from the file header, e.g. `1.7`. The catalog's /Version
