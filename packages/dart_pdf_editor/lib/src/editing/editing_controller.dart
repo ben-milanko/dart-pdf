@@ -477,9 +477,12 @@ class PdfEditingController extends ChangeNotifier {
     if (formSecretStore != null) {
       // the identity of the document as opened: /ID[0], or the SHA-256 of
       // these bytes (written as /ID by the first withheld fill, so a saved
-      // copy answers to the same key)
-      _formSecretIdBytes = pdfPermanentDocumentId(_document, bytes: bytes);
-      formSecretsLoaded = _loadFormSecrets();
+      // copy answers to the same key). /ID[0] is a trailer lookup; the hash
+      // is O(file) - ~10 ms/MB on the UI isolate - so it waits for the first
+      // thing filed or read under it ([_resolveFormSecretId]).
+      _formSecretIdBytes = pdfTrailerPermanentId(_document);
+      formSecretsLoaded =
+          _mayHoldFormSecrets() ? _loadFormSecrets() : Future<void>.value();
     } else {
       formSecretsLoaded = Future<void>.value();
     }
@@ -497,14 +500,62 @@ class PdfEditingController extends ChangeNotifier {
   /// current revision: undo/redo write the value that revision had.
   final PdfFormSecretStore? formSecretStore;
 
+  /// The opened file's /ID[0], or its fallback identity once
+  /// [_resolveFormSecretId] has hashed it.
   Uint8List? _formSecretIdBytes;
 
   /// The [PdfFormSecretStore] key of this document ([pdfFormSecretDocumentId]
   /// of its trailer /ID, or of the SHA-256 of the opened bytes), or null
-  /// without a [formSecretStore].
-  String? get formSecretDocumentId => _formSecretIdBytes == null
-      ? null
-      : pdfFormSecretDocumentId(_formSecretIdBytes!);
+  /// without a [formSecretStore]. For a file without /ID the first read
+  /// hashes the opened bytes.
+  String? get formSecretDocumentId {
+    final id = _resolveFormSecretId();
+    return id == null ? null : pdfFormSecretDocumentId(id);
+  }
+
+  /// The form-secret identity bytes (null without a store), hashing the
+  /// bytes as opened ([pdfFallbackDocumentId]) the first time a file without
+  /// a trailer /ID needs them - a withheld fill, [forgetFormSecrets], an
+  /// undo/redo that moves a stored value, or a store read.
+  ///
+  /// The hash covers the opened prefix, never the current revision: every
+  /// revision appends to that prefix, and the first withheld fill writes
+  /// this value as the file's /ID, so later edits must not move it.
+  Uint8List? _resolveFormSecretId() {
+    if (formSecretStore == null) return null;
+    return _formSecretIdBytes ??=
+        pdfFallbackDocumentId(Uint8List.sublistView(_bytes, 0, _revisions[0]));
+  }
+
+  /// Whether [_loadFormSecrets] could restore anything: only a field the
+  /// opened file shows as withheld-and-filled takes a stored value
+  /// ([_holdsWithheldValue]). No /AcroForm answers in O(1). With a trailer
+  /// /ID the field walk is skipped (the id is free, the walk is not);
+  /// without one the walk decides, so a file with no withheld field never
+  /// pays the hash or the store read.
+  bool _mayHoldFormSecrets() {
+    try {
+      final form = acroForm;
+      if (form == null) return false;
+      if (_formSecretIdBytes != null) return true;
+      return form.fields.any(_holdsWithheldValue);
+    } catch (_) {
+      return true; // a form too broken to walk: leave it to the load, as before
+    }
+  }
+
+  /// A password field whose value the file withholds
+  /// ([PdfFormFilling.passwordWithheldKey]) - the only kind of field a
+  /// [formSecretStore] value is restored into.
+  static bool _holdsWithheldValue(PdfFormField field) =>
+      field.isPassword &&
+      field.value == null &&
+      field.dict[PdfFormFilling.passwordWithheldKey] == const CosBoolean(true);
+
+  /// Whether the form-secret identity has been resolved: at construction
+  /// for a file with a trailer /ID, and only on first need for one without.
+  @visibleForTesting
+  bool get debugFormSecretIdResolved => _formSecretIdBytes != null;
 
   /// Completes once the [formSecretStore]'s values for this document have
   /// been read (immediately without a store).
@@ -543,13 +594,7 @@ class PdfEditingController extends ChangeNotifier {
     final usable = <String, String>{};
     loaded.forEach((name, value) {
       final field = form?.fieldNamed(name);
-      if (field != null &&
-          field.isPassword &&
-          field.value == null &&
-          field.dict[PdfFormFilling.passwordWithheldKey] ==
-              const CosBoolean(true)) {
-        usable[name] = value;
-      }
+      if (field != null && _holdsWithheldValue(field)) usable[name] = value;
     });
     if (usable.isEmpty) return;
     for (final secrets in _revisionSecrets) {
@@ -2830,6 +2875,9 @@ class PdfEditingController extends ChangeNotifier {
   /// discarding undo history. Used by [applyRedactions] (the burned file
   /// is not a prefix of the prior buffer).
   void _resetTo(Uint8List bytes, {required PdfEditImpact impact}) {
+    // a file without /ID keeps filing its secrets under the hash of the bytes
+    // as opened - take it before they are replaced (the burn is O(file) too)
+    _resolveFormSecretId();
     final secrets = _revisionSecrets[_cursor];
     _revisionSecrets
       ..clear()
@@ -8920,11 +8968,13 @@ class PdfEditingController extends ChangeNotifier {
     _pendingSecrets = {...current, name: value};
     final bool committed;
     try {
+      // always the id the store files under - never null, which would make
+      // setPasswordValue hash the *current* revision for a file without /ID
       committed = _fillField(
           name,
           const {PdfFieldType.text},
           (e, f) =>
-              e.setPasswordValue(f, value, documentId: _formSecretIdBytes));
+              e.setPasswordValue(f, value, documentId: _resolveFormSecretId()));
     } finally {
       _pendingSecrets = null;
     }

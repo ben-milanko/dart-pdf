@@ -149,6 +149,85 @@ void main() {
     expect(c.formFieldTextValue(c.acroForm!.fieldNamed('name')!), isNull);
   });
 
+  // A file without a trailer /ID answers to the SHA-256 of its bytes - an
+  // O(file) hash on the UI isolate. Opening must not pay it (nor the store
+  // read) unless a field could actually take a stored value.
+  test('a file with no withheld field opens without the hash or a store read',
+      () async {
+    for (final bytes in [buildMultiPagePdf(2), passwordForm()]) {
+      final store = _CountingStore();
+      final c = await open(bytes, store);
+      expect(pdfTrailerPermanentId(c.document), isNull);
+      expect(store.readAlls, 0);
+      expect(c.debugFormSecretIdResolved, isFalse,
+          reason: 'the fallback identity is hashed on first need only');
+      // ...and is then the key the eager open used to compute
+      expect(
+          c.formSecretDocumentId,
+          pdfFormSecretDocumentId(
+              pdfPermanentDocumentId(PdfDocument.open(bytes))));
+      expect(c.debugFormSecretIdResolved, isTrue);
+    }
+  });
+
+  test('a file with a trailer /ID but no form skips the store read', () async {
+    final store = _CountingStore();
+    final bytes = buildEncryptedPdf(revision: 4);
+    final c = await open(bytes, store);
+    expect(store.readAlls, 0);
+    expect(c.debugFormSecretIdResolved, isTrue, reason: '/ID[0] is free');
+    expect(c.formSecretDocumentId,
+        pdfFormSecretDocumentId(pdfTrailerPermanentId(c.document)!));
+  });
+
+  test('a withheld field in a file without /ID still gets its value back',
+      () async {
+    // a withheld fill writes /ID, so this takes a file whose /ID was lost
+    // after the fill - the one case where the open still has to hash
+    final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+    final field = editor.acroForm!.fieldNamed('name')!;
+    field.dict['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+    editor.setTextValue(field, 'marked');
+    field.dict.entries.remove('V');
+    field.dict[PdfFormFilling.passwordWithheldKey] = const CosBoolean(true);
+    final bytes = editor.save();
+    expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
+
+    final store = _CountingStore();
+    await store.write(
+        pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)), 'name', 'pw');
+    final c = await open(bytes, store);
+    expect(store.readAlls, 1);
+    expect(c.formFieldTextValue(c.acroForm!.fieldNamed('name')!), 'pw');
+  });
+
+  test('a first withheld fill after another edit files under the opened hash',
+      () async {
+    // The fallback identity is the hash of the bytes as OPENED: hashing the
+    // current revision instead would file the value under a key that no
+    // longer matches the /ID the fill writes, and lose it on reopen.
+    final store = InMemoryFormSecretStore();
+    final original = passwordForm();
+    final c = await open(original, store);
+    c.addRectangle(0, const PdfRect(100, 100, 200, 200));
+    expect(c.revisionCount, 2);
+    expect(c.debugFormSecretIdResolved, isFalse);
+
+    expect(c.setFormFieldText('name', 'hunter2'), isTrue);
+    await c.formSecretsSettled;
+    final opened = pdfFallbackDocumentId(original);
+    expect(c.formSecretDocumentId, pdfFormSecretDocumentId(opened));
+    expect(pdfTrailerPermanentId(c.document), opened,
+        reason: 'the fill writes the same identity as the file /ID');
+    expect(
+        await store.read(pdfFormSecretDocumentId(opened), 'name'), 'hunter2');
+
+    final again = await open(c.bytes, store);
+    expect(again.formSecretDocumentId, c.formSecretDocumentId);
+    expect(again.formFieldTextValue(again.acroForm!.fieldNamed('name')!),
+        'hunter2');
+  });
+
   test('SecureFormSecretStore round-trips through flutter_secure_storage',
       () async {
     FlutterSecureStorage.setMockInitialValues({});
@@ -165,4 +244,16 @@ void main() {
     await store.clearAll();
     expect(await store.readAll('doc-b'), isEmpty);
   });
+}
+
+/// Counts [readAll] - the keychain round trip an open makes only when the
+/// file could hold a withheld value.
+class _CountingStore extends InMemoryFormSecretStore {
+  int readAlls = 0;
+
+  @override
+  Future<Map<String, String>> readAll(String documentId) {
+    readAlls++;
+    return super.readAll(documentId);
+  }
 }
