@@ -33,6 +33,7 @@ export 'src/editing/digital_signature_removal.dart';
 export 'src/editing/form_secret_store.dart';
 export 'src/editing/signing_identity_store.dart';
 export 'src/editing/editing_annotation_clipboard.dart';
+export 'src/editing/annotation_preview.dart';
 export 'src/editing/editing_annotation_library.dart';
 export 'src/editing/editing_fonts.dart';
 export 'src/editing/editing_form_options.dart';
