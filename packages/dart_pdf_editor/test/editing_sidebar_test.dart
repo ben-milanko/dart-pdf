@@ -1,6 +1,5 @@
 import 'dart:math';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,6 +66,17 @@ void main() {
     await tester.pump();
   }
 
+  // touch rows carry their actions in a "more" (⋮) menu
+  Future<void> openMore(WidgetTester tester, int page, int index) async {
+    await tester.tap(find.byKey(ValueKey('pdf-annotation-more-$page-$index')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> closeMenu(WidgetTester tester) async {
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('a signed signature is deletable from the sidebar',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -85,13 +95,9 @@ void main() {
     await pumpSidebar(tester, editing, viewer);
     expect(find.text('Signature field'), findsOneWidget);
 
-    // reveal the row actions (hover) and delete the signature
-    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await gesture.addPointer(location: Offset.zero);
-    addTearDown(gesture.removePointer);
-    await gesture.moveTo(tester.getCenter(find.text('Signature field')));
-    await tester.pump();
-
+    // on touch the row actions live in the "more" menu
+    await tester.tap(find.byKey(const ValueKey('pdf-annotation-more-0-0')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('pdf-signature-delete-0-0')));
     await tester.pumpAndSettle();
     expect(find.text('Remove signature?'), findsOneWidget);
@@ -451,10 +457,14 @@ void main() {
     addTearDown(viewer.dispose);
     await pumpSidebar(tester, editing, viewer);
 
+    await openMore(tester, 0, 0);
     expect(
         find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsNothing);
+    await closeMenu(tester);
+    await openMore(tester, 0, 1);
     expect(find.byKey(const ValueKey('pdf-annotation-delete-0-1')),
         findsOneWidget);
+    await closeMenu(tester);
 
     await tester.tap(find.text('Square'));
     await tester.pump();
@@ -505,31 +515,51 @@ void main() {
     addTearDown(viewer.dispose);
     await pumpSidebar(tester, editing, viewer);
 
-    final lock = find.byKey(const ValueKey('pdf-annotation-lock-0-0'));
-    expect(lock, findsOneWidget);
+    // on touch the row's actions are folded into its "more" menu
+    expect(find.byKey(const ValueKey('pdf-annotation-lock-0-0')), findsNothing);
+    await openMore(tester, 0, 0);
     expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
+    expect(find.byKey(const ValueKey('pdf-annotation-delete-0-0')),
+        findsOneWidget);
 
     // lock it from the row
-    await tester.tap(lock);
-    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pdf-annotation-lock-0-0')));
+    await tester.pumpAndSettle();
     final locked = editing.annotationAt(0, 0)!;
     expect(locked.isLocked, isTrue);
     expect(locked.isLockedContents, isTrue);
 
-    // the row's delete action is gone, but the (unlock) lock button remains
+    // the row's delete action is gone, but the unlock item remains
     // reachable - the only way back for a locked annotation
+    await openMore(tester, 0, 0);
     expect(
         find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsNothing);
-    expect(
-        find.byKey(const ValueKey('pdf-annotation-lock-0-0')), findsOneWidget);
+    expect(find.text('Unlock'), findsOneWidget);
 
     // unlock it again
     await tester.tap(find.byKey(const ValueKey('pdf-annotation-lock-0-0')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
+    await openMore(tester, 0, 0);
     expect(find.byKey(const ValueKey('pdf-annotation-delete-0-0')),
         findsOneWidget);
+    await closeMenu(tester);
   });
+
+  testWidgets('desktop keeps the lock and delete icons beside the more menu',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(250, 350, 400, 450));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    final lock = find.byKey(const ValueKey('pdf-annotation-lock-0-0'));
+    final delete = find.byKey(const ValueKey('pdf-annotation-delete-0-0'));
+    expect(tester.widget(lock), isA<IconButton>());
+    expect(tester.widget(delete), isA<IconButton>());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('tapping a tile zooms the viewer to the annotation',
       (tester) async {

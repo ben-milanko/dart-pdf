@@ -284,7 +284,11 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                   ),
                 ),
               ),
-              if (widget.editable)
+              if (widget.editable && !pdfPanelControlsRevealOnHover())
+                // Touch shows row actions permanently, so they live in one
+                // "more" (⋮) menu instead of a strip of icons on every row.
+                _moreMenu(context, row, pathKey)
+              else if (widget.editable)
                 Visibility(
                   visible: actionsVisible,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -314,6 +318,49 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
           ),
         ),
       ),
+    );
+  }
+
+  /// A touch row's "more" (⋮) menu: Add child, Edit and Delete. The items
+  /// keep the desktop buttons' keys.
+  Widget _moreMenu(BuildContext context, _BookmarkRow row, String pathKey) {
+    final l10n = pdfL10n(context);
+    Widget item(IconData icon, String label) => Row(children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 12),
+          Flexible(child: Text(label)),
+        ]);
+    return PopupMenuButton<_BookmarkAction>(
+      key: ValueKey('pdf-bookmark-more-$pathKey'),
+      icon: const Icon(Icons.more_vert, size: 20),
+      tooltip: l10n.sidebarMore,
+      onSelected: (action) {
+        switch (action) {
+          case _BookmarkAction.addChild:
+            _addBookmark(context, parentPath: row.path);
+          case _BookmarkAction.edit:
+            _editBookmark(context, row);
+          case _BookmarkAction.delete:
+            _deleteBookmark(row);
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          key: ValueKey('pdf-bookmark-add-child-$pathKey'),
+          value: _BookmarkAction.addChild,
+          child: item(Icons.subdirectory_arrow_right, l10n.bookmarkAddChild),
+        ),
+        PopupMenuItem(
+          key: ValueKey('pdf-bookmark-edit-$pathKey'),
+          value: _BookmarkAction.edit,
+          child: item(Icons.edit_outlined, l10n.bookmarkEdit),
+        ),
+        PopupMenuItem(
+          key: ValueKey('pdf-bookmark-delete-$pathKey'),
+          value: _BookmarkAction.delete,
+          child: item(Icons.delete_outline, l10n.bookmarkDelete),
+        ),
+      ],
     );
   }
 
@@ -518,3 +565,5 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
         ],
       );
 }
+
+enum _BookmarkAction { addChild, edit, delete }
