@@ -84,18 +84,15 @@ void main() {
     expect(profile.channels, 3);
     expectSrgb(
         profile.toSrgb([128 / 255, 64 / 255, 200 / 255]), [146, 62, 205]);
-    expectSrgb(
-        profile.toSrgb([200 / 255, 180 / 255, 30 / 255]), [209, 181, 0]);
-    expectSrgb(
-        profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 151, 86]);
+    expectSrgb(profile.toSrgb([200 / 255, 180 / 255, 30 / 255]), [209, 181, 0]);
+    expectSrgb(profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 151, 86]);
   });
 
   test('v4 parametric-curve RGB profiles (Display P3) match littleCMS', () {
     final profile = IccProfile.parse(displayP3Icc())!;
     expectSrgb(
         profile.toSrgb([128 / 255, 64 / 255, 200 / 255]), [138, 59, 207]);
-    expectSrgb(
-        profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 153, 84]);
+    expectSrgb(profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 153, 84]);
   });
 
   test('gray TRC profiles match littleCMS', () {
@@ -182,8 +179,8 @@ void main() {
       fast(rgb, 0, out, 0);
       final scalar = adobe.toSrgb([r / 255, g / 255, b / 255]);
       expect((out[0] - (scalar.red * 255).round()).abs(), lessThanOrEqualTo(1));
-      expect((out[1] - (scalar.green * 255).round()).abs(),
-          lessThanOrEqualTo(1));
+      expect(
+          (out[1] - (scalar.green * 255).round()).abs(), lessThanOrEqualTo(1));
       expect(
           (out[2] - (scalar.blue * 255).round()).abs(), lessThanOrEqualTo(1));
     }
@@ -200,4 +197,88 @@ void main() {
     final truncated = adobeRgb1998Icc().sublist(0, 200);
     expect(IccProfile.parse(truncated), isNull);
   });
+
+  test('a LUT profile cut short inside any intent table parses to null', () {
+    // Every A2B/B2A table is still read eagerly, so damage anywhere in one -
+    // not only in the perceptual table - rejects the whole profile at parse
+    // time and callers fall back to device colour. The fixture aliases all
+    // three intents to one table each way; relocating one intent's table to
+    // the end of the file lets the cut land in that table alone.
+    for (final sig in ['A2B1', 'B2A2']) {
+      final (bytes, start, size) = relocateIccTag(genericCmykIcc(), sig);
+      expect(IccProfile.parse(bytes), isNotNull, reason: sig);
+      for (final cut in [start + 60, start + size ~/ 2, start + size - 1]) {
+        expect(IccProfile.parse(Uint8List.sublistView(bytes, 0, cut)), isNull,
+            reason: '$sig cut at $cut of ${bytes.length}');
+      }
+    }
+  });
+
+  test('intent tags answer the same whether or not they share a table', () {
+    // Aliased intent tags parse their shared table once; a tag with a table
+    // of its own must resolve to exactly the same transform.
+    final shared = IccProfile.parse(genericCmykIcc())!;
+    for (final sig in ['A2B1', 'A2B2', 'B2A1', 'B2A2']) {
+      final own = IccProfile.parse(relocateIccTag(genericCmykIcc(), sig).$1)!;
+      for (final intent in PdfRenderingIntent.values) {
+        for (final cmyk in const [
+          [0.0, 0.0, 0.0, 0.0],
+          [1.0, 0.0, 0.0, 0.0],
+          [0.2, 0.4, 0.6, 0.8],
+          [0.9, 0.1, 0.5, 0.3],
+        ]) {
+          expect(own.toSrgb(cmyk, intent: intent),
+              shared.toSrgb(cmyk, intent: intent),
+              reason: '$sig $intent $cmyk');
+          expect(own.toPcs(cmyk, intent: intent),
+              shared.toPcs(cmyk, intent: intent));
+        }
+        expect(own.fromPcs(const [0.3, 0.25, 0.2], intent: intent),
+            shared.fromPcs(const [0.3, 0.25, 0.2], intent: intent));
+      }
+    }
+  });
+
+  test('black points are computed once per intent', () {
+    // They are asked for on every relative-colorimetric conversion through an
+    // output profile, so they are cached; the cached answer must be the one a
+    // fresh computation gives, separately for each intent.
+    final profile = IccProfile.parse(genericCmykIcc())!;
+    for (final intent in PdfRenderingIntent.values) {
+      final source = profile.sourceBlackPoint(intent: intent);
+      expect(source, profile.toPcs(const [1.0, 1.0, 1.0, 1.0], intent: intent));
+      expect(profile.sourceBlackPoint(intent: intent), same(source));
+
+      final destination = profile.destinationBlackPoint(intent: intent);
+      final device = profile.fromPcs(const [0.0, 0.0, 0.0], intent: intent)!;
+      expect(destination, profile.toPcs(device, intent: intent));
+      expect(profile.destinationBlackPoint(intent: intent), same(destination));
+    }
+    final gray = IccProfile.parse(genericGrayIcc())!;
+    expect(gray.destinationBlackPoint(), gray.toPcs(const [0.0]),
+        reason: 'no B2A table: the source black stands in');
+  });
+}
+
+/// [profile] with the [sig] tag's table copied to the (4-aligned) end of the
+/// file and the tag pointed at the copy, so it no longer shares an offset with
+/// any other tag. Returns the bytes and the copy's offset and size.
+(Uint8List, int, int) relocateIccTag(Uint8List profile, String sig) {
+  final view = ByteData.sublistView(profile);
+  final count = view.getUint32(128);
+  for (var i = 0; i < count; i++) {
+    final entry = 132 + i * 12;
+    if (String.fromCharCodes(profile, entry, entry + 4) != sig) continue;
+    final offset = view.getUint32(entry + 4);
+    final size = view.getUint32(entry + 8);
+    final start = (profile.length + 3) & ~3;
+    final out = Uint8List(start + size)
+      ..setRange(0, profile.length, profile)
+      ..setRange(start, start + size, profile, offset);
+    ByteData.sublistView(out)
+      ..setUint32(0, out.length) // header profile size
+      ..setUint32(entry + 4, start);
+    return (out, start, size);
+  }
+  throw ArgumentError.value(sig, 'sig', 'no such tag');
 }
