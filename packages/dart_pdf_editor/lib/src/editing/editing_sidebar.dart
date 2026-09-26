@@ -9,6 +9,7 @@ import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../search_field_style.dart';
 import 'annotation_presentation.dart';
+import 'annotation_preview.dart';
 import 'digital_signature_removal.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
@@ -363,11 +364,16 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 value: _checked.contains(slot),
                 onChanged: editable ? (_) => _toggle(slot) : null,
               )
-            : Icon(
-                annotation.isCallout
+            : PdfAnnotationAppearancePreview(
+                key: ValueKey('pdf-annotation-preview-$pageIndex-$index'),
+                page: widget.controller.pageAt(pageIndex),
+                annotation: annotation,
+                icon: annotation.isCallout
                     ? Icons.chat_bubble_outline
                     : pdfAnnotationIcon(annotation.subtype),
-                size: 20),
+                width: 44,
+                height: 34,
+              ),
         title: Text(_title(annotation)),
         subtitle: detail.isEmpty
             ? null
