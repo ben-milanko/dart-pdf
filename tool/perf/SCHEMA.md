@@ -23,7 +23,9 @@ unknown keys).
   "params": {},                // suite-specific knobs (repeat, timeoutS, ...)
   "rev":  { "sha": "...", "branch": "main", "dirty": false, "date": "..." },
   "env":  { "os": "macos-arm64", "osVersion": "...", "cpus": 10,
-            "dart": "3.9.0", "ci": false, "runner": "local" },
+            "dart": "3.9.0", "ci": false, "runner": "local",
+            "flutter": "3.47.4",       // when known (tool/perf/nightly.sh)
+            "runnerImage": "ubuntu24/20260920.314.1" }, // hosted runners only
   "ts": "2026-07-18T09:00:00.000Z",
   "metrics": {                 // run-level aggregates; dashboards read ONLY
                                // this - never re-derive from results
@@ -59,6 +61,42 @@ Rules:
   metric by the **median ratio** across files with 3-MAD outlier exclusion.
 - `tool/perf/targets.json` holds aspirational per-scenario budgets checked
   against `metrics` — informational only, never a gate.
+- `env.flutter` / `env.runnerImage` name the Flutter SDK and the hosted
+  runner image; a step in the trend that coincides with a change in either
+  is a toolchain effect until shown otherwise.
+
+## `nightly-verdicts.jsonl` (perf-data only)
+
+perf-nightly appends one record per measured night to
+`history/nightly-verdicts.jsonl` on the `perf-data` branch. It is `.jsonl`,
+not `.ndjson`, because it is not an envelope: the dashboard skips it when
+loading envelopes and draws its verdict table (and the rings on the charts:
+red for `regressed`, dashed grey for `error`) from it.
+
+```jsonc
+{
+  "date": "2026-09-27T04:02:11Z",
+  "sha": "...",          // the commit measured tonight = tomorrow's baseline
+  "prevSha": "...",      // the nightly ratio check's baseline, or null
+  "prevRule": "previous", // why that baseline (tool/perf/nightly_state.dart):
+                         // previous | recheck | carry | unchanged |
+                         // vm-sweep-tail | none
+  "acceptedSha": null,   // the commit tool/perf/baselines/nightly-accepted.sha
+                         // names, when the weekly check ran (null if the
+                         // file named no single commit: checks.accepted is
+                         // then "error")
+  "verdict": "regressed", // ok | regressed | error
+  "checks": { "nightly": "ok", "accepted": "not-run",
+              "renderTrend": "regressed" }, // ok | regressed | error |
+                                            // skipped | not-run
+  "runId": "...",
+  "attempt": 1           // github.run_attempt: a re-run replaces its earlier
+                         // attempt's record (and envelopes) in place
+}
+```
+
+Each night's perf-data commit carries a `Perf-Nightly-Run: <run id>`
+trailer; that is how a re-run finds the night it replaces.
 
 Producers: `packages/pdf_graphics/tool/perf_sweep.dart` (vm-sweep),
 `packages/pdf_graphics/tool/benchmark_interpret.dart` (vm-interpret),

@@ -16,6 +16,16 @@ DART=dart
 FLUTTER=flutter
 if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; FLUTTER="fvm flutter"; fi
 
+# The Flutter SDK behind every envelope below, recorded in its `env` (envInfo
+# in perf_run_context.dart, benchmark_render_test.dart) next to the hosted
+# runner's image: an SDK bump moves the trend like a code change does.
+if [ -z "${PDF_PERF_FLUTTER_VERSION:-}" ]; then
+  PDF_PERF_FLUTTER_VERSION="$($FLUTTER --version --machine 2>/dev/null |
+    python3 -c 'import json,sys; t = sys.stdin.read(); print(json.loads(t[t.index("{"):])["frameworkVersion"])' 2>/dev/null ||
+    true)"
+fi
+export PDF_PERF_FLUTTER_VERSION
+
 sweep() { # sweep <scenario>
   echo "── vm-sweep: $1"
   # No output filtering: a filter pipeline's || true masked real sweep

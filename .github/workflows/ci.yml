@@ -27,6 +27,10 @@ jobs:
         run: dart tool/patrol_attempt_triage_test.dart
       - name: Test Flutter GPU corpus summarizer
         run: dart tool/gpu_corpus_summary_test.dart
+      - name: Test perf-nightly render trend rule
+        run: dart tool/perf/render_trend_test.dart
+      - name: Test perf-nightly ratio check, timeout budget and dashboard
+        run: dart tool/perf/nightly_test.dart
       # Enforce the lockstep versioning invariant: every workspace package
       # must depend on its siblings at the current release version (`^x.y.z`).
       # A stale lower bound makes pub.dev's downgrade analysis fail (0/20 on
