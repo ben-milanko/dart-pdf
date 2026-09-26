@@ -613,6 +613,14 @@ class PdfOverprintCompositor {
     final colorants = <PdfColorants?>[null];
     final colors = <PdfColor>[const PdfColor(1, 1, 1)];
     final local = <_PaletteKey, int>{};
+    // Page palette index -> local index, -1 until that entry is first seen.
+    // The (colorants, colour) key is resolved once per palette entry rather
+    // than hashed per source pixel - the per-pixel Object.hash walks and map
+    // probe were about half of a warm re-record of a spatial page. The key
+    // map still decides every first sighting, so entries that share a key
+    // (bare paper and the transparent sentinel) keep sharing one local index.
+    final localOf = Int32List(_paletteColorants.length)
+      ..fillRange(0, _paletteColorants.length, -1);
     var offset = 0;
     for (var y = 0; y < height; y++) {
       final v = 1 - (y + 0.5) / height;
@@ -628,15 +636,19 @@ class PdfOverprintCompositor {
           indices[offset++] = 0;
           continue;
         }
-        final key =
-            _PaletteKey(_paletteColorants[pageIndex], _paletteColor[pageIndex]);
-        var index = local[key];
-        if (index == null) {
-          if (colorants.length >= 0xffff) return null;
-          index = colorants.length;
-          local[key] = index;
-          colorants.add(key.colorants);
-          colors.add(key.color);
+        var index = localOf[pageIndex];
+        if (index < 0) {
+          final key = _PaletteKey(
+              _paletteColorants[pageIndex], _paletteColor[pageIndex]);
+          var shared = local[key];
+          if (shared == null) {
+            if (colorants.length >= 0xffff) return null;
+            shared = colorants.length;
+            local[key] = shared;
+            colorants.add(key.colorants);
+            colors.add(key.color);
+          }
+          index = localOf[pageIndex] = shared;
         }
         indices[offset++] = index;
       }

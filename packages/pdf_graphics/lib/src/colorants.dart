@@ -162,13 +162,17 @@ class PdfColorantBackdropMap {
     for (final color in colors) {
       hash = Object.hash(hash, color);
     }
-    // Sample every entry into the rolling hash. The maps are bounded by the
-    // image-overprint pixel cap and are constructed only for a non-uniform
-    // backdrop, so this cost is paid beside an unavoidable per-pixel build.
-    for (final index in indices) {
-      hash = Object.hash(hash, index);
+    // Sample every entry into the rolling hash, but as an inline multiply-add
+    // rather than an Object.hash call per entry: a map is built and hashed
+    // on every walk of a spatial page, and the per-pixel call was a tenth of a
+    // warm re-record. Equality still compares every index. Held under 2^29 so
+    // `h * 31 + index` stays an exact integer on the web, where `&` then
+    // truncates to the same low bits as the VM.
+    var h = hash & 0x1fffffff;
+    for (var i = 0; i < indices.length; i++) {
+      h = 0x1fffffff & (h * 31 + indices[i]);
     }
-    return hash;
+    return h;
   }
 }
 
