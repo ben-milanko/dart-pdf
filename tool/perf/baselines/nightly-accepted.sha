@@ -9,8 +9,9 @@
 # 812f8e5d = #755 (GWG Output Suite V5 conformance). It takes in #602's
 # colorant buffer, whose cost is accepted in
 # doc/dev-log/2026-07-25-overprint-colorant-buffer.md, and #755's own
-# OutputIntent/overprint cost, which is still open (#956 took back its
-# glyph-outline share): a fix for it reads as "improved" here, and anything
-# that lands after it is judged on its own. See
+# OutputIntent/overprint cost, which was left open (#956 took back its
+# glyph-outline share; #963 cut the OutputIntent profile parse behind its
+# first-page share): those fixes read as "improved" here, and anything that
+# lands after #755 is judged on its own. See
 # doc/dev-log/2026-09-26-perf-nightly-ratchet.md.
 812f8e5d51fb31d3ef8e9efa655b886c65b6ad6c

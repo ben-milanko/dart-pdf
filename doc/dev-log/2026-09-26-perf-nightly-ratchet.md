@@ -179,14 +179,17 @@ Also changed:
   check's baseline moves only in a reviewed PR, the same model as
   counters.json and `--update-baseline`. It is the first commit past both
   known steps. #602's cost is accepted in its dev-log. #755's
-  OutputIntent/first-page cost is still open, so a fix for it will read
-  "improved" and everything after it is judged. #956 (glyph outline paths
-  built only where they are read) already takes back part of #755's
-  interpret cost, so it reads "improved" here. #811/#812 push the other
-  way, about 1.07-1.12x interpretMs on small overprint pages (1.07x in a
-  local A/B, about 1.12x on the CI nights), so the first Sunday's
-  interpretMs is the net of the two. Bump the file past #811/#812 if they
-  are accepted.
+  OutputIntent/first-page cost was left open, so a fix for it reads
+  "improved" and everything after it is judged. Two such fixes have landed
+  since: #956 (glyph outline paths built only where they are read) takes
+  back part of #755's interpret cost, and #963 (typed ICC tables, a
+  revision-stable colour context and per-pixel memos) cuts the
+  OutputIntent profile parse that dominates its first page (30.4 -> 1.8 ms
+  for a press profile, per that PR). "Improved" never fails the check.
+  #811/#812 push the other way, about 1.07-1.12x interpretMs on small
+  overprint pages (1.07x in a local A/B, about 1.12x on the CI nights), so
+  the first accepted check's interpretMs is the net of all three. Bump the
+  file past #811/#812 if they are accepted.
 - `tool/perf/render_trend.dart` + `render_trend_test.dart` (wired into
   ci.yml next to the other tool tests). Per scenario:
   - Each file's baseline is the median of its renderMs over up to 5 prior
@@ -224,19 +227,22 @@ Also changed:
   (`$ImageOS/$ImageVersion`, set on hosted runners). These go in
   `perf_run_context.dart`'s envInfo and in benchmark_render_test.dart
   (inlined there because render_backfill grafts that file onto old
-  commits). Both need both variables to be non-empty, so an empty
-  `ImageVersion` cannot produce a half value like `ubuntu24/`. Mid-series the CI Flutter went 3.44.8 -> 3.47.0 -> 3.47.4 and
-  the runner image rolled over, with nothing on record to show it.
+  commits). `runnerImage` needs both variables to be non-empty, so an
+  empty `ImageVersion` cannot produce a half value like `ubuntu24/`.
+  Mid-series the CI Flutter went 3.44.8 -> 3.47.0 -> 3.47.4 and the runner
+  image rolled over, with nothing on record to show it.
 - `build_report.mjs` reads `nightly-verdicts.jsonl`. It shows a verdict
   table for the last 14 nights and puts the Flutter version and runner image
   in each section's meta line. On every chart it rings each commit's points
   by that commit's latest verdict: red for `regressed`, dashed grey for
   `error` (a check broke and nothing was judged), and nothing once a
   re-check comes back ok. With no verdict file its output is unchanged
-  apart from three CSS rules. Both loaders skip a line that parses to something other than an
-  object (`null`, a number, an array). Before, a `null` line threw a
-  TypeError, and because the page is rebuilt in the step that commits the
-  history, one bad line would have frozen perf-data again every night.
+  apart from three CSS rules and a blank line where the verdict table
+  goes (checked on a perf-data history snapshot). Both loaders skip a line
+  that parses to something other than an object (`null`, a number, an
+  array). Before, a `null` line threw a TypeError, and because the page is
+  rebuilt in the step that commits the history, one bad line would have
+  frozen perf-data again every night.
 
 ## Evidence
 
@@ -309,9 +315,13 @@ Also changed:
   - First night after this lands, with history frozen at 07-25 and 09-23's
     envelopes: ghent-render 7.65x is red. jbig2 is skipped because it has
     no history before 07-26. The next night reads 0.92x.
-- **`tool/perf/nightly_test.dart` (58 checks, in ci.yml).** It runs
+- **`tool/perf/nightly_test.dart` (60 checks, in ci.yml).** It runs
   nightly_ratio_check.sh against a stub perf_diff in a throwaway git repo
-  and holds the workflow to its timeout budget and wiring. It checks
+  and holds the workflow to its timeout budget and wiring. It reads the
+  committed `nightly-accepted.sha` the way the script does and requires
+  exactly one full sha, so a bad bump fails the PR that makes it instead
+  of the next Sunday (ancestry of HEAD is checked too when the commit is
+  in the clone; ci.yml's checkout is shallow). It checks
   nightly_state.dart's rules: the ratchet, a re-check, one carry and no
   second, corrupt trailing verdict lines, the weekly backstop, and
   line-dropping. It also runs `resolve`/`drop-run` against a throwaway
@@ -341,8 +351,10 @@ Also changed:
 - The first run (dispatch or schedule) is red against 1cf882ca, as every
   night has been, but this time the history and verdict are appended. The
   next night compares against that commit.
-- The render trend is also red once on that first night. perf-data's
-  render history ends at 07-25, before #755's 9.5x ghent-render step.
+- The render trend is probably red once on that first night too.
+  perf-data's render history ends at 07-25, before #755's 9.5x
+  ghent-render step. 09-23's envelopes replay at 7.65x against it; #963
+  takes some of that back, but not likely all of it.
 - There is no accepted check on record yet, so the first run also runs the
   accepted check (against #755). That is the first real reading of
   everything after #755. After that it runs on Sundays.

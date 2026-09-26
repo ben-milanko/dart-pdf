@@ -2,6 +2,7 @@
 // tool tests). Checks perf-nightly's plumbing outside GitHub:
 //   - tool/perf/nightly_ratio_check.sh against a stub perf_diff.sh in a
 //     throwaway git repo (verdict mapping, iterations, the accepted-sha file);
+//   - the committed tool/perf/baselines/nightly-accepted.sha itself;
 //   - tool/perf/nightly_state.dart: the baseline rules (ratchet, re-check of
 //     a red night, one carry past an errored night), the weekly backstop, and
 //     a re-run reading and replacing its earlier attempt on a perf-data branch;
@@ -202,6 +203,37 @@ void _testRatioCheck() {
   } finally {
     repo.delete();
   }
+}
+
+/// The committed accepted baseline, read the way nightly_ratio_check.sh reads
+/// it (comments stripped, whitespace-split): a file that does not name exactly
+/// one commit reads `error` every Sunday, and nothing else would notice it
+/// before then. A full sha, so it cannot turn ambiguous as history grows.
+/// CI's checkout is shallow, so ancestry is only checked when the commit is
+/// in this clone.
+void _testCommittedAcceptedSha() {
+  final entries = [
+    for (final line in File('${_perfDir.path}/baselines/nightly-accepted.sha')
+        .readAsLinesSync())
+      ...line
+          .replaceFirst(RegExp('#.*'), '')
+          .split(RegExp(r'\s+'))
+          .where((t) => t.isNotEmpty),
+  ];
+  _check(
+      entries.length == 1 && RegExp(r'^[0-9a-f]{40}$').hasMatch(entries.first),
+      'accepted: the committed nightly-accepted.sha names exactly one full '
+      'sha (got $entries)');
+  if (entries.length != 1) return;
+  final sha = entries.first;
+  int git(List<String> args) =>
+      Process.runSync('git', args, workingDirectory: _repoRoot.path).exitCode;
+  if (git(['cat-file', '-e', '$sha^{commit}']) != 0) {
+    print('skip accepted ancestry: $sha is not in this clone (shallow?)');
+    return;
+  }
+  _check(git(['merge-base', '--is-ancestor', sha, 'HEAD']) == 0,
+      'accepted: the committed baseline is an ancestor of HEAD');
 }
 
 /// The workflow's steps as {key: value} maps of their top-level scalar keys
@@ -659,6 +691,7 @@ void _testStateCli() {
 
 void main() {
   _testRatioCheck();
+  _testCommittedAcceptedSha();
   _testBaselineRules();
   _testAcceptedDue();
   _testDropAppended();
