@@ -671,4 +671,106 @@ void main() {
       });
     });
   });
+
+  group('spatial image overprint (a per-pixel backdrop map)', () {
+    final process = PdfColorants(0.5, 0, 1, 0);
+    const processColor = PdfColor(0.31, 0.45, 0.13);
+    final spot = PdfColorants(0, 0, 0, 0,
+        spots: const ['GWG Green'], tints: const [1.0]);
+    const spotColor = PdfColor(0.53, 0.79, 0.27);
+    final spots = {
+      'GWG Green': const [0.5, 0.0, 1.0, 0.0],
+    };
+
+    /// A map over [process] (entry 1) and [spot] (entry 2); entry 0 is the
+    /// unknown cell.
+    PdfColorantBackdropMap backdropMap(
+            int width, int height, List<int> entries) =>
+        PdfColorantBackdropMap(
+          width: width,
+          height: height,
+          indices: Uint16List.fromList(entries),
+          colorants: [null, process, spot],
+          colors: const [PdfColor(1, 1, 1), processColor, spotColor],
+        );
+
+    CosStream? spatial(CosStream source, PdfColorantBackdropMap map,
+            {int mode = 1}) =>
+        pdfImageOverprintStream(cos, source,
+            spatialBackdrop: map, mode: mode, spotEquivalents: spots);
+
+    PdfPath rect(double l, double b, double r, double t) => PdfPath([
+          PdfMoveTo(l, b),
+          PdfLineTo(r, b),
+          PdfLineTo(r, t),
+          PdfLineTo(l, t),
+          const PdfClosePath(),
+        ]);
+
+    test('the compositor gives each backdrop one entry, in first-seen order',
+        () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      final processInk = PdfInkColorants.deviceCmyk(0.5, 0, 1, 0);
+      final spotInk = PdfInkColorants(
+          colorants: spot,
+          processMask: 0,
+          overprintModeApplies: false,
+          spotEquivalents: const [
+            [0.5, 0.0, 1.0, 0.0]
+          ]);
+      // Process | paper | spot | paper | process, one column per source pixel.
+      for (final (l, r, ink, color) in [
+        (0.0, 20.0, processInk, processColor),
+        (40.0, 60.0, spotInk, spotColor),
+        (80.0, 100.0, processInk, processColor),
+      ]) {
+        c.fill(rect(l, 0, r, 100), PdfFillRule.nonzero, color, ink,
+            overprint: false, mode: 0, opaque: true);
+      }
+      PdfColorantBackdropMap? sampled;
+      c.image<Object>(rect(0, 0, 100, 100),
+          transform: const PdfMatrix(100, 0, 0, 100, 0, 0),
+          width: 5,
+          height: 1,
+          ink: null,
+          color: const PdfColor(0, 0, 0),
+          hasColorants: true,
+          overprint: true,
+          mode: 1,
+          opaque: true,
+          resolve: (_, __) => null,
+          resolveSpatial: (map) {
+            sampled = map;
+            return null;
+          });
+      expect(sampled, isNotNull);
+      expect(sampled!.indices, [1, 2, 3, 2, 1],
+          reason: 'both process columns share one entry, as do both paper '
+              'columns');
+      expect(sampled!.colorants, [null, process, PdfColorants.none, spot]);
+      expect(sampled!.colors[1], processColor);
+      expect(sampled!.colors[3], spotColor);
+    });
+
+    test('equal maps built apart hash alike and share one substitute', () {
+      // The collect and paint walks each sample their own map. The substitute
+      // memo must see the two as one key, or the paint walk would draw a
+      // stream the collect walk never decoded.
+      final entries = [1, 2, 2, 1, 1, 2];
+      final a = backdropMap(3, 2, entries);
+      final b = backdropMap(3, 2, List.of(entries));
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a, isNot(backdropMap(3, 2, [1, 2, 2, 1, 2, 2])));
+      final source = image(
+          const CosName('DeviceCMYK'),
+          [
+            for (var i = 0; i < 6; i++) ...[0, 0, 0, 128]
+          ],
+          width: 3);
+      final first = spatial(source, a);
+      expect(first, isNotNull);
+      expect(identical(spatial(source, b), first), isTrue);
+    });
+  });
 }
