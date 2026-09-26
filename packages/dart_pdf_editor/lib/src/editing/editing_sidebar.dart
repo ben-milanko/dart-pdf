@@ -28,7 +28,8 @@ import 'editing_preferences.dart';
 /// (arming the select tool), and pulses an attention flash around it on
 /// the page. On mouse hover a row reveals its trailing actions: a "more"
 /// (⋮) menu carrying Reply / Resolve for a markup annotation's comment
-/// thread, and a delete button.
+/// thread, a lock toggle, and a delete button. Touch targets, which show
+/// row actions permanently, fold them all into the one "more" menu.
 ///
 /// Rows are multi-selectable: ⌘/Ctrl-click toggles a row in or out of
 /// the selection and shift-click extends a range from the last click,
@@ -392,9 +393,10 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     );
   }
 
-  /// The trailing hover actions for a row: a "more" (⋮) menu with the
-  /// thread's Reply / Resolve for a markup annotation, then delete for an
-  /// editable one. Null when the row exposes neither.
+  /// The trailing actions for a row. Desktop hover-reveals a lock toggle,
+  /// a "more" (⋮) menu with the thread's Reply / Resolve for a markup
+  /// annotation, then delete for an editable one; touch folds them all into
+  /// the "more" menu. Null when the row exposes none.
   Widget? _rowActions(
     BuildContext context,
     int pageIndex,
@@ -408,11 +410,25 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     // A signed signature field is deletable even though its widget isn't a
     // normally selectable annotation (undo restores it).
     final signature = _signatureFor(annotation);
+    final lockable = widget.controller.isAnnotationLockManageable(annotation);
+    // Touch targets show the row actions permanently, so lay them out as a
+    // single "more" (⋮) menu there rather than a strip of icons crowding
+    // every row: the lock toggle and delete fold in beside Reply / Resolve.
+    if (!pdfPanelControlsRevealOnHover()) {
+      if (!hostsThread && !lockable && signature == null && !editable) {
+        return null;
+      }
+      return _moreMenu(context, pageIndex, index, annotation, thread,
+          hostsThread: hostsThread,
+          lockable: lockable,
+          signature: signature,
+          deletable: editable);
+    }
     final actions = <Widget>[
       // The lock toggle hover-reveals with the rest of the row's actions;
       // an unlock stays reachable here for a locked annotation (which can't
       // be selected), the same way a right-click on it does.
-      if (widget.controller.isAnnotationLockManageable(annotation))
+      if (lockable)
         IconButton(
           key: ValueKey('pdf-annotation-lock-$pageIndex-$index'),
           icon: Icon(
@@ -425,7 +441,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               widget.controller.toggleAnnotationLock(pageIndex, index),
         ),
       if (hostsThread)
-        _threadMenu(context, pageIndex, index, annotation, thread),
+        _moreMenu(context, pageIndex, index, annotation, thread,
+            hostsThread: true),
       if (signature != null)
         IconButton(
           key: ValueKey('pdf-signature-delete-$pageIndex-$index'),
@@ -714,48 +731,91 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         PdfPadesLevel.bLTA => 'B-LTA',
       };
 
-  /// The per-row "more" menu holding a markup annotation's thread actions:
-  /// Reply (opens the inline reply field) and Resolve / Reopen.
-  Widget _threadMenu(BuildContext context, int pageIndex, int index,
-      PdfAnnotation annotation, PdfCommentThread? thread) {
+  /// The per-row "more" menu. On desktop it holds a markup annotation's
+  /// thread actions - Reply (opens the inline reply field) and Resolve /
+  /// Reopen - beside the row's hover-revealed icons. On touch it carries
+  /// every row action: the thread's, then Lock / Unlock and Delete.
+  Widget _moreMenu(BuildContext context, int pageIndex, int index,
+      PdfAnnotation annotation, PdfCommentThread? thread,
+      {required bool hostsThread,
+      bool lockable = false,
+      PdfSignature? signature,
+      bool deletable = false}) {
+    final l10n = pdfL10n(context);
     final nm = annotation.name;
     final resolved = thread?.isResolved ?? false;
-    return PopupMenuButton<_ThreadAction>(
+    return PopupMenuButton<_RowAction>(
       key: ValueKey('pdf-annotation-more-$pageIndex-$index'),
       icon: const Icon(Icons.more_vert, size: 20),
-      tooltip: pdfL10n(context).sidebarMore,
+      tooltip: l10n.sidebarMore,
       onSelected: (action) {
         switch (action) {
-          case _ThreadAction.reply:
+          case _RowAction.reply:
             setState(() {
               _replyingTo = nm;
               _reply.text = '';
             });
-          case _ThreadAction.resolve:
+          case _RowAction.resolve:
             resolved
                 ? widget.controller.reopenThread(pageIndex, annotation)
                 : widget.controller.resolveThread(pageIndex, annotation);
+          case _RowAction.lock:
+            widget.controller.toggleAnnotationLock(pageIndex, index);
+          case _RowAction.delete:
+            if (signature != null) {
+              unawaited(_confirmRemoveSignature(context, signature));
+            } else {
+              widget.controller.deleteAnnotation(pageIndex, index);
+            }
         }
       },
       itemBuilder: (context) => [
-        PopupMenuItem(
-          key: const ValueKey('pdf-reply-button'),
-          value: _ThreadAction.reply,
-          // a reply is matched to its root by /NM; without one there's
-          // no field to open
-          enabled: nm != null,
-          child: Text(pdfL10n(context).sidebarReply),
-        ),
-        PopupMenuItem(
-          key: const ValueKey('pdf-resolve-button'),
-          value: _ThreadAction.resolve,
-          child: Text(resolved
-              ? pdfL10n(context).sidebarReopen
-              : pdfL10n(context).sidebarResolve),
-        ),
+        if (hostsThread) ...[
+          PopupMenuItem(
+            key: const ValueKey('pdf-reply-button'),
+            value: _RowAction.reply,
+            // a reply is matched to its root by /NM; without one there's
+            // no field to open
+            enabled: nm != null,
+            child: Text(l10n.sidebarReply),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('pdf-resolve-button'),
+            value: _RowAction.resolve,
+            child: Text(resolved ? l10n.sidebarReopen : l10n.sidebarResolve),
+          ),
+        ],
+        if (lockable)
+          PopupMenuItem(
+            key: ValueKey('pdf-annotation-lock-$pageIndex-$index'),
+            value: _RowAction.lock,
+            child: _menuRow(
+                annotation.isLocked ? Icons.lock : Icons.lock_open_outlined,
+                annotation.isLocked
+                    ? l10n.sidebarUnlockAnnotation
+                    : l10n.sidebarLockAnnotation),
+          ),
+        if (signature != null)
+          PopupMenuItem(
+            key: ValueKey('pdf-signature-delete-$pageIndex-$index'),
+            value: _RowAction.delete,
+            child: _menuRow(Icons.delete_outline, l10n.sidebarDeleteSignature),
+          )
+        else if (deletable)
+          PopupMenuItem(
+            key: ValueKey('pdf-annotation-delete-$pageIndex-$index'),
+            value: _RowAction.delete,
+            child: _menuRow(Icons.delete_outline, l10n.delete),
+          ),
       ],
     );
   }
+
+  static Widget _menuRow(IconData icon, String label) => Row(children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 12),
+        Flexible(child: Text(label)),
+      ]);
 
   /// A plain / ⌘-Ctrl / shift click on a row (outside checkbox mode).
   /// Plain click navigates the viewer to the annotation, selects it, and
@@ -835,7 +895,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   /// The inline thread under a root markup tile: a review-state chip, the
   /// reply tree (indented), and - when open - the reply field. Reply and
-  /// Resolve are triggered from the row's "more" menu ([_threadMenu]).
+  /// Resolve are triggered from the row's "more" menu ([_moreMenu]).
   List<Widget> _threadSection(BuildContext context, int page,
       PdfAnnotation root, PdfCommentThread? thread) {
     if (_selecting) return const []; // chrome stays clear during multi-select
@@ -1286,7 +1346,7 @@ class _AnnotationPageHeaderDelegate extends SliverPersistentHeaderDelegate {
 }
 
 /// The actions a markup row's "more" menu offers on its comment thread.
-enum _ThreadAction { reply, resolve }
+enum _RowAction { reply, resolve, lock, delete }
 
 /// A small rounded status chip used for a thread's review state.
 class _Pill extends StatelessWidget {

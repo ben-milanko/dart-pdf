@@ -970,8 +970,9 @@ void main() {
       expect(editing.outline.items.single.title, 'Chapter 1');
       expect(editing.outline.items.single.destination?.pageIndex, 1);
 
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-edit-0')),
-          kind: PointerDeviceKind.mouse);
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-edit-0')));
       await tester.pumpAndSettle();
       await tester.enterText(
           find.byKey(const ValueKey('pdf-bookmark-title')), 'Renamed');
@@ -980,8 +981,9 @@ void main() {
 
       expect(editing.outline.items.single.title, 'Renamed');
 
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-delete-0')),
-          kind: PointerDeviceKind.mouse);
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-delete-0')));
       await tester.pump();
       expect(editing.outline.items, isEmpty);
     });
