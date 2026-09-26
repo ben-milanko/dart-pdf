@@ -772,5 +772,145 @@ void main() {
       expect(first, isNotNull);
       expect(identical(spatial(source, b), first), isTrue);
     });
+
+    /// [source]'s substitute over one uniform backdrop: the oracle for every
+    /// spatial pixel that sits on that backdrop.
+    Uint8List uniformOver(CosStream source, PdfColorants backdrop,
+            PdfColor backdropColor, int mode) =>
+        pdfImageOverprintStream(cos, source,
+                backdrop: backdrop,
+                backdropColor: backdropColor,
+                mode: mode,
+                spotEquivalents: spots)!
+            .rawBytes;
+
+    /// Composites [source] over a [width] x [height] map of [entries] and
+    /// checks every pixel against the uniform substitute for its own entry,
+    /// and the whole raster against the builder's unmemoised walk.
+    void expectPerEntry(
+        CosStream Function() source, int width, int height, List<int> entries) {
+      for (final mode in [0, 1]) {
+        final memoised =
+            spatial(source(), backdropMap(width, height, entries), mode: mode)!
+                .rawBytes;
+        // A map one column wider than the image no longer matches it pixel
+        // for pixel, so the builder takes its unmemoised walk - and never
+        // samples the extra column, so the answer must be the same bytes.
+        final wide = [
+          for (var y = 0; y < height; y++) ...[
+            ...entries.sublist(y * width, (y + 1) * width),
+            1,
+          ]
+        ];
+        final unmemoised =
+            spatial(source(), backdropMap(width + 1, height, wide), mode: mode)!
+                .rawBytes;
+        expect(memoised, unmemoised, reason: 'mode $mode');
+        final overProcess = uniformOver(source(), process, processColor, mode);
+        final overSpot = uniformOver(source(), spot, spotColor, mode);
+        for (var i = 0; i < width * height; i++) {
+          final oracle = entries[i] == 1 ? overProcess : overSpot;
+          expect(memoised.sublist(i * 3, i * 3 + 3),
+              oracle.sublist(i * 3, i * 3 + 3),
+              reason: 'mode $mode, pixel $i over entry ${entries[i]}');
+        }
+      }
+    }
+
+    /// `[/DeviceN [/Cyan /PANTONE 349] /DeviceCMYK {0 0}]` - a process
+    /// colorant and a spot the page has no equivalent for yet, so the image
+    /// teaches the builder one.
+    CosArray cyanAndSpot() => CosArray([
+          const CosName('DeviceN'),
+          CosArray([const CosName('Cyan'), const CosName('PANTONE 349')]),
+          const CosName('DeviceCMYK'),
+          CosStream(
+              CosDictionary({
+                'FunctionType': const CosInteger(4),
+                'Domain': CosArray([
+                  for (var i = 0; i < 2; i++) ...[
+                    const CosInteger(0),
+                    const CosInteger(1)
+                  ]
+                ]),
+                'Range': CosArray([
+                  for (var i = 0; i < 4; i++) ...[
+                    const CosInteger(0),
+                    const CosInteger(1)
+                  ]
+                ]),
+              }),
+              Uint8List.fromList('{ 0 0 }'.codeUnits)),
+        ]);
+
+    const entries = [
+      1, 2, 2, 1, //
+      2, 1, 1, 2, //
+      1, 1, 2, 2,
+    ];
+
+    test('an Indexed raster composites each pixel over its own backdrop', () {
+      // GWG080-082's shape: a small palette repeated across two backdrops.
+      expectPerEntry(
+          () => image(indexed(cyanAndSpot(), [0, 0, 255, 0, 128, 255]),
+              [0, 1, 2, 1, 2, 2, 0, 1, 1, 0, 2, 2],
+              width: 4, height: 3),
+          4,
+          3,
+          entries);
+    });
+
+    test('a DeviceN raster composites each pixel over its own backdrop', () {
+      expectPerEntry(
+          () => image(
+              cyanAndSpot(),
+              [
+                for (final t in [0, 1, 2, 1, 2, 2, 0, 1, 1, 0, 2, 2])
+                  ...[
+                    [0, 0],
+                    [255, 0],
+                    [128, 255]
+                  ][t]
+              ],
+              width: 4,
+              height: 3),
+          4,
+          3,
+          entries);
+    });
+
+    test('four 8-bit components with high bytes stay distinct keys', () {
+      // Packed tuples at and past 2^31: a key that wrapped (as bitwise
+      // packing does on the web) would alias two of these.
+      const tuples = [
+        [0xFF, 0xF0, 0x80, 0xFF],
+        [0xFF, 0xFF, 0xFF, 0xFF],
+        [0x00, 0x00, 0x00, 0xFF],
+        [0x80, 0x00, 0xF7, 0x00],
+      ];
+      expectPerEntry(
+          () => image(const CosName('DeviceCMYK'),
+              [for (var i = 0; i < 12; i++) ...tuples[(i * 3 + i ~/ 4) % 4]],
+              width: 4, height: 3),
+          4,
+          3,
+          entries);
+    });
+
+    test('an unknown cell declines even when its tuple is already memoised',
+        () {
+      CosStream uniformRaster() => image(
+          const CosName('DeviceCMYK'),
+          [
+            for (var i = 0; i < 3; i++) ...[0, 0, 0, 128]
+          ],
+          width: 3,
+          height: 1);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [1, 2, 1])), isNotNull);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [1, 1, 0])), isNull);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [2, 0, 2])), isNull);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [1, 3, 1])), isNull,
+          reason: 'an entry past the palette is unknown too');
+    });
   });
 }
