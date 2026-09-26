@@ -233,6 +233,42 @@ CosStream? _buildSubstitute(
   final spots = <String, List<double>>{...spotEquivalents};
 
   var out = 0;
+  if (spatialBackdrop == null &&
+      uniformBackdrop != null &&
+      uniformBackdropColor != null &&
+      samples.components == 1 &&
+      samples.bits <= 8) {
+    // One component of at most 8 bits (gray, Separation, Indexed): the raw
+    // sample is the whole tuple, so a dense table of 2^bits composites stands
+    // in for the tuple map - whose probe per pixel was most of an 8-bit build
+    // - and gives 1/2/4-bit rasters, which pack no tuple and so had no memo at
+    // all, one too: every sample of those converted, seconds for a megapixel.
+    // The backdrop is one vector, hoisted out of the loop.
+    final bits = samples.bits, data = samples.data;
+    final lut = Int32List(1 << bits)..fillRange(0, 1 << bits, -1);
+    for (var y = 0; y < height; y++) {
+      final row = y * samples._rowBytes;
+      for (var x = 0; x < width; x++) {
+        final raw = bits == 8 ? data[row + x] : samples.rawAt(x, y, 0);
+        var value = lut[raw];
+        if (value < 0) {
+          final learned = spots.length;
+          value = samples.compositeAt(x, y, uniformBackdrop,
+              uniformBackdropColor, mode, spots, colorContext);
+          if (value < 0) return null;
+          // Forgotten when the image teaches [spots] a new equivalent, for the
+          // spatial memo's reason below.
+          if (spots.length != learned) lut.fillRange(0, lut.length, -1);
+          lut[raw] = value;
+        }
+        rgb[out++] = (value >> 16) & 0xff;
+        rgb[out++] = (value >> 8) & 0xff;
+        rgb[out++] = value & 0xff;
+      }
+    }
+    return _substituteStream(dict, width, height, rgb);
+  }
+
   if (spatialBackdrop != null &&
       samples.canPackTuple &&
       spatialBackdrop.width == width &&

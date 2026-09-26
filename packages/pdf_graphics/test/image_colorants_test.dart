@@ -913,4 +913,115 @@ void main() {
           reason: 'an entry past the palette is unknown too');
     });
   });
+
+  group('single-component rasters (the per-sample table)', () {
+    final backdrop = PdfColorants(0, 0, 0, 0,
+        spots: const ['GWG Green'], tints: const [1.0]);
+    const backdropColor = PdfColor(0.53, 0.79, 0.27);
+    final spots = {
+      'GWG Green': const [0.5, 0.0, 1.0, 0.0],
+    };
+
+    /// A [bits]-deep one-component raster over [space] holding [samples] row
+    /// by row, each row padded out to a whole byte as the format stores it.
+    CosStream raster(CosObject space, int bits, int width, List<int> samples,
+        {CosArray? decode}) {
+      final height = samples.length ~/ width;
+      final rowBytes = (width * bits + 7) ~/ 8;
+      final data = Uint8List(rowBytes * height);
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          final bit = x * bits;
+          data[y * rowBytes + (bit >> 3)] |=
+              samples[y * width + x] << (8 - bits - (bit & 7));
+        }
+      }
+      return CosStream(
+          CosDictionary({
+            'Type': const CosName('XObject'),
+            'Subtype': const CosName('Image'),
+            'Width': CosInteger(width),
+            'Height': CosInteger(height),
+            'BitsPerComponent': CosInteger(bits),
+            'ColorSpace': space,
+            if (decode != null) 'Decode': decode,
+          }),
+          data);
+    }
+
+    Uint8List composited(CosStream source, int mode) =>
+        pdfImageOverprintStream(cos, source,
+                backdrop: backdrop,
+                backdropColor: backdropColor,
+                mode: mode,
+                spotEquivalents: spots)!
+            .rawBytes;
+
+    /// Checks a [width] x 3 raster of every [bits]-deep value against a
+    /// per-sample reference: a one-pixel raster holding just that sample,
+    /// which no table can answer from another pixel.
+    void expectPerSample(CosObject Function() space, int bits, int width,
+        {CosArray? decode}) {
+      final count = width * 3;
+      final samples = [
+        for (var i = 0; i < count; i++) (i * 7 + i ~/ 3) % (1 << bits)
+      ];
+      for (final mode in [0, 1]) {
+        final whole = composited(
+            raster(space(), bits, width, samples, decode: decode), mode);
+        for (var i = 0; i < count; i++) {
+          expect(
+              whole.sublist(i * 3, i * 3 + 3),
+              composited(
+                  raster(space(), bits, 1, [samples[i]], decode: decode), mode),
+              reason: '$bits-bit mode $mode, sample $i = ${samples[i]}');
+        }
+      }
+    }
+
+    CosArray inverted(int top) =>
+        CosArray([CosInteger(top), const CosInteger(0)]);
+
+    for (final (bits, width) in [(1, 5), (2, 3), (4, 3), (8, 5)]) {
+      test('$bits-bit gray at an odd width matches a per-sample composite', () {
+        expectPerSample(() => const CosName('DeviceGray'), bits, width);
+        expectPerSample(() => const CosName('DeviceGray'), bits, width,
+            decode: inverted(1));
+      });
+
+      test('$bits-bit Indexed at an odd width matches a per-sample composite',
+          () {
+        final top = (1 << bits) - 1;
+        CosObject space() => CosArray([
+              const CosName('Indexed'),
+              const CosName('DeviceCMYK'),
+              CosInteger(top),
+              CosString(Uint8List.fromList([
+                for (var i = 0; i <= top; i++) ...[
+                  (i * 37) & 0xff,
+                  0,
+                  (i * 11) & 0xff,
+                  255 - i
+                ]
+              ])),
+            ]);
+        expectPerSample(space, bits, width);
+        expectPerSample(space, bits, width, decode: inverted(top));
+      });
+    }
+
+    test('a 4-bit Separation learns its spot before any sample is reused', () {
+      // The spot is not among the page's equivalents, so the first composite
+      // teaches the builder one; every later sample must convert with it.
+      expectPerSample(
+          () => CosArray([
+                const CosName('Separation'),
+                const CosName('PANTONE 349'),
+                const CosName('DeviceCMYK'),
+                exponential(const [1.0, 0.0, 0.8, 0.2]),
+              ]),
+          4,
+          7);
+    });
+  });
 }
