@@ -133,6 +133,33 @@ void main() {
     expect(find.text('Signed by Ada Lovelace'), findsOneWidget);
   });
 
+  testWidgets('an edit with the panel open re-validates without re-hashing',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+
+    final ok = await editing.addSelfSignedSignature(
+      PdfSigningIdentity.generate(name: 'Ada Lovelace'),
+      appearance: const PdfSignatureAppearance(
+          page: 0, rect: PdfRect(72, 640, 320, 720)),
+    );
+    expect(ok, isTrue);
+
+    await pumpSidebar(tester, editing, viewer);
+    await tester.pumpAndSettle();
+    expect(find.text('Valid — unverified'), findsOneWidget);
+
+    PdfSignature.debugHashedBytes = 0;
+    editing.addRectangle(0, const PdfRect(100, 100, 200, 150));
+    await tester.pumpAndSettle();
+    // a new revision, a new verdict - from the signed bytes' kept crypto
+    expect(find.text('Document was changed after signing'), findsOneWidget);
+    expect(find.text('Valid — unverified'), findsOneWidget);
+    expect(PdfSignature.debugHashedBytes, 0);
+  });
+
   group('CA-issued signer', () {
     final pki = TestRevocationPki.generate(random: Random(936));
     final signed =

@@ -258,7 +258,8 @@ void main() {
     test('the box shows the signing time in the local offset, not UTC', () {
       // A local (non-UTC) signingTime keeps its own offset in the visible box
       // and the /M date; the CMS signingTime attribute is still UTC.
-      final localTime = DateTime(2026, 6, 10, 12, 0, 0); // terminal's local zone
+      final localTime =
+          DateTime(2026, 6, 10, 12, 0, 0); // terminal's local zone
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(
         privateKey: key,
@@ -391,8 +392,7 @@ void main() {
 
       for (final page in [1, 2]) {
         final stamps = doc.page(page).annotations.where((a) =>
-            a.subtype == 'Stamp' &&
-            apnOf(a).toString() == formRef.toString());
+            a.subtype == 'Stamp' && apnOf(a).toString() == formRef.toString());
         expect(stamps, hasLength(1), reason: 'page $page');
         expect(stamps.single.rect.left, closeTo(72, 0.5));
       }
@@ -573,8 +573,8 @@ void main() {
       expect(result.signatureValid, isTrue);
       expect(result.coversWholeDocument, isTrue);
       expect(result.signedAt, signedAt);
-      expect(result.signerCertificate?.subjectCommonName,
-          'Dart PDF Test Signer');
+      expect(
+          result.signerCertificate?.subjectCommonName, 'Dart PDF Test Signer');
     });
 
     test('the signature field lands in the AcroForm and on the page', () {
@@ -684,6 +684,130 @@ void main() {
     });
   });
 
+  group('validation reuse', () {
+    int covered(PdfSignature signature) {
+      final ranges = signature.byteRange;
+      return ranges[1] + ranges[3];
+    }
+
+    test('validating again at the same revision hashes nothing', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      PdfSignature.debugHashedBytes = 0;
+      final first = signature.validate();
+      expect(first.intact, isTrue);
+      expect(PdfSignature.debugHashedBytes, covered(signature));
+
+      // a trust store arriving, or the panel asking again
+      PdfSignature.debugHashedBytes = 0;
+      final store = PdfTrustStore()..addPem(testSignerCertPem);
+      final again = PdfSignature.of(doc).single.validate(trustStore: store);
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(again.intact, isTrue);
+      expect(again.chainTrusted, isNotNull); // the chain is still built
+      expect(again.problems, first.problems);
+    });
+
+    test('the problems list is unmodifiable', () {
+      final signedDoc = PdfDocument.open(signedFixture());
+      final doc =
+          PdfDocument.open((PdfEditor(signedDoc)..rotatePage(0, 90)).save());
+      final signature = PdfSignature.of(doc).single;
+      for (final result in [
+        signature.validate(),
+        signature.validate(
+            trustStore: PdfTrustStore()..addPem(testSignerCertPem)),
+      ]) {
+        expect(result.problems.single, contains('updated after'));
+        expect(() => result.problems.add('x'), throwsUnsupportedError);
+        expect(() => result.problems.clear(), throwsUnsupportedError);
+        expect(() => result.certificates.clear(), throwsUnsupportedError);
+      }
+      // the next validation is unaffected
+      expect(signature.validate().problems, hasLength(1));
+    });
+
+    test('an in-place edit of /Contents is noticed at the same revision', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().signatureValid, isTrue);
+      final contents = signature.contents;
+      var end = contents.length - 1;
+      while (end > 0 && contents[end] == 0) {
+        end--;
+      }
+      contents[end] ^= 0xFF;
+      final result = signature.validate();
+      expect(result.signatureValid, isFalse);
+      expect(result.digestMatches, isTrue);
+    });
+
+    test('an incremental revision applied in place re-derives coverage', () {
+      final doc = PdfDocument.open(signedFixture());
+      final before = PdfSignature.of(doc).single;
+      expect(before.validate().coversWholeDocument, isTrue);
+
+      final updated =
+          doc.withIncrementalUpdate((PdfEditor(doc)..rotatePage(1, 90)).save());
+      final after = PdfSignature.of(updated).single;
+      // same COS layer, same signature dictionary: only the bytes moved on
+      expect(identical(after.dict, before.dict), isTrue);
+      PdfSignature.debugHashedBytes = 0;
+      final result = after.validate();
+      expect(result.intact, isTrue);
+      expect(result.coversWholeDocument, isFalse);
+      expect(result.problems.single, contains('updated after'));
+      // a new revision is a new buffer: the signed bytes are hashed again
+      expect(PdfSignature.debugHashedBytes, covered(after));
+    });
+
+    test('a redaction burn reports the signature broken', () {
+      final doc = PdfDocument.open(signedFixture());
+      expect(PdfSignature.of(doc).single.validate().intact, isTrue);
+      final burned = (PdfEditor(doc)
+            ..addRedaction(0, [const PdfRect(72, 700, 300, 740)]))
+          .applyRedactions();
+      final result =
+          PdfSignature.of(PdfDocument.open(burned)).single.validate();
+      expect(result.intact, isFalse);
+      expect(result.problems, isNotEmpty);
+    });
+
+    test('a core resolver is consulted, and a foreign core is ignored', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      final core = signature.cryptoCore()!;
+      expect(core.describes(signature), isTrue);
+      expect(core.coveredEnd, doc.cos.bytes.length);
+      expect(core.signatureValid, isTrue);
+
+      // a fresh document of the same bytes: the resolver's core is used
+      final other = PdfSignature.of(PdfDocument.open(doc.cos.bytes)).single;
+      var asked = 0;
+      PdfSignature.debugHashedBytes = 0;
+      final reused = other.validate(cores: (s, compute) {
+        asked++;
+        return core;
+      });
+      expect(asked, 1);
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(reused.intact, isTrue);
+
+      // a core computed for another signature dictionary is not trusted
+      final twice = PdfDocument.open(PdfEditor(doc).saveSigned(
+          privateKey: key,
+          certificates: [cert],
+          signingTime: signedAt.add(const Duration(days: 1))));
+      final second = PdfSignature.of(twice)[1];
+      expect(core.describes(second), isFalse);
+      PdfSignature.debugHashedBytes = 0;
+      final fresh = second.validate(cores: (s, compute) => core);
+      expect(PdfSignature.debugHashedBytes, covered(second));
+      expect(fresh.intact, isTrue);
+      expect(fresh.coversWholeDocument, isTrue);
+    });
+  });
+
   group('chain of trust', () {
     // safely inside the test certificates' 20-year validity window
     final chainSignedAt = DateTime.utc(2027, 1, 1, 12);
@@ -711,21 +835,19 @@ void main() {
     test('a CA-signed signature chains to the trusted root', () {
       final doc = PdfDocument.open(chainSignedFixture());
       final store = PdfTrustStore()..addPem(testCaCertPem);
-      final result =
-          PdfSignature.of(doc).single.validate(trustStore: store);
+      final result = PdfSignature.of(doc).single.validate(trustStore: store);
       expect(result.intact, isTrue);
       expect(result.chainTrusted, isTrue);
       expect(result.chainProblems, isEmpty);
-      expect(result.trustChain.first.subjectCommonName,
-          'Dart PDF Chain Signer');
+      expect(
+          result.trustChain.first.subjectCommonName, 'Dart PDF Chain Signer');
       expect(result.trustChain.last.subjectCommonName, 'Dart PDF Test CA');
     });
 
     test('an unrelated trust store rejects the chain', () {
       final doc = PdfDocument.open(chainSignedFixture());
       final store = PdfTrustStore()..addPem(testSignerCertPem);
-      final result =
-          PdfSignature.of(doc).single.validate(trustStore: store);
+      final result = PdfSignature.of(doc).single.validate(trustStore: store);
       expect(result.intact, isTrue, reason: 'integrity is separate');
       expect(result.chainTrusted, isFalse);
       expect(result.chainProblems, isNotEmpty);
@@ -739,12 +861,10 @@ void main() {
         signingTime: chainSignedAt,
       ));
       final store = PdfTrustStore()..addPem(testSignerCertPem);
-      final result =
-          PdfSignature.of(doc).single.validate(trustStore: store);
+      final result = PdfSignature.of(doc).single.validate(trustStore: store);
       expect(result.chainTrusted, isTrue);
-      final empty = PdfSignature.of(doc)
-          .single
-          .validate(trustStore: PdfTrustStore());
+      final empty =
+          PdfSignature.of(doc).single.validate(trustStore: PdfTrustStore());
       expect(empty.chainTrusted, isFalse);
     });
   });
@@ -764,8 +884,7 @@ void main() {
 
       final acroForm = doc.cos.resolve(doc.catalog['AcroForm']);
       expect(acroForm, isA<CosDictionary>());
-      final fields =
-          doc.cos.resolve((acroForm as CosDictionary)['Fields']);
+      final fields = doc.cos.resolve((acroForm as CosDictionary)['Fields']);
       expect(fields, isA<CosArray>());
       // both the original text field and the new signature field are present
       expect((fields as CosArray).items, hasLength(2));
