@@ -346,6 +346,29 @@ void main() {
       expect(titleOf(reopened), 'Rewritten');
     });
 
+    test('an /Encrypt entry the handler never read still donates', () {
+      // an indirect object under /Encrypt that fromEncrypt does not load:
+      // the donor's snapshot must hold its raw strings (taken before the
+      // handler decrypts new loads), which is what the next revision sees
+      final original = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'user'),
+          password: 'user');
+      final encrypt =
+          original.resolve(original.trailer['Encrypt']) as CosDictionary;
+      final updater = CosIncrementalUpdater(original);
+      final extra = updater
+          .addObject(CosDictionary({'Note': CosString.fromText('vendor')}));
+      updater.replaceObject(original.encryptObjectNumber!,
+          CosDictionary({...encrypt.entries, 'VendorNote': extra}));
+      final bytes = updater.save();
+
+      final extended = CosDocument.open(bytes, password: 'user');
+      final reopened = extended.openAppended(bytes);
+      expect(reopened.encryption, same(extended.encryption),
+          reason: 'the same /Encrypt, so the same keys, without the password');
+      expect(titleOf(reopened), 'Secret Title');
+    });
+
     test('a revision that only swaps a crypt filter is not given the old keys',
         () {
       // /O, /U, /OE, /UE untouched - the key is the same - but the rewritten

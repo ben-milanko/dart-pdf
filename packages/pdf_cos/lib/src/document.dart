@@ -188,11 +188,11 @@ class CosDocument {
   /// this document's already-authenticated security handler, so a revision
   /// this process just wrote to an encrypted file reopens without the
   /// password being threaded through again, and without re-running the
-  /// password check (for AES-256, Algorithm 2.B: ~30 ms native, more on the
-  /// web). The handler is donated only while the revision points at the same
-  /// /Encrypt object with the same entries (key material, permissions and
-  /// crypt filters); otherwise (and for an unencrypted document) this is an
-  /// ordinary [open] with [password].
+  /// password check (for AES-256, Algorithm 2.B: ~10 ms native, ~75 ms on
+  /// the web). The handler is donated only while the revision points at the
+  /// same /Encrypt object with the same entries (key material, permissions
+  /// and crypt filters); otherwise (and for an unencrypted document) this is
+  /// an ordinary [open] with [password].
   CosDocument openAppended(Uint8List bytes, {String password = ''}) =>
       _open(bytes, password, null, this);
 
@@ -576,9 +576,14 @@ class CosDocument {
       final first = resolve(id[0]);
       if (first is CosString) firstId = first.bytes;
     }
+    // Snapshot before the handler is installed: once [_encryption] is set,
+    // any indirect sub-object of /Encrypt that loads for the first time is
+    // decrypted, while a later revision's [_sameEncryptDictionary] resolves
+    // (before its own handler) to the raw bytes - and they would never match.
+    final snapshot = _inlineEncrypt(encrypt, resolve, 0);
     _encryption = StandardSecurityHandler.fromEncrypt(
         encrypt, firstId, password, resolve);
-    _authenticatedEncrypt = _inlineEncrypt(encrypt, resolve, 0);
+    _authenticatedEncrypt = snapshot;
   }
 
   /// Whether [encrypt] is, entry for entry, the /Encrypt dictionary [donor]'s
