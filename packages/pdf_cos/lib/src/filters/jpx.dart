@@ -1281,6 +1281,11 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
   // sample it has already updated this pass. The lifts are therefore
   // parity-disjoint and run in place, without the per-lift scratch buffers the
   // straight double-buffered form allocated (5+ Float32Lists per row/column).
+  //
+  // Each pass walks its own parity with stride 2 and reads the interior
+  // neighbours directly; only the two end samples mirror through [at]. The
+  // float operations and their order match the per-sample mirroring form, so
+  // the output is bit-identical.
   double at(int i) {
     var index = i;
     if (index < 0) index = -index;
@@ -1288,18 +1293,21 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     return signal[index.clamp(0, n - 1)];
   }
 
+  final evenStart = i0.isEven ? 0 : 1;
+  final oddStart = 1 - evenStart;
+  final last = n - 1;
   if (reversible) {
     // 5/3 (T.800 F.3.8.2): even samples first (reading odd neighbours), then
     // odd samples (reading the now-updated even neighbours).
-    for (var i = 0; i < n; i++) {
-      if ((i0 + i).isEven) {
-        signal[i] -= ((at(i - 1) + at(i + 1) + 2) / 4).floorToDouble();
-      }
+    for (var i = evenStart; i < n; i += 2) {
+      final left = i == 0 ? at(-1) : signal[i - 1];
+      final right = i == last ? at(n) : signal[i + 1];
+      signal[i] -= ((left + right + 2) / 4).floorToDouble();
     }
-    for (var i = 0; i < n; i++) {
-      if ((i0 + i).isOdd) {
-        signal[i] += ((at(i - 1) + at(i + 1)) / 2).floorToDouble();
-      }
+    for (var i = oddStart; i < n; i += 2) {
+      final left = i == 0 ? at(-1) : signal[i - 1];
+      final right = i == last ? at(n) : signal[i + 1];
+      signal[i] += ((left + right) / 2).floorToDouble();
     }
   } else {
     // 9/7 (T.800 F.4.8.2)
@@ -1308,24 +1316,23 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     const beta = -0.052980118572961;
     const gamma = 0.882911075530934;
     const delta = 0.443506852043971;
-    for (var i = 0; i < n; i++) {
-      if ((i0 + i).isEven) {
-        signal[i] *= k;
-      } else {
-        signal[i] /= k;
-      }
+    for (var i = evenStart; i < n; i += 2) {
+      signal[i] *= k;
     }
-    void lift(double coefficient, bool evenTargets) {
-      for (var i = 0; i < n; i++) {
-        if ((i0 + i).isEven == evenTargets) {
-          signal[i] -= coefficient * (at(i - 1) + at(i + 1));
-        }
+    for (var i = oddStart; i < n; i += 2) {
+      signal[i] /= k;
+    }
+    void lift(double coefficient, int start) {
+      for (var i = start; i < n; i += 2) {
+        final left = i == 0 ? at(-1) : signal[i - 1];
+        final right = i == last ? at(n) : signal[i + 1];
+        signal[i] -= coefficient * (left + right);
       }
     }
 
-    lift(delta, true);
-    lift(gamma, false);
-    lift(beta, true);
-    lift(alpha, false);
+    lift(delta, evenStart);
+    lift(gamma, oddStart);
+    lift(beta, evenStart);
+    lift(alpha, oddStart);
   }
 }
