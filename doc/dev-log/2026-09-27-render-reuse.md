@@ -1,4 +1,4 @@
-# Render reuse: Type3 cell identity across the seam
+# Render reuse: Type3 cells across the seam, cached luminosity masks, a layer raster for the first base paint
 
 Wave 2 of the measured perf pass. Each part replaces work that repeated
 something the pipeline already had. Output is byte- or pixel-identical
@@ -236,3 +236,83 @@ Ghent suite have small ones, which `ghent_render_test` exercises.
 
 Deferred, as a separate maintainer-approved effort: the native libjpeg-turbo
 accelerator (FFI build hook, per-platform packaging, pixel tolerance).
+
+## 3. First base raster through a layer, not a second replay
+
+### What was wrong
+
+Pages with 5,001-20,000 commands are retained (`_retainScene`) but not
+presented directly (`directPicturePresentationMaxCommands` is 5,000), and
+the strip and tile-only routes need more than 20,000. Their first paint ran
+`scene.replay(pixelRatio: 1)` to build `_picture`, then `_renderNow`'s stale
+branch ran `scene.rasterize(pixelRatio: effective)`: a second full replay
+of the transcript in the same UI task, just to feed `toImage`. The strip
+branch above 20k already flattens the completed picture for its first
+raster; this band never did.
+
+### Fix
+
+`PdfPageRenderer.rasterizeViaLayer(picture, size, ratio)`, next to
+`rasterize`: `SceneBuilder` `pushTransform(scale)`, `addPicture(Offset.zero)`,
+`pop`, `build`, then `Scene.toImage` with the same ceil and
+`clamp(1, 1 << 14)`. The Scene is disposed in a `finally`. Nothing is
+re-recorded; unlike `rasterize`, there is no nested `drawPicture`, whose
+cost grows with how much the linework overlaps.
+
+`_renderNow`'s stale branch takes it before `scene.rasterize` when all of
+these hold: `scene != null && !stripScene && !_sceneIsTileOnly(scene) &&
+_imageState == null && !_pictureHasImageDraws`.
+
+- `_imageState`, not `_image`, is "no full base raster yet". The
+  vector-first route parks an image-free raster in `_image` without
+  recording state.
+- The image gate stays. The layer path has not been checked on an Impeller
+  device for image-bearing pages, and the July retained-zoom work measured
+  a nested-picture penalty there. In a private real-world corpus, 12 of the
+  38 in-band pages (first 20 pages per document) are image-free.
+- Later zoom settles still use `scene.rasterize`. `_picture` and all its
+  consumers are unchanged.
+
+### Why the output is unchanged
+
+`picture` is the scene's own `replay(pixelRatio: 1)`. It is built with the
+scene in `_replayableFromCommands` and in the image-free vector-first route,
+and restored with it from the preview cache. Scaling it through a layer is
+the same raster as replaying at `effective`. `retained_scene_test` "a
+layer-scaled 1:1 replay rasterizes like a flat replay" pins that
+byte-for-byte:
+
+- fixtures: classic, embedded font, a 90-degree rotated plan, 8,000-op dense
+  linework, and an image page;
+- ratios 0.35, 1.0, 1.5 and 2.4;
+- both under the default flutter_tester backend and `--enable-impeller`.
+
+It fails if the layer is offset half a pixel.
+
+### Measurements
+
+flutter_tester (debug JIT), 9 interleaved ABAB reps per page. Each rep
+builds a fresh scene from worker-format bytes, so the first replay's path
+cache is cold as in the app. Pages: diagram-dense-3p p0-p2 (about 13.3k
+commands) and six image-free private pages (6.5k-12k).
+
+- **UI-isolate work before the raster is handed off**, i.e. the second
+  replay: 3.0-7.4 ms on the private pages and 11.6-24 ms on the diagram
+  pages. It goes to 0.03-0.06 ms (building the one-layer scene) under both
+  Skia and Impeller.
+- **Raster (`toImage` to resolved)**, which flutter_tester runs on the
+  calling thread: parity, 0.95-1.04x on every page under both backends.
+- **Combined calling-thread time in flutter_tester**:
+  - Impeller: 0.72-0.83x on most pages, with two noisy pages at 0.96-1.00x
+    on a heavily loaded machine;
+  - Skia: 0.80-0.99x, because its software raster dominates there.
+
+  This misses the planned 0.75x bar on most pages. The reason is that
+  flutter_tester puts the raster on the calling thread, where an app runs
+  it on the raster thread.
+- `diffBytes = 0` on all nine pages, under both backends.
+
+The claim is a UI-isolate saving only: one warm transcript replay per
+first base raster of an image-free 5k-20k-command page, about 3-24 ms in
+debug JIT. There is no web claim; on web the slug route takes most text
+pages before this branch.

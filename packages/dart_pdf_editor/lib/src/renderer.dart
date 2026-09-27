@@ -858,6 +858,40 @@ class PdfPageRenderer {
     }
   }
 
+  /// [rasterize] through a layer transform: the same pixels, but [picture]
+  /// is scaled by the compositor instead of being recorded into a new
+  /// picture.
+  ///
+  /// [rasterize]'s `drawPicture` re-records the whole display list on the
+  /// calling thread, and that cost grows with how much the picture overlaps
+  /// itself - dense linework is the expensive case. A one-layer scene hands
+  /// the engine [picture] as it is. [PdfPageView] uses this for a retained
+  /// page's first base raster, where [picture] is the scene's own 1:1 replay
+  /// and the alternative is a second full replay of the transcript
+  /// ([PdfRetainedScene.rasterize]); retained_scene_test pins the two
+  /// byte-identical.
+  static Future<ui.Image> rasterizeViaLayer(
+      ui.Picture picture, Size size, double pixelRatio) async {
+    final builder = ui.SceneBuilder()
+      ..pushTransform(Float64List.fromList(<double>[
+        pixelRatio, 0, 0, 0, //
+        0, pixelRatio, 0, 0, //
+        0, 0, 1, 0, //
+        0, 0, 0, 1, //
+      ]))
+      ..addPicture(Offset.zero, picture)
+      ..pop();
+    final scene = builder.build();
+    try {
+      return await scene.toImage(
+        (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+    } finally {
+      scene.dispose();
+    }
+  }
+
   /// Paints the paper background and sets [canvas] up in PDF user space for
   /// [page] under [plan] - the shared preamble every replay target runs
   /// before feeding interpreter output (or a recorded command buffer) to a
