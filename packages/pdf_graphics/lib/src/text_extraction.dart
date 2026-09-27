@@ -623,6 +623,7 @@ class PdfTextExtractor {
   /// those are rendered by a BiDi-aware substitute and may already contain
   /// logical Unicode (including appearances authored by this package).
   static _BidiLine? _bidiLine(List<_SourceRun> line) {
+    if (!_mayHaveRtl(line)) return null;
     final pieces = <_BidiPiece>[];
     _BidiKind? previousKind;
     var hasRtl = false;
@@ -734,6 +735,34 @@ class PdfTextExtractor {
     // embedded RTL spans reverse, so `English + العربية + English` keeps its
     // surrounding LTR reading order.
     return _BidiLine(groups, rightToLeft: rtlCount > runeCount * 0.3);
+  }
+
+  /// Whether [_bidiLine] could find right-to-left text on [line]; false
+  /// lets it return null without building the per-glyph pieces, which is
+  /// most of the cost on an ordinary left-to-right page.
+  ///
+  /// Exact, not a heuristic. [_bidiKind] yields RTL for a strong R/AL/RLE/
+  /// RLO/RLI class, for the supplementary RTL blocks, and for a nonspacing
+  /// mark that has no preceding class (`previous ?? rtl`). In bidi 2.0.13
+  /// every one of those strong classes is at or above U+0590 (surrogates
+  /// included, so astral scripts are caught too) and the only nonspacing
+  /// marks below it are U+0300-036F and U+0483-0489. The separators the
+  /// pass inserts are ASCII, and every code unit it walks is one of these
+  /// runs' own text. `text_extraction_test.dart` enumerates the classes
+  /// below U+0590 so a bidi upgrade can't quietly break this.
+  static bool _mayHaveRtl(List<_SourceRun> line) {
+    for (var r = 0; r < line.length; r++) {
+      final text = line[r].run.text;
+      for (var i = 0; i < text.length; i++) {
+        final unit = text.codeUnitAt(i);
+        if (unit >= 0x0590 ||
+            (unit >= 0x0300 && unit <= 0x036F) ||
+            (unit >= 0x0483 && unit <= 0x0489)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   static void _appendExtractedRun(
@@ -1474,14 +1503,41 @@ PdfTextQuad _quadOf(
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped
 /// through [transform].
+///
+/// Equal to `_quadOf(...).bounds` bit for bit - the same corners in the same
+/// order folded with the same `math.min`/`math.max` (the quad's redundant
+/// first-corner step is `min(a, a) == a`, even for -0.0 and NaN) - without
+/// allocating the quad, its corner list and records for every run.
 PdfRect _boundsOf(
   PdfMatrix transform,
   double x0,
   double x1, {
   double descent = _defaultTextDescent,
   double ascent = _defaultTextAscent,
-}) =>
-    _quadOf(transform, x0, x1, descent: descent, ascent: ascent).bounds;
+}) {
+  var minX = transform.transformX(x0, descent);
+  var minY = transform.transformY(x0, descent);
+  var maxX = minX, maxY = minY;
+  final x2 = transform.transformX(x1, descent);
+  final y2 = transform.transformY(x1, descent);
+  minX = math.min(minX, x2);
+  maxX = math.max(maxX, x2);
+  minY = math.min(minY, y2);
+  maxY = math.max(maxY, y2);
+  final x3 = transform.transformX(x1, ascent);
+  final y3 = transform.transformY(x1, ascent);
+  minX = math.min(minX, x3);
+  maxX = math.max(maxX, x3);
+  minY = math.min(minY, y3);
+  maxY = math.max(maxY, y3);
+  final x4 = transform.transformX(x0, ascent);
+  final y4 = transform.transformY(x0, ascent);
+  minX = math.min(minX, x4);
+  maxX = math.max(maxX, x4);
+  minY = math.min(minY, y4);
+  maxY = math.max(maxY, y4);
+  return PdfRect(minX, minY, maxX, maxY);
+}
 
 PdfRect _union(Iterable<PdfRect> rects) {
   final iterator = rects.iterator;

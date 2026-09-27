@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:bidi/bidi.dart' as bidi;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -419,6 +420,71 @@ void main() {
     expect(page.positionNear(313, 720), 4);
   });
 
+  group('left-to-right fast path', () {
+    // `_bidiLine` skips its per-glyph pass when no code unit on the line
+    // could be right-to-left. These pin the one sub-U+0590 way a line turns
+    // RTL, and the bidi table facts that make the skip exact.
+    test('only nonspacing marks below U+0590 can make a line RTL', () {
+      const strongRtl = {
+        bidi.CharacterType.rtl,
+        bidi.CharacterType.al,
+        bidi.CharacterType.rle,
+        bidi.CharacterType.rlo,
+        bidi.CharacterType.rli,
+      };
+      for (var c = 0; c < 0x0590; c++) {
+        final type = bidi.getCharacterType(c);
+        expect(strongRtl, isNot(contains(type)),
+            reason: 'U+${c.toRadixString(16)} is strong RTL');
+        if (type == bidi.CharacterType.nonspacingMark) {
+          expect((c >= 0x0300 && c <= 0x036F) || (c >= 0x0483 && c <= 0x0489),
+              isTrue,
+              reason: 'U+${c.toRadixString(16)} is a nonspacing mark outside '
+                  'the ranges the fast path checks');
+        }
+      }
+    });
+
+    test('a line-initial combining mark still takes the BiDi pass', () {
+      // A mark with no preceding class counts as RTL (`previous ?? rtl`), so
+      // U+0304 before "x" is a majority-RTL line and reads back reversed.
+      for (final mark in ['\u0304', '\u0483']) {
+        final page = _pageOfRuns([_glyphRun('${mark}x', 100, 0.6)]);
+        expect(page.text, 'x$mark');
+        expect(page.runs.map((run) => run.isRightToLeft), [false, true]);
+      }
+      // In a longer LTR line the mark keeps the line on the per-glyph path.
+      final page = _pageOfRuns([
+        _glyphRun('\u0304x = y', 100, 2),
+        _glyphRun('and more', 130, 4),
+      ]);
+      expect(page.text, '\u0304x = y and more');
+      expect(page.runs.first.isRightToLeft, isTrue);
+      expect(page.runs, hasLength(6 + 8), reason: 'one run per glyph');
+    });
+
+    test('run bounds equal the bounds of the run quad', () {
+      final page = _pageOfRuns([
+        _glyphRun('Upright', 100, 3.5),
+        _glyphRun('Rotated', 100, 3.5,
+            transform: const PdfMatrix(0, 12, -12, 0, 300, 400)),
+        _glyphRun('Skewed', 100, 3,
+            transform: const PdfMatrix(10, 3, -4, 11, -50.25, 610.5)),
+        _glyphRun('Flipped', 100, 3.5,
+            transform: const PdfMatrix(-12, 0, 0, -12, 500, 100)),
+      ]);
+      expect(page.runs, hasLength(4));
+      for (final run in page.runs) {
+        final quad = page
+            .quadsFor(run.startIndex, run.startIndex + run.text.length)
+            .single;
+        final (a, b) = (run.bounds, quad.bounds);
+        expect([a.left, a.bottom, a.right, a.top],
+            [b.left, b.bottom, b.right, b.top]);
+      }
+    });
+  });
+
   test('literal search ignores clipboard bidi formatting controls', () {
     const text = '(اﻟرﺣﻣن';
     const page = PdfPageText(pageIndex: 0, text: text, runs: []);
@@ -613,6 +679,29 @@ void main() {
     expect((page.items[1] as PdfReflowBlock).text, 'First paragraph');
     expect((page.items[2] as PdfReflowBlock).text, 'Second paragraph');
   });
+}
+
+/// Page text for hand-built [runs], through the recorded-text entry point
+/// (the same line, BiDi and bounds code as a fresh extraction).
+PdfPageText _pageOfRuns(List<PdfTextRun> runs) => _textFromRuns(runs);
+
+/// An embedded-font style run: one positioned glyph per code point, spread
+/// evenly across [width] em.
+PdfTextRun _glyphRun(String text, double x, double width,
+    {PdfMatrix? transform}) {
+  final runes = text.runes.toList();
+  return PdfTextRun(
+    text: text,
+    transform: transform ?? PdfMatrix(12, 0, 0, 12, x, 700),
+    color: const PdfColor(0, 0, 0),
+    width: width,
+    glyphs: [
+      for (var i = 0; i < runes.length; i++)
+        PdfGlyphPlacement(
+            offset: width * i / runes.length,
+            text: String.fromCharCode(runes[i])),
+    ],
+  );
 }
 
 /// Page text built from [runs] exactly as a fresh extraction would build it.
