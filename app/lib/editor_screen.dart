@@ -92,6 +92,27 @@ String _openTracePercent(int fetched, int? total) => total == null || total <= 0
     ? 'unknown'
     : (fetched * 100 / total).toStringAsFixed(1);
 
+/// The mean time per ranged read, taken over the whole first-paint
+/// [PdfDocument.openSource] call, at or under which a desktop progressive open
+/// treats its file as local and reads the rest before mounting a read-only
+/// preview (see `_openProgressive`). The loader's own parsing is inside that
+/// time, so the figure overstates the real read latency and only ever errs
+/// towards the preview: a warm local disk answers each read in well under a
+/// millisecond, a cloud provider fetching on demand in tens.
+const double _directOpenMaxMeanReadMs = 3;
+
+/// How long a local-looking open waits for its whole-file read before falling
+/// back to the preview: twice what the first-paint open took, within these
+/// bounds.
+const int _directOpenMinWaitMs = 50;
+const int _directOpenMaxWaitMs = 150;
+
+/// Test seam for [_directOpenMaxMeanReadMs]; null in production. A negative
+/// value keeps every open on the preview-and-swap path, and a large one takes
+/// the direct read however slowly the first-paint reads came back.
+@visibleForTesting
+double? debugDirectOpenMaxMeanReadMs;
+
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
 /// (search, page number, panels, toolbar). The screen supplies the edit
@@ -1456,18 +1477,22 @@ class _EditorScreenState extends State<EditorScreen>
     final openClock = Stopwatch()..start();
     var fetchedBytes = 0;
     var totalBytes = declaredBytes;
+    // Every source reports once per read, so this counts the ranged reads.
+    var reads = 0;
     final source = _progressiveSource(
       path: path,
       bookmark: bookmark,
       token: token,
       cancel: cancel,
       onProgress: (received, total) {
+        reads++;
         fetchedBytes = received;
         if (total != null && total >= 0) totalBytes = total;
       },
     );
 
     PdfDocument doc;
+    final openStartUs = openClock.elapsedMicroseconds;
     try {
       // Fetch just the first page's worth of bytes for the read-only first
       // paint - for an image-heavy scan/CAD file the live objects are the page
@@ -1498,7 +1523,7 @@ class _EditorScreenState extends State<EditorScreen>
       progress.dispose();
       await source.close();
       if (!mounted) return;
-      await _fallbackFullOpen(loading,
+      await _openWholeFile(loading,
           title: title,
           path: path,
           bookmark: bookmark,
@@ -1506,6 +1531,73 @@ class _EditorScreenState extends State<EditorScreen>
           cachePath: cachePath,
           onOpenFailed: onOpenFailed);
       return;
+    }
+    final openSourceUs = openClock.elapsedMicroseconds - openStartUs;
+    final openReads = reads;
+    final openFetchedBytes = fetchedBytes;
+    final meanReadUs = openReads == 0 ? 0 : openSourceUs ~/ openReads;
+
+    // On a local disk the whole file reads in about the time the first-paint
+    // open just took, so a preview would be torn down almost as soon as it
+    // mounted: a second parse, a second worker pool and a second page-0 render
+    // for nothing, then blank paper while the edit session's viewer starts
+    // over. When the open's reads came back local-fast, read the rest now - on
+    // the same source and only after the ranged reads, so it never competes
+    // with them - and build the edit session directly if the bytes land within
+    // a short wait. A mobile reference pick (#364) keeps the preview: its
+    // provider can't be told apart from a local file off-device.
+    Future<Uint8List>? fullRead;
+    final maxMeanReadMs =
+        debugDirectOpenMaxMeanReadMs ?? _directOpenMaxMeanReadMs;
+    if (token == null &&
+        openReads > 0 &&
+        openSourceUs <= openReads * maxMeanReadMs * 1000) {
+      final waitMs = (2 * openSourceUs ~/ 1000)
+          .clamp(_directOpenMinWaitMs, _directOpenMaxWaitMs);
+      final readStartUs = openClock.elapsedMicroseconds;
+      final read = fullRead = readSourceFully(
+        source,
+        cancelToken: cancel,
+        onProgress: (received, total) {
+          if (total != null && total > 0) {
+            progress.value = (received / total).clamp(0.0, 1.0);
+          }
+        },
+      );
+      Uint8List? full;
+      try {
+        full = await read.timeout(Duration(milliseconds: waitMs));
+      } catch (_) {
+        // Too slow, or failed: mount the preview as before and let
+        // _finishProgressive take over this same read (errors included), so
+        // the file is never read twice.
+      }
+      final trace = 'platform=${defaultTargetPlatform.name} '
+          'name="${_openTraceLabel(title)}" '
+          'reads=$openReads '
+          'meanReadUs=$meanReadUs '
+          'openSourceMs=${openSourceUs ~/ 1000} '
+          'waitMs=$waitMs '
+          'totalBytes=${totalBytes ?? "unknown"}';
+      if (full == null) {
+        AppDevTools.instance.addLog('open-trace: fast-path missed $trace');
+      } else {
+        AppDevTools.instance.addLog('open-trace: fast-path direct $trace '
+            'fullReadMs=${(openClock.elapsedMicroseconds - readStartUs) ~/ 1000} '
+            'elapsedMs=${openClock.elapsedMilliseconds}');
+        // The sparse first-paint document is dropped unused.
+        progress.dispose();
+        await source.close();
+        if (!mounted) return;
+        await _openWholeFile(loading,
+            title: title,
+            path: path,
+            bookmark: bookmark,
+            cachePath: cachePath,
+            onOpenFailed: onOpenFailed,
+            bytes: full);
+        return;
+      }
     }
 
     await WidgetsBinding.instance.endOfFrame;
@@ -1552,34 +1644,39 @@ class _EditorScreenState extends State<EditorScreen>
       'provider="${_openTraceLabel(provider)}" '
       'name="${_openTraceLabel(title)}" '
       'mode=progressive seekable=true '
-      'fetchedBytes=$fetchedBytes '
+      'fetchedBytes=$openFetchedBytes '
       'totalBytes=${totalBytes ?? "unknown"} '
-      'fetchedPercent=${_openTracePercent(fetchedBytes, totalBytes)} '
+      'fetchedPercent=${_openTracePercent(openFetchedBytes, totalBytes)} '
       'elapsedMs=${openClock.elapsedMilliseconds} '
-      'pages=${doc.pageCount}',
+      'pages=${doc.pageCount} '
+      'reads=$openReads meanReadUs=$meanReadUs',
     );
 
-    // Stream the rest in behind the first paint, then swap to a full session.
-    unawaited(_finishProgressive(preview, source));
+    // Stream the rest in behind the first paint (or keep streaming the read a
+    // local-looking open already started), then swap to a full session.
+    unawaited(_finishProgressive(preview, source, fullRead: fullRead));
   }
 
   /// The background half of [_openProgressive]: reads the whole file (reporting
   /// progress on the preview's [DocumentTab.progress]) and swaps the read-only
-  /// [preview] for a full edit session once the complete bytes land.
-  Future<void> _finishProgressive(
-      DocumentTab preview, PdfByteSource source) async {
+  /// [preview] for a full edit session once the complete bytes land. A
+  /// [fullRead] already in flight on [source] is awaited instead of starting
+  /// another.
+  Future<void> _finishProgressive(DocumentTab preview, PdfByteSource source,
+      {Future<Uint8List>? fullRead}) async {
     final progress = preview.progress!;
     final cancel = preview.cancel!;
     try {
-      final full = await readSourceFully(
-        source,
-        cancelToken: cancel,
-        onProgress: (received, total) {
-          if (total != null && total > 0) {
-            progress.value = (received / total).clamp(0.0, 1.0);
-          }
-        },
-      );
+      final full = await (fullRead ??
+          readSourceFully(
+            source,
+            cancelToken: cancel,
+            onProgress: (received, total) {
+              if (total != null && total > 0) {
+                progress.value = (received / total).clamp(0.0, 1.0);
+              }
+            },
+          ));
       await source.close();
       if (!mounted) return;
       if (_swapPreviewToDocument(preview, full)) {
@@ -1652,10 +1749,12 @@ class _EditorScreenState extends State<EditorScreen>
     return true;
   }
 
-  /// Reads the origin whole (the app's normal open path) into the [loading]
-  /// tab - the fallback when a progressive first paint can't be assembled.
-  /// Reads from a desktop [path] or a mobile reference [token] (#364).
-  Future<void> _fallbackFullOpen(
+  /// Opens the origin whole (the app's normal open path) into the [loading]
+  /// tab: the fallback when a progressive first paint can't be assembled, and
+  /// the direct path when a local file's whole read landed before any preview
+  /// was needed (pass those [bytes]). Otherwise reads from a desktop [path] or
+  /// a mobile reference [token] (#364).
+  Future<void> _openWholeFile(
     DocumentTab loading, {
     required String title,
     String? path,
@@ -1663,15 +1762,16 @@ class _EditorScreenState extends State<EditorScreen>
     String? token,
     String? cachePath,
     bool Function(Object error)? onOpenFailed,
+    Uint8List? bytes,
   }) async {
     try {
-      final bytes =
+      final whole = bytes ??
           await _readOriginFully(path: path, bookmark: bookmark, token: token);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final built = DocumentTab.document(
         title: title,
-        bytes: bytes,
+        bytes: whole,
         preferences: _prefs,
         originPath: path,
         originBookmark: bookmark,
@@ -1689,7 +1789,7 @@ class _EditorScreenState extends State<EditorScreen>
               cachePath: cachePath,
               bookmark: bookmark);
         } else {
-          unawaited(_snapshotOpenedDocument(built, bytes));
+          unawaited(_snapshotOpenedDocument(built, whole));
         }
       }
     } catch (error) {

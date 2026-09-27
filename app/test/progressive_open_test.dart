@@ -2,6 +2,10 @@
 // first paint renders the sparse document, then the complete bytes stream in
 // behind it and the tab swaps to a full edit session. Driven on Linux so the
 // source is a plain RandomAccessFile (no macOS security-scoped channel).
+//
+// A local file normally skips that preview (its whole read lands straight
+// after the first-paint open - see desktop_direct_open_test.dart), so these
+// tests turn the direct read off to keep the preview-and-swap path covered.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -29,9 +33,11 @@ void main() {
     prefs = PdfEditingPreferences();
     tempDir = Directory.systemTemp.createTempSync('dartpdf_progressive_test');
     AppDevTools.instance.clearLog();
+    debugDirectOpenMaxMeanReadMs = -1;
   });
 
   tearDown(() {
+    debugDirectOpenMaxMeanReadMs = null;
     prefs.dispose();
     tempDir.deleteSync(recursive: true);
   });
