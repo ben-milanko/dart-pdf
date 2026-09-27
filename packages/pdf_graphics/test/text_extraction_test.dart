@@ -564,6 +564,43 @@ void main() {
     expect(page.blocks.map((block) => block.text), ['Body text']);
   });
 
+  group('tiling-pattern and Type3 cells', () {
+    // Extraction consumes recorded cells natively and skips the ones holding
+    // nothing it keeps. Whatever it does keep has to match the per-tile
+    // expansion a device that isn't a PdfTiledCellSink receives.
+    test('extract matches the per-tile expansion and skips textless hatch', () {
+      final doc = PdfDocument.open(_cellDoc());
+      final reference = _collectUnsunk(doc);
+      final extracted = PdfTextExtractor.extract(doc, 0);
+
+      expect(serializePageText(extracted),
+          serializePageText(_textFromRuns(reference.runs)));
+      // 3x3 label tiles plus their one-tile margin, once upright and once
+      // under a rotated pattern matrix; the hatch contributes nothing.
+      final cells = extracted.runs.where((run) => run.text == 'CELL').toList();
+      expect(cells,
+          hasLength(reference.runs.where((r) => r.text == 'CELL').length));
+      expect(cells.length, greaterThan(8));
+      expect(cells.map((run) => run.transform.e).toSet().length, greaterThan(3),
+          reason: 'every tile keeps its own translation');
+      expect(extracted.text, startsWith('Title'));
+      expect(extracted.text, contains('in'));
+    });
+
+    test('reflowPage keeps images drawn inside pattern and Type3 cells', () {
+      final doc = PdfDocument.open(_cellDoc());
+      final reference = _collectUnsunk(doc);
+      final page = PdfTextExtractor.reflowPage(doc, 0);
+      final expected = PdfTextReflower.reflow(_textFromRuns(reference.runs),
+          images: reference.images);
+
+      expect(_reflowSignature(page), _reflowSignature(expected));
+      // Picture tiles (the image is 30pt) and the two bitmap "A" glyphs.
+      expect(page.images.length, greaterThanOrEqualTo(4 + 2));
+      expect(page.images.length, reference.images.length);
+    });
+  });
+
   test('reflow places an image above all text first', () {
     final doc = PdfDocument.open(_imageDocWith([
       'q 200 0 0 80 100 690 cm /Im0 Do Q', // top of the page, above all text
@@ -576,6 +613,142 @@ void main() {
     expect((page.items[1] as PdfReflowBlock).text, 'First paragraph');
     expect((page.items[2] as PdfReflowBlock).text, 'Second paragraph');
   });
+}
+
+/// Page text built from [runs] exactly as a fresh extraction would build it.
+PdfPageText _textFromRuns(List<PdfTextRun> runs) =>
+    PdfTextExtractor.fromRecordedText(
+        PdfRecordedText.capture(
+            [for (final run in runs) PdfDrawTextCommand(run)]),
+        0);
+
+/// Walks page 0 into a plain collecting device - not a [PdfTiledCellSink],
+/// so the interpreter expands every recorded cell per tile into it - with
+/// the extractor's own interpreter options.
+_CollectingDevice _collectUnsunk(PdfDocument doc) {
+  final device = _CollectingDevice();
+  PdfInterpreter(
+    cos: doc.cos,
+    device: device,
+    resolveOverprint: false,
+    collectCharOffsets: true,
+  ).drawPage(doc.page(0));
+  return device;
+}
+
+String _reflowSignature(PdfReflowPage page) {
+  String rect(PdfRect r) => '${r.left},${r.bottom},${r.right},${r.top}';
+  String matrix(PdfMatrix m) => '${m.a},${m.b},${m.c},${m.d},${m.e},${m.f}';
+  return [
+    for (final item in page.items)
+      switch (item) {
+        PdfReflowBlock() => 'B ${item.text} ${rect(item.bounds)}',
+        PdfReflowImage() =>
+          'I ${rect(item.bounds)} ${matrix(item.request.transform)}',
+      },
+  ].join('\n');
+}
+
+class _CollectingDevice implements PdfDevice {
+  final runs = <PdfTextRun>[];
+  final images = <PdfImageRequest>[];
+
+  @override
+  void drawText(PdfTextRun run) => runs.add(run);
+  @override
+  void drawImage(PdfImageRequest request) => images.add(request);
+  @override
+  void save() {}
+  @override
+  void restore() {}
+  @override
+  void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double a) {}
+  @override
+  void fillPathGradient(
+      PdfPath path, PdfFillRule rule, PdfGradient gradient, double a) {}
+  @override
+  void fillMesh(PdfMesh mesh, double a) {}
+  @override
+  void strokePath(PdfPath path, PdfColor color, PdfStroke stroke, double a) {}
+  @override
+  void clipPath(PdfPath path, PdfFillRule rule) {}
+  @override
+  void setBlendMode(PdfBlendMode mode) {}
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+  @override
+  void beginGroup(double alpha, {bool knockout = false}) {}
+  @override
+  void endGroup() {}
+  @override
+  void beginSoftMasked() {}
+  @override
+  void endSoftMasked(
+      {required bool luminosity,
+      required PdfRect backdrop,
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {}
+}
+
+/// A page mixing everything a recorded cell can carry: a textless line
+/// hatch, a text-bearing label pattern (upright and rotated), an
+/// image-bearing pattern, and a Type3 font whose glyphs are a bitmap (A), a
+/// filled square (B) and nested text (C). Every fill spans at least four
+/// tiles, so the interpreter records the cell instead of running it per tile.
+Uint8List _cellDoc() {
+  const content = 'BT /F1 12 Tf 72 740 Td (Title) Tj ET\n'
+      'q /Pattern cs /Hatch scn 72 500 200 100 re f Q\n'
+      'q /Pattern cs /Label scn 72 300 120 60 re f Q\n'
+      'q /Pattern cs /LabelRotated scn 72 100 60 120 re f Q\n'
+      'q /Pattern cs /Picture scn 300 300 150 150 re f Q\n'
+      'BT /T3 30 Tf 300 150 Td (ABCAB) Tj ET';
+  const hex = 'FF000000FF000000FFFFFFFF>';
+  String stream(String dict, String data) =>
+      '<< $dict /Length ${data.length} >>\nstream\n$data\nendstream';
+  String pattern(
+          String data, String bbox, int xStep, int yStep, String resources,
+          {String matrix = ''}) =>
+      stream(
+          '/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 '
+          '/BBox [$bbox] /XStep $xStep /YStep $yStep $matrix'
+          '/Resources $resources',
+          data);
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R /T3 8 0 R >> '
+        '/XObject << /Im0 6 0 R >> '
+        '/Pattern << /Hatch 9 0 R /Label 10 0 R /Picture 11 0 R '
+        '/LabelRotated 14 0 R >> >> >>',
+    stream('', content),
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    stream(
+        '/Type /XObject /Subtype /Image /Width 2 /Height 2 '
+        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode',
+        hex),
+    stream('', '1000 0 d0 q 1000 0 0 1000 0 0 cm /Im0 Do Q'),
+    '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] '
+        '/FontMatrix [0.001 0 0 0.001 0 0] /FirstChar 65 /LastChar 67 '
+        '/Widths [1000 1000 1000] '
+        '/Encoding << /Type /Encoding /Differences [65 /A /B /C] >> '
+        '/CharProcs << /A 7 0 R /B 12 0 R /C 13 0 R >> '
+        '/Resources << /Font << /F1 5 0 R >> /XObject << /Im0 6 0 R >> >> >>',
+    pattern('0 0 m 10 10 l S', '0 0 10 10', 10, 10, '<< >>'),
+    pattern('BT /F1 4 Tf 1 1 Td (CELL) Tj ET', '0 0 40 20', 40, 20,
+        '<< /Font << /F1 5 0 R >> >>'),
+    pattern('q 30 0 0 30 5 5 cm /Im0 Do Q', '0 0 50 50', 50, 50,
+        '<< /XObject << /Im0 6 0 R >> >>'),
+    stream('', '1000 0 d0 0 0 800 800 re f'),
+    stream('', '1000 0 d0 BT /F1 500 Tf 0 0 Td (in) Tj ET'),
+    pattern('BT /F1 4 Tf 1 1 Td (CELL) Tj ET', '0 0 40 20', 40, 20,
+        '<< /Font << /F1 5 0 R >> >>',
+        matrix: '/Matrix [0 1 -1 0 0 0] '),
+  ];
+  return _assemblePdf(objects);
 }
 
 /// A one-page PDF with two text paragraphs and a single image XObject drawn

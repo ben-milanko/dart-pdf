@@ -11,7 +11,9 @@ import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'recorded_text.dart';
+import 'render_command.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 final _bidiFormattingControls =
     RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
@@ -508,7 +510,8 @@ class PdfTextExtractor {
   static PdfPageText extract(PdfDocument document, int pageIndex) {
     final t0 = PdfPerf.begin();
     try {
-      return _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+      return _pageTextFrom(pageIndex,
+          _interpret(document, pageIndex, collectImages: false).runs);
     } finally {
       PdfPerf.end(PdfPerfPhase.textExtract, t0);
     }
@@ -528,8 +531,9 @@ class PdfTextExtractor {
     }
   }
 
-  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
-    final device = _ExtractionDevice();
+  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex,
+      {required bool collectImages}) {
+    final device = _ExtractionDevice(collectImages: collectImages);
     // Extraction reads geometry and Unicode, never colour, so the overprint
     // colorant buffer (§8.6.7) would be pure cost on a page that uses it.
     PdfInterpreter(
@@ -907,7 +911,7 @@ class PdfTextExtractor {
   /// Extracts one page and infers paragraph blocks and images in reading
   /// order.
   static PdfReflowPage reflowPage(PdfDocument document, int pageIndex) {
-    final device = _interpret(document, pageIndex);
+    final device = _interpret(document, pageIndex, collectImages: true);
     return PdfTextReflower.reflow(
       _pageTextFrom(pageIndex, device.runs),
       images: device.images,
@@ -1576,9 +1580,63 @@ double _median(Iterable<double> values) {
 String _normalizeSpaces(String text) =>
     text.replaceAll(RegExp(r'[ \t\f\v]+'), ' ').trim();
 
-class _ExtractionDevice implements PdfDevice {
+/// Collects text runs (and, for reflow, image draws) from one page walk.
+///
+/// Being a [PdfTiledCellSink] routes both recorded tiling-pattern cells and
+/// cached Type3 glyph cells here instead of through a per-tile
+/// [TranslatingPdfDevice] expansion, so a cell that can't produce anything
+/// this device keeps - a hatch tile, a vector Type3 glyph - is skipped
+/// outright rather than having every path re-translated just to be dropped.
+class _ExtractionDevice implements PdfDevice, PdfTiledCellSink {
+  _ExtractionDevice({required this.collectImages});
+
+  /// Whether image draws are kept: [PdfTextExtractor.reflowPage] needs them,
+  /// plain extraction doesn't (which also skips image-only cells such as the
+  /// bitmap glyphs of TeX-era Type3 fonts).
+  final bool collectImages;
   final List<PdfTextRun> runs = [];
   final List<PdfImageRequest> images = [];
+
+  /// Per-walk verdicts keyed by cell identity: a tiling cell is recorded once
+  /// per fill and a Type3 glyph cell once per interpreter, then drawn many
+  /// times. Recorded cells are complete before they are drawn, so they can't
+  /// contain themselves.
+  final _cellNeeded = Map<List<PdfRenderCommand>, bool>.identity();
+
+  bool _needsCell(List<PdfRenderCommand> cell) =>
+      _cellNeeded[cell] ??= _scanCell(cell);
+
+  /// Same rule as `PdfRecordedText.capture`: only text (and images, when
+  /// collected) survives into this device, recursing into nested cells but
+  /// never into soft-mask definitions - [endSoftMasked] doesn't run
+  /// `drawMask`, so nothing in a mask reaches [runs] or [images].
+  bool _scanCell(List<PdfRenderCommand> cell) {
+    for (final command in cell) {
+      if (command is PdfDrawTextCommand) return true;
+      if (collectImages && command is PdfDrawImageCommand) return true;
+      if (command is PdfDrawTiledCellCommand &&
+          command.originsX.isNotEmpty &&
+          _needsCell(command.cellCommands)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    final cell = command.cellCommands;
+    if (!_needsCell(cell)) return;
+    // The same per-origin expansion the interpreter and `replayCommands`
+    // give a device that isn't a sink - base repeat verbatim, the rest
+    // translated - so runs, their order and their float translations are
+    // unchanged.
+    for (var t = 0; t < command.originsX.length; t++) {
+      final dx = command.originsX[t], dy = command.originsY[t];
+      replayCommands(
+          cell, dx == 0 && dy == 0 ? this : TranslatingPdfDevice(this, dx, dy));
+    }
+  }
 
   @override
   void drawText(PdfTextRun run) => runs.add(run);
@@ -1599,7 +1657,9 @@ class _ExtractionDevice implements PdfDevice {
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {}
   @override
-  void drawImage(PdfImageRequest request) => images.add(request);
+  void drawImage(PdfImageRequest request) {
+    if (collectImages) images.add(request);
+  }
 
   @override
   void setBlendMode(PdfBlendMode mode) {}
