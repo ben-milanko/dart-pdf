@@ -391,8 +391,12 @@ flat5000-cover at the widget page is the weakest cell in either harness:
 same code on both sides - and the extra 2-5% is not the decision:
 probing with the AOT mirror, a patched mirror with no hook at all was as
 slow as the real one, and base's mirror compiled against this branch's
-libraries was as fast as base. It follows the heap state the open leaves
-behind (it goes away when the open hashes), not work the branch adds. A
+libraries was as fast as base. An independent review re-measured it as
+run-order noise in that identical loop, not a regression: removing the
+hash from base, adding it to the branch, removing the hook, or resolving
+the form lazily all left it where it was; the same AOT binaries give
+1.09x or 0.93x depending on what ran earlier in the process; and the
+PdfPerf counts at that stage are identical on both sides. A
 field-by-widget map would remove the O(annotations x fields) matching
 itself; that is a separate change.
 
