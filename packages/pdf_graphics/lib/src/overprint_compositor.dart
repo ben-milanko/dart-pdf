@@ -92,6 +92,9 @@ class PdfOverprintCompositor {
   final PdfColorantRaster _raster;
   final PdfColorContext? _colorContext;
 
+  /// The buffer's palette index per cell, row-major. For tests.
+  Uint16List get debugCells => _raster.cells;
+
   /// Palette entry 0 is bare paper, entry 1 the "colorants unknown" sentinel
   /// (images, gradients, transparency groups, translucent paint, colour spaces
   /// with no colorant reading). An overprint landing on unknown declines.
@@ -292,13 +295,23 @@ class PdfOverprintCompositor {
   /// Resolves a fill. Returns the colour to paint when the overprint composite
   /// is a single colour across the draw, or null to leave the device's own
   /// handling (its RGB approximation, or plain painting when not overprinting)
-  /// in charge. [subCellBounds] may conservatively retain one or more
-  /// intersected grid cells when a real vector shape covered no cell centre;
-  /// the caller must clip visible replay through the original path.
+  /// in charge. [subCellBounds], asked only when the path covered no cell
+  /// centre, may conservatively retain one or more intersected grid cells for
+  /// a real vector shape; the caller must clip visible replay through the
+  /// original path.
+  ///
+  /// [unknownProbe] is a page-space box around the fill (its control-point
+  /// bounds), asked only for an effective overprint with no group open. When
+  /// every cell of its covering box that the clip lets a paint reach already
+  /// reads unknown, the draw can only paint unknown over unknown - a no-op -
+  /// so it returns without rasterizing the path at all. That is most glyph
+  /// runs on an overprinting text page with no OutputIntent: black text
+  /// overprinting a backdrop the buffer cannot read.
   PdfColor? fill(
       PdfPath path, PdfFillRule rule, PdfColor color, PdfInkColorants? ink,
       {PdfInkColorants? blendInk,
-      PdfRect? subCellBounds,
+      PdfRect? Function()? subCellBounds,
+      PdfRect? Function()? unknownProbe,
       required bool overprint,
       required int mode,
       required bool opaque}) {
@@ -308,14 +321,46 @@ class PdfOverprintCompositor {
       final spans =
           _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd);
       if (!spans.isEmpty || subCellBounds == null) return spans;
+      final bounds = subCellBounds();
+      if (bounds == null) return spans;
       return _raster.coveringBoxSpans(
-        subCellBounds.left,
-        subCellBounds.bottom,
-        subCellBounds.right,
-        subCellBounds.top,
+        bounds.left,
+        bounds.bottom,
+        bounds.right,
+        bounds.top,
       );
     }, color, ink,
-        blendInk: blendInk, overprint: overprint, mode: mode, opaque: opaque);
+        blendInk: blendInk,
+        unknownProbe: unknownProbe,
+        overprint: overprint,
+        mode: mode,
+        opaque: opaque);
+  }
+
+  /// Whether [box]'s covering box holds at least one cell and every one of
+  /// them the clip lets a paint reach already reads unknown. A fill's cell
+  /// coverage lies inside its control points' box, so an overprint landing
+  /// there resolves to unknown over unknown whatever its exact shape.
+  bool _allUnknownUnder(PdfRect? box) {
+    if (box == null) return false;
+    // coveringBoxSpans floors and ceils the mapped box, which throws on a
+    // non-finite edge; such geometry takes the ordinary path instead.
+    final l = box.left, b = box.bottom, r = box.right, t = box.top;
+    if (!(l.isFinite && b.isFinite && r.isFinite && t.isFinite)) return false;
+    final m = _raster.mapping.matrix;
+    if (!(m.transformX(l, b).isFinite &&
+        m.transformY(l, b).isFinite &&
+        m.transformX(r, t).isFinite &&
+        m.transformY(r, t).isFinite &&
+        m.transformX(l, t).isFinite &&
+        m.transformY(l, t).isFinite &&
+        m.transformX(r, b).isFinite &&
+        m.transformY(r, b).isFinite)) {
+      return false;
+    }
+    final spans = _raster.coveringBoxSpans(l, b, r, t);
+    if (spans.isEmpty) return false;
+    return _raster.clippedCellsAll(spans, _unknownIndex);
   }
 
   bool _skipPaint = false;
@@ -765,11 +810,24 @@ class PdfOverprintCompositor {
   PdfColor? _resolve(
       ColorantSpans Function() rasterize, PdfColor color, PdfInkColorants? ink,
       {PdfInkColorants? blendInk,
+      PdfRect? Function()? unknownProbe,
       required bool overprint,
       required int mode,
       required bool opaque}) {
     if (_exhausted || _muted != 0) return null;
     _countDraw();
+    // An effective overprint over nothing but unknown cells changes nothing
+    // (see [fill]). With a group open the draw would still mark the group's
+    // coverage, so the probe only runs on the page's own buffer.
+    if (unknownProbe != null &&
+        overprint &&
+        opaque &&
+        _suspended == 0 &&
+        ink != null &&
+        _groups.isEmpty &&
+        _allUnknownUnder(unknownProbe())) {
+      return null;
+    }
     _countRasterized();
     final spans = rasterize();
     if (spans.isEmpty) return null;

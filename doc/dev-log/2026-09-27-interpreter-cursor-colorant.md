@@ -140,3 +140,47 @@ draw, read or group - never per span or cell:
 blending group opens the buffer with no `/OP`, which none of the existing
 Ghent inputs covered. The re-baseline only adds keys and that input (GWG162:
 269 draws, 124 reads, 50 groups on one page).
+
+## Overprint glyph runs: unknown-backdrop probe
+
+On a page with a colorant buffer every embedded-font run is resolved through
+its real outlines (#755). On overprinting text with no OutputIntent most of
+those runs are effective overprints of black onto a backdrop the buffer
+cannot read: `_resolve` rasterized the run, found every cell under it
+unknown, painted unknown over unknown and returned null - pure no-op work.
+On the worst private document that was 5,596 of 8,532 rasterized draws.
+
+- `PdfOverprintCompositor.fill` takes an optional `unknownProbe`, a thunk for
+  a page-space box around the fill. For an effective overprint (overprint,
+  opaque, not isolated, ink with a colorant reading) with no group open,
+  after counting the draw, the compositor checks the box's
+  `coveringBoxSpans` with the new `PdfColorantRaster.clippedCellsAll`, which
+  applies exactly `paintFlat`'s clip box and mask. If there is a covering
+  cell and every one the clip lets through is unknown, the draw returns null
+  without rasterizing. It is exact: the run's centre-sampled cells lie in its
+  control points' covering box, the eager path would read only unknown (or
+  nothing) under the clip and paint unknown over it, and a probe that fails
+  falls through to the unchanged path. A box that is not finite before or
+  after the page mapping (where `coveringBoxSpans` would throw) falls through
+  too.
+- `subCellBounds` is now a thunk as well, asked only on the
+  `spans.isEmpty` branch. The interpreter passes one memoized
+  `_pathBounds` for both, so a run computes its bounds at most once and
+  usually never (#811 computed them eagerly for every single-glyph run).
+- `_pathBounds` walks `path.cursor()` instead of a `sync*` generator over
+  `path.segments`, which also stops it materializing the packed paths the
+  shading-clip and group-bounds callers pass. `_segmentPoints` stays for
+  `_fillWithPattern`.
+
+`glyphOutlinePaths` does not move: the run's path is still built before the
+compositor sees it.
+
+Measured against the previous commit (buffer on/off interleaved in one AOT
+process, 5 interleaved process rounds, thread CPU, first 10 pages, record
+path = `RecordingPdfDevice` walk + `serializeCommands`): the worst text
+overprint document 0.691x on-mode record (pairs 0.66-0.70; buffer overhead
+0.632x), another text-heavy one 0.831x (bounds laziness alone: nothing
+there is skipped), the eight vector-only or tiny /OP documents 0.960-1.024x.
+Whole set 0.963x on-mode, buffer overhead 0.850x. Record bytes with
+`decodeImages: true` are identical on the 10 /OP documents, all 54 Ghent
+files and the 53-document private corpus (first 10 pages each).

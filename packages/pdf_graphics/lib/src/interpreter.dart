@@ -3049,14 +3049,27 @@ class PdfInterpreter {
             final isOverprint =
                 strokeOnly ? _state.strokeOverprint : _state.fillOverprint;
             final alpha = strokeOnly ? _state.strokeAlpha : _state.fillAlpha;
+            // One control-point box serves the compositor's unknown-backdrop
+            // probe and a single glyph's sub-cell fallback; most runs need
+            // neither, so it is computed on the first ask.
+            PdfRect? bounds;
+            var boundsKnown = false;
+            PdfRect? glyphBounds() {
+              if (!boundsKnown) {
+                boundsKnown = true;
+                bounds = _pathBounds(glyphPath);
+              }
+              return bounds;
+            }
+
             final resolved = overprint.fill(
               glyphPath,
               PdfFillRule.nonzero,
               runFill,
               ink,
               blendInk: blendInk,
-              subCellBounds:
-                  glyphs?.length == 1 ? _pathBounds(glyphPath) : null,
+              subCellBounds: glyphs?.length == 1 ? glyphBounds : null,
+              unknownProbe: glyphBounds,
               overprint: isOverprint,
               mode: _state.overprintMode,
               opaque: _opaquePaint(alpha),
@@ -3813,15 +3826,32 @@ class PdfInterpreter {
 
   /// Axis-aligned bounds of a path's control points, in user space - a
   /// conservative superset of the fill area, enough to size a shading mesh.
+  ///
+  /// Read through a cursor: `segments` would materialize a packed
+  /// interpreter path (the shading-clip and group-bounds callers pass them),
+  /// and a `sync*` point generator per segment was a tenth of an overprint
+  /// text page, where every single-glyph run asks for these bounds.
   static PdfRect? _pathBounds(PdfPath path) {
     var minX = double.infinity, minY = double.infinity;
     var maxX = -double.infinity, maxY = -double.infinity;
-    for (final segment in path.segments) {
-      for (final (x, y) in _segmentPoints(segment)) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
+    void add(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    final reader = path.cursor();
+    while (reader.moveNext()) {
+      switch (reader.verb) {
+        case PdfPathVerb.moveTo || PdfPathVerb.lineTo:
+          add(reader.x1, reader.y1);
+        case PdfPathVerb.cubicTo:
+          add(reader.x1, reader.y1);
+          add(reader.x2, reader.y2);
+          add(reader.x3, reader.y3);
+        case PdfPathVerb.close:
+          break;
       }
     }
     if (minX > maxX) return null;

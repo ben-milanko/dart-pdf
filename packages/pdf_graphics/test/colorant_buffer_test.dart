@@ -607,7 +607,7 @@ void main() {
           PdfFillRule.nonzero,
           inkColor,
           PdfInkColorants.deviceGray(0.5),
-          subCellBounds: const PdfRect(49.95, 10, 50.05, 90),
+          subCellBounds: () => const PdfRect(49.95, 10, 50.05, 90),
           overprint: true,
           mode: 0,
           opaque: true,
@@ -620,6 +620,122 @@ void main() {
         {for (final region in regions!) region.color},
         containsAll([green, inkColor]),
       );
+    });
+  });
+
+  group('the unknown-backdrop probe', () {
+    // Two glyph-ish outlines (a triangle and a curved stem) as one run.
+    final glyphRun = PdfPath([
+      const PdfMoveTo(20, 20),
+      const PdfLineTo(40, 20),
+      const PdfLineTo(30, 45),
+      const PdfClosePath(),
+      const PdfMoveTo(50, 20),
+      const PdfCubicTo(55, 60, 70, 60, 75, 20),
+      const PdfLineTo(70, 20),
+      const PdfCubicTo(66, 50, 58, 50, 55, 20),
+      const PdfClosePath(),
+    ]);
+    const probeBox = PdfRect(20, 20, 75, 60);
+
+    PdfPath rect(double l, double b, double r, double t) => PdfPath([
+          PdfMoveTo(l, b),
+          PdfLineTo(r, b),
+          PdfLineTo(r, t),
+          PdfLineTo(l, t),
+          const PdfClosePath(),
+        ]);
+
+    /// Runs [setUp] then an overprinting black glyph run on two buffers, one
+    /// probed with [probe] and one not, and checks they agree exactly.
+    /// Returns whether the probed run skipped rasterizing.
+    bool probedMatches(void Function(PdfOverprintCompositor c) setUp,
+        {PdfRect? probe = probeBox}) {
+      final wasEnabled = PdfPerf.enabled;
+      PdfPerf.enabled = true;
+      try {
+        final plain = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+        final probed = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+        setUp(plain);
+        setUp(probed);
+        PdfColor? run(PdfOverprintCompositor c, {bool withProbe = false}) =>
+            c.fill(glyphRun, PdfFillRule.nonzero, const PdfColor(0, 0, 0),
+                PdfInkColorants.deviceCmyk(0, 0, 0, 1),
+                unknownProbe: withProbe ? () => probe : null,
+                overprint: true,
+                mode: 1,
+                opaque: true);
+        final expected = run(plain);
+        final expectedSpatial = plain.takeSpatialPaint();
+        PdfPerf.reset();
+        final actual = run(probed, withProbe: true);
+        final rasterized =
+            PdfPerf.snapshot().count(PdfPerfCount.colorantRasterized);
+        expect(actual, expected);
+        expect(probed.takeSpatialPaint()?.length, expectedSpatial?.length);
+        expect(probed.debugCells, plain.debugCells);
+        // Both keep counting the draw toward the cap.
+        return rasterized == 0;
+      } finally {
+        PdfPerf.enabled = wasEnabled;
+      }
+    }
+
+    test('skips a run over an all-unknown backdrop', () {
+      expect(probedMatches((c) => c.markUnknownBox(0, 0, 100, 100)), isTrue);
+    });
+
+    test('rasterizes a run over a partly known backdrop', () {
+      expect(probedMatches((c) {
+        c.markUnknownBox(0, 0, 100, 100);
+        // A known cyan knockout under part of the second glyph.
+        c.fill(rect(60, 0, 100, 100), PdfFillRule.nonzero,
+            const PdfColor(0, 1, 1), PdfInkColorants.deviceCmyk(1, 0, 0, 0),
+            overprint: false, mode: 0, opaque: true);
+      }), isFalse);
+    });
+
+    test('reads only the cells a clip mask lets through', () {
+      // Known cyan everywhere, then a triangular (masked) clip and unknown
+      // inside it: the probe box still covers known cells, but the mask
+      // keeps a paint - and so the probe - off them.
+      void clipped(PdfOverprintCompositor c) {
+        c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+            const PdfColor(0, 1, 1), PdfInkColorants.deviceCmyk(1, 0, 0, 0),
+            overprint: false, mode: 0, opaque: true);
+        c.clipPath(
+            PdfPath([
+              const PdfMoveTo(10, 10),
+              const PdfLineTo(90, 10),
+              const PdfLineTo(50, 90),
+              const PdfClosePath(),
+            ]),
+            PdfFillRule.nonzero);
+        c.markUnknownBox(0, 0, 100, 100);
+      }
+
+      expect(probedMatches(clipped), isTrue);
+      // One known cell inside the mask is enough to take the ordinary path.
+      expect(probedMatches((c) {
+        clipped(c);
+        c.fill(rect(49, 30, 51, 32), PdfFillRule.nonzero,
+            const PdfColor(0, 1, 1), PdfInkColorants.deviceCmyk(1, 0, 0, 0),
+            overprint: false, mode: 0, opaque: true);
+      }), isFalse);
+    });
+
+    test('falls through on a non-finite or empty probe box', () {
+      void unknown(PdfOverprintCompositor c) =>
+          c.markUnknownBox(0, 0, 100, 100);
+      expect(
+          probedMatches(unknown,
+              probe: const PdfRect(20, 20, double.infinity, 60)),
+          isFalse);
+      expect(probedMatches(unknown, probe: const PdfRect(20, 20, 1e308, 60)),
+          isFalse);
+      expect(probedMatches(unknown, probe: const PdfRect(200, 200, 300, 300)),
+          isFalse);
+      expect(probedMatches(unknown, probe: null), isFalse);
     });
   });
 
