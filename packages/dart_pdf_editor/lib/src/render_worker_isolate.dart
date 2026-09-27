@@ -916,8 +916,9 @@ void _workerMain(_WorkerInit init) {
             doc.applyIncrementalUpdate(live);
             incremental = true;
           } catch (_) {
-            // Not a forward append (an undo shrinks to a prefix) or an
-            // unsupported document: re-open from the target prefix instead.
+            // Not a forward append, or an appended chain the document can't
+            // fold in place (malformed, or reaching below a recovered
+            // document's bytes): re-open from the target prefix instead.
           }
         }
         if (!incremental) {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -262,6 +264,136 @@ void main() {
       final doc = CosDocument.open(ascii(body.toString()));
       expect(doc.catalog.typeName, 'Catalog');
     });
+
+    // The recovery scan finds `obj` and `trailer` in one skipping pass; these
+    // hold it to exactly what a byte-at-a-time search of the file finds.
+    test('recovers the entries and trailer an intact chain declares', () {
+      final twoRevisions =
+          (CosIncrementalUpdater(CosDocument.open(buildClassicPdf()))
+                ..replaceObject(5, CosDictionary({'A': const CosInteger(1)}))
+                ..addObject(CosDictionary({'B': const CosInteger(2)})))
+              .save();
+      for (final (name, bytes) in [
+        ('classic', buildClassicPdf()),
+        ('40 pages', buildMultiPagePdf(40)),
+        ('xref stream', buildXrefStreamPdf()),
+        ('two revisions', twoRevisions),
+      ]) {
+        final intact = CosDocument.open(bytes);
+        final recovered = CosDocument.open(smash(bytes, 'startxref'));
+        expect(recovered.startXref, 0, reason: name);
+        final live = {
+          for (final n in intact.objectNumbers)
+            if (intact.xrefEntry(n)!.type != CosXrefEntryType.free) n,
+        };
+        expect(recovered.objectNumbers.toSet(), live, reason: name);
+        for (final n in live) {
+          final a = intact.xrefEntry(n)!, b = recovered.xrefEntry(n)!;
+          expect(
+            (b.type, b.offset, b.generation, b.streamObjectNumber),
+            (a.type, a.offset, a.generation, a.streamObjectNumber),
+            reason: '$name object $n',
+          );
+        }
+        expect(recovered.trailer['Root'], intact.trailer['Root'], reason: name);
+        expect(recovered.declaredSize, intact.declaredSize, reason: name);
+      }
+      // Both revisions' trailers merge in file order: the update's /Prev
+      // survives, and its /Size wins.
+      final merged = CosDocument.open(smash(twoRevisions, 'startxref'));
+      expect(merged.trailer['Prev'], isA<CosInteger>());
+      expect(merged.declaredSize, 7);
+    });
+
+    test('finds exactly the headers and trailers a plain search finds', () {
+      final random = math.Random(20260927);
+      var key = 0;
+      String token() => switch (random.nextInt(44)) {
+            0 => '1 0 obj',
+            1 => '12 0 obj',
+            2 => '3 1 obj',
+            3 => ' obj',
+            4 => 'obj',
+            5 => 'oobj',
+            6 => 'objobj',
+            7 => 'ob',
+            8 => 'bj',
+            9 => 'j',
+            10 => 'o',
+            11 => 'b',
+            12 => 't',
+            13 => 'r',
+            14 => 'a',
+            15 => 'tra',
+            16 => 'trai',
+            17 => 'iler',
+            18 => 'trailer',
+            19 => 'trailertrailer',
+            20 => 'ttrailer',
+            21 => 'atrailer',
+            22 || 23 => 'trailer<</K${key++} ${random.nextInt(9)}>>',
+            24 => ' ',
+            25 => '\n',
+            26 => '\r\n',
+            27 => '\x00',
+            28 => '7',
+            29 => '42',
+            30 => '0 ',
+            31 => '(',
+            32 => ')',
+            33 => '<<',
+            34 => '>>',
+            35 => '/',
+            36 => '%',
+            37 => 'endobj',
+            38 => 'x',
+            39 => 'a obj',
+            40 => '99999999999 0 obj',
+            41 => '5 123456 obj',
+            42 => '0 0 obj',
+            _ => '${1 + random.nextInt(30)} ${random.nextInt(3)} obj',
+          };
+      for (var round = 0; round < 120; round++) {
+        final text = StringBuffer('%PDF-1.4\n1 0 obj\n<< >>\nendobj\n');
+        final length = 20 + random.nextInt(400);
+        for (var t = 0; t < length; t++) {
+          text.write(token());
+        }
+        final bytes = latin1.encode(text.toString());
+        // Every other round is sparse: holes (zeros) the scan must skip.
+        List<int>? populated;
+        if (round.isOdd) {
+          populated = [0, 30];
+          var at = 30;
+          while (at < bytes.length) {
+            final end = math.min(bytes.length, at + 1 + random.nextInt(40));
+            if (random.nextBool() || end - at < 3) {
+              if (populated.last == at) {
+                populated.last = end;
+              } else {
+                populated.addAll([at, end]);
+              }
+            } else {
+              bytes.fillRange(at, end, 0);
+            }
+            at = end;
+          }
+        }
+        final expected = _plainRecoveryScan(bytes, populated);
+        final doc = CosDocument.open(Uint8List.fromList(bytes),
+            populatedRanges: populated);
+        final found = {
+          for (final n in doc.objectNumbers)
+            n: (doc.xrefEntry(n)!.offset, doc.xrefEntry(n)!.generation),
+        };
+        expect(found, expected.headers, reason: 'round $round: $text');
+        final trailer = {
+          for (final e in doc.trailer.entries.entries)
+            if (e.key != 'Size') e.key: e.value,
+        };
+        expect(trailer, expected.trailer, reason: 'round $round: $text');
+      }
+    });
   });
 
   group('corrupt files (pdf.js corpus classes)', () {
@@ -329,6 +461,46 @@ void main() {
       expect(doc.catalog.typeName, 'Catalog');
     });
   });
+}
+
+/// What xref recovery must find in [bytes], by the plain search it replaced:
+/// every `N G obj` header whose `obj` starts at a populated offset (the last
+/// definition of a number wins), and the dictionary after every `trailer`
+/// keyword (merged in file order, without the /Size recovery fills in).
+({Map<int, (int, int)> headers, Map<String, CosObject> trailer})
+    _plainRecoveryScan(Uint8List bytes, List<int>? populated) {
+  const whitespace = r'\x00\t\n\f\r ';
+  const nonRegular = '$whitespace' r'()<>\[\]{}/%';
+  final header = RegExp('(?<![^$nonRegular])([0-9]{1,10})[$whitespace]+'
+      '([0-9]{1,5})[$whitespace]+obj(?![^$nonRegular])');
+  bool isPopulated(int offset) {
+    if (populated == null) return true;
+    for (var i = 0; i < populated.length; i += 2) {
+      if (offset >= populated[i] && offset < populated[i + 1]) return true;
+    }
+    return false;
+  }
+
+  final text = latin1.decode(bytes);
+  final headers = <int, (int, int)>{};
+  for (final match in header.allMatches(text)) {
+    final number = int.parse(match[1]!);
+    if (number == 0 || !isPopulated(match.end - 3)) continue;
+    headers[number] = (match.start, int.parse(match[2]!));
+  }
+  final trailer = <String, CosObject>{};
+  for (var t = text.indexOf('trailer');
+      t >= 0;
+      t = text.indexOf('trailer', t + 7)) {
+    try {
+      final candidate = CosParser(bytes, offset: t + 7).parseObject();
+      if (candidate is CosDictionary) trailer.addAll(candidate.entries);
+    } on Exception {
+      // junk that happens to contain the keyword
+    }
+  }
+  trailer.remove('Size');
+  return (headers: headers, trailer: trailer);
 }
 
 /// A cross-reference-stream PDF whose object 4 (/Extra on the catalog) is marked

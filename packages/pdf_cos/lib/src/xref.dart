@@ -114,11 +114,18 @@ class CosXrefReader {
   /// already-loaded tail of the chain for incremental updates. The returned
   /// [CosXrefChain.entries] then holds only the sections newer than [stopAt],
   /// and [CosXrefChain.parsedSection] is false when the whole range was pruned.
-  CosXrefChain walkFrom(int startXref, {int? stopAt}) {
+  ///
+  /// [floor] (also relative to the header, when given) confines the walk to
+  /// the bytes at and past it: a section below it, other than [stopAt], throws
+  /// [CosParseException] instead of being parsed. For a caller whose [stopAt]
+  /// is not a real section (an xref-recovered document's 0), which therefore
+  /// cannot vouch for any section the old bytes hold.
+  CosXrefChain walkFrom(int startXref, {int? stopAt, int? floor}) {
     final entries = <int, CosXrefEntry>{};
     var trailer = CosDictionary();
     var parsedSection = false;
     final stopOffset = stopAt == null ? null : stopAt + shift;
+    final floorOffset = floor == null ? null : floor + shift;
 
     final pending = <int>[startXref + shift];
     final visited = <int>{};
@@ -127,6 +134,10 @@ class CosXrefReader {
       // A section the caller already loaded; everything reachable through it
       // is loaded too, so stop the descent here.
       if (offset == stopOffset) continue;
+      if (floorOffset != null && offset < floorOffset) {
+        throw CosParseException(
+            'cross-reference section below the appended bytes', offset);
+      }
       if (!visited.add(offset)) continue;
       final section = parseSection(offset);
       for (final entry in section.entries.entries) {

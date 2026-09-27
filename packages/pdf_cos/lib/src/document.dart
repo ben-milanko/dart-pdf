@@ -248,15 +248,20 @@ class CosDocument {
   /// resolve re-reads it from the appended bytes. Returns the set of redefined
   /// object numbers.
   ///
-  /// Throws when the update cannot be applied incrementally (this document was
-  /// opened through xref recovery, [newBytes] is not an append, or the appended
-  /// xref chain is malformed); the caller should re-open from scratch instead.
+  /// A document opened through xref recovery ([startXref] 0) takes updates
+  /// too: [CosIncrementalUpdater] chains its section to it with `/Prev 0`,
+  /// which is exactly where this walk stops, and the appended entries override
+  /// the recovered ones - the same "last definition wins" a recovery of the
+  /// new bytes applies. Its first update gives it a real [startXref], so later
+  /// ones chain normally. Only a chain confined to the appended bytes is taken
+  /// that way: the recovered entries replace whatever the old bytes' broken
+  /// sections say, so a section reached below them is refused.
+  ///
+  /// Throws when the update cannot be applied incrementally ([newBytes] is not
+  /// an append, the appended xref chain is malformed, or - on a recovered
+  /// document - it adds no section or reaches into the old bytes); the caller
+  /// should re-open from scratch instead.
   Set<int> applyIncrementalUpdate(Uint8List newBytes) {
-    if (startXref <= 0) {
-      // A recovered document has no trustworthy xref chain to hang a /Prev off.
-      throw CosParseException(
-          'cannot incrementally update a recovered document');
-    }
     if (newBytes.length <= bytes.length) {
       throw CosParseException('incremental update is not an append');
     }
@@ -264,9 +269,16 @@ class CosDocument {
     // reader stops descending at the old startxref (everything below it is
     // already loaded). First occurrence among the appended sections wins and
     // overrides whatever the old chain held for that object.
+    final recovered = startXref <= 0;
     final reader = CosXrefReader(newBytes, shift: _offsetShift);
     final newStartXref = reader.findStartXref();
-    final appended = reader.walkFrom(newStartXref, stopAt: startXref);
+    final appended = reader.walkFrom(newStartXref,
+        stopAt: startXref,
+        floor: recovered ? bytes.length - _offsetShift : null);
+    if (recovered && !appended.parsedSection) {
+      // Nothing to fold: a re-open would rescan the appended bytes instead.
+      throw CosParseException('update to a recovered document adds no section');
+    }
     final changed = appended.entries.keys.toSet();
     appended.entries.forEach((number, entry) => _xref[number] = entry);
 
@@ -365,7 +377,9 @@ class CosDocument {
 
   static CosDocument _recoverTimed(Uint8List bytes, int shift, String password,
       List<int>? populated, CosDocument? keysFrom) {
-    final entries = _scanObjectHeaders(bytes, shift, populated);
+    final trailerKeywords = <int>[];
+    final entries =
+        _scanObjectHeaders(bytes, shift, populated, trailers: trailerKeywords);
     if (entries.isEmpty) {
       throw CosParseException(
           'cross-reference recovery found no objects in the file');
@@ -375,10 +389,7 @@ class CosDocument {
     // (later revisions win), then doc-level keys from any xref stream
     // dictionaries (files without the trailer keyword).
     final trailer = CosDictionary();
-    var t = shift;
-    while (true) {
-      t = _indexOf(bytes, 'trailer', t);
-      if (t < 0) break;
+    for (final t in trailerKeywords) {
       try {
         final candidate =
             CosParser(bytes, offset: t + 'trailer'.length).parseObject();
@@ -390,7 +401,6 @@ class CosDocument {
       } on Exception {
         // junk that happens to contain the keyword
       }
-      t += 'trailer'.length;
     }
 
     final document =
@@ -478,11 +488,25 @@ class CosDocument {
   /// [populated] bounds the scan to the byte ranges a sparse buffer actually
   /// holds (see [_populated]); a hole is all zeros, so scanning it can only
   /// cost time.
+  ///
+  /// [trailers], when given, collects the offset of every `trailer` keyword
+  /// in the same pass (in file order, non-overlapping), so recovery reads the
+  /// file once instead of once per keyword.
+  ///
+  /// One Horspool pass over a 3-byte window for both keywords (`obj` and the
+  /// `tra` of `trailer`): the window's last byte says how far along the next
+  /// possible match can start ([_scanSkip]), so most bytes are never compared.
+  /// A byte-at-a-time scan and a separate `trailer` search were each about
+  /// half of a recovery open on a large file.
   static Map<int, CosXrefEntry> _scanObjectHeaders(
-      Uint8List bytes, int shift, List<int>? populated) {
+      Uint8List bytes, int shift, List<int>? populated,
+      {List<int>? trailers}) {
     final entries = <int, CosXrefEntry>{};
+    final n = bytes.length;
+    final skip = _scanSkip;
     var hole = 0; // index of the populated range the cursor is at or before
-    for (var i = shift; i + 3 <= bytes.length; i++) {
+    var i = shift;
+    while (i + 3 <= n) {
       if (populated != null) {
         while (
             hole * 2 + 1 < populated.length && i >= populated[hole * 2 + 1]) {
@@ -490,23 +514,58 @@ class CosDocument {
         }
         if (hole * 2 >= populated.length) break;
         if (i < populated[hole * 2]) {
-          i = populated[hole * 2] - 1;
+          i = populated[hole * 2];
           continue;
         }
       }
-      if (bytes[i] != 0x6F /* o */ ||
-          bytes[i + 1] != 0x62 /* b */ ||
-          bytes[i + 2] != 0x6A /* j */) {
+      final last = bytes[i + 2];
+      final step = skip[last];
+      if (step != 0) {
+        i += step;
         continue;
       }
-      if (i + 3 < bytes.length && CosLexer.isRegular(bytes[i + 3])) continue;
-      final header = _objectHeaderBefore(bytes, i, shift);
-      if (header == null) continue;
-      final (start, objectNumber, generation) = header;
-      entries[objectNumber] = CosXrefEntry.inUse(start - shift, generation);
+      if (last == 0x6A /* j */) {
+        if (bytes[i] == 0x6F /* o */ &&
+            bytes[i + 1] == 0x62 /* b */ &&
+            !(i + 3 < n && CosLexer.isRegular(bytes[i + 3]))) {
+          final header = _objectHeaderBefore(bytes, i, shift);
+          if (header != null) {
+            final (start, objectNumber, generation) = header;
+            entries[objectNumber] =
+                CosXrefEntry.inUse(start - shift, generation);
+          }
+        }
+      } else if (trailers != null &&
+          i + 7 <= n &&
+          bytes[i] == 0x74 /* t */ &&
+          bytes[i + 1] == 0x72 /* r */ &&
+          bytes[i + 3] == 0x69 /* i */ &&
+          bytes[i + 4] == 0x6C /* l */ &&
+          bytes[i + 5] == 0x65 /* e */ &&
+          bytes[i + 6] == 0x72 /* r */) {
+        // Neither keyword can start inside `trailer`, so skip all of it.
+        trailers.add(i);
+        i += 7;
+        continue;
+      }
+      i++;
     }
     return entries;
   }
+
+  /// [_scanObjectHeaders]' skip table: for each possible last byte of the
+  /// 3-byte window, how far the window can advance before that byte could line
+  /// up with `obj` or `tra`. `o`/`t` sit two before the end, `b`/`r` one, and
+  /// `j`/`a` end a candidate (0: compare in place). The six letters are
+  /// distinct, so each has one shift.
+  static final Uint8List _scanSkip = Uint8List(256)
+    ..fillRange(0, 256, 3)
+    ..[0x6F] = 2 // o
+    ..[0x62] = 1 // b
+    ..[0x6A] = 0 // j
+    ..[0x74] = 2 // t
+    ..[0x72] = 1 // r
+    ..[0x61] = 0; // a
 
   /// Walks backwards from an `obj` keyword over `N G `, returning the
   /// offset of the object number and the parsed numbers, or null when the
