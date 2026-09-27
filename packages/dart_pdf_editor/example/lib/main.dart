@@ -175,7 +175,8 @@ class _ViewerAppState extends State<ViewerApp> {
   void initState() {
     super.initState();
     // Offer the host's installed fonts in the editor's font menu by default.
-    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // Fire-and-forget, with the directory scan on a helper isolate so it never
+    // lands in this frame: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,
     // bundled and "Load font…" choices.
     unawaited(_loadPlatformFonts());

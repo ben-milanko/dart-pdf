@@ -111,7 +111,8 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // setting is migrated as a fixed diagnostic override.
     unawaited(_startMemoryBudget());
     // Offer the host's installed fonts in the editor's font menu by default.
-    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // Fire-and-forget, with the directory scan on a helper isolate so it never
+    // lands in this frame: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,
     // bundled and "Load font…" choices.
     unawaited(_loadPlatformFonts());
@@ -124,6 +125,9 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   }
 
   Future<void> _loadPlatformFonts() async {
+    // Widget tests would scan the host's real fonts into a process-wide global
+    // on an isolate whose result can land in a later test.
+    if (runningUnderFlutterTest) return;
     try {
       pdfPlatformFonts = await loadPlatformFonts();
     } catch (e) {

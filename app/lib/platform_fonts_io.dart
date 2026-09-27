@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -14,28 +16,41 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 /// once rather than once per weight. TrueType collections (`.ttc`) are skipped
 /// because they bundle several faces and can't embed directly.
 ///
+/// The directory walk, the file-name parsing and the sort run on a helper
+/// isolate: a Noto-heavy Linux install lists thousands of files (30-45 ms), and
+/// the host calls this while it builds its first editor frame. Only the
+/// finished (family, path) list crosses back.
+///
 /// Best-effort throughout: an unreadable directory, a permission error, or a
 /// font that fails to parse on pick is simply skipped.
 Future<List<PdfPlatformFont>> loadPlatformFonts() async {
+  final records = await Isolate.run(_scanFontRecords);
+  return [
+    for (final (family, path) in records)
+      PdfPlatformFont(
+        label: family,
+        family: family,
+        loadBytes: () => _readFontBytes(path),
+      ),
+  ];
+}
+
+const _maxFonts = 300;
+
+/// Scans the platform's font directories into at most [_maxFonts]
+/// (family, path) records, sorted case-insensitively by family. Top-level so
+/// [Isolate.run] is handed a plain function rather than a closure.
+List<(String, String)> _scanFontRecords() {
   final candidates = <String, _FamilyCandidate>{};
   for (final dir in _fontDirectories()) {
     _scanDirectory(dir, candidates);
   }
-  final fonts = candidates.values
-      .map((c) => PdfPlatformFont(
-            label: c.family,
-            family: c.family,
-            loadBytes: () => _readFontBytes(c.path),
-          ))
-      .toList()
-    ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+  final sorted = candidates.values.toList()
+    ..sort((a, b) => a.family.toLowerCase().compareTo(b.family.toLowerCase()));
   // Bound the menu: pathological font collections shouldn't produce thousands
   // of items. One-per-family already keeps this well under the cap in practice.
-  if (fonts.length > _maxFonts) return fonts.sublist(0, _maxFonts);
-  return fonts;
+  return [for (final c in sorted.take(_maxFonts)) (c.family, c.path)];
 }
-
-const _maxFonts = 300;
 
 /// The standard system + user font directories per platform. Each is guarded
 /// with an existence check before scanning, so listing one that's absent on a
@@ -105,7 +120,7 @@ void _scanDirectory(Directory dir, Map<String, _FamilyCandidate> out) {
 }
 
 String _baseName(String path) {
-  final slash = path.lastIndexOf(RegExp(r'[/\\]'));
+  final slash = math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return slash < 0 ? path : path.substring(slash + 1);
 }
 
@@ -123,8 +138,11 @@ String _baseName(String path) {
   }
   final pretty = _prettify(name);
   final s = style.toLowerCase();
-  final isRegular =
-      s.isEmpty || s == 'regular' || s == 'book' || s == 'roman' || s == 'normal';
+  final isRegular = s.isEmpty ||
+      s == 'regular' ||
+      s == 'book' ||
+      s == 'roman' ||
+      s == 'normal';
   return (pretty, isRegular);
 }
 
