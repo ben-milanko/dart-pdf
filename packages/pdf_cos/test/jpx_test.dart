@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -299,6 +300,92 @@ const _issue3371Im3 = [
   217,
 ];
 
+/// Pixel pattern of the tier-1 edge-case rasters below (component c samples
+/// the pattern shifted by (5c, 3c)): high-frequency enough that every coding
+/// pass and context family fires, and cheap to recompute instead of
+/// embedding each raster.
+int _edgePattern(int x, int y) =>
+    (x * x * 7 + y * 131 + x * y * 23 + (x ^ y) * 11) & 0xFF;
+
+/// Lossless (reversible 5/3) codestreams of [_edgePattern] encoded by
+/// OpenJPEG 2.5.4 (base64, verbatim opj_compress output; opj_decompress
+/// round-trips each one to the source raster). They pin the EBCOT tier-1
+/// neighbour bookkeeping and the DWT boundaries on the shapes the 16x16
+/// fixtures above never reach: odd image offsets (odd-parity first samples),
+/// 4x4 code blocks (many partial blocks, every one a clipped stripe), and
+/// 1-pixel-wide/tall images and bands (no left/right or up/down neighbours).
+/// Records are (width, height, components, codestream).
+const _edgeCases = [
+  // opj_compress -d 1,1 -n 3
+  (13, 11, 1,
+      '/0//UQApAAAAAAAOAAAADAAAAAEAAAABAAAADgAAAAwAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAgQEAAH/XAAKQEBISFBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24g'
+      'Mi41LjT/kAAKAAAAAADJAAH/k8+0HBB+GcNR2cPH2g0faFw+0KAPoppXhtcSqxKxqAZ4/L'
+      'z8fw8yRbFo4z7zE/LPwKp+BVPzMRXZhF/3IDu/SkZ5rqYyRHbX12ISyivOfkuWfdsvCy7o'
+      'ii1paTbAuk50XxID3y071e08/vcjKmHTc4+1nSl33DDPu4EUmrRgV/JY8RBqi5UF0NNa0w'
+      'Fe6OCiX7JmXHS21EGcstvT54Hf+Yxv/sK8K1D71hbvzUMw079tQ7Qb0zFlOePTlOf/2Q=='),
+  // opj_compress -d 3,5 -n 3
+  (17, 13, 1,
+      '/0//UQApAAAAAAAUAAAAEgAAAAMAAAAFAAAAFAAAABIAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAgQEAAH/XAAKQEBISFBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24g'
+      'Mi41LjT/kAAKAAAAAAEdAAH/k8fUGA3LQ+PVMBopFzvMjMfaGx9odH4B4A3n4F7dmRZ+FG'
+      'BdIuUM5WcLbg4mDb0+6Vtdfx4gjGjvE3ZpfmR0z9ZrP8/A9n4H8/NJFdmEU9dvWi/BEbU4'
+      'byDYsCq9tazhIAyGG0lrYMOzLbz8TywV+QG2/WXc3ljQfKzq86eXiRzqctZAcSNNqxID3I'
+      '5XwAN3YRgPafBoJMHJ/ytO+tEp3ROub4SzyxFdR2KfKjiRq+Rd35RdalJCKHas5YYkEPGb'
+      'MBTLNODnEwFlKixzCtH4YOhNkmy9OyeG9wQWEmvhb7XktKA+tT3AWSsnWbkgL6mdJnB4ng'
+      'q5Kzg58wGgK+1fhmV62n3RPsgknibpcDFrL3//2Q=='),
+  // opj_compress -d 1,3 -n 2
+  (7, 5, 3,
+      '/0//UQAvAAAAAAAIAAAACAAAAAEAAAADAAAACAAAAAgAAAAAAAAAAAADBwEBBwEBBwEB/1'
+      'IADAAAAAEBAQQEAAH/XAAHQEBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNp'
+      'b24gMi41LjT/kAAKAAAAAACvAAH/k8fUDg5KDl0yJu/PtBwKp59PNiZvx9QOCqPM20OO78'
+      'faEx9oXD7Q0BANE6fOfRajDw8xirtDpIxWaA6DFgCrwOkdmVyDP6CzP8faEX5hs/MPCEPc'
+      'e3WBZX0QX+iT7m47FzXZEUh7DPLIbjwispJABQgskpq/z8AufgFz8w8MI+SO6QQ2rbYufw'
+      'gwZIPcNfRuQYbfEJXYcFcTooXYuJ1jeKrf/9k='),
+  // opj_compress -b 4,4 -n 2
+  (19, 9, 1,
+      '/0//UQApAAAAAAATAAAACQAAAAAAAAAAAAAAEwAAAAkAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAQAAAAH/XAAHQEBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41'
+      'LjT/kAAKAAAAAAERAAH/k/b7RK+0S37Qn+ANfaC/tAwR6xjbtDFeWESFf3z76WVmMH8NlA'
+      'hWn3S76z4bnccbHOSIdecWxOgMnyyq2RsNEP93168L/Y6F5Aw+r/P8BT+Arv2gv8Ae+0Fv'
+      'qAuf4Cf8BTftCef5il+Ann7QQBvEIRAVRTBrgfwwyNBNFzX27/2rFKkPMVGOh3T8zl/1HA'
+      'W23zEqp/9/CBbqOkILXifXJeaPAww8qk8Fyw9dcyPWx5uOJoDka1HiHSGgkr8Oyaoa622U'
+      'w0hurI6us7UQhvVujxZ9uMwIKyAbWgdi93qWgP3oJBmCqf66/U9l96yfHQHRQjtKqTfGZG'
+      'iD0/KXH+scfwsyFq3/2Q=='),
+  // opj_compress -n 1
+  (1, 9, 1,
+      '/0//UQApAAAAAAABAAAACQAAAAAAAAAAAAAAAQAAAAkAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAAQEAAH/XAAEQED/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41LjT/'
+      'kAAKAAAAAAAcAAH/k9+AWBI4Fvd6DTC8Wp0f/9k='),
+  // opj_compress -d 1,0 -n 1
+  (9, 1, 1,
+      '/0//UQApAAAAAAAKAAAAAQAAAAEAAAAAAAAACgAAAAEAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAAQEAAH/XAAEQED/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41LjT/'
+      'kAAKAAAAAAAcAAH/k9+AWAa2f65ENbUyvUqj/9k='),
+  // opj_compress -d 1,0 -n 2
+  (2, 9, 1,
+      '/0//UQApAAAAAAADAAAACQAAAAEAAAAAAAAAAwAAAAkAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAQQEAAH/XAAHQEBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41'
+      'LjT/kAAKAAAAAAAyAAH/k8fUDBGES3ISN8/AHj7QafmCgBe+wJ/xpL8TgOp7/3sJ535wUP'
+      '/Z'),
+  // opj_compress -d 0,1 -n 2
+  (9, 2, 1,
+      '/0//UQApAAAAAAAJAAAAAwAAAAAAAAABAAAACQAAAAMAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAQQEAAH/XAAHQEBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41'
+      'LjT/kAAKAAAAAAAyAAH/k8+0GAfAcKphn8faDT8AePwBQAunXdAcfwhNg33irp8LgxbS7/'
+      '/Z'),
+  // opj_compress -d 1,1 -n 2
+  (3, 3, 1,
+      '/0//UQApAAAAAAAEAAAABAAAAAEAAAABAAAABAAAAAQAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAQQEAAH/XAAHQEBISFD/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41'
+      'LjT/kAAKAAAAAAAnAAH/k8HyAgl/w+oDn4AcH1AoCmlfBfjCC8lSSF//2Q=='),
+  // opj_compress -d 1,1 -n 1
+  (1, 1, 1,
+      '/0//UQApAAAAAAACAAAAAgAAAAEAAAABAAAAAgAAAAIAAAAAAAAAAAABBwEB/1IADAAAAA'
+      'EAAAQEAAH/XAAEQED/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41LjT/'
+      'kAAKAAAAAAASAAH/k9+ACAf/2Q=='),
+];
+
 void main() {
   test('lossless gray (5/3) decodes bit-perfectly', () {
     final image = JpxDecoder.decode(Uint8List.fromList(_grayJ2k))!;
@@ -335,6 +422,24 @@ void main() {
     expect(image.height, 16);
     expect(image.components, 1);
     expect(image.samples, _resetProbExpected);
+  });
+
+  test('tier-1 and DWT edge shapes decode bit-perfectly', () {
+    for (final (width, height, components, codestream) in _edgeCases) {
+      final shape = '${width}x$height x$components';
+      final image = JpxDecoder.decode(base64Decode(codestream));
+      expect(image, isNotNull, reason: shape);
+      expect(image!.width, width, reason: shape);
+      expect(image.height, height, reason: shape);
+      expect(image.components, components, reason: shape);
+      final expected = [
+        for (var y = 0; y < height; y++)
+          for (var x = 0; x < width; x++)
+            for (var c = 0; c < components; c++)
+              _edgePattern(x + 5 * c, y + 3 * c),
+      ];
+      expect(image.samples, expected, reason: shape);
+    }
   });
 
   test('garbage decodes to null, not an exception', () {
