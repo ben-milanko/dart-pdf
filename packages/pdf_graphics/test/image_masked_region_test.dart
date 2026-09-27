@@ -211,6 +211,26 @@ void main() {
     }
   });
 
+  test('whole-image masked downscales are the full decode, box-filtered', () {
+    // The render worker's own case: a masked tile drawn smaller than native.
+    final random = Random(20260928);
+    for (var trial = 0; trial < 24; trial++) {
+      final (:stream, :width, :height, :rgb, :kind) =
+          _randomMaskedImage(random, trial);
+      final tw = 1 + random.nextInt(width - 1);
+      final th = 1 + random.nextInt(height);
+      final expected = downsamplePdfDecodedPixels(
+          decodePdfImagePixels(cos, stream)!, tw, th);
+      final pixels =
+          decodePdfImage(cos, stream, targetWidth: tw, targetHeight: th)!;
+      final reason = 'trial $trial ${rgb ? 'rgb' : 'gray'} kind $kind '
+          '${width}x$height -> ${tw}x$th';
+      expect(pixels.width, expected.width, reason: reason);
+      expect(pixels.height, expected.height, reason: reason);
+      expect(pixels.rgba, expected.rgba, reason: reason);
+    }
+  });
+
   test('masked DeviceGray under an OutputIntent keeps the mapped reference',
       () {
     // Under a PDF/X OutputIntent, DeviceGray is the output condition's K-only

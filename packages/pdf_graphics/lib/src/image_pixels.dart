@@ -594,10 +594,11 @@ class PdfImageRegion {
 /// can't handle the stream (a stacked filter, an Indexed-8/ICC/Lab space, a
 /// 16-bit image, or a masked one outside the exact masked kernel's shapes; the
 /// fast paths only cover single-filter Flate/CCITT, explicitly pre-decoded
-/// samples, and a region of an 8-bit DeviceRGB/DeviceGray Flate image under a
-/// same-size stencil /Mask or 8-bit /SMask), transparently falls back to a
-/// full decode cropped and downsampled to the request. That fall-back-and-
-/// downscale policy used to be copied into each caller.
+/// samples, and - for a region or a whole-image downscale alike - an 8-bit
+/// DeviceRGB/DeviceGray Flate image under a same-size stencil /Mask or 8-bit
+/// /SMask), transparently falls back to a full decode cropped and downsampled
+/// to the request. That fall-back-and-downscale policy used to be copied into
+/// each caller.
 ///
 /// Returns null only when even the full pure-Dart decode can't produce pixels
 /// - a non-CMYK DCTDecode base, or an image under a DCT-encoded /SMask, needs
@@ -692,6 +693,15 @@ PdfDecodedPixels? decodePdfImage(
 /// every native sample, composited every native pixel, and only then shrank
 /// the RGBA result. Keep those general PDF semantics, but pass the target into
 /// the base and mask halves before they meet.
+///
+/// A masked 8-bit DeviceRGB/DeviceGray Flate image (a CAD tile under its
+/// stencil /Mask, an underlay under its soft mask) takes the exact single-pass
+/// kernel instead, which is the full decode box-filtered to the target. The
+/// halves-then-composite path point-samples a target-sized mask onto the
+/// native base, so along mask edges it averaged in base colour the mask hides
+/// (and disagreed with the deep-zoom slices, which are the full decode); the
+/// kernel is also several times cheaper, since it never builds the native
+/// RGBA surface.
 PdfDecodedPixels? _decodePdfImagePixelsTargeted(
   CosDocument cos,
   CosStream stream,
@@ -700,6 +710,17 @@ PdfDecodedPixels? _decodePdfImagePixelsTargeted(
 ) {
   final dict = stream.dictionary;
   final isStencil = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
+  if (!isStencil &&
+      (cos.resolve(dict['Mask']) is CosStream ||
+          cos.resolve(dict['SMask']) is CosStream)) {
+    final width = _intOf(cos.resolve(dict['Width']));
+    final height = _intOf(cos.resolve(dict['Height']));
+    if (targetWidth < width || targetHeight < height) {
+      final exact = _scaledMaskedDirect8Region(cos, stream, width, height, 0, 0,
+          width, height, targetWidth, targetHeight);
+      if (exact != null) return exact;
+    }
+  }
   final base = decodePdfImageBase(
     cos,
     stream,
@@ -931,8 +952,8 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   // region's samples. The general fallback it replaces - decode, composite
   // and premultiply the whole native image, then crop and box-filter it -
   // produces the same bytes from the same inflated samples, but touches every
-  // native pixel. Whole-image downscales are not taken here: they go through
-  // [_decodePdfImagePixelsTargeted].
+  // native pixel. Whole-image downscales are not taken here:
+  // [_decodePdfImagePixelsTargeted] routes them to the same kernel.
   if (!isMask &&
       !samplesAreDecoded &&
       !wholeImageOnlyIfDownscaled &&

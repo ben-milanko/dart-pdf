@@ -110,8 +110,7 @@ DeviceGray under an OutputIntent (`_toRgba` maps it through the output
 condition), cells whose 32-bit column sums could overflow (they fall back;
 never `Int64List`, which dart2js lacks), region requests outside the image
 (the fallback returns null rather than clamping), `samplesAreDecoded`, and
-the whole-image scaled call: whole-image downscales keep their current path,
-whose output is not the full decode at mask edges. Bracketed with PdfPerf
+the whole-image scaled call (phase C, below). Bracketed with PdfPerf
 `imageAlpha` and `imageDownsample` (one fused pass records both). A same-size
 slice (deep zoom at or past native resolution) writes each premultiplied
 sample straight out instead of summing it into a column and dividing by one.
@@ -170,6 +169,62 @@ Every slice hash equals origin/main's under node too.
 declines every soft-masked image; its mask is now a different size from its
 image, which only the general path resamples, so it still tests the fallback
 with the same expected pixels.
+
+## Phase C (output change): whole-image masked downscales
+
+`_decodePdfImagePixelsTargeted` decoded the base at native size, sized the
+mask to the target, point-sampled that averaged mask back onto the native
+base, composited, and downsampled. Along mask edges that averages in base
+colour the mask hides, and it disagrees with the deep-zoom slices, which are
+the full decode. It now routes eligible downscales through the same kernel,
+so they equal `downsamplePdfDecodedPixels(decodePdfImagePixels(...))`.
+
+- Ghent `ghent_render_test`, `overprint_render_test` and the pdf.js smoke pass
+  unchanged; the record hashes changed only for pdf.js `issue5280`,
+  `raster-underlay-1p` and the CAD sheets.
+- Old path vs the reference, per image at the worker's targets: raster
+  underlay max per-channel delta 57 / 136 / 255 at r0.5 / 1 / 2 (0.97 / 0.48
+  / 0.22% of bytes); issue5280 56 / 61 / 127 (13 / 6.8 / 3.4%); the real
+  sheet's 445 RGB tiles max 29. The new build matches the reference on every
+  one of them; the sheet's 17 Indexed+Mask tiles are out of scope and keep the
+  old path.
+- issue5280 against its PDF.js reference at 1x: 0.013% differing pixels before
+  and after (26 pixels move by 1).
+- Scratch visual review of the real sheet rendered through the worker at 0.5x:
+  no artefacts; mean per-channel change 1.9, 9% of pixels by more than 8, max
+  42, all along the stencilled linework of the colour tiles.
+
+Decoding record, AOT thread CPU, 5 interleaved rounds vs origin/main (so
+phases A-C together): real sheet r0.5 21.66 -> 4.14 s (0.19x), raster
+underlay r1.0 546 -> 273 ms (0.50x); masked tiles to 1/16 0.10x. The first
+cut measured the faithful2 fixture at 0.18x and the underlay at r2.0 0.70x;
+the whole-image path only gained the dart2js fix since, and its real-sheet
+record held (4.07 s first cut, 4.14 s now).
+
+dart2js -O3 under node, per image, same setup as phase B's table (inflate
+paid, as a first record pays it):
+
+| case | origin/main | first cut | this branch | vs origin/main |
+|---|---:|---:|---:|---:|
+| raster underlay at the worker's r1.0 target | 530 ms | 5,319 ms | 349 ms | 0.66x |
+| dense soft mask (95% opaque) at r1.0 | 191 ms | 843 ms | 187 ms | 0.98x |
+| random partial alpha at r1.0 | 181 ms | 825 ms | 137 ms | 0.75x |
+| mostly visible stencil /Mask at r1.0 | 516 ms | 695 ms | 168 ms | 0.33x |
+| real sheet tiles at the r0.5 targets | 492 ms | - | 48 ms | 0.10x |
+
+The dense soft mask is parity, not a saving: its inflate dominates.
+
+The opt-in persistent full-raster tier (`PdfRasterCache.fullRasterVersion`)
+is not bumped. Only mask-edge pixels of downscaled masked images move (max 42
+levels on the real sheet), its entries are keyed by content revision and age
+out of their LRU, and #949's edge-level stencil change did not bump it either;
+a bump would discard every stored raster to refresh those edges.
+
+Peak RSS: the underlay drops (373 -> 313 MB at r1.0). The tile sheets do
+not: 412 -> 488 MB median for one record of the real sheet, 485 -> 543 MB for
+the quarter fixture, and the nightly's JIT record child peaked at 1.1 GB on
+the quarter fixture. Allocation volume falls (no native RGBA plane or 0/255
+mask plane per tile), but the peak does not. No memory claim for tile sheets.
 
 ## Nightly budget
 
