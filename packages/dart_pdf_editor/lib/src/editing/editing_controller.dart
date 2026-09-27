@@ -481,10 +481,9 @@ class PdfEditingController extends ChangeNotifier {
       // is O(file) - ~8 ms/MB on the UI isolate - so it waits for the first
       // thing filed or read under it ([_resolveFormSecretId]).
       _formSecretIdBytes = pdfTrailerPermanentId(_document);
-      formSecretsLoaded =
-          _mayHoldFormSecrets() ? _loadFormSecrets() : Future<void>.value();
+      _openFormSecrets();
     } else {
-      formSecretsLoaded = Future<void>.value();
+      _formSecretsRead.complete();
     }
   }
 
@@ -527,93 +526,90 @@ class PdfEditingController extends ChangeNotifier {
         pdfFallbackDocumentId(Uint8List.sublistView(_bytes, 0, _revisions[0]));
   }
 
-  /// Whether [_loadFormSecrets] could restore anything: only a field the
-  /// opened file shows as withheld-and-filled takes a stored value
-  /// ([_holdsWithheldValue]). No /AcroForm answers in O(1). With a trailer
-  /// /ID the field walk is skipped (the id is free, the walk is not);
-  /// without one [_fieldTreeHoldsWithheldMarker] decides within
-  /// [debugFormSecretGateBudget] nodes, so a file with no withheld field
-  /// never pays the hash or the store read unless its form is too big to
-  /// rule out for less than the hash would cost.
-  bool _mayHoldFormSecrets() {
+  /// Decides at open whether this document's stored values need reading
+  /// ([_loadFormSecrets]): only a field the opened file shows as
+  /// withheld-and-filled takes one ([_holdsWithheldValue]).
+  ///
+  /// No /AcroForm: nothing to restore into, decided in O(1). With a trailer
+  /// /ID the store is read now, as it always was - the id is free, and the
+  /// load parses the form only if the store holds something for it. Without
+  /// one, reading the store means hashing the file first, so the decision
+  /// waits for the first read of the form's fields ([_decideFormSecretsOn]):
+  /// the form layer reads them anyway once a page showing a widget attaches,
+  /// or a fill looks a field up, and a password field's prefill needs them
+  /// too. The open itself then touches no field, whatever the form holds.
+  void _openFormSecrets() {
+    _formSecretsPending = _formSecretIdBytes == null;
+    final PdfAcroForm? form;
     try {
-      final form = acroForm;
-      if (form == null) return false;
-      if (_formSecretIdBytes != null) return true;
-      return _fieldTreeHoldsWithheldMarker(form,
-          budget: debugFormSecretGateBudget(_revisions[0]));
+      form = acroForm;
     } catch (_) {
-      return true; // a form too broken to walk: leave it to the load, as before
+      // a catalog too broken to read: leave it to the load, as before
+      _settleFormSecrets(load: true);
+      return;
+    }
+    if (form == null) {
+      _settleFormSecrets(load: false);
+    } else if (!_formSecretsPending) {
+      _settleFormSecrets(load: true);
     }
   }
 
-  /// How many /Fields-tree nodes the no-/ID open gate may take before it
-  /// gives up and answers "may hold secrets" - one per 4 KB of the file as
-  /// opened, and at least 128.
-  ///
-  /// Giving up costs exactly what the eager open paid (the hash of the opened
-  /// bytes and the store read), so the budget only bounds how much the gate
-  /// can add on top. A node is an object load of ~1.5-3.5 us native (AOT)
-  /// and ~3.5-7.5 us on the web (dart2js), the hash ~8 and ~6.5 ns a byte: a
-  /// walk that runs out of budget adds at most ~10% (native) or ~30% (web)
-  /// to the hash it then pays, and below 512 KB the 128-node floor adds at
-  /// most ~0.5 ms native, ~1 ms web.
-  @visibleForTesting
-  static int debugFormSecretGateBudget(int openedLength) =>
-      math.max(128, openedLength >> 12);
+  /// Whether this no-/ID document still waits for the first read of its
+  /// form fields to decide whether its stored values need reading.
+  bool _formSecretsPending = false;
 
-  /// Whether any node of [form]'s /Fields tree (descending /Kids, widget
-  /// kids included) carries [PdfFormFilling.passwordWithheldKey] - a
-  /// superset of the fields [_holdsWithheldValue] accepts, which is all the
-  /// open-time gate needs: a false positive only costs the hash and the
-  /// store read, and [_loadFormSecrets] still filters exactly.
+  final Completer<void> _formSecretsRead = Completer<void>();
+
+  /// Ends the open-time decision: reads the store ([_loadFormSecrets]) when
+  /// [load], and completes [formSecretsLoaded] either way.
+  void _settleFormSecrets({required bool load}) {
+    _formSecretsPending = false;
+    _formSecretsRead.complete(load ? _loadFormSecrets() : null);
+  }
+
+  /// The hook [acroForm] hands [PdfAcroForm.of] while a no-/ID decision is
+  /// pending: settles it off the first read of that form's fields, which
+  /// costs nothing past the read itself.
   ///
-  /// Deliberately not [PdfAcroForm.fields]: its orphan-widget reconcile maps
-  /// every page and parses every annotation on it, work the constructor must
-  /// not add (a no-/ID file with an empty /AcroForm and 40k link annotations
-  /// took 0.8 s to construct that way, against 0.07 s for the hash it
-  /// replaced). This walk loads field nodes and their widgets only, whatever
-  /// the page or annotation count, and never touches the page tree. Iterative
-  /// with an identity-keyed visited set, so a cyclic or deep /Kids chain
-  /// can neither loop nor overflow the stack.
-  ///
-  /// Even so, a field-dense form costs more to walk than to hash (a node is
-  /// an object load; the hash is ~8 ns a byte), so the walk stops and answers
-  /// true once it has taken on more than [budget] nodes. It counts pushes -
-  /// every node pushed is popped and resolved - so repeated references and a
-  /// wide /Kids fan-out are charged too, and a /Kids array that would take the
-  /// count past the budget ends the walk before a single one is pushed.
-  ///
-  /// What it cannot see is a field synthesized from an orphan page widget
-  /// (no /Fields entry by that name) that carries the marker. A withheld fill
-  /// writes the file's /ID, so that takes a file whose /ID was stripped after
-  /// such a fill, plus a store entry filed under the hash of exactly the
-  /// stripped bytes by an earlier session that never saved over them (it was
-  /// discarded, or saved to a new path with Save As and the original is
-  /// reopened) - and all it loses is the inline editor's prefill, not the
-  /// stored value.
-  static bool _fieldTreeHoldsWithheldMarker(PdfAcroForm form,
-      {required int budget}) {
-    final cos = form.document.cos;
-    final roots = cos.resolve(form.dict['Fields']);
-    if (roots is! CosArray) return false;
-    var pushed = roots.length;
-    if (pushed > budget) return true;
-    final pending = <CosObject>[...roots.items];
-    final visited = <CosDictionary>{};
-    while (pending.isNotEmpty) {
-      final node = cos.resolve(pending.removeLast());
-      if (node is! CosDictionary || !visited.add(node)) continue;
-      final marker = cos.resolve(node[PdfFormFilling.passwordWithheldKey]);
-      if (marker is CosBoolean && marker.value) return true;
-      final kids = cos.resolve(node['Kids']);
-      if (kids is CosArray) {
-        pushed += kids.length;
-        if (pushed > budget) return true;
-        pending.addAll(kids.items);
-      }
+  /// [opened] says whether the form is revision 0 - the file as opened, or
+  /// as a redaction burn ([_resetTo], which starts a fresh history) left it,
+  /// the same bytes [_loadFormSecrets] filters against. Only then do its
+  /// fields answer exactly: [fields]`.any(`[_holdsWithheldValue]`)` is the
+  /// very test the load applies, orphan widgets the form reconciles
+  /// included. A form read first at a later revision may have lost a field
+  /// revision 0 withheld (undo brings it back), so it falls back to the
+  /// eager open's load: the hash and the store read, paid then rather than
+  /// at open.
+  void Function(List<PdfFormField>) _decideFormSecretsOn({
+    required bool opened,
+  }) =>
+      (fields) {
+        if (!_formSecretsPending) return;
+        var load = true;
+        if (opened) {
+          try {
+            load = fields.any(_holdsWithheldValue);
+          } catch (_) {
+            // a field too broken to read: leave it to the load
+          }
+        }
+        _settleFormSecrets(load: load);
+      };
+
+  /// Settles a pending no-/ID decision now: reads the current revision's
+  /// form fields, which runs [_decideFormSecretsOn]. For a caller that needs
+  /// the stored values without waiting for the form layer - the
+  /// [formSecretsLoaded] getter, a prefill of a field from another
+  /// [PdfAcroForm].
+  void _settleFormSecretsNow() {
+    if (!_formSecretsPending) return;
+    try {
+      acroForm?.fields;
+    } catch (_) {
+      // settled below
     }
-    return false;
+    if (_formSecretsPending) _settleFormSecrets(load: true);
   }
 
   /// A password field whose value the file withholds
@@ -630,8 +626,17 @@ class PdfEditingController extends ChangeNotifier {
   bool get debugFormSecretIdResolved => _formSecretIdBytes != null;
 
   /// Completes once the [formSecretStore]'s values for this document have
-  /// been read (immediately without a store).
-  late final Future<void> formSecretsLoaded;
+  /// been read (immediately without a store, or when the opened file
+  /// withholds no password value).
+  ///
+  /// A file without a trailer /ID reads the store only once something reads
+  /// its form fields - the form layer does as soon as a page showing a
+  /// widget attaches. Asking for this future reads them then and there if
+  /// nothing has yet.
+  Future<void> get formSecretsLoaded {
+    _settleFormSecretsNow();
+    return _formSecretsRead.future;
+  }
 
   /// Parallels [_revisions]: the withheld password values (field name ->
   /// value, `''` for an explicit clear) in effect at each revision. Maps are
@@ -680,6 +685,8 @@ class PdfEditingController extends ChangeNotifier {
   /// value; otherwise [PdfFormField.value].
   String? formFieldTextValue(PdfFormField field) {
     if (formSecretStore != null && field.isPassword) {
+      // a field read off another PdfAcroForm than [acroForm]
+      _settleFormSecretsNow();
       final secret = _revisionSecrets[_cursor][field.name];
       if (secret != null) return secret;
     }
@@ -701,6 +708,8 @@ class PdfEditingController extends ChangeNotifier {
   Future<void> forgetFormSecrets() async {
     final store = formSecretStore;
     if (store == null) return;
+    // nothing left to read back
+    if (_formSecretsPending) _settleFormSecrets(load: false);
     for (var i = 0; i < _revisionSecrets.length; i++) {
       _revisionSecrets[i] = {};
     }
@@ -8981,7 +8990,10 @@ class PdfEditingController extends ChangeNotifier {
   /// pointer event.
   PdfAcroForm? get acroForm {
     if (!_formResolved) {
-      _form = PdfAcroForm.of(_document);
+      _form = PdfAcroForm.of(_document,
+          onFields: _formSecretsPending
+              ? _decideFormSecretsOn(opened: _cursor == 0)
+              : null);
       _formResolved = true;
     }
     return _form;

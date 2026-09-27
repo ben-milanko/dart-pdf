@@ -15,6 +15,19 @@ void main() {
     expect(names, ['name', 'address', 'agree', 'color', 'size', 'serial']);
   });
 
+  test('onFields sees the first read of the fields, once', () {
+    final seen = <List<PdfFormField>>[];
+    final f = PdfAcroForm.of(PdfDocument.open(buildAcroFormPdf()),
+        onFields: seen.add)!;
+    expect(f.defaultAppearance, isNotNull);
+    expect(seen, isEmpty, reason: 'finding the form reads no field');
+    expect(f.fieldNamed('agree'), isNotNull, reason: 'a lookup reads them');
+    expect(seen, hasLength(1));
+    expect(seen.single, same(f.fields));
+    f.describeFields();
+    expect(seen, hasLength(1), reason: 'the list is cached from then on');
+  });
+
   test('field types follow /FT and the discriminating /Ff bits', () {
     final f = form();
     expect(f.fieldNamed('name')!.type, PdfFieldType.text);
@@ -58,8 +71,8 @@ void main() {
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     final page = doc.page(0);
     final annots = doc.cos.resolve(page.dict['Annots']) as CosArray;
-    annots.items.removeWhere(
-        (item) => identical(doc.cos.resolve(item), field.dict));
+    annots.items
+        .removeWhere((item) => identical(doc.cos.resolve(item), field.dict));
     expect(field.widgetPageIndex(0), -1);
     expect(field.widgetPageIndex(99), -1, reason: 'index out of range');
     expect(field.widgetRect(99), isNull);

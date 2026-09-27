@@ -19,21 +19,31 @@ the same class of cost from the recents key.
 Now:
 
 - The constructor takes `pdfTrailerPermanentId` only (a trailer lookup).
-- The store read at open (`_loadFormSecrets`, a keychain `readAll` on
-  native) runs only when it could restore something. It only ever kept
-  values for fields the opened file shows as withheld and unfilled
-  (`_holdsWithheldValue`: password flag, no /V,
-  `/DartPdfPasswordWithheld true`), so skipping it otherwise changes nothing.
-  No /AcroForm skips it in O(1). With /ID it runs as before (the field walk
-  costs more than the id). Without /ID `_fieldTreeHoldsWithheldMarker`
-  walks the /Fields tree (descending /Kids, never the pages) for a node
-  carrying the marker, and only a hit pays the hash and the read. The walk
-  is budgeted (`debugFormSecretGateBudget`: one node per 4 KB of the opened
-  file, at least 128); past the budget it answers "may hold secrets", which
-  is the eager open exactly (see the gate gotchas below).
+- The store read (`_loadFormSecrets`, a keychain `readAll` on native) only
+  ever kept values for fields the opened file shows as withheld and
+  unfilled (`_holdsWithheldValue`: password flag, no /V,
+  `/DartPdfPasswordWithheld true`), so it runs only when such a field
+  exists (`_openFormSecrets`):
+  - no /AcroForm: skipped, decided in O(1);
+  - a trailer /ID: read at open, as before (the id is free, and the load
+    parses the form only when the store returns something);
+  - no /ID: the decision **waits for the first read of the form's fields**.
+    The controller's `acroForm` hands `PdfAcroForm.of` an `onFields` hook
+    (new, pdf_document) while the decision is pending, and the hook settles
+    it with `fields.any(_holdsWithheldValue)` - the load's own test, so the
+    answer is exact. The open itself reads no field.
 - The fallback id is resolved lazily by `_resolveFormSecretId`, on first
   need: a withheld fill, `forgetFormSecrets`, an undo/redo that moves a
-  stored value, or `formSecretDocumentId`.
+  stored value, a store read, or `formSecretDocumentId`.
+
+Who reads the fields first: the viewer's form layer (`FormInteractionLayer`
+in reading/select modes, `FormFieldLabelLayer` under the form tool) calls
+`formWidgetsOn(page)` as a page attaches, and that reads `fields` as soon as
+the page shows a Widget annotation. A password field can only be tapped on
+such a page, so the prefill (`formFieldTextValue`) is never asked for before
+the store read has started - the same async race base had, with the read
+starting at the first widget page instead of at construction. A fill looks
+its field up (`fieldNamed`), which reads the fields too.
 
 Gotchas:
 
@@ -46,87 +56,83 @@ Gotchas:
   and the value would be lost on reopen. There is a test for exactly that
   (a first withheld fill after an unrelated edit).
 - `_resetTo` (redaction burn) replaces the buffer, so it resolves the id
-  first when a store is attached. The burn is O(file) anyway.
+  first when a store is attached. The burn is O(file) anyway. A decision
+  still pending at the burn simply carries on: the burn starts a fresh
+  history, so the burned file is revision 0, the only state the session can
+  show again, and the bytes `_loadFormSecrets` filters against.
 - `pdfFallbackDocumentId` (pdf_document `document_identity.dart`) is the
   hash on its own, so the controller does not have to open a document to
   get it. The first prototype re-opened the prefix inside the getter, which
   on an AES-256 file would have re-run the password check.
-- **The gate reads /Fields, never `PdfAcroForm.fields`.** Base did no form
-  work at open: it paid the hash, and the viewer's form layer only computes
-  `fields` for a page that shows a Widget (`formWidgetsOn` skips other
-  annotations first). `fields` always runs the orphan-widget reconcile,
-  which maps every page and parses every annotation on it to find widgets
-  missing from /Fields. So a gate built on `fields` adds work at open
-  instead of moving it. Review caught this twice:
-  - Round 1: `PdfAcroForm._pages` still looked each page up with
-    `page(i)`, which is quadratic on a flat /Kids tree before the viewer
-    has warmed the page cache (1.36 s at 4000 pages, against 12 ms for the
-    hash). #969 fixed `_pages` on main.
-  - Round 2: even as one page walk, the reconcile parses every annotation.
-    A no-/ID file with an empty /AcroForm stub and dense link annotations
-    (a TOC or an index) went from 68 ms (the hash) to 800 ms in the
-    constructor at 40k links (`buildMultiPagePdf(2000)`, 20 /Link each).
+- **Exact only at revision 0.** The hook records whether its form is
+  revision 0 (`_decideFormSecretsOn(opened: _cursor == 0)`). A form first
+  read at a later revision may have lost a field revision 0 withheld - the
+  toolbar's Flatten from a cover page removes every field without the
+  controller's form ever being read - and an undo brings it back. So a
+  first read after an edit falls back to the eager open's load (the hash
+  and the store read), paid then instead of at open, never more than base.
+- **Nothing may wait on a read that never comes.** `formSecretsLoaded` is
+  now a getter over a completer. It completes when the decision settles
+  (immediately when there is nothing to read). Asking for it reads the
+  fields then and there if nothing has yet (`_settleFormSecretsNow`), so a
+  host that awaits it before building the viewer cannot deadlock. The same
+  happens when `formFieldTextValue` is given a field from some other
+  `PdfAcroForm` instance, and `forgetFormSecrets` settles a pending decision
+  without a read (the store is being cleared anyway).
+- **Why not a cheaper look at open.** Three review rounds each found an
+  open-time cost in a gate that tried to rule the store out at construction:
+  - Round 1 went through `PdfAcroForm.fields`. Its orphan-widget reconcile
+    maps every page and parses every annotation, and `PdfAcroForm._pages`
+    looked pages up with `page(i)`, quadratic on a flat /Kids tree (1.36 s
+    at 4000 pages against 12 ms for the hash; #969 fixed `_pages`).
+  - Round 2 walked /Fields only, but that still costs more than the hash on
+    a field-dense form: a node is an object load of about 1.5-3.5 us native,
+    and a field dictionary occupies about 200 bytes of file (5000 fields:
+    JIT 11 -> 48-79 ms).
+  - Round 3 budgeted the walk by node count, but one node can cost far more
+    than the bytes it occupies. A combo box parses its whole inline /Opt
+    list on resolve (0.35-1.4 us per entry, against 0.1-0.25 us to hash the
+    same bytes), and on the web each field in its own object stream pays a
+    pure-Dart inflate. With no widget on page 0, base's attach never touched
+    those objects: option-heavy forms ran at 0.27-0.68x of base AOT and
+    0.14-0.15x under dart2js, object-stream-spread fields at 0.34x on the
+    web.
 
-  The gate over-approximates from the /Fields tree alone. It checks the
-  marker on every node reachable through /Kids (widget kids included), with
-  an identity-keyed visited set and an explicit stack, and ignores /Ff and
-  /V. A false positive only costs the hash and the store read, and
-  `_loadFormSecrets` still filters exactly.
-- **The walk is budgeted, because a field node costs more than the bytes it
-  occupies.** Round 3 of review found that the unbudgeted /Fields walk still
-  cost more than the hash on a field-dense form: every node is an object
-  load, and a field dictionary is only ~180-200 bytes of file. A no-/ID file
-  with 5000 fields constructed 4-7x slower than base (JIT 11 -> 48-79 ms), and
-  none of the earlier gate inputs had a non-empty /Fields. Measured costs
-  (thread CPU): an object load in the walk is ~1.5-3.5 us AOT (the higher
-  end with /AP dictionaries) and ~3.5-7.5 us under dart2js; SHA-256 is
-  ~8.2 ns a byte AOT and ~6.5 under dart2js. So one node costs as much as
-  hashing 200-420 bytes native, 640-1250 on the web, and in an object-stream
-  file a field node can occupy as little as ~25 bytes.
+  The base viewer reads the fields anyway once a widget page attaches, so
+  deciding there costs one `.any` over a list already built, and it sees
+  exactly what the load sees, including fields the form reconciles from
+  orphan widgets (which the /Fields walks missed).
+- `PdfAcroForm.of(onFields:)` calls the hook once, after caching the list,
+  so the hook can read `form.fields` again without recursing.
+  `form_test.dart` pins it: not called by `of`, called once by the first
+  read (here through `fieldNamed`), never again.
 
-  The budget is `max(128, openedLength >> 12)` nodes, and the walk counts
-  **pushes**: every node pushed is later popped and resolved, so repeated
-  references and wide /Kids fan-outs are charged, and a /Kids array (or the
-  /Fields root) that would overshoot ends the walk before anything is
-  pushed. Past the budget the gate answers true, and `_loadFormSecrets`
-  pays exactly what base paid (the hash of the opened bytes and the
-  `readAll`), so the budget cannot hide a secret. What it bounds is the
-  extra: a walk that runs out adds at most ~10% (native) or ~30% (web) to
-  the hash it then pays, and under 512 KB the 128-node floor adds at most
-  ~0.5 ms native, ~1 ms web. The floor exists so a small form with a few
-  dozen fields still skips the store read and the hash. A flat /Fields wider
-  than the budget (the usual shape of a big form) costs one array parse.
-  The budget counts nodes, not bytes: a form built from very large field
-  dictionaries (inline option lists many KB long) walks slower per node.
-  `form_secret_store_test` pins the budget: a 310-node tree loads at most
-  128 + 16 objects in the constructor and falls back to the eager load (one
-  `readAll`, the fallback id resolved); a withheld field the walk never
-  reached still restores; a flat 1000-field /Fields loads fewer than 16
-  objects; a 110-node form is still ruled out without the hash. Without the
-  budget those loads are 311, 1001 and 311.
+`form_secret_store_test` pins the behaviour:
 
-  The exact alternative the review offered, deferring the no-/ID decision
-  to the form layer's first `fields` computation, would also close the
-  orphan-widget residual below, but it moves the store read into the form
-  layer's timing and needs a hook there. The budget keeps the change in the
-  constructor.
+- A 3000-page no-/ID form's constructor makes no `pageTreeWalk`, and its
+  `objectsLoaded` is the same with 0 or 4000 link annotations.
+- Two-page no-/ID forms with a cover page and 20 or 1000 combo boxes (40
+  option pairs each), flat or spread over object streams: from the
+  constructor through the cover page attaching, 20 and 1000 dropdowns load
+  the same objects (4 flat; 5 and one object stream spread) and no store
+  read happens; the dropdown page attaching settles the decision without a
+  hash. The round-3 code loads 24 and 25 on the 20-dropdown file.
+- A withheld field: the store is read when the form layer reads the fields,
+  not before, and the value comes back.
+- An edit before the first read falls back to the load; a Flatten from the
+  cover followed by undo still shows the stored value.
+- A prefill of a field from another `PdfAcroForm`, `forgetFormSecrets`
+  before any read, a redaction burn before any read, a withheld field
+  nested under /Kids, and a withheld orphan widget (missing from /Fields,
+  reconciled back) all behave.
 
-  The other `form_secret_store_test` pins: no `pageTreeWalk` in the
-  constructor, the same constructor `objectsLoaded` with 0 or 4000 link
-  annotations (the `fields` gate loaded 202 vs 4202 objects), and a withheld
-  field nested under /Kids that still restores.
-
-  What the /Fields walk cannot see is a field synthesized from an orphan
-  page widget (no /Fields entry by that name) that carries the marker.
-  Getting there takes several steps: a withheld fill on such a field, which
-  writes /ID; another tool later stripping /ID while keeping the private
-  marker; then a store entry filed under the hash of exactly the stripped
-  bytes by an earlier session that never saved over them - one that was
-  discarded, or one saved to a new path with Save As, after which the
-  original is reopened. Even then only the inline editor's prefill is lost.
-  The store keeps the value, and the field still shows its mask. This case
-  is accepted. Keeping it exact would mean starting the load from the form
-  layer's first `fields` computation.
+Mutation checks: the round-3 controller fails nine of the new tests - the
+two dropdown open costs and the orphan widget are what it got wrong, the
+other six pin when the store read happens, which round 3 did at
+construction. Dropping the revision-0 guard, the `formFieldTextValue`
+settle or the `forgetFormSecrets` settle each fails its own test; a
+`formSecretsLoaded` that does not read the fields hangs every test that
+awaits it.
 
 ## 2. Undo reopens with the authenticated keys
 
@@ -194,122 +200,130 @@ decrypted. Base and branch behave the same way.
 
 ## Numbers
 
-Base is origin/main at 51b30ecd (#969-#973 included); patched is this
-branch. Every A/B ran 6 rounds ABAB with the order flipped each round (7 for
-dart2js), one process per side per round. The clock is thread CPU
-(`clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)` through `dart:ffi`), not
-wall time, because the machine was shared (load average 7-13). Figures are
-medians of the per-round medians, and the median of the per-round
-base/patched ratios; above 1 means patched is faster.
+Base is origin/main at 4d46406d; patched is this branch. Every A/B ran 6
+rounds ABAB with the order flipped each round, one process per side per
+round. The clock is thread CPU (`clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)`
+through `dart:ffi`; `process.threadCpuUsage()` under node), not wall time,
+because the machine was shared (load average 11-20). Figures are medians of
+the per-round medians, and the median of the per-round base/patched ratios;
+above 1 means patched is faster.
 
 Harnesses (scratch, not committed):
 
 - JIT: the real `PdfEditingController` with an `InMemoryFormSecretStore`
-  under `flutter test`, 5 reps per round after a warm-up. "+ attach" adds
-  the viewer's `document.pages` and `formWidgetsOn(0)`.
+  under `flutter test`, 5 reps per round. "+ attach" adds the viewer's
+  `document.pages` and `formWidgetsOn(0)`; "+ fields" then attaches the
+  first page that shows a widget (`formWidgetsOn(p)`), the first read of the
+  fields - on base that is where the form layer's work lands, on the branch
+  it also settles the no-/ID decision. The time is cumulative from the
+  constructor.
 - AOT: a `dart compile exe` bench built from each worktree that mirrors the
   constructor's library calls (base: `pdfPermanentDocumentId`; patched: the
-  trailer id, the budgeted walk copied verbatim, and the hash when the gate
-  answers true), 8 reps per round. "+ pages" adds `document.pages`.
-- dart2js: `dart compile js -O2` of the R6 undo reopen, run under node.
+  trailer id and `PdfAcroForm.of(onFields:)` with the controller's hook
+  copied verbatim), 9 reps per round. "+ pages" adds `document.pages`,
+  "+ fields" the first `fields` read.
+- dart2js: the same mirror compiled with `dart compile js -O4`, run under
+  node, inputs generated in JS, 9 reps per round.
 
 Inputs, generated in scratch (none has a trailer /ID except the control):
 
-- `noid-20mb`: 21.5 MB, 101 pages: pdf.js `calrgb.pdf` (no /ID) with 14
-  copies of `photo-jpeg-6p.pdf` merged in (`PdfMerger` keeps the first
-  file's trailer). `withid-20mb`: 23.2 MB, the same built on
-  `plan-set-16p.pdf`, which has an /ID.
-- `annotform-2000x20`: the round-2 class, an empty /AcroForm and 40k
-  /Link annotations.
-- The round-3 class, a field-dense /AcroForm, all fields merged text
-  field/widgets added by one incremental update: `manyfields-PxF` (F fields
-  on each of P pages; 200x25 is 5000 fields in 0.89 MB), `apform-200x25`
-  (the same with /AP streams, 1.88 MB), `-cover` variants with no widget on
-  page 0, `objstm-manyfields-200x25` (rewritten with object streams, 0.12
-  MB), `treeform-40x25` (50 parents x 20 fields, each with its own widget:
-  2050 nodes, 0.27 MB).
-- Budget edges: `edge-40x25` (1000 flat fields padded to 4.3 MB with an
-  unreferenced stream: budget 1055, the walk finishes); `edgetree-20x25`
-  (1025 tree nodes padded to 4.1 MB: budget 1000, the walk runs almost to
-  the end, gives up and hashes, which is the most a give-up can add past the
-  floor); `small-1x120` (120 fields, 20 KB) and `objstm-small-1x120` (the
-  same with object streams, 4 KB): under the 128-node floor, so the walk
-  finishes and nothing is hashed.
-- `noid-20mb-form2000`: `noid-20mb` with 2020 fields added.
+- `noid-big`: 21.6 MB, 100 pages of random image streams. `withid-big`: the
+  same file with an /ID.
+- The round-4 class, forms whose fields cost more to resolve than their
+  bytes, all with page 0 showing no widget: `optpairs-40x250` (40
+  country-style combo boxes of 250 [export display] pairs, 314 KB),
+  `opt-60x1500` (60 combos of 1500 options, 1.4 MB), `optpairs-60x750`
+  (1.4 MB), `objstm-spread-400` (400 fields, each in its own object stream,
+  3 MB). `optpairs-40x250-p0` puts the combos on page 0.
+- Earlier classes: `flat5000` (5000 flat fields), `chain-edge` (a /Kids
+  chain 1100 deep, padded to 4.3 MB: the round-3 budget's worst case),
+  `small120` (120 fields on page 0, 20 KB), `bigv-100x8k` (100 text fields
+  with 8 KB values), `r6-noid-form400` (an AES-256 user-password form, 2.2
+  MB, widgets on page 0).
 
-| input | gate | JIT ctor | JIT ctor + attach | AOT open + decision |
-| --- | --- | ---: | ---: | ---: |
-| noid-20mb | no form: no hash | 197.2 -> 0.24 ms (833x) | 197.6 -> 0.77 ms (257x) | 177.9 -> 0.058 ms (~3000x) |
-| withid-20mb (control) | /ID: read | 0.18 -> 0.19 ms (0.98x) | 0.81 -> 0.84 ms (0.99x) | 0.047 -> 0.048 ms (1.00x) |
-| noid-20mb-form2000 | walk finishes | 200.4 -> 7.97 ms (25x) | 207.7 -> 10.1 ms (21x) | 182.0 -> 4.54 ms (40x) |
-| edge-40x25 | walk finishes | 40.0 -> 3.08 ms (13x) | 43.2 -> 4.94 ms (8.8x) | 36.1 -> 1.92 ms (19x) |
-| annotform-2000x20 | empty /Fields | 62.5 -> 16.3 ms (3.8x) | 77.3 -> 33.7 ms (2.3x) | 52.2 -> 10.2 ms (5.1x) |
-| manyfields-200x25 | gives up at the root | 10.65 -> 10.83 ms (0.98x) | 32.6 -> 34.6 ms (0.96x) | 8.86 -> 8.87 ms (1.00x) |
-| manyfields-40x25 | gives up at the root | 2.18 -> 2.10 ms (1.02x) | 6.05 -> 5.57 ms (1.07x) | 1.74 -> 1.77 ms (0.98x) |
-| manyfields-cover-200x25 | gives up at the root | 10.06 -> 10.17 ms (0.98x) | 11.31 -> 11.52 ms (0.98x) | 8.82 -> 8.79 ms (1.00x) |
-| apform-200x25 | gives up at the root | 21.5 -> 22.0 ms (0.99x) | 48.0 -> 48.3 ms (0.97x) | 17.86 -> 18.01 ms (0.99x) |
-| apform-cover-200x25 | gives up at the root | 20.5 -> 21.1 ms (0.98x) | 21.9 -> 23.1 ms (0.94x) | 18.07 -> 18.14 ms (1.01x) |
-| objstm-manyfields-200x25 | gives up at the root | 4.64 -> 4.97 ms (0.95x) | 27.5 -> 29.2 ms (0.92x) | 2.40 -> 2.39 ms (1.00x) |
-| treeform-40x25 | gives up (budget 128) | 3.18 -> 3.48 ms (0.92x) | 8.59 -> 8.85 ms (0.99x) | 2.63 -> 2.72 ms (0.97x) |
-| edgetree-20x25 | gives up near the end | 37.9 -> 40.2 ms (0.94x) | 40.5 -> 41.3 ms (0.98x) | 34.5 -> 35.4 ms (0.97x) |
-| small-1x120 | walk finishes (floor) | 0.28 -> 0.42 ms (0.68x) | 0.78 -> 0.66 ms (1.19x) | 0.20 -> 0.23 ms (0.86x) |
-| objstm-small-1x120 | walk finishes (floor) | 0.17 -> 0.46 ms (0.38x) | 0.65 -> 0.69 ms (0.97x) | 0.085 -> 0.24 ms (0.35x) |
+JIT, the real controller (ms, base -> patched, pair ratio):
 
-AOT with `+ pages`: noid-20mb 178.4 -> 0.28 ms (641x), withid-20mb 0.261 ->
-0.262 ms (1.01x), noid-20mb-form2000 182.5 -> 5.10 ms (36x), edge-40x25
-36.3 -> 2.18 ms (17x), annotform-2000x20 63.4 -> 20.9 ms (3.0x); the
-field-dense rows stay at 0.98-1.00x, treeform and edgetree at 0.97x.
+| input | ctor | ctor + attach | + fields |
+| --- | ---: | ---: | ---: |
+| noid-big (no form) | 199.2 -> 0.147 (1364x) | 199.5 -> 0.478 (418x) | same |
+| withid-big (control) | 0.145 -> 0.156 (0.92x) | 0.504 -> 0.521 (0.96x) | same |
+| optpairs-40x250 | 3.26 -> 0.125 (26x) | 3.34 -> 0.184 (18x) | 13.7 -> 12.1 (1.13x) |
+| optpairs-40x250-p0 | 3.25 -> 0.138 (23x) | 13.1 -> 10.2 (1.23x) | same |
+| opt-60x1500 | 14.7 -> 0.174 (84x) | 14.8 -> 0.235 (64x) | 49.9 -> 39.8 (1.25x) |
+| optpairs-60x750 | 13.7 -> 0.161 (85x) | 13.8 -> 0.224 (63x) | 58.5 -> 45.8 (1.29x) |
+| objstm-spread-400 | 44.0 -> 11.9 (3.7x) | 44.2 -> 12.0 (3.7x) | 73.9 -> 43.7 (1.69x) |
+| flat5000 | 11.3 -> 2.02 (5.4x) | 12.1 -> 2.90 (4.0x) | 35.5 -> 28.4 (1.24x) |
+| chain-edge | 40.0 -> 0.53 (76x) | 40.1 -> 0.57 (70x) | 42.8 -> 4.41 (9.7x) |
+| small120 | 0.313 -> 0.086 (3.6x) | 0.852 -> 0.639 (1.35x) | same |
+| bigv-100x8k | 8.20 -> 0.31 (26x) | 8.29 -> 0.41 (21x) | 12.8 -> 4.24 (3.2x) |
+| r6-noid-form400 | 28.8 -> 7.70 (3.7x) | 33.5 -> 12.3 (2.7x) | same |
 
-For the round-3 class the review had measured, with the unbudgeted walk,
-JIT constructors of 11 -> 48-79 ms (manyfields-200x25), 2.3 -> 5.0 ms
-(manyfields-40x25) and 22.9 -> 35.0 ms (apform-200x25), and AOT 10.0 ->
-40.9 ms for 5000 bare fields. Those rows are now at parity: their flat
-/Fields is wider than the budget, so the gate costs one array parse and then
-pays base's hash. What is slower than base, and by how much:
+"same" means the widget page is page 0 (or there is no form), so the attach
+already read the fields. The control's range was wide (0.59-1.36x); a
+focused 8-round rerun put it at 0.191 -> 0.185 ms (1.10x) and 0.593 ->
+0.597 ms (1.01x), and small120's attach at 1.624 -> 1.659 ms (0.97x, range
+0.74-1.13): parity. On every patched no-/ID open `debugFormSecretIdResolved`
+stayed false after `formSecretsLoaded` (no hash, no store read); the
+control resolved its free /ID.
 
-- a walk that runs almost to the end of its budget and gives up:
-  edgetree-20x25 +0.9 ms AOT (0.97x) and +2.3 ms JIT (0.94x) on a 35 ms
-  hash; treeform-40x25 +0.09 ms AOT, +0.3 ms JIT;
-- tiny files under the floor, where walking 120 nodes costs more than
-  hashing the whole file: objstm-small-1x120, a 4 KB file, 0.085 -> 0.24 ms
-  AOT (+0.16 ms) and 0.17 -> 0.46 ms JIT (+0.28 ms); small-1x120 +0.03 ms
-  AOT. With the viewer's attach included they are 0.97x and 1.19x.
+AOT mirror (ms, base -> patched, pair ratio):
 
-On every patched open the gate's answer matched the table's "gate" column:
-where it rules the form out, `debugFormSecretIdResolved` stays false (no
-hash) and a counting store sees no `readAll`; where it gives up, the id is
-resolved and there is one `readAll`, as on base. The /ID control reads the
-store on both sides.
+| input | open + decision | + pages | + fields |
+| --- | ---: | ---: | ---: |
+| noid-big | 183.7 -> 0.067 (2754x) | 184.0 -> 0.315 (584x) | same |
+| withid-big (control) | 0.070 -> 0.068 (1.01x) | 0.339 -> 0.343 (0.99x) | 0.346 -> 0.322 (1.00x) |
+| optpairs-40x250 | 2.61 -> 0.016 (164x) | 2.63 -> 0.028 (93x) | 9.54 -> 6.20 (1.56x) |
+| opt-60x1500 | 11.2 -> 0.021 (527x) | 11.3 -> 0.036 (310x) | 42.7 -> 30.8 (1.40x) |
+| optpairs-60x750 | 11.6 -> 0.022 (535x) | 11.8 -> 0.037 (318x) | 52.3 -> 38.9 (1.30x) |
+| objstm-spread-400 | 34.1 -> 8.94 (3.8x) | 34.1 -> 9.12 (3.7x) | 58.2 -> 32.7 (1.79x) |
+| flat5000 | 8.99 -> 1.40 (6.4x) | 9.55 -> 2.14 (4.4x) | 26.4 -> 19.3 (1.42x) |
+| chain-edge | 35.6 -> 0.216 (164x) | 35.7 -> 0.224 (163x) | 38.5 -> 1.94 (20x) |
+| small120 | 0.218 -> 0.036 (5.9x) | 0.240 -> 0.054 (4.4x) | 0.510 -> 0.314 (1.59x) |
+| bigv-100x8k | 7.19 -> 0.038 (188x) | 7.17 -> 0.059 (122x) | 8.56 -> 1.42 (6.0x) |
+| r6-noid-form400 | 28.0 -> 9.48 (3.0x) | 28.2 -> 9.75 (2.9x) | 31.3 -> 12.8 (2.5x) |
 
-The per-node figures behind the budget come from a separate micro (thread
-CPU for AOT; node wall time over 30-rep loops for dart2js -O4): walk cost
-per pushed node 1.6-1.8 us (bare fields), 3.4-3.6 us (/AP fields), 1.8-2.1
-us (object streams) AOT, and 3.4-7.4 us under dart2js; SHA-256 8.2-8.6 ns a
-byte AOT, 5.4-8.1 ns under dart2js.
+dart2js -O4 on node (ms, base -> patched, pair ratio):
+
+| input | open + decision | + pages | + fields |
+| --- | ---: | ---: | ---: |
+| noid-big | 141.5 -> 0.46 (308x) | 140.6 -> 1.07 (133x) | 141.3 -> 0.81 (174x) |
+| withid-big (control) | 0.108 -> 0.095 (1.12x) | 0.642 -> 0.646 (1.02x) | 0.582 -> 0.571 (1.01x) |
+| optpairs-40x250 | 2.02 -> 0.039 (53x) | 2.07 -> 0.060 (35x) | 15.6 -> 12.8 (1.19x) |
+| opt-60x1500 | 8.74 -> 0.027 (319x) | 8.77 -> 0.050 (174x) | 70.0 -> 58.7 (1.19x) |
+| objstm-spread-400 | 30.9 -> 12.5 (2.5x) | 28.0 -> 12.1 (2.4x) | 114.0 -> 94.0 (1.21x) |
+| flat5000 | 7.20 -> 1.51 (4.8x) | 7.89 -> 2.29 (3.4x) | 44.2 -> 39.1 (1.12x) |
+| chain-edge | 27.5 -> 0.154 (183x) | 27.6 -> 0.169 (167x) | 30.4 -> 3.02 (10x) |
+| small120 | 0.183 -> 0.044 (4.1x) | 0.208 -> 0.068 (3.0x) | 0.858 -> 0.734 (1.17x) |
+| bigv-100x8k | 5.31 -> 0.066 (80x) | 5.29 -> 0.096 (56x) | 7.28 -> 2.06 (3.5x) |
+
+No workload in any of the three harnesses is slower than base at any stage
+beyond the control's noise. The patched open costs what opening the file
+costs (objstm-spread-400's 9-12 ms is its 51k-object xref stream, which base
+pays too). The first read of the fields costs base's read minus the hash:
+the decision is one `.any` over the list the read just built. What remains
+slower than base by construction is only a no-/ID form that does withhold a
+value, or one whose fields are first read after an edit: those pay the hash
+and the store read at that read instead of at open, the same work base did.
 
 Undo on an R6 fixture (`buildEncryptedPdf(revision: 6)`, 12 rectangles then
-12 undos; #973's AES rewrite cut the native base from about 26 ms in the
-earlier rounds to about 7.4 ms, while under dart2js it is still about 75 ms,
-dominated by the emulated 64-bit SHA-384/512):
+12 undos, three revisions for the mirrors):
 
-| path | user password | base | patched | ratio |
-| --- | --- | ---: | ---: | ---: |
-| `controller.undo()`, JIT | empty (owner-only) | 7.32 ms | 0.30 ms | 25x |
-| `controller.undo()`, JIT | set | 7.41 ms | 0.077 ms | 96x |
-| the reopen + page 0 decrypt, AOT | empty | 9.73 ms | 0.030 ms | 326x |
-| the reopen + page 0 decrypt, AOT | set | 10.22 ms | 0.030 ms | 350x |
-| the reopen + page 0 decrypt, dart2js -O2 on node | empty | 72.0 ms | < 0.2 ms | > 400x |
-| the reopen + page 0 decrypt, dart2js -O2 on node | set | 77.2 ms | < 0.1 ms | > 900x |
+| path | base | patched | ratio |
+| --- | ---: | ---: | ---: |
+| `controller.undo()`, JIT, user password set | 6.97 ms | 0.102 ms | 68x |
+| the reopen + page 0 decrypt, AOT | 9.54 ms | 0.020 ms | 479x |
 
-(The node figures for the patched side sit at the timer's resolution.) R4
-(AES-128) `controller.undo()`: 0.51 -> 0.062 ms (8.3x), because donating the
-handler also skips the R2-R4 MD5/RC4 key derivation.
+Earlier rounds measured the owner-only case too (JIT 7.32 -> 0.30 ms, 25x;
+AOT 9.73 -> 0.030 ms), dart2js -O2 on node (72-77 ms -> below 0.2 ms, the
+timer's resolution; there the emulated 64-bit SHA-384/512 dominates) and R4
+(AES-128) `controller.undo()` 0.51 -> 0.062 ms (8.3x), because donating the
+handler also skips the MD5/RC4 key derivation.
 
 App end to end, measured in the first round against the base of that time
 (the hash it removes does not depend on anything merged since): a desktop
 open through `EditorScreen` (flutter test, the app's incoming-file channel,
 `PdfPerfLog` timestamps), open trigger to the editable view's page 0 ready,
-on the 21.5 MB no-/ID file, 5 rounds of 3 reps per process, rep 0 dropped as
+on a 21.5 MB no-/ID file, 5 rounds of 3 reps per process, rep 0 dropped as
 warm-up, wall clock:
 
 | mode | base | patched | patched/base | pair ratio |
@@ -326,17 +340,13 @@ the same on both sides; only the hash was gone. (Progressive's counts vary
 run to run on both sides - two or three `cos open`s, occasionally page 0
 interpreted twice - a swap timing race that predates this change.)
 
-Earlier rounds, for the record (their base predates #971-#973):
-
-- Round 1's gate went through `PdfAcroForm.fields`; with #969 it made the
-  constructor of a flat-tree no-/ID form slower than base by about one page
-  walk (flatform-4000: 13.96 -> 19.82 ms JIT), and before #969 it was
-  quadratic (1347 ms AOT at 4000 pages).
-- Round 2's gate read /Fields without a budget. It fixed the annotation
-  class (annotform-2000x20: 68.4 -> 16.1 ms JIT, where the `fields` gate took
-  735 ms AOT) but claimed "no workload is slower than base", which was false
-  for field-dense forms: none of its inputs had a non-empty /Fields. Round 3
-  (above) measured that class and added the budget.
+Earlier rounds' gates, for the record: round 1 (`PdfAcroForm.fields` at
+open) was quadratic before #969 and one page walk slower after it; round 2
+(an unbudgeted /Fields walk) fixed the link-annotation class
+(annotform-2000x20: 68.4 -> 16.1 ms JIT, where the `fields` gate took 735 ms
+AOT) but made 5000-field forms 4-7x slower; round 3 (a node budget) brought
+those to parity but left the /Opt and object-stream class above at
+0.14-0.36x. The deferred decision replaces all three.
 
 Prevalence: in the private real-world corpus 8 of 53 files have no /ID, all
 at most 1.7 MB (1-20 ms each); none of the no-/ID files in either corpus
@@ -348,30 +358,23 @@ appears in the checked-in pdf.js suite.
 ## Files
 
 - `packages/dart_pdf_editor/lib/src/editing/editing_controller.dart`:
-  constructor gate (`_mayHoldFormSecrets`, `_fieldTreeHoldsWithheldMarker`,
-  `debugFormSecretGateBudget`, `_holdsWithheldValue`),
-  `_resolveFormSecretId`, `debugFormSecretIdResolved`, `_openRevision`.
+  `_openFormSecrets`, `_decideFormSecretsOn`, `_settleFormSecrets`,
+  `_settleFormSecretsNow`, `formSecretsLoaded` (now a getter), the `acroForm`
+  hook, `_holdsWithheldValue`, `_resolveFormSecretId`,
+  `debugFormSecretIdResolved`, `_openRevision`.
+- `packages/pdf_document/lib/src/form.dart`: `PdfAcroForm.of(onFields:)`.
 - `packages/pdf_document/lib/src/document_identity.dart`:
   `pdfFallbackDocumentId`.
 - `packages/pdf_cos/lib/src/document.dart`: `openAppended(password:)`,
   `_sameEncryptDictionary`/`_sameCos`, `_authenticatedEncrypt`/
   `_inlineEncrypt`; `packages/pdf_document/lib/src/document.dart`:
   `PdfDocument.openAppended` forwards the password.
-- Tests: `form_secret_store_test.dart` (no hash or `readAll` without a
-  withheld field, a withheld field in a no-/ID file still restoring, the
-  first fill after another edit filing under the opened hash, a 3000-page
-  flat-tree no-/ID form whose constructor walks no page tree (the viewer's
-  `document.pages` is the only walk), the constructor's `objectsLoaded`
-  independent of the annotation count, a withheld field nested under /Kids
-  still found, a no-/ID file keeping its opened identity across a redaction
-  burn, and the gate budget: its size, a tree past it falling back to the
-  eager load within 128 + 16 loads, a withheld field past it still
-  restoring, a wide flat /Fields costing one array, a form within it still
-  ruled out),
-  `editing_incremental_reload_test.dart` (R6 undo keeps the handler and
-  matches a cold open, with and without a user password),
-  `standard_security_handler_test.dart` (an earlier revision reuses the
-  keys; a re-keyed /Encrypt under the same number re-authenticates; one that
-  keeps the key material but swaps a crypt filter is not donated the old
-  handler; a donor that folded in a re-keyed /Encrypt does not vouch for
-  it; an indirect /Encrypt entry the handler never read still donates).
+- Tests: `form_secret_store_test.dart` (see section 1), `form_test.dart`
+  (the `onFields` hook), `editing_incremental_reload_test.dart` (R6 undo
+  keeps the handler and matches a cold open, with and without a user
+  password), `standard_security_handler_test.dart` (an earlier revision
+  reuses the keys; a re-keyed /Encrypt under the same number
+  re-authenticates; one that keeps the key material but swaps a crypt
+  filter is not donated the old handler; a donor that folded in a re-keyed
+  /Encrypt does not vouch for it; an indirect /Encrypt entry the handler
+  never read still donates).

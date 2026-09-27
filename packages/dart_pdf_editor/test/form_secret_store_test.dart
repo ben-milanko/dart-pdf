@@ -59,57 +59,82 @@ void main() {
     return updater.save();
   }
 
-  /// A one-page form of [fieldCount] merged text field/widgets with no
-  /// trailer /ID - a flat /Fields, or [perParent] fields to a parent node -
-  /// optionally making the first field (the last the gate's walk reaches) a
-  /// withheld password field.
-  Uint8List fieldDenseNoIdForm(int fieldCount,
-      {int perParent = 0, bool withheldFirst = false}) {
-    final doc = PdfDocument.open(buildMultiPagePdf(1));
-    final updater = CosIncrementalUpdater(doc.cos);
-    final roots = <CosObject>[];
-    final annots = <CosObject>[];
-    CosDictionary? parent;
-    for (var i = 0; i < fieldCount; i++) {
-      final field = CosDictionary({
-        'Type': const CosName('Annot'),
-        'Subtype': const CosName('Widget'),
-        'Rect': CosArray([
-          const CosInteger(72),
-          CosInteger(i % 30 * 24),
-          const CosInteger(300),
-          CosInteger(i % 30 * 24 + 20),
-        ]),
-        'FT': const CosName('Tx'),
-        'T': CosString.fromText('f$i'),
-        if (i == 0 && withheldFirst) ...{
-          'Ff': const CosInteger(PdfFormField.passwordFlag),
-          PdfFormFilling.passwordWithheldKey: const CosBoolean(true),
-        },
-      });
-      final ref = updater.addObject(field);
-      annots.add(ref);
-      if (perParent == 0) {
-        roots.add(ref);
-        continue;
-      }
-      if (i % perParent == 0) {
-        parent = CosDictionary({
-          'T': CosString.fromText('g${i ~/ perParent}'),
-          'Kids': CosArray([]),
-        });
-        roots.add(updater.addObject(parent));
-      }
-      field['Parent'] = roots.last;
-      (parent!['Kids'] as CosArray).items.add(ref);
+  /// [bytes] with every trailer / xref-stream /ID blanked in place - the
+  /// same length, so no offset moves - for a builder file that has to open
+  /// without one.
+  Uint8List withoutId(Uint8List bytes) {
+    final out = Uint8List.fromList(bytes);
+    final id = RegExp(r'/ID\s*\[\s*<[0-9A-Fa-f]*>\s*<[0-9A-Fa-f]*>\s*\]');
+    for (final m in id.allMatches(latin1.decode(bytes))) {
+      out.fillRange(m.start, m.end, 0x20);
     }
-    final page = doc.pages.single;
-    page.dict['Annots'] = CosArray(annots);
-    doc.catalog['AcroForm'] = CosDictionary({'Fields': CosArray(roots)});
-    updater
-      ..markChanged(page.dict)
-      ..markChanged(doc.catalog);
-    final bytes = updater.save();
+    return out;
+  }
+
+  /// A two-page form without /ID: a cover page showing no widget, then
+  /// [fields] combo boxes on page 1, each listing [options] inline /Opt
+  /// [export, display] pairs - the country-dropdown shape, where resolving
+  /// one field parses its whole option list. With [objectStreams] the objects
+  /// pack 128 to a compressed object stream, so the fields spread over about
+  /// fields / 128 of them. [withheld] adds a withheld password field `secret`
+  /// after the dropdowns.
+  Uint8List dropdownNoIdForm(int fields,
+      {int options = 40, bool objectStreams = false, bool withheld = false}) {
+    final b = CosDocumentBuilder();
+    final catalog = CosDictionary({'Type': const CosName('Catalog')});
+    final catalogRef = b.add(catalog);
+    final pages = CosDictionary({'Type': const CosName('Pages')});
+    final pagesRef = b.add(pages);
+    CosDictionary page() => CosDictionary({
+          'Type': const CosName('Page'),
+          'Parent': pagesRef,
+          'MediaBox': CosArray(const [
+            CosInteger(0),
+            CosInteger(0),
+            CosInteger(612),
+            CosInteger(792),
+          ]),
+        });
+    final coverRef = b.add(page());
+    final formPage = page();
+    final formPageRef = b.add(formPage);
+    pages['Kids'] = CosArray([coverRef, formPageRef]);
+    pages['Count'] = const CosInteger(2);
+    CosDictionary widget(String name, int i) => CosDictionary({
+          'Type': const CosName('Annot'),
+          'Subtype': const CosName('Widget'),
+          'T': CosString.fromText(name),
+          'P': formPageRef,
+          'Rect': CosArray([
+            const CosInteger(72),
+            CosInteger(i % 30 * 24),
+            const CosInteger(300),
+            CosInteger(i % 30 * 24 + 20),
+          ]),
+        });
+    final roots = <CosObject>[
+      for (var i = 0; i < fields; i++)
+        b.add(widget('country$i', i)
+          ..['FT'] = const CosName('Ch')
+          ..['Ff'] = const CosInteger(PdfFormField.comboFlag)
+          ..['Opt'] = CosArray([
+            for (var o = 0; o < options; o++)
+              CosArray([
+                CosString.fromText('C$o'),
+                CosString.fromText('Country number $o'),
+              ]),
+          ])),
+      if (withheld)
+        b.add(widget('secret', fields)
+          ..['FT'] = const CosName('Tx')
+          ..['Ff'] = const CosInteger(PdfFormField.passwordFlag)
+          ..[PdfFormFilling.passwordWithheldKey] = const CosBoolean(true)),
+    ];
+    formPage['Annots'] = CosArray(roots);
+    catalog['Pages'] = pagesRef;
+    catalog['AcroForm'] = CosDictionary({'Fields': CosArray(roots)});
+    final bytes =
+        withoutId(b.build(root: catalogRef, objectStreams: objectStreams));
     expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
     return bytes;
   }
@@ -256,10 +281,10 @@ void main() {
     }
   });
 
-  // Without /ID the open decides by walking the /Fields tree, never the pages:
-  // PdfAcroForm.fields would map every page and parse every annotation on it
-  // (its orphan-widget reconcile) - work the viewer only does for a page that
-  // shows a widget, and that the hash it replaces never cost.
+  // Without /ID the open reads no field at all: the decision waits for the
+  // first read of the form's fields (the form layer's, once a page showing a
+  // widget attaches), which is also where the orphan-widget reconcile maps
+  // the pages - work the hash this replaces never cost the open.
   test('a no-/ID form opens without walking the page tree', () async {
     const pageCount = 3000;
     final bytes = noIdFormPdf(pageCount);
@@ -272,22 +297,26 @@ void main() {
     PdfPerf.enabled = true;
     PdfPerf.reset();
     final store = _CountingStore();
-    final c = await open(bytes, store);
+    final c = PdfEditingController(bytes, formSecretStore: store);
+    addTearDown(c.dispose);
     final opened = PdfPerf.snapshot();
-    expect(c.acroForm, isNotNull, reason: 'the gate looks at the form');
+    expect(c.acroForm, isNotNull);
     expect(store.readAlls, 0);
     expect(c.debugFormSecretIdResolved, isFalse);
     expect(opened.phaseCalls[PdfPerfPhase.pageTreeWalk.index], 0,
-        reason: 'the gate reads /Fields, not the pages');
+        reason: 'the open reads no field, let alone the pages');
 
     expect(c.document.pages, hasLength(pageCount));
     expect(PdfPerf.snapshot().phaseCalls[PdfPerfPhase.pageTreeWalk.index], 1,
         reason: "the viewer's document.pages is the only walk");
+    await c.formSecretsLoaded; // reads the (empty) fields: nothing withheld
+    expect(store.readAlls, 0);
+    expect(c.debugFormSecretIdResolved, isFalse);
   });
 
-  // The regression the /Fields-only gate fixes: through PdfAcroForm.fields a
-  // no-/ID file with an empty /AcroForm and dense link annotations (a TOC, an
-  // index) parsed all of them in the constructor - 0.8 s at 40k links.
+  // Through PdfAcroForm.fields a no-/ID file with an empty /AcroForm and dense
+  // link annotations (a TOC, an index) parsed all of them in the constructor
+  // - 0.8 s at 40k links.
   test('a no-/ID form open loads no more objects for more annotations',
       () async {
     addTearDown(() {
@@ -313,9 +342,169 @@ void main() {
     expect(bare, lessThan(20), reason: 'nor may the 200 pages');
   });
 
+  // A field can cost far more to resolve than the hash of the bytes it
+  // occupies: a dropdown parses its whole /Opt list, and on the web every
+  // compressed object stream a field sits in is a pure-Dart inflate. An open
+  // that walked the field tree regressed exactly these forms whenever the
+  // first page shows no widget (the form layer then reads no field at attach).
+  // The open must cost the same whatever the form holds.
+  group('a no-/ID form behind a cover page', () {
+    tearDown(() {
+      PdfPerf.enabled = false;
+      PdfPerf.reset();
+    });
+
+    /// Objects and object streams loaded from the constructor through the
+    /// viewer attaching the cover page, plus the controller.
+    (int, int, PdfEditingController) openToCover(
+        Uint8List bytes, PdfFormSecretStore store) {
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      final c = PdfEditingController(bytes, formSecretStore: store);
+      addTearDown(c.dispose);
+      c.document.pages.length;
+      expect(c.formWidgetsOn(0), isEmpty, reason: 'the cover has no widget');
+      final counts = PdfPerf.snapshot().counts;
+      PdfPerf.enabled = false;
+      return (
+        counts[PdfPerfCount.objectsLoaded.index],
+        counts[PdfPerfCount.objectStreamsLoaded.index],
+        c,
+      );
+    }
+
+    for (final objectStreams in [false, true]) {
+      final shape = objectStreams ? 'spread over object streams' : 'flat';
+      test('reads no dropdown at open ($shape)', () async {
+        final small = _CountingStore(), large = _CountingStore();
+        final (smallLoads, smallStreams, _) = openToCover(
+            dropdownNoIdForm(20, objectStreams: objectStreams), small);
+        final (loads, streams, c) = openToCover(
+            dropdownNoIdForm(1000, objectStreams: objectStreams), large);
+        expect(loads, smallLoads,
+            reason: '1000 dropdowns cost the open what 20 do: no field read');
+        expect(streams, smallStreams,
+            reason: 'nor is an object stream holding a field inflated');
+        expect(loads, lessThan(8));
+        expect(streams, lessThanOrEqualTo(1));
+        expect(large.readAlls, 0);
+        expect(c.debugFormSecretIdResolved, isFalse);
+
+        // the page with the dropdowns reads the fields - and settles the
+        // decision off them: nothing withheld, so no hash and no store read
+        expect(c.formWidgetsOn(1), hasLength(1000));
+        await c.formSecretsLoaded;
+        expect(large.readAlls, 0);
+        expect(c.debugFormSecretIdResolved, isFalse);
+      });
+    }
+
+    test('reads the store once the form layer reads the fields', () async {
+      final bytes = dropdownNoIdForm(200, objectStreams: true, withheld: true);
+      final store = _CountingStore();
+      await store.write(pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)),
+          'secret', 'pw');
+      final (_, _, c) = openToCover(bytes, store);
+      expect(store.readAlls, 0, reason: 'nothing has read a field yet');
+      expect(c.debugFormSecretIdResolved, isFalse);
+
+      expect(c.formWidgetsOn(1), hasLength(201));
+      expect(store.readAlls, 1, reason: 'a withheld field: read the store');
+      await c.formSecretsLoaded;
+      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('secret')!), 'pw');
+    });
+
+    test('an edit before the first read of the fields falls back to the load',
+        () async {
+      // the fields at a later revision may have lost one the opened file
+      // withheld, so they cannot rule the store out - the eager open's load
+      // (hash + store read) decides instead, paid then rather than at open
+      final bytes = dropdownNoIdForm(20, withheld: true);
+      final store = _CountingStore();
+      final opened = pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes));
+      await store.write(opened, 'secret', 'pw');
+      final (_, _, c) = openToCover(bytes, store);
+      c.addRectangle(0, const PdfRect(100, 100, 200, 200));
+      expect(store.readAlls, 0);
+
+      expect(c.formWidgetsOn(1), hasLength(21));
+      expect(store.readAlls, 1);
+      expect(c.formSecretDocumentId, opened);
+      await c.formSecretsLoaded;
+      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('secret')!), 'pw');
+      c.undo();
+      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('secret')!), 'pw');
+    });
+
+    test('a later revision that lost the field still reads the store',
+        () async {
+      // flattening from the cover (the toolbar's Flatten, before any page
+      // with a widget showed) removes every field: the fields read at that
+      // revision show nothing withheld, yet an undo brings the field back -
+      // so a first read after an edit must not rule the store out
+      final bytes = dropdownNoIdForm(20, withheld: true);
+      final store = _CountingStore();
+      await store.write(pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)),
+          'secret', 'pw');
+      final (_, _, c) = openToCover(bytes, store);
+      expect(c.flattenFormFields(), isTrue);
+      expect(store.readAlls, 0);
+      expect(c.acroForm!.fields, isEmpty);
+      expect(store.readAlls, 1);
+      await c.formSecretsLoaded;
+      c.undo();
+      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('secret')!), 'pw');
+    });
+
+    test('a prefill of a field from another PdfAcroForm reads the store',
+        () async {
+      final bytes = dropdownNoIdForm(20, withheld: true);
+      final store = _CountingStore();
+      await store.write(pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)),
+          'secret', 'pw');
+      final (_, _, c) = openToCover(bytes, store);
+      final field = PdfAcroForm.of(c.document)!.fieldNamed('secret')!;
+      expect(store.readAlls, 0, reason: "not the controller's form");
+      c.formFieldTextValue(field);
+      expect(store.readAlls, 1);
+      await c.formSecretsLoaded;
+      expect(c.formFieldTextValue(field), 'pw');
+    });
+
+    test('a redaction burn before any field read still restores the value',
+        () async {
+      final bytes = dropdownNoIdForm(20, withheld: true);
+      final store = _CountingStore();
+      await store.write(pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)),
+          'secret', 'pw');
+      final (_, _, c) = openToCover(bytes, store);
+      c.addRedaction(0, const PdfRect(100, 100, 200, 200));
+      expect(c.applyRedactions(), isTrue);
+      // the burned file is the whole history now: its fields decide
+      expect(c.formWidgetsOn(0), isEmpty);
+      expect(store.readAlls, 0);
+      expect(c.formWidgetsOn(1), hasLength(21));
+      expect(store.readAlls, 1);
+      await c.formSecretsLoaded;
+      expect(c.formSecretDocumentId,
+          pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)));
+      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('secret')!), 'pw');
+    });
+
+    test('forgetFormSecrets settles the decision without a read', () async {
+      final bytes = dropdownNoIdForm(20, withheld: true);
+      final store = _CountingStore();
+      final (_, _, c) = openToCover(bytes, store);
+      await c.forgetFormSecrets();
+      c.formWidgetsOn(1);
+      await c.formSecretsLoaded;
+      expect(store.readAlls, 0);
+    });
+  });
+
   test('a withheld field nested under /Kids in a no-/ID file is found',
       () async {
-    // the gate descends /Kids: a parent node holding the password field
+    // a parent node holding the password field
     final doc = PdfDocument.open(buildAcroFormPdf());
     final updater = CosIncrementalUpdater(doc.cos);
     final form = doc.cos.resolve(doc.catalog['AcroForm']) as CosDictionary;
@@ -347,78 +536,33 @@ void main() {
         c.formFieldTextValue(c.acroForm!.fieldNamed('group.name')!), 'nested');
   });
 
-  // The walk must not cost much more than the hash it stands in for, and a
-  // node is an object load. Past its budget the gate gives up and answers
-  // "may hold secrets", which is the eager open exactly: hash + store read.
-  group('a no-/ID form past the gate budget', () {
-    const floor = 128;
-    tearDown(() {
-      PdfPerf.enabled = false;
-      PdfPerf.reset();
-    });
+  test('an orphan withheld widget in a no-/ID file gets its value back',
+      () async {
+    // the password field's merged widget stays on the page but is missing
+    // from /Fields - PdfAcroForm.fields reconciles it back, and the decision
+    // reads the same fields the load filters on
+    final doc = PdfDocument.open(buildAcroFormPdf());
+    final updater = CosIncrementalUpdater(doc.cos);
+    final form = doc.cos.resolve(doc.catalog['AcroForm']) as CosDictionary;
+    final roots = (doc.cos.resolve(form['Fields']) as CosArray).items;
+    final name = doc.cos.resolve(roots.first) as CosDictionary;
+    expect(doc.cos.resolve(name['T']), CosString.fromText('name'));
+    name['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+    name.entries.remove('V');
+    name[PdfFormFilling.passwordWithheldKey] = const CosBoolean(true);
+    form['Fields'] = CosArray(roots.skip(1).toList());
+    updater
+      ..markChanged(name)
+      ..markChanged(doc.catalog);
+    final bytes = updater.save();
+    expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
 
-    /// Objects the constructor loads, plus the controller (its secrets
-    /// loaded).
-    Future<(int, PdfEditingController)> construct(
-        Uint8List bytes, PdfFormSecretStore store) async {
-      PdfPerf.enabled = true;
-      PdfPerf.reset();
-      final c = PdfEditingController(bytes, formSecretStore: store);
-      final loads = PdfPerf.snapshot().counts[PdfPerfCount.objectsLoaded.index];
-      PdfPerf.enabled = false;
-      addTearDown(c.dispose);
-      await c.formSecretsLoaded;
-      return (loads, c);
-    }
-
-    test('is one node per 4 KB of the file, at least $floor', () {
-      expect(PdfEditingController.debugFormSecretGateBudget(0), floor);
-      expect(PdfEditingController.debugFormSecretGateBudget(512 << 10), floor);
-      expect(PdfEditingController.debugFormSecretGateBudget(20 << 20), 5120);
-    });
-
-    test('stops within the budget and falls back to the eager load', () async {
-      // 10 parents x 30 fields = 310 nodes: the walk runs out after about 128
-      final bytes = fieldDenseNoIdForm(300, perParent: 30);
-      expect(
-          PdfEditingController.debugFormSecretGateBudget(bytes.length), floor);
-      final store = _CountingStore();
-      final (loads, c) = await construct(bytes, store);
-      expect(loads, lessThanOrEqualTo(floor + 16),
-          reason: 'the budget bounds the walk, not the form size (310)');
-      expect(store.readAlls, 1, reason: 'past the budget: the eager load');
-      expect(c.debugFormSecretIdResolved, isTrue);
-      expect(c.formSecretDocumentId,
-          pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)));
-    });
-
-    test('a flat /Fields wider than the budget costs one array', () async {
-      final store = _CountingStore();
-      final (loads, _) = await construct(fieldDenseNoIdForm(1000), store);
-      expect(loads, lessThan(16), reason: 'no field is loaded');
-      expect(store.readAlls, 1);
-    });
-
-    test('a withheld field the walk never reached still gets its value',
-        () async {
-      final bytes = fieldDenseNoIdForm(300, perParent: 30, withheldFirst: true);
-      final store = _CountingStore();
-      await store.write(
-          pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)), 'g0.f0', 'pw');
-      final (loads, c) = await construct(bytes, store);
-      expect(loads, lessThanOrEqualTo(floor + 16));
-      expect(store.readAlls, 1);
-      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('g0.f0')!), 'pw');
-    });
-
-    test('a form within the budget is still ruled out without the hash',
-        () async {
-      final store = _CountingStore();
-      final (_, c) =
-          await construct(fieldDenseNoIdForm(100, perParent: 10), store);
-      expect(store.readAlls, 0, reason: '110 nodes: the walk finishes');
-      expect(c.debugFormSecretIdResolved, isFalse);
-    });
+    final store = _CountingStore();
+    await store.write(
+        pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)), 'name', 'pw');
+    final c = await open(bytes, store);
+    expect(store.readAlls, 1);
+    expect(c.formFieldTextValue(c.acroForm!.fieldNamed('name')!), 'pw');
   });
 
   test('a file with a trailer /ID but no form skips the store read', () async {
