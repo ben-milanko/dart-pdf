@@ -72,6 +72,19 @@ void main() {
       expect(quad.bounds.width, closeTo(1.25 * 24, 1e-6));
       expect(quad.bounds.height, closeTo(0.5 * 24, 1e-6));
     });
+
+    test('decodes astral CJK from its surrogate pair', () {
+      // U+20000 (Extension B) is the pair D840 DC00: the line expands only
+      // when the two halves arrive together and in order.
+      final astral = _pageOfRuns([_glyphRun('A\u{20000}B', 100, 3)]);
+      expect(astral.runs.map((run) => run.ascent), everyElement(1.0));
+      for (final text in ['A\uD840B', 'A\uDC00B', 'A\uDC00\uD840B']) {
+        final lone = _pageOfRuns([_glyphRun(text, 100, 3)]);
+        expect(lone.runs.map((run) => run.ascent), everyElement(0.75),
+            reason: 'unpaired surrogates in '
+                '${text.codeUnits.map((u) => u.toRadixString(16))}');
+      }
+    });
   });
 
   test('findAll locates substrings on the actual glyphs', () {

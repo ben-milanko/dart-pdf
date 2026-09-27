@@ -556,9 +556,8 @@ class PdfTextExtractor {
 
     void flushLine() {
       if (line.isEmpty) return;
-      final ascent = line.any((item) => item.run.text.runes.any(_isCjkRune))
-          ? _expandedTextAscent
-          : _defaultTextAscent;
+      final ascent =
+          _lineHasCjk(line) ? _expandedTextAscent : _defaultTextAscent;
       final bidiLine = _bidiLine(line);
       if (bidiLine == null) {
         for (final item in line) {
@@ -735,6 +734,33 @@ class PdfTextExtractor {
     // embedded RTL spans reverse, so `English + العربية + English` keeps its
     // surrounding LTR reading order.
     return _BidiLine(groups, rightToLeft: rtlCount > runeCount * 0.3);
+  }
+
+  /// Whether any character on [line] is CJK ([_isCjkRune]), which widens the
+  /// whole line's selection band.
+  ///
+  /// Walks code units rather than `runes` through closures: every CJK range
+  /// starts at U+2E80, so almost everything is rejected by one compare, and
+  /// only a real surrogate pair is decoded. A lone surrogate is tested as
+  /// itself, exactly as the rune iterator yields it (none is CJK).
+  static bool _lineHasCjk(List<_SourceRun> line) {
+    for (var r = 0; r < line.length; r++) {
+      final text = line[r].run.text;
+      final length = text.length;
+      for (var i = 0; i < length; i++) {
+        var rune = text.codeUnitAt(i);
+        if (rune < 0x2E80) continue;
+        if ((rune & 0xFC00) == 0xD800 && i + 1 < length) {
+          final low = text.codeUnitAt(i + 1);
+          if ((low & 0xFC00) == 0xDC00) {
+            rune = 0x10000 + ((rune & 0x3FF) << 10) + (low & 0x3FF);
+            i++;
+          }
+        }
+        if (_isCjkRune(rune)) return true;
+      }
+    }
+    return false;
   }
 
   /// Whether [_bidiLine] could find right-to-left text on [line]; false
