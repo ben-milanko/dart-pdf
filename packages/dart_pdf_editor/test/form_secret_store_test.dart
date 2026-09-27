@@ -139,6 +139,88 @@ void main() {
     return bytes;
   }
 
+  /// A two-page form without /ID: a cover page, then [leaves] text-field
+  /// widgets on page 1, all kids of the bottom node of a chain of [depth]
+  /// named field nodes (`r.n.n...`) linked by /Parent. /FT sits on the root
+  /// only, and so does /Ff - as an indirect integer object ([flags]) that
+  /// only an inherited-flag lookup ever loads. Every leaf carries a /V except
+  /// the last when [withheld]: that one has the withheld marker instead, and
+  /// is a password field only through the root's [flags]. Returns the bytes
+  /// and the last leaf's fully qualified name.
+  (Uint8List, String) deepNoIdForm(int depth, int leaves,
+      {int flags = 0, bool withheld = false}) {
+    final b = CosDocumentBuilder();
+    final catalog = CosDictionary({'Type': const CosName('Catalog')});
+    final catalogRef = b.add(catalog);
+    final pages = CosDictionary({'Type': const CosName('Pages')});
+    final pagesRef = b.add(pages);
+    CosDictionary page() => CosDictionary({
+          'Type': const CosName('Page'),
+          'Parent': pagesRef,
+          'MediaBox': CosArray(const [
+            CosInteger(0),
+            CosInteger(0),
+            CosInteger(612),
+            CosInteger(792),
+          ]),
+        });
+    final coverRef = b.add(page());
+    final formPage = page();
+    final formPageRef = b.add(formPage);
+    pages['Kids'] = CosArray([coverRef, formPageRef]);
+    pages['Count'] = const CosInteger(2);
+    final root = CosDictionary({
+      'T': CosString.fromText('r'),
+      'FT': const CosName('Tx'),
+      'Ff': b.add(CosInteger(flags)),
+    });
+    final rootRef = b.add(root);
+    var parent = root;
+    var parentRef = rootRef;
+    for (var i = 0; i < depth; i++) {
+      final node = CosDictionary({
+        'T': CosString.fromText('n'),
+        'Parent': parentRef,
+      });
+      final ref = b.add(node);
+      parent['Kids'] = CosArray([ref]);
+      parent = node;
+      parentRef = ref;
+    }
+    final kids = <CosObject>[
+      for (var i = 0; i < leaves; i++)
+        b.add(CosDictionary({
+          'Type': const CosName('Annot'),
+          'Subtype': const CosName('Widget'),
+          'T': CosString.fromText('l$i'),
+          'Parent': parentRef,
+          'P': formPageRef,
+          'Rect': CosArray([
+            const CosInteger(72),
+            CosInteger(i % 30 * 24),
+            const CosInteger(300),
+            CosInteger(i % 30 * 24 + 20),
+          ]),
+          if (withheld && i == leaves - 1)
+            PdfFormFilling.passwordWithheldKey: const CosBoolean(true)
+          else
+            'V': CosString.fromText('v$i'),
+        })),
+    ];
+    parent['Kids'] = CosArray(kids);
+    formPage['Annots'] = CosArray(kids);
+    catalog['Pages'] = pagesRef;
+    catalog['AcroForm'] = CosDictionary({
+      'Fields': CosArray([rootRef]),
+    });
+    final bytes = withoutId(b.build(root: catalogRef));
+    expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
+    return (
+      bytes,
+      ['r', for (var i = 0; i < depth; i++) 'n', 'l${leaves - 1}'].join('.')
+    );
+  }
+
   bool fileContains(Uint8List bytes, String text) =>
       latin1.decode(bytes).contains(text);
 
@@ -534,6 +616,72 @@ void main() {
     expect(store.readAlls, 1);
     expect(
         c.formFieldTextValue(c.acroForm!.fieldNamed('group.name')!), 'nested');
+  });
+
+  // The decision runs over every field of the form. /FT, /Ff and /V are
+  // inheritable, so asking a leaf isPassword (or its value) climbs /Parent to
+  // the root: over a deep hierarchy that was O(fields x depth), more than the
+  // whole-file hash the decision replaced. The withheld marker lives on the
+  // field's own dictionary, so it is asked first and only a marked field
+  // climbs. The probe: the root's /Ff is an indirect object nothing but an
+  // inherited-flag lookup loads.
+  group('a deep no-/ID field hierarchy', () {
+    const depth = 300, leaves = 1000;
+
+    tearDown(() {
+      PdfPerf.enabled = false;
+      PdfPerf.reset();
+    });
+
+    int loadsOf(void Function() read) {
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      read();
+      final loads = PdfPerf.snapshot().counts[PdfPerfCount.objectsLoaded.index];
+      PdfPerf.enabled = false;
+      return loads;
+    }
+
+    test('is decided without climbing /Parent for an unmarked field', () async {
+      final (bytes, _) = deepNoIdForm(depth, leaves);
+      final store = _CountingStore();
+      final c = PdfEditingController(bytes, formSecretStore: store);
+      addTearDown(c.dispose);
+      expect(c.formWidgetsOn(0), isEmpty, reason: 'the cover has no widget');
+
+      // the first read of the fields: the whole hierarchy loads, and the
+      // decision runs over all of it
+      late List<PdfFormField> fields;
+      expect(loadsOf(() => fields = c.acroForm!.fields),
+          greaterThan(depth + leaves));
+      expect(fields, hasLength(leaves));
+      await c.formSecretsLoaded;
+      expect(store.readAlls, 0);
+      expect(c.debugFormSecretIdResolved, isFalse);
+
+      // ...yet the root's /Ff is still unloaded: no field asked for a flag
+      expect(loadsOf(() => expect(fields.first.isPassword, isFalse)), 1,
+          reason: 'the decision climbed /Parent for an unmarked field');
+    });
+
+    test('still finds a marked leaf that inherits its password flag', () async {
+      final (bytes, name) = deepNoIdForm(depth, leaves,
+          flags: PdfFormField.passwordFlag, withheld: true);
+      final store = _CountingStore();
+      await store.write(
+          pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)), name, 'pw');
+      final c = PdfEditingController(bytes, formSecretStore: store);
+      addTearDown(c.dispose);
+      expect(store.readAlls, 0);
+      expect(c.formWidgetsOn(1), hasLength(leaves));
+      expect(store.readAlls, 1, reason: 'the marked leaf is withheld');
+      await c.formSecretsLoaded;
+      final field = c.acroForm!.fieldNamed(name)!;
+      expect(field.isPassword, isTrue, reason: 'inherited from the root');
+      expect(c.formFieldTextValue(field), 'pw');
+      // every other leaf is a password field too, but shows its /V
+      expect(c.formFieldTextValue(c.acroForm!.fields.first), 'v0');
+    });
   });
 
   test('an orphan withheld widget in a no-/ID file gets its value back',

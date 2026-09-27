@@ -522,8 +522,7 @@ class PdfEditingController extends ChangeNotifier {
   /// this value as the file's /ID, so later edits must not move it.
   Uint8List? _resolveFormSecretId() {
     if (formSecretStore == null) return null;
-    return _formSecretIdBytes ??=
-        pdfFallbackDocumentId(Uint8List.sublistView(_bytes, 0, _revisions[0]));
+    return _formSecretIdBytes ??= pdfFallbackDocumentId(_openedBytes);
   }
 
   /// Decides at open whether this document's stored values need reading
@@ -569,18 +568,20 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The hook [acroForm] hands [PdfAcroForm.of] while a no-/ID decision is
-  /// pending: settles it off the first read of that form's fields, which
-  /// costs nothing past the read itself.
+  /// pending: settles it off the first read of that form's fields.
   ///
   /// [opened] says whether the form is revision 0 - the file as opened, or
   /// as a redaction burn ([_resetTo], which starts a fresh history) left it,
   /// the same bytes [_loadFormSecrets] filters against. Only then do its
   /// fields answer exactly: [fields]`.any(`[_holdsWithheldValue]`)` is the
   /// very test the load applies, orphan widgets the form reconciles
-  /// included. A form read first at a later revision may have lost a field
-  /// revision 0 withheld (undo brings it back), so it falls back to the
-  /// eager open's load: the hash and the store read, paid then rather than
-  /// at open.
+  /// included, and it costs one pass over a list the read just built. A form
+  /// read first at a later revision may have lost a field revision 0
+  /// withheld (a Flatten from a cover page; undo brings it back), so it
+  /// falls back to the eager open's load: the hash and the store read, paid
+  /// then rather than at open. Reading revision 0's fields instead would
+  /// skip the hash, but on a small file whose bytes are mostly form that
+  /// read costs several times the hash it saves.
   void Function(List<PdfFormField>) _decideFormSecretsOn({
     required bool opened,
   }) =>
@@ -596,6 +597,9 @@ class PdfEditingController extends ChangeNotifier {
         }
         _settleFormSecrets(load: load);
       };
+
+  /// Revision 0's bytes: the file as opened, or as a redaction burn left it.
+  Uint8List get _openedBytes => Uint8List.sublistView(_bytes, 0, _revisions[0]);
 
   /// Settles a pending no-/ID decision now: reads the current revision's
   /// form fields, which runs [_decideFormSecretsOn]. For a caller that needs
@@ -615,10 +619,18 @@ class PdfEditingController extends ChangeNotifier {
   /// A password field whose value the file withholds
   /// ([PdfFormFilling.passwordWithheldKey]) - the only kind of field a
   /// [formSecretStore] value is restored into.
+  ///
+  /// The marker goes first: it is one lookup in the field's own dictionary
+  /// (the filler writes it there and nowhere else), while `isPassword` and
+  /// `value` resolve inheritable entries up the /Parent chain. Run over
+  /// every field of a deep hierarchy (/FT on a root hundreds of levels up),
+  /// the other order cost O(fields x depth) - more than the whole-file hash
+  /// the no-/ID decision replaced.
   static bool _holdsWithheldValue(PdfFormField field) =>
+      field.dict[PdfFormFilling.passwordWithheldKey] ==
+          const CosBoolean(true) &&
       field.isPassword &&
-      field.value == null &&
-      field.dict[PdfFormFilling.passwordWithheldKey] == const CosBoolean(true);
+      field.value == null;
 
   /// Whether the form-secret identity has been resolved: at construction
   /// for a file with a trailer /ID, and only on first need for one without.
@@ -664,10 +676,9 @@ class PdfEditingController extends ChangeNotifier {
     }
     if (_disposed || loaded.isEmpty) return;
     // only fields the file still shows as withheld-and-filled take a value:
-    // a stale entry (the field was cleared or refilled elsewhere) is ignored
-    final form = PdfAcroForm.of(PdfDocument.open(
-        Uint8List.sublistView(_bytes, 0, _revisions.first),
-        password: _password));
+    // a stale entry (the field was cleared or refilled elsewhere) is ignored.
+    // Revision 0 reopens with the authenticated keys, as an undo does
+    final form = PdfAcroForm.of(_openRevision(_openedBytes));
     final usable = <String, String>{};
     loaded.forEach((name, value) {
       final field = form?.fieldNamed(name);

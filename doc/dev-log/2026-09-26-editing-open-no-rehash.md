@@ -31,7 +31,8 @@ Now:
     The controller's `acroForm` hands `PdfAcroForm.of` an `onFields` hook
     (new, pdf_document) while the decision is pending, and the hook settles
     it with `fields.any(_holdsWithheldValue)` - the load's own test, so the
-    answer is exact. The open itself reads no field.
+    answer is exact. `_holdsWithheldValue` asks the field's own withheld
+    marker first (see the gotcha below). The open itself reads no field.
 - The fallback id is resolved lazily by `_resolveFormSecretId`, on first
   need: a withheld fill, `forgetFormSecrets`, an undo/redo that moves a
   stored value, a store read, or `formSecretDocumentId`.
@@ -48,13 +49,14 @@ its field up (`fieldNamed`), which reads the fields too.
 Gotchas:
 
 - **Hash the opened prefix, never the current revision.** The lazy getter
-  hashes `sublistView(_bytes, 0, _revisions[0])`. Every revision appends to
-  that prefix, so the key is byte-identical to the eager one. The fill must
-  pass that id explicitly as `documentId:`. Passing null makes
-  `setPasswordValue` hash `document.cos.bytes`, the *current* revision; after
-  any earlier edit the /ID it writes would then differ from the store key,
-  and the value would be lost on reopen. There is a test for exactly that
-  (a first withheld fill after an unrelated edit).
+  hashes `_openedBytes` (`sublistView(_bytes, 0, _revisions[0])`). Every
+  revision appends to that prefix, so the key is byte-identical to the
+  eager one. The fill must pass that id explicitly as `documentId:`.
+  Passing null makes `setPasswordValue` hash `document.cos.bytes`, the
+  *current* revision; after any earlier edit the /ID it writes would then
+  differ from the store key, and the value would be lost on reopen. There
+  is a test for exactly that (a first withheld fill after an unrelated
+  edit).
 - `_resetTo` (redaction burn) replaces the buffer, so it resolves the id
   first when a store is attached. The burn is O(file) anyway. A decision
   still pending at the burn simply carries on: the burn starts a fresh
@@ -64,13 +66,45 @@ Gotchas:
   hash on its own, so the controller does not have to open a document to
   get it. The first prototype re-opened the prefix inside the getter, which
   on an AES-256 file would have re-run the password check.
+- **Test the field's own marker first.** `_holdsWithheldValue` is
+  `dict[DartPdfPasswordWithheld] == true && isPassword && value == null`.
+  The marker is one lookup in the field's own dictionary (the filler writes
+  it there and nowhere else). `isPassword` and `value` resolve inheritable
+  /Ff and /V up the /Parent chain, with a fresh visited set per call. The
+  first cut asked `isPassword` first, for every terminal field, and on a
+  deep hierarchy (/FT on a root hundreds of levels up) that is O(fields x
+  depth): the round-6 review measured the first `fields` read of a
+  depth-1000 x 2000-leaf form at 13.6 -> 163.5 ms AOT against base, and a
+  0.74 MB depth-3000 x 3000-leaf file at 31 -> 797 ms. Base never computes
+  an inherited attribute for every field at that read; the form layer only
+  does so for the widgets on the page that attached. With the marker first,
+  only a marked field climbs /Parent. A crafted file that puts the marker
+  on every leaf of a deep tree still costs O(fields x depth) (not
+  memoised; our filler only marks password fields, and base's
+  `formWidgetsOn` is already super-linear on crafted files).
 - **Exact only at revision 0.** The hook records whether its form is
   revision 0 (`_decideFormSecretsOn(opened: _cursor == 0)`). A form first
   read at a later revision may have lost a field revision 0 withheld - the
   toolbar's Flatten from a cover page removes every field without the
   controller's form ever being read - and an undo brings it back. So a
   first read after an edit falls back to the eager open's load (the hash
-  and the store read), paid then instead of at open, never more than base.
+  and the store read), paid then instead of at open. Over the session that
+  is the same CPU as base, but the hash now runs inside `formWidgetsOn`,
+  i.e. in the build of the first widget page, which can land in a scroll:
+  about 180 ms AOT for a 22 MB file (edit-first numbers below).
+- **Why not ask revision 0 after an edit.** The round-6 review suggested
+  deciding exactly against revision 0 instead: reopen the prefix with
+  `_document.openAppended` (keys donated, xref lazy) and run the same test
+  over its fields, hashing only when it really withholds something. That
+  was built and measured. It takes the hash out of the scroll on a big
+  file (22 MB with a 50-field form behind a cover page: 182 -> 0.64 ms over
+  open plus the attach), but the extra `fields` read costs three times the
+  hash it saves or more on a small file whose bytes are mostly form, so
+  those sessions ended up slower than base: 0.62-0.66x over open plus the
+  attach for a 5000-field spread form, a depth-50 x 3000-leaf form and 60
+  option-heavy combo boxes (0.85x for 2000 fields in object streams). The
+  fallback stays at parity for every class, so it stays (edit-first
+  numbers below).
 - **Nothing may wait on a read that never comes.** `formSecretsLoaded` is
   now a getter over a completer. It completes when the decision settles
   (immediately when there is nothing to read). Asking for it reads the
@@ -99,7 +133,8 @@ Gotchas:
     web.
 
   The base viewer reads the fields anyway once a widget page attaches, so
-  deciding there costs one `.any` over a list already built, and it sees
+  deciding there costs one pass over a list already built: one map lookup
+  per field, plus the inherited lookups of any marked field. It sees
   exactly what the load sees, including fields the form reconciles from
   orphan widgets (which the /Fields walks missed).
 - `PdfAcroForm.of(onFields:)` calls the hook once, after caching the list,
@@ -121,6 +156,13 @@ Gotchas:
   not before, and the value comes back.
 - An edit before the first read falls back to the load; a Flatten from the
   cover followed by undo still shows the stored value.
+- A deep hierarchy (a chain of 300 named field nodes, /FT and an indirect
+  /Ff on the root only, 1000 leaves behind a cover page): after the first
+  `fields` read has settled the decision, the root's /Ff object is still
+  unloaded - one inherited-flag lookup afterwards loads exactly that one
+  object - so no unmarked field climbed /Parent. With the password flag on
+  the root and the marker on the last leaf, the decision still finds it and
+  the stored value comes back.
 - A prefill of a field from another `PdfAcroForm`, `forgetFormSecrets`
   before any read, a redaction burn before any read, a withheld field
   nested under /Kids, and a withheld orphan widget (missing from /Fields,
@@ -129,10 +171,12 @@ Gotchas:
 Mutation checks: the round-3 controller fails nine of the new tests - the
 two dropdown open costs and the orphan widget are what it got wrong, the
 other six pin when the store read happens, which round 3 did at
-construction. Dropping the revision-0 guard, the `formFieldTextValue`
-settle or the `forgetFormSecrets` settle each fails its own test; a
-`formSecretsLoaded` that does not read the fields hangs every test that
-awaits it.
+construction. Dropping the `formFieldTextValue` settle or the
+`forgetFormSecrets` settle each fails its own test; a `formSecretsLoaded`
+that does not read the fields hangs every test that awaits it. Asking
+`isPassword` before the marker fails the deep-hierarchy probe, and
+dropping the revision-0 guard (trusting the later revision's fields) fails
+the Flatten-then-undo test.
 
 ## 2. Undo reopens with the authenticated keys
 
@@ -188,10 +232,9 @@ when nothing burned and the editor saved an ordinary incremental update.
 The render worker's own reopen on shrink (render_worker_isolate.dart) and
 the web worker's per-revision restart still derive keys from scratch; that is
 a separate change (it would mean sending key material over the port).
-`_loadFormSecrets` also still reopens the as-opened prefix with the password
-to see which fields take a stored value; on an R6 file that is one more key
-derivation, but only after the store has actually returned values for the
-document, so it was left alone.
+`_loadFormSecrets` reopens revision 0 through the same `_openRevision` to see
+which fields take a stored value, so on an R6 file it no longer re-runs the
+key derivation either.
 
 Noticed on the way, not changed: `decryptObjectGraph` decrypts strings
 inside dictionaries, arrays and stream dictionaries in place, so an indirect
@@ -199,6 +242,170 @@ object that is itself a bare string (`8 0 obj (...) endobj`) is never
 decrypted. Base and branch behave the same way.
 
 ## Numbers
+
+### Round 7: the marker first (the code as committed)
+
+Base is origin/main at 4d46406d; patched is this branch. Every A/B ran 6
+rounds ABAB with the order flipped each round, one process per side per
+round, 7 reps per process after 2 warm-ups. The clock is thread CPU
+(`clock_gettime(CLOCK_THREAD_CPUTIME_ID)` through `dart:ffi`); load average
+3-5. Figures are medians of the per-round medians, and the median of the
+per-round base/patched ratios; above 1 means patched is faster.
+
+The AOT mirror (`dart compile exe` from each worktree, scratch only) runs
+the constructor's library calls - base: `pdfPermanentDocumentId`; patched:
+the trailer id plus `PdfAcroForm.of(onFields:)` with the controller's hook
+and `_holdsWithheldValue` copied verbatim - then the viewer's first steps.
+Stages are cumulative from the open, so base's figures include the hash it
+pays at open:
+
+- A: open plus the constructor's decision;
+- B: plus `document.pages` and attaching page 0 (`formWidgetsOn(0)`);
+- D: plus the first `fields` read (where the no-/ID decision now runs);
+- C: plus attaching page 1 (the first widget page of the `-cover` and
+  `spread` inputs).
+
+Inputs, generated in scratch with the round-6 reviewer's generator (none
+has a trailer /ID except the control):
+
+- `noid-big`: 22.1 MB, 100 pages of random image streams, no form.
+  `noidform-big`: the same plus 50 text fields on page 1. `withid-big`:
+  the no-form file with an /ID (control).
+- Realistic forms: `flat5000-cover` / `-p0` (5000 flat text fields on page
+  1 behind a cover page, or on page 0; 0.79 MB), `objstm2000-cover` (2000
+  fields in object streams, 42 KB), `opt-60x1500-cover` (60 combo boxes of
+  1500 [export display] pairs, 2.76 MB), `annots-2000x20` (an empty
+  /AcroForm and 2000 pages x 20 link annotations, 4.45 MB),
+  `spread-d6x5000` (5000 leaves six levels deep over 50 widget pages).
+- Deep hierarchies, /FT on the root only and no /Ff: `deep-DxN-cover` puts
+  N leaves under a chain of D named field nodes on page 1; `deep-8x2000-p0`
+  on page 0; `spread-dDxN` spreads them round-robin over the widget pages
+  after a cover page (d50x3000 and d3000x3000 over 30 pages, d1000x2000
+  over 20). `spread-d3000x3000` (0.74 MB) is the review's adversarial file.
+
+AOT mirror (ms, base -> patched, pair ratio):
+
+| input | A open | B + attach 0 | D + fields | C + widget page |
+| --- | ---: | ---: | ---: | ---: |
+| noid-big | 184.8 -> 0.048 (3848x) | 185.1 -> 0.265 (697x) | same | same |
+| noidform-big | 182.8 -> 0.061 (3015x) | 183.1 -> 0.284 (647x) | 183.2 -> 0.388 (473x) | 183.2 -> 0.430 (427x) |
+| withid-big (control) | 0.049 -> 0.050 (0.97x) | 0.265 -> 0.265 (1.00x) | same | same |
+| flat5000-cover | 7.94 -> 1.42 (5.60x) | 8.58 -> 2.06 (4.18x) | 23.6 -> 16.8 (1.41x) | 234.3 -> 240.0 (0.98x) |
+| flat5000-p0 | 7.90 -> 1.43 (5.57x) | 274.1 -> 277.1 (0.98x) | same | same |
+| objstm2000-cover | 0.891 -> 0.557 (1.61x) | 1.19 -> 0.857 (1.39x) | 5.46 -> 5.20 (1.05x) | 47.3 -> 48.8 (0.97x) |
+| opt-60x1500-cover | 23.5 -> 0.029 (820x) | 23.5 -> 0.044 (537x) | 100.1 -> 77.2 (1.29x) | 100.2 -> 77.3 (1.29x) |
+| annots-2000x20 | 47.7 -> 11.3 (4.26x) | 56.3 -> 19.9 (2.87x) | 116.0 -> 79.6 (1.45x) | same |
+| spread-d6x5000 | 7.55 -> 0.887 (8.40x) | 8.30 -> 1.67 (5.01x) | 24.6 -> 18.2 (1.37x) | 29.7 -> 24.2 (1.26x) |
+| deep-8x2000-p0 | 2.90 -> 0.288 (10x) | 52.5 -> 51.5 (1.02x) | same | same |
+| deep-30x5000-cover | 7.40 -> 0.786 (9.44x) | 8.04 -> 1.42 (5.64x) | 23.8 -> 17.1 (1.39x) | 269.2 -> 268.3 (1.01x) |
+| deep-200x3000-cover | 4.58 -> 0.475 (9.70x) | 4.97 -> 0.858 (5.83x) | 13.7 -> 9.61 (1.45x) | 328.5 -> 323.7 (1.02x) |
+| deep-1000x2000-cover | 3.82 -> 0.452 (8.41x) | 4.07 -> 0.711 (5.72x) | 11.6 -> 8.03 (1.44x) | 2254 -> 2202 (1.02x) |
+| spread-d50x3000 | 4.46 -> 0.445 (10x) | 4.89 -> 0.871 (5.62x) | 14.2 -> 10.1 (1.41x) | 18.0 -> 14.1 (1.28x) |
+| spread-d1000x2000 | 3.81 -> 0.448 (8.54x) | 4.10 -> 0.739 (5.56x) | 13.0 -> 9.78 (1.34x) | 127.2 -> 121.7 (1.05x) |
+| spread-d3000x3000 | 7.02 -> 0.893 (7.86x) | 7.45 -> 1.32 (5.62x) | 32.8 -> 25.9 (1.28x) | 1111 -> 1082 (1.03x) |
+
+"same" means nothing new runs at that stage (no form, or the widgets are
+on page 0 so attaching it already read the fields).
+
+What this shows, and what it does not:
+
+- Every input is at parity with base or faster at every stage. The lowest
+  medians are 0.97x (range 0.95-1.01) for objstm2000-cover at the widget
+  page, 0.98x for flat5000-cover at the widget page and flat5000-p0 at its
+  attach (0.95-1.00), and 0.97x for the control's open. At those stages
+  both sides run the same code: the widget matching in `formWidgetsOn`
+  (O(annotations x fields)) dominates.
+- The first `fields` read on its own (D minus B, per round) now costs the
+  same on both sides within noise: 8.92 vs 9.04 ms for spread-d1000x2000,
+  25.4 vs 24.6 ms for spread-d3000x3000, 15.0 vs 14.7 ms for
+  flat5000-cover, 76.8 vs 77.1 ms for opt-60x1500-cover. So the decision
+  adds nothing measurable to that read. The advantage at D and C is the
+  hash base paid at open, carried in the cumulative figures.
+- Before the reorder the review measured spread-d1000x2000 at D 13.6 ->
+  163.5 ms (0.08x) and C 130.7 -> 278.3 ms (0.47x), spread-d50x3000 at
+  0.75x / 0.78x, and the depth-3000 file at 31 -> 797 ms for the first
+  fields read. Those rows are now 1.34x / 1.05x, 1.41x / 1.28x and 1.28x /
+  1.03x.
+- The per-field cost is O(1) only for unmarked fields. A crafted file that
+  marks every leaf of a deep tree still pays O(fields x depth) (not
+  measured; see the gotcha above).
+
+The edit-first path, which no earlier table covered: A is the open; then an
+edit on the cover page (untimed, the same work on both sides); E is the
+first widget page attaching at that later revision, where the shipped code
+falls back to the hash and the store read. Same method and inputs:
+
+| input | A open | E widget page after an edit | A + E |
+| --- | ---: | ---: | ---: |
+| noidform-big | 181.9 -> 0.082 (2217x) | 0.160 -> 181.9 (the hash) | 182.1 -> 182.0 (1.00x) |
+| flat5000-cover | 7.92 -> 1.42 (5.58x) | 267.5 -> 269.2 (0.99x) | 275.4 -> 270.6 (1.01x) |
+| objstm2000-cover | 0.905 -> 0.534 (1.66x) | 46.0 -> 45.0 (1.02x) | 46.9 -> 45.5 (1.03x) |
+| opt-60x1500-cover | 23.1 -> 0.031 (744x) | 74.2 -> 98.3 (0.75x) | 97.5 -> 98.4 (0.99x) |
+| deep-30x5000-cover | 7.37 -> 0.791 (9.30x) | 300.8 -> 307.4 (0.98x) | 308.2 -> 308.2 (1.00x) |
+| spread-d6x5000 | 7.42 -> 0.777 (9.55x) | 21.6 -> 27.7 (0.77x) | 29.1 -> 28.4 (1.01x) |
+| spread-d50x3000 | 4.45 -> 0.448 (9.93x) | 12.7 -> 16.8 (0.76x) | 17.2 -> 17.2 (1.00x) |
+| spread-d1000x2000 | 3.81 -> 0.448 (8.52x) | 118.1 -> 121.7 (0.97x) | 121.9 -> 122.1 (1.00x) |
+
+Over open plus that attach every input is at parity (0.99-1.03x), but the
+hash has moved out of the open and into the attach: 0.16 -> 182 ms on the
+22 MB form. The rejected revision-0 variant (see the gotcha above),
+measured the same way:
+
+| input | E widget page after an edit | A + E |
+| --- | ---: | ---: |
+| noidform-big | 0.161 -> 0.572 (0.28x) | 182.4 -> 0.637 (287x) |
+| flat5000-cover | 264.4 -> 251.6 (1.05x) | 272.5 -> 253.0 (1.07x) |
+| objstm2000-cover | 44.9 -> 53.0 (0.85x) | 45.8 -> 53.5 (0.85x) |
+| opt-60x1500-cover | 76.4 -> 153.2 (0.50x) | 99.3 -> 153.2 (0.65x) |
+| deep-30x5000-cover | 301.5 -> 285.3 (1.06x) | 308.8 -> 286.1 (1.08x) |
+| spread-d6x5000 | 21.7 -> 43.2 (0.50x) | 29.1 -> 44.0 (0.66x) |
+| spread-d50x3000 | 12.7 -> 27.4 (0.46x) | 17.2 -> 27.9 (0.62x) |
+| spread-d1000x2000 | 119.6 -> 129.6 (0.92x) | 123.5 -> 130.1 (0.95x) |
+
+The real `PdfEditingController` with an `InMemoryFormSecretStore` under
+`flutter test` (JIT), the round-6 reviewer's harness, 5 interleaved rounds
+of 5 reps: the constructor, then plus `document.pages` and
+`formWidgetsOn(0)`, then plus `formWidgetsOn(1)` (ms, base -> patched, pair
+ratio):
+
+| input | ctor | + attach 0 | + widget page |
+| --- | ---: | ---: | ---: |
+| noid-big | 202.7 -> 0.315 (643x) | 204.4 -> 1.51 (136x) | same |
+| withid-big (control) | 0.281 -> 0.281 (1.02x) | 0.823 -> 0.812 (1.01x) | same |
+| flat5000-cover | 9.60 -> 2.24 (4.28x) | 12.7 -> 2.96 (4.11x) | 139.2 -> 145.2 (0.96x) |
+| opt-60x1500-cover | 25.7 -> 0.182 (142x) | 25.8 -> 0.229 (115x) | 117.1 -> 91.5 (1.25x) |
+| annots-2000x20 | 53.7 -> 13.0 (4.25x) | 68.4 -> 24.5 (2.79x) | same |
+| spread-d6x5000 | 8.91 -> 1.25 (7.07x) | 9.90 -> 2.02 (4.78x) | 35.3 -> 27.9 (1.32x) |
+| spread-d50x3000 | 5.28 -> 0.798 (6.87x) | 5.74 -> 1.29 (4.65x) | 20.9 -> 16.0 (1.29x) |
+| spread-d1000x2000 | 4.63 -> 0.758 (6.13x) | 4.95 -> 1.07 (4.61x) | 177.8 -> 174.6 (1.02x) |
+| spread-d3000x3000 | 8.42 -> 1.44 (5.94x) | 10.5 -> 1.99 (4.48x) | 1571 -> 1559 (1.01x) |
+
+The round-6 review had the old order at 0.69x (d50) and 0.54x (d1000) at
+the widget page on this harness.
+
+flat5000-cover at the widget page is the weakest cell in either harness:
+0.96x here (range 0.91-0.98) and 0.95x over a focused 8-round rerun;
+0.98x in the AOT table (0.97-1.00, and 0.98x with 0.96-1.04 over a focused
+10-round rerun), where flat5000-p0 and objstm2000-cover sit at 0.97-0.98x. That stage is
+`formWidgetsOn`'s widget matching - 5000 annotations x 5000 fields, the
+same code on both sides - and the extra 2-5% is not the decision:
+probing with the AOT mirror, a patched mirror with no hook at all was as
+slow as the real one, and base's mirror compiled against this branch's
+libraries was as fast as base. It follows the heap state the open leaves
+behind (it goes away when the open hashes), not work the branch adds. A
+field-by-widget map would remove the O(annotations x fields) matching
+itself; that is a separate change.
+
+Undo on the R6 user-password fixture this round: the AOT reopen plus a
+page 0 decrypt 9.50 -> 0.011 ms (887x); `controller.undo()` plus reading
+page 0's annotations under JIT 7.59 -> 0.681 ms (11x).
+
+### Round 4 (before the marker went first)
+
+These were measured on the previous revision of this branch, which asked
+`isPassword` before the marker. The reorder only removes work from the
+decision, and none of these runs makes an edit, so the revision-0
+fallback does not run in them.
 
 Base is origin/main at 4d46406d; patched is this branch. Every A/B ran 6
 rounds ABAB with the order flipped each round, one process per side per
@@ -296,14 +503,14 @@ dart2js -O4 on node (ms, base -> patched, pair ratio):
 | small120 | 0.183 -> 0.044 (4.1x) | 0.208 -> 0.068 (3.0x) | 0.858 -> 0.734 (1.17x) |
 | bigv-100x8k | 5.31 -> 0.066 (80x) | 5.29 -> 0.096 (56x) | 7.28 -> 2.06 (3.5x) |
 
-No workload in any of the three harnesses is slower than base at any stage
-beyond the control's noise. The patched open costs what opening the file
-costs (objstm-spread-400's 9-12 ms is its 51k-object xref stream, which base
-pays too). The first read of the fields costs base's read minus the hash:
-the decision is one `.any` over the list the read just built. What remains
-slower than base by construction is only a no-/ID form that does withhold a
-value, or one whose fields are first read after an edit: those pay the hash
-and the store read at that read instead of at open, the same work base did.
+Within these inputs no stage was slower than base beyond the control's
+noise. That claim was too broad as first written: none of these inputs had
+a deep field hierarchy, and the round-6 review found the old decision order
+at 0.08-0.78x on those (see round 7 above). The patched open costs what
+opening the file costs (objstm-spread-400's 9-12 ms is its 51k-object xref
+stream, which base pays too). A no-/ID form that does withhold a value, or
+one whose fields are first read after an edit, pays the hash and the store
+read at that read instead of at open, the same work base did at open.
 
 Undo on an R6 fixture (`buildEncryptedPdf(revision: 6)`, 12 rectangles then
 12 undos, three revisions for the mirrors):
@@ -358,9 +565,10 @@ appears in the checked-in pdf.js suite.
 ## Files
 
 - `packages/dart_pdf_editor/lib/src/editing/editing_controller.dart`:
-  `_openFormSecrets`, `_decideFormSecretsOn`, `_settleFormSecrets`,
-  `_settleFormSecretsNow`, `formSecretsLoaded` (now a getter), the `acroForm`
-  hook, `_holdsWithheldValue`, `_resolveFormSecretId`,
+  `_openFormSecrets`, `_decideFormSecretsOn`, `_openedBytes`,
+  `_settleFormSecrets`, `_settleFormSecretsNow`,
+  `formSecretsLoaded` (now a getter), the `acroForm` hook,
+  `_holdsWithheldValue` (marker first), `_resolveFormSecretId`,
   `debugFormSecretIdResolved`, `_openRevision`.
 - `packages/pdf_document/lib/src/form.dart`: `PdfAcroForm.of(onFields:)`.
 - `packages/pdf_document/lib/src/document_identity.dart`:
