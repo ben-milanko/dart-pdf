@@ -1,4 +1,4 @@
-# Interpreter: numeric content cursor
+# Interpreter cursor and colorant buffer costs
 
 ## Numeric content cursor with int opcodes
 
@@ -119,3 +119,24 @@ materialized operations; `parse()` itself measured flat. An int code on
 `ContentOperation` would extend the int dispatch to them; not done here.
 Colour operators (`g rg k`...) are not in the fast path either (they need the
 `_type3ColorLocked` guard and allocate colours anyway).
+
+## Colorant buffer counters
+
+Nothing in `PdfPerf` saw the overprint colorant buffer, which is how #755's
+growth of it (glyph outlines, group surfaces) landed without a counter
+moving. Five `PdfPerfCount` entries now cover it, each bumped once per page,
+draw, read or group - never per span or cell:
+
+- `colorantBufferPages` - `_beginOverprint` opened a buffer;
+- `colorantDraws` - every draw the compositor takes (the `_draws` cap count);
+- `colorantRasterized` - draws whose geometry was actually rasterized (equal
+  to `colorantDraws` today; the changes below make it smaller);
+- `colorantBackdropReads` - an effective overprint or group blend, a shading,
+  an overprinting image or stencil, `uniformBackdrop`;
+- `colorantGroups` - `beginTransparencyGroup`.
+
+`perf_count_gate` tracks all five and gains
+`1-CMYK/GWG162_Transp_Basic_BM_DeviceCMYK_Isolate_X4.pdf`: a DeviceCMYK
+blending group opens the buffer with no `/OP`, which none of the existing
+Ghent inputs covered. The re-baseline only adds keys and that input (GWG162:
+269 draws, 124 reads, 50 groups on one page).

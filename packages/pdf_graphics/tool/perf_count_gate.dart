@@ -3,10 +3,10 @@
 // programmatic test fixtures, a stable slice of the checked-in Ghent corpus,
 // and the seeded synthetic CAD sheet) and records PdfPerf's structural
 // counters - objects loaded, streams decoded, decoded bytes, content ops,
-// fonts parsed, glyph outline paths, saved bytes. The numbers are identical
-// on every machine and every run, so the committed baseline
-// (tool/perf/baselines/counters.json) can be compared with a tight tolerance
-// on a noisy shared runner.
+// fonts parsed, glyph outline paths, overprint colorant-buffer work, saved
+// bytes. The numbers are identical on every machine and every run, so the
+// committed baseline (tool/perf/baselines/counters.json) can be compared with
+// a tight tolerance on a noisy shared runner.
 //
 // A counter drift means real work changed: more objects parsed per page,
 // a filter decoding more bytes, an interpreter walking more ops. That is
@@ -45,6 +45,9 @@ const ghentFiles = [
   '1-CMYK/GWG010_CMYK_OP_x3.pdf',
   '1-CMYK/GWG050_Font_Substitution_x3.pdf',
   '1-CMYK/GWG060_Shading_x1a.pdf',
+  // A DeviceCMYK blending group opens the colorant buffer without any /OP,
+  // and its groups are the buffer's per-group copy/merge path.
+  '1-CMYK/GWG162_Transp_Basic_BM_DeviceCMYK_Isolate_X4.pdf',
   '2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf',
   '3-ICC-CMS/GWG206_ICC_V4-RGB-Image_x4.pdf',
   '3-ICC-CMS/GWG230_Four_different Grays_x1a.pdf',
@@ -61,6 +64,11 @@ const trackedCounts = [
   PdfPerfCount.fontsParsed,
   PdfPerfCount.fontParseFailed,
   PdfPerfCount.glyphOutlinePaths,
+  PdfPerfCount.colorantBufferPages,
+  PdfPerfCount.colorantDraws,
+  PdfPerfCount.colorantRasterized,
+  PdfPerfCount.colorantBackdropReads,
+  PdfPerfCount.colorantGroups,
   PdfPerfCount.savedBytes,
   PdfPerfCount.savedObjects,
   PdfPerfCount.xrefRecovered,
@@ -72,8 +80,7 @@ const trackedCounts = [
 Map<String, int> measure(Uint8List bytes, {int maxPages = 10}) {
   PdfPerf.reset();
   final doc = PdfDocument.open(bytes);
-  final limit =
-      doc.pageCount < maxPages ? doc.pageCount : maxPages;
+  final limit = doc.pageCount < maxPages ? doc.pageCount : maxPages;
   for (var i = 0; i < limit; i++) {
     PdfInterpreter(cos: doc.cos, device: NullDevice()).drawPage(doc.page(i));
     PdfTextExtractor.extract(doc, i);
@@ -131,8 +138,7 @@ void main(List<String> argv) {
   if (update) {
     baselineFile
       ..parent.createSync(recursive: true)
-      ..writeAsStringSync(
-          const JsonEncoder.withIndent('  ').convert(current));
+      ..writeAsStringSync(const JsonEncoder.withIndent('  ').convert(current));
     stdout.writeln('baseline updated: ${baselineFile.path} '
         '(${current.length} inputs) - commit and review the diff');
     return;

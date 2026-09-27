@@ -2390,7 +2390,10 @@ class PdfInterpreter {
     // the collect pass decodes. So a page that opens a buffer is walked in
     // full even when the caller only wanted the image set. Pages that declare
     // no overprint (the overwhelming majority) keep the cheap scan.
-    if (_overprint != null) _scanImages = false;
+    if (_overprint != null) {
+      _scanImages = false;
+      PdfPerf.add(PdfPerfCount.colorantBufferPages);
+    }
   }
 
   /// Whether any ExtGState reachable from [resources] turns overprint on.

@@ -34,6 +34,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
 
 import 'color.dart';
@@ -122,6 +123,7 @@ class PdfOverprintCompositor {
   /// the region is clipped out, varies, or contains content whose colorants
   /// are unknown. Used to seed non-isolated transparency groups.
   PdfColor? uniformBackdrop(PdfPath path) {
+    PdfPerf.add(PdfPerfCount.colorantBackdropReads);
     final spans = _raster.fillSpans(path, evenOdd: false);
     final backdrops = _raster.backdropUnder(spans, bleedFraction: 0);
     if (backdrops == null ||
@@ -151,6 +153,7 @@ class PdfOverprintCompositor {
     required bool knockout,
     required bool opaque,
   }) {
+    PdfPerf.add(PdfPerfCount.colorantGroups);
     final enclosing = _groups.isEmpty ? null : _groups.last;
     Uint16List? accumulated;
     if (enclosing != null && enclosing.knockout) {
@@ -218,6 +221,20 @@ class PdfOverprintCompositor {
   static const int _maxDraws = 20000;
   bool get _exhausted => _draws >= _maxDraws;
 
+  /// Counts one draw against [_maxDraws].
+  void _countDraw() {
+    _draws++;
+    PdfPerf.add(PdfPerfCount.colorantDraws);
+  }
+
+  /// PdfPerf bookkeeping for a draw whose geometry is rasterized.
+  static void _countRasterized() =>
+      PdfPerf.add(PdfPerfCount.colorantRasterized);
+
+  /// PdfPerf bookkeeping for a draw or query that reads backdrop cells.
+  static void _countBackdropRead() =>
+      PdfPerf.add(PdfPerfCount.colorantBackdropReads);
+
   /// Pushes the clip, mirroring `q` (and every nested-content bracket the
   /// interpreter saves the device across: form XObjects, tiling-pattern cells,
   /// Type3 CharProcs, soft-mask forms, appearance streams). A `W n` inside one
@@ -243,7 +260,8 @@ class PdfOverprintCompositor {
 
   void clipPath(PdfPath path, PdfFillRule rule) {
     if (_exhausted || _muted != 0) return;
-    _draws++;
+    _countDraw();
+    _countRasterized();
     _raster
         .clipTo(_raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd));
   }
@@ -397,7 +415,10 @@ class PdfOverprintCompositor {
       markUnknownPath(path, PdfFillRule.nonzero);
       return false;
     }
-    _draws++;
+    _countDraw();
+    _countRasterized();
+    // Every covered cell's backdrop reaches the sampler below.
+    _countBackdropRead();
     final spans = _raster.fillSpans(path, evenOdd: false);
     if (spans.isEmpty) return true;
     final effective = overprint && opaque && _suspended == 0;
@@ -551,7 +572,8 @@ class PdfOverprintCompositor {
     required T? Function(PdfColorantBackdropMap backdrop) resolveSpatial,
   }) {
     if (_exhausted || _muted != 0) return null;
-    _draws++;
+    _countDraw();
+    _countRasterized();
     final spans = _raster.fillSpans(path, evenOdd: false);
     if (spans.isEmpty) return null;
     final paintable = opaque && _suspended == 0;
@@ -559,6 +581,7 @@ class PdfOverprintCompositor {
       _recordImage(spans, paintable ? ink : null, color);
       return null;
     }
+    _countBackdropRead();
     // A small colorant region under a large image is not boundary bleed: the
     // GWG DeviceN checks occupy only a few percent of the image by design.
     // Keep every underlying vector here and let the spatial resolver sample
@@ -678,7 +701,8 @@ class PdfOverprintCompositor {
   PdfColor? stencil(PdfPath path, PdfColor color, PdfInkColorants? ink,
       {required bool overprint, required int mode, required bool opaque}) {
     if (_exhausted || _muted != 0) return null;
-    _draws++;
+    _countDraw();
+    _countRasterized();
     final spans = _raster.fillSpans(path, evenOdd: false);
     if (spans.isEmpty) return null;
     if (!overprint ||
@@ -689,6 +713,7 @@ class PdfOverprintCompositor {
       _raster.paintFlat(spans, _unknownIndex);
       return null;
     }
+    _countBackdropRead();
     final backdrops = _raster.backdropUnder(spans);
     if (backdrops == null ||
         backdrops.length != 1 ||
@@ -720,7 +745,8 @@ class PdfOverprintCompositor {
   /// declines instead of compositing against a stale backdrop.
   void markUnknownPath(PdfPath path, PdfFillRule rule) {
     if (_exhausted || _muted != 0) return;
-    _draws++;
+    _countDraw();
+    _countRasterized();
     _raster.paintFlat(
         _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd),
         _unknownIndex);
@@ -730,7 +756,8 @@ class PdfOverprintCompositor {
   /// images).
   void markUnknownBox(double left, double bottom, double right, double top) {
     if (_exhausted || _muted != 0) return;
-    _draws++;
+    _countDraw();
+    _countRasterized();
     _raster.paintFlat(
         _raster.boxSpans(left, bottom, right, top), _unknownIndex);
   }
@@ -742,7 +769,8 @@ class PdfOverprintCompositor {
       required int mode,
       required bool opaque}) {
     if (_exhausted || _muted != 0) return null;
-    _draws++;
+    _countDraw();
+    _countRasterized();
     final spans = rasterize();
     if (spans.isEmpty) return null;
     if (_groups.isNotEmpty) {
@@ -753,6 +781,7 @@ class PdfOverprintCompositor {
           opaque &&
           groupInk != null &&
           group.blendMode != PdfBlendMode.normal) {
+        _countBackdropRead();
         return _resolveGroupBlend(spans, color, groupInk, group.blendMode);
       }
       if (groupInk != null) ink = groupInk;
@@ -775,6 +804,7 @@ class PdfOverprintCompositor {
       // Separation /None paints no colorant at all (§8.6.6.4).
       return null;
     }
+    _countBackdropRead();
     final backdrops = _raster.backdropUnder(spans);
     if (backdrops == null || backdrops.contains(_unknownIndex)) {
       _raster.paintFlat(spans, _unknownIndex);

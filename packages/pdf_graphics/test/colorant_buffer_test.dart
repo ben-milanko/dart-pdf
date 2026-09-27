@@ -19,7 +19,9 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfRect;
+import 'package:pdf_cos/perf.dart';
+import 'package:pdf_document/pdf_document.dart'
+    show PdfDocument, PdfPage, PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/src/raster/colorant_raster.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -618,6 +620,97 @@ void main() {
         {for (final region in regions!) region.color},
         containsAll([green, inkColor]),
       );
+    });
+  });
+
+  group('PdfPerf colorant counters', () {
+    PdfPath rect(double l, double b, double r, double t) => PdfPath([
+          PdfMoveTo(l, b),
+          PdfLineTo(r, b),
+          PdfLineTo(r, t),
+          PdfLineTo(l, t),
+          const PdfClosePath(),
+        ]);
+
+    Map<PdfPerfCount, int> counted(void Function() body) {
+      final wasEnabled = PdfPerf.enabled;
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      try {
+        body();
+        final stats = PdfPerf.snapshot();
+        return {
+          for (final c in const [
+            PdfPerfCount.colorantDraws,
+            PdfPerfCount.colorantRasterized,
+            PdfPerfCount.colorantBackdropReads,
+            PdfPerfCount.colorantGroups,
+          ])
+            c: stats.count(c),
+        };
+      } finally {
+        PdfPerf.enabled = wasEnabled;
+      }
+    }
+
+    test('count draws, rasterized draws, backdrop reads and groups', () {
+      final counts = counted(() {
+        final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+        // A knockout: a draw, rasterized, reading nothing.
+        c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+            const PdfColor(1, 0, 1), PdfInkColorants.deviceCmyk(0, 1, 0, 0),
+            overprint: false, mode: 0, opaque: true);
+        // An effective overprint reads the backdrop under it.
+        c.fill(rect(10, 10, 20, 20), PdfFillRule.nonzero,
+            const PdfColor(0, 0, 0), PdfInkColorants.deviceGray(0),
+            overprint: true, mode: 0, opaque: true);
+        c.markUnknownBox(0, 0, 5, 5);
+        c.beginTransparencyGroup(
+            blendMode: PdfBlendMode.normal,
+            isolated: false,
+            knockout: false,
+            opaque: true);
+        c.endTransparencyGroup();
+        c.uniformBackdrop(rect(40, 40, 60, 60));
+      });
+      expect(counts, {
+        PdfPerfCount.colorantDraws: 3,
+        PdfPerfCount.colorantRasterized: 3,
+        PdfPerfCount.colorantBackdropReads: 2,
+        PdfPerfCount.colorantGroups: 1,
+      });
+    });
+
+    test('a page opens one buffer only when it declares overprint', () {
+      int bufferPages(PdfPage page) {
+        final wasEnabled = PdfPerf.enabled;
+        PdfPerf.enabled = true;
+        PdfPerf.reset();
+        try {
+          PdfInterpreter(cos: page.document.cos, device: RecordingPdfDevice())
+              .drawPage(page);
+          return PdfPerf.snapshot().count(PdfPerfCount.colorantBufferPages);
+        } finally {
+          PdfPerf.enabled = wasEnabled;
+        }
+      }
+
+      final doc = PdfDocument.open(buildClassicPdf());
+      final page = doc.page(0);
+      expect(bufferPages(page), 0);
+      final overprinting = PdfPage(
+        document: doc,
+        dict: CosDictionary({
+          ...page.dict.entries,
+          'Resources': CosDictionary({
+            ...page.resources.entries,
+            'ExtGState': CosDictionary({
+              'GS0': CosDictionary({'op': const CosBoolean(true)}),
+            }),
+          }),
+        }),
+      );
+      expect(bufferPages(overprinting), 1);
     });
   });
 
