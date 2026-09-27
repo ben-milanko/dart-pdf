@@ -59,6 +59,61 @@ void main() {
     return updater.save();
   }
 
+  /// A one-page form of [fieldCount] merged text field/widgets with no
+  /// trailer /ID - a flat /Fields, or [perParent] fields to a parent node -
+  /// optionally making the first field (the last the gate's walk reaches) a
+  /// withheld password field.
+  Uint8List fieldDenseNoIdForm(int fieldCount,
+      {int perParent = 0, bool withheldFirst = false}) {
+    final doc = PdfDocument.open(buildMultiPagePdf(1));
+    final updater = CosIncrementalUpdater(doc.cos);
+    final roots = <CosObject>[];
+    final annots = <CosObject>[];
+    CosDictionary? parent;
+    for (var i = 0; i < fieldCount; i++) {
+      final field = CosDictionary({
+        'Type': const CosName('Annot'),
+        'Subtype': const CosName('Widget'),
+        'Rect': CosArray([
+          const CosInteger(72),
+          CosInteger(i % 30 * 24),
+          const CosInteger(300),
+          CosInteger(i % 30 * 24 + 20),
+        ]),
+        'FT': const CosName('Tx'),
+        'T': CosString.fromText('f$i'),
+        if (i == 0 && withheldFirst) ...{
+          'Ff': const CosInteger(PdfFormField.passwordFlag),
+          PdfFormFilling.passwordWithheldKey: const CosBoolean(true),
+        },
+      });
+      final ref = updater.addObject(field);
+      annots.add(ref);
+      if (perParent == 0) {
+        roots.add(ref);
+        continue;
+      }
+      if (i % perParent == 0) {
+        parent = CosDictionary({
+          'T': CosString.fromText('g${i ~/ perParent}'),
+          'Kids': CosArray([]),
+        });
+        roots.add(updater.addObject(parent));
+      }
+      field['Parent'] = roots.last;
+      (parent!['Kids'] as CosArray).items.add(ref);
+    }
+    final page = doc.pages.single;
+    page.dict['Annots'] = CosArray(annots);
+    doc.catalog['AcroForm'] = CosDictionary({'Fields': CosArray(roots)});
+    updater
+      ..markChanged(page.dict)
+      ..markChanged(doc.catalog);
+    final bytes = updater.save();
+    expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
+    return bytes;
+  }
+
   bool fileContains(Uint8List bytes, String text) =>
       latin1.decode(bytes).contains(text);
 
@@ -290,6 +345,80 @@ void main() {
     expect(store.readAlls, 1);
     expect(
         c.formFieldTextValue(c.acroForm!.fieldNamed('group.name')!), 'nested');
+  });
+
+  // The walk must not cost much more than the hash it stands in for, and a
+  // node is an object load. Past its budget the gate gives up and answers
+  // "may hold secrets", which is the eager open exactly: hash + store read.
+  group('a no-/ID form past the gate budget', () {
+    const floor = 128;
+    tearDown(() {
+      PdfPerf.enabled = false;
+      PdfPerf.reset();
+    });
+
+    /// Objects the constructor loads, plus the controller (its secrets
+    /// loaded).
+    Future<(int, PdfEditingController)> construct(
+        Uint8List bytes, PdfFormSecretStore store) async {
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      final c = PdfEditingController(bytes, formSecretStore: store);
+      final loads = PdfPerf.snapshot().counts[PdfPerfCount.objectsLoaded.index];
+      PdfPerf.enabled = false;
+      addTearDown(c.dispose);
+      await c.formSecretsLoaded;
+      return (loads, c);
+    }
+
+    test('is one node per 4 KB of the file, at least $floor', () {
+      expect(PdfEditingController.debugFormSecretGateBudget(0), floor);
+      expect(PdfEditingController.debugFormSecretGateBudget(512 << 10), floor);
+      expect(PdfEditingController.debugFormSecretGateBudget(20 << 20), 5120);
+    });
+
+    test('stops within the budget and falls back to the eager load', () async {
+      // 10 parents x 30 fields = 310 nodes: the walk runs out after about 128
+      final bytes = fieldDenseNoIdForm(300, perParent: 30);
+      expect(
+          PdfEditingController.debugFormSecretGateBudget(bytes.length), floor);
+      final store = _CountingStore();
+      final (loads, c) = await construct(bytes, store);
+      expect(loads, lessThanOrEqualTo(floor + 16),
+          reason: 'the budget bounds the walk, not the form size (310)');
+      expect(store.readAlls, 1, reason: 'past the budget: the eager load');
+      expect(c.debugFormSecretIdResolved, isTrue);
+      expect(c.formSecretDocumentId,
+          pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)));
+    });
+
+    test('a flat /Fields wider than the budget costs one array', () async {
+      final store = _CountingStore();
+      final (loads, _) = await construct(fieldDenseNoIdForm(1000), store);
+      expect(loads, lessThan(16), reason: 'no field is loaded');
+      expect(store.readAlls, 1);
+    });
+
+    test('a withheld field the walk never reached still gets its value',
+        () async {
+      final bytes = fieldDenseNoIdForm(300, perParent: 30, withheldFirst: true);
+      final store = _CountingStore();
+      await store.write(
+          pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)), 'g0.f0', 'pw');
+      final (loads, c) = await construct(bytes, store);
+      expect(loads, lessThanOrEqualTo(floor + 16));
+      expect(store.readAlls, 1);
+      expect(c.formFieldTextValue(c.acroForm!.fieldNamed('g0.f0')!), 'pw');
+    });
+
+    test('a form within the budget is still ruled out without the hash',
+        () async {
+      final store = _CountingStore();
+      final (_, c) =
+          await construct(fieldDenseNoIdForm(100, perParent: 10), store);
+      expect(store.readAlls, 0, reason: '110 nodes: the walk finishes');
+      expect(c.debugFormSecretIdResolved, isFalse);
+    });
   });
 
   test('a file with a trailer /ID but no form skips the store read', () async {

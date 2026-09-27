@@ -37,7 +37,7 @@ Uint8List pdfPermanentDocumentId(PdfDocument document, {Uint8List? bytes}) =>
 /// The identity [pdfPermanentDocumentId] falls back to for a file without a
 /// trailer /ID: the SHA-256 of [bytes].
 ///
-/// O(bytes) - roughly 10 ms per MB native and 8 ms per MB on the web - so a
+/// O(bytes) - roughly 8 ms per MB native and 6-8 ms per MB on the web - so a
 /// caller on an open path should take the free [pdfTrailerPermanentId] first
 /// and hash only once something is actually filed under the identity.
 Uint8List pdfFallbackDocumentId(Uint8List bytes) =>

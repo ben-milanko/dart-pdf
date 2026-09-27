@@ -478,7 +478,7 @@ class PdfEditingController extends ChangeNotifier {
       // the identity of the document as opened: /ID[0], or the SHA-256 of
       // these bytes (written as /ID by the first withheld fill, so a saved
       // copy answers to the same key). /ID[0] is a trailer lookup; the hash
-      // is O(file) - ~10 ms/MB on the UI isolate - so it waits for the first
+      // is O(file) - ~8 ms/MB on the UI isolate - so it waits for the first
       // thing filed or read under it ([_resolveFormSecretId]).
       _formSecretIdBytes = pdfTrailerPermanentId(_document);
       formSecretsLoaded =
@@ -531,18 +531,36 @@ class PdfEditingController extends ChangeNotifier {
   /// opened file shows as withheld-and-filled takes a stored value
   /// ([_holdsWithheldValue]). No /AcroForm answers in O(1). With a trailer
   /// /ID the field walk is skipped (the id is free, the walk is not);
-  /// without one [_fieldTreeHoldsWithheldMarker] decides, so a file with no
-  /// withheld field never pays the hash or the store read.
+  /// without one [_fieldTreeHoldsWithheldMarker] decides within
+  /// [debugFormSecretGateBudget] nodes, so a file with no withheld field
+  /// never pays the hash or the store read unless its form is too big to
+  /// rule out for less than the hash would cost.
   bool _mayHoldFormSecrets() {
     try {
       final form = acroForm;
       if (form == null) return false;
       if (_formSecretIdBytes != null) return true;
-      return _fieldTreeHoldsWithheldMarker(form);
+      return _fieldTreeHoldsWithheldMarker(form,
+          budget: debugFormSecretGateBudget(_revisions[0]));
     } catch (_) {
       return true; // a form too broken to walk: leave it to the load, as before
     }
   }
+
+  /// How many /Fields-tree nodes the no-/ID open gate may take before it
+  /// gives up and answers "may hold secrets" - one per 4 KB of the file as
+  /// opened, and at least 128.
+  ///
+  /// Giving up costs exactly what the eager open paid (the hash of the opened
+  /// bytes and the store read), so the budget only bounds how much the gate
+  /// can add on top. A node is an object load of ~1.5-3.5 us native (AOT)
+  /// and ~3.5-7.5 us on the web (dart2js), the hash ~8 and ~6.5 ns a byte: a
+  /// walk that runs out of budget adds at most ~10% (native) or ~30% (web)
+  /// to the hash it then pays, and below 512 KB the 128-node floor adds at
+  /// most ~0.5 ms native, ~1 ms web.
+  @visibleForTesting
+  static int debugFormSecretGateBudget(int openedLength) =>
+      math.max(128, openedLength >> 12);
 
   /// Whether any node of [form]'s /Fields tree (descending /Kids, widget
   /// kids included) carries [PdfFormFilling.passwordWithheldKey] - a
@@ -554,21 +572,33 @@ class PdfEditingController extends ChangeNotifier {
   /// every page and parses every annotation on it, work the constructor must
   /// not add (a no-/ID file with an empty /AcroForm and 40k link annotations
   /// took 0.8 s to construct that way, against 0.07 s for the hash it
-  /// replaced). This walk costs O(field nodes + their widgets), whatever the
-  /// page or annotation count, and never touches the page tree. Iterative
+  /// replaced). This walk loads field nodes and their widgets only, whatever
+  /// the page or annotation count, and never touches the page tree. Iterative
   /// with an identity-keyed visited set, so a cyclic or deep /Kids chain
   /// can neither loop nor overflow the stack.
+  ///
+  /// Even so, a field-dense form costs more to walk than to hash (a node is
+  /// an object load; the hash is ~8 ns a byte), so the walk stops and answers
+  /// true once it has taken on more than [budget] nodes. It counts pushes -
+  /// every node pushed is popped and resolved - so repeated references and a
+  /// wide /Kids fan-out are charged too, and a /Kids array that would take the
+  /// count past the budget ends the walk before a single one is pushed.
   ///
   /// What it cannot see is a field synthesized from an orphan page widget
   /// (no /Fields entry by that name) that carries the marker. A withheld fill
   /// writes the file's /ID, so that takes a file whose /ID was stripped after
   /// such a fill, plus a store entry filed under the hash of exactly the
-  /// stripped bytes by an earlier session that was then discarded - and all
-  /// it loses is the inline editor's prefill, not the stored value.
-  static bool _fieldTreeHoldsWithheldMarker(PdfAcroForm form) {
+  /// stripped bytes by an earlier session that never saved over them (it was
+  /// discarded, or saved to a new path with Save As and the original is
+  /// reopened) - and all it loses is the inline editor's prefill, not the
+  /// stored value.
+  static bool _fieldTreeHoldsWithheldMarker(PdfAcroForm form,
+      {required int budget}) {
     final cos = form.document.cos;
     final roots = cos.resolve(form.dict['Fields']);
     if (roots is! CosArray) return false;
+    var pushed = roots.length;
+    if (pushed > budget) return true;
     final pending = <CosObject>[...roots.items];
     final visited = <CosDictionary>{};
     while (pending.isNotEmpty) {
@@ -577,7 +607,11 @@ class PdfEditingController extends ChangeNotifier {
       final marker = cos.resolve(node[PdfFormFilling.passwordWithheldKey]);
       if (marker is CosBoolean && marker.value) return true;
       final kids = cos.resolve(node['Kids']);
-      if (kids is CosArray) pending.addAll(kids.items);
+      if (kids is CosArray) {
+        pushed += kids.length;
+        if (pushed > budget) return true;
+        pending.addAll(kids.items);
+      }
     }
     return false;
   }
@@ -1033,7 +1067,7 @@ class PdfEditingController extends ChangeNotifier {
   ///
   /// Every undo target is a byte prefix of the same session buffer, so it
   /// normally qualifies (same /Encrypt): an undo on an AES-256 file no longer
-  /// re-runs the password hash (Algorithm 2.B - ~30 ms native, 55-95 ms web -
+  /// re-runs the password hash (Algorithm 2.B - ~10 ms native, ~75 ms web -
   /// on the UI isolate). A revision that rewrote /Encrypt under the same
   /// object number does not; it authenticates [_password] like a fresh open.
   /// See [PdfDocument.openAppended].
