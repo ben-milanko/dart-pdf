@@ -245,6 +245,10 @@ class _WebRenderWorker extends PdfRenderWorker {
   // The worker posts 'ready' once it has opened the document; records sent
   // before then would race the open, so they queue until it lands.
   bool _ready = false;
+  // Whether the worker's 'ready' advertised the 'update' message. The worker
+  // is a separately compiled (and separately cached) bundle, so a main bundle
+  // can meet an older worker that would silently drop an update.
+  bool _workerRevisionUpdate = false;
   // Watchdogs that bound how long we wait on a silent worker before degrading
   // to local rendering: one for the initial 'ready', one for each in-flight
   // record's reply. See pdfRenderWorkerReadyTimeout / pdfRenderWorkerRecordTimeout.
@@ -266,6 +270,44 @@ class _WebRenderWorker extends PdfRenderWorker {
 
   @override
   bool get supportsPageSurfaces => isActive;
+
+  /// True once the worker has opened the document and said it understands
+  /// 'update'. Before then (or against an older worker bundle) the host
+  /// restarts the worker on an edit, which costs little while it is cold.
+  @override
+  bool get supportsRevisionUpdate =>
+      isActive && _ready && _workerRevisionUpdate;
+
+  // Sorts ahead of every request, including the -2000 long-jump preview that
+  // a single web worker serves directly: nothing dispatched after an edit may
+  // read the document the edit replaced.
+  static const int _updatePriority = -(1 << 30);
+
+  /// Queues the revision for the worker's already-open document instead of a
+  /// restart (the web twin of the isolate backend's update). Like every other
+  /// request it waits for the in-flight slot: its priority preempts a running
+  /// record or surface (which requeues and re-runs on the new revision) and
+  /// jumps queued work, so the worker never walks a page while its document
+  /// changes. The worker keeps its decoded images, flate samples and the
+  /// unchanged pages' transcripts and surface bitmaps.
+  @override
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {
+    if (_disposed || _failed) return;
+    final request = _WebPending.update(_updatePriority, _seq++, (
+      baseLength: baseLength,
+      appended: appendedBytes,
+      newLength: newLength,
+      changedPages: changedPages,
+    ));
+    _trace(request);
+    _queue.add(request);
+    _pump();
+  }
 
   @override
   PdfPageSurfaceSession? createPageSurface(
@@ -295,6 +337,11 @@ class _WebRenderWorker extends PdfRenderWorker {
       final imageDecodeCache =
           (data.getProperty('imageDecodeCache'.toJS) as JSBoolean?)?.toDart ??
               false;
+      // The revision-update protocol version; absent on an older worker.
+      final revisionUpdate =
+          (data.getProperty('revisionUpdate'.toJS) as JSNumber?)?.toDartInt ??
+              0;
+      _workerRevisionUpdate = revisionUpdate >= 1;
       final startupUs = _perfClock?.elapsedMicroseconds;
       _wlog(
         'ready worker=$_workerNumber '
@@ -302,6 +349,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         '${browserImageDecode == null ? '' : ' browserImageDecode=$browserImageDecode'}'
         '${browserImageDecodeMissing == null ? '' : ' missing=$browserImageDecodeMissing'}'
         ' imageDecodeCache=${imageDecodeCache ? 'yes' : 'no'}'
+        ' revisionUpdate=$revisionUpdate'
         '${startupUs == null ? '' : ' startup=${_traceMs(startupUs)}'}'
         '${openUs == null ? '' : ' open=${_traceMs(openUs)}'}',
       );
@@ -342,6 +390,10 @@ class _WebRenderWorker extends PdfRenderWorker {
     _recordWatchdog?.cancel();
     _recordWatchdog = null;
     _consecutiveTimeouts = 0; // a reply landed: the worker is alive
+    if (request.kind == _WebRequestKind.update) {
+      _onUpdateAck(request, data);
+      return;
+    }
     request.trace?.receive(data, _perfClock!.elapsedMicroseconds);
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
     final planBuffer = data.getProperty('planBuffer'.toJS) as JSArrayBuffer?;
@@ -375,6 +427,33 @@ class _WebRenderWorker extends PdfRenderWorker {
       return;
     }
     request.completer.complete(buffers);
+    _pump();
+  }
+
+  void _onUpdateAck(_WebPending request, JSObject data) {
+    request.completer.complete(null);
+    final error = (data.getProperty('error'.toJS) as JSString?)?.toDart;
+    if (error != null) {
+      // The worker could not reach the new revision, so it may still hold the
+      // old one: any record it served now could be pre-edit content cached
+      // under the new revision. Stop offloading - every queued and later
+      // request renders locally - which also turns supportsRevisionUpdate
+      // false, so the host's next sync starts a fresh worker.
+      _wlog('update FAILED on worker=$_workerNumber: $error - falling back '
+          'to local until the next restart');
+      _fail();
+      return;
+    }
+    final incremental =
+        (data.getProperty('incremental'.toJS) as JSBoolean?)?.toDart ?? false;
+    final trace = request.trace;
+    final clock = _perfClock;
+    _wlog('update applied worker=$_workerNumber '
+        '${incremental ? 'in place' : 'by re-open'} '
+        'base=${request.revision!.baseLength} '
+        'new=${request.revision!.newLength} '
+        'appended=${request.revision!.appended.length}'
+        '${trace == null || clock == null ? '' : ' roundTrip=${_traceMs(clock.elapsedMicroseconds - trace.sentUs)}'}');
     _pump();
   }
 
@@ -724,6 +803,15 @@ class _WebRenderWorker extends PdfRenderWorker {
       }
     }
     final request = _queue.removeAt(best)..id = _nextId++;
+    if (request.kind == _WebRequestKind.update && !_workerRevisionUpdate) {
+      // Only a caller that skipped supportsRevisionUpdate gets here. This
+      // worker would drop the update and keep serving the old revision, so
+      // decline everything instead.
+      _wlog('update for a worker without revision updates - falling back '
+          'to local');
+      _fail();
+      return;
+    }
     _inFlight = request;
     final clock = _perfClock;
     if (clock != null) request.trace?.sentUs = clock.elapsedMicroseconds;
@@ -774,6 +862,23 @@ class _WebRenderWorker extends PdfRenderWorker {
         ..setProperty('maxCommands'.toJS, request.regionMaxCommands.toJS)
         ..setProperty('buildGrid'.toJS, request.regionBuildGrid.toJS);
     }
+    if (request.kind == _WebRequestKind.update) {
+      final revision = request.revision!;
+      message
+        ..setProperty('baseLength'.toJS, revision.baseLength.toJS)
+        ..setProperty('newLength'.toJS, revision.newLength.toJS)
+        // Cloned by the plain postMessage below, never transferred: a pool
+        // hands every lane the same tail (PdfPooledRenderWorker's
+        // updateRevisionTo), and detaching it here would leave the next lane
+        // an empty buffer. A clone copies a view's whole backing store, so
+        // only an exact buffer is sent as it is.
+        ..setProperty('bytes'.toJS, _exactBytes(revision.appended).toJS);
+      final changed = revision.changedPages;
+      if (changed != null) {
+        message.setProperty(
+            'changed'.toJS, [for (final page in changed) page.toJS].toJS);
+      }
+    }
     if (request.kind == _WebRequestKind.surface) {
       message
         ..setProperty('surfaceId'.toJS, request.surfaceId.toJS)
@@ -817,6 +922,16 @@ class _WebRenderWorker extends PdfRenderWorker {
     _recordWatchdog = Timer(pdfRenderWorkerRecordTimeout, () {
       if (_disposed || _failed) return;
       if (_inFlight?.id != inFlightId) return; // already answered
+      if (request.kind == _WebRequestKind.update) {
+        // An update that never acked leaves the worker's revision unknown, so
+        // nothing it renders can be trusted: fail it (local rendering) and
+        // let the host's next sync start a fresh worker.
+        _wlog('update watchdog: no ack after '
+            '${pdfRenderWorkerRecordTimeout.inSeconds}s - falling back to '
+            'local');
+        _fail();
+        return;
+      }
       _inFlight = null;
       _recordWatchdog = null;
       _consecutiveTimeouts++;
@@ -929,7 +1044,23 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin, detail, regionIndex, extractText, surface }
+enum _WebRequestKind {
+  record,
+  bin,
+  detail,
+  regionIndex,
+  extractText,
+  surface,
+  update,
+}
+
+/// A revision update's payload (see [PdfRenderWorker.updateRevision]).
+typedef _WebRevision = ({
+  int baseLength,
+  Uint8List appended,
+  int newLength,
+  Set<int>? changedPages,
+});
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
@@ -956,7 +1087,8 @@ class _WebPending {
         surface = null,
         pageColor = 0,
         surfaceRegion = null,
-        rotation = null;
+        rotation = null,
+        revision = null;
 
   _WebPending.bin(
     this.priority,
@@ -980,7 +1112,8 @@ class _WebPending {
         pageColor = 0,
         surfaceRegion = null,
         rotation = null,
-        onPartialBytes = null;
+        onPartialBytes = null,
+        revision = null;
 
   _WebPending.detail(
     this.priority,
@@ -1004,7 +1137,8 @@ class _WebPending {
         pageColor = 0,
         surfaceRegion = null,
         rotation = null,
-        onPartialBytes = null;
+        onPartialBytes = null,
+        revision = null;
 
   _WebPending.regionIndex(
     this.priority,
@@ -1028,10 +1162,34 @@ class _WebPending {
         pageColor = 0,
         surfaceRegion = null,
         rotation = null,
-        onPartialBytes = null;
+        onPartialBytes = null,
+        revision = null;
 
   _WebPending.extractText(this.priority, this.seq, this.pageIndex)
       : kind = _WebRequestKind.extractText,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        surfaceId = -1,
+        surface = null,
+        pageColor = 0,
+        surfaceRegion = null,
+        rotation = null,
+        onPartialBytes = null,
+        revision = null;
+
+  _WebPending.update(this.priority, this.seq, _WebRevision this.revision)
+      : kind = _WebRequestKind.update,
+        pageIndex = -1,
         annotations = false,
         imagePixelRatio = null,
         decodeImages = false,
@@ -1073,7 +1231,8 @@ class _WebPending {
         slugGlyphs = false,
         regionMaxCommands = 0,
         regionBuildGrid = false,
-        onPartialBytes = null;
+        onPartialBytes = null,
+        revision = null;
 
   final _WebRequestKind kind;
   int priority;
@@ -1099,6 +1258,8 @@ class _WebPending {
   // record-only: forwards each interim linework buffer (#564) to the caller's
   // sink. Null on every other kind and on records that opted out of partials.
   final void Function(Uint8List)? onPartialBytes;
+  // update-only: the revision to apply. Null on every other kind.
+  final _WebRevision? revision;
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
@@ -1270,6 +1431,12 @@ String _imagePhaseSummary(String? json) {
     return '';
   }
 }
+
+/// [bytes] itself when it spans its whole buffer, else a tight copy.
+Uint8List _exactBytes(Uint8List bytes) => bytes.offsetInBytes == 0 &&
+        bytes.lengthInBytes == bytes.buffer.lengthInBytes
+    ? bytes
+    : Uint8List.fromList(bytes);
 
 int _intProperty(JSObject object, String name) =>
     (object.getProperty(name.toJS) as JSNumber?)?.toDartInt ?? 0;

@@ -266,9 +266,14 @@ Still open:
   COOP/COEP, Safari, or apps that set `pdfRenderWorkerUseSharedArrayBuffer =
   false` fall back to the older transferable `ArrayBuffer` startup path. Result
   buffers are still transferred `ArrayBuffer`s either way.
-- The worker holds a fixed snapshot of the document bytes, like the isolate; an
-  editing session must restart the worker when the bytes change (the shells
-  already do this on every revision).
+- Editing: like the isolate, the worker takes each append-only revision in
+  place (an `update` message carrying only the appended tail), keeping its
+  decoded images and the unchanged pages' transcripts. An undo re-opens the
+  shorter prefix inside the same worker. It advertises this in `ready`
+  (`revisionUpdate: 1`); against an older, separately cached worker bundle
+  the host keeps restarting the worker on every revision. With a
+  `SharedArrayBuffer` seed, the first edit copies the document into the
+  worker's own buffer (the shared one is never written).
 
 ## WebAssembly (dart2wasm) hosts
 

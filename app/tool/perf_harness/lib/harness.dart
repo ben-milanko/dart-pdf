@@ -109,8 +109,10 @@ import 'dart:ui' show FramePhase;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 // PdfRect isn't in the dart_pdf_editor barrel's `show` list; pull it directly
-// (app depends on pdf_document). Only the edit scenario's annotation coords.
-import 'package:pdf_document/pdf_document.dart' show PdfRect;
+// (app depends on pdf_document). The edit scenarios' annotation coords, and
+// editlat's content move.
+import 'package:pdf_document/pdf_document.dart'
+    show PdfContentEditing, PdfElementKind, PdfRect;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -268,6 +270,29 @@ void _metric(String name, num value) {
 
 @JS('console.log')
 external void _consoleLog(JSAny? msg);
+
+// editlat: the web render worker's lifecycle, read from the `webworker` lines
+// render_worker_web.dart logs on this thread. A generation is a worker that
+// opened the document (a fresh start); an update is an edit it took in place.
+int _workerGenerations = 0;
+int _workerUpdatesInPlace = 0;
+int _workerUpdatesReopened = 0;
+int _workerUpdateFailures = 0;
+
+void _countWorkerLifecycle(String line) {
+  if (line.contains('webworker ready worker=')) {
+    _workerGenerations++;
+  } else if (line.contains('webworker update applied')) {
+    if (line.contains(' in place ')) {
+      _workerUpdatesInPlace++;
+    } else {
+      _workerUpdatesReopened++;
+    }
+  } else if (line.contains('webworker update FAILED') ||
+      line.contains('webworker update watchdog')) {
+    _workerUpdateFailures++;
+  }
+}
 
 @JS('performance.now')
 external double _browserPerformanceNow();
@@ -450,6 +475,9 @@ void main() {
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };
+  // editlat counts the viewer's render-worker generations and revision
+  // updates from its own PdfPerfLog lines, from the very first worker on.
+  if (_scenario == 'editlat') PdfPerfLog.sink = _countWorkerLifecycle;
   final isolated =
       (globalContext['crossOriginIsolated'] as JSBoolean?)?.toDart ?? false;
   _record('[perf] HARNESS scenario=$_scenario crossOriginIsolated=$isolated');
@@ -499,8 +527,9 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   int _sourceSparseBytes = 0;
   bool _showingSparseSource = false;
 
-  /// Both scenarios that touch the editor mount the editing stack.
-  bool get _isEdit => _scenario == 'edit' || _scenario == 'hover';
+  /// The scenarios that touch the editor mount the editing stack.
+  bool get _isEdit =>
+      _scenario == 'edit' || _scenario == 'hover' || _scenario == 'editlat';
 
   @override
   void initState() {
@@ -561,9 +590,10 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       _metric('openBytesMs', coldOpen.elapsedMicroseconds / 1000.0);
       _record('[perf] HARNESS loaded bytes=${bytes.length}');
       if (_isEdit) {
-        // The edit scenario mounts the editing stack: PdfViewer(editing:) owns
-        // the revision buffer and re-renders as annotations land. No render
-        // worker - revisions would stale a worker started on the original.
+        // The edit scenarios mount the editing stack: PdfViewer(editing:) owns
+        // the revision buffer and re-renders as annotations land. The harness
+        // starts no worker of its own; the viewer's default one follows each
+        // revision.
         final editing = PdfEditingController(bytes);
         setState(() => _editing = editing);
       } else {
@@ -692,6 +722,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveSearch(coldOpen);
         case 'edit':
           await _driveEdit(coldOpen);
+        case 'editlat':
+          await _driveEditLatency(coldOpen);
         case 'hover':
           await _driveHover(coldOpen);
         case 'warm':
@@ -1264,6 +1296,145 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
         'buffer=${editing.sessionBufferBytes}B revisions=${editing.revisionCount}');
     // Let the last repaint settle.
     await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
+
+  // ----- editlat: per-edit latency with the viewer's default worker --------
+  //
+  // What one edit costs the user: `ops` edits on one page, `gap` ms apart,
+  // through PdfViewer(editing:) and its default render worker (the same
+  // PdfRenderWorkerHost the app's shell drives). mode=content moves the page's
+  // first image (or first element) by 20pt, mode=annot adds a rectangle,
+  // mode=mixed alternates (annot first), mode=annotjump adds a rectangle and
+  // then jumps to another page. Per edit: syncMs is the synchronous edit call
+  // (the incremental save plus the worker hand-off), readyMs is until the
+  // watched page's raster is ready again. The worker counters say whether each
+  // edit restarted the worker or updated it in place.
+  Future<bool> _awaitRaster(int page, Stopwatch sw, int budgetMs) async {
+    while (!_viewer.isPageRasterReady(page)) {
+      if (sw.elapsedMilliseconds > budgetMs) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    return true;
+  }
+
+  Future<void> _driveEditLatency(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final editing = _editing!;
+    final page = _qInt('page', 0).clamp(0, count - 1);
+    final ops = _qInt('ops', 8).clamp(1, 200);
+    final gap = _qInt('gap', 1500);
+    final mode = _q['mode'] ?? 'mixed';
+    await _awaitRaster(page, Stopwatch()..start(), 30000);
+    await Future<void>.delayed(Duration(milliseconds: gap));
+    final sync = <String, List<double>>{'content': [], 'annot': []};
+    final ready = <String, List<double>>{'content': [], 'annot': []};
+    for (var i = 0; i < ops; i++) {
+      final content = mode == 'content' || (mode == 'mixed' && i.isOdd);
+      final kind = content ? 'content' : 'annot';
+      final sw = Stopwatch()..start();
+      if (content) {
+        final elements = editing.elementsOn(page);
+        final target = elements.elements.firstWhere(
+            (e) => e.kind == PdfElementKind.image,
+            orElse: () => elements.elements.first);
+        editing
+            .apply((e) => e.moveElements(elements, [target.id], dx: 20, dy: 0));
+      } else {
+        editing.addRectangle(
+            page, PdfRect(72, 200.0 + (i % 7) * 3, 320, 260.0 + (i % 7) * 3));
+      }
+      final syncMs = sw.elapsedMicroseconds / 1000.0;
+      var jumpTo = -1;
+      if (mode == 'annotjump' && count > 1) {
+        jumpTo = (page + 1 + i) % count;
+        if (jumpTo == page) jumpTo = (jumpTo + 1) % count;
+        unawaited(_viewer.jumpToPage(jumpTo));
+      }
+      await SchedulerBinding.instance.endOfFrame;
+      await SchedulerBinding.instance.endOfFrame;
+      final watch = jumpTo >= 0 ? jumpTo : page;
+      final ok = await _awaitRaster(watch, sw, 30000);
+      final readyMs = sw.elapsedMicroseconds / 1000.0;
+      sync[kind]!.add(syncMs);
+      if (ok) ready[kind]!.add(readyMs);
+      _record('[perf] HARNESS EDITLAT i=$i kind=$kind watch=$watch '
+          'syncMs=${syncMs.toStringAsFixed(1)} '
+          'readyMs=${readyMs.toStringAsFixed(1)} ok=$ok');
+      if (jumpTo >= 0) {
+        await Future<void>.delayed(Duration(milliseconds: gap ~/ 2));
+        await _viewer.jumpToPage(page);
+        await _awaitRaster(page, Stopwatch()..start(), 30000);
+      }
+      await Future<void>.delayed(Duration(milliseconds: gap));
+    }
+    double median(List<double> values) {
+      if (values.isEmpty) return -1;
+      final sorted = [...values]..sort();
+      return sorted[sorted.length ~/ 2];
+    }
+
+    _metric('editlatSyncMsMedian',
+        median([...sync['content']!, ...sync['annot']!]));
+    _metric('editlatReadyMsMedian',
+        median([...ready['content']!, ...ready['annot']!]));
+    for (final kind in const ['content', 'annot']) {
+      if (sync[kind]!.isEmpty) continue;
+      final label = kind == 'content' ? 'Content' : 'Annot';
+      _metric('editlat${label}SyncMsMedian', median(sync[kind]!));
+      _metric('editlat${label}ReadyMsMedian', median(ready[kind]!));
+    }
+    _metric('editlatWorkerGenerations', _workerGenerations);
+    _metric('editlatUpdatesInPlace', _workerUpdatesInPlace);
+    _metric('editlatUpdatesReopened', _workerUpdatesReopened);
+    _metric('editlatUpdateFailures', _workerUpdateFailures);
+    final memory = await _jsMemoryByScope();
+    if (memory != null) {
+      _metric('editlatWorkerMemMb', memory.worker / (1 << 20));
+      _metric('editlatWindowMemMb', memory.window / (1 << 20));
+    }
+    _record('[perf] HARNESS EDITLAT done '
+        'sync=${[
+      ...sync['annot']!,
+      ...sync['content']!
+    ].map((v) => v.toStringAsFixed(1)).join(',')} '
+        'ready=${[
+      ...ready['annot']!,
+      ...ready['content']!
+    ].map((v) => v.toStringAsFixed(1)).join(',')}');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
+
+  /// Bytes `performance.measureUserAgentSpecificMemory()` attributes to
+  /// dedicated workers and to the window (cross-origin isolated pages only),
+  /// or null when unavailable or slow to answer.
+  Future<({int worker, int window})?> _jsMemoryByScope() async {
+    try {
+      final performance = globalContext['performance'] as JSObject;
+      if (!performance.has('measureUserAgentSpecificMemory')) return null;
+      final result = await performance
+          .callMethod<JSPromise<JSObject>>(
+              'measureUserAgentSpecificMemory'.toJS)
+          .toDart
+          .timeout(const Duration(seconds: 30));
+      var worker = 0, window = 0;
+      for (final entry in (result['breakdown'] as JSArray<JSObject>).toDart) {
+        final bytes = (entry['bytes'] as JSNumber).toDartInt;
+        final scopes = [
+          for (final a in (entry['attribution'] as JSArray<JSObject>).toDart)
+            (a['scope'] as JSString?)?.toDart,
+        ];
+        if (scopes.contains('DedicatedWorkerGlobalScope')) {
+          worker += bytes;
+        } else if (scopes.contains('Window')) {
+          window += bytes;
+        }
+      }
+      return (worker: worker, window: window);
+    } catch (e) {
+      _record('[perf] HARNESS memory unavailable: $e');
+      return null;
+    }
   }
 
   // ----- hover: what a mouse-move costs with an editing tool armed ---------

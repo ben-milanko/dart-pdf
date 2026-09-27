@@ -576,8 +576,10 @@ abstract class PdfRenderWorker {
 
   /// Whether this backend can absorb an [updateRevision] in place instead of
   /// being torn down and restarted on every edit. The native isolate backend
-  /// (and the wrappers around it) do; the null fallback and the web backend do
-  /// not yet, so their host restarts the worker on a revision change as before.
+  /// does; so does the web backend once its worker has opened the document and
+  /// advertised the 'update' message (an older worker bundle does not); the
+  /// wrappers forward it. The null fallback does not, so its host restarts the
+  /// worker on a revision change as before.
   bool get supportsRevisionUpdate => false;
 
   /// Feeds one append-only editor revision into the worker's already-open
