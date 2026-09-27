@@ -24,14 +24,17 @@ vector-dense CAD page is almost nothing but those operators.
   `Uint8List` of kinds (real, int a double holds exactly, int past 2^53 kept
   in a side map cleared per operator), so a materialized `numberOperands` /
   `operands` list is exactly what it was. `nextOperation()` and `parse()`
-  keep their contract, so the editor, serializer, compressor and every
-  `parse()` consumer are untouched.
+  keep their contract on the VM and under dart2js (see "The dart2js number
+  rules" below), so the editor, serializer, compressor and every `parse()`
+  consumer are untouched.
 - **`PdfInterpreter._execNumeric`** runs the pending operator straight from
   the buffer when all its operands are numbers, switching on the int code:
   `m l c v y h re`, the painting operators `S s f F f* B B* b b* n W W*`,
   `q Q cm w`, and `Td TD Tm TL Tc Tw Tz Ts`. An operator with too few operands
   (or any other operator) returns false and goes through `_execOp` as before,
-  so the general path's defaults still apply. Both cursor loops are
+  so the general path's defaults still apply. The operands of `w` and the
+  text operators are read through `_z`, which drops a zero's sign on the web
+  exactly as their materialized path does (below). Both cursor loops are
   `if (cursor.pendingIsNumeric && _execNumeric(cursor)) continue;
   _execOp(cursor.takeOperation(), ...)`.
 - **One implementation per operator.** `q`/`Q` are `_saveState`/
@@ -49,14 +52,64 @@ drew an extra segment where the String path ignores the brace. No real file
 has braces in a content stream, which is why a 295-file identity sweep missed
 it; a random-stream fuzz diverged on about 10% of streams. Carrying the code
 on the token and resetting it in `setToken` makes a stale code impossible.
-`streaming_interpreter_test` now checks in that fuzz: 4000 seeded streams
-(braces, junk keywords, arrays, dictionaries, `true`/`false`/`null`, ints
-past 2^53, `-0`/`-0.0`, `.5`/`5.`, arity mismatches, inline images,
-malformed numbers, text shown with each text-state operator) recorded
-through the cursor walk (sync, and resumable in 7-operation chunks) must
-serialize byte-identically to `parse()` + `drawPageOperations`. With the
-code left stale it fails 409/4000; perturbing `Tz` in the fast path fails
-183/4000.
+`cursor_fast_path_test` checks in that fuzz: 4000 seeded streams (braces,
+junk keywords, arrays, dictionaries, `true`/`false`/`null`, ints past 2^53,
+`-0`/`-0.0`, `.5`/`5.`, arity mismatches, inline images, malformed numbers,
+text shown with each text-state operator) recorded through the cursor walk
+(sync, and resumable in 7-operation chunks) must serialize byte-identically
+to `parse()` + `drawPageOperations`. With the code left stale it fails
+409/4000; perturbing `Tz` in the fast path fails 183/4000.
+
+### The dart2js number rules
+
+The first version of this change was exact on the VM only, and the web
+worker runs the same walk compiled by dart2js, where an integral double *is*
+an int and `-0` is `-0.0`. Review compiled the fuzz generator with dart2js
+and ran it under node against both builds; two things diverged from main.
+
+- **Operand types.** A real arriving after a non-number operand went through
+  `value is int ? CosInteger : CosReal` on main; the cursor's `_addReal` made
+  it a `CosReal` unconditionally. On the web that turned `/F1 12.0 Tf` into
+  `CosReal(12.0)` where main gave `CosInteger(12)` (and `null -0.0 rg` a
+  `CosReal(-0.0)` for the shared `CosInteger(0)`), so every content rewrite
+  (redaction, colour processing, merge, delete, replace) would have saved
+  `12.0` where it saved `12`. A VM scan of 283 real files found the shape in
+  8 of them (174 operands, `Tf` and `d`). Every materializing path - the
+  getter, the number-then-object promotion and `_addReal` - now goes through
+  one `ContentStreamParser._numberObject`, which is main's rule; on the VM
+  `is int` is false for a double, so nothing changes there.
+- **Signed zeros in the fast path.** `w Td TD Tm TL Tc Tw Tz Ts` always read
+  their operands from the materialized objects, where on the web `-0`/`-0.0`
+  became the shared `CosInteger(0)`, a +0. The fast path read the unboxed
+  `-0.0` and kept its sign. `_z(v)` is `v + 0.0` on the web (+0 for -0, `v`
+  otherwise) and the identity on the VM, where it compiles away. `m l c v y
+  re cm` read `numberOperands` on the old path, which kept the sign, so they
+  are left alone. Pixels never depended on it, but the record did.
+
+The gate is now a pair of tests that also run compiled to JS in CI
+(`dart test -p node`): `pdf_cos/test/content_operand_platform_test.dart`
+(a number materializes to the same type and serialized text in every
+operand position, and `12.0`/`-0.0` pin the per-platform rule) and
+`pdf_graphics/test/cursor_fast_path_test.dart` (the 4000-stream fuzz, moved
+out of the `dart:io`-using `streaming_interpreter_test`, plus the minimized
+signed-zero streams and a pin on `-0.0 w`). Under node without the fixes
+the first fails 7 of its 20 cases and the second fails the fuzz on 77/4000
+streams and 8 of its 16 other cases; the VM passes both either way. Under
+node every in-chunk yield is a millisecond timer, so the fuzz yields inside a
+chunk on one stream in eight (every stream still resumes across chunks):
+the node run takes about 8 s instead of a minute.
+
+Cross-build check (the same generator, dart2js `-O3` under node, 4000
+streams; per stream the sync record, the chunked record, the `parse()`
+record and every parsed operand's type and value), against origin/main:
+
+| build | sync | chunked | `parse()` | operand types |
+|---|---|---|---|---|
+| before the fix | 84 | 84 | 9 | 1617 |
+| after | 0 | 0 | 0 | 0 |
+
+On the VM the harness output is byte-identical between origin/main and the
+fixed build over all 4000 streams.
 
 ### Measurements
 
@@ -107,9 +160,10 @@ pages are flat: their walk is text showing, not number-only operators.
   worker record bytes, the extracted text, the `parse()` +
   `drawPageOperations` record, and every parsed operation's operand types and
   values - 0 differences between origin/main and this change.
-- The streaming test's generator run through both builds (4000 streams;
-  sync walk, 7-operation chunked walk, `parse()` path and parsed operand
-  types): 0 differences.
+- The fuzz generator run through both builds (4000 streams; sync walk,
+  7-operation chunked walk, `parse()` path and parsed operand types): 0
+  differences on the VM, and 0 compiled with dart2js under node once the
+  number rules above were fixed.
 
 ### Not covered
 

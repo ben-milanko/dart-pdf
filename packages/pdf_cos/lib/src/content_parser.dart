@@ -30,11 +30,8 @@ class ContentOperation {
 
   List<CosObject> get operands => _operands ??= <CosObject>[
         for (final value in numberOperands!)
-          value is int ? _intObject(value) : CosReal(value.toDouble()),
+          ContentStreamParser._numberObject(value),
       ];
-
-  static CosObject _intObject(int value) =>
-      ContentStreamParser._intObject(value);
 
   @override
   String toString() =>
@@ -114,6 +111,20 @@ class ContentStreamParser {
 
   static CosObject _intObject(int value) =>
       (value >= -1 && value <= 256) ? _smallInts[value + 1] : CosInteger(value);
+
+  /// The COS object a number operand of a content operation materializes as:
+  /// an int becomes a (shared) [CosInteger], anything else a [CosReal].
+  ///
+  /// On the web an integral double *is* an int, so there `12.0` materializes
+  /// as `CosInteger(12)` and `-0.0` as the shared `CosInteger(0)`; on the VM
+  /// a real token stays a [CosReal]. Every path that materializes an
+  /// operation's own operands - [ContentOperation.operands] and the cursor,
+  /// whether the number comes before or after a non-number operand - goes
+  /// through this one rule, so a token serializes the same (`12` or `12.0`)
+  /// wherever it sits. Array and dictionary elements are parsed as COS objects
+  /// and keep their token's type.
+  static CosObject _numberObject(num value) =>
+      value is int ? _intObject(value) : CosReal(value.toDouble());
 
   /// Opens [content] as an incremental operation cursor.
   ///
@@ -548,7 +559,9 @@ class ContentOperationCursor {
   void _addReal(double value) {
     final objects = _objectOperands;
     if (objects != null) {
-      objects.add(CosReal(value));
+      // Not `CosReal(value)`: on the web an integral real is an int and
+      // materializes as a CosInteger (see [ContentStreamParser._numberObject]).
+      objects.add(ContentStreamParser._numberObject(value));
       return;
     }
     if (_numberCount == _numbers.length) _grow();
@@ -562,10 +575,7 @@ class ContentOperationCursor {
     if (objects == null) {
       objects = _objectOperands = <CosObject>[
         for (var i = 0; i < _numberCount; i++)
-          switch (_numberAt(i)) {
-            final int number => ContentStreamParser._intObject(number),
-            final number => CosReal(number.toDouble()),
-          },
+          ContentStreamParser._numberObject(_numberAt(i)),
       ];
       _numberCount = 0;
     }

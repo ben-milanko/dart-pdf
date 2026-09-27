@@ -1611,41 +1611,57 @@ class PdfInterpreter {
       case 0x6d63: // cm
         if (count < 6) return false;
         _cm(n[0], n[1], n[2], n[3], n[4], n[5]);
+      // From `w` on, every operand is read through [_z]: see there.
       case 0x77: // w
         if (count < 1) return false;
-        _setLineWidth(n[0]);
+        _setLineWidth(_z(n[0]));
 
       // --- text state and positioning ---
       case 0x6454: // Td
         if (count < 2) return false;
-        _textLineMove(n[0], n[1]);
+        _textLineMove(_z(n[0]), _z(n[1]));
       case 0x4454: // TD
         if (count < 2) return false;
-        _textLineMoveSettingLeading(n[0], n[1]);
+        _textLineMoveSettingLeading(_z(n[0]), _z(n[1]));
       case 0x6d54: // Tm
         if (count < 6) return false;
-        _setTextMatrix(n[0], n[1], n[2], n[3], n[4], n[5]);
+        _setTextMatrix(
+            _z(n[0]), _z(n[1]), _z(n[2]), _z(n[3]), _z(n[4]), _z(n[5]));
       case 0x4c54: // TL
         if (count < 1) return false;
-        _setLeading(n[0]);
+        _setLeading(_z(n[0]));
       case 0x6354: // Tc
         if (count < 1) return false;
-        _setCharSpacing(n[0]);
+        _setCharSpacing(_z(n[0]));
       case 0x7754: // Tw
         if (count < 1) return false;
-        _setWordSpacing(n[0]);
+        _setWordSpacing(_z(n[0]));
       case 0x7a54: // Tz
         if (count < 1) return false;
-        _setHorizontalScaling(n[0]);
+        _setHorizontalScaling(_z(n[0]));
       case 0x7354: // Ts
         if (count < 1) return false;
-        _setTextRise(n[0]);
+        _setTextRise(_z(n[0]));
 
       default:
         return false;
     }
     return true;
   }
+
+  static const bool _isWeb = identical(0, 0.0);
+
+  /// A fast-path operand of `w`, `Td`, `TD`, `Tm`, `TL`, `Tc`, `Tw`, `Tz` or
+  /// `Ts`, read the way [_execOp] reads it.
+  ///
+  /// Those operators take their operands from [ContentOperation.operands],
+  /// and on the web `-0` and `-0.0` are ints that materialize as the shared
+  /// `CosInteger(0)`: a zero's sign is dropped. `v + 0.0` is +0 for -0 and
+  /// `v` for everything else, so the fast path drops it too; on the VM this
+  /// is the identity and compiles away. `m l c v y re cm` read
+  /// [ContentOperation.numberOperands] in [_execOp], which keeps the sign,
+  /// so their fast-path operands are read as they are.
+  static double _z(double v) => _isWeb ? v + 0.0 : v;
 
   void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
     final numbers = op.numberOperands;
