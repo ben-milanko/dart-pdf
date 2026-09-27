@@ -1206,10 +1206,12 @@ void main() {
 
     test('imageDecodeRegion sharpens images the fast path declines (SMask)',
         () {
-      // An /SMask'd image (a transparent logo, say) is exactly the kind the
-      // fast region decoder bails on, so before the general-decoder fallback it
-      // would drop through to the full-page cap and stay soft under deep zoom.
-      // Here the visible slice must still come back cropped + region-keyed.
+      // An /SMask'd image (a transparent logo, say) the fast region decoders
+      // bail on - here the mask is at a different resolution from its image,
+      // which only the general decoder resamples - would, before the
+      // general-decoder fallback, drop through to the full-page cap and stay
+      // soft under deep zoom. The visible slice must still come back cropped
+      // + region-keyed.
       final cos = CosDocument.open(buildClassicPdf());
       final baseRaw = <int>[];
       for (var y = 0; y < 4; y++) {
@@ -1221,13 +1223,13 @@ void main() {
         CosDictionary({
           'Type': const CosName('XObject'),
           'Subtype': const CosName('Image'),
-          'Width': const CosInteger(4),
-          'Height': const CosInteger(4),
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
           'BitsPerComponent': const CosInteger(8),
           'ColorSpace': const CosName('DeviceGray'),
           'Filter': const CosName('FlateDecode'),
         }),
-        Uint8List.fromList(zlib.encode(List<int>.filled(16, 128))),
+        Uint8List.fromList(zlib.encode(List<int>.filled(4, 128))),
       );
       final stream = CosStream(
         CosDictionary({
@@ -1240,8 +1242,9 @@ void main() {
         }),
         Uint8List.fromList(zlib.encode(baseRaw)),
       );
-      // The fast Flate region path must decline this (SMask present), so the
-      // fallback under test is the only way a region result comes back.
+      // The fast Flate region paths must decline this (the soft mask is not
+      // the image's size), so the fallback under test is the only way a
+      // region result comes back.
       expect(
         decodePdfImagePixelsRegionScaled(cos, stream, 1, 2, 1, 1, 1, 1),
         isNull,

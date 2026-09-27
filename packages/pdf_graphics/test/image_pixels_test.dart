@@ -1471,6 +1471,77 @@ void main() {
     }
   });
 
+  test('scaled ImageMask coverage on wide, sparse, unaligned stencils', () {
+    // The blank-word skip: rows wide enough to hold many 32-bit words, ink
+    // mostly absent (so whole words are skipped) or scattered, samples at
+    // every offset mod 4 in their buffer (a word view needs 4-aligned data;
+    // a platform decompressor's samples can start anywhere), and a share of
+    // byte-aligned whole-byte cells (one piece per byte). Same per-bit
+    // reference as above.
+    final random = Random(9491);
+    for (var trial = 0; trial < 300; trial++) {
+      int width, sx, sw, tw;
+      if (trial % 4 == 0) {
+        tw = 1 + random.nextInt(8);
+        final cell = 8 * (1 + random.nextInt(4));
+        sw = tw * cell;
+        sx = 8 * random.nextInt(6);
+        width = sx + sw + 8 * random.nextInt(3) + random.nextInt(8);
+      } else {
+        width = 1 + random.nextInt(400);
+        sx = random.nextInt(width);
+        sw = 1 + random.nextInt(width - sx);
+        tw = 1 + random.nextInt(sw);
+      }
+      final height = 1 + random.nextInt(20);
+      final rowBytes = (width + 7) >> 3;
+      final inverted = random.nextBool();
+      final blank = inverted ? 0x00 : 0xff;
+      final bits = Uint8List(rowBytes * height)
+        ..fillRange(0, rowBytes * height, blank);
+      final ink = random.nextInt(4);
+      for (var i = 0; i < bits.length; i++) {
+        if (random.nextInt(40) < ink * 3) bits[i] = random.nextInt(256);
+      }
+      final offset = random.nextInt(4);
+      final backing = Uint8List(bits.length + offset)
+        ..setRange(offset, offset + bits.length, bits);
+      final sy = random.nextInt(height);
+      final sh = 1 + random.nextInt(height - sy);
+      final th = 1 + random.nextInt(sh);
+      final stream = CosStream(
+          CosDictionary({
+            'ImageMask': const CosBoolean(true),
+            'Width': CosInteger(width),
+            'Height': CosInteger(height),
+            'BitsPerComponent': const CosInteger(1),
+            if (inverted)
+              'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+          }),
+          Uint8List.sublistView(backing, offset));
+      final pixels = decodePdfImagePixelsRegionScaled(
+          cos, stream, sx, sy, sw, sh, tw, th,
+          samplesAreDecoded: true)!;
+      for (var ty = 0; ty < th; ty++) {
+        final y0 = sy + ty * sh ~/ th, y1 = sy + (ty + 1) * sh ~/ th;
+        for (var tx = 0; tx < tw; tx++) {
+          final x0 = sx + tx * sw ~/ tw, x1 = sx + (tx + 1) * sw ~/ tw;
+          var paint = 0;
+          for (var y = y0; y < y1; y++) {
+            for (var x = x0; x < x1; x++) {
+              final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              if (bit == (inverted ? 1 : 0)) paint++;
+            }
+          }
+          final expected = paint * 255 ~/ ((x1 - x0) * (y1 - y0));
+          expect(pixels.rgba[(ty * tw + tx) * 4 + 3], expected,
+              reason: 'trial $trial ${width}x$height offset $offset '
+                  'region ($sx,$sy ${sw}x$sh) -> ${tw}x$th at ($tx,$ty)');
+        }
+      }
+    }
+  });
+
   test('scaled ImageMask region counts only bits inside the region', () {
     // Paint only at x=0, x=8 and x=9. The region x 1..8 starts mid-byte, so
     // it must not count x=0 or x=9; x=8 lands in the second of two 4px cells.

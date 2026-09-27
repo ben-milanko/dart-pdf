@@ -592,8 +592,10 @@ class PdfImageRegion {
 /// The façade picks the narrowest fast path that fits - region-scaled,
 /// whole-image scaled, or a plain full decode - and, when that fast path
 /// can't handle the stream (a stacked filter, an Indexed-8/ICC/Lab space, a
-/// 16-bit or /SMask'd image; the fast paths only cover single-filter Flate/
-/// CCITT or explicitly pre-decoded samples), transparently falls back to a
+/// 16-bit image, or a masked one outside the exact masked kernel's shapes; the
+/// fast paths only cover single-filter Flate/CCITT, explicitly pre-decoded
+/// samples, and a region of an 8-bit DeviceRGB/DeviceGray Flate image under a
+/// same-size stencil /Mask or 8-bit /SMask), transparently falls back to a
 /// full decode cropped and downsampled to the request. That fall-back-and-
 /// downscale policy used to be copied into each caller.
 ///
@@ -795,7 +797,9 @@ PdfDecodedPixels? cropDownsamplePdfDecodedPixels(
 /// especially for large CCITT scans: the filter expands to a compact packed
 /// bitmap, which can be averaged straight into the display raster without
 /// ever allocating the native-size RGBA buffer. Everything else falls back to
-/// [decodePdfImagePixels].
+/// [decodePdfImagePixels]. A masked image is declined here even where the
+/// region kernel could take it: [decodePdfImage] sends a whole-image masked
+/// downscale through its targeted path instead.
 PdfDecodedPixels? decodePdfImagePixelsScaled(
   CosDocument cos,
   CosStream stream,
@@ -874,6 +878,12 @@ PdfDecodedPixels? _decodeJpxScaled(
 /// [targetWidth]×[targetHeight] is the same size as the requested region: the
 /// crop itself is the saving. Used by deep-zoom worker detail renders, where a
 /// visible page slice should not ship the whole raster underlay.
+///
+/// A region of a masked 8-bit image takes the exact masked kernel: a
+/// single-Flate DeviceRGB/DeviceGray base with identity /Decode under a
+/// same-size 1-bit stencil /Mask or 8-bit /SMask without /Matte, byte-identical
+/// to the full decode cropped and box-filtered. A whole-image call made with
+/// [wholeImageOnlyIfDownscaled] leaves masked images to the caller.
 PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   CosDocument cos,
   CosStream stream,
@@ -916,6 +926,21 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
 
   final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
   final mask = cos.resolve(dict['Mask']);
+  // A masked 8-bit colour slice (deep-zoom detail of a stencil-masked CAD
+  // tile or a soft-masked underlay) takes one exact pass over just the
+  // region's samples. The general fallback it replaces - decode, composite
+  // and premultiply the whole native image, then crop and box-filter it -
+  // produces the same bytes from the same inflated samples, but touches every
+  // native pixel. Whole-image downscales are not taken here: they go through
+  // [_decodePdfImagePixelsTargeted].
+  if (!isMask &&
+      !samplesAreDecoded &&
+      !wholeImageOnlyIfDownscaled &&
+      (mask is CosStream || dict.containsKey('SMask'))) {
+    final masked = _scaledMaskedDirect8Region(cos, stream, width, height,
+        sourceX, sourceY, sourceWidth, sourceHeight, targetWidth, targetHeight);
+    if (masked != null) return masked;
+  }
   if (!isMask && dict.containsKey('SMask')) return null;
   final bits = _intOf(cos.resolve(dict['BitsPerComponent']), fallback: 8);
   final space = pdfImageColorFamily(cos, dict);
@@ -1382,6 +1407,14 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   // outright, and any other byte is split at cell boundaries and counted with
   // a popcount per piece, so a dense or /Decode-inverted stencil (where the
   // paper is what paints) stays within a few times the sparse cost.
+  //
+  // That byte walk still touched every source byte, so the cost was flat in
+  // the target size: a fit view or thumbnail of a drawing paid as much as
+  // native size. Blank paper is now stepped over a 32-bit word at a time
+  // wherever the samples are word-aligned - a real CAD stencil is ~98% blank
+  // bytes and ~83% blank rows - and only the bytes of a word with ink go
+  // through the unchanged per-byte piece count, so the counts, and the
+  // pixels, are exactly those of the byte walk.
   final columnOf = Int32List(sourceWidth);
   final columnEnd = Int32List(targetWidth);
   final columnSpan = Int32List(targetWidth);
@@ -1421,6 +1454,22 @@ PdfDecodedPixels? _scaledImageMaskRegion(
     }
   }
   pieceStart[byteCount] = pieces;
+  // Whole-byte cells (region and cell edges on byte boundaries: a width that
+  // divides into multiples of 8) give every byte a single full piece.
+  var onePiecePerByte = pieces == byteCount;
+  for (var i = 0; onePiecePerByte && i < byteCount; i++) {
+    if (pieceMask[i] != 0xff) onePiecePerByte = false;
+  }
+  // paint = byte ^ flip: the painting bits whatever the /Decode polarity.
+  final flip = inverted ? 0 : 0xff;
+  // All-blank words read the same in either byte order, so the view needs no
+  // endian handling; Uint32List is exact under dart2js too. The view needs a
+  // 4-aligned start (a platform decompressor's samples can be at any offset),
+  // else the byte walk alone runs.
+  final blankWord = inverted ? 0 : 0xffffffff;
+  final words = (data.offsetInBytes & 3) == 0
+      ? data.buffer.asUint32List(data.offsetInBytes, data.length >> 2)
+      : null;
   final counts = Int32List(targetWidth);
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
@@ -1430,14 +1479,32 @@ PdfDecodedPixels? _scaledImageMaskRegion(
     counts.fillRange(0, targetWidth, 0);
     for (var sy = sy0; sy < sy1; sy++) {
       final row = sy * rowBytes + firstByte;
-      for (var i = 0; i < byteCount; i++) {
-        final byte = data[row + i];
-        final paint = inverted ? byte : byte ^ 0xff;
-        if (paint == 0) continue;
-        final end = pieceStart[i + 1];
-        for (var p = pieceStart[i]; p < end; p++) {
-          counts[pieceColumn[p]] += _popcount8[paint & pieceMask[p]];
+      final rowEnd = row + byteCount;
+      // Words wholly inside the row end before this one.
+      final wordsEnd = rowEnd >> 2;
+      var at = row;
+      while (at < rowEnd) {
+        if (words != null && (at & 3) == 0) {
+          var wi = at >> 2;
+          while (wi < wordsEnd && words[wi] == blankWord) {
+            wi++;
+          }
+          at = wi << 2;
+          if (at >= rowEnd) break;
         }
+        final paint = data[at] ^ flip;
+        if (paint != 0) {
+          final i = at - row;
+          if (onePiecePerByte) {
+            counts[pieceColumn[i]] += _popcount8[paint];
+          } else {
+            final end = pieceStart[i + 1];
+            for (var p = pieceStart[i]; p < end; p++) {
+              counts[pieceColumn[p]] += _popcount8[paint & pieceMask[p]];
+            }
+          }
+        }
+        at++;
       }
     }
     final rows = sy1 - sy0;
@@ -1449,6 +1516,338 @@ PdfDecodedPixels? _scaledImageMaskRegion(
     }
   }
   return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+/// Exact region decode of a masked 8-bit image: a single-Flate DeviceRGB or
+/// DeviceGray base with identity /Decode under either a same-size 1-bit
+/// stencil `/Mask` (honouring its /Decode) or a same-size 8-bit `/SMask`
+/// without /Matte. Returns null for any other shape, and for anything the
+/// reference path would treat differently, so the caller's general path runs.
+///
+/// Byte-identical to cropping and box-filtering the full decode
+/// ([decodePdfImagePixels] -> [cropDownsamplePdfDecodedPixels]): each cell
+/// sums the premultiplied samples the composite would have produced (a
+/// masked-out pixel contributes nothing, an opaque one its colour, a partial
+/// one `c * a ~/ 255`) and divides by the cell's pixel count, truncating like
+/// [downsamplePdfDecodedPixels]. The base colours are the identity bytes
+/// `_toRgba` copies for a direct device space - except DeviceGray under a
+/// PDF/X OutputIntent, which maps through the output condition, so that
+/// declines.
+///
+/// A stencil walks only its visible bits: blank (fully masked) words and
+/// bytes are skipped whole, the way [_scaledImageMaskRegion] skips blank
+/// paper, so a sparse CAD mask costs little more than its inflate.
+PdfDecodedPixels? _scaledMaskedDirect8Region(
+  CosDocument cos,
+  CosStream stream,
+  int width,
+  int height,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  final dict = stream.dictionary;
+  // The crop fallback returns null outside the image rather than clamping.
+  if (sourceX < 0 ||
+      sourceY < 0 ||
+      sourceWidth <= 0 ||
+      sourceHeight <= 0 ||
+      sourceX + sourceWidth > width ||
+      sourceY + sourceHeight > height ||
+      targetWidth <= 0 ||
+      targetHeight <= 0) {
+    return null;
+  }
+  if (_intOf(cos.resolve(dict['BitsPerComponent']), fallback: 8) != 8) {
+    return null;
+  }
+  final family = pdfImageColorFamily(cos, dict);
+  final components = switch (family) {
+    'DeviceRGB' => 3,
+    'DeviceGray' => 1,
+    _ => 0,
+  };
+  if (components == 0 || !_isDirectDeviceColorSpace(cos, dict, family)) {
+    return null;
+  }
+  if (pdfImageDecodeRanges(cos, dict, components) != null) return null;
+  if (components == 1 &&
+      PdfColorContext.forDocument(cos).outputProfile != null) {
+    return null;
+  }
+  final filters = pdfImageFilters(cos, dict);
+  if (filters.length != 1 ||
+      (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+    return null;
+  }
+  final sw = sourceWidth, sh = sourceHeight;
+  final tw = targetWidth < sw ? targetWidth : sw;
+  final th = targetHeight < sh ? targetHeight : sh;
+  // A column sum holds up to one cell of premultiplied samples.
+  if ((sw ~/ tw + 1) * (sh ~/ th + 1) * 255 >= 0x80000000) return null;
+
+  // Same mask precedence as the full decode: an /SMask stream wins.
+  final softMask = cos.resolve(dict['SMask']);
+  final stencilMask = cos.resolve(dict['Mask']);
+  final CosStream maskStream;
+  if (softMask is CosStream) {
+    maskStream = softMask;
+  } else if (stencilMask is CosStream) {
+    maskStream = stencilMask;
+  } else {
+    return null;
+  }
+  final soft = softMask is CosStream;
+  final maskDict = maskStream.dictionary;
+  if (soft && maskDict.containsKey('Matte')) return null;
+  if (_intOf(cos.resolve(maskDict['Width'])) != width ||
+      _intOf(cos.resolve(maskDict['Height'])) != height ||
+      _intOf(cos.resolve(maskDict['BitsPerComponent']),
+              fallback: soft ? 8 : 1) !=
+          (soft ? 8 : 1)) {
+    return null;
+  }
+  for (final filter in pdfImageFilters(cos, maskDict)) {
+    if (filter == 'DCTDecode' ||
+        filter == 'DCT' ||
+        filter == 'JPXDecode' ||
+        filter == 'JBIG2Decode') {
+      return null;
+    }
+  }
+  final decode = cos.resolve(maskDict['Decode']);
+  final inverted = !soft &&
+      decode is CosArray &&
+      decode.length > 0 &&
+      _numOf(cos.resolve(decode[0])) == 1;
+  final samples = _decodeMaskedSamples(cos, maskStream, stream);
+  if (samples == null) return null; // the full decode's own handling applies
+  final (maskData, data) = samples;
+  final rowBytes1 = (width + 7) >> 3;
+  if (maskData.length < (soft ? width * height : rowBytes1 * height) ||
+      data.length < width * height * components) {
+    return null;
+  }
+
+  final t0 = PdfPerf.begin();
+  final out = Uint8List(tw * th * 4);
+  final colStart = Int32List(tw + 1);
+  for (var tx = 0; tx <= tw; tx++) {
+    colStart[tx] = sourceX + tx * sw ~/ tw;
+  }
+  final sumR = Int32List(tw),
+      sumG = Int32List(tw),
+      sumB = Int32List(tw),
+      sumA = Int32List(tw);
+  final rgb = components == 3;
+  // A same-size slice (deep zoom at or past native resolution) has one pixel
+  // per cell, so each premultiplied sample is written straight out: summing
+  // it into a column and dividing by one per channel cost more than the
+  // whole-image decode it replaces under dart2js, where `~/` is a checked
+  // call.
+  final direct = tw == sw && th == sh;
+
+  // Stencil only: each region column's cell, and the bit walk's constants.
+  final xEnd = sourceX + sw;
+  final firstByte = sourceX >> 3;
+  final lastByte = (xEnd - 1) >> 3;
+  final headMask = 0xff >> (sourceX & 7);
+  final tailMask = (0xff << (7 - ((xEnd - 1) & 7))) & 0xff;
+  // visible = byte ^ flip: the bits that let the base show (§8.9.6.3).
+  final flip = inverted ? 0 : 0xff;
+  final blankWord = inverted ? 0 : 0xffffffff;
+  Int32List? columnOf;
+  Uint32List? words;
+  if (!soft) {
+    if (!direct) {
+      columnOf = Int32List(sw);
+      for (var tx = 0; tx < tw; tx++) {
+        for (var x = colStart[tx]; x < colStart[tx + 1]; x++) {
+          columnOf[x - sourceX] = tx;
+        }
+      }
+    }
+    if ((maskData.offsetInBytes & 3) == 0) {
+      words = maskData.buffer
+          .asUint32List(maskData.offsetInBytes, maskData.length >> 2);
+    }
+  }
+
+  var di = 0;
+  for (var ty = 0; ty < th; ty++) {
+    final sy0 = sourceY + ty * sh ~/ th;
+    final sy1 = sourceY + (ty + 1) * sh ~/ th;
+    if (!direct) {
+      sumR.fillRange(0, tw, 0);
+      sumG.fillRange(0, tw, 0);
+      sumB.fillRange(0, tw, 0);
+      sumA.fillRange(0, tw, 0);
+    }
+    for (var sy = sy0; sy < sy1; sy++) {
+      final rowBase = sy * width;
+      if (soft && direct) {
+        var d = di;
+        for (var x = sourceX; x < xEnd; x++, d += 4) {
+          final alpha = maskData[rowBase + x];
+          if (alpha == 0) continue; // `out` is already transparent black
+          final si = (rowBase + x) * components;
+          if (alpha == 255) {
+            if (rgb) {
+              out[d] = data[si];
+              out[d + 1] = data[si + 1];
+              out[d + 2] = data[si + 2];
+            } else {
+              final v = data[si];
+              out[d] = v;
+              out[d + 1] = v;
+              out[d + 2] = v;
+            }
+          } else if (rgb) {
+            out[d] = data[si] * alpha ~/ 255;
+            out[d + 1] = data[si + 1] * alpha ~/ 255;
+            out[d + 2] = data[si + 2] * alpha ~/ 255;
+          } else {
+            final v = data[si] * alpha ~/ 255;
+            out[d] = v;
+            out[d + 1] = v;
+            out[d + 2] = v;
+          }
+          out[d + 3] = alpha;
+        }
+        continue;
+      }
+      if (soft) {
+        for (var tx = 0; tx < tw; tx++) {
+          var r = 0, g = 0, b = 0, a = 0;
+          final x1 = colStart[tx + 1];
+          for (var x = colStart[tx]; x < x1; x++) {
+            final alpha = maskData[rowBase + x];
+            if (alpha == 0) continue;
+            final si = (rowBase + x) * components;
+            if (alpha == 255) {
+              if (rgb) {
+                r += data[si];
+                g += data[si + 1];
+                b += data[si + 2];
+              } else {
+                final v = data[si];
+                r += v;
+                g += v;
+                b += v;
+              }
+            } else if (rgb) {
+              r += data[si] * alpha ~/ 255;
+              g += data[si + 1] * alpha ~/ 255;
+              b += data[si + 2] * alpha ~/ 255;
+            } else {
+              final v = data[si] * alpha ~/ 255;
+              r += v;
+              g += v;
+              b += v;
+            }
+            a += alpha;
+          }
+          sumR[tx] += r;
+          sumG[tx] += g;
+          sumB[tx] += b;
+          sumA[tx] += a;
+        }
+        continue;
+      }
+      final row = sy * rowBytes1;
+      final rowEnd = row + lastByte + 1;
+      final wordsEnd = rowEnd >> 2;
+      var at = row + firstByte;
+      while (at < rowEnd) {
+        if (words != null && (at & 3) == 0) {
+          var wi = at >> 2;
+          while (wi < wordsEnd && words[wi] == blankWord) {
+            wi++;
+          }
+          at = wi << 2;
+          if (at >= rowEnd) break;
+        }
+        final byteIndex = at - row;
+        var visible = maskData[at] ^ flip;
+        if (byteIndex == firstByte) visible &= headMask;
+        if (byteIndex == lastByte) visible &= tailMask;
+        if (visible != 0) {
+          final x0 = byteIndex << 3;
+          for (var bit = 0; bit < 8; bit++) {
+            if ((visible & (0x80 >> bit)) == 0) continue;
+            final x = x0 + bit;
+            final si = (rowBase + x) * components;
+            if (direct) {
+              final d = di + (x - sourceX) * 4;
+              if (rgb) {
+                out[d] = data[si];
+                out[d + 1] = data[si + 1];
+                out[d + 2] = data[si + 2];
+              } else {
+                final v = data[si];
+                out[d] = v;
+                out[d + 1] = v;
+                out[d + 2] = v;
+              }
+              out[d + 3] = 255;
+              continue;
+            }
+            final tx = columnOf![x - sourceX];
+            if (rgb) {
+              sumR[tx] += data[si];
+              sumG[tx] += data[si + 1];
+              sumB[tx] += data[si + 2];
+            } else {
+              final v = data[si];
+              sumR[tx] += v;
+              sumG[tx] += v;
+              sumB[tx] += v;
+            }
+            sumA[tx] += 255;
+          }
+        }
+        at++;
+      }
+    }
+    if (direct) {
+      di += sw * 4;
+      continue;
+    }
+    final rows = sy1 - sy0;
+    for (var tx = 0; tx < tw; tx++) {
+      final n = (colStart[tx + 1] - colStart[tx]) * rows;
+      out[di] = sumR[tx] ~/ n;
+      out[di + 1] = sumG[tx] ~/ n;
+      out[di + 2] = sumB[tx] ~/ n;
+      out[di + 3] = sumA[tx] ~/ n;
+      di += 4;
+    }
+  }
+  // One fused pass is both the composite and the box filter.
+  PdfPerf.end(PdfPerfPhase.imageAlpha, t0);
+  PdfPerf.end(PdfPerfPhase.imageDownsample, t0);
+  return PdfDecodedPixels(out, tw, th);
+}
+
+/// The mask's and the base's inflated samples for
+/// [_scaledMaskedDirect8Region], or null when either fails to decode.
+///
+/// The `try` lives here, not in the kernel, on purpose: dart2js gives a local
+/// assigned inside a `try` no concrete type, so every sample read in the
+/// kernel's loops compiled to an interceptor call (`J.$index$asx`) instead of
+/// a native typed-array index - several times slower on the web worker for a
+/// dense soft mask. Locals destructured from this record keep their type.
+/// test/image_kernels_dart2js_test.dart holds the kernel to that.
+(Uint8List, Uint8List)? _decodeMaskedSamples(
+    CosDocument cos, CosStream maskStream, CosStream stream) {
+  try {
+    return (cos.decodeStreamData(maskStream), cos.decodeStreamData(stream));
+  } on Exception {
+    return null;
+  }
 }
 
 (int, int, double) _sourceCoordInRegion(
