@@ -122,9 +122,10 @@ class PdfDocument {
     if (cached != null) return cached;
     // The fast walk trusts /Count on intermediate nodes to skip whole
     // subtrees. Real-world files lie about /Count, so a miss falls back
-    // to walking every leaf before giving up.
-    final fast = _findPage(
-        _pagesRoot, _Counter(index), const _Inherited(), <CosDictionary>{});
+    // to walking every leaf before giving up. It may also cache up to
+    // [index] of the leaves that follow the page (see [_seedFollowingLeaves]).
+    final fast = _findPage(_pagesRoot, _Counter(index, seedBudget: index),
+        const _Inherited(), <CosDictionary>{});
     if (fast != null) return _pageCache[index] = fast;
     final counter = _Counter(index);
     final found = _findPage(
@@ -153,10 +154,13 @@ class PdfDocument {
   /// Every reachable page in document order, resolved in one page-tree walk.
   ///
   /// Prefer this when a caller needs the whole document. Repeated [page]
-  /// lookups are optimized for sparse random access using subtree /Count, but
-  /// on a flat tree enumerating `page(0)..page(n)` revisits an ever-longer kid
-  /// prefix and becomes quadratic. This traversal also resolves inherited
-  /// page attributes once and seeds [page]'s cache.
+  /// lookups are optimized for sparse random access using subtree /Count;
+  /// they cache the leaf siblings after each page they find, which keeps a
+  /// forward `page(0)..page(n)` loop linear on a flat tree, but any other
+  /// order over a flat tree still revisits an ever-longer kid prefix. This
+  /// traversal also resolves inherited page attributes once, takes the leaves
+  /// in true document order however wrong an intermediate /Count is, and
+  /// seeds [page]'s cache.
   List<PdfPage> get pages {
     _refreshPageCacheRevision();
     final cached = _allPagesCache;
@@ -346,7 +350,6 @@ class PdfDocument {
       _Inherited inherited, Set<CosDictionary> visited,
       {bool useCounts = true}) {
     if (!visited.add(node)) return null;
-    final merged = inherited.mergedWith(node, cos);
     if (_isLeaf(node)) {
       if (remaining.value == 0) {
         // Pass what the ANCESTORS supply, not the merge including this leaf:
@@ -364,32 +367,96 @@ class PdfDocument {
       remaining.value--;
       return null;
     }
+    final merged = inherited.mergedWith(node, cos);
     final kids = cos.resolve(node['Kids']);
     if (kids is! CosArray) return null;
-    for (final kid in kids.items) {
-      final child = cos.resolve(kid);
+    final items = kids.items;
+    for (var k = 0; k < items.length; k++) {
+      final child = cos.resolve(items[k]);
       if (child is! CosDictionary) continue;
       if (useCounts && !_isLeaf(child)) {
         final count = cos.resolve(child['Count']);
-        if (count is CosInteger &&
-            count.value >= 0 &&
-            remaining.value >= count.value) {
-          // the page is not in this subtree; skip it wholesale
-          remaining.value -= count.value;
-          continue;
+        if (count is CosInteger && count.value >= 0) {
+          if (remaining.value >= count.value) {
+            // the page is not in this subtree; skip it wholesale
+            remaining.value -= count.value;
+            continue;
+          }
+          // Entered on the strength of /Count: a later index takes this
+          // same path only while it still falls inside the subtree.
+          final slack = count.value - remaining.value - 1;
+          if (slack < remaining.seedBudget) remaining.seedBudget = slack;
         }
       }
       final found =
           _findPage(child, remaining, merged, visited, useCounts: useCounts);
-      if (found != null) return found;
+      if (found != null) {
+        if (identical(found.dict, child)) {
+          _seedFollowingLeaves(items, k + 1, merged, visited, remaining);
+        }
+        return found;
+      }
     }
     return null;
   }
+
+  /// Caches the leaf kids after [from] in [items] - the siblings of the page
+  /// a /Count walk just found - as the pages that follow it, so a forward
+  /// `page(0)..page(n)` loop over a flat /Kids array resolves each kid about
+  /// once rather than rescanning an ever-longer prefix per lookup.
+  ///
+  /// Each seeded entry is exactly what [page] would compute for that index:
+  /// the same visited set skips a repeated kid without taking an index, the
+  /// seed stops at the first intermediate node, and [_Counter.seedBudget] has
+  /// already shrunk to the indices that would still enter every subtree this
+  /// walk entered on its /Count (a /Count that is too small sends a later
+  /// index elsewhere). The budget starts at the target index, so the seed is
+  /// never more work than the prefix the lookup has just walked: page(0) seeds
+  /// nothing, a lone lookup does at most as much again, and misses in a
+  /// forward loop land at doubling indices.
+  void _seedFollowingLeaves(List<CosObject> items, int from,
+      _Inherited inherited, Set<CosDictionary> visited, _Counter walk) {
+    var budget = walk.seedBudget;
+    if (budget <= 0) return;
+    final limit = _sourcePageCountHint;
+    var next = walk.target + 1;
+    for (var j = from; j < items.length && budget > 0; j++) {
+      if (limit != null && next >= limit) return;
+      final sibling = cos.resolve(items[j]);
+      if (sibling is! CosDictionary) continue;
+      if (!_isLeaf(sibling)) return;
+      if (!visited.add(sibling)) continue;
+      _pageCache.putIfAbsent(
+        next,
+        () => PdfPage(
+          document: this,
+          dict: sibling,
+          inheritedResources: inherited.resources,
+          inheritedMediaBox: inherited.mediaBox,
+          inheritedCropBox: inherited.cropBox,
+          inheritedRotate: inherited.rotate,
+        ),
+      );
+      next++;
+      budget--;
+    }
+  }
 }
 
+/// A [PdfDocument._findPage] walk's position: how many leaves remain before
+/// the target, and how many of the leaves after it may be cached on the way.
 class _Counter {
-  _Counter(this.value);
+  _Counter(this.value, {this.seedBudget = 0}) : target = value;
+
+  /// The index being looked up.
+  final int target;
+
+  /// Leaves still to pass before the target.
   int value;
+
+  /// Following leaves the walk may seed into the page cache; 0 disables it
+  /// (the leaf-by-leaf fallback walk, which ignores /Count).
+  int seedBudget;
 }
 
 /// Attributes that inherit down the page tree (§7.7.3.4).

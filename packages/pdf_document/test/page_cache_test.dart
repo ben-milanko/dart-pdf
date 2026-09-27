@@ -1,6 +1,8 @@
 // PdfDocument caches PdfPage instances (#418), which is what makes
 // PdfPage.annotations' cache reachable at all. These pin the two hazards that
 // caching introduces, both of which sank an earlier attempt.
+import 'dart:typed_data';
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -89,7 +91,8 @@ void main() {
         reason: 'the cache must not hide an in-place append');
   });
 
-  test('a page inherits from its ancestors when it carries no entry of its '
+  test(
+      'a page inherits from its ancestors when it carries no entry of its '
       'own', () {
     final doc = PdfDocument.open(buildMultiPagePdf(2));
     final page = doc.page(0);
@@ -130,5 +133,153 @@ void main() {
           ),
       throwsArgumentError,
     );
+  });
+
+  group('page(i) caching the leaves that follow it', () {
+    Uint8List pdfOf(List<String> objects) {
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xrefOffset = buffer.length;
+      buffer
+        ..write('xref\n0 ${objects.length + 1}\n')
+        ..write('0000000000 65535 f \n');
+      for (final offset in offsets) {
+        buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer
+        ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+        ..write('startxref\n$xrefOffset\n%%EOF\n');
+      return ascii(buffer.toString());
+    }
+
+    const catalog = '<< /Type /Catalog /Pages 2 0 R >>';
+    String leaf(int parent) => '<< /Type /Page /Parent $parent 0 R >>';
+
+    /// Object number of page [index], or null when the lookup throws.
+    int? objectOf(PdfDocument doc, int index) {
+      try {
+        return doc.cos.referenceTo(doc.page(index).dict)?.objectNumber;
+      } on RangeError {
+        return null;
+      }
+    }
+
+    /// A single page(i) on a fresh document is unaffected by caching, so it
+    /// is the oracle: whatever an earlier lookup seeded must agree with it -
+    /// for a forward loop, and for a lookup after any one earlier lookup.
+    void expectSeedsMatchFreshLookups(Uint8List bytes) {
+      final count = PdfDocument.open(bytes).pageCount;
+      final fresh = [
+        for (var i = 0; i < count + 1; i++)
+          objectOf(PdfDocument.open(bytes), i),
+      ];
+      final loop = PdfDocument.open(bytes);
+      expect([for (var i = 0; i < count + 1; i++) objectOf(loop, i)], fresh);
+      for (var a = 0; a < count; a++) {
+        for (var b = a + 1; b < count + 1; b++) {
+          final doc = PdfDocument.open(bytes);
+          objectOf(doc, a);
+          expect(objectOf(doc, b), fresh[b], reason: 'page($b) after page($a)');
+        }
+      }
+    }
+
+    test('seeded lookups agree with fresh ones on a well-formed tree', () {
+      expectSeedsMatchFreshLookups(buildMultiPagePdf(7));
+      expectSeedsMatchFreshLookups(buildNestedPageTreePdf());
+    });
+
+    test('an understated /Count skipped before leaf siblings', () {
+      // page(0) is object 4; page(1) skips the inner node and lands on 6.
+      expectSeedsMatchFreshLookups(pdfOf([
+        catalog,
+        '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R 8 0 R] /Count 5 >>',
+        '<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 5 0 R] /Count 1 >>',
+        leaf(3),
+        leaf(3),
+        leaf(2),
+        leaf(2),
+        leaf(2),
+      ]));
+    });
+
+    test('an overstated /Count entered before leaf siblings', () {
+      // page(2) enters the inner node on its /Count 3, finds two leaves and
+      // lands on 6 - but page(3) skips the node and lands on 6 again, so
+      // page(2) must not seed 7 as page(3).
+      expectSeedsMatchFreshLookups(pdfOf([
+        catalog,
+        '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R 8 0 R] /Count 5 >>',
+        '<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 5 0 R] /Count 3 >>',
+        leaf(3),
+        leaf(3),
+        leaf(2),
+        leaf(2),
+        leaf(2),
+      ]));
+    });
+
+    test('leaf siblings inside a subtree whose /Count is too small', () {
+      // page(2) is object 6, a direct kid of the inner node, but page(3)
+      // skips that node (/Count 3) and lands on 8, not on sibling 7.
+      expectSeedsMatchFreshLookups(pdfOf([
+        catalog,
+        '<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 5 >>',
+        '<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 5 0 R 6 0 R 7 0 R] '
+            '/Count 3 >>',
+        leaf(3),
+        leaf(3),
+        leaf(3),
+        leaf(3),
+        leaf(2),
+      ]));
+    });
+
+    test('repeated and non-dictionary kids take no index', () {
+      expectSeedsMatchFreshLookups(pdfOf([
+        catalog,
+        '<< /Type /Pages /Kids [3 0 R 4 0 R 3 0 R null 5 0 R 99 0 R 6 0 R] '
+            '/Count 4 >>',
+        leaf(2),
+        leaf(2),
+        leaf(2),
+        leaf(2),
+      ]));
+    });
+
+    List<CosDictionary> reverseKidsInPlace(PdfDocument doc) {
+      final root = doc.cos.resolve(doc.catalog['Pages']) as CosDictionary;
+      final kids = root['Kids'] as CosArray;
+      final original = [
+        for (final kid in kids.items) doc.cos.resolve(kid) as CosDictionary,
+      ];
+      // A structural change the page cache is not told about: any lookup
+      // that walks the tree from here disagrees with one served from cache.
+      final reversed = kids.items.reversed.toList();
+      kids.items
+        ..clear()
+        ..addAll(reversed);
+      return original;
+    }
+
+    test('a lookup caches as many following leaves as it walked past', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(8));
+      doc.page(2);
+      final original = reverseKidsInPlace(doc);
+      expect(doc.page(3).dict, same(original[3]));
+      expect(doc.page(4).dict, same(original[4]));
+      expect(doc.page(5).dict, same(original[2]), reason: 'walked afresh');
+    });
+
+    test('page(0) caches nothing beyond itself', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(4));
+      doc.page(0);
+      final original = reverseKidsInPlace(doc);
+      expect(doc.page(1).dict, same(original[2]), reason: 'walked afresh');
+    });
   });
 }

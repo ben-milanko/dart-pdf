@@ -12,8 +12,11 @@
 //
 // If a legitimate change shifts real cost, re-baseline the budgets here -
 // deliberately, in one place - rather than muting the gate.
+import 'dart:typed_data';
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
@@ -87,8 +90,7 @@ void main() {
     final bytes = buildMultiPagePdf(40);
     final stats = _bestOf(() {
       final doc = CosDocument.open(bytes);
-      final updater = CosIncrementalUpdater(doc)
-        ..replaceObject(1, doc.catalog);
+      final updater = CosIncrementalUpdater(doc)..replaceObject(1, doc.catalog);
       updater.save();
     });
     expect(saveBudget.exceedances(stats), isEmpty);
@@ -107,5 +109,46 @@ void main() {
     expect(loaded, greaterThan(0));
     expect(loaded, lessThan(1000),
         reason: '40-page fixture should stay in the low hundreds of objects');
+  });
+
+  test('page ops and page(i) loops on a cold flat tree stay linear', () {
+    // Every wrapper after a non-structural revision starts with a cold page
+    // cache, and on a flat /Kids tree a page(i) per index used to rescan the
+    // prefix: ~0.8 s for one movePage or one page loop at 3000 pages. Linear,
+    // both are a few ms; the budget sits well clear of either.
+    const pages = 3000;
+    const budgetMs = 150;
+    final bytes = buildMultiPagePdf(pages);
+    PdfDocument cold() {
+      final doc = PdfDocument.open(bytes)..pages;
+      final editor = PdfEditor(doc)..rotatePages([0], 90);
+      final tail = editor.saveTail();
+      return doc.withIncrementalUpdate((BytesBuilder(copy: false)
+            ..add(bytes)
+            ..add(tail))
+          .takeBytes());
+    }
+
+    double bestMs(void Function(PdfDocument doc) op) {
+      var best = double.infinity;
+      for (var i = 0; i < 4; i++) {
+        final doc = cold();
+        final sw = Stopwatch()..start();
+        op(doc);
+        final ms = sw.elapsedMicroseconds / 1000;
+        if (ms < best) best = ms;
+      }
+      return best;
+    }
+
+    final move =
+        bestMs((doc) => (PdfEditor(doc)..movePage(0, pages - 1)).saveTail());
+    final loop = bestMs((doc) {
+      for (var i = 0; i < doc.pageCount; i++) {
+        doc.page(i).annotations;
+      }
+    });
+    expect(move, lessThan(budgetMs), reason: 'movePage went quadratic');
+    expect(loop, lessThan(budgetMs), reason: 'page(i) loop went quadratic');
   });
 }
