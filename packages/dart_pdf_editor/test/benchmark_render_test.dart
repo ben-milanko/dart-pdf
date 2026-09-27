@@ -16,6 +16,17 @@
 // PDFium's scale); `openMs` is parse/load. File I/O is excluded (bytes are read
 // up front). toByteData(rawRgba) forces the GPU→CPU readback so the raster is
 // fully realized before the clock stops.
+//
+// PDF_BENCHMARK_DIR names a directory (every PDF under it), a single PDF, or a
+// comma-separated list of either.
+//
+// PDF_BENCHMARK_COLD=1 is the cold-cache mode: CanvasPdfDevice's text layout
+// caches are cleared before every file of every pass, so `renderMs` is the
+// first paint of a page nobody has drawn yet - the cost a best-of-N warm pass
+// hides (#649 regressed substituted-text first paint ~4x and the warm bench
+// did not move). The image caches need no reset: every pass opens a fresh
+// PdfDocument, and they key on its streams. Report cold runs under their own
+// PDF_BENCHMARK_SCENARIO name; the envelope records `params.cold`.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -41,6 +52,7 @@ void main() {
   final outPath = Platform.environment['PDF_BENCHMARK_OUT'];
   final scenario = Platform.environment['PDF_BENCHMARK_SCENARIO'];
   final appendPath = Platform.environment['PDF_BENCHMARK_APPEND_HISTORY'];
+  final cold = Platform.environment['PDF_BENCHMARK_COLD'] == '1';
 
   testWidgets('benchmarks dart-pdf rasterization vs PDFium', (tester) async {
     if (dir == null) {
@@ -49,22 +61,37 @@ void main() {
     }
     await tester.runAsync(() async {
       await loadSystemFonts();
-      final corpus = Directory(dir);
-      final files = corpus
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.pdf'))
-          .toList()
-        ..sort((a, b) => a.path.compareTo(b.path));
-
-      final root = corpus.path.endsWith('/') ? corpus.path : '${corpus.path}/';
+      // Each file with the name its results row carries: relative to its
+      // directory, or the bare file name for a file named directly.
+      final names = <File, String>{};
+      for (final entry in dir.split(',').where((e) => e.isNotEmpty)) {
+        if (FileSystemEntity.isFileSync(entry)) {
+          final file = File(entry);
+          names[file] = file.uri.pathSegments.last;
+          continue;
+        }
+        final corpus = Directory(entry);
+        final root =
+            corpus.path.endsWith('/') ? corpus.path : '${corpus.path}/';
+        final found = corpus
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.toLowerCase().endsWith('.pdf'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+        for (final file in found) {
+          names[file] = file.path.startsWith(root)
+              ? file.path.substring(root.length)
+              : file.uri.pathSegments.last;
+        }
+      }
+      final files = names.keys.toList();
       final best = <String, Map<String, Object?>>{};
 
       for (var r = 0; r < repeat; r++) {
         for (final file in files) {
-          final name = file.path.startsWith(root)
-              ? file.path.substring(root.length)
-              : file.uri.pathSegments.last;
+          final name = names[file]!;
+          if (cold) CanvasPdfDevice.clearTextLayoutCache();
           final res = await _benchFile(file, scale, maxPages, name);
           final prev = best[file.path];
           final better = prev == null ||
@@ -128,6 +155,7 @@ void main() {
         'tool': 'dart-pdf-render',
         'scale': scale,
         'maxPages': maxPages,
+        'params': {'repeat': repeat, 'cold': cold},
         'engine': 'dart-pdf (PdfPageRenderer.renderImage, Flutter raster)',
         'results': resultList,
       };

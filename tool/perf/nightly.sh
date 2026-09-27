@@ -35,8 +35,9 @@ sweep() { # sweep <scenario>
       --append-history "$HISTORY/vm-sweep.ndjson" --out /dev/null)
 }
 
-# Generate the heavy synthetic docs the image-heavy scenarios render/sweep.
-"$(dirname "$0")/gen_perf_docs.sh"
+# Generate the heavy synthetic docs the image-heavy scenarios render/sweep
+# (only those this script reads).
+"$(dirname "$0")/gen_perf_docs.sh" --nightly
 
 sweep dartpdf-corpus
 sweep ghent-suite-open
@@ -46,15 +47,19 @@ sweep cad-138p-sweep
 sweep cad-wide-1p-sweep
 sweep image-heavy
 sweep jbig2-scanned-sweep
+sweep cad-images-v2-quarter-record
 
 # Render trend (Flutter rasterization: interpret + paint + toImage). Captures
 # the paint- and image-decode-path gains the NullDevice vm-sweep can't see.
 # Rides `flutter test`'s headless engine; appends one flutter-render line.
-render_bench() { # render_bench <scenario> <corpus-rel-to-dart_pdf_editor> <scale> <maxPages>
+# A fifth argument `cold` clears the text layout caches before every file of
+# every pass (PDF_BENCHMARK_COLD, benchmark_render_test.dart).
+render_bench() { # render_bench <scenario> <corpus-rel-to-dart_pdf_editor> <scale> <maxPages> [cold]
   echo "── render: $1 ($2)"
   (cd "$ROOT/packages/dart_pdf_editor" &&
     PDF_BENCHMARK_DIR="$2" \
     PDF_BENCHMARK_SCALE="$3" PDF_BENCHMARK_MAX_PAGES="$4" PDF_BENCHMARK_REPEAT=2 \
+    PDF_BENCHMARK_COLD="$([ "${5:-}" = cold ] && echo 1 || echo 0)" \
     PDF_BENCHMARK_SCENARIO="$1" \
     PDF_BENCHMARK_APPEND_HISTORY="$HISTORY/flutter-render.ndjson" \
     $FLUTTER test test/benchmark_render_test.dart)
@@ -63,6 +68,11 @@ render_bench ghent-render "../../test_corpora/ghent" 2 3
 render_bench image-render "../../tool/perf/cache/image-heavy" 1.5 4
 render_bench devicen-render "../../tool/perf/cache/devicen" 1 2
 render_bench jbig2-scanned-render "../../tool/perf/cache/jbig2-scanned" 1 4
+# Substituted-text first paint (#649), which a warm best-of-2 cannot see. Runs
+# in flutter_tester's kern-free test font, not production faces (#962).
+render_bench substituted-text-cold-render \
+  "../../test_corpora/dartpdf/cad-labels-6p.pdf,../../test_corpora/dartpdf/prose-report-20p.pdf" \
+  1.5 3 cold
 
 # Progressive first-paint: bytes a remote reader pulls to paint page 1 through
 # the ranged PdfByteSource vs a full read (#328/#359). PdfDocument.openSource is

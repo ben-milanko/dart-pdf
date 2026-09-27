@@ -41,9 +41,22 @@ unknown keys).
       "extractMs": 4.0, "saveMs": 2.1, "peakRssBytes": 91234304,
       "decodeMs": 210.4,       // only with the `decodeImages` measure
       "imagesDecoded": 32,     // images the pages drew, alongside decodeMs
+      "decodeAtTargetMs": 88.1, // only with `decodeImagesAtTarget`: the render
+                               // worker's decoding record (serializeCommands
+                               // with decodeImages: display-target decodes
+                               // under the page raster budget at
+                               // params.imageRatio, plus command encoding),
+                               // dominated by image decode on image-heavy pages
+      "imagesAtTarget": 32,    // image draws the recorded pages hold
+      "imageDecodeCalls": 32,  // PdfPerf call counts for one such pass -
+      "imageDownsampleCalls": 30, // deterministic, so a changed decode path
+      "imageColorConvertCalls": 16, // shows even where the time is noise
+      "imageAlphaCalls": 15,   // (metrics sums them over the files)
       "error": null,
       "perf": { "phases": {}, "counts": {}, "events": {} } // PdfPerf
                                // snapshot when the run passed --phases
+                               // ("perfAtTarget": the same for the
+                               // decodeImagesAtTarget child process)
     }
   ]
 }
@@ -59,6 +72,10 @@ Rules:
   `...MsPerPage` suffix.
 - Comparisons (`tool/perf/diff.dart`) pair rows by `file` and judge each
   metric by the **median ratio** across files with 3-MAD outlier exclusion.
+- vm-sweep `params.imageRatio` is the display ratio `decodeImagesAtTarget`
+  decoded at; flutter-render `params.cold` is true when the text layout
+  caches were cleared before every file (`PDF_BENCHMARK_COLD=1`), so
+  `renderMs` is a cold first paint - compare such runs only with each other.
 - `tool/perf/targets.json` holds aspirational per-scenario budgets checked
   against `metrics` — informational only, never a gate.
 - `env.flutter` / `env.runnerImage` name the Flutter SDK and the hosted

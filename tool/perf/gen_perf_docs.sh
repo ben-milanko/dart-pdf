@@ -3,7 +3,23 @@
 # are too big to commit (git-ignored under tool/perf/cache/). Idempotent: skips
 # a doc that already exists. Run once with CURRENT code, then pre-seed the same
 # bytes into every backfill worktree so all versions measure identical input.
+#
+#   gen_perf_docs.sh [--nightly]
+#
+# --nightly generates only what tool/perf/nightly.sh measures: it skips the
+# #419 cad-images sheet (no nightly scenario reads it), the full-size
+# cad-images-v2 sheet (the nightly sweeps its quarter-size twin), and the
+# encoder-dependent local-only docs - ~150 MB and ~40 s of generation a night.
+#
+# The default mode generates every doc any scenario reads, so backfill.sh's
+# SCENARIOS override can pick any of them. The default scenario lists of
+# backfill.sh and render_backfill.sh read neither cad-images-v2 sheet, so a
+# backfill run pays ~25 s and ~95 MB of cache for those two - deliberately
+# (a backfill job runs for hours).
 set -euo pipefail
+
+NIGHTLY=0
+[ "${1:-}" = --nightly ] && NIGHTLY=1
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DART=dart
@@ -15,6 +31,10 @@ IMG="$ROOT/tool/perf/cache/image-heavy/image-heavy-24p.pdf"
 DN="$ROOT/tool/perf/cache/devicen/devicen-8p.pdf"
 CADIMG="$ROOT/tool/perf/cache/cad-images/cad-images-1386-20260720.pdf"
 CADIMGMIX="$ROOT/tool/perf/cache/cad-images/cad-images-mixed-200-20260720.pdf"
+# The sheet as drawn (faithful2): separate directories, because each scenario
+# sweeps its whole corpus directory and cad-images/ already has two readers.
+CADIMG2="$ROOT/tool/perf/cache/cad-images-v2/cad-images-v2-925-20260720.pdf"
+CADIMG2Q="$ROOT/tool/perf/cache/cad-images-v2-quarter/cad-images-v2-232-20260720.pdf"
 JBIG2="$ROOT/tool/perf/cache/jbig2-scanned/jbig2-scanned-32p-20260725.pdf"
 
 if [ ! -f "$CAD" ]; then
@@ -35,17 +55,31 @@ if [ ! -f "$IMG" ]; then
   ( cd "$ROOT" && $DART run packages/pdf_cos/tool/gen_image_pdf.dart "$IMG" 24 1240 1650 )
 fi
 
-if [ ! -f "$CADIMG" ]; then
+if [ "$NIGHTLY" = 0 ] && [ ! -f "$CADIMG" ]; then
   echo "gen cad-images (image-heavy wide CAD sheet) -> $CADIMG"
   mkdir -p "$(dirname "$CADIMG")"
   ( cd "$ROOT" && $DART run packages/pdf_test_fixtures/tool/gen_cad_image_pdf.dart \
       "$CADIMG" faithful )
 fi
 
+if [ "$NIGHTLY" = 0 ] && [ ! -f "$CADIMG2" ]; then
+  echo "gen cad-images-v2 (the CAD sheet as drawn: masked tiles) -> $CADIMG2"
+  mkdir -p "$(dirname "$CADIMG2")"
+  ( cd "$ROOT" && $DART run packages/pdf_test_fixtures/tool/gen_cad_image_pdf.dart \
+      "$CADIMG2" faithful2 924 )
+fi
+
+if [ ! -f "$CADIMG2Q" ]; then
+  echo "gen cad-images-v2-quarter (231 tiles of the same shape) -> $CADIMG2Q"
+  mkdir -p "$(dirname "$CADIMG2Q")"
+  ( cd "$ROOT" && $DART run packages/pdf_test_fixtures/tool/gen_cad_image_pdf.dart \
+      "$CADIMG2Q" faithful2 231 )
+fi
+
 # The mixed-codec variant needs cjpeg + opj_compress, which CI does not have -
 # generate it locally and pre-seed like the others. Skipped (not failed) when
 # the encoders are missing, so a plain `gen_perf_docs.sh` still succeeds.
-if [ ! -f "$CADIMGMIX" ]; then
+if [ "$NIGHTLY" = 0 ] && [ ! -f "$CADIMGMIX" ]; then
   if command -v cjpeg >/dev/null 2>&1 && command -v opj_compress >/dev/null 2>&1; then
     echo "gen cad-images-mixed (DCT + JPX tiles) -> $CADIMGMIX"
     mkdir -p "$(dirname "$CADIMGMIX")"
@@ -78,7 +112,7 @@ fi
 # JPEG codec at native resolution (the committed corpus twin is FlateDecode).
 # Needs cjpeg, which CI lacks - skipped (not failed) when it is missing.
 UNDERLAY="$ROOT/tool/perf/cache/raster-underlay/raster-underlay-mixed-2x9460x2918.pdf"
-if [ ! -f "$UNDERLAY" ]; then
+if [ "$NIGHTLY" = 0 ] && [ ! -f "$UNDERLAY" ]; then
   if command -v cjpeg >/dev/null 2>&1; then
     echo "gen raster-underlay-mixed (DCT underlays) -> $UNDERLAY"
     mkdir -p "$(dirname "$UNDERLAY")"
