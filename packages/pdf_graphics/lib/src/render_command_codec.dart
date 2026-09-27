@@ -890,7 +890,6 @@ _CommandImage? _decodeImageForCommand(
   PdfRect? imageDecodeRegion,
   PdfImageDecodeCache? imageCache,
 ) {
-  final decodeCache = request.isLuminosityMask ? null : imageCache;
   final predecoded = request.decoded;
   final regionPlan = imageDecodeRegion == null
       ? null
@@ -919,7 +918,22 @@ _CommandImage? _decodeImageForCommand(
         regionPlan.targetWidth,
         regionPlan.targetHeight,
       );
-    } else if (decodeCache != null &&
+    } else if (request.isLuminosityMask) {
+      // A luminosity decode ignores the region: it decodes the whole mask and
+      // crops it (decodePdfImage), so crop the retained native decode.
+      final full = _luminosityMaskPixels(document, request.stream, imageCache);
+      decoded = full == null
+          ? null
+          : cropDownsamplePdfDecodedPixels(
+              full,
+              regionPlan.sourceX,
+              regionPlan.sourceY,
+              regionPlan.sourceWidth,
+              regionPlan.sourceHeight,
+              regionPlan.targetWidth,
+              regionPlan.targetHeight,
+            );
+    } else if (imageCache != null &&
         pdfImageDecodeIgnoresRegion(document, request.stream)) {
       // DCT has no region/scaled entropy path: decodePdfImage(region:) already
       // decodes the whole JPEG and then crops it. Retain that native result so
@@ -928,7 +942,7 @@ _CommandImage? _decodeImageForCommand(
       // This is byte-identical to the generic region fallback by definition of
       // pdfImageDecodeIgnoresRegion; formats with true region decoders never
       // enter this branch.
-      final full = decodeCache.decode(request.stream, null, null,
+      final full = imageCache.decode(request.stream, null, null,
           () => decodePdfImagePixels(document, request.stream));
       decoded = full == null
           ? null
@@ -945,8 +959,7 @@ _CommandImage? _decodeImageForCommand(
       decoded = decodePdfImage(document, request.stream,
           region: region,
           targetWidth: regionPlan.targetWidth,
-          targetHeight: regionPlan.targetHeight,
-          luminosityMask: request.isLuminosityMask);
+          targetHeight: regionPlan.targetHeight);
     }
     if (decoded != null) {
       final croppedRequest = _copyImageRequest(request,
@@ -1000,19 +1013,24 @@ _CommandImage? _decodeImageForCommand(
       // target anyway, retain the native decode and downsample it here, which
       // is precisely what decodePdfImage(target) does internally.
       final PdfDecodedPixels? scaled;
-      if (decodeCache == null) {
+      if (request.isLuminosityMask) {
+        // Every luminosity decode ignores the target, whatever its filter.
+        final full =
+            _luminosityMaskPixels(document, request.stream, imageCache);
+        scaled = full == null
+            ? null
+            : downsamplePdfDecodedPixels(full, target.$1, target.$2);
+      } else if (imageCache == null) {
         scaled = decodePdfImage(document, request.stream,
-            targetWidth: target.$1,
-            targetHeight: target.$2,
-            luminosityMask: request.isLuminosityMask);
+            targetWidth: target.$1, targetHeight: target.$2);
       } else if (pdfImageDecodeIgnoresTarget(document, request.stream)) {
-        final full = decodeCache.decode(request.stream, null, null,
+        final full = imageCache.decode(request.stream, null, null,
             () => decodePdfImagePixels(document, request.stream));
         scaled = full == null
             ? null
             : downsamplePdfDecodedPixels(full, target.$1, target.$2);
       } else {
-        scaled = decodeCache.decode(
+        scaled = imageCache.decode(
             request.stream,
             target.$1,
             target.$2,
@@ -1025,17 +1043,40 @@ _CommandImage? _decodeImageForCommand(
       }
     }
   }
-  final decoded = decodeCache == null
-      ? decodePdfImagePixels(document, request.stream,
-          luminosityMask: request.isLuminosityMask)
-      : decodeCache.decode(request.stream, null, null,
-          () => decodePdfImagePixels(document, request.stream));
+  final decoded = request.isLuminosityMask
+      ? _luminosityMaskPixels(document, request.stream, imageCache)
+      : imageCache == null
+          ? decodePdfImagePixels(document, request.stream)
+          : imageCache.decode(request.stream, null, null,
+              () => decodePdfImagePixels(document, request.stream));
   if (decoded == null) return null;
   final capped = maxImageRatio == null
       ? decoded
       : _capImageResolution(
           decoded, request.transform, maxImageRatio, budgetScale);
   return _CommandImage(_copyImageRequest(request, decoded: capped), capped);
+}
+
+/// A luminosity mask's native-resolution pixels, retained in [cache] under
+/// its own key when there is one.
+///
+/// Luminosity masks used to skip the cache, so every record (full page,
+/// thumbnail, detail patch) repeated the full native decode of every mask -
+/// often a large gray JPEG. One entry serves them all because
+/// `decodePdfImage(luminosityMask: true)` ignores target and region for every
+/// format: it is exactly this native decode followed by
+/// [cropDownsamplePdfDecodedPixels] or [downsamplePdfDecodedPixels], which the
+/// callers apply to the retained entry. That is the #451 reuse argument, which
+/// for ordinary images holds only for DCT ([pdfImageDecodeIgnoresTarget]).
+/// The entry is keyed apart from the stream's ordinary decode: a luminosity
+/// decode reads the raw samples, not the page's managed colour.
+PdfDecodedPixels? _luminosityMaskPixels(
+    CosDocument document, CosStream stream, PdfImageDecodeCache? cache) {
+  PdfDecodedPixels? decode() =>
+      decodePdfImagePixels(document, stream, luminosityMask: true);
+  return cache == null
+      ? decode()
+      : cache.decode(stream, null, null, luminosityMask: true, decode);
 }
 
 (int, int)? _targetDecodedSize(
