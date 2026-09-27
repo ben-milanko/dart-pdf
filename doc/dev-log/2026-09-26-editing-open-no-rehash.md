@@ -27,7 +27,8 @@ Now:
   No /AcroForm skips it in O(1). With /ID it runs as before (the field walk
   costs more than the id). Without /ID the opened revision's fields are
   walked through the per-revision `acroForm` cache, which the form layer
-  reuses, and only a withheld field pays the hash and the read.
+  reuses, and only a withheld field pays the hash and the read. That walk
+  maps the pages once (see the page-walk gotcha below).
 - The fallback id is resolved lazily by `_resolveFormSecretId`, on first
   need: a withheld fill, `forgetFormSecrets`, an undo/redo that moves a
   stored value, or `formSecretDocumentId`.
@@ -48,10 +49,24 @@ Gotchas:
   hash on its own, so the controller does not have to open a document to
   get it. The first prototype re-opened the prefix inside the getter, which
   on an AES-256 file would have re-run the password check.
-- A no-/ID file with a form now walks its fields at construction, where
-  base hashed the file. No such file exists in the corpora we have (none of
-  the no-/ID files carries an /AcroForm), and the walk is cached for the
-  form layer.
+- **The field walk must be one page-tree walk.** A no-/ID file with a form
+  now walks its fields at construction, where base hashed the file.
+  `PdfAcroForm.fields` always runs the orphan-widget reconcile, which maps
+  every page (`PdfAcroForm._pages`). The constructor runs before the viewer's
+  attach-time `document.pages`, so the page cache is still cold. When this
+  branch was first written, `_pages` looked each page up with `page(i)`,
+  which is quadratic on a flat /Kids tree. Review caught it: on
+  `buildMultiPagePdf(n)` plus an empty /AcroForm, the constructor went from
+  12 ms (the hash) to 1.36 s at 4000 pages, and an AOT open plus the
+  viewer's walk took 1.35 s. #969 (on main since then) builds `_pages` from
+  one `document.pages` walk. That walk fills the page cache, so the viewer's
+  own `document.pages` is free afterwards. The constructor now pays about
+  one page-tree walk (6 ms more than base at 4000 pages), and open plus the
+  viewer walk is 1.4-1.9x faster than base because the hash is gone. A
+  `form_secret_store_test` case asserts exactly one `pageTreeWalk` phase
+  (PdfPerf) across the constructor and the viewer's `document.pages`. It
+  fails on the `page(i)` loop. No such file exists in the corpora we have:
+  none of the no-/ID files carries an /AcroForm.
 
 ## 2. Undo reopens with the authenticated keys
 
@@ -132,9 +147,12 @@ Undo on an R6 fixture (`buildEncryptedPdf(revision: 6)`, 12 rectangles then
 
 (The node figures for the patched side sit at the timer's resolution.)
 
-AES-128 and RC4 reopens were already well under a millisecond; the saving
-is the R6 key derivation, which on the web is dominated by package:crypto's
-emulated 64-bit SHA-384/512.
+AES-128 and RC4 reopens were already well under a millisecond. They are
+now about 5x faster (R4 `controller.undo()`: 0.45 -> 0.08 ms, pair ratio
+5.7x), because donating the handler also skips the R2-R4 MD5/RC4 key
+derivation. The absolute saving that matters is the R6 key derivation,
+which on the web is dominated by package:crypto's emulated 64-bit
+SHA-384/512.
 
 App end to end: a desktop open through `EditorScreen` (flutter test, the
 app's incoming-file channel, `PdfPerfLog` timestamps), open trigger to the
@@ -161,6 +179,35 @@ and worker generation stay. (Progressive's counts vary run to run on both
 sides - two or three `cos open`s, occasionally page 0 interpreted twice -
 a swap timing race that predates this change.)
 
+### Re-run after review, rebased onto #969
+
+Base is origin/main with #969 and #970. Both arms ran 6 rounds, ABAB, with
+the order flipped each round. "+ pages" adds the viewer's attach-time
+`document.pages` walk to the open. `flatform-n` is the review's
+counter-example class: flat-tree `buildMultiPagePdf(n)` with no /ID and an
+empty /AcroForm added by an incremental update.
+
+| workload | base | patched | pair ratio |
+| --- | ---: | ---: | ---: |
+| JIT constructor, 21.5 MB no /ID | 212.9 ms | 0.58 ms | 369x |
+| JIT constructor + pages, 21.5 MB no /ID | 215.0 ms | 2.04 ms | 105x |
+| JIT constructor + pages, 23.2 MB with /ID (control) | 1.52 ms | 1.33 ms | 1.11x (noise) |
+| JIT constructor, flatform-500 / 2000 / 4000 | 1.85 / 6.69 / 13.96 ms | 3.08 / 9.23 / 19.82 ms | 0.61 / 0.73 / 0.72x |
+| JIT constructor + pages, flatform-500 / 2000 / 4000 | 4.21 / 13.58 / 29.54 ms | 3.10 / 9.24 / 19.83 ms | 1.38 / 1.49 / 1.51x |
+| JIT `controller.undo()`, R6 owner-only / user password | 27.5 / 28.5 ms | 0.35 / 0.14 ms | 78x / 200x |
+| JIT `controller.undo()`, R4 | 0.45 ms | 0.08 ms | 5.7x |
+| AOT open + id decision + pages, 21.5 MB no /ID | 191.1 ms | 0.35 ms | 549x (process CPU 1.72 -> 0.01 s) |
+| AOT the same, 23.2 MB with /ID (control) | 0.32 ms | 0.32 ms | 1.02x |
+| AOT the same, flatform-500 / 2000 / 4000 | 2.49 / 10.85 / 23.21 ms | 1.35 / 5.79 / 12.99 ms | 1.85 / 1.86 / 1.80x |
+| AOT R6 undo reopen + page 0 decrypt, owner-only / user password | 30.6 / 31.8 ms | 0.034 / 0.035 ms | 921x / 911x |
+
+On a flat-tree form without /ID the constructor alone is slower than base
+by about one page-tree walk. The walk moved out of the viewer's attach and
+into the constructor, and the viewer then reuses it. Open to viewer is
+faster because the hash is gone. The same AOT bench built from the
+pre-rebase branch, where `_pages` still used `page(i)`, took 26 / 344 /
+1347 ms on flatform-500 / 2000 / 4000.
+
 Prevalence: in the private real-world corpus 8 of 53 files have no /ID, all
 at most 1.7 MB (1-20 ms each); none of the no-/ID files in either corpus
 has an /AcroForm. DartPDF's own writer always emits /ID. The large-file case
@@ -180,7 +227,9 @@ appears in the checked-in pdf.js suite.
   `PdfDocument.openAppended` forwards the password.
 - Tests: `form_secret_store_test.dart` (no hash or `readAll` without a
   withheld field, a withheld field in a no-/ID file still restoring, the
-  first fill after another edit filing under the opened hash),
+  first fill after another edit filing under the opened hash, a 3000-page
+  flat-tree no-/ID form walking its page tree once across the constructor
+  and the viewer's `document.pages`),
   `editing_incremental_reload_test.dart` (R6 undo keeps the handler and
   matches a cold open, with and without a user password),
   `standard_security_handler_test.dart` (an earlier revision reuses the

@@ -5,6 +5,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -168,6 +169,42 @@ void main() {
               pdfPermanentDocumentId(PdfDocument.open(bytes))));
       expect(c.debugFormSecretIdResolved, isTrue);
     }
+  });
+
+  // Without /ID the open decides by walking the form's fields, which maps the
+  // pages once (orphan-widget reconcile). That walk must be the one
+  // PdfDocument.pages walk the viewer then reuses: a page(0..n) scan runs
+  // before the viewer has warmed the page cache and is quadratic on a flat
+  // page tree (1.4 s at 4000 pages vs 12 ms for the hash it replaces).
+  test('a no-/ID form walks a flat page tree once, and the viewer reuses it',
+      () async {
+    const pageCount = 3000;
+    final plain = PdfDocument.open(buildMultiPagePdf(pageCount));
+    final updater = CosIncrementalUpdater(plain.cos);
+    plain.catalog['AcroForm'] = CosDictionary({'Fields': CosArray([])});
+    updater.markChanged(plain.catalog);
+    final bytes = updater.save();
+    expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
+
+    addTearDown(() {
+      PdfPerf.enabled = false;
+      PdfPerf.reset();
+    });
+    PdfPerf.enabled = true;
+    PdfPerf.reset();
+    final store = _CountingStore();
+    final c = await open(bytes, store);
+    final opened = PdfPerf.snapshot();
+    expect(c.acroForm, isNotNull, reason: 'the gate takes the field walk');
+    expect(store.readAlls, 0);
+    expect(c.debugFormSecretIdResolved, isFalse);
+    expect(opened.phaseCalls[PdfPerfPhase.pageTreeWalk.index], 1,
+        reason: 'one whole-tree walk maps the pages for the field reconcile');
+
+    expect(c.document.pages, hasLength(pageCount));
+    expect(PdfPerf.snapshot().phaseCalls[PdfPerfPhase.pageTreeWalk.index], 1,
+        reason: "the viewer's document.pages is the walk the open already "
+            'paid, not a second one');
   });
 
   test('a file with a trailer /ID but no form skips the store read', () async {

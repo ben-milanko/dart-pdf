@@ -533,6 +533,12 @@ class PdfEditingController extends ChangeNotifier {
   /// /ID the field walk is skipped (the id is free, the walk is not);
   /// without one the walk decides, so a file with no withheld field never
   /// pays the hash or the store read.
+  ///
+  /// The walk maps the pages once, for [PdfAcroForm.fields]' orphan-widget
+  /// reconcile. That must stay a single [PdfDocument.pages] walk - the one
+  /// the viewer's attach then reuses. This runs before the viewer has warmed
+  /// the page cache, so a page(0..n) scan here would be quadratic on a flat
+  /// page tree (1.4 s at 4000 pages, against 12 ms for the hash it replaces).
   bool _mayHoldFormSecrets() {
     try {
       final form = acroForm;
@@ -994,9 +1000,11 @@ class PdfEditingController extends ChangeNotifier {
   /// authenticating [_password] like a fresh open.
   ///
   /// Every undo target is a byte prefix of the same session buffer, so it
-  /// always qualifies: an undo on an AES-256 file no longer re-runs the
-  /// password hash (Algorithm 2.B - ~30 ms native, 55-95 ms web - on the UI
-  /// isolate). See [PdfDocument.openAppended].
+  /// normally qualifies (same /Encrypt): an undo on an AES-256 file no longer
+  /// re-runs the password hash (Algorithm 2.B - ~30 ms native, 55-95 ms web -
+  /// on the UI isolate). A revision that rewrote /Encrypt under the same
+  /// object number does not; it authenticates [_password] like a fresh open.
+  /// See [PdfDocument.openAppended].
   PdfDocument _openRevision(Uint8List bytes) =>
       _document.openAppended(bytes, password: _password);
 
