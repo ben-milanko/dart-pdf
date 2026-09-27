@@ -184,3 +184,39 @@ there is skipped), the eight vector-only or tiny /OP documents 0.960-1.024x.
 Whole set 0.963x on-mode, buffer overhead 0.850x. Record bytes with
 `decodeImages: true` are identical on the 10 /OP documents, all 54 Ghent
 files and the 53-document private corpus (first 10 pages each).
+
+## Transparency groups: banded merges
+
+Each transparency group on a buffer page copied the whole cell array three
+times at its start (`external`, `initial`, and `accumulated` inside a
+knockout parent) and walked every cell of the page at its end - several
+times per group on the GWG16x pages, which open 16 to 50 groups on an
+82k-cell buffer while each touches about a seventh of it.
+
+- `_GroupCoverage {mask, lo, hi}` replaces the bare `touched` mask. Its only
+  writers are `mark(raster, spans)`, which wraps `markCovered` and widens the
+  flat row band `[lo, hi)` to the spans' rows (a superset of what the clip
+  lets `markCovered` write), and `absorb(child)`. A debug assert at group end
+  checks no marked cell lies outside the band.
+- `endTransparencyGroup` merges the isolated and accumulated results, and ORs
+  into the parent's coverage, over `[lo, hi)` only, reading the live cells
+  instead of copying them first. The isolated/accumulated result still
+  replaces the whole buffer (`setAll`), so cells outside the band come back
+  from the snapshot exactly as before - including the unknown marks and
+  images a group records without painting.
+- `externalCells` is kept only for an isolated group and `initialCells` only
+  for a knockout group; nothing else reads them.
+
+A temporary verify build ran the old full merge on copies at every group
+end and compared cells and the parent's coverage cell by cell: 357 groups on
+the Ghent suite and 113 on the private corpus (first 10 pages of every
+document), 0 failures, 0 band violations. Record bytes (`decodeImages:
+true`) are identical on Ghent, the /OP set and the private corpus. A new
+`colorant_buffer_test` case nests two isolated children on disjoint row
+bands (plus an empty one) in a knockout group, isolated and not, and checks
+the cells against the same shapes painted with no groups.
+
+Measured against the previous commit (same harness, 7 rounds x 7 reps):
+GWG161 knockout 0.503x on-mode record, GWG162 isolate 0.636x, GWG160
+0.833x, GWG164 0.788x, GWG161 ICCBasedRGB 0.847x, the two GWG161x soft-mask
+text files 0.86x. Pages without groups on a buffer do not run this code.

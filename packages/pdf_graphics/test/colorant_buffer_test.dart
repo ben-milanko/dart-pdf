@@ -739,6 +739,77 @@ void main() {
     });
   });
 
+  group('transparency groups', () {
+    PdfPath rect(double l, double b, double r, double t) => PdfPath([
+          PdfMoveTo(l, b),
+          PdfLineTo(r, b),
+          PdfLineTo(r, t),
+          PdfLineTo(l, t),
+          const PdfClosePath(),
+        ]);
+
+    final grey = PdfInkColorants.deviceCmyk(0, 0, 0, 0.2);
+    final cyan = PdfInkColorants.deviceCmyk(1, 0, 0, 0);
+    final magenta = PdfInkColorants.deviceCmyk(0, 1, 0, 0);
+    void paint(PdfOverprintCompositor c, PdfPath path, PdfInkColorants ink) =>
+        c.fill(
+            path,
+            PdfFillRule.nonzero,
+            PdfColor(
+                1 - ink.colorants.c, 1 - ink.colorants.m, 1 - ink.colorants.k),
+            ink,
+            overprint: false,
+            mode: 0,
+            opaque: true);
+
+    // A group's end merges only the rows its content reached. Two isolated
+    // children of a knockout group paint disjoint row bands, so each merge,
+    // and the parent's absorbed coverage, must reach exactly its own band:
+    // the result has to match painting the same shapes with no groups.
+    for (final isolatedParent in [false, true]) {
+      test(
+          'a knockout group of isolated children on disjoint row bands '
+          '(${isolatedParent ? 'isolated' : 'non-isolated'} parent)', () {
+        final grouped = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+        paint(grouped, rect(0, 0, 100, 100), grey);
+        grouped.beginTransparencyGroup(
+            blendMode: PdfBlendMode.normal,
+            isolated: isolatedParent,
+            knockout: true,
+            opaque: true);
+        for (final (band, ink) in [
+          (rect(10, 70, 40, 90), cyan),
+          (rect(55, 5, 95, 25), magenta),
+        ]) {
+          grouped.beginTransparencyGroup(
+              blendMode: PdfBlendMode.normal,
+              isolated: true,
+              knockout: false,
+              opaque: true);
+          paint(grouped, band, ink);
+          grouped.endTransparencyGroup();
+        }
+        // An empty child leaves no band behind.
+        grouped.beginTransparencyGroup(
+            blendMode: PdfBlendMode.normal,
+            isolated: true,
+            knockout: false,
+            opaque: true);
+        grouped.endTransparencyGroup();
+        grouped.endTransparencyGroup();
+
+        final flat = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+        paint(flat, rect(0, 0, 100, 100), grey);
+        paint(flat, rect(10, 70, 40, 90), cyan);
+        paint(flat, rect(55, 5, 95, 25), magenta);
+
+        expect(flat.debugCells.toSet(), hasLength(3),
+            reason: 'grey, cyan and magenta regions');
+        expect(grouped.debugCells, flat.debugCells);
+      });
+    }
+  });
+
   group('PdfPerf colorant counters', () {
     PdfPath rect(double l, double b, double r, double t) => PdfPath([
           PdfMoveTo(l, b),

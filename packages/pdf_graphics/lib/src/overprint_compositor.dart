@@ -161,13 +161,16 @@ class PdfOverprintCompositor {
     Uint16List? accumulated;
     if (enclosing != null && enclosing.knockout) {
       accumulated = Uint16List.fromList(_raster.cells);
-      _raster.cells.setAll(0, enclosing.initialCells);
+      _raster.cells.setAll(0, enclosing.initialCells!);
     }
-    final external = Uint16List.fromList(_raster.cells);
+    // Only an isolated group reads its backdrop back at the end, and only a
+    // knockout group's children start from its initial cells: every other
+    // group skips those two page-sized copies.
+    final external = isolated ? Uint16List.fromList(_raster.cells) : null;
     if (isolated) {
       _raster.cells.fillRange(0, _raster.cells.length, _transparentIndex);
     }
-    final initial = Uint16List.fromList(_raster.cells);
+    final initial = knockout ? Uint16List.fromList(_raster.cells) : null;
     _groups.add(_TransparencyContext(
       blendMode: blendMode,
       isolated: isolated,
@@ -176,7 +179,7 @@ class PdfOverprintCompositor {
       externalCells: external,
       initialCells: initial,
       accumulatedCells: accumulated,
-      touched: Uint8List(_raster.cells.length),
+      coverage: _GroupCoverage(_raster.cells.length),
     ));
     return opaque && blendMode != PdfBlendMode.normal;
   }
@@ -184,28 +187,36 @@ class PdfOverprintCompositor {
   void endTransparencyGroup() {
     if (_groups.isEmpty) return;
     final group = _groups.removeLast();
-    var result = Uint16List.fromList(_raster.cells);
+    final coverage = group.coverage;
+    assert(coverage.debugBandHoldsEveryCell(),
+        'a group cell was marked outside its coverage band');
+    // Only cells the group painted change hands, and they all lie in the
+    // coverage band, so the merges walk [lo, hi) - a group touches a small
+    // part of the page, and walking every cell per group was most of a
+    // knockout page's buffer cost.
+    final touched = coverage.mask;
+    final lo = coverage.lo, hi = coverage.hi;
+    var result = _raster.cells;
     if (group.isolated) {
-      final composed = group.externalCells;
-      for (var i = 0; i < composed.length; i++) {
-        if (group.touched[i] != 0) composed[i] = result[i];
+      final composed = group.externalCells!;
+      for (var i = lo; i < hi; i++) {
+        if (touched[i] != 0) composed[i] = result[i];
       }
       result = composed;
     }
     final accumulated = group.accumulatedCells;
     if (accumulated != null) {
-      for (var i = 0; i < accumulated.length; i++) {
-        if (group.touched[i] != 0) accumulated[i] = result[i];
+      for (var i = lo; i < hi; i++) {
+        if (touched[i] != 0) accumulated[i] = result[i];
       }
       result = accumulated;
     }
-    _raster.cells.setAll(0, result);
-    if (_groups.isNotEmpty) {
-      final parent = _groups.last;
-      for (var i = 0; i < parent.touched.length; i++) {
-        if (group.touched[i] != 0) parent.touched[i] = 1;
-      }
-    }
+    // An isolated or accumulated result replaces the whole buffer: cells
+    // outside the band come back from that snapshot, discarding anything the
+    // group recorded without painting (unknown marks, images) exactly as the
+    // full merge did.
+    if (!identical(result, _raster.cells)) _raster.cells.setAll(0, result);
+    if (_groups.isNotEmpty) _groups.last.coverage.absorb(coverage);
   }
 
   /// Nesting depth of soft-mask *form* execution. A mask group's content never
@@ -832,8 +843,8 @@ class PdfOverprintCompositor {
     final spans = rasterize();
     if (spans.isEmpty) return null;
     if (_groups.isNotEmpty) {
-      _raster.markCovered(spans, _groups.last.touched);
       final group = _groups.last;
+      group.coverage.mark(_raster, spans);
       final groupInk = blendInk ?? ink;
       if (group.opaque &&
           opaque &&
@@ -1085,17 +1096,72 @@ class _TransparencyContext {
     required this.externalCells,
     required this.initialCells,
     required this.accumulatedCells,
-    required this.touched,
+    required this.coverage,
   });
 
   final PdfBlendMode blendMode;
   final bool isolated;
   final bool knockout;
   final bool opaque;
-  final Uint16List externalCells;
-  final Uint16List initialCells;
+
+  /// The backdrop the group opened on; kept only for an isolated group.
+  final Uint16List? externalCells;
+
+  /// The cells the group's content starts from; kept only for a knockout
+  /// group, whose every child starts from them again.
+  final Uint16List? initialCells;
   final Uint16List? accumulatedCells;
-  final Uint8List touched;
+  final _GroupCoverage coverage;
+}
+
+/// The cells a transparency group's content painted, and the flat row band
+/// `[lo, hi)` of the buffer that holds every one of them.
+///
+/// Knockout needs "painted" as its own bit: a pixel painted with the
+/// group's initial colour must still replace an earlier sibling. The band
+/// lets a group end walk only the rows its content reached. [mark] and
+/// [absorb] are the only writers of [mask], so the band cannot fall behind
+/// the cells it describes.
+class _GroupCoverage {
+  _GroupCoverage(int cellCount) : mask = Uint8List(cellCount);
+
+  final Uint8List mask;
+  int lo = 1 << 30;
+  int hi = 0;
+
+  /// Marks the clipped cells of [spans], widening the band to their rows.
+  void mark(PdfColorantRaster raster, ColorantSpans spans) {
+    if (spans.isEmpty) return;
+    raster.markCovered(spans, mask);
+    var y0 = spans.yAt(0), y1 = y0;
+    for (var i = 1; i < spans.length; i++) {
+      final y = spans.yAt(i);
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    final width = raster.width;
+    if (y0 * width < lo) lo = y0 * width;
+    if ((y1 + 1) * width > hi) hi = (y1 + 1) * width;
+  }
+
+  /// Adds a finished child group's painted cells.
+  void absorb(_GroupCoverage child) {
+    if (child.lo >= child.hi) return;
+    final childMask = child.mask;
+    for (var i = child.lo; i < child.hi; i++) {
+      if (childMask[i] != 0) mask[i] = 1;
+    }
+    if (child.lo < lo) lo = child.lo;
+    if (child.hi > hi) hi = child.hi;
+  }
+
+  /// Whether no marked cell lies outside `[lo, hi)`. For asserts.
+  bool debugBandHoldsEveryCell() {
+    for (var i = 0; i < mask.length; i++) {
+      if (mask[i] != 0 && (i < lo || i >= hi)) return false;
+    }
+    return true;
+  }
 }
 
 class _PaletteKey {
