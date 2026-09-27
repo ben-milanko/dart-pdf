@@ -1241,6 +1241,27 @@ void main() {
               PdfInterpreter(cos: doc.cos, device: RecordingDevice())
                   .drawPage(reading)),
           1);
+      // Over an RGB box (no colorant reading: unknown to the buffer) the
+      // same overprinting run changes nothing, and the probe settles that
+      // from the outlines' cached em-space boxes without building them.
+      final overUnknown = Uint8List.fromList(utf8
+          .encode(utf8.decode(content).replaceFirst('1 0 0 0 k', '1 0 0 rg')));
+      final settled = PdfPage(
+        document: doc,
+        dict: CosDictionary({
+          ...overprinting.dict.entries,
+          'Contents': CosStream(
+              CosDictionary({'Length': CosInteger(overUnknown.length)}),
+              overUnknown),
+        }),
+      );
+      final settledDevice = RecordingDevice();
+      expect(
+          glyphOutlinePaths(() =>
+              PdfInterpreter(cos: doc.cos, device: settledDevice)
+                  .drawPage(settled)),
+          0);
+      expect(settledDevice.texts.single.text, 'AB');
       // Extraction never opens the buffer, so it never needs the outlines,
       // even on a page that overprints.
       expect(

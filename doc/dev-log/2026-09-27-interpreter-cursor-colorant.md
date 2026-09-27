@@ -248,7 +248,7 @@ prototype). Reads that go live first: an effective overprint, any
 cell), an overprinting image with a colorant reading, a reading stencil,
 `uniformBackdrop`, `spotEquivalents`, `debugCells`, and `begin`/
 `endTransparencyGroup` - so no group is ever open while entries are queued.
-The C3 probe runs after that flush, since it reads cells. What is still
+The unknown-backdrop probe runs after that flush, since it reads cells. What is still
 queued at page end is dropped with the compositor (`_beginOverprint`
 replaces it, `drawAnnotations` nulls it).
 
@@ -290,8 +290,8 @@ rasterized draws to 0 each; the four that read are unchanged (every one of
 their pages reads).
 
 Record path (same harness as above, 5 interleaved process rounds), this
-commit vs the counters commit (so C3 + C4 + C5 together, against main's
-overprint code):
+commit vs the counters commit (so the probe, banded groups and lazy start
+together, against main's overprint code):
 
 - /OP set: buffer overhead (on - off) 416 -> 191 ms, 0.459x; on-mode record
   total 0.876x.
@@ -310,3 +310,61 @@ on-mode 0.908x; the documents that read are flat within noise (0.985-1.04).
 Identity: record bytes with `decodeImages: true` are identical to the
 previous commit on all 54 Ghent files, the 10 /OP documents and the
 53-document private corpus (first 10 pages each).
+
+## Probe box from cached em-space outline bounds
+
+After the lazy start, the unknown-backdrop probe still built each run's
+page-space outline path just to take its bounds: a profile of the worst
+text-overprint document put the probe's bounds (outline build plus
+`_pathBounds`) at 16% of its record. `_glyphRunProbeBox` now maps each
+outline's em-space control-point box - cached per outline in an `Expando`;
+fonts share outline objects across runs - corner by corner through the
+glyph's `translation(offset, offsetY).concat(transform)`, the same
+coefficients and the same `a * x + c * y + e` evaluation the path uses. Each
+rounded step is monotonic in x and y, so the corners bound every transformed
+control point; a 1e-6 + 1e-9 x magnitude margin covers anything that
+argument misses, and a bigger box can only make the probe decline. The
+sub-cell fallback keeps the exact built-path bounds.
+
+On the 10 /OP documents the probe settles exactly the runs it settled before
+(`colorantRasterized` unchanged), while outline builds on the worst document
+fall from 6,245 to 649 per 10 pages. That document records 0.794x of the
+previous commit (pairs 0.75-0.82); the other documents and the Ghent suite
+are flat (Ghent total 0.997x). No gate counter moves (none of the gate pages
+has a run the probe settles). A new `interpreter_test` case overprints the
+same run onto an RGB (unknown) box and expects no outline build. Record bytes
+(`decodeImages: true`) are identical to the previous commit on Ghent, the
+/OP set and the private corpus.
+
+### Not done: direct glyph spans ("change B")
+
+Flattening em-space outlines straight into the rasterizer's edge tables,
+without a page-space `PdfPath`, was the other follow-up. After everything
+above, glyph-run rasterization (outline build + `flattenPath` + `_spansOf`
+under `_showText`) is still about 40% of the worst document's record (JIT
+profile), so it would clear the 15% bar set for it; it is left for its own
+change. It touches `flatten.dart` and the span scan, has to stay
+bit-identical across glyph boundaries, and benefits only the two or three
+private documents whose text reaches the buffer as knockout runs.
+
+## Whole branch vs origin/main
+
+Same overprint harness (AOT, buffer on/off in-process, 5 interleaved process
+rounds, thread CPU, first 10 pages), so these include the numeric cursor:
+
+- the 10 /OP documents: on-mode record 2,155 -> 1,453 ms (0.674x), buffer
+  overhead 375 -> 154 ms (0.410x); per document 0.52x-0.88x;
+- Ghent suite total 0.830x; GWG161 0.493x, GWG162 0.628x;
+- documents with no buffer (dartpdf test corpus): 0.70x-0.99x, all from the
+  cursor.
+
+## API notes
+
+- `ContentOperationCursor` gains `nextOperator()`, `takeOperation()`,
+  `numbers`, `numberCount`, `pendingIsNumeric` and `operatorCode`;
+  `nextOperation()` is unchanged in behaviour. `CosTokenBuffer` gains
+  `keywordCode`, `setReal` and `setKeyword`.
+- `PdfOverprintCompositor.fill`'s `subCellBounds` is now a
+  `PdfRect? Function()?` (it was a `PdfRect?`), and `fill` gains
+  `unknownProbe`; `fillLazily` and `debugCells` are new. The interpreter is
+  the only caller in the repository.

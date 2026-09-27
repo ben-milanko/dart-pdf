@@ -3050,9 +3050,11 @@ class PdfInterpreter {
             final isOverprint =
                 strokeOnly ? _state.strokeOverprint : _state.fillOverprint;
             final alpha = strokeOnly ? _state.strokeAlpha : _state.fillAlpha;
-            // The outline path, and one control-point box that serves the
-            // compositor's unknown-backdrop probe and a single glyph's
-            // sub-cell fallback, are each built on the first ask.
+            // The outline path, and its control-point box for a single
+            // glyph's sub-cell fallback, are each built on the first ask. The
+            // unknown-backdrop probe needs neither: it maps each outline's
+            // cached em-space box instead, so a run it settles is never
+            // built at all.
             PdfPath? built;
             PdfPath glyphPath() =>
                 built ??= _glyphOutlinePath(glyphs, transform)!;
@@ -3073,7 +3075,7 @@ class PdfInterpreter {
               ink,
               blendInk: blendInk,
               subCellBounds: glyphs.length == 1 ? glyphBounds : null,
-              unknownProbe: glyphBounds,
+              unknownProbe: () => _glyphRunProbeBox(glyphs, transform),
               overprint: isOverprint,
               mode: _state.overprintMode,
               opaque: _opaquePaint(alpha),
@@ -3509,6 +3511,50 @@ class PdfInterpreter {
     }
     return segments.isEmpty ? null : PdfPath(segments);
   }
+
+  /// A page-space box around every outline control point of [glyphs] under
+  /// the run [transform], without building the outline path: each outline's
+  /// em-space control-point box (cached on the outline, which a font shares
+  /// across runs) is mapped corner by corner through the glyph's placement.
+  ///
+  /// It holds every point [_glyphOutlinePath] would produce: the corners go
+  /// through the same `translation.concat(transform)` coefficients and the
+  /// same `a * x + c * y + e` evaluation, and each rounded step is monotonic
+  /// in x and y. A small margin covers anything that argument misses; a
+  /// bigger box only makes the unknown-backdrop probe decline more often.
+  /// Null when no glyph has an outline point.
+  static PdfRect? _glyphRunProbeBox(
+      List<PdfGlyphPlacement> glyphs, PdfMatrix transform) {
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = -double.infinity, maxY = -double.infinity;
+    void add(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    for (final g in glyphs) {
+      final outline = g.outline;
+      if (outline == null) continue;
+      final em = _emBounds[outline] ??= _pathBounds(outline) ?? _noEmBounds;
+      if (identical(em, _noEmBounds)) continue;
+      final m = PdfMatrix.translation(g.offset, g.offsetY).concat(transform);
+      final l = em.left, b = em.bottom, r = em.right, t = em.top;
+      add(m.transformX(l, b), m.transformY(l, b));
+      add(m.transformX(r, b), m.transformY(r, b));
+      add(m.transformX(l, t), m.transformY(l, t));
+      add(m.transformX(r, t), m.transformY(r, t));
+    }
+    if (minX > maxX) return null;
+    final scale = math.max(
+        math.max(minX.abs(), maxX.abs()), math.max(minY.abs(), maxY.abs()));
+    final margin = 1e-6 + scale * 1e-9;
+    return PdfRect(minX - margin, minY - margin, maxX + margin, maxY + margin);
+  }
+
+  static final Expando<PdfRect> _emBounds = Expando('pdfGlyphEmBounds');
+  static const PdfRect _noEmBounds = PdfRect(0, 0, 0, 0);
 
   /// Whether [_glyphOutlinePath] builds a path for [glyphs]: some glyph
   /// carries an outline with at least one segment.
