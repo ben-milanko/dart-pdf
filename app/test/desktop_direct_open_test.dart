@@ -4,7 +4,9 @@
 // session directly - one worker generation and one page-0 render, where the
 // preview-and-swap path pays for a throwaway second set. A slow source (a
 // cloud provider fetching on demand) still mounts the preview at once, with no
-// wait, and every path reads the file exactly once.
+// wait; so does storage that answers small reads fast but streams slowly (a
+// network share, a USB stick), a few milliseconds into the whole read. Every
+// path reads the file exactly once.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -65,6 +67,20 @@ class _Reads {
   int ranges = 0;
   int wholeRanges = 0;
   int wholeFiles = 0;
+
+  /// Every ranged read of at least 256 KB, as `(offset, end)`: the whole-file
+  /// read's chunks, where the first-paint open's reads are all far smaller.
+  final big = <(int, int)>[];
+}
+
+/// Whether [ranges] cover `[0, length)` exactly once, in order.
+bool _tileOnce(List<(int, int)> ranges, int length) {
+  var pos = 0;
+  for (final (start, end) in ranges) {
+    if (start != pos || end <= start) return false;
+    pos = end;
+  }
+  return pos == length;
 }
 
 void main() {
@@ -87,6 +103,7 @@ void main() {
     PdfPerfLog.sink = null;
     PdfPerfLog.enabled = false;
     debugDirectOpenMaxMeanReadMs = null;
+    debugDirectOpenWaitMs = null;
     prefs.dispose();
     tempDir.deleteSync(recursive: true);
   });
@@ -105,9 +122,14 @@ void main() {
 
   // Serves a bookmarked macOS file from [bytes] through the native
   // file-access channel, as the runner does: every ranged read takes
-  // [readDelay], and a read of the whole file first waits for [holdWhole].
+  // [readDelay], plus [perMegabyte] for each MB it returns, and a read of the
+  // whole file first waits for [holdWhole]. [wholeBytes], if given, is what
+  // the whole-file read's chunks (and a plain whole read) get instead.
   _Reads serveBookmarkedFile(WidgetTester tester, Uint8List bytes,
-      {Duration readDelay = Duration.zero, Future<void>? holdWhole}) {
+      {Duration readDelay = Duration.zero,
+      Duration perMegabyte = Duration.zero,
+      Future<void>? holdWhole,
+      Uint8List? wholeBytes}) {
     final reads = _Reads();
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       fileAccess,
@@ -120,17 +142,23 @@ void main() {
             final offset = args['offset'] as int;
             final length = args['length'] as int;
             reads.ranges++;
-            if (offset == 0 && length >= bytes.length) {
+            if (offset >= bytes.length) return Uint8List(0);
+            final end = (offset + length).clamp(0, bytes.length);
+            final whole = offset == 0 && length >= bytes.length;
+            final big = end - offset >= 256 * 1024;
+            if (whole) {
               reads.wholeRanges++;
               await holdWhole;
             }
-            await Future<void>.delayed(readDelay);
-            if (offset >= bytes.length) return Uint8List(0);
-            final end = (offset + length).clamp(0, bytes.length);
-            return Uint8List.sublistView(bytes, offset, end);
+            if (big) reads.big.add((offset, end));
+            await Future<void>.delayed(
+                readDelay + perMegabyte * ((end - offset) / (1 << 20)));
+            final served =
+                (whole || big) && wholeBytes != null ? wholeBytes : bytes;
+            return Uint8List.sublistView(served, offset, end);
           case 'readFile':
             reads.wholeFiles++;
-            return bytes;
+            return wholeBytes ?? bytes;
         }
         return null;
       },
@@ -189,6 +217,17 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
       for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    });
+    await tester.pump();
+  }
+
+  // Lets whatever an open still has in flight land (real frames, as above).
+  Future<void> settle(WidgetTester tester) async {
+    await tester.runAsync(() async {
+      for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 10));
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
@@ -296,6 +335,7 @@ void main() {
       // preview goes up with that same read still in flight...
       await pumpUntil(tester, () => perfCount('page-ready page=0') > 0);
       expect(devLog(), contains('open-trace: fast-path missed'));
+      expect(devLog(), contains('reason=deadline'));
       expect(devLog(), contains('progressive open: "doc.pdf" first paint'));
       releaseWhole.complete();
       await pumpUntil(tester, editablePainted);
@@ -363,6 +403,116 @@ void main() {
       // Still recorded for the next launch.
       final persisted = await SessionStore().load();
       expect(persisted.map((d) => d.path), [path]);
+    });
+  });
+  testWidgets(
+      'storage quick to answer but slow to stream hands over to the preview '
+      'without waiting out the budget', (tester) async {
+    // A network share or a USB stick: small reads come back at once, but
+    // every megabyte takes 300 ms to arrive. The first-paint open's reads
+    // pass the latency check (forced open here, so a loaded test machine
+    // can't shut it), and the whole read, nearly 4 MB at that rate, can't
+    // land in any budget the open allows. (Its chunks run 1, 2, then the
+    // last 0.75 MB, each big enough to tell from the open's own reads.)
+    final bytes = _paddedPdf(padding: 960 * 1024);
+    expect(bytes.length, inInclusiveRange(3.5 * (1 << 20), 4 << 20));
+    final reads = serveBookmarkedFile(tester, bytes,
+        perMegabyte: const Duration(milliseconds: 300));
+    await onPlatform(TargetPlatform.macOS, () async {
+      debugDirectOpenMaxMeanReadMs = double.infinity;
+
+      await deliverFile(tester, {
+        'name': 'share.pdf',
+        'path': '/share/share.pdf',
+        'bookmark': 'share-bookmark',
+      });
+      await pumpUntil(tester, () => perfCount('page-ready page=0') > 0);
+      final log = devLog();
+      // It fell behind before its first 1 MB chunk was in, so the preview went
+      // up then - no wait for the budget to run out.
+      expect(log, contains('open-trace: fast-path skipped'));
+      expect(log, contains('behindAtBytes=0 '));
+      expect(log, isNot(contains('fast-path missed')));
+      expect(log, contains('progressive open: "share.pdf" first paint'));
+
+      await pumpUntil(tester, editablePainted);
+      expect(find.byType(PdfEditorView), findsOneWidget);
+      expect(devLog(), contains('full read complete'));
+      // That same read finished the swap: the file was read whole once.
+      expect(reads.big.first, (0, 1 << 20));
+      expect(_tileOnce(reads.big, bytes.length), isTrue,
+          reason: '${reads.big}');
+      expect(reads.wholeFiles, 0);
+    });
+  });
+
+  testWidgets('a tab closed while its direct read is in flight builds nothing',
+      (tester) async {
+    final releaseWhole = Completer<void>();
+    addTearDown(() {
+      if (!releaseWhole.isCompleted) releaseWhole.complete();
+    });
+    final reads = serveBookmarkedFile(tester, _paddedPdf(),
+        holdWhole: releaseWhole.future);
+    await onPlatform(TargetPlatform.macOS, () async {
+      debugDirectOpenMaxMeanReadMs = double.infinity;
+      // A budget the held read can't run out of, so it lands as a direct
+      // read after the tab is gone.
+      debugDirectOpenWaitMs = 60000;
+
+      await deliverFile(tester, {
+        'name': 'doc.pdf',
+        'path': '/docs/doc.pdf',
+        'bookmark': 'doc-bookmark',
+      });
+      await pumpUntil(tester, () => reads.wholeRanges == 1);
+      expect(tabTitle('doc.pdf'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close tab'));
+      await tester.pump();
+      expect(tabTitle('doc.pdf'), findsNothing);
+      releaseWhole.complete();
+      await pumpUntil(
+          tester, () => devLog().contains('open-trace: fast-path direct'));
+      await settle(tester);
+
+      expect(devLog(), contains('open-trace: fast-path direct'));
+      // No edit session was parsed for the closed tab, no preview mounted in
+      // its place, and no render workers spun up.
+      expect(perfCount('whole-file'), 0);
+      expect(perfCount('performance mode='), 0);
+      expect(devLog(), isNot(contains('first paint')));
+      expect(tabTitle('doc.pdf'), findsNothing);
+    });
+  });
+
+  testWidgets(
+      'a direct read whose document fails to parse leaves an error tab, '
+      'as the preview swap did', (tester) async {
+    // The first-paint open reads the real file, but the whole read gets
+    // bytes that aren't a PDF. The read itself worked, so this is not a
+    // gone origin: the restore's onOpenFailed (close quietly) must not run.
+    final bytes = _paddedPdf();
+    serveBookmarkedFile(tester, bytes, wholeBytes: Uint8List(bytes.length));
+    await onPlatform(TargetPlatform.macOS, () async {
+      debugDirectOpenMaxMeanReadMs = double.infinity;
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.session': jsonEncode([
+          {'t': 'broken.pdf', 'p': '/docs/broken.pdf', 'b': 'broken-bookmark'}
+        ]),
+      });
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      await pumpUntil(
+          tester, () => devLog().contains('open-trace: fast-path direct'));
+      await settle(tester);
+
+      expect(devLog(), contains('open-trace: fast-path direct'));
+      expect(find.byType(PdfEditorView), findsNothing);
+      // The tab is still there, showing why it didn't open.
+      expect(tabTitle('broken.pdf'), findsOneWidget);
+      expect(find.byTooltip('Close tab'), findsOneWidget);
     });
   });
 }

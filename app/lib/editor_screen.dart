@@ -44,6 +44,7 @@ import 'rename_document.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
 import 'page_drag.dart';
+import 'paced_read.dart';
 import 'tab_drag.dart';
 import 'unsaved_changes.dart';
 import 'unsaved_changes_store.dart';
@@ -94,16 +95,19 @@ String _openTracePercent(int fetched, int? total) => total == null || total <= 0
 
 /// The mean time per ranged read, taken over the whole first-paint
 /// [PdfDocument.openSource] call, at or under which a desktop progressive open
-/// treats its file as local and reads the rest before mounting a read-only
-/// preview (see `_openProgressive`). The loader's own parsing is inside that
-/// time, so the figure overstates the real read latency and only ever errs
-/// towards the preview: a warm local disk answers each read in well under a
-/// millisecond, a cloud provider fetching on demand in tens.
+/// tries reading the rest before mounting a read-only preview (see
+/// `_openProgressive`). The loader's own parsing is inside that time, so the
+/// figure overstates the real read latency and only ever errs towards the
+/// preview: a warm local disk answers each read in well under a millisecond, a
+/// cloud provider fetching on demand in tens. This is a latency check only.
+/// Storage with low latency but limited throughput (a network share, a USB
+/// stick, a spinning disk) passes it, and is caught by the whole read's own
+/// pace check ([PacedWholeRead]).
 const double _directOpenMaxMeanReadMs = 3;
 
-/// How long a local-looking open waits for its whole-file read before falling
-/// back to the preview: twice what the first-paint open took, within these
-/// bounds.
+/// The budget for a local-looking open's whole-file read, before it falls back
+/// to the preview: twice what the first-paint open took, within these bounds.
+/// A read that can't keep pace with it hands over well before it runs out.
 const int _directOpenMinWaitMs = 50;
 const int _directOpenMaxWaitMs = 150;
 
@@ -112,6 +116,11 @@ const int _directOpenMaxWaitMs = 150;
 /// the direct read however slowly the first-paint reads came back.
 @visibleForTesting
 double? debugDirectOpenMaxMeanReadMs;
+
+/// Test seam for the whole read's budget; null in production, where it is
+/// derived from the first-paint open's time (see [_directOpenMinWaitMs]).
+@visibleForTesting
+int? debugDirectOpenWaitMs;
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
@@ -1544,33 +1553,47 @@ class _EditorScreenState extends State<EditorScreen>
     // over. When the open's reads came back local-fast, read the rest now - on
     // the same source and only after the ranged reads, so it never competes
     // with them - and build the edit session directly if the bytes land within
-    // a short wait. A mobile reference pick (#364) keeps the preview: its
+    // a short budget. Fast small reads only show low latency, though: a
+    // network share, a USB stick or a spinning disk passes that check and then
+    // can't move a big file in the budget. The read checks its own pace, so
+    // those fall back to the preview a few milliseconds in instead of waiting
+    // out the budget. A mobile reference pick (#364) keeps the preview: its
     // provider can't be told apart from a local file off-device.
     Future<Uint8List>? fullRead;
     final maxMeanReadMs =
         debugDirectOpenMaxMeanReadMs ?? _directOpenMaxMeanReadMs;
+    final length = totalBytes;
     if (token == null &&
+        length != null &&
+        length > 0 &&
         openReads > 0 &&
         openSourceUs <= openReads * maxMeanReadMs * 1000) {
-      final waitMs = (2 * openSourceUs ~/ 1000)
-          .clamp(_directOpenMinWaitMs, _directOpenMaxWaitMs);
+      final waitMs = debugDirectOpenWaitMs ??
+          (2 * openSourceUs ~/ 1000)
+              .clamp(_directOpenMinWaitMs, _directOpenMaxWaitMs);
       final readStartUs = openClock.elapsedMicroseconds;
-      final read = fullRead = readSourceFully(
+      final read = PacedWholeRead.start(
         source,
-        cancelToken: cancel,
+        length: length,
+        budget: Duration(milliseconds: waitMs),
         onProgress: (received, total) {
-          if (total != null && total > 0) {
-            progress.value = (received / total).clamp(0.0, 1.0);
-          }
+          // The tab may have been closed (and this notifier disposed) while
+          // the read was in flight.
+          if (cancel.isCancelled) return;
+          progress.value = (received / total).clamp(0.0, 1.0);
         },
       );
+      fullRead = read.bytes;
       Uint8List? full;
+      Object? readError;
       try {
-        full = await read.timeout(Duration(milliseconds: waitMs));
-      } catch (_) {
-        // Too slow, or failed: mount the preview as before and let
-        // _finishProgressive take over this same read (errors included), so
-        // the file is never read twice.
+        full = await Future.any<Uint8List?>(
+            [read.bytes, read.behind.then((_) => null)]);
+      } catch (error) {
+        // Failed: mount the preview as before and let _finishProgressive take
+        // over this same read (and its error), so the file is never read
+        // twice.
+        readError = error;
       }
       final trace = 'platform=${defaultTargetPlatform.name} '
           'name="${_openTraceLabel(title)}" '
@@ -1578,23 +1601,44 @@ class _EditorScreenState extends State<EditorScreen>
           'meanReadUs=$meanReadUs '
           'openSourceMs=${openSourceUs ~/ 1000} '
           'waitMs=$waitMs '
-          'totalBytes=${totalBytes ?? "unknown"}';
-      if (full == null) {
-        AppDevTools.instance.addLog('open-trace: fast-path missed $trace');
-      } else {
+          'totalBytes=$length '
+          'firstChunkUs=${read.firstChunkTime?.inMicroseconds ?? "pending"}';
+      if (full != null) {
         AppDevTools.instance.addLog('open-trace: fast-path direct $trace '
             'fullReadMs=${(openClock.elapsedMicroseconds - readStartUs) ~/ 1000} '
             'elapsedMs=${openClock.elapsedMilliseconds}');
+      } else if (readError == null && !read.behindAtDeadline) {
+        // Fell behind early: the preview goes up now, and the read carries on
+        // behind it.
+        AppDevTools.instance.addLog('open-trace: fast-path skipped $trace '
+            'behindAtBytes=${read.behindAtBytes} '
+            'waitedMs=${read.behindAfter?.inMilliseconds}');
+      } else {
+        AppDevTools.instance.addLog('open-trace: fast-path missed $trace '
+            'reason=${readError == null ? 'deadline' : 'error'} '
+            'waitedMs=${(openClock.elapsedMicroseconds - readStartUs) ~/ 1000}');
+      }
+      if (!mounted || !_tabs.contains(loading)) {
+        // Closed during the wait. Stop the read rather than parse a whole
+        // document (or mount a preview) that would be thrown away at once.
+        cancel.cancel();
+        progress.dispose();
+        await source.close();
+        return;
+      }
+      if (full != null) {
         // The sparse first-paint document is dropped unused.
         progress.dispose();
         await source.close();
-        if (!mounted) return;
+        // The read has succeeded, so anything that fails from here is the
+        // parse. Like the preview's swap, that leaves an error tab in place:
+        // onOpenFailed is for an origin that can't be read (Recents drops the
+        // entry, a restore closes quietly), and this one could.
         await _openWholeFile(loading,
             title: title,
             path: path,
             bookmark: bookmark,
             cachePath: cachePath,
-            onOpenFailed: onOpenFailed,
             bytes: full);
         return;
       }
