@@ -108,6 +108,12 @@ void main(List<String> argv) {
     'fixture:multi-page-40': buildMultiPagePdf(40),
     'fixture:nested-tree': buildNestedPageTreePdf(),
     'fixture:embedded-font': buildEmbeddedFontPdf(),
+    // Overprint pages that never read their colorant buffer, read it only
+    // over unknown cells, and read it for real (the control). Every Ghent
+    // input reads its buffer early, so only this input sees a lazily started
+    // buffer skip rasterizing (colorantRasterized < colorantDraws) and the
+    // unknown-backdrop probe settle a glyph run without building it.
+    'fixture:deferred-overprint': buildDeferredOverprintPdf(),
   };
   for (final rel in ghentFiles) {
     final f = File('$repoRoot/test_corpora/ghent/$rel');

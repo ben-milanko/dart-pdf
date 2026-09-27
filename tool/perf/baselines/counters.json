@@ -104,6 +104,27 @@
     "xrefRecovered": 0,
     "xrefOffsetRescue": 0
   },
+  "fixture:deferred-overprint": {
+    "objectsLoaded": 13,
+    "objectStreamsLoaded": 0,
+    "streamsDecoded": 0,
+    "bytesDecodedFlate": 0,
+    "bytesDecodedOther": 0,
+    "contentOps": 106,
+    "contentBytes": 822,
+    "fontsParsed": 1,
+    "fontParseFailed": 0,
+    "glyphOutlinePaths": 1,
+    "colorantBufferPages": 3,
+    "colorantDraws": 13,
+    "colorantRasterized": 3,
+    "colorantBackdropReads": 1,
+    "colorantGroups": 0,
+    "savedBytes": 145,
+    "savedObjects": 1,
+    "xrefRecovered": 0,
+    "xrefOffsetRescue": 0
+  },
   "ghent:1-CMYK/GWG010_CMYK_OP_x3.pdf": {
     "objectsLoaded": 56,
     "objectStreamsLoaded": 0,

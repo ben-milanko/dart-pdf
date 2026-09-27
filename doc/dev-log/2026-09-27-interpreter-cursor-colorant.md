@@ -322,6 +322,19 @@ What keeps it exact:
   neither reads nor writes and returns without going live - exactly what
   the eager path did after rasterizing it.
 
+One behaviour does change, on malformed input only. A live buffer's
+rasterizer throws `UnsupportedError` on an infinite or NaN coordinate (its
+span setup rounds them with `ceil()`), which fails the whole page. A queued
+draw is only rasterized if something reads, so a page that never reads its
+buffer now renders where it used to fail. Review's seeded fuzz with
+overflowing `cm` stacks (3000 pages per build) found exactly that: 15 pages
+that threw on main render on this branch, none the other way round; the
+finite fuzz (3000 pages) had no differences. The crash itself is a
+pre-existing robustness gap, left for its own change. `colorant_buffer_test`
+pins the new side: non-finite fills, clips and unknown marks queued on a
+buffer nothing reads do not throw, and a declared-`/OP` page whose stacked
+scales overflow to infinity records its two fills.
+
 The interpreter no longer builds a run's page-space outlines up front:
 `fillLazily` takes a memoized builder, and the probe's bounds and the
 sub-cell fallback derive from the same built path. `_hasOutline` answers
@@ -335,6 +348,30 @@ unchanged there, because every gate page reads its buffer early.
 `interpreter_test`'s "a page with a colorant buffer builds one per run" now
 expects 0 for that page (it declares `/OP` but never reads the buffer) and 1
 for a variant that overprints the same run onto a cyan box.
+
+### A gate input that reads late
+
+The five buffer counters did not guard this change: on every gate input that
+opens a buffer `colorantRasterized` equals `colorantDraws`, because each of
+those pages reads early. An eager start or a lost probe would have moved no
+gate counter. `perf_count_gate` now also runs `fixture:deferred-overprint`
+(`buildDeferredOverprintPdf` in pdf_test_fixtures), three declared-overprint
+pages with the embedded test font:
+
+| page | content | draws | rasterized | outlines built |
+|---|---|---|---|---|
+| 1 | knockout CMYK fill and run, a clip, RGB fills and an RGB run, overprint set part-way | 6 | 0 | 0 |
+| 2 | four black overprinting runs over an RGB box | 5 | 1 | 0 |
+| 3 | the same run over a cyan box (control) | 2 | 2 | 1 |
+
+Page 2 has four runs so that a probe that stopped settling them moves the
+counters by more than the gate's rounding band (`ceil(3% x n)` is 1 at these
+sizes). With the probe disabled the gate fails on this input
+(`glyphOutlinePaths` 1 -> 5, `colorantRasterized` 3 -> 7,
+`colorantBackdropReads` 1 -> 5), and with the buffer started eagerly too
+(`glyphOutlinePaths` 1 -> 3, `colorantRasterized` 3 -> 9). No other input
+moves in either case. The baseline re-set adds only this input; a
+`colorant_buffer_test` case pins the same numbers page by page.
 
 ### Measurements
 
@@ -384,8 +421,9 @@ On the 10 /OP documents the probe settles exactly the runs it settled before
 (`colorantRasterized` unchanged), while outline builds on the worst document
 fall from 6,245 to 649 per 10 pages. That document records 0.794x of the
 previous commit (pairs 0.75-0.82); the other documents and the Ghent suite
-are flat (Ghent total 0.997x). No gate counter moves (none of the gate pages
-has a run the probe settles). A new `interpreter_test` case overprints the
+are flat (Ghent total 0.997x). No gate counter moved (none of the gate
+pages had a run the probe settles; `fixture:deferred-overprint`, above, was
+added in review for exactly that). A new `interpreter_test` case overprints the
 same run onto an RGB (unknown) box and expects no outline build. Record bytes
 (`decodeImages: true`) are identical to the previous commit on Ghent, the
 /OP set and the private corpus.

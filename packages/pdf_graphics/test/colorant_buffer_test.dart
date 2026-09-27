@@ -921,6 +921,60 @@ void main() {
       c.uniformBackdrop(rect(0, 0, 100, 100));
       expect(builds, 1, reason: 'the read replays the queued run');
     });
+
+    // A live buffer's rasterizer throws UnsupportedError on an infinite or
+    // NaN coordinate (its span setup rounds them) - a robustness gap of its
+    // own, which fails the page. Queued, such a draw is only rasterized if
+    // something reads the buffer, so a page that never reads it renders.
+    test('a non-finite draw queued on a buffer nothing reads never throws', () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      expect(rasterized(() {
+        for (final shape in [
+          rect(0, 0, double.infinity, 100),
+          rect(double.nan, 0, 50, 50),
+          rect(double.negativeInfinity, double.negativeInfinity,
+              double.infinity, double.infinity),
+        ]) {
+          knockout(c, shape, cyan, cyanColor);
+          c.save();
+          c.clipPath(shape, PdfFillRule.nonzero);
+          c.markUnknownPath(shape, PdfFillRule.nonzero);
+          c.restore();
+        }
+      }), 0);
+    });
+
+    test('an overprint page whose geometry overflows renders unread', () {
+      // Stacked 1e200 scales put every coordinate at infinity; the page
+      // declares /OP but never reads its buffer.
+      final doc = PdfDocument.open(buildClassicPdf());
+      final page = doc.page(0);
+      final content = Uint8List.fromList(('1e200 0 0 1e200 0 0 cm '
+              '1e200 0 0 1e200 0 0 cm 0 0 1 0 k 0 0 1 1 re f '
+              '0 0 1 1 re W n 1 0 0 rg 0 0 1 1 re f')
+          .replaceAll('1e200', '1${'0' * 200}.0')
+          .codeUnits);
+      final overflowing = PdfPage(
+        document: doc,
+        dict: CosDictionary({
+          ...page.dict.entries,
+          'Contents': CosStream(
+              CosDictionary({'Length': CosInteger(content.length)}), content),
+          'Resources': CosDictionary({
+            ...page.resources.entries,
+            'ExtGState': CosDictionary({
+              'GS0': CosDictionary({'OP': const CosBoolean(true)}),
+            }),
+          }),
+        }),
+      );
+      final device = RecordingPdfDevice();
+      expect(
+          rasterized(() => PdfInterpreter(cos: doc.cos, device: device)
+              .drawPage(overflowing)),
+          0);
+      expect(device.commands.whereType<PdfFillPathCommand>(), hasLength(2));
+    });
   });
 
   group('PdfPerf colorant counters', () {
@@ -1011,6 +1065,57 @@ void main() {
         }),
       );
       expect(bufferPages(overprinting), 1);
+    });
+
+    // perf_count_gate's `fixture:deferred-overprint` input, page by page:
+    // what the lazy start and the unknown-backdrop probe save, which no
+    // Ghent input shows (each reads its buffer early).
+    test('the deferred-overprint fixture skips what it never has to read', () {
+      final doc = PdfDocument.open(buildDeferredOverprintPdf());
+      Map<PdfPerfCount, int> page(int index) {
+        final wasEnabled = PdfPerf.enabled;
+        PdfPerf.enabled = true;
+        PdfPerf.reset();
+        try {
+          PdfInterpreter(cos: doc.cos, device: RecordingPdfDevice())
+              .drawPage(doc.page(index));
+          final stats = PdfPerf.snapshot();
+          return {
+            for (final c in const [
+              PdfPerfCount.colorantBufferPages,
+              PdfPerfCount.colorantDraws,
+              PdfPerfCount.colorantRasterized,
+              PdfPerfCount.glyphOutlinePaths,
+            ])
+              c: stats.count(c),
+          };
+        } finally {
+          PdfPerf.enabled = wasEnabled;
+        }
+      }
+
+      // Never read: six draws queued, none rasterized, no outlines built.
+      expect(page(0), {
+        PdfPerfCount.colorantBufferPages: 1,
+        PdfPerfCount.colorantDraws: 6,
+        PdfPerfCount.colorantRasterized: 0,
+        PdfPerfCount.glyphOutlinePaths: 0,
+      });
+      // Four black runs over an RGB box: the box is rasterized when the first
+      // run reads, and the probe settles every run without building it.
+      expect(page(1), {
+        PdfPerfCount.colorantBufferPages: 1,
+        PdfPerfCount.colorantDraws: 5,
+        PdfPerfCount.colorantRasterized: 1,
+        PdfPerfCount.glyphOutlinePaths: 0,
+      });
+      // The control: over a cyan box the run is rasterized and built.
+      expect(page(2), {
+        PdfPerfCount.colorantBufferPages: 1,
+        PdfPerfCount.colorantDraws: 2,
+        PdfPerfCount.colorantRasterized: 2,
+        PdfPerfCount.glyphOutlinePaths: 1,
+      });
     });
   });
 

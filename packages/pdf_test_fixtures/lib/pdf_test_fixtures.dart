@@ -900,6 +900,86 @@ Uint8List buildEmbeddedFontImagePdf() {
   return out.takeBytes();
 }
 
+/// Three pages that declare overprint (`/GS1` sets `/OP` and `/op`), so each
+/// opens a colorant buffer, and that use it three ways. Each page draws the
+/// embedded-font run "AB" ([buildTestTrueTypeFont]) at 24pt.
+///
+/// - Page 1 never reads its buffer: a knockout CMYK fill, a clip, an RGB fill
+///   and a knockout CMYK run, then under `/GS1` an RGB fill and an RGB run
+///   (overprinting paint with no colorant reading). A lazily started buffer
+///   rasterizes none of them and builds no glyph outlines.
+/// - Page 2 overprints four runs in black onto an RGB box: its reads only
+///   find cells the buffer cannot know. The box is rasterized; each run is
+///   settled by the unknown-backdrop probe without building its outlines.
+/// - Page 3 is the control: the same run overprints a cyan box, so the box
+///   and the run are rasterized and the run's outlines are built.
+Uint8List buildDeferredOverprintPdf() {
+  final font = buildTestTrueTypeFont();
+  const run = 'BT /F1 24 Tf 72 700 Td (AB) Tj ET';
+  const pages = [
+    '0 0 1 0 k 0 0 612 792 re f '
+        'q 72 72 468 648 re W n 1 0 0 rg 72 400 300 200 re f '
+        'BT /F1 24 Tf 72 500 Td 0 0 0 1 k (AB) Tj ET Q '
+        '/GS1 gs 0 0 1 rg 300 100 200 200 re f '
+        'BT /F1 24 Tf 72 300 Td 0 1 0 rg (AB) Tj ET',
+    // Four runs, so a probe that stopped settling them moves the gate's
+    // counters by more than its rounding band.
+    '1 0 0 rg 0 0 612 792 re f /GS1 gs 0 0 0 1 k BT /F1 24 Tf 72 700 Td '
+        '(AB) Tj 0 -40 Td (AB) Tj 0 -40 Td (AB) Tj 0 -40 Td (AB) Tj ET',
+    '1 0 0 0 k 0 0 612 792 re f /GS1 gs 0 0 0 1 k $run',
+  ];
+  // Objects: 1 catalog, 2 pages, 3 resources, 4 font, 5 font file,
+  // 6 descriptor, 7 ExtGState, then a page and its contents per page.
+  final bodies = <Uint8List>[
+    ascii('<< /Type /Catalog /Pages 2 0 R >>'),
+    ascii('<< /Type /Pages /Kids ['
+        '${[
+      for (var i = 0; i < pages.length; i++) '${8 + 2 * i} 0 R'
+    ].join(' ')}'
+        '] /Count ${pages.length} >>'),
+    ascii('<< /Font << /F1 4 0 R >> /ExtGState << /GS1 7 0 R >> >>'),
+    ascii('<< /Type /Font /Subtype /TrueType /BaseFont /TestFont '
+        '/FirstChar 65 /LastChar 66 /Widths [600 1000] '
+        '/Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>'),
+    (BytesBuilder()
+          ..add(ascii('<< /Length ${font.length} /Length1 ${font.length} >>'
+              '\nstream\n'))
+          ..add(font)
+          ..add(ascii('\nendstream')))
+        .takeBytes(),
+    ascii('<< /Type /FontDescriptor /FontName /TestFont /Flags 32 '
+        '/FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 '
+        '/Descent -200 /CapHeight 800 /StemV 80 /FontFile2 5 0 R >>'),
+    ascii('<< /Type /ExtGState /OP true /op true >>'),
+    for (var i = 0; i < pages.length; i++) ...[
+      ascii('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+          '/Contents ${9 + 2 * i} 0 R /Resources 3 0 R >>'),
+      ascii('<< /Length ${pages[i].length} >>\nstream\n${pages[i]}'
+          '\nendstream'),
+    ],
+  ];
+  final out = BytesBuilder()..add(ascii('%PDF-1.4\n'));
+  final offsets = <int>[];
+  for (var i = 0; i < bodies.length; i++) {
+    offsets.add(out.length);
+    out.add(ascii('${i + 1} 0 obj\n'));
+    out.add(bodies[i]);
+    out.add(ascii('\nendobj\n'));
+  }
+  final xrefOffset = out.length;
+  final buffer = StringBuffer()
+    ..write('xref\n0 ${bodies.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  out.add(ascii(buffer.toString()));
+  return out.takeBytes();
+}
+
 /// Builds a minimal CFF (Type1C) font: glyph 0 = .notdef, glyph 1 = an
 /// 800x800 square at the origin, mapped to character code 65 ('A') with
 /// advance width 660 (via nominalWidthX 600 + leading operand 60).
