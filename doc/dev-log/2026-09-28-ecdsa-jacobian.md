@@ -45,6 +45,12 @@ repeats per certificate.
 - `_multiply` (key generation, `publicKey`, RFC 6979 signing) uses the same
   Jacobian double-and-add. It reaches the same point, so signatures are
   byte-identical on P-256 and P-384.
+- Scalar bits (`_EcParams._bits`) are read off `toRadixString(16)`, a nibble
+  at a time. `toRadixString(2)` takes BigInt's generic repeated-division path:
+  49 us for a 256-bit scalar on AOT against 2 us for the hex walk, and a
+  verify extracts two scalars. The bits are identical (checked against
+  `toRadixString(2)` for 11,666 scalars: 0-2 and every width 1-530 at
+  2^w - 1, 2^w and 20 random values).
 - The P-521 order is now `01ff…fa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409`
   (132 hex digits, 521 bits; also checked against FIPS 186-4's decimal).
 - cms.dart: `_findIssuer` returns `(issuer, verified)` and
@@ -69,6 +75,11 @@ variant, base = origin/main at cc144ae7).
 | validate, small doc, org-CA member, no store | 59.7 ms | 4.1 ms | 14.5x |
 | validate, small doc, org-CA member, CA trusted | 36.2 ms | 2.8 ms | 13.1x |
 | validate, 12 MB self-signed | 141.8 ms | 113.2 ms | 1.25x (SHA-256 dominates) |
+
+The hex bit walk on top of that (same bench, 6 interleaved rounds, previous
+commit vs this one): P-256 verify 1.22 → 1.13 ms, P-384 3.00 → 2.81 ms,
+P-521 6.24 → 5.98 ms - a steady 4-8% in every round, below the 1.15x bar, so
+not claimed beyond "no slower".
 
 dart2js -O4 under node (wall, 5 rounds): P-256 verify 68 → 21 ms (3.2x),
 P-384 204 → 60 ms (3.4x), small self-signed validate 206 → 42 ms (4.9x).

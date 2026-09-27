@@ -444,13 +444,36 @@ class _EcParams {
   /// non-positive scalar.
   _Jacobian multiply(BigInt scalar, BigInt x, BigInt y) {
     if (scalar <= BigInt.zero) return _infinity;
-    final bits = scalar.toRadixString(2);
     var acc = _infinity;
-    for (var i = 0; i < bits.length; i++) {
+    for (final bit in _bits(scalar)) {
       acc = twice(acc);
-      if (bits.codeUnitAt(i) == 0x31 /* 1 */) acc = addAffine(acc, x, y);
+      if (bit == 1) acc = addAffine(acc, x, y);
     }
     return acc;
+  }
+
+  /// The binary digits of non-negative [k], most significant first, without
+  /// leading zeros (none for zero). Read off its hex form: BigInt's radix-2
+  /// conversion takes a generic repeated-division path that costs ~15x the
+  /// hex one (~50 us for a 256-bit scalar on AOT), a visible slice of a
+  /// verify that extracts two scalars.
+  static Uint8List _bits(BigInt k) {
+    if (k.sign <= 0) return Uint8List(0);
+    final hex = k.toRadixString(16);
+    final all = Uint8List(hex.length * 4);
+    for (var i = 0; i < hex.length; i++) {
+      final c = hex.codeUnitAt(i);
+      final nibble = c >= 0x61 /* a */
+          ? c - 0x57
+          : c >= 0x41 /* A */
+              ? c - 0x37
+              : c - 0x30;
+      all[i * 4] = nibble >> 3;
+      all[i * 4 + 1] = (nibble >> 2) & 1;
+      all[i * 4 + 2] = (nibble >> 1) & 1;
+      all[i * 4 + 3] = nibble & 1;
+    }
+    return Uint8List.sublistView(all, all.length - k.bitLength);
   }
 
   /// [u1]·G + [u2]·Q for Q = ([keyX], [keyY]), with Shamir's trick: one shared
@@ -461,16 +484,16 @@ class _EcParams {
     final qx = keyX % p;
     final qy = keyY % p;
     final gq = toAffine(addAffine((gx, gy, BigInt.one), qx, qy));
-    final bits1 = u1.bitLength == 0 ? '' : u1.toRadixString(2);
-    final bits2 = u2.bitLength == 0 ? '' : u2.toRadixString(2);
+    final bits1 = _bits(u1);
+    final bits2 = _bits(u2);
     final length = bits1.length > bits2.length ? bits1.length : bits2.length;
     final skip1 = length - bits1.length;
     final skip2 = length - bits2.length;
     var acc = _infinity;
     for (var i = 0; i < length; i++) {
       acc = twice(acc);
-      final one1 = i >= skip1 && bits1.codeUnitAt(i - skip1) == 0x31;
-      final one2 = i >= skip2 && bits2.codeUnitAt(i - skip2) == 0x31;
+      final one1 = i >= skip1 && bits1[i - skip1] == 1;
+      final one2 = i >= skip2 && bits2[i - skip2] == 1;
       if (one1 && one2) {
         if (gq != null) acc = addAffine(acc, gq.$1, gq.$2);
       } else if (one1) {
