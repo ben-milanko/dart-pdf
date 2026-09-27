@@ -111,6 +111,12 @@ record and every parsed operand's type and value), against origin/main:
 On the VM the harness output is byte-identical between origin/main and the
 fixed build over all 4000 streams.
 
+Real files under dart2js (same per-page hashes, first 8 pages of 279 files:
+test_corpora dartpdf, pdfjs and ghent plus the private corpus; 516 pages):
+before the fix 22 pages in 8 files parsed to different operand types than
+origin/main (their records did not change); after it, 0 differences in the
+cursor record, the `parse()` record and the operand types.
+
 ### Measurements
 
 AOT (Dart 3.13.3, `dart compile exe`), origin/main vs this change as separate
