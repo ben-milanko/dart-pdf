@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/src/render_worker_transcript_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -17,6 +18,44 @@ PdfDrawImageCommand? _firstImage(List<PdfRenderCommand> commands) {
     }
   }
   return null;
+}
+
+List<PdfDrawTiledCellCommand> _stamps(List<PdfRenderCommand> commands) =>
+    commands.whereType<PdfDrawTiledCellCommand>().toList();
+
+/// A page of five occurrences of one Type3 bitmap glyph - a 1-bit inline
+/// ImageMask, the TeX PK font shape - which the interpreter stamps as five
+/// tiled cells sharing one recorded list.
+Uint8List _type3BitmapPdf() {
+  const glyph = '600 0 0 0 600 700 d1 600 0 0 700 0 0 cm '
+      'BI /W 4 /H 4 /IM true /BPC 1 /F /AHx ID\nf0f0f0f0 >\nEI';
+  const content = 'BT /T3 10 Tf 20 100 Td (XXXXX) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
+        '/Resources << /Font << /T3 5 0 R >> >> /Contents 4 0 R >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 600 700] '
+        '/FontMatrix [0.001 0 0 0.001 0 0] /FirstChar 88 /LastChar 88 '
+        '/Widths [600] /Encoding << /Differences [88 /X] >> '
+        '/CharProcs << /X 6 0 R >> >>',
+    '<< /Length ${glyph.length} >>\nstream\n$glyph\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer.write('trailer << /Size ${objects.length + 1} /Root 1 0 R >>\n'
+      'startxref\n$xref\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
 }
 
 void main() {
@@ -277,6 +316,117 @@ void main() {
           retainedCommandGraphWeight(transcript.wireCommands)),
       reason: 'compact views never retain more commands than separate graphs',
     );
+  });
+
+  test('a shared tiled cell patches once and keeps its image alignment', () {
+    // The recorder lists a cell's images again for every stamp, the codec
+    // (v11) keeps one wire list per cell. Patching must hand every stamp the
+    // one patched list and still step through the per-stamp image entries.
+    CosStream stream(int id) => CosStream(
+        CosDictionary({'Id': CosInteger(id)}), Uint8List.fromList([id]));
+    PdfImageRequest request(CosStream s, [double x = 0]) => PdfImageRequest(
+        stream: s,
+        transform: PdfMatrix(4, 0, 0, 4, x, 0),
+        isInline: true,
+        isStencil: true);
+    final top = request(stream(1));
+    final glyphA = request(stream(2));
+    final glyphB = request(stream(3));
+    final last = request(stream(4));
+    PdfDrawImageCommand wire(PdfImageRequest r) => PdfDrawImageCommand(
+        request(CosStream(CosDictionary(), Uint8List(0)), r.transform.e));
+    final wireCell = <PdfRenderCommand>[
+      wire(glyphA),
+      const PdfSaveCommand(),
+      wire(glyphB),
+      const PdfRestoreCommand(),
+    ];
+    PdfDrawTiledCellCommand stamp(double x) => PdfDrawTiledCellCommand(
+        wireCell, Float64List.fromList([x]), Float64List.fromList([0]));
+    final wireCommands = <PdfRenderCommand>[
+      wire(top),
+      stamp(0),
+      stamp(6),
+      stamp(12),
+      wire(last),
+    ];
+    final originals = [
+      top,
+      glyphA, glyphB, //
+      glyphA, glyphB, //
+      glyphA, glyphB, //
+      last,
+    ];
+
+    final patched = compactTranscriptSourceCommands(wireCommands, originals)!;
+    final stamps = _stamps(patched);
+    expect(stamps, hasLength(3));
+    final cell = stamps.first.cellCommands;
+    expect(identical(cell, wireCell), isFalse, reason: 'its images patched');
+    for (final s in stamps) {
+      expect(identical(s.cellCommands, cell), isTrue,
+          reason: 'every stamp shares the one patched cell');
+    }
+    expect(stamps.map((s) => s.originsX.single), [0, 6, 12]);
+    final cellImages = cell.whereType<PdfDrawImageCommand>().toList();
+    expect(identical(cellImages[0].request.stream, glyphA.stream), isTrue);
+    expect(identical(cellImages[1].request.stream, glyphB.stream), isTrue);
+    expect(
+        identical(
+            (patched.first as PdfDrawImageCommand).request.stream, top.stream),
+        isTrue);
+    expect(
+        identical(
+            (patched.last as PdfDrawImageCommand).request.stream, last.stream),
+        isTrue,
+        reason: 'the images after the stamps still line up');
+
+    // A later stamp whose recorded images are not the first stamp's cannot
+    // share its patched list; the caller falls back to the source graph.
+    final diverged = [...originals]..[5] = request(stream(2));
+    expect(compactTranscriptSourceCommands(wireCommands, diverged), isNull);
+  });
+
+  test('a Type3 bitmap glyph keeps one cell through the worker transcript',
+      () async {
+    // The web worker (and a native detail record) serializes from the
+    // transcript's source commands, not from the recording: the cell's
+    // identity has to survive the image patch or every stamp ships its own
+    // copy of the glyph again.
+    final document = PdfDocument.open(_type3BitmapPdf());
+    final transcript = await PdfWorkerTranscriptCache()
+        .transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(transcript, isNotNull);
+    final stamps = _stamps(transcript!.sourceCommands);
+    expect(stamps, hasLength(5));
+    for (final s in stamps) {
+      expect(identical(s.cellCommands, stamps.first.cellCommands), isTrue,
+          reason: 'the image-bearing glyph cell stays shared');
+    }
+    final glyph = _firstImage(stamps.first.cellCommands)!.request;
+    expect(glyph.isStencil, isTrue);
+    expect(glyph.stream.rawBytes, isNotEmpty,
+        reason: 'the source graph holds the real inline image, not the '
+            'wire placeholder');
+    expect(_stamps(transcript.wireCommands).first.cellCommands,
+        isNot(same(stamps.first.cellCommands)));
+
+    // Serialized as the web worker does, it is the same record the native
+    // worker makes straight from the recording.
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(
+            cos: document.cos, device: recorder, collectCharOffsets: true)
+        .drawPage(document.page(0));
+    Uint8List record(List<PdfRenderCommand> commands) =>
+        serializeCommands(commands,
+            cos: document.cos,
+            decodeImages: true,
+            maxImagePixelRatio: 2,
+            compactStateScopes: true)!;
+    final bytes = record(transcript.sourceCommands);
+    expect(bytes, record(recorder.commands));
+    final restored = _stamps(deserializeCommands(bytes));
+    expect(restored.map((s) => s.cellCommands).toSet(), hasLength(1));
   });
 
   test('deduplication remains switchable for the benchmark A/B', () async {

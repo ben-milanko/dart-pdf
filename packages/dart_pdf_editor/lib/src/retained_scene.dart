@@ -324,7 +324,8 @@ class PdfRetainedScene {
 
   bool _computeImagesAtNativeResolution() {
     final requests = <PdfImageRequest>[];
-    PdfPageRenderer.collectImageRequests(commands, requests);
+    PdfPageRenderer.collectImageRequests(commands, requests,
+        distinctCells: true);
     for (final request in requests) {
       final image = _images[pdfImageKey(request)];
       if (image == null) continue;
@@ -586,7 +587,8 @@ class PdfRetainedScene {
     Map<Object, ui.Image> images = const <Object, ui.Image>{};
     final requests = <PdfImageRequest>[];
     if (includeImages) {
-      PdfPageRenderer.collectImageRequests(commands, requests);
+      PdfPageRenderer.collectImageRequests(commands, requests,
+          distinctCells: true);
       // The clock exists only when a caller asked for the split; an ordinary
       // render never pays for it.
       final clock = timing == null ? null : (Stopwatch()..start());

@@ -368,7 +368,9 @@ class PdfPageRenderer {
       PdfPage page, List<PdfRenderCommand> commands, PdfPageRenderPlan plan,
       {bool includeImages = true, double? maxImagePixelRatio}) async {
     final requests = <PdfImageRequest>[];
-    if (includeImages) collectImageRequests(commands, requests);
+    if (includeImages) {
+      collectImageRequests(commands, requests, distinctCells: true);
+    }
     final Map<Object, ui.Image> images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
@@ -471,7 +473,7 @@ class PdfPageRenderer {
     double? maxImagePixelRatio,
   }) async {
     final requests = <PdfImageRequest>[];
-    collectImageRequests(commands, requests);
+    collectImageRequests(commands, requests, distinctCells: true);
     if (requests.isEmpty) return;
     final images = await decodeImages(
       page.document.cos,
@@ -487,16 +489,32 @@ class PdfPageRenderer {
 
   /// Gathers every image draw request in [commands], descending into soft-mask
   /// groups and retained tiling cells, in replay order.
+  ///
+  /// By default a cell's images are listed once per stamp, which is what the
+  /// callers that price a buffer's image draws count. [distinctCells] lists
+  /// each cell list's images once instead: a Type3 bitmap-font page stamps a
+  /// shared glyph cell per letter, tens of thousands of times, and a caller
+  /// that only decodes the requests (decode dedups by key anyway) has no use
+  /// for the repeats.
   static void collectImageRequests(
-      List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
+      List<PdfRenderCommand> commands, List<PdfImageRequest> out,
+      {bool distinctCells = false}) {
+    _collectImageRequests(commands, out,
+        distinctCells ? Set<List<PdfRenderCommand>>.identity() : null);
+  }
+
+  static void _collectImageRequests(List<PdfRenderCommand> commands,
+      List<PdfImageRequest> out, Set<List<PdfRenderCommand>>? visitedCells) {
     for (final command in commands) {
       switch (command) {
         case PdfDrawImageCommand(:final request):
           out.add(request);
         case PdfEndSoftMaskedCommand(:final maskCommands):
-          collectImageRequests(maskCommands, out);
+          _collectImageRequests(maskCommands, out, visitedCells);
         case PdfDrawTiledCellCommand(:final cellCommands):
-          collectImageRequests(cellCommands, out);
+          if (visitedCells == null || visitedCells.add(cellCommands)) {
+            _collectImageRequests(cellCommands, out, visitedCells);
+          }
         default:
           break;
       }

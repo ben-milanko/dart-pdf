@@ -61,7 +61,11 @@ import 'text_extraction.dart';
 /// Version 10: fills and strokes carry their paint as changes against the
 /// previous fill/stroke ([_writeFillPaint]), and paths are verb and
 /// coordinate blocks rather than interleaved scalars ([_writePath]).
-const int _formatVersion = 10;
+///
+/// Version 11: a tiled cell's command list is written once per record and
+/// referenced by id after that ([_writeTiledCellReference]), so the cell a
+/// repeated Type3 glyph shares stays one list across the seam.
+const int _formatVersion = 11;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -804,6 +808,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       w.u8(_tDrawTiledCell);
       w.f64List(originsX);
       w.f64List(originsY);
+      if (_writeTiledCellReference(w, cellCommands)) return;
       _writeCommands(w, cellCommands, cos,
           decode: decode,
           maxImageRatio: maxImageRatio,
@@ -814,6 +819,68 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
           imageDecodeFilter: imageDecodeFilter); // nested
   }
 }
+
+/// Writes a tiled cell's identity tag, and returns true when that is all the
+/// cell needs: its command list was already written earlier in this record.
+///
+/// The interpreter records a Type3 glyph once and stamps it per occurrence as
+/// a single-origin [PdfDrawTiledCellCommand] that shares the one recorded
+/// list (#535). Written in full per occurrence, a page of bitmap-font text
+/// carried every glyph's commands - and its image pixels - once per letter
+/// (35,128 stamps of 156 cells over six pages of a TeX PK font document), and
+/// the reader then built a fresh list per stamp, so the canvas's picture cache
+/// keyed on that list missed on every one.
+///
+/// Tag byte: 1 = the cell's commands follow (and take the next id), 2 = a u32
+/// id of a cell already written in this record. Keyed by list identity, as
+/// the recorder shares it. A back-reference writes nothing else - the paint
+/// state ([_writeFillPaint]) does not advance through it on either side, so
+/// what follows is still a change against the last paint actually written.
+///
+/// Every occurrence of a shared cell used to serialize to the same bytes:
+/// its images carry the cell's own transform and the page-wide budget scale,
+/// and their decode is deterministic. So the back-reference is the same
+/// record, minus the repetition.
+bool _writeTiledCellReference(_Writer w, List<PdfRenderCommand> cellCommands) {
+  final existing = w._cellIds[cellCommands];
+  if (existing != null) {
+    w.u8(2);
+    w.u32(existing);
+    return true;
+  }
+  w._cellIds[cellCommands] = w._cellIds.length;
+  w.u8(1);
+  return false;
+}
+
+/// Reads the cell list a tiled-cell command draws ([_writeTiledCellReference]).
+/// A cell body's slot is reserved before the body is read, so a cell nested
+/// in it numbers after it, exactly as the writer counted them.
+List<PdfRenderCommand> _readTiledCell(_Reader r) {
+  switch (r.u8()) {
+    case 1:
+      final slot = r._cells.length;
+      r._cells.add(_pendingCell);
+      final cell = _readCommands(r);
+      r._cells[slot] = cell;
+      return cell;
+    case 2:
+      final id = r.u32();
+      if (id >= r._cells.length) {
+        throw FormatException('tiled cell id $id out of range');
+      }
+      final cell = r._cells[id];
+      if (identical(cell, _pendingCell)) {
+        throw FormatException('tiled cell $id referenced inside its own body');
+      }
+      return cell;
+    default:
+      throw const FormatException('unknown tiled cell tag');
+  }
+}
+
+/// Marks a reader cell slot whose body is still being read.
+const List<PdfRenderCommand> _pendingCell = <PdfRenderCommand>[];
 
 _CommandImage? _decodeImageForCommand(
   CosDocument document,
@@ -1343,7 +1410,7 @@ PdfRenderCommand _readCommand(_Reader r) {
     case _tDrawTiledCell:
       final originsX = Float64List.fromList(r.f64List());
       final originsY = Float64List.fromList(r.f64List());
-      final cellCommands = _readCommands(r);
+      final cellCommands = _readTiledCell(r);
       return PdfDrawTiledCellCommand(cellCommands, originsX, originsY);
     default:
       throw StateError('unknown render command tag $tag');
@@ -2002,6 +2069,11 @@ class _Writer {
   /// catches essentially all of the repetition with no hashing of geometry.
   final Map<PdfPath, int> _outlineIds = {};
 
+  /// Tiled-cell command lists already written, by identity
+  /// ([_writeTiledCellReference]).
+  final Map<List<PdfRenderCommand>, int> _cellIds =
+      Map<List<PdfRenderCommand>, int>.identity();
+
   void _ensure(int extra) {
     final need = _len + extra;
     if (need <= _buf.length) return;
@@ -2121,6 +2193,11 @@ class _Reader {
   /// which is also how they arrive from the font engine before serialization,
   /// so the replayed commands hold no more copies than a local render.
   final List<PdfPath> _outlines = [];
+
+  /// Tiled-cell command lists seen so far, indexed as the writer numbered
+  /// them ([_readTiledCell]). Every stamp of a cell shares the one list, as it
+  /// did in the recording.
+  final List<List<PdfRenderCommand>> _cells = [];
 
   int u8() => _data.getUint8(_o++);
 
