@@ -321,6 +321,31 @@ void main() {
       expect(titleOf(reopened), 'Rewritten');
     });
 
+    test('a donor that folded in a re-keyed /Encrypt vouches only for its own',
+        () {
+      // applyIncrementalUpdate keeps the handler it authenticated while the
+      // folded revision redefines the /Encrypt object: the guard compares
+      // against the dictionary those keys came from, not the donor's trailer
+      final original = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'user'),
+          password: 'user');
+      final other = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'other'),
+          password: 'other');
+      final rekeyed = revise(original,
+          encrypt: other.resolve(other.trailer['Encrypt']) as CosDictionary);
+      final keys = original.encryption;
+      original.applyIncrementalUpdate(rekeyed);
+      expect(original.encryption, same(keys));
+
+      expect(() => original.openAppended(rekeyed),
+          throwsA(isA<CosPasswordException>()),
+          reason: 'the keys were derived from the old /Encrypt, not this one');
+      final reopened = original.openAppended(rekeyed, password: 'other');
+      expect(reopened.encryption, isNot(same(keys)));
+      expect(titleOf(reopened), 'Rewritten');
+    });
+
     test('a revision that only swaps a crypt filter is not given the old keys',
         () {
       // /O, /U, /OE, /UE untouched - the key is the same - but the rewritten

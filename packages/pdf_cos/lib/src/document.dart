@@ -141,6 +141,14 @@ class CosDocument {
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
 
+  /// The /Encrypt dictionary [_encryption] was derived from, indirect
+  /// entries inlined ([_inlineEncrypt]): what [openAppended] compares a
+  /// revision's /Encrypt with before donating the handler. Kept apart from
+  /// the live object because [applyIncrementalUpdate] keeps the handler while
+  /// a folded revision may redefine that object. Null when unencrypted, or
+  /// when the dictionary nests deeper than [_sameCos] follows (no donation).
+  CosObject? _authenticatedEncrypt;
+
   /// Object numbers currently mid-parse, guarding against definitions
   /// that reference their own object (fuzzed and corrupt files).
   final Set<int> _loadingObjects = {};
@@ -545,8 +553,8 @@ class CosDocument {
   /// Runs before any other object loads, so only the /Encrypt dictionary
   /// itself (whose strings stay raw by design) is parsed undecrypted.
   /// [keysFrom] ([openAppended]) donates its handler when this revision
-  /// still points at the same, unchanged /Encrypt dictionary, skipping
-  /// authentication.
+  /// still points at the same /Encrypt object, unchanged from the dictionary
+  /// that handler was derived from, skipping authentication.
   void _initEncryption(String password, [CosDocument? keysFrom]) {
     final encryptRef = trailer['Encrypt'];
     final encrypt = resolve(encryptRef);
@@ -559,6 +567,7 @@ class CosDocument {
         keysFrom!._encryptObjectNumber == _encryptObjectNumber &&
         _sameEncryptDictionary(encrypt, keysFrom)) {
       _encryption = donor;
+      _authenticatedEncrypt = keysFrom._authenticatedEncrypt;
       return;
     }
     Uint8List? firstId;
@@ -569,22 +578,54 @@ class CosDocument {
     }
     _encryption = StandardSecurityHandler.fromEncrypt(
         encrypt, firstId, password, resolve);
+    _authenticatedEncrypt = _inlineEncrypt(encrypt, resolve, 0);
   }
 
-  /// Whether [encrypt] is, entry for entry, the /Encrypt dictionary [donor]
-  /// authenticated. The handler is a function of that dictionary alone (the
-  /// password check and key wrapping in /O, /U, /OE, /UE; the key inputs /P,
-  /// /Length, /EncryptMetadata; the ciphers in /V, /CF, /StmF, /StrF) plus
-  /// /ID[0] - which an editor keeps across revisions (§14.4) - and the
-  /// password. The object number alone does not prove it unchanged: a
-  /// revision may rewrite that object under the same number (new key
-  /// material, or only a different crypt filter), and then must authenticate
-  /// afresh.
+  /// Whether [encrypt] is, entry for entry, the /Encrypt dictionary [donor]'s
+  /// handler was derived from ([_authenticatedEncrypt]) - not merely the one
+  /// [donor]'s trailer points at now. The handler is a function of that
+  /// dictionary alone (the password check and key wrapping in /O, /U, /OE,
+  /// /UE; the key inputs /P, /Length, /EncryptMetadata; the ciphers in /V,
+  /// /CF, /StmF, /StrF) plus /ID[0] - which an editor keeps across revisions
+  /// (§14.4) - and the password. The object number alone does not prove it
+  /// unchanged: a revision may rewrite that object under the same number (new
+  /// key material, or only a different crypt filter), and then must
+  /// authenticate afresh.
   bool _sameEncryptDictionary(CosDictionary encrypt, CosDocument donor) {
-    final theirs = donor.resolve(donor.trailer['Encrypt']);
-    return theirs is CosDictionary &&
-        _sameCos(encrypt, resolve, theirs, donor.resolve, 0);
+    final theirs = donor._authenticatedEncrypt;
+    return theirs != null && _sameCos(encrypt, resolve, theirs, _direct, 0);
   }
+
+  /// [object] with every reference inside it resolved and inlined, to the
+  /// depth [_sameCos] compares; null past that depth.
+  static CosObject? _inlineEncrypt(
+      CosObject? object, CosObject Function(CosObject?) resolve, int depth) {
+    final x = resolve(object);
+    if (x is CosDictionary) {
+      if (depth > 4) return null;
+      final out = <String, CosObject>{};
+      for (final MapEntry(:key, :value) in x.entries.entries) {
+        final inlined = _inlineEncrypt(value, resolve, depth + 1);
+        if (inlined == null) return null;
+        out[key] = inlined;
+      }
+      return CosDictionary(out);
+    }
+    if (x is CosArray) {
+      if (depth > 4) return null;
+      final out = <CosObject>[];
+      for (final item in x.items) {
+        final inlined = _inlineEncrypt(item, resolve, depth + 1);
+        if (inlined == null) return null;
+        out.add(inlined);
+      }
+      return CosArray(out);
+    }
+    return x;
+  }
+
+  /// The resolver for an already-inlined tree ([_authenticatedEncrypt]).
+  static CosObject _direct(CosObject? object) => object ?? CosNull.instance;
 
   /// Structural equality of [a] (resolved in [resolveA]) and [b] (in
   /// [resolveB]): strings by bytes, names/numbers/booleans by value,
