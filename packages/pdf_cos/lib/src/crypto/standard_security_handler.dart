@@ -8,6 +8,7 @@ import '../exceptions.dart';
 import '../objects.dart';
 import 'aes.dart';
 import 'rc4.dart';
+import 'sha2_digest.dart';
 
 /// Which cipher a class of content (strings or streams) uses.
 enum PdfCipher { none, rc4, aes128, aes256 }
@@ -278,10 +279,12 @@ class StandardSecurityHandler {
       for (var i = 0; i < 16; i++) {
         sum += e[i];
       }
+      // sha2Digest: package:crypto's SHA-384/512 is ~13x slower under dart2js
+      // and was most of a browser R6 open (see sha2_digest.dart).
       k = switch (sum % 3) {
         0 => sha256.convert(e).bytes,
-        1 => sha384.convert(e).bytes,
-        _ => sha512.convert(e).bytes,
+        1 => sha2Digest(sha384, e),
+        _ => sha2Digest(sha512, e),
       };
     }
     return Uint8List.fromList(k.sublist(0, 32));
