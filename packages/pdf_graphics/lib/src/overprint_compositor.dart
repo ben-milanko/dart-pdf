@@ -92,8 +92,12 @@ class PdfOverprintCompositor {
   final PdfColorantRaster _raster;
   final PdfColorContext? _colorContext;
 
-  /// The buffer's palette index per cell, row-major. For tests.
-  Uint16List get debugCells => _raster.cells;
+  /// The buffer's palette index per cell, row-major. For tests; like any
+  /// read, it first replays whatever is queued (see [_pending]).
+  Uint16List get debugCells {
+    _goLive();
+    return _raster.cells;
+  }
 
   /// Palette entry 0 is bare paper, entry 1 the "colorants unknown" sentinel
   /// (images, gradients, transparency groups, translucent paint, colour spaces
@@ -120,13 +124,18 @@ class PdfOverprintCompositor {
   /// The spot equivalents learned so far, for a caller that has to convert a
   /// composite vector back to sRGB itself (image overprint builds its
   /// substitute raster outside the buffer - see `image_colorants.dart`).
-  Map<String, List<double>> get spotEquivalents => _spotEquivalents;
+  Map<String, List<double>> get spotEquivalents {
+    // Queued draws learn their spots when they replay.
+    _goLive();
+    return _spotEquivalents;
+  }
 
   /// Display colour of one uniform known backdrop under [path], or null when
   /// the region is clipped out, varies, or contains content whose colorants
   /// are unknown. Used to seed non-isolated transparency groups.
   PdfColor? uniformBackdrop(PdfPath path) {
-    PdfPerf.add(PdfPerfCount.colorantBackdropReads);
+    _goLive();
+    _countBackdropRead();
     final spans = _raster.fillSpans(path, evenOdd: false);
     final backdrops = _raster.backdropUnder(spans, bleedFraction: 0);
     if (backdrops == null ||
@@ -156,6 +165,7 @@ class PdfOverprintCompositor {
     required bool knockout,
     required bool opaque,
   }) {
+    _goLive();
     PdfPerf.add(PdfPerfCount.colorantGroups);
     final enclosing = _groups.isEmpty ? null : _groups.last;
     Uint16List? accumulated;
@@ -185,6 +195,7 @@ class PdfOverprintCompositor {
   }
 
   void endTransparencyGroup() {
+    _goLive();
     if (_groups.isEmpty) return;
     final group = _groups.removeLast();
     final coverage = group.coverage;
@@ -235,6 +246,46 @@ class PdfOverprintCompositor {
   static const int _maxDraws = 20000;
   bool get _exhausted => _draws >= _maxDraws;
 
+  // Lazy start. A page that declares overprint pays for every draw it
+  // records, yet most such pages never read the buffer back: their
+  // overprint-flagged paint is translucent or has no colorant reading, or the
+  // /op is set defensively and never used. So until something reads the
+  // buffer, a mutation that only writes it queues here instead of
+  // rasterizing. The first read replays the queue in order - clip saves,
+  // restores and intersections included - and the rest of the page runs
+  // eagerly. Whatever is still queued when the page ends was never needed;
+  // the interpreter drops the compositor with the page (_beginOverprint
+  // replaces it, drawAnnotations nulls it).
+  //
+  // Every read goes live first: an effective overprint, any shading, an
+  // overprinting image with a colorant reading, a reading stencil,
+  // [uniformBackdrop], [spotEquivalents] and a group's begin or end - so no
+  // group is ever open while entries are queued. The draw cap, the mask mute
+  // and each entry's isolation depth apply when the draw is queued, exactly as
+  // the eager path applies them at that moment. Palette entries and spot
+  // equivalents are interned at replay: in call order, and only for draws
+  // that cover a cell, which is when the eager path interns them.
+  final List<Object> _pending = [];
+  bool _live = false;
+  static const int _pendingSave = 0;
+  static const int _pendingRestore = 1;
+
+  /// Replays the queued mutations and switches to eager recording.
+  void _goLive() {
+    if (_live) return;
+    _live = true;
+    for (final entry in _pending) {
+      if (entry is! int) {
+        (entry as void Function())();
+      } else if (entry == _pendingSave) {
+        _raster.save();
+      } else {
+        _raster.restore();
+      }
+    }
+    _pending.clear();
+  }
+
   /// Counts one draw against [_maxDraws].
   void _countDraw() {
     _draws++;
@@ -255,9 +306,25 @@ class PdfOverprintCompositor {
   /// of those need not be closed by a `Q`, so without the bracket the narrowed
   /// clip would leak out and the buffer would stop recording colorants for
   /// everything drawn after it.
-  void save() => _raster.save();
+  void save() {
+    if (_live) {
+      _raster.save();
+    } else {
+      _pending.add(_pendingSave);
+    }
+  }
 
-  void restore() => _raster.restore();
+  void restore() {
+    if (_live) {
+      _raster.restore();
+    } else if (_pending.isNotEmpty && _pending.last == _pendingSave) {
+      // An empty save/restore pair changes nothing; forms and patterns
+      // bracket their content with one whether or not it draws.
+      _pending.removeLast();
+    } else {
+      _pending.add(_pendingRestore);
+    }
+  }
 
   void beginIsolated() => _suspended++;
 
@@ -275,6 +342,14 @@ class PdfOverprintCompositor {
   void clipPath(PdfPath path, PdfFillRule rule) {
     if (_exhausted || _muted != 0) return;
     _countDraw();
+    if (_live) {
+      _clip(path, rule);
+    } else {
+      _pending.add(() => _clip(path, rule));
+    }
+  }
+
+  void _clip(PdfPath path, PdfFillRule rule) {
     _countRasterized();
     _raster
         .clipTo(_raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd));
@@ -319,7 +394,45 @@ class PdfOverprintCompositor {
   /// runs on an overprinting text page with no OutputIntent: black text
   /// overprinting a backdrop the buffer cannot read.
   PdfColor? fill(
-      PdfPath path, PdfFillRule rule, PdfColor color, PdfInkColorants? ink,
+          PdfPath path, PdfFillRule rule, PdfColor color, PdfInkColorants? ink,
+          {PdfInkColorants? blendInk,
+          PdfRect? Function()? subCellBounds,
+          PdfRect? Function()? unknownProbe,
+          required bool overprint,
+          required int mode,
+          required bool opaque}) =>
+      _fill(path, null, rule, color, ink,
+          blendInk: blendInk,
+          subCellBounds: subCellBounds,
+          unknownProbe: unknownProbe,
+          overprint: overprint,
+          mode: mode,
+          opaque: opaque);
+
+  /// [fill] for geometry that is costly to build: a text run's page-space
+  /// glyph outlines. The compositor calls [outline] only to rasterize the
+  /// run, so a run it queues and never needs - knockout text on a page that
+  /// never reads its buffer - or drops (draw cap, soft-mask content) is
+  /// never built. [subCellBounds] and [unknownProbe] are typically derived
+  /// from the same built path; the caller memoizes it.
+  PdfColor? fillLazily(PdfPath Function() outline, PdfFillRule rule,
+          PdfColor color, PdfInkColorants? ink,
+          {PdfInkColorants? blendInk,
+          PdfRect? Function()? subCellBounds,
+          PdfRect? Function()? unknownProbe,
+          required bool overprint,
+          required int mode,
+          required bool opaque}) =>
+      _fill(null, outline, rule, color, ink,
+          blendInk: blendInk,
+          subCellBounds: subCellBounds,
+          unknownProbe: unknownProbe,
+          overprint: overprint,
+          mode: mode,
+          opaque: opaque);
+
+  PdfColor? _fill(PdfPath? path, PdfPath Function()? outline, PdfFillRule rule,
+      PdfColor color, PdfInkColorants? ink,
       {PdfInkColorants? blendInk,
       PdfRect? Function()? subCellBounds,
       PdfRect? Function()? unknownProbe,
@@ -329,8 +442,8 @@ class PdfOverprintCompositor {
     _skipPaint = false;
     _spatialPaint = null;
     return _resolve(() {
-      final spans =
-          _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd);
+      final spans = _raster.fillSpans(path ?? outline!(),
+          evenOdd: rule == PdfFillRule.evenOdd);
       if (!spans.isEmpty || subCellBounds == null) return spans;
       final bounds = subCellBounds();
       if (bounds == null) return spans;
@@ -465,6 +578,9 @@ class PdfOverprintCompositor {
     _gradientSpatialPaint = null;
     _gradientSubstitute = null;
     if (_exhausted || _muted != 0) return false;
+    // A shading hands each cell's backdrop to its sampler and interns per
+    // cell, so it reads the buffer whether or not it overprints.
+    _goLive();
     final inkAt = gradient.inkAt;
     final inverse = gradient.transform.inverted();
     if (inkAt == null || inverse == null) {
@@ -629,14 +745,21 @@ class PdfOverprintCompositor {
   }) {
     if (_exhausted || _muted != 0) return null;
     _countDraw();
+    final paintable = opaque && _suspended == 0;
+    if (!overprint || !paintable || !hasColorants) {
+      // Records its own coverage and reads nothing.
+      final recorded = paintable ? ink : null;
+      if (_live) {
+        _recordPathCoverage(path, recorded, color);
+      } else {
+        _pending.add(() => _recordPathCoverage(path, recorded, color));
+      }
+      return null;
+    }
+    _goLive();
     _countRasterized();
     final spans = _raster.fillSpans(path, evenOdd: false);
     if (spans.isEmpty) return null;
-    final paintable = opaque && _suspended == 0;
-    if (!overprint || !paintable || !hasColorants) {
-      _recordImage(spans, paintable ? ink : null, color);
-      return null;
-    }
     _countBackdropRead();
     // A small colorant region under a large image is not boundary bleed: the
     // GWG DeviceN checks occupy only a few percent of the image by design.
@@ -665,8 +788,8 @@ class PdfOverprintCompositor {
       // the identity, so the source raster already *is* the composite) or no
       // substitute could be built. Recording the image's own colorants is
       // right in the first case and the honest "unknown" in the second, which
-      // is what [_recordImage] does with a null ink.
-      _recordImage(spans,
+      // is what [_recordCoverage] does with a null ink.
+      _recordCoverage(spans,
           _paletteColorants[backdrop] == PdfColorants.none ? ink : null, color);
       return null;
     }
@@ -758,17 +881,22 @@ class PdfOverprintCompositor {
       {required bool overprint, required int mode, required bool opaque}) {
     if (_exhausted || _muted != 0) return null;
     _countDraw();
-    _countRasterized();
-    final spans = _raster.fillSpans(path, evenOdd: false);
-    if (spans.isEmpty) return null;
     if (!overprint ||
         !opaque ||
         _suspended != 0 ||
         ink == null ||
         ink.writesNothing) {
-      _raster.paintFlat(spans, _unknownIndex);
+      if (_live) {
+        _markUnknownPath(path, PdfFillRule.nonzero);
+      } else {
+        _pending.add(() => _markUnknownPath(path, PdfFillRule.nonzero));
+      }
       return null;
     }
+    _goLive();
+    _countRasterized();
+    final spans = _raster.fillSpans(path, evenOdd: false);
+    if (spans.isEmpty) return null;
     _countBackdropRead();
     final backdrops = _raster.backdropUnder(spans);
     if (backdrops == null ||
@@ -785,9 +913,10 @@ class PdfOverprintCompositor {
     return resolved;
   }
 
-  /// Records an image's own coverage: its colorants when the raster carries one
-  /// vector throughout and paints opaquely, else unknown.
-  void _recordImage(ColorantSpans spans, PdfInkColorants? ink, PdfColor color) {
+  /// Records a draw's own coverage, replacing the backdrop: [ink]'s
+  /// colorants when it paints one known vector opaquely, else (null) unknown.
+  void _recordCoverage(
+      ColorantSpans spans, PdfInkColorants? ink, PdfColor color) {
     if (ink == null) {
       _raster.paintFlat(spans, _unknownIndex);
       return;
@@ -796,12 +925,26 @@ class PdfOverprintCompositor {
     _raster.paintFlat(spans, _intern(ink.colorants, color));
   }
 
+  void _recordPathCoverage(PdfPath path, PdfInkColorants? ink, PdfColor color) {
+    _countRasterized();
+    final spans = _raster.fillSpans(path, evenOdd: false);
+    if (!spans.isEmpty) _recordCoverage(spans, ink, color);
+  }
+
   /// Marks the area a draw with no colorant reading covers - shading fills,
   /// meshes, tiling patterns - as unknown, so a later overprint over it
   /// declines instead of compositing against a stale backdrop.
   void markUnknownPath(PdfPath path, PdfFillRule rule) {
     if (_exhausted || _muted != 0) return;
     _countDraw();
+    if (_live) {
+      _markUnknownPath(path, rule);
+    } else {
+      _pending.add(() => _markUnknownPath(path, rule));
+    }
+  }
+
+  void _markUnknownPath(PdfPath path, PdfFillRule rule) {
     _countRasterized();
     _raster.paintFlat(
         _raster.fillSpans(path, evenOdd: rule == PdfFillRule.evenOdd),
@@ -813,6 +956,14 @@ class PdfOverprintCompositor {
   void markUnknownBox(double left, double bottom, double right, double top) {
     if (_exhausted || _muted != 0) return;
     _countDraw();
+    if (_live) {
+      _markUnknownBox(left, bottom, right, top);
+    } else {
+      _pending.add(() => _markUnknownBox(left, bottom, right, top));
+    }
+  }
+
+  void _markUnknownBox(double left, double bottom, double right, double top) {
     _countRasterized();
     _raster.paintFlat(
         _raster.boxSpans(left, bottom, right, top), _unknownIndex);
@@ -827,6 +978,25 @@ class PdfOverprintCompositor {
       required bool opaque}) {
     if (_exhausted || _muted != 0) return null;
     _countDraw();
+    if (!_live) {
+      // No group is open yet: starting one reads the buffer.
+      if (overprint && opaque && _suspended == 0 && ink != null) {
+        // An effective overprint reads the backdrop - unless its ink writes
+        // no colorant at all (Separation /None), which leaves the buffer as
+        // it is and resolves to nothing either way.
+        if (ink.writesNothing) return null;
+        _goLive();
+      } else {
+        // A knockout, translucent or colorant-less paint only writes.
+        final recorded = opaque && _suspended == 0 ? ink ?? blendInk : null;
+        _pending.add(() {
+          _countRasterized();
+          final spans = rasterize();
+          if (!spans.isEmpty) _recordCoverage(spans, recorded, color);
+        });
+        return null;
+      }
+    }
     // An effective overprint over nothing but unknown cells changes nothing
     // (see [fill]). With a group open the draw would still mark the group's
     // coverage, so the probe only runs on the page's own buffer.
@@ -857,16 +1027,11 @@ class PdfOverprintCompositor {
     }
     final effective = overprint && opaque && _suspended == 0 && ink != null;
     if (!effective) {
-      final recordedInk = ink ?? blendInk;
       // A knockout replaces the backdrop's colorants with the ink's; anything
       // the buffer cannot model (translucency, an open group, a colour space
       // with no colorant reading) becomes unknown.
-      if (!opaque || _suspended != 0 || recordedInk == null) {
-        _raster.paintFlat(spans, _unknownIndex);
-      } else {
-        _learnSpots(recordedInk);
-        _raster.paintFlat(spans, _intern(recordedInk.colorants, color));
-      }
+      _recordCoverage(
+          spans, opaque && _suspended == 0 ? ink ?? blendInk : null, color);
       return null;
     }
     if (ink.writesNothing) {

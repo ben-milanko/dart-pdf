@@ -3031,13 +3031,14 @@ class PdfInterpreter {
             : textFill;
         if (mode != 3 && mode != 7 && !paintedAsTiling) {
           final overprint = _overprint;
-          // Only a live colorant buffer reads the outlines here; every other
-          // page takes the em-box branch without building them.
-          final glyphPath =
-              overprint != null && pattern == null && glyphs != null
-                  ? _glyphOutlinePath(glyphs, transform)
-                  : null;
-          if (overprint != null && glyphPath != null) {
+          // Only a colorant buffer reads the outlines here, and only when it
+          // rasterizes the run or probes its bounds: a run it queues and never
+          // replays, or drops at its draw cap or inside a soft mask, never
+          // builds them. Every other page takes the em-box branch.
+          if (overprint != null &&
+              pattern == null &&
+              glyphs != null &&
+              _hasOutline(glyphs)) {
             // Embedded stroke-only text is historically rendered by filling
             // the glyph outline with the stroking colour. Resolve the same
             // geometry using the stroking overprint tuple, then deliver that
@@ -3049,26 +3050,29 @@ class PdfInterpreter {
             final isOverprint =
                 strokeOnly ? _state.strokeOverprint : _state.fillOverprint;
             final alpha = strokeOnly ? _state.strokeAlpha : _state.fillAlpha;
-            // One control-point box serves the compositor's unknown-backdrop
-            // probe and a single glyph's sub-cell fallback; most runs need
-            // neither, so it is computed on the first ask.
+            // The outline path, and one control-point box that serves the
+            // compositor's unknown-backdrop probe and a single glyph's
+            // sub-cell fallback, are each built on the first ask.
+            PdfPath? built;
+            PdfPath glyphPath() =>
+                built ??= _glyphOutlinePath(glyphs, transform)!;
             PdfRect? bounds;
             var boundsKnown = false;
             PdfRect? glyphBounds() {
               if (!boundsKnown) {
                 boundsKnown = true;
-                bounds = _pathBounds(glyphPath);
+                bounds = _pathBounds(glyphPath());
               }
               return bounds;
             }
 
-            final resolved = overprint.fill(
+            final resolved = overprint.fillLazily(
               glyphPath,
               PdfFillRule.nonzero,
               runFill,
               ink,
               blendInk: blendInk,
-              subCellBounds: glyphs?.length == 1 ? glyphBounds : null,
+              subCellBounds: glyphs.length == 1 ? glyphBounds : null,
               unknownProbe: glyphBounds,
               overprint: isOverprint,
               mode: _state.overprintMode,
@@ -3504,6 +3508,16 @@ class PdfInterpreter {
           PdfMatrix.translation(g.offset, g.offsetY).concat(transform));
     }
     return segments.isEmpty ? null : PdfPath(segments);
+  }
+
+  /// Whether [_glyphOutlinePath] builds a path for [glyphs]: some glyph
+  /// carries an outline with at least one segment.
+  static bool _hasOutline(List<PdfGlyphPlacement> glyphs) {
+    for (final g in glyphs) {
+      final outline = g.outline;
+      if (outline != null && outline.segmentCount > 0) return true;
+    }
+    return false;
   }
 
   void _fillWithPattern(PdfPath path, PdfFillRule rule, CosObject pattern) {

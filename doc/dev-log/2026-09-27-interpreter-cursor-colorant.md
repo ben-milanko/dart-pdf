@@ -220,3 +220,93 @@ Measured against the previous commit (same harness, 7 rounds x 7 reps):
 GWG161 knockout 0.503x on-mode record, GWG162 isolate 0.636x, GWG160
 0.833x, GWG164 0.788x, GWG161 ICCBasedRGB 0.847x, the two GWG161x soft-mask
 text files 0.86x. Pages without groups on a buffer do not run this code.
+
+## Colorant buffer: lazy start
+
+The 2026-07-25 buffer note named "defer the recording" as the next cut; it
+was never built. Most pages that open a buffer never read it back: their
+overprint-flagged paint is translucent or has no colorant reading (RGB/ICC
+ink), or `/op` is set defensively and never painted with. Every draw on them
+was still rasterized into cells nothing looked at - on the private /OP set,
+six of ten documents never read the buffer on any page.
+
+`PdfOverprintCompositor` now starts lazy. Until the first read, a mutation
+that only writes the buffer is queued in a `List<Object>` - closures, plus
+two int sentinels for clip save and restore (a restore right after a save
+pops it, so the empty brackets forms and patterns put around their content
+cost nothing):
+
+- non-effective `_resolve` draws: knockout, translucent, isolated or
+  colorant-less fills, strokes and glyph runs;
+- `clipPath`, `markUnknownPath`, `markUnknownBox`;
+- images and stencils that do not read the backdrop.
+
+The first read replays the queue in order and the rest of the page runs
+eagerly (re-queuing after a flush measured as not worth the state in the
+prototype). Reads that go live first: an effective overprint, any
+`gradient()` (it hands each cell's backdrop to its sampler and interns per
+cell), an overprinting image with a colorant reading, a reading stencil,
+`uniformBackdrop`, `spotEquivalents`, `debugCells`, and `begin`/
+`endTransparencyGroup` - so no group is ever open while entries are queued.
+The C3 probe runs after that flush, since it reads cells. What is still
+queued at page end is dropped with the compositor (`_beginOverprint`
+replaces it, `drawAnnotations` nulls it).
+
+What keeps it exact:
+
+- `_draws++` and the `_exhausted` / `_muted` checks run when the draw is
+  queued, so the 20,000-draw cap trips at the same draw; the isolation depth
+  (`_suspended`) is captured then too, as the recorded ink or unknown.
+- **Interning happens at replay, not at enqueue** (a deliberate deviation
+  from the plan). The eager path interns a palette entry and learns spot
+  equivalents only for a draw that covers at least one cell; interning at
+  enqueue would also intern off-page and sub-cell draws, and a spot learned
+  that way could win `putIfAbsent` over the alternate a later draw would
+  have set. Replay runs in call order and nothing interns in between (every
+  interning reader goes live first), so the palette comes out identical.
+- An effective overprint whose ink writes no colorant (Separation /None)
+  neither reads nor writes and returns without going live - exactly what
+  the eager path did after rasterizing it.
+
+The interpreter no longer builds a run's page-space outlines up front:
+`fillLazily` takes a memoized builder, and the probe's bounds and the
+sub-cell fallback derive from the same built path. `_hasOutline` answers
+"would `_glyphOutlinePath` return a path" without building one. A run that
+stays queued, or that the compositor drops (draw cap, soft-mask content),
+never builds it. That moves `glyphOutlinePaths` on three gate inputs
+(GWG050 51 -> 50, GWG020 77 -> 75, GWG206 84 -> 82: soft-mask text), so
+`counters.json` is re-baselined deliberately; every other counter is
+unchanged there, because every gate page reads its buffer early.
+
+`interpreter_test`'s "a page with a colorant buffer builds one per run" now
+expects 0 for that page (it declares `/OP` but never reads the buffer) and 1
+for a variant that overprints the same run onto a cyan box.
+
+### Measurements
+
+Deterministic (`colorantRasterized`, first 10 pages): the six no-read /OP
+documents go from 31,077 / 20,000 / 10,777 / 34,520 / 25,671 / 20,000
+rasterized draws to 0 each; the four that read are unchanged (every one of
+their pages reads).
+
+Record path (same harness as above, 5 interleaved process rounds), this
+commit vs the counters commit (so C3 + C4 + C5 together, against main's
+overprint code):
+
+- /OP set: buffer overhead (on - off) 416 -> 191 ms, 0.459x; on-mode record
+  total 0.876x.
+- No-read multi-page documents, on-mode: 0.871x (4 pages; buffer-off floor
+  0.852x), 0.726x (10 pages), 0.696x (6 pages). Single-page 20,000-draw
+  sheets: 0.94-0.96x.
+- Worst text-overprint document 0.668x; the other text-heavy ones 0.809x
+  and 0.963x.
+- GWG161 0.492x, GWG162 0.631x (7 rounds); Ghent suite total on-mode
+  0.836x.
+- Documents with no buffer: 0.990-1.025x (total 1.008x).
+
+Deferral alone (vs the banded-groups commit): /OP set overhead 0.525x and
+on-mode 0.908x; the documents that read are flat within noise (0.985-1.04).
+
+Identity: record bytes with `decodeImages: true` are identical to the
+previous commit on all 54 Ghent files, the 10 /OP documents and the
+53-document private corpus (first 10 pages each).

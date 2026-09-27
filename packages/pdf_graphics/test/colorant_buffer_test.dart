@@ -658,6 +658,10 @@ void main() {
         final probed = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
         setUp(plain);
         setUp(probed);
+        // Bring both buffers live (reading them replays the set-up), so the
+        // counters below see only the run itself.
+        plain.debugCells;
+        probed.debugCells;
         PdfColor? run(PdfOverprintCompositor c, {bool withProbe = false}) =>
             c.fill(glyphRun, PdfFillRule.nonzero, const PdfColor(0, 0, 0),
                 PdfInkColorants.deviceCmyk(0, 0, 0, 1),
@@ -808,6 +812,115 @@ void main() {
         expect(grouped.debugCells, flat.debugCells);
       });
     }
+  });
+
+  group('lazy start', () {
+    PdfPath rect(double l, double b, double r, double t) => PdfPath([
+          PdfMoveTo(l, b),
+          PdfLineTo(r, b),
+          PdfLineTo(r, t),
+          PdfLineTo(l, t),
+          const PdfClosePath(),
+        ]);
+
+    const cyanColor = PdfColor(0, 0.68, 0.94);
+    const magentaColor = PdfColor(0.93, 0, 0.55);
+    final cyan = PdfInkColorants.deviceCmyk(1, 0, 0, 0);
+    final magenta = PdfInkColorants.deviceCmyk(0, 1, 0, 0);
+    final black = PdfInkColorants.deviceCmyk(0, 0, 0, 1);
+
+    PdfColor? knockout(PdfOverprintCompositor c, PdfPath path,
+            PdfInkColorants ink, PdfColor color) =>
+        c.fill(path, PdfFillRule.nonzero, color, ink,
+            overprint: false, mode: 0, opaque: true);
+
+    int rasterized(void Function() body) {
+      final wasEnabled = PdfPerf.enabled;
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      try {
+        body();
+        return PdfPerf.snapshot().count(PdfPerfCount.colorantRasterized);
+      } finally {
+        PdfPerf.enabled = wasEnabled;
+      }
+    }
+
+    test('rasterizes nothing until something reads the buffer', () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      expect(rasterized(() {
+        knockout(c, rect(0, 0, 100, 100), cyan, cyanColor);
+        c.save();
+        c.clipPath(rect(0, 0, 50, 100), PdfFillRule.nonzero);
+        knockout(c, rect(0, 0, 100, 100), magenta, magentaColor);
+        c.restore();
+        c.markUnknownBox(90, 90, 100, 100);
+      }), 0);
+      // The first read replays all four in order, clip scope included.
+      expect(rasterized(() => c.uniformBackdrop(rect(60, 10, 80, 30))), 4);
+    });
+
+    test('replays clips, saves and restores in order before a read', () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      knockout(c, rect(0, 0, 100, 100), cyan, cyanColor);
+      c.save();
+      c.clipPath(rect(0, 0, 50, 100), PdfFillRule.nonzero);
+      knockout(c, rect(0, 0, 100, 100), magenta, magentaColor);
+      c.save();
+      c.restore(); // an empty pair, elided
+      c.restore();
+      // Right half: the clip kept magenta off it, so black overprints cyan.
+      expect(
+          c.fill(rect(60, 10, 90, 90), PdfFillRule.nonzero,
+              const PdfColor(0, 0, 0), black,
+              overprint: true, mode: 1, opaque: true),
+          isNot(magentaColor));
+      expect(c.uniformBackdrop(rect(10, 10, 40, 90)), magentaColor);
+      expect(c.uniformBackdrop(rect(55, 5, 58, 95)), cyanColor);
+    });
+
+    test('an isolated or translucent draw queues as unknown', () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      knockout(c, rect(0, 0, 100, 100), cyan, cyanColor);
+      c.beginIsolated();
+      knockout(c, rect(0, 0, 50, 100), magenta, magentaColor);
+      c.endIsolated();
+      c.fill(rect(50, 0, 100, 100), PdfFillRule.nonzero, magentaColor, magenta,
+          overprint: false, mode: 0, opaque: false);
+      // Both halves were recorded as unknown, which a read now sees.
+      expect(c.uniformBackdrop(rect(10, 10, 40, 90)), isNull);
+      expect(c.uniformBackdrop(rect(60, 10, 90, 90)), isNull);
+    });
+
+    test('spot equivalents learned by queued draws are there when read', () {
+      final spot = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('Separation'),
+            const CosName('GWG Orange'),
+            const CosName('DeviceCMYK'),
+            exponential(const [0, 0.5, 1, 0]),
+          ]));
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      knockout(c, rect(0, 0, 100, 100), spot.inkColorants(const [1])!,
+          const PdfColor(1, 0.5, 0));
+      expect(c.spotEquivalents.keys, contains('GWG Orange'));
+    });
+
+    test('a glyph run it never has to rasterize is never built', () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      var builds = 0;
+      PdfPath outline() {
+        builds++;
+        return rect(10, 10, 20, 20);
+      }
+
+      c.fillLazily(outline, PdfFillRule.nonzero, cyanColor, cyan,
+          overprint: false, mode: 0, opaque: true);
+      expect(builds, 0);
+      c.uniformBackdrop(rect(0, 0, 100, 100));
+      expect(builds, 1, reason: 'the read replays the queued run');
+    });
   });
 
   group('PdfPerf colorant counters', () {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -534,8 +535,8 @@ void main() {
       // metric advance, so ordinary runs are untouched.
       final plain = RecordingDevice();
       PdfInterpreter(cos: doc, device: plain).run(
-        ContentStreamParser.parse(Uint8List.fromList(
-            'BT /F1 10 Tf 0 700 Td (ab) Tj ET'.codeUnits)),
+        ContentStreamParser.parse(
+            Uint8List.fromList('BT /F1 10 Tf 0 700 Td (ab) Tj ET'.codeUnits)),
         resources,
       );
       final p = plain.texts.single;
@@ -646,8 +647,8 @@ void main() {
       });
       final device = RecordingDevice();
       PdfInterpreter(cos: doc, device: device).run(
-        ContentStreamParser.parse(Uint8List.fromList(
-            'BT /T3 10 Tf 100 200 Td (X) Tj ET'.codeUnits)),
+        ContentStreamParser.parse(
+            Uint8List.fromList('BT /T3 10 Tf 100 200 Td (X) Tj ET'.codeUnits)),
         CosDictionary({
           'Font': CosDictionary({'T3': type3}),
         }),
@@ -898,12 +899,11 @@ void main() {
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
       PdfInterpreter(cos: doc, device: device).run(
-        ContentStreamParser.parse(Uint8List.fromList(
-            ('1 0 0 RG 0 0 1 rg '
-                    'BT /Missing 12 Tf 2 Tr (fs) Tj ET '
-                    'BT /Missing 12 Tf 1 Tr (so) Tj ET '
-                    'BT /Missing 12 Tf 0 Tr (fo) Tj ET')
-                .codeUnits)),
+        ContentStreamParser.parse(Uint8List.fromList(('1 0 0 RG 0 0 1 rg '
+                'BT /Missing 12 Tf 2 Tr (fs) Tj ET '
+                'BT /Missing 12 Tf 1 Tr (so) Tj ET '
+                'BT /Missing 12 Tf 0 Tr (fo) Tj ET')
+            .codeUnits)),
         shadingPatternResources(),
       );
       // mode 2: fill (blue) + stroke (red)
@@ -918,7 +918,8 @@ void main() {
       expect(device.texts[2].strokeColor, isNull);
     });
 
-    test('substituted fill+stroke text fills a tiling pattern with its '
+    test(
+        'substituted fill+stroke text fills a tiling pattern with its '
         'representative colour', () {
       // /Pattern cs /P1 scn sets a tiling-pattern fill that can't be clipped
       // through a substituted font's (absent) outlines. We fall back to the
@@ -950,15 +951,16 @@ void main() {
         }),
       });
       PdfInterpreter(cos: doc, device: device).run(
-        ContentStreamParser.parse(Uint8List.fromList(
-            ('0 0 1 RG /Pattern cs /P1 scn '
+        ContentStreamParser.parse(
+            Uint8List.fromList(('0 0 1 RG /Pattern cs /P1 scn '
                     'BT /Missing 12 Tf 2 Tr (x) Tj ET')
                 .codeUnits)),
         resources,
       );
       final run = device.texts.single;
       expect(run.fill, isTrue, reason: 'tiling fill approximated as a solid');
-      expect(run.color, const PdfColor(1, 0, 1), reason: 'the cell fill colour');
+      expect(run.color, const PdfColor(1, 0, 1),
+          reason: 'the cell fill colour');
       expect(run.strokeColor, const PdfColor(0, 0, 1));
     });
 
@@ -1108,15 +1110,15 @@ void main() {
       expect(device.meshes, hasLength(1));
       expect(device.meshes.single.vertices, isNotEmpty);
       // clipped to the fill path: save/clip/mesh/restore, in that order
-      expect(device.calls, containsAllInOrder(['save', 'clip', 'mesh', 'restore']));
+      expect(device.calls,
+          containsAllInOrder(['save', 'clip', 'mesh', 'restore']));
     });
 
     test('non-nested radial sh paints a cone mesh', () {
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
-      final pattern =
-          (radialPatternResources()['Pattern'] as CosDictionary)['P0']
-              as CosDictionary;
+      final pattern = (radialPatternResources()['Pattern']
+          as CosDictionary)['P0'] as CosDictionary;
       final resources = CosDictionary({
         'Shading': CosDictionary({'S0': pattern['Shading']!}),
       });
@@ -1195,12 +1197,13 @@ void main() {
           reason: 'the pattern painted through the outlines');
     });
 
-    test('a page with a colorant buffer builds one per run', () {
+    test('a colorant buffer builds a run\'s outlines only to rasterize it', () {
       final doc = PdfDocument.open(buildEmbeddedFontPdf());
       final page = doc.page(0);
       // The same page with an overprint ExtGState in its resources: the
       // interpreter opens a colorant buffer, which resolves the run through
-      // its real outlines rather than its em box.
+      // its real outlines rather than its em box - but only once something
+      // reads the buffer. This page never does (GS0 is declared, not used).
       final overprinting = PdfPage(
         document: doc,
         dict: CosDictionary({
@@ -1217,8 +1220,27 @@ void main() {
       expect(
           glyphOutlinePaths(() => PdfInterpreter(cos: doc.cos, device: device)
               .drawPage(overprinting)),
-          1);
+          0);
       expect(device.texts.single.text, 'AB');
+      // A cyan box and the same run overprinting it in black: that run reads
+      // the buffer, so its outlines are built - once.
+      final content =
+          Uint8List.fromList('1 0 0 0 k 0 0 612 792 re f /GS0 gs 0 0 0 1 k '
+                  '${utf8.decode(page.contentBytes())}'
+              .codeUnits);
+      final reading = PdfPage(
+        document: doc,
+        dict: CosDictionary({
+          ...overprinting.dict.entries,
+          'Contents': CosStream(
+              CosDictionary({'Length': CosInteger(content.length)}), content),
+        }),
+      );
+      expect(
+          glyphOutlinePaths(() =>
+              PdfInterpreter(cos: doc.cos, device: RecordingDevice())
+                  .drawPage(reading)),
+          1);
       // Extraction never opens the buffer, so it never needs the outlines,
       // even on a page that overprints.
       expect(
@@ -1575,11 +1597,16 @@ void main() {
     test('fallback Polygon closes and fills from /Vertices and /IC', () {
       final device = drawFallback(CosDictionary({
         'Subtype': const CosName('Polygon'),
-        'Rect': CosArray([for (final v in [10, 10, 60, 60]) CosInteger(v)]),
-        'Vertices': CosArray(
-            [for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)]),
-        'C': CosArray([const CosInteger(0), const CosInteger(0), const CosInteger(0)]),
-        'IC': CosArray([const CosInteger(1), const CosInteger(0), const CosInteger(0)]),
+        'Rect': CosArray([
+          for (final v in [10, 10, 60, 60]) CosInteger(v)
+        ]),
+        'Vertices': CosArray([
+          for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)
+        ]),
+        'C': CosArray(
+            [const CosInteger(0), const CosInteger(0), const CosInteger(0)]),
+        'IC': CosArray(
+            [const CosInteger(1), const CosInteger(0), const CosInteger(0)]),
       }));
       // one interior fill (red) plus the stroked outline
       expect(device.fills.single.$2, const PdfColor(1, 0, 0));
@@ -1590,9 +1617,12 @@ void main() {
     test('fallback PolyLine strokes an open path from /Vertices', () {
       final device = drawFallback(CosDictionary({
         'Subtype': const CosName('PolyLine'),
-        'Rect': CosArray([for (final v in [10, 10, 60, 60]) CosInteger(v)]),
-        'Vertices': CosArray(
-            [for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [10, 10, 60, 60]) CosInteger(v)
+        ]),
+        'Vertices': CosArray([
+          for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)
+        ]),
       }));
       expect(device.fills, isEmpty); // open: no interior
       final path = device.strokes.single.$1;
@@ -1604,18 +1634,26 @@ void main() {
       expect(
           drawFallback(CosDictionary({
             'Subtype': const CosName('Link'),
-            'Rect': CosArray([for (final v in [10, 10, 60, 30]) CosInteger(v)]),
-            'Border': CosArray(
-                [const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
+            'Rect': CosArray([
+              for (final v in [10, 10, 60, 30]) CosInteger(v)
+            ]),
+            'Border': CosArray([
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(1)
+            ]),
           })).strokes,
           isEmpty);
       // /C plus a positive border width -> a stroked rectangle
       final device = drawFallback(CosDictionary({
         'Subtype': const CosName('Link'),
-        'Rect': CosArray([for (final v in [10, 10, 60, 30]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [10, 10, 60, 30]) CosInteger(v)
+        ]),
         'Border': CosArray(
             [const CosInteger(0), const CosInteger(0), const CosInteger(2)]),
-        'C': CosArray([const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
+        'C': CosArray(
+            [const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
       }));
       expect(device.strokes.single.$2, const PdfColor(0, 0, 1));
     });
@@ -1623,7 +1661,9 @@ void main() {
     test('fallback FreeText draws /Contents lines through /DA, clipped', () {
       final device = drawFallback(CosDictionary({
         'Subtype': const CosName('FreeText'),
-        'Rect': CosArray([for (final v in [50, 500, 250, 560]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [50, 500, 250, 560]) CosInteger(v)
+        ]),
         'DA': CosString.fromText('/Helv 10 Tf 1 0 0 rg'),
         'Contents': CosString.fromText('line one\nline two'),
       }));
@@ -1634,17 +1674,29 @@ void main() {
 
     test('fallback third-party callout infers /CL without /IT', () {
       final doc = PdfDocument.open(buildClassicPdf());
-      final annotation = PdfAnnotation.fromDict(doc, CosDictionary({
-        'Subtype': const CosName('FreeText'),
-        'Rect': CosArray([for (final v in [20, 400, 250, 560]) CosInteger(v)]),
-        'CL': CosArray([for (final v in [20, 400, 100, 500]) CosInteger(v)]),
-        'RD': CosArray([for (final v in [80, 0, 0, 0]) CosInteger(v)]),
-        'BS': CosDictionary({'W': const CosInteger(2)}),
-        'DA': CosString.fromText('/Helv 10 Tf 0 0 1 rg 1 0 0 RG'),
-        'C': CosArray([const CosInteger(1), const CosInteger(1), const CosInteger(0)]),
-        'Contents': CosString.fromText(
-            'wrapped third party callout text that must continue on another line'),
-      }));
+      final annotation = PdfAnnotation.fromDict(
+          doc,
+          CosDictionary({
+            'Subtype': const CosName('FreeText'),
+            'Rect': CosArray([
+              for (final v in [20, 400, 250, 560]) CosInteger(v)
+            ]),
+            'CL': CosArray([
+              for (final v in [20, 400, 100, 500]) CosInteger(v)
+            ]),
+            'RD': CosArray([
+              for (final v in [80, 0, 0, 0]) CosInteger(v)
+            ]),
+            'BS': CosDictionary({'W': const CosInteger(2)}),
+            'DA': CosString.fromText('/Helv 10 Tf 0 0 1 rg 1 0 0 RG'),
+            'C': CosArray([
+              const CosInteger(1),
+              const CosInteger(1),
+              const CosInteger(0)
+            ]),
+            'Contents': CosString.fromText(
+                'wrapped third party callout text that must continue on another line'),
+          }));
       final device = RecordingDevice();
       PdfInterpreter(cos: doc.cos, device: device)
           .drawAnnotation(doc.page(0), annotation);
@@ -1659,7 +1711,9 @@ void main() {
     test('fallback FreeText honors right quadding', () {
       final device = drawFallback(CosDictionary({
         'Subtype': const CosName('FreeText'),
-        'Rect': CosArray([for (final v in [50, 500, 250, 560]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [50, 500, 250, 560]) CosInteger(v)
+        ]),
         'DA': CosString.fromText('/Helv 10 Tf 0 g'),
         'Q': const CosInteger(2),
         'Contents': CosString.fromText('right'),
@@ -1671,7 +1725,9 @@ void main() {
       final on = drawFallback(CosDictionary({
         'Subtype': const CosName('Widget'),
         'FT': const CosName('Btn'),
-        'Rect': CosArray([for (final v in [72, 540, 92, 560]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [72, 540, 92, 560]) CosInteger(v)
+        ]),
         'AS': const CosName('Yes'),
         'MK': CosDictionary({
           'BC': CosArray([const CosInteger(0)]),
@@ -1683,7 +1739,9 @@ void main() {
       final off = drawFallback(CosDictionary({
         'Subtype': const CosName('Widget'),
         'FT': const CosName('Btn'),
-        'Rect': CosArray([for (final v in [72, 540, 92, 560]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [72, 540, 92, 560]) CosInteger(v)
+        ]),
         'AS': const CosName('Off'),
         'MK': CosDictionary({
           'BC': CosArray([const CosInteger(0)]),
@@ -1698,7 +1756,9 @@ void main() {
         'Subtype': const CosName('Widget'),
         'FT': const CosName('Btn'),
         'Ff': const CosInteger(65536), // pushbutton
-        'Rect': CosArray([for (final v in [72, 540, 172, 560]) CosInteger(v)]),
+        'Rect': CosArray([
+          for (final v in [72, 540, 172, 560]) CosInteger(v)
+        ]),
         'DA': CosString.fromText('/Helv 12 Tf 0 g'),
         'MK': CosDictionary({
           'CA': CosString.fromText('Submit'),
@@ -1813,8 +1873,8 @@ void main() {
 
       final token = PdfCancellationToken()..cancelled = true;
       final device = RecordingDevice();
-      final interp = PdfInterpreter(
-          cos: doc.cos, device: device, cancellation: token);
+      final interp =
+          PdfInterpreter(cos: doc.cos, device: device, cancellation: token);
       expect(
         () => interp.drawPageOperations(page, ops),
         throwsA(isA<PdfCancelledException>()),
@@ -1837,8 +1897,8 @@ void main() {
 
       final token = PdfCancellationToken();
       final device = RecordingDevice();
-      final interp = PdfInterpreter(
-          cos: doc.cos, device: device, cancellation: token);
+      final interp =
+          PdfInterpreter(cos: doc.cos, device: device, cancellation: token);
 
       // Cancel after a micro-task so the async walk picks it up at a yield.
       Future<void>.delayed(Duration.zero).then((_) {
