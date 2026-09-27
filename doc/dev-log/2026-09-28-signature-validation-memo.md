@@ -73,10 +73,22 @@ task: ~0.15 s at 12 MB, ~0.6 s at 58 MB, over 1 s for a 58 MB B-LTA pass
     (`signature_validation_worker.dart`, native/stub by conditional import)
     gets one `TransferableTypedData` copy of the revision, the password and
     the missing field names, reopens the document and returns the cores by
-    ownership transfer. Concurrent rows wait on the running job. A job over
-    bytes a later revision rewrote is discarded. Chain building, revocation
-    and `validateOnline`'s network step stay on the main isolate: a trust
-    store is large to send and a host revocation client may not be sendable.
+    ownership transfer. A job over bytes a later revision rewrote is
+    discarded. Chain building, revocation and `validateOnline`'s network
+    step stay on the main isolate: a trust store is large to send and a host
+    revocation client may not be sendable.
+  - Each revision is settled once (`_signatureCoresRevision`): the first row
+    to get there checks every kept core against its signature, drops the ones
+    that no longer `describes()` it, and starts at most one job; every other
+    row waits on whichever job is running (re-reading the slot after each
+    wait, so jobs never run side by side) and then returns. Only signatures
+    whose /ByteRange can be hashed at this revision count
+    (`PdfSignature.hasSignableByteRange`, the same test validation applies),
+    and a signature a job could not fill is remembered with its range
+    (`_signatureCoresUnavailable`, dropped with the cores) and never sent
+    again: validation computes that one inline. While the revision is
+    settled, `_resolveSignatureCore` hands out kept cores without comparing
+    them a second time (PdfSignature still checks the one it is given).
   - Web computes cores inline, as before, but they are still reused across
     revisions and trust-store changes.
   - The validation body also treats a disposed controller as stale, since
@@ -142,6 +154,37 @@ verdict; a document above the threshold hashes on the helper isolate - zero
 bytes on the test isolate, trust arrival too), editing_sidebar_test (an edit
 with the panel open re-validates with zero bytes hashed). Removing the reset
 drop, the offload or the resolver each fails one of them.
+
+**Review round: signatures that never get a core.** The first cut counted a
+signature as missing whenever it had no kept core. A signature whose
+/ByteRange fails the range check has none to get - typically one that came
+in with `insertPagesFrom`/`appendPagesFrom`, whose copied /V keeps the source
+file's offsets, or a real-world file with a broken range. Every row then
+started its own job (a row resumed from its wait, rescanned, and never
+re-read the job slot), on every revision: one helper isolate and one full
+copy of the file per signature row per edit. Base paid nothing for such a
+signature (its range check fails before any hashing). Fixed by the settling
+above. Measured with the real controller under `flutter test` (debug JIT, a
+1 ms timer probe, default 512 KB threshold): a signed file padded to 12 or 58
+MB appended into a one-page host, plus 5 local signatures (6 rows), panel
+open then 3 annotation edits each followed by a full panel pass:
+
+| | before | after |
+|---|---|---|
+| helper jobs, panel open / per edit | 6 / 6 | 1 / 0 |
+| bytes copied per edit, 12 MB / 58 MB | 76 MB / 365 MB | 0 / 0 |
+| longest gap, 58 MB, open (3 rounds, median) | 36.5 ms | 12.0 ms |
+| longest gap, 58 MB, per edit (9 edits, median; range) | 26.5 ms (22.1-34.3) | 7.7 ms (7.1-8.1) |
+| longest gap, 12 MB (1 round): open; edits | 16.2; 9.5-12.5 ms | 7.7; 7.2-7.6 ms |
+
+The job counts are deterministic and pinned by two tests in
+editing_digital_signature_test (threshold 0): a merged document with a
+foreign signature and two local ones (one job for the first pass, none for
+three edits; previously 3 on the first pass), and a signature whose core
+computation throws (sent once, then never again; previously once per edit).
+Reverting to the first cut fails both; dropping only the negative entry fails
+the second. signature_test covers `hasSignableByteRange` on a merged
+signature (false, no core, `validate()` hashes nothing).
 
 **Not done.** No `ecdsaVerify` memo: after the chain dedup a first validation
 repeats no ECDSA verify, so it cannot reach the 1.15x bar there; it would only

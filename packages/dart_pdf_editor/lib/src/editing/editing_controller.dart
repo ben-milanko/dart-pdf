@@ -1678,12 +1678,34 @@ class PdfEditingController extends ChangeNotifier {
   /// revocation are recomputed per revision.
   final Map<String, PdfSignatureCryptoCore> _signatureCores = {};
 
-  /// The core computation running on a helper isolate, if any.
+  /// The core computation running on a helper isolate, if any. At most one
+  /// runs at a time.
   _SignatureCoreJob? _signatureCoreJob;
+
+  /// The revision [_ensureSignatureCores] last settled: it checked every kept
+  /// core against that revision's signatures (dropping the ones that no longer
+  /// describe theirs) and offered the missing ones to a helper isolate once.
+  /// While it is current, [_resolveSignatureCore] trusts a kept core without
+  /// comparing it again, and no validation of the revision starts another job.
+  int _signatureCoresRevision = -1;
+
+  /// The /ByteRange of each signature a helper isolate was asked for and
+  /// could not compute a core for (its computation throws, or the whole job
+  /// failed), by field name. Such a signature is not sent again while its
+  /// range and covered bytes stand: validation computes its core inline
+  /// instead (and keeps it, when that works).
+  final Map<String, List<int>> _signatureCoresUnavailable = {};
+
+  int _signatureCoreJobCount = 0;
 
   /// How many signature cores are kept for reuse across revisions.
   @visibleForTesting
   int get debugSignatureCoreCount => _signatureCores.length;
+
+  /// How many signature-core computations have been started on a helper
+  /// isolate, each with a copy of the revision.
+  @visibleForTesting
+  int get debugSignatureCoreJobCount => _signatureCoreJobCount;
 
   /// Covered bytes from which [validationFor] computes missing signature cores
   /// on a helper isolate (native only) instead of inline: below it the hash
@@ -1697,7 +1719,14 @@ class PdfEditingController extends ChangeNotifier {
       PdfSignature signature, PdfSignatureCryptoCore Function() compute) {
     final name = signature.field.name;
     final cached = _signatureCores[name];
-    if (cached != null && cached.describes(signature)) return cached;
+    // Once this revision is settled every kept core describes its signature
+    // (the settle dropped the rest, and anything added since was computed for
+    // this revision); PdfSignature checks the one it is handed regardless.
+    if (cached != null &&
+        (_signatureCoresRevision == _revisionId ||
+            cached.describes(signature))) {
+      return cached;
+    }
     return _signatureCores[name] = compute();
   }
 
@@ -1707,31 +1736,61 @@ class PdfEditingController extends ChangeNotifier {
   /// building, revocation and the network stay here: a trust store is large
   /// to send and a host revocation client may not be sendable. A no-op on the
   /// web and below [signatureCoreOffloadBytes].
+  ///
+  /// Settles each revision once ([_signatureCoresRevision]): every signature
+  /// row awaits the same job, and a signature that job could not fill is not
+  /// sent again - a helper isolate gets a copy of the whole revision, so one
+  /// per row per edit is the cost this exists to avoid.
   Future<void> _ensureSignatureCores() async {
     if (!signatureCoresOffThread) return;
-    final running = _signatureCoreJob;
-    if (running != null) await running.done.future;
-    final missing = <String>[];
+    // Every row re-reads the slot after its wait, so a job another row
+    // started meanwhile is awaited too rather than doubled.
+    for (var running = _signatureCoreJob;
+        running != null;
+        running = _signatureCoreJob) {
+      await running.done.future;
+    }
+    if (_disposed || _signatureCoresRevision == _revisionId) return;
+    _signatureCoresRevision = _revisionId;
+    final missing = <String, List<int>>{};
     var covered = 0;
     for (final signature in signatureByFieldName.values) {
-      final cached = _signatureCores[signature.field.name];
-      if (cached != null && cached.describes(signature)) continue;
+      final name = signature.field.name;
+      final cached = _signatureCores[name];
+      if (cached != null) {
+        if (cached.describes(signature)) continue;
+        _signatureCores.remove(name);
+      }
+      // Nothing to hash at this revision - a malformed /ByteRange, or a
+      // signature that came in with another file's pages and kept that file's
+      // offsets. Validation reports why without hashing anything.
+      if (!signature.hasSignableByteRange) continue;
       final ranges = signature.byteRange;
-      if (ranges.length != 4) continue; // malformed: nothing to hash
-      missing.add(signature.field.name);
+      final tried = _signatureCoresUnavailable[name];
+      if (tried != null && listEquals(tried, ranges)) continue;
+      missing[name] = ranges;
       covered += ranges[1] + ranges[3];
     }
     if (missing.isEmpty || covered < signatureCoreOffloadBytes) return;
     final revision = bytes;
     final job = _SignatureCoreJob(revision.length);
     _signatureCoreJob = job;
+    _signatureCoreJobCount++;
+    var cores = const <String, PdfSignatureCryptoCore>{};
     try {
-      final cores = await computeSignatureCores(revision,
-          password: _password, fieldNames: missing);
-      if (job.valid && !_disposed) _signatureCores.addAll(cores);
+      cores = await computeSignatureCores(revision,
+          password: _password, fieldNames: missing.keys.toList());
     } catch (_) {
       // whatever is missing is computed inline by the validation itself
     } finally {
+      if (job.valid && !_disposed) {
+        _signatureCores.addAll(cores);
+        for (final MapEntry(key: name, value: ranges) in missing.entries) {
+          if (!cores.containsKey(name)) {
+            _signatureCoresUnavailable[name] = ranges;
+          }
+        }
+      }
       if (identical(_signatureCoreJob, job)) _signatureCoreJob = null;
       job.done.complete();
     }
@@ -1743,9 +1802,13 @@ class PdfEditingController extends ChangeNotifier {
   void _dropSignatureCores({int? beyond}) {
     if (beyond == null) {
       _signatureCores.clear();
+      _signatureCoresUnavailable.clear();
     } else {
       _signatureCores.removeWhere((_, core) => core.coveredEnd > beyond);
+      _signatureCoresUnavailable
+          .removeWhere((_, ranges) => ranges[2] + ranges[3] > beyond);
     }
+    _signatureCoresRevision = -1;
     final job = _signatureCoreJob;
     if (job != null && (beyond == null || job.length > beyond)) {
       job.valid = false;

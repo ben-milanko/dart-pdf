@@ -264,8 +264,10 @@ class PdfSignature {
     return applyRevocationPolicy(verdicts, trustedTime);
   }
 
-  /// Test diagnostics: bytes fed to byte-range digests by validation in this
-  /// isolate, so a test can prove a cached result was reused (reset freely).
+  /// Test-only diagnostics, not part of the stable API (like
+  /// `PdfInterpreter.debugResolveOverprint`): the bytes fed to byte-range
+  /// digests by validation in this isolate, so a test can prove a cached
+  /// result was reused. Nothing reads it; reset it freely.
   static int debugHashedBytes = 0;
 
   /// [_validateSignature] results by signature dictionary, each valid for the
@@ -337,8 +339,9 @@ class PdfSignature {
 
   /// Whether /ByteRange describes a signable span of this revision (two
   /// ranges from offset 0 around a gap holding the /Contents hex string),
-  /// and whether it reaches the end of the file. Adds the problems found.
-  (bool sane, bool coversWholeDocument) _checkRanges(List<String> problems) {
+  /// and whether it reaches the end of the file. Adds the problems found to
+  /// [problems], when given.
+  (bool sane, bool coversWholeDocument) _checkRanges([List<String>? problems]) {
     final bytes = document.cos.bytes;
     final ranges = byteRange;
     var rangesSane = ranges.length == 4 &&
@@ -348,7 +351,7 @@ class PdfSignature {
         ranges[3] >= 0 &&
         ranges[2] + ranges[3] <= bytes.length;
     if (!rangesSane) {
-      problems.add('malformed /ByteRange');
+      problems?.add('malformed /ByteRange');
     } else {
       // the gap must hold exactly the /Contents hex string
       final gapStart = ranges[0] + ranges[1];
@@ -356,25 +359,33 @@ class PdfSignature {
       if (gapStart >= gapEnd ||
           bytes[gapStart] != 0x3C /* < */ ||
           bytes[gapEnd - 1] != 0x3E /* > */) {
-        problems.add('/ByteRange gap does not hold the signature');
+        problems?.add('/ByteRange gap does not hold the signature');
         rangesSane = false;
       }
     }
     final coversWholeDocument =
         rangesSane && ranges[2] + ranges[3] == bytes.length;
     if (rangesSane && !coversWholeDocument) {
-      problems.add('the document was updated after this signature; only '
+      problems?.add('the document was updated after this signature; only '
           'the signed revision is covered');
     }
     return (rangesSane, coversWholeDocument);
   }
 
+  /// Whether /ByteRange describes a span of this revision that can be hashed:
+  /// two ranges from offset 0, inside the file, around a gap holding the
+  /// /Contents hex string. When false [cryptoCore] is null and [validate]
+  /// hashes nothing, reporting why. A signature copied in with another
+  /// file's pages keeps that file's offsets, so it is typically false.
+  bool get hasSignableByteRange => _checkRanges().$1;
+
   /// This signature's [PdfSignatureCryptoCore]: the covered bytes hashed and
   /// the signature (CMS, PKCS#1 or RFC 3161 token) verified - the costly,
   /// revision-independent part of [validate]. Null when /ByteRange does not
-  /// describe a signable span of this revision ([validate] reports why).
+  /// describe a signable span of this revision ([hasSignableByteRange];
+  /// [validate] reports why).
   PdfSignatureCryptoCore? cryptoCore() =>
-      _checkRanges(<String>[]).$1 ? _computeCore() : null;
+      hasSignableByteRange ? _computeCore() : null;
 
   PdfSignatureCryptoCore _resolveCore(PdfSignatureCoreResolver? cores) {
     if (cores == null) return _computeCore();

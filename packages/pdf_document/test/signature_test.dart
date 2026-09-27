@@ -690,6 +690,28 @@ void main() {
       return ranges[1] + ranges[3];
     }
 
+    test('a signature merged in from another file has no signable range', () {
+      final source = PdfDocument.open(signedFixture());
+      final own = PdfSignature.of(source).single;
+      expect(own.hasSignableByteRange, isTrue);
+
+      // the field comes over with the pages, its /ByteRange still pointing
+      // into the source file
+      final merged = PdfDocument.open(
+          (PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+                ..appendPagesFrom(source))
+              .save());
+      final foreign = PdfSignature.of(merged).single;
+      expect(foreign.byteRange, own.byteRange);
+      expect(foreign.hasSignableByteRange, isFalse);
+      expect(foreign.cryptoCore(), isNull);
+      PdfSignature.debugHashedBytes = 0;
+      final result = foreign.validate();
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(result.intact, isFalse);
+      expect(result.problems.single, contains('/ByteRange'));
+    });
+
     test('validating again at the same revision hashes nothing', () {
       final doc = PdfDocument.open(signedFixture());
       final signature = PdfSignature.of(doc).single;
