@@ -531,23 +531,55 @@ class PdfEditingController extends ChangeNotifier {
   /// opened file shows as withheld-and-filled takes a stored value
   /// ([_holdsWithheldValue]). No /AcroForm answers in O(1). With a trailer
   /// /ID the field walk is skipped (the id is free, the walk is not);
-  /// without one the walk decides, so a file with no withheld field never
-  /// pays the hash or the store read.
-  ///
-  /// The walk maps the pages once, for [PdfAcroForm.fields]' orphan-widget
-  /// reconcile. That must stay a single [PdfDocument.pages] walk - the one
-  /// the viewer's attach then reuses. This runs before the viewer has warmed
-  /// the page cache, so a page(0..n) scan here would be quadratic on a flat
-  /// page tree (1.4 s at 4000 pages, against 12 ms for the hash it replaces).
+  /// without one [_fieldTreeHoldsWithheldMarker] decides, so a file with no
+  /// withheld field never pays the hash or the store read.
   bool _mayHoldFormSecrets() {
     try {
       final form = acroForm;
       if (form == null) return false;
       if (_formSecretIdBytes != null) return true;
-      return form.fields.any(_holdsWithheldValue);
+      return _fieldTreeHoldsWithheldMarker(form);
     } catch (_) {
       return true; // a form too broken to walk: leave it to the load, as before
     }
+  }
+
+  /// Whether any node of [form]'s /Fields tree (descending /Kids, widget
+  /// kids included) carries [PdfFormFilling.passwordWithheldKey] - a
+  /// superset of the fields [_holdsWithheldValue] accepts, which is all the
+  /// open-time gate needs: a false positive only costs the hash and the
+  /// store read, and [_loadFormSecrets] still filters exactly.
+  ///
+  /// Deliberately not [PdfAcroForm.fields]: its orphan-widget reconcile maps
+  /// every page and parses every annotation on it, work the constructor must
+  /// not add (a no-/ID file with an empty /AcroForm and 40k link annotations
+  /// took 0.8 s to construct that way, against 0.07 s for the hash it
+  /// replaced). This walk costs O(field nodes + their widgets), whatever the
+  /// page or annotation count, and never touches the page tree. Iterative
+  /// with an identity-keyed visited set, so a cyclic or deep /Kids chain
+  /// can neither loop nor overflow the stack.
+  ///
+  /// What it cannot see is a field synthesized from an orphan page widget
+  /// (no /Fields entry by that name) that carries the marker. A withheld fill
+  /// writes the file's /ID, so that takes a file whose /ID was stripped after
+  /// such a fill, plus a store entry filed under the hash of exactly the
+  /// stripped bytes by an earlier session that was then discarded - and all
+  /// it loses is the inline editor's prefill, not the stored value.
+  static bool _fieldTreeHoldsWithheldMarker(PdfAcroForm form) {
+    final cos = form.document.cos;
+    final roots = cos.resolve(form.dict['Fields']);
+    if (roots is! CosArray) return false;
+    final pending = <CosObject>[...roots.items];
+    final visited = <CosDictionary>{};
+    while (pending.isNotEmpty) {
+      final node = cos.resolve(pending.removeLast());
+      if (node is! CosDictionary || !visited.add(node)) continue;
+      final marker = cos.resolve(node[PdfFormFilling.passwordWithheldKey]);
+      if (marker is CosBoolean && marker.value) return true;
+      final kids = cos.resolve(node['Kids']);
+      if (kids is CosArray) pending.addAll(kids.items);
+    }
+    return false;
   }
 
   /// A password field whose value the file withholds

@@ -25,10 +25,11 @@ Now:
   (`_holdsWithheldValue`: password flag, no /V,
   `/DartPdfPasswordWithheld true`), so skipping it otherwise changes nothing.
   No /AcroForm skips it in O(1). With /ID it runs as before (the field walk
-  costs more than the id). Without /ID the opened revision's fields are
-  walked through the per-revision `acroForm` cache, which the form layer
-  reuses, and only a withheld field pays the hash and the read. That walk
-  maps the pages once (see the page-walk gotcha below).
+  costs more than the id). Without /ID `_fieldTreeHoldsWithheldMarker`
+  walks the /Fields tree (descending /Kids, never the pages) for a node
+  carrying the marker, and only a hit pays the hash and the read. That is
+  O(field nodes + their widgets), whatever the page or annotation count
+  (see the gate gotcha below).
 - The fallback id is resolved lazily by `_resolveFormSecretId`, on first
   need: a withheld fill, `forgetFormSecrets`, an undo/redo that moves a
   stored value, or `formSecretDocumentId`.
@@ -49,24 +50,41 @@ Gotchas:
   hash on its own, so the controller does not have to open a document to
   get it. The first prototype re-opened the prefix inside the getter, which
   on an AES-256 file would have re-run the password check.
-- **The field walk must be one page-tree walk.** A no-/ID file with a form
-  now walks its fields at construction, where base hashed the file.
-  `PdfAcroForm.fields` always runs the orphan-widget reconcile, which maps
-  every page (`PdfAcroForm._pages`). The constructor runs before the viewer's
-  attach-time `document.pages`, so the page cache is still cold. When this
-  branch was first written, `_pages` looked each page up with `page(i)`,
-  which is quadratic on a flat /Kids tree. Review caught it: on
-  `buildMultiPagePdf(n)` plus an empty /AcroForm, the constructor went from
-  12 ms (the hash) to 1.36 s at 4000 pages, and an AOT open plus the
-  viewer's walk took 1.35 s. #969 (on main since then) builds `_pages` from
-  one `document.pages` walk. That walk fills the page cache, so the viewer's
-  own `document.pages` is free afterwards. The constructor now pays about
-  one page-tree walk (6 ms more than base at 4000 pages), and open plus the
-  viewer walk is 1.4-1.9x faster than base because the hash is gone. A
-  `form_secret_store_test` case asserts exactly one `pageTreeWalk` phase
-  (PdfPerf) across the constructor and the viewer's `document.pages`. It
-  fails on the `page(i)` loop. No such file exists in the corpora we have:
-  none of the no-/ID files carries an /AcroForm.
+- **The gate reads /Fields, never `PdfAcroForm.fields`.** Base did no form
+  work at open: it paid the hash, and the viewer's form layer only computes
+  `fields` for a page that shows a Widget (`formWidgetsOn` skips other
+  annotations first). `fields` always runs the orphan-widget reconcile,
+  which maps every page and parses every annotation on it to find widgets
+  missing from /Fields. So a gate built on `fields` adds work at open
+  instead of moving it. Review caught this twice:
+  - Round 1: `PdfAcroForm._pages` still looked each page up with
+    `page(i)`, which is quadratic on a flat /Kids tree before the viewer
+    has warmed the page cache (1.36 s at 4000 pages, against 12 ms for the
+    hash). #969 fixed `_pages` on main.
+  - Round 2: even as one page walk, the reconcile parses every annotation.
+    A no-/ID file with an empty /AcroForm stub and dense link annotations
+    (a TOC or an index) went from 68 ms (the hash) to 800 ms in the
+    constructor at 40k links (`buildMultiPagePdf(2000)`, 20 /Link each).
+
+  The gate now over-approximates from the /Fields tree alone. It checks the
+  marker on every node reachable through /Kids (widget kids included), with
+  an identity-keyed visited set and an explicit stack, and ignores /Ff and
+  /V. A false positive only costs the hash and the store read, and
+  `_loadFormSecrets` still filters exactly. `form_secret_store_test` pins
+  three things: no `pageTreeWalk` in the constructor, the same constructor
+  `objectsLoaded` with 0 or 4000 link annotations (the `fields` gate loaded
+  202 vs 4202 objects), and a withheld field nested under /Kids that still
+  restores.
+
+  What the /Fields walk cannot see is a field synthesized from an orphan
+  page widget (no /Fields entry by that name) that carries the marker.
+  Getting there takes several steps: a withheld fill on such a field, which
+  writes /ID; another tool later stripping /ID while keeping the private
+  marker; then a store entry filed under the hash of exactly the stripped
+  bytes by an earlier session that was discarded unsaved. Even then only
+  the inline editor's prefill is lost. The store keeps the value, and the
+  field still shows its mask. This case is accepted. Keeping it exact would
+  mean starting the load from the form layer's first `fields` computation.
 
 ## 2. Undo reopens with the authenticated keys
 
@@ -88,7 +106,16 @@ ordinary incremental update.
   to the empty password).
 - It donates only while the revision's /Encrypt has the same object number
   **and** the same entries (`_sameEncryptDictionary`: a structural compare,
-  strings by bytes, the /CF crypt filters included). The object number alone
+  strings by bytes, the /CF crypt filters included). The compare is against
+  `_authenticatedEncrypt`, a copy (indirect entries inlined) of the
+  dictionary the donor's handler was derived from, which donated documents
+  inherit. It is not compared against the donor's current trailer
+  /Encrypt: `applyIncrementalUpdate` keeps the handler while a folded
+  revision may redefine that object, and then the donor would vouch for a
+  dictionary it never authenticated. The editor cannot reach that state,
+  because `CosIncrementalUpdater` copies the /Encrypt reference and never
+  rewrites the object. A test folds a re-keyed /Encrypt into the donor
+  anyway. The object number alone
   does not prove the handler is unchanged: a revision can rewrite that
   object under the same number. The handler is a function of the /Encrypt
   entries, /ID[0] and the password, so comparing the whole dictionary (a
@@ -179,9 +206,11 @@ and worker generation stay. (Progressive's counts vary run to run on both
 sides - two or three `cos open`s, occasionally page 0 interpreted twice -
 a swap timing race that predates this change.)
 
-### Re-run after review, rebased onto #969
+### Re-run after review round 1, rebased onto #969 (superseded)
 
-Base is origin/main with #969 and #970. Both arms ran 6 rounds, ABAB, with
+These rows measure the round-1 gate, which still went through
+`PdfAcroForm.fields`. The round-2 re-run below replaces them. Base is
+origin/main with #969 and #970. Both arms ran 6 rounds, ABAB, with
 the order flipped each round. "+ pages" adds the viewer's attach-time
 `document.pages` walk to the open. `flatform-n` is the review's
 counter-example class: flat-tree `buildMultiPagePdf(n)` with no /ID and an
@@ -201,12 +230,54 @@ empty /AcroForm added by an incremental update.
 | AOT the same, flatform-500 / 2000 / 4000 | 2.49 / 10.85 / 23.21 ms | 1.35 / 5.79 / 12.99 ms | 1.85 / 1.86 / 1.80x |
 | AOT R6 undo reopen + page 0 decrypt, owner-only / user password | 30.6 / 31.8 ms | 0.034 / 0.035 ms | 921x / 911x |
 
-On a flat-tree form without /ID the constructor alone is slower than base
-by about one page-tree walk. The walk moved out of the viewer's attach and
-into the constructor, and the viewer then reuses it. Open to viewer is
-faster because the hash is gone. The same AOT bench built from the
-pre-rebase branch, where `_pages` still used `page(i)`, took 26 / 344 /
-1347 ms on flatform-500 / 2000 / 4000.
+With that gate, a flat-tree form without /ID made the constructor alone
+slower than base by about one page-tree walk, which the viewer then
+reused. That description missed the annotation parse, which the viewer
+does not reuse (round 2). The same AOT bench built from the pre-rebase
+branch, where `_pages` still used `page(i)`, took 26 / 344 / 1347 ms on
+flatform-500 / 2000 / 4000.
+
+### Re-run after review round 2 (/Fields-only gate)
+
+Base is origin/main (with #969 and #970). Both arms ran 6 rounds, ABAB,
+with the order flipped each round. `annotform-PxL` is `buildMultiPagePdf(P)`
+with no /ID, an empty /AcroForm and L indirect /Link annotations per page,
+all added by an incremental update: the round-2 counter-example. JIT is the
+real `PdfEditingController` with an `InMemoryFormSecretStore`, 5 reps per
+round. "+ attach" adds the viewer's `document.pages` and `formWidgetsOn(0)`.
+AOT is a `dart compile exe` bench, built from each worktree, that mirrors
+the constructor's calls, 8 reps per round. Its "+ pages" adds
+`document.pages`. Process CPU comes from `/usr/bin/time`.
+
+| workload | base | patched | pair ratio |
+| --- | ---: | ---: | ---: |
+| JIT constructor, 21.5 MB no /ID | 202.5 ms | 0.47 ms | 430x |
+| JIT constructor + attach, 21.5 MB no /ID | 204.3 ms | 1.89 ms | 109x |
+| JIT constructor + attach, 23.2 MB with /ID (control) | 1.51 ms | 1.41 ms | 1.03x (noise) |
+| JIT constructor, flatform-4000 | 13.7 ms | 2.07 ms | 6.5x |
+| JIT constructor + attach, flatform-4000 | 29.0 ms | 17.7 ms | 1.65x |
+| JIT constructor, annotform-2000x20 (40k links) | 68.4 ms | 16.1 ms | 4.3x |
+| JIT constructor + attach, annotform-2000x20 | 83.1 ms | 31.7 ms | 2.6x |
+| JIT constructor, annotform-300x15 (4.5k links) | 7.55 ms | 1.27 ms | 5.8x |
+| JIT constructor + attach, annotform-300x15 | 10.1 ms | 2.83 ms | 3.4x |
+| JIT `controller.undo()`, R6 owner-only / user password | 26.1 / 26.8 ms | 0.33 / 0.13 ms | 80x / 206x |
+| JIT `controller.undo()`, R4 | 0.44 ms | 0.08 ms | 5.9x |
+| AOT open + id decision, 21.5 MB no /ID | 183.2 ms | 0.059 ms | ~3000x (process CPU 1.67 -> 0.00 s) |
+| AOT the same + pages, 21.5 MB no /ID | 183.4 ms | 0.32 ms | 584x |
+| AOT the same + pages, 23.2 MB with /ID (control) | 0.31 ms | 0.30 ms | 1.02x |
+| AOT open + id decision (+ pages), flatform-4000 | 10.4 (21.4) ms | 1.12 (11.5) ms | 9.4x (1.89x) |
+| AOT open + id decision (+ pages), annotform-2000x20 | 59.6 (70.7) ms | 11.4 (22.2) ms | 5.2x (3.2x), process CPU 0.66 -> 0.22 s |
+| AOT open + id decision (+ pages), annotform-300x15 | 6.72 (8.15) ms | 1.01 (2.45) ms | 6.7x (3.3x) |
+| AOT R6 undo reopen + page 0 decrypt, owner-only / user password | 29.0 / 30.2 ms | 0.032 / 0.032 ms | 912x / 944x |
+
+The patched constructor on the annotform files is the xref parse of the
+42k-entry update, which base pays too. As a reference, the round-1 gate
+(`fields.any(...)`) mirrored in the same patched AOT bench took 735 ms on
+annotform-2000x20 (process CPU 7.1 s), 27 ms on annotform-300x15 and
+11.5 ms on flatform-4000. That matches the reviewer's 741 ms. No workload
+is slower than base any more. The constructor no longer walks the page
+tree, so flat-tree forms without /ID come out faster in the constructor
+too, not only once the viewer has attached.
 
 Prevalence: in the private real-world corpus 8 of 53 files have no /ID, all
 at most 1.7 MB (1-20 ms each); none of the no-/ID files in either corpus
@@ -218,21 +289,27 @@ appears in the checked-in pdf.js suite.
 ## Files
 
 - `packages/dart_pdf_editor/lib/src/editing/editing_controller.dart`:
-  constructor gate (`_mayHoldFormSecrets`, `_holdsWithheldValue`),
+  constructor gate (`_mayHoldFormSecrets`, `_fieldTreeHoldsWithheldMarker`,
+  `_holdsWithheldValue`),
   `_resolveFormSecretId`, `debugFormSecretIdResolved`, `_openRevision`.
 - `packages/pdf_document/lib/src/document_identity.dart`:
   `pdfFallbackDocumentId`.
 - `packages/pdf_cos/lib/src/document.dart`: `openAppended(password:)`,
-  `_sameEncryptDictionary`/`_sameCos`; `packages/pdf_document/lib/src/document.dart`:
+  `_sameEncryptDictionary`/`_sameCos`, `_authenticatedEncrypt`/
+  `_inlineEncrypt`; `packages/pdf_document/lib/src/document.dart`:
   `PdfDocument.openAppended` forwards the password.
 - Tests: `form_secret_store_test.dart` (no hash or `readAll` without a
   withheld field, a withheld field in a no-/ID file still restoring, the
   first fill after another edit filing under the opened hash, a 3000-page
-  flat-tree no-/ID form walking its page tree once across the constructor
-  and the viewer's `document.pages`),
+  flat-tree no-/ID form whose constructor walks no page tree (the viewer's
+  `document.pages` is the only walk), the constructor's `objectsLoaded`
+  independent of the annotation count, a withheld field nested under /Kids
+  still found, and a no-/ID file keeping its opened identity across a
+  redaction burn),
   `editing_incremental_reload_test.dart` (R6 undo keeps the handler and
   matches a cold open, with and without a user password),
   `standard_security_handler_test.dart` (an earlier revision reuses the
   keys; a re-keyed /Encrypt under the same number re-authenticates; one that
   keeps the key material but swaps a crypt filter is not donated the old
-  handler).
+  handler; a donor that folded in a re-keyed /Encrypt does not vouch for
+  it).

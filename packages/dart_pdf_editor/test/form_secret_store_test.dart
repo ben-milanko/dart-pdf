@@ -29,6 +29,36 @@ void main() {
     return editor.save();
   }
 
+  /// A flat [buildMultiPagePdf] with no trailer /ID, given an empty
+  /// /AcroForm (and [linksPerPage] indirect /Link annotations on every page)
+  /// by an incremental update - the shape where the no-/ID open has to look
+  /// at the form to decide whether to hash.
+  Uint8List noIdFormPdf(int pageCount, {int linksPerPage = 0}) {
+    final doc = PdfDocument.open(buildMultiPagePdf(pageCount));
+    final updater = CosIncrementalUpdater(doc.cos);
+    if (linksPerPage > 0) {
+      for (final page in doc.pages) {
+        page.dict['Annots'] = CosArray([
+          for (var i = 0; i < linksPerPage; i++)
+            updater.addObject(CosDictionary({
+              'Type': const CosName('Annot'),
+              'Subtype': const CosName('Link'),
+              'Rect': CosArray([
+                const CosInteger(72),
+                CosInteger(700 - i * 20),
+                const CosInteger(300),
+                CosInteger(712 - i * 20),
+              ]),
+            })),
+        ]);
+        updater.markChanged(page.dict);
+      }
+    }
+    doc.catalog['AcroForm'] = CosDictionary({'Fields': CosArray([])});
+    updater.markChanged(doc.catalog);
+    return updater.save();
+  }
+
   bool fileContains(Uint8List bytes, String text) =>
       latin1.decode(bytes).contains(text);
 
@@ -171,19 +201,13 @@ void main() {
     }
   });
 
-  // Without /ID the open decides by walking the form's fields, which maps the
-  // pages once (orphan-widget reconcile). That walk must be the one
-  // PdfDocument.pages walk the viewer then reuses: a page(0..n) scan runs
-  // before the viewer has warmed the page cache and is quadratic on a flat
-  // page tree (1.4 s at 4000 pages vs 12 ms for the hash it replaces).
-  test('a no-/ID form walks a flat page tree once, and the viewer reuses it',
-      () async {
+  // Without /ID the open decides by walking the /Fields tree, never the pages:
+  // PdfAcroForm.fields would map every page and parse every annotation on it
+  // (its orphan-widget reconcile) - work the viewer only does for a page that
+  // shows a widget, and that the hash it replaces never cost.
+  test('a no-/ID form opens without walking the page tree', () async {
     const pageCount = 3000;
-    final plain = PdfDocument.open(buildMultiPagePdf(pageCount));
-    final updater = CosIncrementalUpdater(plain.cos);
-    plain.catalog['AcroForm'] = CosDictionary({'Fields': CosArray([])});
-    updater.markChanged(plain.catalog);
-    final bytes = updater.save();
+    final bytes = noIdFormPdf(pageCount);
     expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
 
     addTearDown(() {
@@ -195,16 +219,77 @@ void main() {
     final store = _CountingStore();
     final c = await open(bytes, store);
     final opened = PdfPerf.snapshot();
-    expect(c.acroForm, isNotNull, reason: 'the gate takes the field walk');
+    expect(c.acroForm, isNotNull, reason: 'the gate looks at the form');
     expect(store.readAlls, 0);
     expect(c.debugFormSecretIdResolved, isFalse);
-    expect(opened.phaseCalls[PdfPerfPhase.pageTreeWalk.index], 1,
-        reason: 'one whole-tree walk maps the pages for the field reconcile');
+    expect(opened.phaseCalls[PdfPerfPhase.pageTreeWalk.index], 0,
+        reason: 'the gate reads /Fields, not the pages');
 
     expect(c.document.pages, hasLength(pageCount));
     expect(PdfPerf.snapshot().phaseCalls[PdfPerfPhase.pageTreeWalk.index], 1,
-        reason: "the viewer's document.pages is the walk the open already "
-            'paid, not a second one');
+        reason: "the viewer's document.pages is the only walk");
+  });
+
+  // The regression the /Fields-only gate fixes: through PdfAcroForm.fields a
+  // no-/ID file with an empty /AcroForm and dense link annotations (a TOC, an
+  // index) parsed all of them in the constructor - 0.8 s at 40k links.
+  test('a no-/ID form open loads no more objects for more annotations',
+      () async {
+    addTearDown(() {
+      PdfPerf.enabled = false;
+      PdfPerf.reset();
+    });
+    int constructorLoads(Uint8List bytes) {
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      final store = _CountingStore();
+      final c = PdfEditingController(bytes, formSecretStore: store);
+      final loads = PdfPerf.snapshot().counts[PdfPerfCount.objectsLoaded.index];
+      PdfPerf.enabled = false;
+      c.dispose();
+      expect(store.readAlls, 0);
+      return loads;
+    }
+
+    final bare = constructorLoads(noIdFormPdf(200));
+    final linked = constructorLoads(noIdFormPdf(200, linksPerPage: 20));
+    expect(linked, bare,
+        reason: '4000 link annotations must cost the open nothing');
+    expect(bare, lessThan(20), reason: 'nor may the 200 pages');
+  });
+
+  test('a withheld field nested under /Kids in a no-/ID file is found',
+      () async {
+    // the gate descends /Kids: a parent node holding the password field
+    final doc = PdfDocument.open(buildAcroFormPdf());
+    final updater = CosIncrementalUpdater(doc.cos);
+    final form = doc.cos.resolve(doc.catalog['AcroForm']) as CosDictionary;
+    final roots = (doc.cos.resolve(form['Fields']) as CosArray).items;
+    final nameRef = roots.first;
+    final name = doc.cos.resolve(nameRef) as CosDictionary;
+    expect(doc.cos.resolve(name['T']), CosString.fromText('name'));
+    name['Ff'] = const CosInteger(PdfFormField.passwordFlag);
+    name.entries.remove('V');
+    name[PdfFormFilling.passwordWithheldKey] = const CosBoolean(true);
+    final group = updater.addObject(CosDictionary({
+      'T': CosString.fromText('group'),
+      'Kids': CosArray([nameRef]),
+    }));
+    name['Parent'] = group;
+    form['Fields'] = CosArray([group, ...roots.skip(1)]);
+    updater
+      ..markChanged(name)
+      ..markChanged(doc.catalog);
+    final bytes = updater.save();
+    expect(pdfTrailerPermanentId(PdfDocument.open(bytes)), isNull);
+
+    final store = _CountingStore();
+    await store.write(pdfFormSecretDocumentId(pdfFallbackDocumentId(bytes)),
+        'group.name', 'nested');
+    final c = await open(bytes, store);
+    expect(store.readAlls, 1);
+    expect(
+        c.formFieldTextValue(c.acroForm!.fieldNamed('group.name')!), 'nested');
   });
 
   test('a file with a trailer /ID but no form skips the store read', () async {
@@ -263,6 +348,27 @@ void main() {
     expect(again.formSecretDocumentId, c.formSecretDocumentId);
     expect(again.formFieldTextValue(again.acroForm!.fieldNamed('name')!),
         'hunter2');
+  });
+
+  // A redaction burn replaces the whole buffer (_resetTo): revision 0 is no
+  // longer the opened bytes, so the lazy fallback identity has to be taken
+  // before the swap or later fills would file under the hash of the burned
+  // file instead.
+  test('a no-/ID file keeps its opened identity across a redaction burn',
+      () async {
+    final store = InMemoryFormSecretStore();
+    final original = passwordForm();
+    final c = await open(original, store);
+    expect(c.debugFormSecretIdResolved, isFalse);
+    c.addRedaction(0, const PdfRect(400, 100, 500, 150));
+    expect(c.applyRedactions(), isTrue);
+    expect(c.revisionCount, 1, reason: 'the burn starts a fresh history');
+
+    expect(c.setFormFieldText('name', 'v'), isTrue);
+    await c.formSecretsSettled;
+    final key = pdfFormSecretDocumentId(pdfFallbackDocumentId(original));
+    expect(c.formSecretDocumentId, key);
+    expect(await store.read(key, 'name'), 'v');
   });
 
   test('SecureFormSecretStore round-trips through flutter_secure_storage',
