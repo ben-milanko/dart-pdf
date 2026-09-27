@@ -112,15 +112,45 @@ void main() {
       expect(buckets.length, greaterThan(4000));
     });
 
-    test('an object number past the key range is dangling, not an alias', () {
+    test('packed keys stay below 2^48, exact on dart2js', () {
+      expect(CosDocument.debugCacheKey(0xFFFFFFFF, 0xFFFF),
+          lessThan(0x1000000000000));
+    });
+
+    test('an object number past 2^32 does not alias a packed key', () {
       final doc = CosDocument.open(buildClassicPdf());
-      // Cache object 5 under generation 1: its key is 2^32 + 5, which is also
-      // what object 2^32 + 5 at generation 0 would pack to.
+      // Object 5 under generation 1 packs to 2^32 + 5, the number of a ref
+      // the key can't hold: that one is looked up by its own number.
       final five = doc.getObject(5, 1);
       expect(five, isA<CosDictionary>());
       expect(doc.getObject(0x100000000 + 5, 0), same(CosNull.instance));
       expect(doc.getObject(-1, 0), same(CosNull.instance));
       expect(doc.getObject(5, 1), same(five));
+    });
+
+    test('a generation past 65535 does not alias another object', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      // `n * 65536 + g` put (3, 65536) on (4, 0); `g * 2^32 + n` is inexact
+      // on dart2js from g = 2^21, where (4, 2^22) and (5, 2^22) collide.
+      expect(doc.getObject(4, 0), isA<CosStream>());
+      expect((doc.getObject(3, 65536) as CosDictionary).typeName, 'Page');
+      const junk = 1 << 22;
+      expect(doc.getObject(4, junk), isA<CosStream>());
+      expect((doc.getObject(5, junk) as CosDictionary).typeName, 'Font');
+      expect((doc.getObject(3, -1) as CosDictionary).typeName, 'Page');
+      expect(
+          doc.referenceTo(doc.getObject(5, junk)), const CosReference(5, junk));
+    });
+
+    test('adopts an object under a number past 2^32 without aliasing', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      const ref = CosReference(0x100000000 + 3, 0);
+      final added = CosDictionary({'A': const CosInteger(1)});
+      doc.adoptObject(ref, added);
+      expect(doc.getObject(ref.objectNumber, 0), same(added));
+      expect(doc.referenceTo(added), ref);
+      // (3, 1) packs to 2^32 + 3: still the page, not the adopted object.
+      expect((doc.getObject(3, 1) as CosDictionary).typeName, 'Page');
     });
   });
 

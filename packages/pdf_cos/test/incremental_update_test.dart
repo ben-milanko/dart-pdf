@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -53,7 +54,7 @@ void main() {
     // The eviction decodes the object number back out of the packed cache key,
     // so the generation bits must not leak into it. getObject does not check a
     // reference's generation against the xref, so any of these can be cached.
-    const generations = [0, 1, 3, 65535];
+    const generations = [0, 1, 3, 65535, 65536, 1 << 22];
     final original = buildClassicPdf();
     final updated = (CosIncrementalUpdater(CosDocument.open(original))
           ..replaceObject(5, CosDictionary({'A': const CosInteger(7)})))
@@ -75,6 +76,35 @@ void main() {
       );
     }
     expect(doc.getObject(3, 0), same(page),
+        reason: 'an untouched object keeps its cache entry');
+  });
+
+  test('evicts a changed object whose number is past 2^32', () {
+    // A junk /Size past 2^32 makes the updater number new objects beyond what
+    // the packed cache key holds. The render worker applies every revision in
+    // place, so the eviction has to reach those cache entries too.
+    final base = latin1.encode(latin1
+        .decode(buildClassicPdf())
+        .replaceFirst('/Size 6 ', '/Size ${0x100000003} '));
+    final adding = CosIncrementalUpdater(CosDocument.open(base));
+    final ref = adding.addObject(CosDictionary({'Rev': const CosInteger(1)}));
+    expect(ref.objectNumber, 0x100000003);
+    final first = adding.save();
+    final second = (CosIncrementalUpdater(CosDocument.open(first))
+          ..replaceObject(
+              ref.objectNumber, CosDictionary({'Rev': const CosInteger(2)})))
+        .save();
+
+    final doc = CosDocument.open(base);
+    expect(doc.resolve(ref), same(CosNull.instance));
+    doc.applyIncrementalUpdate(first);
+    expect((doc.resolve(ref) as CosDictionary)['Rev'], const CosInteger(1));
+    final page = doc.getObject(3, 1);
+    expect((page as CosDictionary).typeName, 'Page');
+
+    doc.applyIncrementalUpdate(second);
+    expect((doc.resolve(ref) as CosDictionary)['Rev'], const CosInteger(2));
+    expect(doc.getObject(3, 1), same(page),
         reason: 'an untouched object keeps its cache entry');
   });
 

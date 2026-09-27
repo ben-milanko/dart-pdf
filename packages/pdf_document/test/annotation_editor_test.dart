@@ -46,6 +46,21 @@ void main() {
     return latin1.decode(doc.cos.decodeStreamData(stream!));
   }
 
+  test('an annotation survives a reopen when /Size is past 2^32', () {
+    // New objects take their numbers from /Size, so a junk one hands the
+    // edit numbers past what the object cache's packed key holds.
+    for (final size in [0xFFFFFFFF, 0x100000000, 0x100000003]) {
+      final pdf = latin1.encode(latin1
+          .decode(buildClassicPdf())
+          .replaceFirst('/Size 6 ', '/Size $size '));
+      final editor = PdfEditor(PdfDocument.open(pdf))
+        ..addSquare(0, const PdfRect(72, 600, 200, 700), contents: 'kept');
+      final annots = PdfDocument.open(editor.save()).page(0).annotations;
+      expect(annots, hasLength(1), reason: '/Size $size');
+      expect(annots.single.subtype, 'Square', reason: '/Size $size');
+    }
+  });
+
   test('highlight round-trips with quad points and a Multiply appearance', () {
     final doc = roundTrip((e) => e.addHighlight(
           0,
