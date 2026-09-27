@@ -151,7 +151,7 @@ class PdfAcroForm {
 
   /// Page dictionaries by index, resolved once per form instance.
   List<CosDictionary> get _pages => _pageDicts ??= [
-        for (var i = 0; i < document.pageCount; i++) document.page(i).dict,
+        for (final page in document.pages) page.dict,
       ];
 
   /// Widget dictionary → the first page whose /Annots lists it, built by one

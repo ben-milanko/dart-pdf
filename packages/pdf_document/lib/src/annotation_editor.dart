@@ -4254,8 +4254,9 @@ extension PdfAnnotationEditing on PdfEditor {
   /// how many annotations were named.
   int nameAnnotations() {
     var named = 0;
-    for (var pageIndex = 0; pageIndex < document.pageCount; pageIndex++) {
-      for (final annotation in document.page(pageIndex).annotations) {
+    final pages = document.pages;
+    for (var pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      for (final annotation in pages[pageIndex].annotations) {
         if (const {'Popup', 'Widget', 'Link'}.contains(annotation.subtype)) {
           continue;
         }

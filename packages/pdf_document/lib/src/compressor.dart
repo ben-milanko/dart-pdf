@@ -246,8 +246,7 @@ class PdfCompressor {
     if (working.pageCount != pageCount) {
       throw StateError('Optimisation changed the page count.');
     }
-    for (var i = 0; i < pageCount; i++) {
-      final page = working.page(i);
+    for (final page in working.pages) {
       page.mediaBox;
       page.resources;
       page.annotations;
