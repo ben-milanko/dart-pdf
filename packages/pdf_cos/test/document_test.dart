@@ -91,6 +91,39 @@ void main() {
     });
   });
 
+  group('object cache key', () {
+    test('keeps the object number in the low bits', () {
+      // Generation-0 keys are the object numbers themselves; the generation
+      // rides above bit 32.
+      expect(CosDocument.debugCacheKey(12345, 0), 12345);
+      expect(CosDocument.debugCacheKey(12345, 3) % 0x100000000, 12345);
+      expect(CosDocument.debugCacheKey(12345, 3),
+          isNot(CosDocument.debugCacheKey(12346, 2)));
+    });
+
+    test('spreads sequential object numbers across hash buckets', () {
+      // The VM int hash keeps trailing zero bits, so a key with zero low bits
+      // (the old objectNumber * 65536 + generation: 726 of 4096 buckets here)
+      // piles a large document's objects into one linear-probe chain.
+      final buckets = {
+        for (var n = 1; n <= 4096; n++)
+          CosDocument.debugCacheKey(n, 0).hashCode & 4095,
+      };
+      expect(buckets.length, greaterThan(4000));
+    });
+
+    test('an object number past the key range is dangling, not an alias', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      // Cache object 5 under generation 1: its key is 2^32 + 5, which is also
+      // what object 2^32 + 5 at generation 0 would pack to.
+      final five = doc.getObject(5, 1);
+      expect(five, isA<CosDictionary>());
+      expect(doc.getObject(0x100000000 + 5, 0), same(CosNull.instance));
+      expect(doc.getObject(-1, 0), same(CosNull.instance));
+      expect(doc.getObject(5, 1), same(five));
+    });
+  });
+
   test('junk before the header shifts offsets', () {
     final junk = ascii('GARBAGE BYTES ');
     final pdf = buildClassicPdf();

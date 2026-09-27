@@ -280,7 +280,7 @@ class CosDocument {
     // Drop cached state for every redefined object so the next resolve re-reads
     // it from the appended bytes; untouched objects keep their warm cache.
     _cache.removeWhere((key, obj) {
-      if (!changed.contains(key ~/ 65536)) return false;
+      if (!changed.contains(_objectNumberOf(key))) return false;
       final reverse = _reverseCache[obj];
       if (reverse != null &&
           _cacheKey(reverse.objectNumber, reverse.generation) == key) {
@@ -598,15 +598,44 @@ class CosDocument {
     _reverseCache[object] = ref;
   }
 
-  /// Packs (objectNumber, generation) into one int cache key. Generations
-  /// are at most 65535 (a 5-digit xref field), and object numbers stay far
-  /// below 2^37, so the product fits dart2js's 53 safe bits. Multiplication,
-  /// not `<< 16`: JS bitwise shifts truncate to 32 bits under dart2js.
+  /// Packs (objectNumber, generation) into one int cache key, with the object
+  /// number in the low 32 bits. The low bits must carry the object number:
+  /// the VM/AOT/wasm `int.hashCode` is a multiply that keeps trailing zero
+  /// bits, so the old `objectNumber * 65536 + generation` put every key's low
+  /// 16 bits at zero and piled a large document's keys into shared
+  /// linear-probe chains (~8 us per lookup at 29k cached objects instead of
+  /// ~20 ns; full-graph walks like compaction spent most of their time there).
+  /// Don't "simplify" it back. Generation-0 keys - nearly every object - are
+  /// the object numbers themselves, which also keeps them under 2^30, on
+  /// dart2js's fast numeric-key path.
+  ///
+  /// Exact while 0 <= objectNumber < 2^32 ([getObject] treats anything else as
+  /// dangling) and the generation stays under 2^21 on dart2js (53 safe bits;
+  /// the xref field is 5 digits). Multiplication, not `<< 32`: JS bitwise
+  /// operators truncate to 32 bits under dart2js.
   static int _cacheKey(int objectNumber, int generation) =>
-      objectNumber * 65536 + generation;
+      generation * _objectNumberLimit + objectNumber;
+
+  /// The object number [_cacheKey] packed into [key]. `%`, not `&`, for the
+  /// same dart2js reason; Euclidean, so a (junk) negative generation still
+  /// decodes to its object number.
+  static int _objectNumberOf(int key) => key % _objectNumberLimit;
+
+  /// Object numbers at or above this - far past the 8,388,607 the spec allows
+  /// (Annex C) - would alias another object's [_cacheKey].
+  static const int _objectNumberLimit = 0x100000000;
+
+  /// [_cacheKey], exposed as a test hook.
+  static int debugCacheKey(int objectNumber, int generation) =>
+      _cacheKey(objectNumber, generation);
 
   /// Loads an object by number, parsing it on first access.
   CosObject getObject(int objectNumber, int generation) {
+    // Never valid (object numbers are positive, §7.3.10), and outside the
+    // range the cache key encodes without aliasing: a dangling reference.
+    if (objectNumber < 0 || objectNumber >= _objectNumberLimit) {
+      return CosNull.instance;
+    }
     final key = _cacheKey(objectNumber, generation);
     final cached = _cache[key];
     if (cached != null) return cached;

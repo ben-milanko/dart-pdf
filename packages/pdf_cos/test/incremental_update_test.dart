@@ -49,6 +49,35 @@ void main() {
     expect(doc.trailer['Root'], isNotNull);
   });
 
+  test('evicts a changed object cached under a non-zero generation', () {
+    // The eviction decodes the object number back out of the packed cache key,
+    // so the generation bits must not leak into it. getObject does not check a
+    // reference's generation against the xref, so any of these can be cached.
+    const generations = [0, 1, 3, 65535];
+    final original = buildClassicPdf();
+    final updated = (CosIncrementalUpdater(CosDocument.open(original))
+          ..replaceObject(5, CosDictionary({'A': const CosInteger(7)})))
+        .save();
+
+    final doc = CosDocument.open(original);
+    for (final generation in generations) {
+      expect((doc.getObject(5, generation) as CosDictionary)['A'], isNull);
+    }
+    final page = doc.getObject(3, 0);
+
+    doc.applyIncrementalUpdate(updated);
+
+    for (final generation in generations) {
+      expect(
+        (doc.getObject(5, generation) as CosDictionary)['A'],
+        const CosInteger(7),
+        reason: 'generation $generation',
+      );
+    }
+    expect(doc.getObject(3, 0), same(page),
+        reason: 'an untouched object keeps its cache entry');
+  });
+
   test('resolves objects the appended revision adds', () {
     final original = buildClassicPdf();
     final updater = CosIncrementalUpdater(CosDocument.open(original));
