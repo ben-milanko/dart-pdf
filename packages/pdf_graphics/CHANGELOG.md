@@ -1,5 +1,61 @@
 # Changelog
 
+## 5.1.0
+
+- Output change: downscaled 8-bit images under a same-size stencil /Mask or
+  8-bit /SMask are composited exactly. The targeted decode used to size the
+  mask to the target and point-sample it back onto the native image, which
+  averaged in base colour the mask hides along its edges and disagreed with
+  deep-zoom slices. Eligible downscales (single-Flate 8-bit DeviceRGB or
+  DeviceGray with identity /Decode) now equal a full decode followed by a
+  downsample. Only mask-edge pixels move; the Ghent, overprint and pdf.js
+  render tests are unchanged. The same kernel serves deep-zoom regions of
+  masked images, which used to decode the whole native image, and stencil
+  coverage steps over blank words (both byte-identical).
+- Render-command codec wire format v10 then v11. v10 sends only the part of a
+  fill's or stroke's paint that changed and writes paths as aligned float32
+  blocks (serialize about 0.5x, deserialize 0.4-0.76x on CAD pages). v11
+  sends a Type3 glyph cell once per page and back-references it for every
+  later stamp (a bitmap-font page's record 23 MB -> 2.3 MB). Buffers are
+  not compatible across versions: `deserializeCommands` and
+  `deserializePageText` now throw `FormatException` on a buffer from another
+  format version instead of misreading it (the worker hosts already fall
+  back to local rendering).
+- Cache luminosity-mask decodes in `PdfImageDecodeCache` at native
+  resolution, so a mask shared across pages, thumbnails and deep-zoom patches
+  decodes once. The cache key separates them from ordinary DeviceGray decodes.
+- Keep `PdfColorContext` across revisions while the document's OutputIntent
+  profile streams are unchanged. Every edit used to re-inflate and re-parse the
+  profile, and the stale contexts filled the image-overprint substitute memo,
+  so after a few edits image overprint silently stopped and 11 of the 54 Ghent
+  files drifted from their first rendering.
+- Parse ICC profiles into typed tables (a press profile parses in 1.8 ms
+  instead of 30 ms and keeps 6.9 MB instead of 28.5 MB), parse aliased
+  A2B/B2A tags once and cache black points per intent. A truncated profile
+  still parses to null.
+- Speed up colour work in image decoding, byte-identical: a two-value table
+  for 1-bit gray (JBIG2 scans), memoised ICC RGB pixels and a 16-bit gray
+  table under an OutputIntent, and memoised `deviceCmyk`/`deviceGray`.
+- Speed up the overprint colorant buffer, output-identical: it starts lazily
+  at the first read, so pages that declare overprint but never read the
+  buffer rasterize nothing; glyph runs that overprint only unknown backdrop
+  are settled from cached outline bounds; transparency groups merge only the
+  rows they touched; the rasterizer uses typed edge tables and reads packed
+  paths through their cursor; and spatial image-overprint substitutes are
+  memoised per backdrop entry. A page that declares overprint no longer fails
+  when a fill its buffer never reads has non-finite coordinates.
+- Build glyph outline paths only for the two readers that need them (tiling
+  text fills and the colorant buffer). Every embedded-font run used to build
+  and discard a page-space copy of its outlines, up to half of a text page's
+  interpretation.
+- Run the common numeric operators (`m l c v y h re`, painting, `q Q cm w`,
+  text positioning and state) straight from the content cursor on an int
+  opcode: the content walk takes 0.66-0.75x on vector-dense pages.
+- Speed up text extraction: tiling and Type3 cells that cannot produce text
+  are skipped (a hatch-filled sheet extracts in 2.5 ms instead of 68.5 ms),
+  left-to-right lines skip the BiDi pass, run bounds are computed directly,
+  and the CJK line scan walks code units. Output is identical.
+
 ## 5.0.0
 
 - Box-filter downscaled 1-bit /ImageMask stencils instead of point sampling.

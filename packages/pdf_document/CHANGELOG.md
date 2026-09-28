@@ -1,5 +1,42 @@
 # Changelog
 
+## 5.1.0
+
+- Stop page edits dropping pages from a page tree whose intermediate /Count
+  is too small. The /Count-trusting lookup repeated some leaves and skipped
+  others, and `removePage`, `movePage`, `insertBlankPage` and
+  `appendPagesFrom` rebuilt the tree from that list on a cold page cache.
+  They now take the true leaf order.
+- Make whole-document page loops linear on flat page trees. Page operations,
+  form reads, attachment listing, takeoff summaries, annotation naming and the
+  compressor walk `PdfDocument.pages` once instead of calling `page(i)` for
+  every index, and a `page(i)` lookup caches the leaf siblings after the page
+  it finds, so a forward loop resolves each page about once. On a 3,000-page
+  file after an annotation edit, `movePage` goes from 720 to 2.4 ms and a form
+  fill from 718 to 0.8 ms.
+- Memoise signature validation within a revision, and let a caller reuse the
+  expensive part across revisions. `validate` and `validateOnline` take
+  `cores:` (a `PdfSignatureCoreResolver`) that supplies a
+  `PdfSignatureCryptoCore` - digest, CMS/PKCS#1/RFC 3161 verification,
+  certificates, signing time - for the signature and every document
+  timestamp; `PdfSignature.cryptoCore()` computes one and
+  `hasSignableByteRange` says whether one can exist. A PAdES document
+  timestamp reuses its own row's validation instead of hashing again. The
+  `problems` and `certificates` lists of a validation are now unmodifiable,
+  since results are shared. With pdf_cos's P-521 fix, P-521 signatures
+  validate.
+- Add `PdfDocument.rollbackTo(length)`, wrapping `CosDocument.rollbackTo` and
+  dropping the page-tree caches.
+- `PdfDocument.openAppended` accepts an earlier revision's prefix and takes a
+  `password` for a revision whose /Encrypt differs.
+- `PdfAcroForm.of` takes an `onFields` hook, called once with the field list
+  the first time anything reads it.
+- Add `pdfFallbackDocumentId`, the SHA-256 identity `pdfPermanentDocumentId`
+  falls back to for a file without a trailer /ID, so callers can take the free
+  /ID first and hash only when they need to.
+- Decode PNG images through pdf_cos's tolerant `inflateZlib`, so trailing
+  bytes after the zlib stream no longer empty them on the web.
+
 ## 5.0.0
 
 ### Breaking changes

@@ -142,16 +142,17 @@ void main() {
 
   test('an encrypted document survives a session on the incremental path', () {
     // The two paths differ here in a way nothing else in this file exercises:
-    // the reopen fallback re-derives the security handler from the password,
-    // while the incremental path keeps the handler already on the shared
-    // CosDocument. If an in-place update ever dropped or re-derived it wrongly,
-    // strings and streams would decrypt to garbage from the second revision on.
+    // the reopen fallback re-parses the revision and carries over only the
+    // authenticated security handler, while the incremental path keeps the
+    // whole shared CosDocument - and the cold open each step is compared with
+    // re-derives the handler from the password. If either path ever dropped
+    // or re-derived it wrongly, strings and streams would decrypt to garbage
+    // from the second revision on.
     final editing = PdfEditingController(buildEncryptedPdf(revision: 4));
     addTearDown(editing.dispose);
 
     for (var i = 0; i < 10; i++) {
-      editing.addRectangle(
-          0, PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
+      editing.addRectangle(0, PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
       expectMatchesColdOpen(editing, 'encrypted revision ${i + 1}');
     }
     expect(editing.document.page(0).annotations, hasLength(10));
@@ -181,6 +182,37 @@ void main() {
         contains('Hello, world!'));
   });
 
+  test('undo on an AES-256 (R6) document reuses the authenticated keys', () {
+    // Undo is not an append, so it reopens - but every undo target is a
+    // prefix of the same session buffer with the same /Encrypt, so the reopen
+    // takes the handler already authenticated instead of re-running the R6
+    // password hash (tens of ms per undo on the UI isolate).
+    for (final password in ['', 'user']) {
+      final editing = PdfEditingController(
+          buildEncryptedPdf(revision: 6, userPassword: password),
+          password: password);
+      addTearDown(editing.dispose);
+      final keys = editing.document.cos.encryption;
+      expect(keys, isNotNull);
+
+      for (var i = 0; i < 4; i++) {
+        editing.addRectangle(0, PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
+      }
+      for (var i = 0; i < 4; i++) {
+        editing.undo();
+        expect(editing.document.cos.encryption, same(keys),
+            reason: 'undo ${i + 1} re-derived the keys (password "$password")');
+        expectMatchesColdOpen(editing, 'R6 undo ${i + 1}', password: password);
+        expect(String.fromCharCodes(editing.document.page(0).contentBytes()),
+            contains('Hello, world!'));
+      }
+      expect(editing.document.page(0).annotations, isEmpty);
+      editing.redo();
+      expectMatchesColdOpen(editing, 'R6 redo after undo', password: password);
+      expect(editing.document.page(0).annotations, hasLength(1));
+    }
+  });
+
   test('the revision buffer stays a prefix chain (saves are still appends)',
       () {
     // The incremental path is only sound while each revision appends to the
@@ -191,8 +223,8 @@ void main() {
 
     var previous = editing.bytes;
     for (var i = 0; i < 8; i++) {
-      editing.addRectangle(i.isEven ? 0 : 1,
-          PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
+      editing.addRectangle(
+          i.isEven ? 0 : 1, PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
       final current = editing.bytes;
       expect(current.length, greaterThan(previous.length));
       expect(current.sublist(0, previous.length), previous,

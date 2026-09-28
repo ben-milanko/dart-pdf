@@ -564,6 +564,445 @@ void main() {
     });
   });
 
+  // The layout changes between format versions, and a stale cached or
+  // self-hosted worker can still hand the UI a buffer from another build. That
+  // must fail up front - every caller turns a throw into a local render - not
+  // misparse into a wrong page (or, in a release build, an unchecked assert).
+  test('a buffer from another format version throws FormatException', () {
+    const square = PdfPath([
+      PdfMoveTo(0, 0),
+      PdfLineTo(1, 0),
+      PdfLineTo(1, 1),
+      PdfClosePath(),
+    ]);
+    final bytes = serializeCommands([
+      const PdfFillPathCommand(square, PdfColor.black, PdfFillRule.nonzero, 1),
+    ])!;
+    expect(deserializeCommands(Uint8List.fromList(bytes)), hasLength(1));
+    bytes[0] = bytes[0] - 1;
+    expect(() => deserializeCommands(bytes), throwsFormatException);
+
+    final text =
+        serializePageText(const PdfPageText(pageIndex: 0, text: '', runs: []));
+    text[0] = text[0] + 1;
+    expect(() => deserializePageText(text), throwsFormatException);
+  });
+
+  // Format 10 sends a fill's or stroke's colour, stroke and alpha only when
+  // they differ from the previous fill/stroke in the buffer, and writes paths
+  // as a verb block plus an aligned float32 coordinate block. The dedup state
+  // is sequential, so it must stay in step through nested soft-mask and
+  // tiled-cell lists - the transcript oracle catches a reader that drifts.
+  group('wire format v10', () {
+    PdfPath segment(double x) => PdfPath([PdfMoveTo(x, 0), PdfLineTo(x, 10)]);
+
+    PdfStrokePathCommand stroke(double x, PdfColor color, PdfStroke stroke,
+            [double alpha = 1]) =>
+        PdfStrokePathCommand(segment(x), color, stroke, alpha);
+
+    PdfFillPathCommand fill(double x, PdfColor color,
+            {double alpha = 1, PdfFillRule rule = PdfFillRule.nonzero}) =>
+        PdfFillPathCommand(segment(x), color, rule, alpha);
+
+    const red = PdfColor(1, 0, 0);
+    const blue = PdfColor(0, 0, 1);
+    const hairline = PdfStroke(width: 0.25);
+    const dashed = PdfStroke(width: 0.25, dashArray: [3, 2], dashPhase: 1.5);
+
+    test('a stroke run round-trips repeated, changed and dashed paint', () {
+      final commands = <PdfRenderCommand>[
+        stroke(0, red, hairline),
+        stroke(1, red, hairline),
+        // Equal by value, distinct instances: still the same paint.
+        stroke(2, const PdfColor(1, 0, 0), const PdfStroke(width: 0.25)),
+        stroke(3, red, const PdfStroke(width: 2)),
+        stroke(4, red, dashed),
+        stroke(5, red,
+            PdfStroke(width: 0.25, dashArray: [3.0, 2.0], dashPhase: 1.5)),
+        stroke(6, red, const PdfStroke(width: 0.25, dashArray: [3, 1])),
+        stroke(7, red, const PdfStroke(width: 0.25, dashArray: [3, 1]), 0.5),
+        stroke(8, blue, hairline, 0.5),
+        fill(9, blue, alpha: 0.5, rule: PdfFillRule.evenOdd),
+        fill(10, blue, alpha: 0.5),
+        fill(11, red),
+        // Nested lists advance the same state in write order: the mask's
+        // paint differs from what surrounds it, so a reader that kept a
+        // separate state per list (or skipped the nesting) would drift.
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: const PdfRect(0, 0, 10, 10),
+          maskCommands: [
+            fill(12, const PdfColor.gray(0.5), alpha: 0.75),
+            stroke(13, const PdfColor.gray(0.5), dashed, 0.75),
+            fill(14, const PdfColor.gray(0.5), alpha: 0.25),
+          ],
+        ),
+        stroke(15, red, dashed, 0.25),
+        stroke(16, red, dashed),
+        PdfDrawTiledCellCommand(
+          [
+            fill(17, blue, alpha: 0.125),
+            stroke(18, blue, hairline, 0.125),
+          ],
+          Float64List.fromList([0, 20]),
+          Float64List.fromList([0, 0]),
+        ),
+        stroke(19, blue, hairline, 0.125),
+        stroke(20, red, hairline),
+      ];
+
+      final bytes = serializeCommands(commands)!;
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+      expect(serializeCommands(restored), equals(bytes),
+          reason: 're-serializing the decoded buffer yields the same bytes');
+
+      // Repeated paint decodes to one shared instance, like the recording.
+      final strokes = restored.whereType<PdfStrokePathCommand>().toList();
+      expect(identical(strokes[0].stroke, strokes[2].stroke), isTrue);
+      expect(identical(strokes[0].color, strokes[2].color), isTrue);
+      expect(identical(strokes[4].stroke, strokes[5].stroke), isTrue);
+      expect(identical(strokes[5].stroke, strokes[6].stroke), isFalse);
+      expect(strokes[5].stroke.dashArray, [3, 2]);
+      expect(strokes[6].stroke.dashArray, [3, 1]);
+      expect(strokes[7].alpha, 0.5);
+    });
+
+    test('an unchanged stroke costs no paint bytes', () {
+      List<PdfRenderCommand> run(int n) =>
+          [for (var i = 0; i < n; i++) stroke(i.toDouble(), red, dashed)];
+      final one = serializeCommands(run(1))!.length;
+      final many = serializeCommands(run(101))!.length;
+      // A repeated 2-point stroke is a tag, a verb count, two verbs, 0-3
+      // alignment pad bytes, four float32 coordinates and one paint-flags
+      // byte: 24-27 bytes. Resending its paint - colour, width/cap/join/
+      // miter, the dash array and phase, alpha - would add 78 more.
+      expect(many - one, inInclusiveRange(100 * 24, 100 * 27));
+    });
+
+    test('paint dedup keeps -0.0 distinct from 0.0', () {
+      final restored = deserializeCommands(serializeCommands([
+        fill(0, const PdfColor(0, 0, 0), alpha: 0),
+        fill(1, const PdfColor(-0.0, 0, 0), alpha: -0.0),
+        stroke(2, red, const PdfStroke(width: 0)),
+        stroke(3, red, const PdfStroke(width: -0.0)),
+      ])!);
+      final fills = restored.whereType<PdfFillPathCommand>().toList();
+      final strokes = restored.whereType<PdfStrokePathCommand>().toList();
+      expect(fills[0].color.red.isNegative, isFalse);
+      expect(fills[1].color.red.isNegative, isTrue);
+      expect(fills[1].alpha.isNegative, isTrue);
+      expect(strokes[1].stroke.width.isNegative, isTrue);
+    });
+
+    test('paths keep their geometry across the block layout', () {
+      final builder = PdfPathBuilder()..moveTo(0.1, 0.2);
+      for (var i = 0; i < 40; i++) {
+        builder.cubicTo(i + 0.1, 1.1, i + 0.2, 2.2, i + 0.3, 3.3);
+      }
+      builder.close();
+      final long = builder.takePath();
+      final paths = <PdfPath>[
+        const PdfPath([]),
+        const PdfPath([PdfClosePath()]),
+        // Odd verb counts exercise every padding length.
+        const PdfPath([PdfMoveTo(1, 2), PdfLineTo(3, 4), PdfClosePath()]),
+        long,
+        // A packed path with spare coordinates writes only what its verbs
+        // consume, exactly as its cursor would read it.
+        PdfPath.packedFloat32(Uint8List.fromList([0, 1]),
+            Float32List.fromList([1, 2, 3, 4, 5, 6, 7, 8]), 2),
+      ];
+      final commands = [
+        for (final p in paths) PdfClipPathCommand(p, PdfFillRule.nonzero),
+      ];
+      final bytes = serializeCommands(commands)!;
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+      // A decoded (float32) path re-serializes byte-identically, long and
+      // short alike.
+      expect(serializeCommands(restored), equals(bytes));
+      final spare = (restored.last as PdfClipPathCommand).path.segments;
+      expect(spare, hasLength(2));
+      expect((spare.last as PdfLineTo).x, 3);
+    });
+
+    test('a buffer that is not 4-byte aligned decodes the same', () {
+      final builder = PdfPathBuilder()..moveTo(0, 0);
+      for (var i = 0; i < 50; i++) {
+        builder.lineTo(i * 1.5, i * 0.5);
+      }
+      final commands = <PdfRenderCommand>[
+        fill(0, red),
+        PdfStrokePathCommand(builder.takePath(), blue, dashed, 0.5),
+        stroke(1, blue, dashed, 0.5),
+      ];
+      final bytes = serializeCommands(commands)!;
+      // A view one byte into a larger buffer cannot use the float32 view.
+      final shifted = Uint8List(bytes.length + 1)
+        ..setRange(1, 1 + bytes.length, bytes);
+      final restored = deserializeCommands(Uint8List.sublistView(shifted, 1));
+      expect(_transcript(restored), equals(_transcript(commands)));
+    });
+
+    test('a corrupt path or paint block fails at decode, not at replay', () {
+      Matcher fails(String message) => throwsA(isA<FormatException>()
+          .having((e) => e.message, 'message', contains(message)));
+
+      // version u8, command count u32, command tag u8, verb count u32: the
+      // two verbs start at byte 10, then 2 pad bytes and 4 float32
+      // coordinates (bytes 12-27). A clip then ends with its rule byte; a
+      // fill carries its paint flags at byte 28.
+      final clip = serializeCommands(
+          [PdfClipPathCommand(segment(0), PdfFillRule.nonzero)])!;
+      expect(clip, hasLength(29));
+      expect(clip.sublist(10, 12), [0, 1]);
+      Uint8List corruptClip(int at, int value) =>
+          Uint8List.fromList(clip)..[at] = value;
+      expect(() => deserializeCommands(corruptClip(10, 7)),
+          fails('unknown path segment tag'));
+      expect(() => deserializeCommands(corruptClip(11, 2)),
+          fails('path coordinates run past the buffer'),
+          reason: 'a cubic needs coordinates the block does not have');
+      expect(() => deserializeCommands(corruptClip(8, 0xff)),
+          fails('path verbs run past the buffer'));
+
+      final fillBytes = serializeCommands([fill(0, red)])!;
+      expect(fillBytes[28], 0x01 | 0x04, reason: 'new colour, new alpha');
+      Uint8List corruptFill(int value) =>
+          Uint8List.fromList(fillBytes)..[28] = value;
+      expect(() => deserializeCommands(corruptFill(0x04)),
+          fails('colour reused before one was sent'));
+      expect(() => deserializeCommands(corruptFill(0x01)),
+          fails('alpha reused before one was sent'));
+      expect(() => deserializeCommands(corruptFill(0x05 | 0x02)),
+          fails('unknown paint flags'),
+          reason: 'a fill carries no stroke');
+      expect(() => deserializeCommands(corruptFill(0x05 | 0x20)),
+          fails('unknown fill rule'));
+
+      final strokeBytes = serializeCommands([stroke(0, red, dashed)])!;
+      expect(strokeBytes[28], 0x07);
+      expect(
+          () =>
+              deserializeCommands(Uint8List.fromList(strokeBytes)..[28] = 0x05),
+          fails('stroke reused before one was sent'));
+    });
+  });
+
+  // Format 11 writes a tiled cell's command list once per record and refers
+  // back to it by id. The interpreter stamps a Type3 glyph as a single-origin
+  // tiled cell sharing one recorded list (#535); written in full per stamp, a
+  // bitmap-font page shipped every glyph's commands and pixels once per
+  // letter, and read back as one fresh list per stamp - which is what the
+  // canvas keys its cached cell picture on. The transcript oracle expands
+  // cells per origin and cannot see sharing, so these check identity too.
+  group('tiled cell identity (v11)', () {
+    PdfPath segment(double x) => PdfPath([PdfMoveTo(x, 0), PdfLineTo(x, 10)]);
+    PdfFillPathCommand fill(double x, PdfColor color) =>
+        PdfFillPathCommand(segment(x), color, PdfFillRule.nonzero, 1);
+    PdfStrokePathCommand stroke(double x, PdfColor color, PdfStroke stroke) =>
+        PdfStrokePathCommand(segment(x), color, stroke, 1);
+    PdfDrawTiledCellCommand stamp(List<PdfRenderCommand> cell, double x) =>
+        PdfDrawTiledCellCommand(
+            cell, Float64List.fromList([x]), Float64List.fromList([0]));
+
+    const red = PdfColor(1, 0, 0);
+    const blue = PdfColor(0, 0, 1);
+    const dashed = PdfStroke(width: 0.25, dashArray: [3, 2], dashPhase: 1.5);
+
+    List<PdfDrawTiledCellCommand> stamps(List<PdfRenderCommand> commands) =>
+        commands.whereType<PdfDrawTiledCellCommand>().toList();
+
+    test('a shared cell is written once and reads back as one list', () {
+      final glyph = <PdfRenderCommand>[
+        for (var i = 0; i < 20; i++) fill(i.toDouble(), red),
+        stroke(0, blue, dashed),
+      ];
+      final commands = [for (var i = 0; i < 50; i++) stamp(glyph, i * 6.0)];
+      final bytes = serializeCommands(commands)!;
+
+      // The control: 50 lists with the same content but no shared identity
+      // cost what every stamp used to.
+      final unshared = serializeCommands([
+        for (var i = 0; i < 50; i++) stamp(List.of(glyph), i * 6.0),
+      ])!;
+      expect(bytes.length * 10, lessThan(unshared.length),
+          reason: 'the 49 repeats should be references, not bodies');
+
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+      final cells = stamps(restored);
+      expect(cells, hasLength(50));
+      for (final cell in cells) {
+        expect(identical(cell.cellCommands, cells.first.cellCommands), isTrue,
+            reason: 'every stamp shares the one restored cell list');
+      }
+      expect(cells.map((c) => c.originsX.single).toList(),
+          [for (var i = 0; i < 50; i++) i * 6.0]);
+      expect(serializeCommands(restored), equals(bytes),
+          reason: 're-serializing the decoded buffer yields the same bytes');
+    });
+
+    test('nested cells keep their slot order', () {
+      // B nests in A, and C holds both, so ids are handed out mid-body: a
+      // reader that numbered a cell after its body would give B's slot to A.
+      final b = <PdfRenderCommand>[fill(1, blue)];
+      final a = <PdfRenderCommand>[fill(2, red), stamp(b, 3), fill(4, red)];
+      final c = <PdfRenderCommand>[stamp(a, 5), stamp(b, 6)];
+      final commands = [
+        stamp(a, 0),
+        stamp(b, 10),
+        stamp(c, 20),
+        stamp(a, 30),
+        stamp(c, 40),
+        stamp(b, 50),
+      ];
+      final bytes = serializeCommands(commands)!;
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+
+      final top = stamps(restored);
+      final ra = top[0].cellCommands;
+      final rb = top[1].cellCommands;
+      final rc = top[2].cellCommands;
+      expect(
+          identical(ra, rb) || identical(rb, rc) || identical(ra, rc), isFalse);
+      expect(identical(stamps(ra).single.cellCommands, rb), isTrue);
+      expect(identical(stamps(rc)[0].cellCommands, ra), isTrue);
+      expect(identical(stamps(rc)[1].cellCommands, rb), isTrue);
+      expect(identical(top[3].cellCommands, ra), isTrue);
+      expect(identical(top[4].cellCommands, rc), isTrue);
+      expect(identical(top[5].cellCommands, rb), isTrue);
+      expect(serializeCommands(restored), equals(bytes));
+    });
+
+    test(
+        'paint after a back-referenced cell is read against the last paint '
+        'written', () {
+      // The v10 paint state runs in write order. The cell's body leaves it
+      // at blue; a later reference writes no body, so the state must stay at
+      // the red written just before it - on both sides.
+      final glyph = <PdfRenderCommand>[fill(1, blue), stroke(2, blue, dashed)];
+      final commands = <PdfRenderCommand>[
+        fill(0, red),
+        stamp(glyph, 10),
+        fill(3, red),
+        stamp(glyph, 20),
+        fill(4, red),
+        stroke(5, red, dashed),
+      ];
+      final bytes = serializeCommands(commands)!;
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+
+      final cells = stamps(restored);
+      expect(identical(cells[0].cellCommands, cells[1].cellCommands), isTrue);
+      final fills = restored.whereType<PdfFillPathCommand>().toList();
+      expect(fills.map((f) => f.color.blue), [0, 0, 0]);
+      expect(identical(fills[1].color, fills[2].color), isTrue,
+          reason: 'the fill after the reference reuses red, sent once');
+      final trailing = restored.last as PdfStrokePathCommand;
+      expect(trailing.stroke.dashArray, [3, 2],
+          reason: "the stroke state still comes from the cell's body");
+      expect(serializeCommands(restored), equals(bytes));
+    });
+
+    test('a corrupt cell reference fails at decode', () {
+      Matcher fails(String message) => throwsA(isA<FormatException>()
+          .having((e) => e.message, 'message', contains(message)));
+
+      // Each buffer ends with a back-reference: tag 2 and a big-endian u32.
+      Uint8List corrupt(List<PdfRenderCommand> commands,
+          {int? tag, int? id, int expectedId = 0}) {
+        final bytes = serializeCommands(commands)!;
+        final view = ByteData.sublistView(bytes);
+        expect(bytes[bytes.length - 5], 2, reason: 'ends in a reference');
+        expect(view.getUint32(bytes.length - 4), expectedId);
+        if (tag != null) bytes[bytes.length - 5] = tag;
+        if (id != null) view.setUint32(bytes.length - 4, id);
+        return bytes;
+      }
+
+      final glyph = <PdfRenderCommand>[fill(0, red)];
+      final twice = [stamp(glyph, 0), stamp(glyph, 6)];
+      expect(deserializeCommands(corrupt(twice)), hasLength(2));
+      expect(() => deserializeCommands(corrupt(twice, id: 1)),
+          fails('tiled cell id 1 out of range'));
+      expect(() => deserializeCommands(corrupt(twice, tag: 3)),
+          fails('unknown tiled cell tag'));
+
+      // A cell whose body refers to itself: B's second stamp is the last
+      // thing inside A, so pointing it at A's id (0) is a cycle.
+      final inner = <PdfRenderCommand>[fill(1, blue)];
+      final outer = <PdfRenderCommand>[stamp(inner, 0), stamp(inner, 6)];
+      expect(
+          () => deserializeCommands(
+              corrupt([stamp(outer, 0)], id: 0, expectedId: 1)),
+          fails('tiled cell 0 referenced inside its own body'));
+    });
+
+    test('a Type3 bitmap-font document crosses the seam as its own cells', () {
+      // Six pages of TeX PK-font text: every glyph a 1-bit inline ImageMask
+      // stamped per letter. The worker's decoded record used to rebuild one
+      // list per stamp.
+      final file = File('../../test_corpora/dartpdf/type3-text-6p.pdf');
+      if (!file.existsSync()) {
+        markTestSkipped('test_corpora/dartpdf not found');
+        return;
+      }
+      final doc = PdfDocument.open(file.readAsBytesSync());
+      final imageCache = PdfImageDecodeCache();
+      var stampCount = 0;
+      var sourceCells = 0;
+      var restoredCells = 0;
+      var totalBytes = 0;
+      int distinct(List<PdfRenderCommand> commands) {
+        final seen = Set<List<PdfRenderCommand>>.identity();
+        void walk(List<PdfRenderCommand> list) {
+          for (final c in list) {
+            if (c is PdfDrawTiledCellCommand && seen.add(c.cellCommands)) {
+              walk(c.cellCommands);
+            }
+          }
+        }
+
+        walk(commands);
+        return seen.length;
+      }
+
+      for (var i = 0; i < doc.pageCount; i++) {
+        final page = doc.page(i);
+        final recorder = RecordingPdfDevice();
+        PdfInterpreter(cos: doc.cos, device: recorder, collectCharOffsets: true)
+          ..drawPage(page)
+          ..drawAnnotations(page);
+        // The worker's final record: decoded pixels, compacted scopes.
+        final bytes = serializeCommands(recorder.commands,
+            cos: doc.cos,
+            decodeImages: true,
+            maxImagePixelRatio: 2,
+            pageRasterPixels: pdfPageRasterPixels(page.cropBox, 2),
+            imageCache: imageCache,
+            compactStateScopes: true)!;
+        totalBytes += bytes.length;
+        final restored = deserializeCommands(bytes);
+        stampCount += stamps(restored).length;
+        sourceCells += distinct(recorder.commands);
+        restoredCells += distinct(restored);
+        expect(serializeCommands(restored, cos: doc.cos, decodeImages: true),
+            equals(bytes),
+            reason: 'page $i re-serializes to the same bytes');
+      }
+      expect(stampCount, 35128);
+      expect(sourceCells, 156);
+      expect(restoredCells, sourceCells,
+          reason: 'one restored list per recorded cell, not per stamp');
+      // 24.96 MB when every stamp carried its glyph's commands and pixels.
+      expect(totalBytes, lessThan(2400000));
+    });
+  });
+
   group('image decode offload', () {
     test('uses predecoded image request pixels', () {
       final cos = CosDocument.open(buildClassicPdf());
@@ -980,10 +1419,12 @@ void main() {
 
     test('imageDecodeRegion sharpens images the fast path declines (SMask)',
         () {
-      // An /SMask'd image (a transparent logo, say) is exactly the kind the
-      // fast region decoder bails on, so before the general-decoder fallback it
-      // would drop through to the full-page cap and stay soft under deep zoom.
-      // Here the visible slice must still come back cropped + region-keyed.
+      // An /SMask'd image (a transparent logo, say) the fast region decoders
+      // bail on - here the mask is at a different resolution from its image,
+      // which only the general decoder resamples - would, before the
+      // general-decoder fallback, drop through to the full-page cap and stay
+      // soft under deep zoom. The visible slice must still come back cropped
+      // + region-keyed.
       final cos = CosDocument.open(buildClassicPdf());
       final baseRaw = <int>[];
       for (var y = 0; y < 4; y++) {
@@ -995,13 +1436,13 @@ void main() {
         CosDictionary({
           'Type': const CosName('XObject'),
           'Subtype': const CosName('Image'),
-          'Width': const CosInteger(4),
-          'Height': const CosInteger(4),
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
           'BitsPerComponent': const CosInteger(8),
           'ColorSpace': const CosName('DeviceGray'),
           'Filter': const CosName('FlateDecode'),
         }),
-        Uint8List.fromList(zlib.encode(List<int>.filled(16, 128))),
+        Uint8List.fromList(zlib.encode(List<int>.filled(4, 128))),
       );
       final stream = CosStream(
         CosDictionary({
@@ -1014,8 +1455,9 @@ void main() {
         }),
         Uint8List.fromList(zlib.encode(baseRaw)),
       );
-      // The fast Flate region path must decline this (SMask present), so the
-      // fallback under test is the only way a region result comes back.
+      // The fast Flate region paths must decline this (the soft mask is not
+      // the image's size), so the fallback under test is the only way a
+      // region result comes back.
       expect(
         decodePdfImagePixelsRegionScaled(cos, stream, 1, 2, 1, 1, 1, 1),
         isNull,

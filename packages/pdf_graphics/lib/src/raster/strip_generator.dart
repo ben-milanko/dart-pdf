@@ -215,7 +215,7 @@ class StripGenerator {
     if (path.isEmpty || _rowCount == 0) return;
     final cache = shapeCache;
     if (cache != null &&
-        path.segments.length <= ShapeStripCache.maxSegments &&
+        path.segmentCount <= ShapeStripCache.maxSegments &&
         _shapeCached(cache, path, transform, rule, null, rgba, tolerance)) {
       return;
     }
@@ -227,7 +227,7 @@ class StripGenerator {
     // The bbox pre-cull is a full extra pass over the path; for tiny paths
     // (the CAD common case: 4-segment quads by the tens of thousands)
     // flatten-and-bin is just as cheap and the binning clips anyway.
-    if (path.segments.length > 8 && _cullPath(path, transform)) return;
+    if (path.segmentCount > 8 && _cullPath(path, transform)) return;
     _flattenEdges(path, transform, tolerance);
     _finishShape(rule, rgba);
   }
@@ -244,7 +244,7 @@ class StripGenerator {
     if (path.isEmpty || _rowCount == 0) return;
     final cache = shapeCache;
     if (cache != null &&
-        path.segments.length <= ShapeStripCache.maxSegments &&
+        path.segmentCount <= ShapeStripCache.maxSegments &&
         _shapeCached(cache, path, transform, PdfFillRule.nonzero, stroke, rgba,
             tolerance)) {
       return;

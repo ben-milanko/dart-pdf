@@ -38,14 +38,26 @@ const targets = existsSync(targetsPath)
   : {};
 
 // ---- Load history ----------------------------------------------------------
+// A line that parses to something other than an object (`null`, a number, an
+// array) is skipped like a corrupt one: perf-nightly rebuilds this page in
+// the step that commits the history, so a throw here would freeze perf-data
+// until someone hand-fixed the file.
+const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+function readRecords(path) {
+  const records = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let v;
+    try { v = JSON.parse(line); } catch { continue; /* skip corrupt line */ }
+    if (isRecord(v)) records.push(v);
+  }
+  return records;
+}
 const runs = [];
 if (existsSync(historyDir)) {
   for (const f of readdirSync(historyDir)) {
     if (!f.endsWith('.ndjson')) continue;
-    for (const line of readFileSync(join(historyDir, f), 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      try { runs.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
-    }
+    runs.push(...readRecords(join(historyDir, f)));
   }
 }
 // Order the trend by COMMIT date (rev.date), not the day the sweep ran, so
@@ -54,6 +66,25 @@ if (existsSync(historyDir)) {
 // without a captured rev.
 const whenOf = (r) => String(r.rev?.date ?? r.ts ?? '');
 runs.sort((a, b) => whenOf(a).localeCompare(whenOf(b)));
+
+// perf-nightly's per-night verdicts (nightly-verdicts.jsonl - .jsonl so the
+// envelope loader above skips it): {date, sha, prevSha, verdict, checks}.
+const verdictsPath = join(historyDir, 'nightly-verdicts.jsonl');
+const verdicts = existsSync(verdictsPath) ? readRecords(verdictsPath) : [];
+// Each commit's latest verdict (a re-check of the same commit supersedes the
+// night before it). A `regressed` commit's points get a red ring on every
+// chart; an `error` one - a check broke, nothing was judged - a dashed grey
+// one, so a broken check never reads as a regression.
+const nightOf = new Map();
+for (const v of verdicts) {
+  if (v.verdict === 'regressed' || v.verdict === 'error' || v.verdict === 'ok') {
+    nightOf.set(v.sha, v.verdict);
+  }
+}
+const ringOf = (sha) => {
+  const v = nightOf.get(sha);
+  return v === 'regressed' ? 'red' : v === 'error' ? 'err' : null;
+};
 
 const groups = new Map(); // "suite / scenario" -> runs
 for (const r of runs) {
@@ -95,6 +126,9 @@ function chart(metric, series, budget) {
   const hover = series.map((p, i) =>
     `<circle class="hit" cx="${x(i)}" cy="${y(p.v)}" r="8"><title>${esc(p.label)}</title></circle>`
   ).join('');
+  const red = series.map((p, i) => p.ring
+    ? `<circle class="${p.ring}" cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"/>`
+    : '').join('');
 
   return `<figure class="chart${miss ? ' miss' : ''}">
   <figcaption>${esc(metric)}
@@ -105,7 +139,7 @@ function chart(metric, series, budget) {
     ${gridLines}${budgetLine}
     <polyline class="line" points="${pts.join(' ')}"/>
     <circle class="dot" cx="${x(series.length - 1)}" cy="${y(last.v)}" r="3.5"/>
-    ${hover}
+    ${red}${hover}
     <text class="axis" x="${PL}" y="${H - 6}">${esc(series[0].date)}</text>
     <text class="axis" x="${W - PR}" y="${H - 6}" text-anchor="end">${esc(last.date)}</text>
   </svg>
@@ -201,6 +235,35 @@ const tilesHtml = tiles.filter(Boolean).length
   ? `<div class="tiles">${tiles.filter(Boolean).join('\n')}</div>`
   : '';
 
+// ---- Nightly verdicts -------------------------------------------------------
+// The last two weeks of perf-nightly checks, newest first: which commit, what
+// it was compared against, and how each check came out.
+let verdictsHtml = '';
+if (verdicts.length) {
+  const short = (s) => (s ? String(s).slice(0, 8) : '—');
+  const cell = (state) => {
+    const s = state ?? '—';
+    const cls = s === 'ok' ? 'pass' : s === 'regressed' ? 'fail' : s === 'error' ? 'err' : '';
+    return `<td class="${cls}">${esc(s)}</td>`;
+  };
+  const rows = verdicts.slice(-14).reverse().map((v) => `<tr>
+    <td>${esc(String(v.date ?? '').slice(0, 10))}</td>
+    <td><code>${esc(short(v.sha))}</code></td>
+    <td><code>${esc(short(v.prevSha))}</code></td>
+    ${cell(v.checks?.nightly)}${cell(v.checks?.accepted)}${cell(v.checks?.renderTrend)}
+    ${cell(v.verdict)}</tr>`).join('');
+  verdictsHtml = `<section>
+  <h2>Nightly verdicts</h2>
+  <p class="meta">perf-nightly's checks per night: the VM ratio check vs the previous
+    nightly, the weekly one vs tool/perf/baselines/nightly-accepted.sha, and the
+    flutter-render trend. Regressed nights are ringed red on the charts below,
+    nights whose check errored (nothing judged) dashed grey.</p>
+  <table><thead><tr><th>night</th><th>commit</th><th>vs</th><th>nightly</th>
+    <th>accepted</th><th>render trend</th><th>verdict</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+</section>`;
+}
+
 // ---- Sections --------------------------------------------------------------
 let sections = '';
 for (const [key, groupRuns] of groups) {
@@ -226,7 +289,8 @@ for (const [key, groupRuns] of groups) {
       .map((r) => ({
         v: r.metrics[metric],
         date: whenOf(r).slice(0, 10),
-        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}`,
+        ring: ringOf(r.rev?.sha),
+        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}${ringOf(r.rev?.sha) ? `  (nightly: ${nightOf.get(r.rev?.sha)})` : ''}`,
       }));
     if (series.length === 0) return '';
     return chart(metric, series, scenarioTargets[metric]?.max);
@@ -243,11 +307,17 @@ for (const [key, groupRuns] of groups) {
   }).join('');
 
   const last = recent[recent.length - 1];
+  // Toolchain + runner image (recorded since the nightly started to): an SDK
+  // bump or image rollover explains a step no commit does.
+  const toolchain = [
+    last.env?.flutter ? `Flutter ${last.env.flutter}` : null,
+    last.env?.runnerImage ? `image ${last.env.runnerImage}` : null,
+  ].filter(Boolean).join(', ');
   sections += `<section>
   <h2>${esc(key)}</h2>
   <p class="meta">${recent.length} runs · latest ${esc(String(last.ts ?? '').slice(0, 16).replace('T', ' '))}
     @ <code>${esc(String(last.rev?.sha ?? '').slice(0, 8))}</code> on ${esc(last.env?.os ?? '?')}
-    (${esc(last.env?.runner ?? '?')})</p>
+    (${esc(last.env?.runner ?? '?')}${toolchain ? `, ${esc(toolchain)}` : ''})</p>
   <div class="charts">${charts}</div>
   <details><summary>Latest run vs targets</summary>
     <table><thead><tr><th>metric</th><th>latest</th><th>budget</th><th>verdict</th></tr></thead>
@@ -310,6 +380,10 @@ const html = `<!doctype html>
   .line { fill: none; stroke: var(--series-1); stroke-width: 2;
     stroke-linejoin: round; stroke-linecap: round; }
   .dot { fill: var(--series-1); }
+  .red { fill: none; stroke: var(--fail); stroke-width: 1.5; }
+  circle.err { fill: none; stroke: var(--text-secondary); stroke-width: 1.2;
+    stroke-dasharray: 2 2; }
+  td.err { color: var(--text-secondary); font-style: italic; }
   .grid { stroke: var(--grid); stroke-width: 1; }
   .budget { stroke: var(--budget); stroke-width: 1; stroke-dasharray: 4 3; }
   .axis { fill: var(--text-secondary); font-size: 9px; }
@@ -345,6 +419,7 @@ const html = `<!doctype html>
     ${runs.length} runs on record · budgets from tool/perf/targets.json
     (aspirational targets, never PR gates)</p>
   ${tilesHtml}
+  ${verdictsHtml}
   ${sections}
 </div>
 </body>

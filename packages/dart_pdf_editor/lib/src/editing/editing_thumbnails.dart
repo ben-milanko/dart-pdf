@@ -2678,108 +2678,90 @@ class _PageTileState extends State<_PageTile> {
           mainAxisSize: MainAxisSize.min,
           children: [
             // the current-page outline and the viewport mark track the
-            // viewer per tile, without rebuilding the page image
-            ListenableBuilder(
-              listenable: Listenable.merge([
-                viewerController,
-                viewerController.viewportChanges,
-              ]),
-              builder: (context, _) {
-                final current = viewerController.currentPage == pageIndex;
-                final viewport = viewerController.visiblePageRegion(pageIndex);
-                // Container, not DecoratedBox: the border must inset the
-                // child (Container adds the decoration's padding), or the
-                // full-bleed thumbnail paints over the 1-2px ring and
-                // neither the current-page outline nor the hairline shows
-                return Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: current ? scheme.primary : scheme.outlineVariant,
-                      width: current ? 2 : 1,
-                    ),
-                  ),
-                  child: Stack(children: [
-                    // the boundary keeps scroll-driven indicator repaints
-                    // from re-uploading the thumbnail
-                    RepaintBoundary(
-                      child: _PageThumbnail(
-                        controller: controller,
-                        viewerController: viewerController,
-                        pageIndex: pageIndex,
-                        pageColor: pageColor,
-                        showAnnotations: showAnnotations,
-                        cache: cache,
-                        tileWidth: tileWidth,
-                        renderWorker: renderWorker,
-                      ),
-                    ),
-                    if (viewport != null)
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: _ViewportPainter(viewport, indicator),
-                        ),
-                      ),
-                    // Devtools overlay: each page's cached tiles (green) and
-                    // legacy detail patch (purple), scaled into the thumbnail.
-                    Positioned.fill(
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: pdfDebugPaintDetailBounds,
-                        builder: (context, on, _) {
-                          if (!on) return const SizedBox.shrink();
-                          final store = PdfPageView.debugTileStoreOverride ??
-                              PdfTileStore.instanceOrNull;
-                          return ListenableBuilder(
-                            listenable: Listenable.merge([
-                              PdfDebugDetailRegions.instance,
-                              if (store != null) store,
-                            ]),
-                            builder: (context, _) => IgnorePointer(
-                              child: CustomPaint(
-                                painter: _DetailBoundsPainter(
-                                  store?.debugTileFractionsForPage(pageIndex) ??
-                                      const [],
-                                  PdfDebugDetailRegions.instance
-                                      .patchFractionOf(pageIndex),
-                                ),
-                              ),
+            // viewer per tile, without rebuilding the page image: the frame
+            // listens itself and rebuilds only when this tile's answer
+            // changes, and the thumbnail and overlays are built here so a
+            // frame rebuild hands Flutter the same widgets and skips them
+            _TileViewportFrame(
+              viewerController: viewerController,
+              pageIndex: pageIndex,
+              currentColor: scheme.primary,
+              idleColor: scheme.outlineVariant,
+              indicator: indicator,
+              // the boundary keeps scroll-driven indicator repaints from
+              // re-uploading the thumbnail
+              thumbnail: RepaintBoundary(
+                child: _PageThumbnail(
+                  controller: controller,
+                  viewerController: viewerController,
+                  pageIndex: pageIndex,
+                  pageColor: pageColor,
+                  showAnnotations: showAnnotations,
+                  cache: cache,
+                  tileWidth: tileWidth,
+                  renderWorker: renderWorker,
+                ),
+              ),
+              overlays: [
+                // Devtools overlay: each page's cached tiles (green) and
+                // legacy detail patch (purple), scaled into the thumbnail.
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: pdfDebugPaintDetailBounds,
+                    builder: (context, on, _) {
+                      if (!on) return const SizedBox.shrink();
+                      final store = PdfPageView.debugTileStoreOverride ??
+                          PdfTileStore.instanceOrNull;
+                      return ListenableBuilder(
+                        listenable: Listenable.merge([
+                          PdfDebugDetailRegions.instance,
+                          if (store != null) store,
+                        ]),
+                        builder: (context, _) => IgnorePointer(
+                          child: CustomPaint(
+                            painter: _DetailBoundsPainter(
+                              store?.debugTileFractionsForPage(pageIndex) ??
+                                  const [],
+                              PdfDebugDetailRegions.instance
+                                  .patchFractionOf(pageIndex),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                    // Devtools overlay: mark the pages whose page-view state
-                    // is live (the lazy list's render window) - the pages
-                    // whose retained scenes/rasters hold real memory.
-                    Positioned.fill(
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: pdfDebugShowRenderWindow,
-                        builder: (context, on, _) => !on
-                            ? const SizedBox.shrink()
-                            : ListenableBuilder(
-                                listenable: PdfLivePageRegistry.instance,
-                                builder: (context, _) => !PdfLivePageRegistry
-                                        .instance
-                                        .contains(pageIndex)
-                                    ? const SizedBox.shrink()
-                                    : IgnorePointer(
-                                        child: DecoratedBox(
-                                          key: ValueKey(
-                                              'pdf-thumbnail-live-$pageIndex'),
-                                          decoration: BoxDecoration(
-                                            border: Border.all(
-                                              // teal: live render window
-                                              color: const Color(0xCC009688),
-                                              width: 2,
-                                            ),
-                                          ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                // Devtools overlay: mark the pages whose page-view state
+                // is live (the lazy list's render window) - the pages
+                // whose retained scenes/rasters hold real memory.
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: pdfDebugShowRenderWindow,
+                    builder: (context, on, _) => !on
+                        ? const SizedBox.shrink()
+                        : ListenableBuilder(
+                            listenable: PdfLivePageRegistry.instance,
+                            builder: (context, _) => !PdfLivePageRegistry
+                                    .instance
+                                    .contains(pageIndex)
+                                ? const SizedBox.shrink()
+                                : IgnorePointer(
+                                    child: DecoratedBox(
+                                      key: ValueKey(
+                                          'pdf-thumbnail-live-$pageIndex'),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          // teal: live render window
+                                          color: const Color(0xCC009688),
+                                          width: 2,
                                         ),
                                       ),
-                              ),
-                      ),
-                    ),
-                  ]),
-                );
-              },
+                                    ),
+                                  ),
+                          ),
+                  ),
+                ),
+              ],
             ),
             SizedBox(
               height: 28,
@@ -3199,10 +3181,16 @@ class _PageThumbnailState extends State<_PageThumbnail> {
       _placeholder?.dispose();
       _placeholder = null;
     }
+    // a different viewer: its preview cache is the one to watch now (build
+    // re-syncs too, but never leave a listener on the old controller)
+    if (!identical(old.viewerController, widget.viewerController)) {
+      _syncSeedWatch();
+    }
   }
 
   @override
   void dispose() {
+    _stopSeedWatch();
     // withdraw this tile's pending render from the shared queue - it scrolled
     // out of the lazy strip, or its panel went away
     widget.cache.cancel(this);
@@ -3295,6 +3283,74 @@ class _PageThumbnailState extends State<_PageThumbnail> {
         widget.viewerController.pagePreviewCache?.imageFor(widget.pageIndex);
   }
 
+  // The seed watch. [_seedPlaceholder] only runs from build, and the tile no
+  // longer rebuilds on every viewer tick (its [_TileViewportFrame] absorbs
+  // those) - so while it has nothing to show, it listens for the viewer's
+  // preview of its page itself: on the viewer and viewport signals that used
+  // to rebuild it, and on the preview cache, whose identity follows the
+  // viewer's state and is re-read on each of those. Once it has a placeholder
+  // or its own raster it stops listening. Without this, a tile that mounted
+  // before its page's preview existed stays blank paper for a whole scroll:
+  // the shared queue holds its own render while the viewer is busy.
+  PdfViewerController? _seedViewer;
+  PdfPagePreviewCache? _seedPreviews;
+  bool _seedCheckQueued = false;
+
+  void _syncSeedWatch() {
+    final viewer =
+        _image == null && _placeholder == null ? widget.viewerController : null;
+    if (!identical(viewer, _seedViewer)) {
+      _seedViewer
+        ?..removeListener(_onSeedTick)
+        ..viewportChanges.removeListener(_onSeedTick);
+      _seedViewer = viewer;
+      viewer
+        ?..addListener(_onSeedTick)
+        ..viewportChanges.addListener(_onSeedTick);
+    }
+    final previews = viewer?.pagePreviewCache;
+    if (!identical(previews, _seedPreviews)) {
+      _seedPreviews?.removeListener(_onSeedTick);
+      _seedPreviews = previews;
+      previews?.addListener(_onSeedTick);
+    }
+    assert(
+        _seedViewer == null || identical(_seedViewer, widget.viewerController));
+  }
+
+  void _onSeedTick() {
+    if (!mounted || _image != null || _placeholder != null) return;
+    // the viewer defers its own notifications past a frame, but the preview
+    // cache notifies wherever it changes - including from the viewer's
+    // didUpdateWidget - and a strip tile is not the viewer's descendant, so
+    // re-check after the frame rather than mark it dirty mid-build
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      if (_seedCheckQueued) return;
+      _seedCheckQueued = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _seedCheckQueued = false;
+        _onSeedTick();
+      });
+      return;
+    }
+    final previews = widget.viewerController.pagePreviewCache;
+    if (previews?.has(widget.pageIndex) ?? false) {
+      setState(() {}); // build seeds the placeholder and detaches the watch
+    } else if (!identical(previews, _seedPreviews)) {
+      _syncSeedWatch(); // the viewer swapped its state, and its cache
+    }
+  }
+
+  void _stopSeedWatch() {
+    _seedViewer
+      ?..removeListener(_onSeedTick)
+      ..viewportChanges.removeListener(_onSeedTick);
+    _seedViewer = null;
+    _seedPreviews?.removeListener(_onSeedTick);
+    _seedPreviews = null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final page = widget.controller.pageAt(widget.pageIndex);
@@ -3317,6 +3373,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
       }
     }
     if (_image == null) _seedPlaceholder();
+    _syncSeedWatch();
     // while a re-render is in flight the previous raster (or the soft
     // preview placeholder) keeps showing
     final shown = _image ?? _placeholder;
@@ -3690,6 +3747,119 @@ class _DetailBoundsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DetailBoundsPainter old) => true;
+}
+
+/// The current-page outline and viewport mark of one strip or grid tile.
+/// Listens to the viewer itself and rebuilds only when *this* tile's answer
+/// (is it the current page, which fraction of it is on screen) changes. A
+/// scroll tick moves the mark of the one or two tiles whose pages are on
+/// screen; every other mounted tile pays one comparison instead of a subtree
+/// rebuild. [thumbnail] and [overlays] arrive prebuilt from the tile, so a
+/// rebuild here hands Flutter the same widget instances and it skips them.
+///
+/// Not a CustomPainter repainting off `viewportChanges`: that would repaint
+/// every mounted tile's mark on every tick, where this repaints only the
+/// tiles whose region actually moved.
+class _TileViewportFrame extends StatefulWidget {
+  const _TileViewportFrame({
+    required this.viewerController,
+    required this.pageIndex,
+    required this.currentColor,
+    required this.idleColor,
+    required this.indicator,
+    required this.thumbnail,
+    required this.overlays,
+  });
+
+  final PdfViewerController viewerController;
+  final int pageIndex;
+  final Color currentColor;
+  final Color idleColor;
+  final Color indicator;
+  final Widget thumbnail;
+  final List<Widget> overlays;
+
+  @override
+  State<_TileViewportFrame> createState() => _TileViewportFrameState();
+}
+
+class _TileViewportFrameState extends State<_TileViewportFrame> {
+  late bool _current;
+  Rect? _region;
+
+  @override
+  void initState() {
+    super.initState();
+    _read();
+    _listen(widget.viewerController);
+  }
+
+  @override
+  void didUpdateWidget(_TileViewportFrame old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.viewerController, widget.viewerController)) {
+      _unlisten(old.viewerController);
+      _listen(widget.viewerController);
+    }
+    _read();
+  }
+
+  @override
+  void dispose() {
+    _unlisten(widget.viewerController);
+    super.dispose();
+  }
+
+  void _listen(PdfViewerController c) => c
+    ..addListener(_onViewer)
+    ..viewportChanges.addListener(_onViewer);
+
+  void _unlisten(PdfViewerController c) => c
+    ..removeListener(_onViewer)
+    ..viewportChanges.removeListener(_onViewer);
+
+  void _read() {
+    _current = widget.viewerController.currentPage == widget.pageIndex;
+    _region = widget.viewerController.visiblePageRegion(widget.pageIndex);
+  }
+
+  void _onViewer() {
+    final current = widget.viewerController.currentPage == widget.pageIndex;
+    final region = widget.viewerController.visiblePageRegion(widget.pageIndex);
+    if (current == _current && region == _region) return;
+    setState(() {
+      _current = current;
+      _region = region;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = _current;
+    final viewport = _region;
+    // Container, not DecoratedBox: the border must inset the child (Container
+    // adds the decoration's padding), or the full-bleed thumbnail paints over
+    // the 1-2px ring and neither the current-page outline nor the hairline
+    // shows
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: current ? widget.currentColor : widget.idleColor,
+          width: current ? 2 : 1,
+        ),
+      ),
+      child: Stack(children: [
+        widget.thumbnail,
+        if (viewport != null)
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _ViewportPainter(viewport, widget.indicator),
+            ),
+          ),
+        ...widget.overlays,
+      ]),
+    );
+  }
 }
 
 class _ViewportPainter extends CustomPainter {

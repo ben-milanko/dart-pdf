@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -28,7 +29,9 @@ class PdfTileSpec {
     required this.width,
     required this.height,
     this.payload,
-  });
+    this.masked = false,
+    this.maskBlank = false,
+  }) : assert(!maskBlank || masked, 'maskBlank needs masked');
 
   final PdfTileCodec codec;
   final int width;
@@ -41,6 +44,23 @@ class PdfTileSpec {
   /// writes the fixture supplies them. The Flate variants are generated here,
   /// so the common case needs nothing external.
   final Uint8List? payload;
+
+  /// Opt-in: the tile's 1-bit plane in the shape the profiled sheet really
+  /// draws, rather than the default diagonal hatch.
+  ///
+  /// On a [PdfTileCodec.flateRgb] or [PdfTileCodec.indexed] tile this pairs
+  /// the image with a same-size 1-bit `/Mask` stencil stream; on a
+  /// [PdfTileCodec.imageMask] tile it replaces the stencil itself. Either way
+  /// the plane is sparse CAD linework (a few full-width rules plus bands of
+  /// symbol blocks: ~1% of pixels, ~1.3% of bytes carry a painting bit) under
+  /// `/Decode [1 0]`, so the set bits are the ink - the real sheet's polarity.
+  /// Ignored for the externally encoded codecs.
+  final bool masked;
+
+  /// With [masked]: a plane that paints nothing, so the tile is fully
+  /// transparent - as a few percent of the real sheet's stencils (and every
+  /// one of its Indexed tiles' masks) are.
+  final bool maskBlank;
 }
 
 /// Builds the **image-heavy** variant of the wide CAD strip
@@ -51,13 +71,24 @@ class PdfTileSpec {
 /// rather than guessed:
 ///
 /// ```
-/// images: 1386  (93% of file bytes)
-/// dimensions: 2048x1754 x1385
-/// colorspaces: 923 ImageMask (1-bit), 445 DeviceRGB (8-bit), 18 Indexed
+/// image streams: 1386  (93% of file bytes), 2048x1754 x1385
+/// drawn: 925 = 462 ImageMask (1-bit, /Decode [1 0])
+///            + 445 DeviceRGB (8-bit), each with a same-size 1-bit /Mask
+///            + 17 Indexed, each with a same-size 1-bit /Mask
+///            + 1 tiny (3x1) unmasked Indexed
+/// stencils: ~1% of pixels paint, ~1.3% of bytes are non-blank
 /// smasks: 0        filters: FlateDecode only
 /// content: 8 streams, 3.93 MB raw -> 24.75 MB decoded
 /// total pixels: 4975 Mpx  ->  ~19.9 GB if every tile were decoded to RGBA
 /// ```
+///
+/// The first profile of that sheet (#419) counted the 462 `/Mask` stencil
+/// streams as drawn ImageMasks - "923 ImageMask, no masks" - so the default
+/// tile shape here draws about twice the stencils, none of the masked colour
+/// tiles, and a hatch whose polarity paints 94% of each stencil. Those
+/// defaults are kept byte-stable for the scenarios and the Patrol journey that
+/// already use them; [PdfTileSpec.masked] and [tileWidthPt] opt into the sheet
+/// as it is actually drawn (`gen_cad_image_pdf.dart faithful2`).
 ///
 /// That last line is the point of the fixture: a 62 MB file that can ask for
 /// ~20 GB of decoded RGBA is what stresses the decoded-image cache budget, and
@@ -68,7 +99,9 @@ class PdfTileSpec {
 /// [tiles] describes each tile in draw order. [ops] vector primitives are drawn
 /// over the top so the page still carries CAD linework, split across [streams]
 /// `/Contents` streams like a real multi-pass export. Output is deterministic:
-/// seeded PRNG, no timestamps.
+/// seeded PRNG, no timestamps. [tileWidthPt] places every tile that wide
+/// (the real sheet's tiles are ~983 pt, stacked ~100 deep across the strip);
+/// null keeps the default narrow overlapping slivers.
 Uint8List buildSyntheticCadImageStrip({
   required List<PdfTileSpec> tiles,
   int ops = 500000,
@@ -76,6 +109,7 @@ Uint8List buildSyntheticCadImageStrip({
   int seed = 20260720,
   double pageW = 8503.939,
   double pageH = 841.89,
+  double? tileWidthPt,
 }) {
   assert(streams > 0);
   const zlib = ZLibEncoder();
@@ -83,8 +117,8 @@ Uint8List buildSyntheticCadImageStrip({
   final random = _Lcg(seed);
 
   // Registration order: 1 = catalog, 2 = pages tree, then one object per tile
-  // (plus one palette object per indexed tile), then the content streams, then
-  // the page.
+  // (plus one palette object per indexed tile and one /Mask stream per masked
+  // colour tile), then the content streams, then the page.
   const catalogNum = 1;
   const treeNum = 2;
   final treeRef = const CosReference(treeNum, 0);
@@ -93,14 +127,24 @@ Uint8List buildSyntheticCadImageStrip({
   final tileRefs = <CosReference>[];
   final tileObjects = <CosObject>[];
   final paletteObjects = <(int, CosObject)>[];
-  for (final tile in tiles) {
+  final maskObjects = <CosObject?>[];
+  for (final (index, tile) in tiles.indexed) {
     final paletteNum = tile.codec == PdfTileCodec.indexed ? next++ : null;
+    final maskNum = _pairsWithMask(tile) ? next++ : null;
     final tileNum = next++;
     tileRefs.add(CosReference(tileNum, 0));
     if (paletteNum != null) {
       paletteObjects.add((paletteNum, _palette(zlib)));
     }
-    tileObjects.add(_tileStream(tile, paletteNum, zlib, random));
+    maskObjects.add(maskNum == null
+        ? null
+        : _stencilStream(
+            tile.width, tile.height, _sparseLinework(tile, index), zlib));
+    final tileObject = _tileStream(tile, paletteNum, zlib, random, index);
+    if (maskNum != null) {
+      tileObject.dictionary['Mask'] = CosReference(maskNum, 0);
+    }
+    tileObjects.add(tileObject);
   }
   final contentStart = next;
   final contentRefs = [
@@ -118,20 +162,23 @@ Uint8List buildSyntheticCadImageStrip({
     'Count': const CosInteger(1),
   }));
 
-  // Interleave palettes with their tiles so object numbers match the order
-  // reserved above.
+  // Interleave palettes and masks with their tiles so object numbers match
+  // the order reserved above.
   var paletteIndex = 0;
   for (var i = 0; i < tiles.length; i++) {
     if (tiles[i].codec == PdfTileCodec.indexed) {
       builder.add(paletteObjects[paletteIndex++].$2);
     }
+    final mask = maskObjects[i];
+    if (mask != null) builder.add(mask);
     builder.add(tileObjects[i]);
   }
 
   // Lay the tiles out left to right across the strip, so a horizontal pan -
   // how this drawing is actually read - crosses tile after tile.
   final perStream = (tiles.length / streams).ceil();
-  final tileW = pageW / tiles.length * 1.6; // overlap, like a stitched scan
+  // overlap, like a stitched scan
+  final tileW = tileWidthPt ?? pageW / tiles.length * 1.6;
   final buffers = <StringBuffer>[];
   for (var s = 0; s < streams; s++) {
     final buf = StringBuffer();
@@ -206,8 +253,81 @@ CosStream _palette(ZLibEncoder zlib) {
   );
 }
 
-CosStream _tileStream(
-    PdfTileSpec tile, int? paletteNum, ZLibEncoder zlib, _Lcg random) {
+/// Whether [tile] carries its own `/Mask` stencil stream.
+bool _pairsWithMask(PdfTileSpec tile) =>
+    tile.masked &&
+    (tile.codec == PdfTileCodec.flateRgb || tile.codec == PdfTileCodec.indexed);
+
+/// The sparse CAD-linework plane behind [PdfTileSpec.masked]: set bits are
+/// ink. Measured on the profiled sheet, its stencils paint ~1% of pixels
+/// (0.3-2.5%), only ~1.3-1.8% of their bytes hold a painting bit, and ~83% of
+/// rows are blank - drawings are paper with thin lines and lettering. A few
+/// full-width rules plus bands of symbol blocks give the same statistics, and
+/// so the same work to any per-byte or per-word blank skip.
+///
+/// Placement draws from its own generator, seeded per tile, never from the
+/// shared one: the colour tiles and the vector linework stay the same values
+/// whether or not a tile is masked. Park-Miller keeps it exact in JavaScript.
+Uint8List _sparseLinework(PdfTileSpec tile, int index) {
+  final w = tile.width;
+  final h = tile.height;
+  final rowBytes = (w + 7) >> 3;
+  final bits = Uint8List(rowBytes * h);
+  if (tile.maskBlank) return bits;
+  void ink(int x, int y) {
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    bits[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+  }
+
+  // Full-width rules: sheet borders, title-block and grid lines.
+  final rules = math.max(1, h ~/ 292);
+  for (var k = 1; k <= rules; k++) {
+    final y = k * h ~/ (rules + 1);
+    for (var x = 0; x < w; x++) {
+      ink(x, y);
+    }
+  }
+  // Bands of lettering and symbols, like the colour tiles' blocks.
+  final random = _Lcg(20260927 + index * 7919);
+  final bands = math.max(1, h ~/ 50);
+  final perBand = math.max(1, 5 * w ~/ 2048);
+  for (var band = 0; band < bands; band++) {
+    final by = random.intBelow(math.max(1, h - 9));
+    for (var b = 0; b < perBand; b++) {
+      final bx = random.intBelow(math.max(1, w - 18));
+      for (var y = 0; y < 9; y++) {
+        for (var x = 0; x < 18; x++) {
+          if (((x * 7 + y * 3) & 3) != 0) ink(bx + x, by + y);
+        }
+      }
+    }
+  }
+  return bits;
+}
+
+/// A FlateDecode 1-bit stencil under `/Decode [1 0]`, so its set bits are the
+/// ink: drawn as an `/ImageMask` they paint, and as a colour tile's explicit
+/// `/Mask` (an image mask too, §8.9.6.3) they are the base pixels that show.
+CosStream _stencilStream(int w, int h, Uint8List bits, ZLibEncoder zlib) {
+  final deflated = Uint8List.fromList(zlib.encode(bits));
+  return CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': CosInteger(w),
+      'Height': CosInteger(h),
+      'ImageMask': const CosBoolean(true),
+      'BitsPerComponent': const CosInteger(1),
+      'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+      'Filter': const CosName('FlateDecode'),
+      'Length': CosInteger(deflated.length),
+    }),
+    deflated,
+  );
+}
+
+CosStream _tileStream(PdfTileSpec tile, int? paletteNum, ZLibEncoder zlib,
+    _Lcg random, int index) {
   final w = tile.width;
   final h = tile.height;
 
@@ -233,8 +353,14 @@ CosStream _tileStream(
         payload,
       );
 
+    case PdfTileCodec.imageMask when tile.masked:
+      return _stencilStream(w, h, _sparseLinework(tile, index), zlib);
+
     case PdfTileCodec.imageMask:
       // 1 bit per pixel, rows padded to byte boundaries - the stencil layer.
+      // (This default hatch sets its bits under /Decode [0 1], where a 0 bit
+      // paints: 94% ink, the negative of a drawing. Kept for byte stability;
+      // PdfTileSpec.masked is the faithful polarity.)
       final rowBytes = (w + 7) >> 3;
       final bits = Uint8List(rowBytes * h);
       for (var y = 0; y < h; y++) {

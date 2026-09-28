@@ -11,6 +11,14 @@
 //   decodeMs      pure-Dart decode of every image the pages draw (opt-in, see
 //                 the "measures" scenario key) - the codec half of a render,
 //                 which the NullDevice interpret pass never reaches
+//   decodeAtTargetMs  the render worker's decoding record (serializeCommands
+//                 with decodeImages): the same images decoded at their display
+//                 target under the page raster budget ("imageRatio" scenario
+//                 key, default 0.5), plus the command encoding, which image
+//                 decode dominates on image-heavy pages - plus
+//                 the deterministic imageDecode/imageDownsample/
+//                 imageColorConvert/imageAlpha call counts (opt-in measure
+//                 `decodeImagesAtTarget`; tool/perf_record_images.dart)
 //   peakRssBytes  the child process's ProcessInfo.maxRss
 //
 // Each file is measured in its own killable child process (parent re-spawns
@@ -57,10 +65,20 @@ class _ImageCollectingDevice implements PdfDevice {
 
 const _defaultMeasures = {'open', 'firstPage', 'interpret', 'extract', 'save'};
 
-/// `decodeImages` is opt-in: it is the only measure that costs real time on
-/// image-heavy corpora, and most scenarios exist to track the parse/interpret
-/// path. Scenarios ask for it with the "measures" key.
-const _allMeasures = {..._defaultMeasures, 'decodeImages'};
+/// `decodeImages` and `decodeImagesAtTarget` are opt-in: they are the only
+/// measures that cost real time on image-heavy corpora, and most scenarios
+/// exist to track the parse/interpret path. Scenarios ask for them with the
+/// "measures" key.
+const _allMeasures = {
+  ..._defaultMeasures,
+  'decodeImages',
+  _atTargetMeasure,
+};
+
+/// Measured by a second child, tool/perf_record_images.dart: its record-path
+/// APIs are newer than the commits tool/perf/backfill.sh grafts this file
+/// onto, so this file must not import them.
+const _atTargetMeasure = 'decodeImagesAtTarget';
 
 class _Args {
   String? corpus;
@@ -73,6 +91,7 @@ class _Args {
   int timeoutS = 120;
   bool phases = false;
   Set<String> measures = _defaultMeasures;
+  double imageRatio = 0.5;
 }
 
 _Args _parse(List<String> argv) {
@@ -97,8 +116,10 @@ _Args _parse(List<String> argv) {
         a.timeoutS = int.parse(next());
       case '--phases':
         a.phases = true;
+      case '--image-ratio':
+        a.imageRatio = double.parse(next());
       case '--measures':
-        a.measures = next().split(',').toSet();
+        a.measures = next().split(',').where((m) => m.isNotEmpty).toSet();
         final unknown = a.measures.difference(_allMeasures);
         if (unknown.isNotEmpty) {
           stderr.writeln('unknown measures: ${unknown.join(',')}');
@@ -116,7 +137,8 @@ _Args _parse(List<String> argv) {
     stderr.writeln(
         'usage: perf_sweep.dart <corpus-dir-or-file> | --scenario <name>\n'
         '  [--max-pages N] [--repeat N] [--timeout S] [--phases]\n'
-        '  [--measures open,firstPage,interpret,extract,save,decodeImages]\n'
+        '  [--measures open,firstPage,interpret,extract,save,decodeImages,\n'
+        '              decodeImagesAtTarget] [--image-ratio R]\n'
         '  [--out envelope.json] [--append-history history.ndjson]');
     exit(2);
   }
@@ -300,6 +322,9 @@ Future<String?> _resolveScenario(_Args args, String repoRoot) async {
     args.measures = (s['measures'] as List).cast<String>().toSet();
   }
   if (s['phases'] == true) args.phases = true;
+  if (s['imageRatio'] is num) {
+    args.imageRatio = (s['imageRatio'] as num).toDouble();
+  }
 
   final generate = s['generate'];
   if (generate is Map) {
@@ -368,9 +393,13 @@ Future<String?> _resolveScenario(_Args args, String repoRoot) async {
   return path;
 }
 
+/// Measures [file] in killable children: this script for the classic
+/// measures, plus tool/perf_record_images.dart when `decodeImagesAtTarget` is
+/// asked for. Their rows merge into one; peakRssBytes is the larger child's.
 Future<Map<String, Object?>> _runChild(
     _Args args, String scriptPath, File file) async {
-  final process = await Process.start(Platform.resolvedExecutable, [
+  final classic = args.measures.difference({_atTargetMeasure});
+  final row = await _runProcess(args, file, [
     scriptPath,
     '--one',
     file.path,
@@ -379,9 +408,41 @@ Future<Map<String, Object?>> _runChild(
     '--repeat',
     '${args.repeat}',
     '--measures',
-    args.measures.join(','),
+    classic.join(','),
     if (args.phases) '--phases',
   ]);
+  if (!args.measures.contains(_atTargetMeasure)) return row;
+  final atTarget = await _runProcess(args, file, [
+    '${File(scriptPath).parent.path}/perf_record_images.dart',
+    '--one',
+    file.path,
+    '--max-pages',
+    '${args.maxPages}',
+    '--repeat',
+    '${args.repeat}',
+    '--image-ratio',
+    '${args.imageRatio}',
+    if (args.phases) '--phases',
+  ]);
+  for (final e in atTarget.entries) {
+    switch (e.key) {
+      case 'file' || 'pages':
+        break;
+      case 'pagesRendered' || 'peakRssBytes':
+        final a = row[e.key], b = e.value;
+        if (b is int && (a is! int || b > a)) row[e.key] = b;
+      case 'error':
+        row['error'] ??= e.value;
+      default:
+        row[e.key] = e.value;
+    }
+  }
+  return row;
+}
+
+Future<Map<String, Object?>> _runProcess(
+    _Args args, File file, List<String> command) async {
+  final process = await Process.start(Platform.resolvedExecutable, command);
   final stdoutF = process.stdout.transform(utf8.decoder).join();
   final stderrF = process.stderr.transform(utf8.decoder).join();
   var timedOut = false;
@@ -455,6 +516,16 @@ Map<String, Object?> _aggregate(List<Map<String, Object?>> results) {
     ...dist('extractMs', perPage: true),
     ...dist('saveMs'),
     ...dist('decodeMs', perPage: true),
+    ...dist('decodeAtTargetMs', perPage: true),
+    // Deterministic record-path call counts, summed over the files.
+    for (final key in const [
+      'imageDecodeCalls',
+      'imageDownsampleCalls',
+      'imageColorConvertCalls',
+      'imageAlphaCalls',
+    ])
+      if (results.any((r) => r[key] is int))
+        key: results.fold<int>(0, (sum, r) => sum + (r[key] as int? ?? 0)),
     if (rss.isNotEmpty) 'maxPeakRssBytes': percentile(rss, 100).round(),
   };
 }
@@ -507,6 +578,8 @@ Future<void> main(List<String> argv) async {
       'repeat': args.repeat,
       'timeoutS': args.timeoutS,
       'measures': args.measures.toList()..sort(),
+      if (args.measures.contains(_atTargetMeasure))
+        'imageRatio': args.imageRatio,
       'phases': args.phases,
       'corpus': corpus.startsWith(repoRoot)
           ? corpus.substring(repoRoot.length + 1)

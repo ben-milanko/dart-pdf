@@ -1227,6 +1227,13 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get sigTitle => 'Подпись';
 
   @override
+  String get sigUseTrackpad => 'Использовать трекпад';
+
+  @override
+  String get sigTrackpadHint =>
+      'Рисуйте одним пальцем на трекпаде. Когда закончите, нажмите любую клавишу.';
+
+  @override
   String get signIdCreate => 'Создать';
 
   @override

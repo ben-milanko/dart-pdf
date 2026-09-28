@@ -138,4 +138,70 @@ void main() {
               'character paragraphs');
     });
   });
+
+  testWidgets('exact placement composes unique multi-character labels',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Offsets the fixed-pitch test font agrees with, so every word is one
+      // piece of several characters - the unique CAD label that used to shape
+      // a fresh paragraph per word. The test font kerns nothing, so the pieces
+      // are laid out from the glyph cache instead.
+      CanvasPdfDevice.clearTextLayoutCache();
+      CanvasPdfDevice.debugResetTextShape();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+      for (var i = 0; i < 100; i++) {
+        final text = 'N${100000 + 7 * i}.5 E${900000 - 3 * i}.25';
+        device.drawText(PdfTextRun(
+          text: text,
+          charOffsets: [for (var j = 0; j <= text.length; j++) j.toDouble()],
+          transform: const PdfMatrix(6, 0, 0, 6, 20, 80),
+          color: const PdfColor(0, 0, 0),
+          width: text.length.toDouble(),
+          fontName: 'Helvetica',
+          fontSize: 6,
+        ));
+      }
+      recorder.endRecording().dispose();
+
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 100);
+      expect(CanvasPdfDevice.debugTextPainterBuilds, lessThan(30),
+          reason: '200 unique word pieces must come from the alphabet, plus '
+              "the face's one-off kerning check");
+    });
+  });
+
+  testWidgets('a run with more characters than the glyph cache still paints',
+      (tester) async {
+    await tester.runAsync(() async {
+      // 4,200 distinct ideographs overflow the 4,096-entry glyph cache inside
+      // one run: the first ones resolved are evicted - and disposed - before
+      // the run gets to retain them. Pen steps alternating 1 and 2 em against
+      // a fixed-pitch face cut every character into a piece of its own, so
+      // each is retained from the glyph cache.
+      CanvasPdfDevice.clearTextLayoutCache();
+      final text = String.fromCharCodes([
+        for (var cu = 0x4E00; cu < 0x4E00 + 4200; cu++) cu,
+      ]);
+      final offsets = <double>[0];
+      for (var j = 0; j < text.length; j++) {
+        offsets.add(offsets.last + (j.isEven ? 1 : 2));
+      }
+      final recorder = ui.PictureRecorder();
+      CanvasPdfDevice(ui.Canvas(recorder)).drawText(PdfTextRun(
+        text: text,
+        charOffsets: offsets,
+        transform: const PdfMatrix(1, 0, 0, 1, 0, 80),
+        color: const PdfColor(0, 0, 0),
+        width: offsets.last,
+        fontName: 'Helvetica',
+        fontSize: 1,
+      ));
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(64, 64);
+      image.dispose();
+      picture.dispose();
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 1);
+    });
+  });
 }

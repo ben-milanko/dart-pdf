@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count} 件選択中} other{{count} 件選択中}}",
   "sidebarWriteReplyHint": "返信を入力…",
   "sigTitle": "署名",
+  "sigUseTrackpad": "トラックパッドを使用",
+  "sigTrackpadHint": "1本指でトラックパッドに描いてください。終わったら任意のキーを押します。",
   "signIdCreate": "作成",
   "signIdEmail": "メール（任意）",
   "signIdName": "名前",

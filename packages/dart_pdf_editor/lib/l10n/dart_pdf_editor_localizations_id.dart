@@ -1210,6 +1210,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get sigTitle => 'Tanda tangan';
 
   @override
+  String get sigUseTrackpad => 'Gunakan trackpad';
+
+  @override
+  String get sigTrackpadHint =>
+      'Gambar di trackpad dengan satu jari. Tekan tombol apa saja jika sudah selesai.';
+
+  @override
   String get signIdCreate => 'Buat';
 
   @override

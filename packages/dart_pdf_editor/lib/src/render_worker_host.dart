@@ -70,14 +70,12 @@ class PdfRenderWorkerHost {
         worker.supportsRevisionUpdate &&
         revision != null &&
         revision.newLength == bytes.length) {
-      final appended = revision.newLength > revision.baseLength
-          ? Uint8List.fromList(
-              Uint8List.sublistView(bytes, revision.baseLength))
-          : Uint8List(0);
-      worker.updateRevision(
+      // Hand over the whole revision view, not a rebuilt copy: the worker
+      // copies out only the tail it ships, and the pool's urgent lane opens
+      // the view itself (its bytes hold until the next sync).
+      worker.updateRevisionTo(
+        bytes,
         revision.baseLength,
-        appended,
-        revision.newLength,
         revision.changedPages,
       );
       _workerDocument = document;
@@ -85,9 +83,10 @@ class PdfRenderWorkerHost {
     }
 
     _worker?.dispose();
-    // The session's grow-only buffer is replaced on edit, never mutated in
-    // place, so the pool can seed from it directly - no defensive copy of a
-    // possibly-huge document (#359).
+    // [bytes] is the session's current revision. Its contents hold until the
+    // next revision is synced here (the session only writes past the current
+    // revision - see [PdfRenderWorker.updateRevisionTo]), so the pool can seed
+    // from it directly - no defensive copy of a possibly-huge document (#359).
     final spawn = debugSpawnOverride ?? startPdfRenderWorker;
     _worker = spawn(bytes,
         pageCount: pageCount,

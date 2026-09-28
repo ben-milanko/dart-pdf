@@ -1211,6 +1211,13 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get sigTitle => 'Handtekening';
 
   @override
+  String get sigUseTrackpad => 'Trackpad gebruiken';
+
+  @override
+  String get sigTrackpadHint =>
+      'Teken met één vinger op je trackpad. Druk op een willekeurige toets als je klaar bent.';
+
+  @override
   String get signIdCreate => 'Aanmaken';
 
   @override

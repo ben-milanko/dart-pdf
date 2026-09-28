@@ -11,7 +11,9 @@ import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'recorded_text.dart';
+import 'render_command.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 final _bidiFormattingControls =
     RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
@@ -508,7 +510,8 @@ class PdfTextExtractor {
   static PdfPageText extract(PdfDocument document, int pageIndex) {
     final t0 = PdfPerf.begin();
     try {
-      return _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+      return _pageTextFrom(pageIndex,
+          _interpret(document, pageIndex, collectImages: false).runs);
     } finally {
       PdfPerf.end(PdfPerfPhase.textExtract, t0);
     }
@@ -528,8 +531,9 @@ class PdfTextExtractor {
     }
   }
 
-  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
-    final device = _ExtractionDevice();
+  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex,
+      {required bool collectImages}) {
+    final device = _ExtractionDevice(collectImages: collectImages);
     // Extraction reads geometry and Unicode, never colour, so the overprint
     // colorant buffer (§8.6.7) would be pure cost on a page that uses it.
     PdfInterpreter(
@@ -552,9 +556,8 @@ class PdfTextExtractor {
 
     void flushLine() {
       if (line.isEmpty) return;
-      final ascent = line.any((item) => item.run.text.runes.any(_isCjkRune))
-          ? _expandedTextAscent
-          : _defaultTextAscent;
+      final ascent =
+          _lineHasCjk(line) ? _expandedTextAscent : _defaultTextAscent;
       final bidiLine = _bidiLine(line);
       if (bidiLine == null) {
         for (final item in line) {
@@ -619,6 +622,7 @@ class PdfTextExtractor {
   /// those are rendered by a BiDi-aware substitute and may already contain
   /// logical Unicode (including appearances authored by this package).
   static _BidiLine? _bidiLine(List<_SourceRun> line) {
+    if (!_mayHaveRtl(line)) return null;
     final pieces = <_BidiPiece>[];
     _BidiKind? previousKind;
     var hasRtl = false;
@@ -730,6 +734,61 @@ class PdfTextExtractor {
     // embedded RTL spans reverse, so `English + العربية + English` keeps its
     // surrounding LTR reading order.
     return _BidiLine(groups, rightToLeft: rtlCount > runeCount * 0.3);
+  }
+
+  /// Whether any character on [line] is CJK ([_isCjkRune]), which widens the
+  /// whole line's selection band.
+  ///
+  /// Walks code units rather than `runes` through closures: every CJK range
+  /// starts at U+2E80, so almost everything is rejected by one compare, and
+  /// only a real surrogate pair is decoded. A lone surrogate is tested as
+  /// itself, exactly as the rune iterator yields it (none is CJK).
+  static bool _lineHasCjk(List<_SourceRun> line) {
+    for (var r = 0; r < line.length; r++) {
+      final text = line[r].run.text;
+      final length = text.length;
+      for (var i = 0; i < length; i++) {
+        var rune = text.codeUnitAt(i);
+        if (rune < 0x2E80) continue;
+        if ((rune & 0xFC00) == 0xD800 && i + 1 < length) {
+          final low = text.codeUnitAt(i + 1);
+          if ((low & 0xFC00) == 0xDC00) {
+            rune = 0x10000 + ((rune & 0x3FF) << 10) + (low & 0x3FF);
+            i++;
+          }
+        }
+        if (_isCjkRune(rune)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Whether [_bidiLine] could find right-to-left text on [line]; false
+  /// lets it return null without building the per-glyph pieces, which is
+  /// most of the cost on an ordinary left-to-right page.
+  ///
+  /// Exact, not a heuristic. [_bidiKind] yields RTL for a strong R/AL/RLE/
+  /// RLO/RLI class, for the supplementary RTL blocks, and for a nonspacing
+  /// mark that has no preceding class (`previous ?? rtl`). In bidi 2.0.13
+  /// every one of those strong classes is at or above U+0590 (surrogates
+  /// included, so astral scripts are caught too) and the only nonspacing
+  /// marks below it are U+0300-036F and U+0483-0489. The separators the
+  /// pass inserts are ASCII, and every code unit it walks is one of these
+  /// runs' own text. `text_extraction_test.dart` enumerates the classes
+  /// below U+0590 so a bidi upgrade can't quietly break this.
+  static bool _mayHaveRtl(List<_SourceRun> line) {
+    for (var r = 0; r < line.length; r++) {
+      final text = line[r].run.text;
+      for (var i = 0; i < text.length; i++) {
+        final unit = text.codeUnitAt(i);
+        if (unit >= 0x0590 ||
+            (unit >= 0x0300 && unit <= 0x036F) ||
+            (unit >= 0x0483 && unit <= 0x0489)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   static void _appendExtractedRun(
@@ -907,7 +966,7 @@ class PdfTextExtractor {
   /// Extracts one page and infers paragraph blocks and images in reading
   /// order.
   static PdfReflowPage reflowPage(PdfDocument document, int pageIndex) {
-    final device = _interpret(document, pageIndex);
+    final device = _interpret(document, pageIndex, collectImages: true);
     return PdfTextReflower.reflow(
       _pageTextFrom(pageIndex, device.runs),
       images: device.images,
@@ -1470,14 +1529,41 @@ PdfTextQuad _quadOf(
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped
 /// through [transform].
+///
+/// Equal to `_quadOf(...).bounds` bit for bit - the same corners in the same
+/// order folded with the same `math.min`/`math.max` (the quad's redundant
+/// first-corner step is `min(a, a) == a`, even for -0.0 and NaN) - without
+/// allocating the quad, its corner list and records for every run.
 PdfRect _boundsOf(
   PdfMatrix transform,
   double x0,
   double x1, {
   double descent = _defaultTextDescent,
   double ascent = _defaultTextAscent,
-}) =>
-    _quadOf(transform, x0, x1, descent: descent, ascent: ascent).bounds;
+}) {
+  var minX = transform.transformX(x0, descent);
+  var minY = transform.transformY(x0, descent);
+  var maxX = minX, maxY = minY;
+  final x2 = transform.transformX(x1, descent);
+  final y2 = transform.transformY(x1, descent);
+  minX = math.min(minX, x2);
+  maxX = math.max(maxX, x2);
+  minY = math.min(minY, y2);
+  maxY = math.max(maxY, y2);
+  final x3 = transform.transformX(x1, ascent);
+  final y3 = transform.transformY(x1, ascent);
+  minX = math.min(minX, x3);
+  maxX = math.max(maxX, x3);
+  minY = math.min(minY, y3);
+  maxY = math.max(maxY, y3);
+  final x4 = transform.transformX(x0, ascent);
+  final y4 = transform.transformY(x0, ascent);
+  minX = math.min(minX, x4);
+  maxX = math.max(maxX, x4);
+  minY = math.min(minY, y4);
+  maxY = math.max(maxY, y4);
+  return PdfRect(minX, minY, maxX, maxY);
+}
 
 PdfRect _union(Iterable<PdfRect> rects) {
   final iterator = rects.iterator;
@@ -1576,9 +1662,63 @@ double _median(Iterable<double> values) {
 String _normalizeSpaces(String text) =>
     text.replaceAll(RegExp(r'[ \t\f\v]+'), ' ').trim();
 
-class _ExtractionDevice implements PdfDevice {
+/// Collects text runs (and, for reflow, image draws) from one page walk.
+///
+/// Being a [PdfTiledCellSink] routes both recorded tiling-pattern cells and
+/// cached Type3 glyph cells here instead of through a per-tile
+/// [TranslatingPdfDevice] expansion, so a cell that can't produce anything
+/// this device keeps - a hatch tile, a vector Type3 glyph - is skipped
+/// outright rather than having every path re-translated just to be dropped.
+class _ExtractionDevice implements PdfDevice, PdfTiledCellSink {
+  _ExtractionDevice({required this.collectImages});
+
+  /// Whether image draws are kept: [PdfTextExtractor.reflowPage] needs them,
+  /// plain extraction doesn't (which also skips image-only cells such as the
+  /// bitmap glyphs of TeX-era Type3 fonts).
+  final bool collectImages;
   final List<PdfTextRun> runs = [];
   final List<PdfImageRequest> images = [];
+
+  /// Per-walk verdicts keyed by cell identity: a tiling cell is recorded once
+  /// per fill and a Type3 glyph cell once per interpreter, then drawn many
+  /// times. Recorded cells are complete before they are drawn, so they can't
+  /// contain themselves.
+  final _cellNeeded = Map<List<PdfRenderCommand>, bool>.identity();
+
+  bool _needsCell(List<PdfRenderCommand> cell) =>
+      _cellNeeded[cell] ??= _scanCell(cell);
+
+  /// Same rule as `PdfRecordedText.capture`: only text (and images, when
+  /// collected) survives into this device, recursing into nested cells but
+  /// never into soft-mask definitions - [endSoftMasked] doesn't run
+  /// `drawMask`, so nothing in a mask reaches [runs] or [images].
+  bool _scanCell(List<PdfRenderCommand> cell) {
+    for (final command in cell) {
+      if (command is PdfDrawTextCommand) return true;
+      if (collectImages && command is PdfDrawImageCommand) return true;
+      if (command is PdfDrawTiledCellCommand &&
+          command.originsX.isNotEmpty &&
+          _needsCell(command.cellCommands)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    final cell = command.cellCommands;
+    if (!_needsCell(cell)) return;
+    // The same per-origin expansion the interpreter and `replayCommands`
+    // give a device that isn't a sink - base repeat verbatim, the rest
+    // translated - so runs, their order and their float translations are
+    // unchanged.
+    for (var t = 0; t < command.originsX.length; t++) {
+      final dx = command.originsX[t], dy = command.originsY[t];
+      replayCommands(
+          cell, dx == 0 && dy == 0 ? this : TranslatingPdfDevice(this, dx, dy));
+    }
+  }
 
   @override
   void drawText(PdfTextRun run) => runs.add(run);
@@ -1599,7 +1739,9 @@ class _ExtractionDevice implements PdfDevice {
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {}
   @override
-  void drawImage(PdfImageRequest request) => images.add(request);
+  void drawImage(PdfImageRequest request) {
+    if (collectImages) images.add(request);
+  }
 
   @override
   void setBlendMode(PdfBlendMode mode) {}

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/thumbnail_cache.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/perf.dart';
@@ -133,6 +134,161 @@ void main() {
         await tester.pump();
       }
       expect(rendered, [4]);
+    });
+
+    // A tile's own render is held while the viewer is busy (above), so its
+    // soft viewer preview is what a reader sees mid-scroll. The tile picks
+    // that preview up in build - and a viewer tick no longer rebuilds the
+    // tile (its viewport frame absorbs the tick), so a tile that mounted
+    // before its page's preview existed has to be told the preview landed.
+    // Hoisting the thumbnail out of the per-tick rebuild without that watch
+    // left such a tile blank paper for the whole scroll.
+    Future<({PdfEditingController editing, PdfViewerController viewer})>
+        pumpStripBesideViewer(WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      // tall enough that every tile of the 8-page strip is mounted
+      tester.view.physicalSize = const Size(1400, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final editing = PdfEditingController(buildMultiPagePdf(8));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            Expanded(
+              child: PdfViewer(
+                initialFit: PdfViewerFit.width,
+                controller: viewer,
+                editing: editing,
+              ),
+            ),
+          ]),
+        ),
+      ));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      return (editing: editing, viewer: viewer);
+    }
+
+    // The tile's own raster never lands under the fake clock (it needs real
+    // async), so a RawImage in a tile can only be the viewer's preview.
+    Finder tileImage(int page) => find.descendant(
+        of: find.byKey(ValueKey('pdf-thumbnail-tile-chip-$page')),
+        matching: find.byType(RawImage));
+
+    Future<void> wheel(WidgetTester tester, int ticks) async {
+      final center = tester.getRect(find.byType(PdfViewer)).center;
+      for (var i = 0; i < ticks; i++) {
+        await tester.sendEventToBinding(PointerScrollEvent(
+            position: center, scrollDelta: const Offset(0, 40)));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    Future<void> unmount(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets(
+        'a tile mounted before its viewer preview shows it once the '
+        'viewer scrolls', (tester) async {
+      final refs = await pumpStripBesideViewer(tester);
+      const target = 7;
+      expect(find.byKey(const ValueKey('pdf-thumbnail-tile-chip-$target')),
+          findsOneWidget);
+      expect(refs.viewer.pagePreviewCache!.has(target), isFalse);
+      expect(tileImage(target), findsNothing);
+
+      // the viewer renders that page mid-scroll and its preview lands
+      await tester.runAsync(() => refs.viewer.pagePreviewCache!
+          .renderPreview(target, refs.editing.pageAt(target)));
+      await wheel(tester, 5);
+      expect(tileImage(target), findsOneWidget,
+          reason: 'the soft preview, not blank paper, while the viewer '
+              'holds the tile\'s own render');
+      await unmount(tester);
+    });
+
+    testWidgets(
+        'a landing viewer preview reaches a blank tile without a scroll',
+        (tester) async {
+      final refs = await pumpStripBesideViewer(tester);
+      const target = 6;
+      expect(tileImage(target), findsNothing);
+      // the preview cache notifies as the preview lands; nothing else moves
+      await tester.runAsync(() => refs.viewer.pagePreviewCache!
+          .renderPreview(target, refs.editing.pageAt(target)));
+      await tester.pump();
+      expect(tileImage(target), findsOneWidget);
+      await unmount(tester);
+    });
+
+    testWidgets(
+        'a viewer scroll rebuilds only the frames whose mark moved, never '
+        'the thumbnails', (tester) async {
+      final refs = await pumpStripBesideViewer(tester);
+      // seed every tile, so no tile is still watching for its preview
+      await tester.runAsync(() async {
+        for (var i = 0; i < 8; i++) {
+          await refs.viewer.pagePreviewCache!
+              .renderPreview(i, refs.editing.pageAt(i));
+        }
+      });
+      await tester.pump();
+      await wheel(tester, 1); // settle the first tick's current-page flip
+
+      final rebuilt = <String, int>{};
+      debugOnRebuildDirtyWidget = (element, _) {
+        final type = element.widget.runtimeType.toString();
+        rebuilt[type] = (rebuilt[type] ?? 0) + 1;
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
+      const ticks = 5;
+      await wheel(tester, ticks);
+      debugOnRebuildDirtyWidget = null;
+
+      expect(rebuilt['_PageThumbnail'] ?? 0, 0,
+          reason: 'a tick used to rebuild every mounted page thumbnail');
+      final frames = rebuilt['_TileViewportFrame'] ?? 0;
+      expect(frames, greaterThan(0), reason: 'the viewport mark still moves');
+      expect(frames, lessThan(8 * ticks),
+          reason: 'only the tiles whose region changed rebuild');
+
+      // and the frames that sat the ticks out were right to: every tile's
+      // mark and outline still agree with the viewer
+      for (var i = 0; i < 8; i++) {
+        final chip = find.byKey(ValueKey('pdf-thumbnail-tile-chip-$i'));
+        final marks = tester.widgetList<CustomPaint>(find.descendant(
+            of: chip,
+            matching: find.byWidgetPredicate((w) =>
+                w is CustomPaint &&
+                w.painter.runtimeType.toString() == '_ViewportPainter')));
+        final region = refs.viewer.visiblePageRegion(i);
+        expect(
+            // ignore: avoid_dynamic_calls
+            [for (final mark in marks) (mark.painter as dynamic).region],
+            [if (region != null) region],
+            reason: 'page ${i + 1} viewport mark');
+        // the 2px ring is the current page's; every other frame is 1px
+        final outlined = find.descendant(
+            of: chip,
+            matching: find.byWidgetPredicate((w) =>
+                w is Container &&
+                w.decoration is BoxDecoration &&
+                ((w.decoration! as BoxDecoration).border as Border?)
+                        ?.top
+                        .width ==
+                    2));
+        expect(outlined,
+            refs.viewer.currentPage == i ? findsOneWidget : findsNothing,
+            reason: 'page ${i + 1} current-page outline');
+      }
+      await unmount(tester);
     });
 
     testWidgets(
@@ -536,9 +692,7 @@ void main() {
         final scene = await PdfRetainedScene.record(page, plan: plan);
         previews
             .retainScene(0, page, scene,
-                plan: plan,
-                fromWorker: false,
-                estimatedBytes: 1 << 20)
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
             .dispose(); // the cache keeps its own reference
         PdfPerf.enabled = true;
         addTearDown(() => PdfPerf.enabled = false);
@@ -671,9 +825,7 @@ void main() {
         final scene = await PdfRetainedScene.record(page, plan: plan);
         previews
             .retainScene(0, page, scene,
-                plan: plan,
-                fromWorker: false,
-                estimatedBytes: 1 << 20)
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
             .dispose();
         PdfPerf.enabled = true;
         addTearDown(() => PdfPerf.enabled = false);
@@ -807,9 +959,7 @@ void main() {
         final scene = await PdfRetainedScene.record(page, plan: plan);
         previews
             .retainScene(0, page, scene,
-                plan: plan,
-                fromWorker: false,
-                estimatedBytes: 1 << 20)
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
             .dispose();
         rendered = await rasterizeThumbnail(
           controller: controller,
@@ -848,9 +998,7 @@ void main() {
         final scene = await PdfRetainedScene.record(page, plan: plan);
         previews
             .retainScene(0, page, scene,
-                plan: plan,
-                fromWorker: false,
-                estimatedBytes: 1 << 20)
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
             .dispose();
         rendered = await rasterizeThumbnail(
           controller: controller,

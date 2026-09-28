@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:bidi/bidi.dart' as bidi;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -70,6 +71,19 @@ void main() {
       // a 30pt page-space width. The old 1em band was only 24pt wide.
       expect(quad.bounds.width, closeTo(1.25 * 24, 1e-6));
       expect(quad.bounds.height, closeTo(0.5 * 24, 1e-6));
+    });
+
+    test('decodes astral CJK from its surrogate pair', () {
+      // U+20000 (Extension B) is the pair D840 DC00: the line expands only
+      // when the two halves arrive together and in order.
+      final astral = _pageOfRuns([_glyphRun('A\u{20000}B', 100, 3)]);
+      expect(astral.runs.map((run) => run.ascent), everyElement(1.0));
+      for (final text in ['A\uD840B', 'A\uDC00B', 'A\uDC00\uD840B']) {
+        final lone = _pageOfRuns([_glyphRun(text, 100, 3)]);
+        expect(lone.runs.map((run) => run.ascent), everyElement(0.75),
+            reason: 'unpaired surrogates in '
+                '${text.codeUnits.map((u) => u.toRadixString(16))}');
+      }
     });
   });
 
@@ -419,6 +433,71 @@ void main() {
     expect(page.positionNear(313, 720), 4);
   });
 
+  group('left-to-right fast path', () {
+    // `_bidiLine` skips its per-glyph pass when no code unit on the line
+    // could be right-to-left. These pin the one sub-U+0590 way a line turns
+    // RTL, and the bidi table facts that make the skip exact.
+    test('only nonspacing marks below U+0590 can make a line RTL', () {
+      const strongRtl = {
+        bidi.CharacterType.rtl,
+        bidi.CharacterType.al,
+        bidi.CharacterType.rle,
+        bidi.CharacterType.rlo,
+        bidi.CharacterType.rli,
+      };
+      for (var c = 0; c < 0x0590; c++) {
+        final type = bidi.getCharacterType(c);
+        expect(strongRtl, isNot(contains(type)),
+            reason: 'U+${c.toRadixString(16)} is strong RTL');
+        if (type == bidi.CharacterType.nonspacingMark) {
+          expect((c >= 0x0300 && c <= 0x036F) || (c >= 0x0483 && c <= 0x0489),
+              isTrue,
+              reason: 'U+${c.toRadixString(16)} is a nonspacing mark outside '
+                  'the ranges the fast path checks');
+        }
+      }
+    });
+
+    test('a line-initial combining mark still takes the BiDi pass', () {
+      // A mark with no preceding class counts as RTL (`previous ?? rtl`), so
+      // U+0304 before "x" is a majority-RTL line and reads back reversed.
+      for (final mark in ['\u0304', '\u0483']) {
+        final page = _pageOfRuns([_glyphRun('${mark}x', 100, 0.6)]);
+        expect(page.text, 'x$mark');
+        expect(page.runs.map((run) => run.isRightToLeft), [false, true]);
+      }
+      // In a longer LTR line the mark keeps the line on the per-glyph path.
+      final page = _pageOfRuns([
+        _glyphRun('\u0304x = y', 100, 2),
+        _glyphRun('and more', 130, 4),
+      ]);
+      expect(page.text, '\u0304x = y and more');
+      expect(page.runs.first.isRightToLeft, isTrue);
+      expect(page.runs, hasLength(6 + 8), reason: 'one run per glyph');
+    });
+
+    test('run bounds equal the bounds of the run quad', () {
+      final page = _pageOfRuns([
+        _glyphRun('Upright', 100, 3.5),
+        _glyphRun('Rotated', 100, 3.5,
+            transform: const PdfMatrix(0, 12, -12, 0, 300, 400)),
+        _glyphRun('Skewed', 100, 3,
+            transform: const PdfMatrix(10, 3, -4, 11, -50.25, 610.5)),
+        _glyphRun('Flipped', 100, 3.5,
+            transform: const PdfMatrix(-12, 0, 0, -12, 500, 100)),
+      ]);
+      expect(page.runs, hasLength(4));
+      for (final run in page.runs) {
+        final quad = page
+            .quadsFor(run.startIndex, run.startIndex + run.text.length)
+            .single;
+        final (a, b) = (run.bounds, quad.bounds);
+        expect([a.left, a.bottom, a.right, a.top],
+            [b.left, b.bottom, b.right, b.top]);
+      }
+    });
+  });
+
   test('literal search ignores clipboard bidi formatting controls', () {
     const text = '(اﻟرﺣﻣن';
     const page = PdfPageText(pageIndex: 0, text: text, runs: []);
@@ -564,6 +643,43 @@ void main() {
     expect(page.blocks.map((block) => block.text), ['Body text']);
   });
 
+  group('tiling-pattern and Type3 cells', () {
+    // Extraction consumes recorded cells natively and skips the ones holding
+    // nothing it keeps. Whatever it does keep has to match the per-tile
+    // expansion a device that isn't a PdfTiledCellSink receives.
+    test('extract matches the per-tile expansion and skips textless hatch', () {
+      final doc = PdfDocument.open(_cellDoc());
+      final reference = _collectUnsunk(doc);
+      final extracted = PdfTextExtractor.extract(doc, 0);
+
+      expect(serializePageText(extracted),
+          serializePageText(_textFromRuns(reference.runs)));
+      // 3x3 label tiles plus their one-tile margin, once upright and once
+      // under a rotated pattern matrix; the hatch contributes nothing.
+      final cells = extracted.runs.where((run) => run.text == 'CELL').toList();
+      expect(cells,
+          hasLength(reference.runs.where((r) => r.text == 'CELL').length));
+      expect(cells.length, greaterThan(8));
+      expect(cells.map((run) => run.transform.e).toSet().length, greaterThan(3),
+          reason: 'every tile keeps its own translation');
+      expect(extracted.text, startsWith('Title'));
+      expect(extracted.text, contains('in'));
+    });
+
+    test('reflowPage keeps images drawn inside pattern and Type3 cells', () {
+      final doc = PdfDocument.open(_cellDoc());
+      final reference = _collectUnsunk(doc);
+      final page = PdfTextExtractor.reflowPage(doc, 0);
+      final expected = PdfTextReflower.reflow(_textFromRuns(reference.runs),
+          images: reference.images);
+
+      expect(_reflowSignature(page), _reflowSignature(expected));
+      // Picture tiles (the image is 30pt) and the two bitmap "A" glyphs.
+      expect(page.images.length, greaterThanOrEqualTo(4 + 2));
+      expect(page.images.length, reference.images.length);
+    });
+  });
+
   test('reflow places an image above all text first', () {
     final doc = PdfDocument.open(_imageDocWith([
       'q 200 0 0 80 100 690 cm /Im0 Do Q', // top of the page, above all text
@@ -576,6 +692,165 @@ void main() {
     expect((page.items[1] as PdfReflowBlock).text, 'First paragraph');
     expect((page.items[2] as PdfReflowBlock).text, 'Second paragraph');
   });
+}
+
+/// Page text for hand-built [runs], through the recorded-text entry point
+/// (the same line, BiDi and bounds code as a fresh extraction).
+PdfPageText _pageOfRuns(List<PdfTextRun> runs) => _textFromRuns(runs);
+
+/// An embedded-font style run: one positioned glyph per code point, spread
+/// evenly across [width] em.
+PdfTextRun _glyphRun(String text, double x, double width,
+    {PdfMatrix? transform}) {
+  final runes = text.runes.toList();
+  return PdfTextRun(
+    text: text,
+    transform: transform ?? PdfMatrix(12, 0, 0, 12, x, 700),
+    color: const PdfColor(0, 0, 0),
+    width: width,
+    glyphs: [
+      for (var i = 0; i < runes.length; i++)
+        PdfGlyphPlacement(
+            offset: width * i / runes.length,
+            text: String.fromCharCode(runes[i])),
+    ],
+  );
+}
+
+/// Page text built from [runs] exactly as a fresh extraction would build it.
+PdfPageText _textFromRuns(List<PdfTextRun> runs) =>
+    PdfTextExtractor.fromRecordedText(
+        PdfRecordedText.capture(
+            [for (final run in runs) PdfDrawTextCommand(run)]),
+        0);
+
+/// Walks page 0 into a plain collecting device - not a [PdfTiledCellSink],
+/// so the interpreter expands every recorded cell per tile into it - with
+/// the extractor's own interpreter options.
+_CollectingDevice _collectUnsunk(PdfDocument doc) {
+  final device = _CollectingDevice();
+  PdfInterpreter(
+    cos: doc.cos,
+    device: device,
+    resolveOverprint: false,
+    collectCharOffsets: true,
+  ).drawPage(doc.page(0));
+  return device;
+}
+
+String _reflowSignature(PdfReflowPage page) {
+  String rect(PdfRect r) => '${r.left},${r.bottom},${r.right},${r.top}';
+  String matrix(PdfMatrix m) => '${m.a},${m.b},${m.c},${m.d},${m.e},${m.f}';
+  return [
+    for (final item in page.items)
+      switch (item) {
+        PdfReflowBlock() => 'B ${item.text} ${rect(item.bounds)}',
+        PdfReflowImage() =>
+          'I ${rect(item.bounds)} ${matrix(item.request.transform)}',
+      },
+  ].join('\n');
+}
+
+class _CollectingDevice implements PdfDevice {
+  final runs = <PdfTextRun>[];
+  final images = <PdfImageRequest>[];
+
+  @override
+  void drawText(PdfTextRun run) => runs.add(run);
+  @override
+  void drawImage(PdfImageRequest request) => images.add(request);
+  @override
+  void save() {}
+  @override
+  void restore() {}
+  @override
+  void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double a) {}
+  @override
+  void fillPathGradient(
+      PdfPath path, PdfFillRule rule, PdfGradient gradient, double a) {}
+  @override
+  void fillMesh(PdfMesh mesh, double a) {}
+  @override
+  void strokePath(PdfPath path, PdfColor color, PdfStroke stroke, double a) {}
+  @override
+  void clipPath(PdfPath path, PdfFillRule rule) {}
+  @override
+  void setBlendMode(PdfBlendMode mode) {}
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+  @override
+  void beginGroup(double alpha, {bool knockout = false}) {}
+  @override
+  void endGroup() {}
+  @override
+  void beginSoftMasked() {}
+  @override
+  void endSoftMasked(
+      {required bool luminosity,
+      required PdfRect backdrop,
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {}
+}
+
+/// A page mixing everything a recorded cell can carry: a textless line
+/// hatch, a text-bearing label pattern (upright and rotated), an
+/// image-bearing pattern, and a Type3 font whose glyphs are a bitmap (A), a
+/// filled square (B) and nested text (C). Every fill spans at least four
+/// tiles, so the interpreter records the cell instead of running it per tile.
+Uint8List _cellDoc() {
+  const content = 'BT /F1 12 Tf 72 740 Td (Title) Tj ET\n'
+      'q /Pattern cs /Hatch scn 72 500 200 100 re f Q\n'
+      'q /Pattern cs /Label scn 72 300 120 60 re f Q\n'
+      'q /Pattern cs /LabelRotated scn 72 100 60 120 re f Q\n'
+      'q /Pattern cs /Picture scn 300 300 150 150 re f Q\n'
+      'BT /T3 30 Tf 300 150 Td (ABCAB) Tj ET';
+  const hex = 'FF000000FF000000FFFFFFFF>';
+  String stream(String dict, String data) =>
+      '<< $dict /Length ${data.length} >>\nstream\n$data\nendstream';
+  String pattern(
+          String data, String bbox, int xStep, int yStep, String resources,
+          {String matrix = ''}) =>
+      stream(
+          '/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 '
+          '/BBox [$bbox] /XStep $xStep /YStep $yStep $matrix'
+          '/Resources $resources',
+          data);
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R /T3 8 0 R >> '
+        '/XObject << /Im0 6 0 R >> '
+        '/Pattern << /Hatch 9 0 R /Label 10 0 R /Picture 11 0 R '
+        '/LabelRotated 14 0 R >> >> >>',
+    stream('', content),
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    stream(
+        '/Type /XObject /Subtype /Image /Width 2 /Height 2 '
+        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode',
+        hex),
+    stream('', '1000 0 d0 q 1000 0 0 1000 0 0 cm /Im0 Do Q'),
+    '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] '
+        '/FontMatrix [0.001 0 0 0.001 0 0] /FirstChar 65 /LastChar 67 '
+        '/Widths [1000 1000 1000] '
+        '/Encoding << /Type /Encoding /Differences [65 /A /B /C] >> '
+        '/CharProcs << /A 7 0 R /B 12 0 R /C 13 0 R >> '
+        '/Resources << /Font << /F1 5 0 R >> /XObject << /Im0 6 0 R >> >> >>',
+    pattern('0 0 m 10 10 l S', '0 0 10 10', 10, 10, '<< >>'),
+    pattern('BT /F1 4 Tf 1 1 Td (CELL) Tj ET', '0 0 40 20', 40, 20,
+        '<< /Font << /F1 5 0 R >> >>'),
+    pattern('q 30 0 0 30 5 5 cm /Im0 Do Q', '0 0 50 50', 50, 50,
+        '<< /XObject << /Im0 6 0 R >> >>'),
+    stream('', '1000 0 d0 0 0 800 800 re f'),
+    stream('', '1000 0 d0 BT /F1 500 Tf 0 0 Td (in) Tj ET'),
+    pattern('BT /F1 4 Tf 1 1 Td (CELL) Tj ET', '0 0 40 20', 40, 20,
+        '<< /Font << /F1 5 0 R >> >>',
+        matrix: '/Matrix [0 1 -1 0 0 0] '),
+  ];
+  return _assemblePdf(objects);
 }
 
 /// A one-page PDF with two text paragraphs and a single image XObject drawn

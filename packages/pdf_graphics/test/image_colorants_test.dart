@@ -671,4 +671,357 @@ void main() {
       });
     });
   });
+
+  group('spatial image overprint (a per-pixel backdrop map)', () {
+    final process = PdfColorants(0.5, 0, 1, 0);
+    const processColor = PdfColor(0.31, 0.45, 0.13);
+    final spot = PdfColorants(0, 0, 0, 0,
+        spots: const ['GWG Green'], tints: const [1.0]);
+    const spotColor = PdfColor(0.53, 0.79, 0.27);
+    final spots = {
+      'GWG Green': const [0.5, 0.0, 1.0, 0.0],
+    };
+
+    /// A map over [process] (entry 1) and [spot] (entry 2); entry 0 is the
+    /// unknown cell.
+    PdfColorantBackdropMap backdropMap(
+            int width, int height, List<int> entries) =>
+        PdfColorantBackdropMap(
+          width: width,
+          height: height,
+          indices: Uint16List.fromList(entries),
+          colorants: [null, process, spot],
+          colors: const [PdfColor(1, 1, 1), processColor, spotColor],
+        );
+
+    CosStream? spatial(CosStream source, PdfColorantBackdropMap map,
+            {int mode = 1}) =>
+        pdfImageOverprintStream(cos, source,
+            spatialBackdrop: map, mode: mode, spotEquivalents: spots);
+
+    PdfPath rect(double l, double b, double r, double t) => PdfPath([
+          PdfMoveTo(l, b),
+          PdfLineTo(r, b),
+          PdfLineTo(r, t),
+          PdfLineTo(l, t),
+          const PdfClosePath(),
+        ]);
+
+    test('the compositor gives each backdrop one entry, in first-seen order',
+        () {
+      final c = PdfOverprintCompositor.forPageBox(0, 0, 100, 100)!;
+      final processInk = PdfInkColorants.deviceCmyk(0.5, 0, 1, 0);
+      final spotInk = PdfInkColorants(
+          colorants: spot,
+          processMask: 0,
+          overprintModeApplies: false,
+          spotEquivalents: const [
+            [0.5, 0.0, 1.0, 0.0]
+          ]);
+      // Process | paper | spot | paper | process, one column per source pixel.
+      for (final (l, r, ink, color) in [
+        (0.0, 20.0, processInk, processColor),
+        (40.0, 60.0, spotInk, spotColor),
+        (80.0, 100.0, processInk, processColor),
+      ]) {
+        c.fill(rect(l, 0, r, 100), PdfFillRule.nonzero, color, ink,
+            overprint: false, mode: 0, opaque: true);
+      }
+      PdfColorantBackdropMap? sampled;
+      c.image<Object>(rect(0, 0, 100, 100),
+          transform: const PdfMatrix(100, 0, 0, 100, 0, 0),
+          width: 5,
+          height: 1,
+          ink: null,
+          color: const PdfColor(0, 0, 0),
+          hasColorants: true,
+          overprint: true,
+          mode: 1,
+          opaque: true,
+          resolve: (_, __) => null,
+          resolveSpatial: (map) {
+            sampled = map;
+            return null;
+          });
+      expect(sampled, isNotNull);
+      expect(sampled!.indices, [1, 2, 3, 2, 1],
+          reason: 'both process columns share one entry, as do both paper '
+              'columns');
+      expect(sampled!.colorants, [null, process, PdfColorants.none, spot]);
+      expect(sampled!.colors[1], processColor);
+      expect(sampled!.colors[3], spotColor);
+    });
+
+    test('equal maps built apart hash alike and share one substitute', () {
+      // The collect and paint walks each sample their own map. The substitute
+      // memo must see the two as one key, or the paint walk would draw a
+      // stream the collect walk never decoded.
+      final entries = [1, 2, 2, 1, 1, 2];
+      final a = backdropMap(3, 2, entries);
+      final b = backdropMap(3, 2, List.of(entries));
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a, isNot(backdropMap(3, 2, [1, 2, 2, 1, 2, 2])));
+      final source = image(
+          const CosName('DeviceCMYK'),
+          [
+            for (var i = 0; i < 6; i++) ...[0, 0, 0, 128]
+          ],
+          width: 3);
+      final first = spatial(source, a);
+      expect(first, isNotNull);
+      expect(identical(spatial(source, b), first), isTrue);
+    });
+
+    /// [source]'s substitute over one uniform backdrop: the oracle for every
+    /// spatial pixel that sits on that backdrop.
+    Uint8List uniformOver(CosStream source, PdfColorants backdrop,
+            PdfColor backdropColor, int mode) =>
+        pdfImageOverprintStream(cos, source,
+                backdrop: backdrop,
+                backdropColor: backdropColor,
+                mode: mode,
+                spotEquivalents: spots)!
+            .rawBytes;
+
+    /// Composites [source] over a [width] x [height] map of [entries] and
+    /// checks every pixel against the uniform substitute for its own entry,
+    /// and the whole raster against the builder's unmemoised walk.
+    void expectPerEntry(
+        CosStream Function() source, int width, int height, List<int> entries) {
+      for (final mode in [0, 1]) {
+        final memoised =
+            spatial(source(), backdropMap(width, height, entries), mode: mode)!
+                .rawBytes;
+        // A map one column wider than the image no longer matches it pixel
+        // for pixel, so the builder takes its unmemoised walk - and never
+        // samples the extra column, so the answer must be the same bytes.
+        final wide = [
+          for (var y = 0; y < height; y++) ...[
+            ...entries.sublist(y * width, (y + 1) * width),
+            1,
+          ]
+        ];
+        final unmemoised =
+            spatial(source(), backdropMap(width + 1, height, wide), mode: mode)!
+                .rawBytes;
+        expect(memoised, unmemoised, reason: 'mode $mode');
+        final overProcess = uniformOver(source(), process, processColor, mode);
+        final overSpot = uniformOver(source(), spot, spotColor, mode);
+        for (var i = 0; i < width * height; i++) {
+          final oracle = entries[i] == 1 ? overProcess : overSpot;
+          expect(memoised.sublist(i * 3, i * 3 + 3),
+              oracle.sublist(i * 3, i * 3 + 3),
+              reason: 'mode $mode, pixel $i over entry ${entries[i]}');
+        }
+      }
+    }
+
+    /// `[/DeviceN [/Cyan /PANTONE 349] /DeviceCMYK {0 0}]` - a process
+    /// colorant and a spot the page has no equivalent for yet, so the image
+    /// teaches the builder one.
+    CosArray cyanAndSpot() => CosArray([
+          const CosName('DeviceN'),
+          CosArray([const CosName('Cyan'), const CosName('PANTONE 349')]),
+          const CosName('DeviceCMYK'),
+          CosStream(
+              CosDictionary({
+                'FunctionType': const CosInteger(4),
+                'Domain': CosArray([
+                  for (var i = 0; i < 2; i++) ...[
+                    const CosInteger(0),
+                    const CosInteger(1)
+                  ]
+                ]),
+                'Range': CosArray([
+                  for (var i = 0; i < 4; i++) ...[
+                    const CosInteger(0),
+                    const CosInteger(1)
+                  ]
+                ]),
+              }),
+              Uint8List.fromList('{ 0 0 }'.codeUnits)),
+        ]);
+
+    const entries = [
+      1, 2, 2, 1, //
+      2, 1, 1, 2, //
+      1, 1, 2, 2,
+    ];
+
+    test('an Indexed raster composites each pixel over its own backdrop', () {
+      // GWG080-082's shape: a small palette repeated across two backdrops.
+      expectPerEntry(
+          () => image(indexed(cyanAndSpot(), [0, 0, 255, 0, 128, 255]),
+              [0, 1, 2, 1, 2, 2, 0, 1, 1, 0, 2, 2],
+              width: 4, height: 3),
+          4,
+          3,
+          entries);
+    });
+
+    test('a DeviceN raster composites each pixel over its own backdrop', () {
+      expectPerEntry(
+          () => image(
+              cyanAndSpot(),
+              [
+                for (final t in [0, 1, 2, 1, 2, 2, 0, 1, 1, 0, 2, 2])
+                  ...[
+                    [0, 0],
+                    [255, 0],
+                    [128, 255]
+                  ][t]
+              ],
+              width: 4,
+              height: 3),
+          4,
+          3,
+          entries);
+    });
+
+    test('four 8-bit components with high bytes stay distinct keys', () {
+      // Packed tuples at and past 2^31: a key that wrapped (as bitwise
+      // packing does on the web) would alias two of these.
+      const tuples = [
+        [0xFF, 0xF0, 0x80, 0xFF],
+        [0xFF, 0xFF, 0xFF, 0xFF],
+        [0x00, 0x00, 0x00, 0xFF],
+        [0x80, 0x00, 0xF7, 0x00],
+      ];
+      expectPerEntry(
+          () => image(const CosName('DeviceCMYK'),
+              [for (var i = 0; i < 12; i++) ...tuples[(i * 3 + i ~/ 4) % 4]],
+              width: 4, height: 3),
+          4,
+          3,
+          entries);
+    });
+
+    test('an unknown cell declines even when its tuple is already memoised',
+        () {
+      CosStream uniformRaster() => image(
+          const CosName('DeviceCMYK'),
+          [
+            for (var i = 0; i < 3; i++) ...[0, 0, 0, 128]
+          ],
+          width: 3,
+          height: 1);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [1, 2, 1])), isNotNull);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [1, 1, 0])), isNull);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [2, 0, 2])), isNull);
+      expect(spatial(uniformRaster(), backdropMap(3, 1, [1, 3, 1])), isNull,
+          reason: 'an entry past the palette is unknown too');
+    });
+  });
+
+  group('single-component rasters (the per-sample table)', () {
+    final backdrop = PdfColorants(0, 0, 0, 0,
+        spots: const ['GWG Green'], tints: const [1.0]);
+    const backdropColor = PdfColor(0.53, 0.79, 0.27);
+    final spots = {
+      'GWG Green': const [0.5, 0.0, 1.0, 0.0],
+    };
+
+    /// A [bits]-deep one-component raster over [space] holding [samples] row
+    /// by row, each row padded out to a whole byte as the format stores it.
+    CosStream raster(CosObject space, int bits, int width, List<int> samples,
+        {CosArray? decode}) {
+      final height = samples.length ~/ width;
+      final rowBytes = (width * bits + 7) ~/ 8;
+      final data = Uint8List(rowBytes * height);
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          final bit = x * bits;
+          data[y * rowBytes + (bit >> 3)] |=
+              samples[y * width + x] << (8 - bits - (bit & 7));
+        }
+      }
+      return CosStream(
+          CosDictionary({
+            'Type': const CosName('XObject'),
+            'Subtype': const CosName('Image'),
+            'Width': CosInteger(width),
+            'Height': CosInteger(height),
+            'BitsPerComponent': CosInteger(bits),
+            'ColorSpace': space,
+            if (decode != null) 'Decode': decode,
+          }),
+          data);
+    }
+
+    Uint8List composited(CosStream source, int mode) =>
+        pdfImageOverprintStream(cos, source,
+                backdrop: backdrop,
+                backdropColor: backdropColor,
+                mode: mode,
+                spotEquivalents: spots)!
+            .rawBytes;
+
+    /// Checks a [width] x 3 raster of every [bits]-deep value against a
+    /// per-sample reference: a one-pixel raster holding just that sample,
+    /// which no table can answer from another pixel.
+    void expectPerSample(CosObject Function() space, int bits, int width,
+        {CosArray? decode}) {
+      final count = width * 3;
+      final samples = [
+        for (var i = 0; i < count; i++) (i * 7 + i ~/ 3) % (1 << bits)
+      ];
+      for (final mode in [0, 1]) {
+        final whole = composited(
+            raster(space(), bits, width, samples, decode: decode), mode);
+        for (var i = 0; i < count; i++) {
+          expect(
+              whole.sublist(i * 3, i * 3 + 3),
+              composited(
+                  raster(space(), bits, 1, [samples[i]], decode: decode), mode),
+              reason: '$bits-bit mode $mode, sample $i = ${samples[i]}');
+        }
+      }
+    }
+
+    CosArray inverted(int top) =>
+        CosArray([CosInteger(top), const CosInteger(0)]);
+
+    for (final (bits, width) in [(1, 5), (2, 3), (4, 3), (8, 5)]) {
+      test('$bits-bit gray at an odd width matches a per-sample composite', () {
+        expectPerSample(() => const CosName('DeviceGray'), bits, width);
+        expectPerSample(() => const CosName('DeviceGray'), bits, width,
+            decode: inverted(1));
+      });
+
+      test('$bits-bit Indexed at an odd width matches a per-sample composite',
+          () {
+        final top = (1 << bits) - 1;
+        CosObject space() => CosArray([
+              const CosName('Indexed'),
+              const CosName('DeviceCMYK'),
+              CosInteger(top),
+              CosString(Uint8List.fromList([
+                for (var i = 0; i <= top; i++) ...[
+                  (i * 37) & 0xff,
+                  0,
+                  (i * 11) & 0xff,
+                  255 - i
+                ]
+              ])),
+            ]);
+        expectPerSample(space, bits, width);
+        expectPerSample(space, bits, width, decode: inverted(top));
+      });
+    }
+
+    test('a 4-bit Separation learns its spot before any sample is reused', () {
+      // The spot is not among the page's equivalents, so the first composite
+      // teaches the builder one; every later sample must convert with it.
+      expectPerSample(
+          () => CosArray([
+                const CosName('Separation'),
+                const CosName('PANTONE 349'),
+                const CosName('DeviceCMYK'),
+                exponential(const [1.0, 0.0, 0.8, 0.2]),
+              ]),
+          4,
+          7);
+    });
+  });
 }

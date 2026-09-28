@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'dart:js_interop';
@@ -16,6 +17,7 @@ import 'compression_worker_protocol.dart';
 import 'font_substitution.dart';
 import 'region_replay_index.dart';
 import 'jpeg_accelerator.dart';
+import 'render_worker_ranges.dart';
 import 'render_worker_transcript_cache.dart';
 import 'web_canvas_device.dart';
 import 'web_surface_profile.dart';
@@ -109,12 +111,52 @@ class _PageSurfaceBitmapCache {
     }
   }
 
+  /// Closes and drops the bitmaps of [pages], or every bitmap when [pages]
+  /// is null: a revision update changed what those pages paint.
+  void evictPages(Set<int>? pages) {
+    if (pages == null) {
+      dispose();
+      return;
+    }
+    _entries.removeWhere((key, bitmap) {
+      if (!pages.contains(key.pageIndex)) return false;
+      _pixels -= key.width * key.height;
+      bitmap.close();
+      return true;
+    });
+  }
+
   void dispose() {
     for (final bitmap in _entries.values) {
       bitmap.close();
     }
     _entries.clear();
     _pixels = 0;
+  }
+}
+
+/// The worker's cancellable walks (record, surface, bin, detail, region index)
+/// that are still running. Normally at most one - the main side sends one
+/// request at a time - but its record watchdog can free that slot while a slow
+/// walk is still going here, so a revision update waits for all of them.
+class _WorkerWalks {
+  final _running = <PdfCancellationToken, Future<void>>{};
+
+  bool get isEmpty => _running.isEmpty;
+
+  /// Starts [walk] (fire-and-forget, as before) and tracks it until it ends.
+  void run(PdfCancellationToken token, Future<void> Function() walk) {
+    final future = walk();
+    _running[token] = future;
+    future.whenComplete(() => _running.remove(token));
+  }
+
+  /// Cancels every running walk; completes once they have all unwound.
+  Future<void> cancelAll() {
+    for (final token in _running.keys) {
+      token.cancelled = true;
+    }
+    return Future.wait(_running.values);
   }
 }
 
@@ -165,7 +207,13 @@ bool _presentPageSurfaceBitmap(
 ///   `{kind:'compressionError', error:String}`. These standalone requests need
 ///   no `init`; clients use a dedicated worker and terminate it to cancel.
 /// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared, populatedRanges?}` → opens the
-///   document, replies `{kind:'ready', shared}`.
+///   document, replies `{kind:'ready', shared, revisionUpdate:1, ...}`.
+/// - `{kind:'update', id, baseLength, newLength, bytes:Uint8Array, changed?}`
+///   → moves the open document to the revision made of its first
+///   `baseLength` bytes plus `bytes` (see `PdfRenderWorker.updateRevision`),
+///   in place when that is an append, else by re-opening. Always replies
+///   `{kind:'result', id, incremental}`, with `error` set when the worker could
+///   not reach the revision. `ready`'s `revisionUpdate` advertises this.
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
 ///   buffer:ArrayBuffer|null}` (null = the page can't be offloaded; the main
 ///   thread renders it locally).
@@ -182,6 +230,18 @@ void runPdfRenderWorker() {
   installPdfJpegAccelerator();
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
+  // The worker's copy of the document image, as in the isolate backend:
+  // [workerBytes] is capacity and its first [workerLength] bytes are the
+  // revision the worker reflects. It starts as the init buffer. That is the
+  // pool's SharedArrayBuffer when the page is cross-origin isolated - shared
+  // by every lane and the main thread, so never written - and otherwise an
+  // exact-size transferred copy; the first update that appends bytes moves to
+  // a private buffer with headroom.
+  Uint8List? workerBytes;
+  var workerLength = 0;
+  var workerBytesShared = false;
+  List<int>? populatedRanges;
+  final walks = _WorkerWalks();
   // One decoded-image cache per open document. A worker records the same page
   // several times in a scroll (vector-first, full, prerender warm, thumbnail)
   // and each record re-decoded every image; #451's device trace showed one page
@@ -198,6 +258,107 @@ void runPdfRenderWorker() {
   final transcriptCache = PdfWorkerTranscriptCache();
   final pageSurfaces = <int, web.OffscreenCanvas>{};
   final pageSurfaceBitmaps = <int, _PageSurfaceBitmapCache>{};
+
+  // A newly opened document has new streams and may have other pages: drop
+  // every cache keyed by the previous document's objects or pages.
+  void resetDocumentCaches() {
+    imageCache = PdfImageDecodeCache();
+    flateSampleCache = _BrowserFlateSampleCache();
+    flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
+    for (final cached in pageSurfaceBitmaps.values) {
+      cached.dispose();
+    }
+    pageSurfaceBitmaps.clear();
+    transcriptCache.evictPages(null);
+  }
+
+  // Moves the open document to the revision an 'update' message describes and
+  // returns whether that happened in place. Mirrors the isolate backend: the
+  // tail is appended into the worker's own buffer, an append is folded into
+  // the open document, and anything else (an undo, or an undo coalesced with
+  // the next edit) re-opens the prefix. Throws when the message is malformed
+  // (before anything is written) or the revision does not open.
+  bool applyRevision(JSObject data) {
+    final baseLength =
+        (data.getProperty('baseLength'.toJS) as JSNumber).toDartInt;
+    final newLength =
+        (data.getProperty('newLength'.toJS) as JSNumber).toDartInt;
+    final appended = (data.getProperty('bytes'.toJS) as JSUint8Array).toDart;
+    final changed = (data.getProperty('changed'.toJS) as JSArray<JSNumber>?)
+        ?.toDart
+        .map((page) => page.toDartInt)
+        .toSet();
+    final held = workerBytes;
+    if (held == null) throw StateError('no document to update');
+    if (newLength != baseLength + appended.length) {
+      throw ArgumentError('inconsistent revision length');
+    }
+    if (baseLength > workerLength) {
+      throw ArgumentError('revision base past the held prefix');
+    }
+    final nextRanges =
+        renderWorkerRevisionRanges(populatedRanges, baseLength, newLength);
+    // Everything above is validation; nothing is written until here.
+    //
+    // The tail lands at or past [baseLength]. For an append that is past
+    // everything the open document views. Otherwise [baseLength] is not the
+    // document's length, so it re-opens below and every cache that saw the old
+    // document is dropped before anything reads the overwritten bytes (no walk
+    // is running: the caller waited for them).
+    //
+    // A shared seed is never written: the other lanes and the main thread
+    // read it. The first append copies the prefix out instead, which is the
+    // one-time cost of keeping the worker across edits. Growth is ~6% plus
+    // 1 MB, not doubling, as in the isolate backend: every worker owns its
+    // buffer, and the slack absorbs thousands of annotation-sized tails.
+    var buffer = held;
+    var shared = workerBytesShared;
+    if (appended.isNotEmpty) {
+      if (shared || newLength > buffer.length) {
+        buffer = Uint8List(newLength + (newLength >> 4) + (1 << 20))
+          ..setRange(0, baseLength, held);
+        shared = false;
+      }
+      buffer.setRange(baseLength, newLength, appended);
+    }
+    final live = Uint8List.sublistView(buffer, 0, newLength);
+    var incremental = false;
+    final doc = document;
+    if (doc != null && baseLength == doc.cos.bytes.length) {
+      try {
+        doc.applyIncrementalUpdate(live);
+        incremental = true;
+      } catch (_) {
+        // Not an append the open document can take (a recovered xref, a
+        // malformed section): re-open from the prefix instead.
+      }
+    }
+    if (!incremental) {
+      try {
+        document = PdfDocument.open(live, populatedRanges: nextRanges);
+      } catch (_) {
+        document = null;
+      }
+    }
+    workerBytes = buffer;
+    workerLength = newLength;
+    workerBytesShared = shared;
+    populatedRanges = nextRanges;
+    if (incremental) {
+      // Only the changed pages' renders are stale. The decoded-image and
+      // flate-sample caches are keyed by stream object, and an update gives
+      // every object it redefines a fresh one, so they stay.
+      transcriptCache.evictPages(changed);
+      for (final cached in pageSurfaceBitmaps.values) {
+        cached.evictPages(changed);
+      }
+      flatePredecoder.evictPages(changed);
+    } else {
+      resetDocumentCaches();
+    }
+    if (document == null) throw StateError('the revision did not open');
+    return incremental;
+  }
 
   // The handler MUST stay synchronous (return void): `.toJS` cannot convert a
   // Future-returning function, so an `async` handler fails `dart compile js`
@@ -272,19 +433,17 @@ void runPdfRenderWorker() {
         final bytes = shared
             ? _jsUint8View(buffer).toDart
             : (buffer as JSArrayBuffer).toDart.asUint8List();
-        final populatedRanges =
+        final ranges =
             (data.getProperty('populatedRanges'.toJS) as JSArray<JSNumber>?)
                 ?.toDart
                 .map((value) => value.toDartInt)
                 .toList();
-        document = PdfDocument.open(bytes, populatedRanges: populatedRanges);
-        imageCache = PdfImageDecodeCache(); // new document, new streams
-        flateSampleCache = _BrowserFlateSampleCache();
-        flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
-        for (final cached in pageSurfaceBitmaps.values) {
-          cached.dispose();
-        }
-        pageSurfaceBitmaps.clear();
+        workerBytes = bytes;
+        workerLength = bytes.length;
+        workerBytesShared = shared;
+        populatedRanges = ranges;
+        document = PdfDocument.open(bytes, populatedRanges: ranges);
+        resetDocumentCaches(); // new document, new streams
       } catch (_) {
         document = null; // bad transfer / broken document → local renders
       }
@@ -325,6 +484,11 @@ void runPdfRenderWorker() {
       // built before it simply omits the field, which is the only way a trace
       // can distinguish "reuse found nothing" from "this worker cannot reuse".
       ready.setProperty('imageDecodeCache'.toJS, true.toJS);
+      // Likewise the 'update' message (protocol version 1): a main bundle
+      // only sends one to a worker that says it understands it, so a stale
+      // cached worker keeps the restart-per-edit path rather than dropping
+      // the update and serving the old revision.
+      ready.setProperty('revisionUpdate'.toJS, 1.toJS);
       if (missing.isNotEmpty) {
         ready.setProperty(
           'browserImageDecodeMissing'.toJS,
@@ -411,7 +575,7 @@ void runPdfRenderWorker() {
       final token = PdfCancellationToken();
       activeToken = token;
       activeRequestId = id;
-      () async {
+      walks.run(token, () async {
         final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
         final workerClock = collectTimings ? (Stopwatch()..start()) : null;
         var painted = false;
@@ -606,7 +770,7 @@ void runPdfRenderWorker() {
           timings,
           workerClock?.elapsedMicroseconds,
         );
-      }();
+      });
       return;
     }
 
@@ -630,7 +794,7 @@ void runPdfRenderWorker() {
       final token = PdfCancellationToken();
       activeToken = token;
       activeRequestId = id;
-      () async {
+      walks.run(token, () async {
         final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
         final workerClock = collectTimings ? (Stopwatch()..start()) : null;
         Uint8List? out;
@@ -716,7 +880,7 @@ void runPdfRenderWorker() {
             workerClock?.elapsedMicroseconds,
           );
         }
-      }();
+      });
       return;
     }
 
@@ -732,7 +896,7 @@ void runPdfRenderWorker() {
       final token = PdfCancellationToken();
       activeToken = token;
       activeRequestId = id;
-      () async {
+      walks.run(token, () async {
         final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
         final workerClock = collectTimings ? (Stopwatch()..start()) : null;
         Uint8List? out;
@@ -776,7 +940,7 @@ void runPdfRenderWorker() {
           timings,
           workerClock?.elapsedMicroseconds,
         );
-      }();
+      });
       return;
     }
 
@@ -815,6 +979,35 @@ void runPdfRenderWorker() {
           timings,
           workerClock?.elapsedMicroseconds,
         );
+      }();
+      return;
+    }
+
+    if (kind == 'update') {
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      () async {
+        var incremental = false;
+        String? error;
+        try {
+          // The main side sends an update only when its slot is free, but
+          // its record watchdog can free the slot while a walk is still
+          // running here, and the update rewrites the document that walk
+          // reads. Cancel the walks and apply once they have unwound.
+          while (!walks.isEmpty) {
+            await walks.cancelAll();
+          }
+          incremental = applyRevision(data);
+        } catch (e) {
+          error = '$e';
+        } finally {
+          // Always answer: the main side's slot waits on this reply.
+          final ack = JSObject()
+            ..setProperty('kind'.toJS, 'result'.toJS)
+            ..setProperty('id'.toJS, id.toJS)
+            ..setProperty('incremental'.toJS, incremental.toJS);
+          if (error != null) ack.setProperty('error'.toJS, error.toJS);
+          scope.postMessage(ack);
+        }
       }();
       return;
     }
@@ -864,7 +1057,7 @@ void runPdfRenderWorker() {
     // Fire-and-forget: launch the cancellable walk without awaiting it here, so
     // the message handler returns void (see the note above) while a subsequent
     // 'cancel' message can still flip token.cancelled mid-walk.
-    () async {
+    walks.run(token, () async {
       final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
       final workerClock = collectTimings ? (Stopwatch()..start()) : null;
       Uint8List? out;
@@ -917,7 +1110,7 @@ void runPdfRenderWorker() {
         timings,
         workerClock?.elapsedMicroseconds,
       );
-    }();
+    });
   }).toJS;
 }
 
@@ -1950,6 +2143,11 @@ Future<Uint8List> _inflateBrowserFlateSamples(
   // Start the reader before writing so stream backpressure cannot deadlock a
   // large inflated image waiting for a consumer.
   final output = web.Response(decompressor.readable).arrayBuffer().toDart;
+  // When the browser rejects the payload (trailing bytes after the zlib
+  // stream, say) the write below throws and this future is never awaited.
+  // Its rejection must not surface as an uncaught error: that fires the
+  // Worker's onerror, and the host then gives up on the whole worker.
+  output.ignore();
   final writer = decompressor.writable.getWriter();
   await writer.write(owned.toJS).toDart;
   await writer.close().toDart;
@@ -2221,6 +2419,17 @@ class _BrowserFlatePredecoder {
   final Set<int> _preparedPages = <int>{};
   final Map<CosStream, Future<int>> _attempts =
       HashMap<CosStream, Future<int>>.identity();
+
+  /// Forgets that [pages] (every page when null) were prepared, so the next
+  /// walk of one warms its revised streams. Streams already inflated keep
+  /// their seeded results; they are keyed by object.
+  void evictPages(Set<int>? pages) {
+    if (pages == null) {
+      _preparedPages.clear();
+    } else {
+      _preparedPages.removeAll(pages);
+    }
+  }
 
   Future<void> prepare(
     PdfDocument document,

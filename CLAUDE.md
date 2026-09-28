@@ -29,7 +29,14 @@ deterministic counter gate (`tool/perf.sh gate`, baseline
 `tool/perf/baselines/counters.json` — re-baseline deliberately with
 `--update-baseline`) and `perf_gate_test.dart`/`render_trace_gate_test.dart`.
 Nightly trends + dashboard live on the orphan `perf-data` branch
-(perf-nightly.yml). A/B a change: `tool/perf.sh diff <ref> [scenario]`.
+(perf-nightly.yml). The nightly ratio-checks HEAD against the previous
+nightly (red once per step; history + a verdict line are appended even on a
+red night; re-run a red night to re-check it), weekly also against
+`tool/perf/baselines/nightly-accepted.sha` (bump it only in a reviewed PR,
+like `--update-baseline`), and judges the flutter-render suites night over
+night (`tool/perf/render_trend.dart`); see
+doc/dev-log/2026-09-26-perf-nightly-ratchet.md.
+A/B a change: `tool/perf.sh diff <ref> [scenario]`.
 NEVER edit sources or run builds while a sweep/loop is measuring. See
 doc/dev-log/2026-07-18-perf-tooling-suite.md.
 

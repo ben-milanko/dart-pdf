@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{เลือก {count} รายการ} other{เลือก {count} รายการ}}",
   "sidebarWriteReplyHint": "เขียนคำตอบ…",
   "sigTitle": "ลายเซ็น",
+  "sigUseTrackpad": "ใช้แทร็กแพด",
+  "sigTrackpadHint": "วาดบนแทร็กแพดด้วยนิ้วเดียว กดปุ่มใดก็ได้เมื่อเสร็จ",
   "signIdCreate": "สร้าง",
   "signIdEmail": "อีเมล (ไม่บังคับ)",
   "signIdName": "ชื่อ",

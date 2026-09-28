@@ -33,6 +33,17 @@ import 'image_pixels.dart';
 /// *different* image pixel ratios by construction, so exact match alone almost
 /// never fires on the records that matter.
 ///
+/// Luminosity masks (the images a `/SMask /S /Luminosity` group draws) take
+/// the second route for **every** format. Their decode ignores target and
+/// region whatever the filter: `decodePdfImage(luminosityMask: true)` is
+/// `decodePdfImagePixels(luminosityMask: true)` followed by the same crop or
+/// downsample. So the codec keeps one native-resolution luminosity entry per
+/// stream and crops or downsamples it per record. A luminosity decode reads
+/// the raw samples through a gray LUT, not the page colour pipeline (a PDF/X
+/// OutputIntent would manage an ordinary DeviceGray image), so it is a
+/// different picture of the same stream: [decode]'s `luminosityMask` is part
+/// of the key, and the two never serve each other.
+///
 /// Ownership is the caller's: pass one per open document (a worker holds its
 /// document for the session, and `CosDocument` memoises loaded objects, so
 /// stream identity is stable across records). Keys hold the [CosStream], so a
@@ -61,6 +72,8 @@ class PdfImageDecodeCache {
   /// Returns the pixels [decode] produces for [stream] at
   /// [targetWidth]x[targetHeight], reusing a retained decode when one matches
   /// exactly. A null target means "native resolution", which is its own key.
+  /// [luminosityMask] marks a luminosity-mask decode of [stream], which is
+  /// keyed apart from its ordinary decode.
   ///
   /// [decode] is not called on a hit. A null result is not cached - a decline
   /// is cheap to rediscover and caching it would pin the failure across a
@@ -69,9 +82,10 @@ class PdfImageDecodeCache {
     CosStream stream,
     int? targetWidth,
     int? targetHeight,
-    PdfDecodedPixels? Function() decode,
-  ) {
-    final key = _Key(stream, targetWidth, targetHeight);
+    PdfDecodedPixels? Function() decode, {
+    bool luminosityMask = false,
+  }) {
+    final key = _Key(stream, targetWidth, targetHeight, luminosityMask);
     final hit = _entries.remove(key);
     if (hit != null) {
       _entries[key] = hit; // most recently used
@@ -95,7 +109,7 @@ class PdfImageDecodeCache {
   /// whose decode is asynchronous (the web worker's browser-codec pass), which
   /// cannot run through [decode]'s synchronous callback.
   PdfDecodedPixels? get(CosStream stream, int? width, int? height) {
-    final key = _Key(stream, width, height);
+    final key = _Key(stream, width, height, false);
     final hit = _entries.remove(key);
     if (hit == null) {
       _misses++;
@@ -110,7 +124,7 @@ class PdfImageDecodeCache {
   void put(CosStream stream, int? width, int? height, PdfDecodedPixels pixels) {
     final size = pixels.rgba.length;
     if (size > maxBytes) return;
-    final key = _Key(stream, width, height);
+    final key = _Key(stream, width, height, false);
     final existing = _entries.remove(key);
     if (existing != null) _bytes -= existing.rgba.length;
     _entries[key] = pixels;
@@ -160,18 +174,21 @@ bool pdfImageDecodeIgnoresRegion(CosDocument cos, CosStream stream) =>
     pdfImageFilters(cos, stream.dictionary).contains('DCTDecode');
 
 class _Key {
-  const _Key(this.stream, this.width, this.height);
+  const _Key(this.stream, this.width, this.height, this.luminosityMask);
   final CosStream stream;
   final int? width;
   final int? height;
+  final bool luminosityMask;
 
   @override
   bool operator ==(Object other) =>
       other is _Key &&
       identical(other.stream, stream) &&
       other.width == width &&
-      other.height == height;
+      other.height == height &&
+      other.luminosityMask == luminosityMask;
 
   @override
-  int get hashCode => Object.hash(identityHashCode(stream), width, height);
+  int get hashCode =>
+      Object.hash(identityHashCode(stream), width, height, luminosityMask);
 }

@@ -34,7 +34,8 @@ Map<String, Object?> revInfo(String repoRoot) => {
       'date': _git(repoRoot, ['show', '-s', '--format=%cI', 'HEAD']),
     };
 
-/// The `env` envelope section: platform, CPU count, Dart version, CI flag.
+/// The `env` envelope section: platform, CPU count, Dart version, CI flag,
+/// plus the toolchain keys of [toolchainEnv] when known.
 Map<String, Object?> envInfo() => {
       'os': '${Platform.operatingSystem}-${_arch()}',
       'osVersion': Platform.operatingSystemVersion,
@@ -44,7 +45,27 @@ Map<String, Object?> envInfo() => {
       'runner': Platform.environment['RUNNER_OS'] != null
           ? 'github-actions'
           : 'local',
+      ...toolchainEnv(Platform.environment),
     };
+
+/// The optional `env` keys naming the Flutter SDK (`PDF_PERF_FLUTTER_VERSION`,
+/// exported by tool/perf/nightly.sh) and the hosted runner's image
+/// (`ImageOS`/`ImageVersion`, set on GitHub-hosted runners). An SDK bump or an
+/// image rollover moves the numbers like a code change does, so the trend has
+/// to be able to tell them apart.
+Map<String, String> toolchainEnv(Map<String, String> environment) {
+  final flutter = environment['PDF_PERF_FLUTTER_VERSION'];
+  final imageOs = environment['ImageOS'];
+  final imageVersion = environment['ImageVersion'];
+  return {
+    if (flutter != null && flutter.isNotEmpty) 'flutter': flutter,
+    if (imageOs != null &&
+        imageOs.isNotEmpty &&
+        imageVersion != null &&
+        imageVersion.isNotEmpty)
+      'runnerImage': '$imageOs/$imageVersion',
+  };
+}
 
 String _arch() {
   final r = Process.runSync('uname', ['-m']);

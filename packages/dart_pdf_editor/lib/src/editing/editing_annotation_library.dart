@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
+import 'annotation_preview.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_stamps.dart';
@@ -248,7 +250,10 @@ class _PdfAnnotationLibraryPanelState extends State<PdfAnnotationLibraryPanel> {
     return ListTile(
       key: ValueKey('pdf-annotation-library-item-${annotation.id}'),
       selected: active,
-      leading: PdfSavedAnnotationPreview(annotation: annotation),
+      leading: PdfSavedAnnotationPreview(
+        annotation: annotation,
+        page: _controller.pageAt(0),
+      ),
       title: Text(annotation.name, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         pdfAnnotationLabel(context, annotation.snapshot.subtype),
@@ -553,7 +558,10 @@ class PdfAnnotationLibraryDialog extends StatelessWidget {
                                 key: ValueKey(
                                     'pdf-annotation-library-item-$index'),
                                 leading: PdfSavedAnnotationPreview(
-                                    annotation: annotation),
+                                  annotation: annotation,
+                                  page: controller.pageAt(pageIndex),
+                                  pageIndex: pageIndex,
+                                ),
                                 title: Text(annotation.name),
                                 subtitle: Text(pdfAnnotationLabel(
                                     context, annotation.snapshot.subtype)),
@@ -611,34 +619,85 @@ class PdfAnnotationLibraryDialog extends StatelessWidget {
   }
 }
 
-/// Compact subtype preview used by the stock annotation library.
-class PdfSavedAnnotationPreview extends StatelessWidget {
+/// The stock annotation library's leading preview: the saved annotation's
+/// rendered appearance on a white card ([PdfAnnotationAppearancePreview]).
+///
+/// The snapshot is detached, so it renders against [page] - any page of the
+/// open document; its /Rotate decides which way up the artwork reads. Without
+/// a [page] (or for a snapshot with no appearance) the card shows the
+/// subtype's icon.
+class PdfSavedAnnotationPreview extends StatefulWidget {
   const PdfSavedAnnotationPreview({
     super.key,
     required this.annotation,
+    this.page,
+    this.pageIndex = 0,
   });
 
   final PdfSavedAnnotation annotation;
+  final PdfPage? page;
+
+  /// [page]'s index in its document.
+  final int pageIndex;
+
+  @override
+  State<PdfSavedAnnotationPreview> createState() =>
+      _PdfSavedAnnotationPreviewState();
+}
+
+class _PdfSavedAnnotationPreviewState extends State<PdfSavedAnnotationPreview> {
+  /// The snapshot materialized against [_page]. Held across rebuilds (and
+  /// revisions - the snapshot carries its own resources) so the picture is
+  /// only re-rendered when the saved item itself changes.
+  PdfAnnotation? _resolved;
+  PdfAnnotationSnapshot? _resolvedFrom;
+  PdfPage? _page;
+
+  PdfAnnotation? _resolve(PdfPage page) {
+    final snapshot = widget.annotation.snapshot;
+    if (identical(snapshot, _resolvedFrom) &&
+        _page?.rotation == page.rotation) {
+      return _resolved;
+    }
+    _resolvedFrom = snapshot;
+    _page = page;
+    try {
+      _resolved =
+          snapshot.annotationForPreview(page.document, widget.pageIndex);
+    } catch (_) {
+      _resolved = null;
+    }
+    return _resolved;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final icon = pdfAnnotationIcon(annotation.snapshot.subtype);
-    final rect = annotation.snapshot.rect;
-    return Container(
-      width: 48,
-      height: 40,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Tooltip(
-        message:
-            '${rect.width.toStringAsFixed(0)} × ${rect.height.toStringAsFixed(0)} pt',
-        child: Icon(icon,
-            size: 23,
-            color: Theme.of(context).colorScheme.onSecondaryContainer),
-      ),
+    final snapshot = widget.annotation.snapshot;
+    final rect = snapshot.rect;
+    final icon = pdfAnnotationIcon(snapshot.subtype);
+    final page = widget.page;
+    final resolved = page == null ? null : _resolve(page);
+    return Tooltip(
+      message:
+          '${rect.width.toStringAsFixed(0)} × ${rect.height.toStringAsFixed(0)} pt',
+      child: resolved == null
+          ? Container(
+              width: 48,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Icon(icon,
+                  size: 23,
+                  color: Theme.of(context).colorScheme.onSecondaryContainer),
+            )
+          : PdfAnnotationAppearancePreview(
+              page: _page!,
+              annotation: resolved,
+              icon: icon,
+            ),
     );
   }
 }

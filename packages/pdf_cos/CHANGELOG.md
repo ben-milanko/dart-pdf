@@ -1,5 +1,66 @@
 # Changelog
 
+## 5.1.0
+
+- Verify P-521 ECDSA signatures. The P-521 order constant was 609 bits
+  instead of the 521-bit NIST n, so every P-521 signature, OpenSSL's and our
+  own, was rejected.
+- Make ECDSA about 8-9x faster: Jacobian a=-3 arithmetic with one inversion
+  per scalar multiplication, Shamir's trick for `u1*G + u2*Q`, and curve
+  constants parsed once per curve. P-256 verify goes from 11.3 to 1.3 ms
+  (AOT). Signing uses the same arithmetic and stays byte-identical (RFC 6979).
+  `verifyCertificateChain` now verifies each certificate against its issuer
+  once instead of twice.
+- Stop Flate streams decoding empty on the web. On dart2js, archive's
+  `ZLibDecoder` read any bytes after the Adler-32 (a trailing EOL before
+  `endstream`) as a second zlib header, failed it and returned nothing for
+  the whole stream: pages rendered blank, fonts went missing, and
+  `CosCompactor` (Reduce file size) re-deflated the empty result into the
+  file. The new `inflateZlib` stops at the final block, as zlib does, and
+  `FlateFilter` uses it. `CosCompactor` inflates strictly (header, length and
+  Adler-32 checked) and never replaces a payload of more than 16 bytes with
+  an empty one. The VM path is unchanged.
+- Key the loaded-object cache by object number in the low bits. The old key
+  (`objectNumber * 65536 + generation`) clustered in the VM's int hash, so
+  whole-graph walks spent most of their time probing: `PdfCompressor.optimize`
+  runs 0.39-0.69x and `applyRedactions` about 0.31x on 14k-37k-object files.
+  References the packed key cannot hold exactly (an object number of 2^32 or
+  more, as an edit on a file with a junk /Size allocates, or a generation
+  over 65535) are cached in a side map, which also stops `n 65536 R`
+  resolving to object n+1.
+- Decode JPEG 2000 about twice as fast, byte-identical: EBCOT tier-1 keeps
+  neighbour significance incrementally, and the inverse wavelet lifts with
+  stride-2 parity loops.
+- Run AES with word-oriented T-tables, about 7x faster, byte-identical.
+  AES-128/256 streams decrypt faster everywhere, and an R6 (AES-256) open goes
+  from 28.9 to 9.8 ms (AOT).
+- On the web, compute Algorithm 2.B's SHA-384/512 on 32-bit halves instead of
+  package:crypto's emulated 64-bit words, so an R6 open in the browser is
+  about 7x faster. The VM keeps package:crypto.
+- `applyIncrementalUpdate` now folds edits into a document opened through
+  xref recovery instead of refusing it, so each edit no longer re-runs a
+  full-file recovery scan. The recovery scan itself is one pass for both
+  `obj` and `trailer` (0.56-0.61x on large files).
+- Add `CosDocument.rollbackTo(length)`, which takes a document back to an
+  earlier revision it folded in with `applyIncrementalUpdate`, in place,
+  keeping the caches of objects the undone updates did not touch. It returns
+  null, changing nothing, when that length is not journaled.
+- `CosDocument.openAppended` accepts an earlier revision's prefix as well as
+  an append, and takes a `password` for revisions it cannot donate keys to.
+  It donates the security handler only while the revision's /Encrypt matches
+  the dictionary the keys were derived from, entry for entry, so a revision
+  that re-keys /Encrypt under the same object number authenticates its own
+  password.
+- Add `ContentOperationCursor.nextOperator` and `takeOperation`, and
+  `CosTokenBuffer.keywordCode`, so an interpreter can dispatch short
+  operators on an int code and read numeric operands without allocating
+  operation objects. `nextOperation` and `parse` keep their contract, and
+  materialized operands follow the same int-or-real rule on the web as on
+  the VM.
+- Add `PdfPerf` counters for glyph outline builds and the overprint colorant
+  buffer (`glyphOutlinePaths`, `colorantBufferPages`, `colorantDraws`,
+  `colorantRasterized`, `colorantBackdropReads`, `colorantGroups`).
+
 ## 5.0.0
 
 ### Breaking changes

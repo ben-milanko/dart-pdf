@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count} seçili} other{{count} seçili}}",
   "sidebarWriteReplyHint": "Bir yanıt yazın…",
   "sigTitle": "İmza",
+  "sigUseTrackpad": "İzleme dörtgenini kullan",
+  "sigTrackpadHint": "İzleme dörtgeninde tek parmakla çizin. Bitirdiğinizde herhangi bir tuşa basın.",
   "signIdCreate": "Oluştur",
   "signIdEmail": "E-posta (isteğe bağlı)",
   "signIdName": "Ad",

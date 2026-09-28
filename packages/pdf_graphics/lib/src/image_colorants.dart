@@ -231,9 +231,103 @@ CosStream? _buildSubstitute(
   // space contributes - a composite naming a spot only the image carries still
   // has to convert back to sRGB.
   final spots = <String, List<double>>{...spotEquivalents};
+
+  var out = 0;
+  if (spatialBackdrop == null &&
+      uniformBackdrop != null &&
+      uniformBackdropColor != null &&
+      samples.components == 1 &&
+      samples.bits <= 8) {
+    // One component of at most 8 bits (gray, Separation, Indexed): the raw
+    // sample is the whole tuple, so a dense table of 2^bits composites stands
+    // in for the tuple map - whose probe per pixel was most of an 8-bit build
+    // - and gives 1/2/4-bit rasters, which pack no tuple and so had no memo at
+    // all, one too: every sample of those converted, seconds for a megapixel.
+    // The backdrop is one vector, hoisted out of the loop.
+    final bits = samples.bits, data = samples.data;
+    final lut = Int32List(1 << bits)..fillRange(0, 1 << bits, -1);
+    for (var y = 0; y < height; y++) {
+      final row = y * samples._rowBytes;
+      for (var x = 0; x < width; x++) {
+        final raw = bits == 8 ? data[row + x] : samples.rawAt(x, y, 0);
+        var value = lut[raw];
+        if (value < 0) {
+          final learned = spots.length;
+          value = samples.compositeAt(x, y, uniformBackdrop,
+              uniformBackdropColor, mode, spots, colorContext);
+          if (value < 0) return null;
+          // Forgotten when the image teaches [spots] a new equivalent, for the
+          // spatial memo's reason below.
+          if (spots.length != learned) lut.fillRange(0, lut.length, -1);
+          lut[raw] = value;
+        }
+        rgb[out++] = (value >> 16) & 0xff;
+        rgb[out++] = (value >> 8) & 0xff;
+        rgb[out++] = value & 0xff;
+      }
+    }
+    return _substituteStream(dict, width, height, rgb);
+  }
+
+  if (spatialBackdrop != null &&
+      samples.canPackTuple &&
+      spatialBackdrop.width == width &&
+      spatialBackdrop.height == height) {
+    // A spatial backdrop is palette-indexed, so a composite is a pure function
+    // of (backdrop entry, sample tuple): memoise per entry, one bucket of
+    // packed tuples each. Two keys rather than one combined int: packing both
+    // with shifts would wrap past 32 bits on the web, the dart2js aliasing
+    // #451 retired from the image colour memo. Without this every pixel of a
+    // DeviceN or spot image straddling two backdrops converted through the
+    // output profile - hundreds of thousands of conversions for a few hundred
+    // distinct answers.
+    //
+    // A bucket exists only once at() has resolved its entry, and with the map
+    // matching the image pixel for pixel at() depends on nothing else - so an
+    // unknown cell (entry 0) never finds one, reaches at() and declines
+    // exactly as the unmemoised walk does. The buckets are dropped whenever
+    // the image teaches [spots] a new equivalent: a composite converted before
+    // that could convert differently after, and dropping them keeps every hit
+    // equal to a recompute. (Separation, DeviceN and Indexed name the same
+    // spots for every sample, so in practice that is only the first miss.)
+    final entries = spatialBackdrop.indices;
+    final buckets =
+        List<Map<int, int>?>.filled(spatialBackdrop.colorants.length, null);
+    var memoised = 0;
+    var pixel = 0;
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        final entry = entries[pixel++];
+        final packed = samples.packedTuple(x, y);
+        final bucket = entry < buckets.length ? buckets[entry] : null;
+        var value = bucket == null ? null : bucket[packed];
+        if (value == null) {
+          final backdropValue = spatialBackdrop.at(x, y);
+          if (backdropValue == null) return null;
+          final learned = spots.length;
+          value = samples.compositeAt(x, y, backdropValue.colorants,
+              backdropValue.color, mode, spots, colorContext);
+          if (value < 0) return null;
+          if (spots.length != learned) {
+            buckets.fillRange(0, buckets.length, null);
+            memoised = 0;
+          }
+          // One budget across the buckets, for the tuple memo's reason below.
+          if (memoised < _maxTupleMemo) {
+            (buckets[entry] ??= <int, int>{})[packed] = value;
+            memoised++;
+          }
+        }
+        rgb[out++] = (value >> 16) & 0xff;
+        rgb[out++] = (value >> 8) & 0xff;
+        rgb[out++] = value & 0xff;
+      }
+    }
+    return _substituteStream(dict, width, height, rgb);
+  }
+
   final memo =
       spatialBackdrop == null && samples.canPackTuple ? <int, int>{} : null;
-  var out = 0;
   for (var y = 0; y < height; y++) {
     for (var x = 0; x < width; x++) {
       final backdropValue = spatialBackdrop?.at(x, y) ??
@@ -241,41 +335,12 @@ CosStream? _buildSubstitute(
               ? null
               : (colorants: uniformBackdrop, color: uniformBackdropColor));
       if (backdropValue == null) return null;
-      final backdrop = backdropValue.colorants;
-      final backdropColor = backdropValue.color;
       final packed = memo == null ? 0 : samples.packedTuple(x, y);
       var value = memo == null ? null : memo[packed];
       if (value == null) {
-        final ink = samples.inkAt(x, y);
-        if (ink == null) return null;
-        for (var i = 0; i < ink.colorants.spots.length; i++) {
-          if (i < ink.spotEquivalents.length) {
-            spots.putIfAbsent(
-                ink.colorants.spots[i], () => ink.spotEquivalents[i]);
-          }
-        }
-        final composite = ink.over(backdrop, mode);
-        // The same exact-answer rule the vector compositor applies
-        // (PdfOverprintCompositor._srgbFor): an overprint that changed nothing
-        // must reuse the backdrop's own rendered pixels, and one that knocked
-        // the backdrop out must reuse the ink's, so neither picks up a shade of
-        // round-trip drift. Only a genuinely new combination converts through
-        // the separations model.
-        final PdfColor color;
-        if (composite == backdrop) {
-          color = backdropColor;
-        } else if (composite == ink.colorants) {
-          color = samples.space.toSrgb(samples.valuesAt(x, y));
-        } else {
-          color = colorantsToSrgb(
-            composite,
-            spots,
-            cmykToSrgb: colorContext?.deviceCmyk,
-          );
-        }
-        value = ((color.red * 255).round().clamp(0, 255) << 16) |
-            ((color.green * 255).round().clamp(0, 255) << 8) |
-            (color.blue * 255).round().clamp(0, 255);
+        value = samples.compositeAt(x, y, backdropValue.colorants,
+            backdropValue.color, mode, spots, colorContext);
+        if (value < 0) return null;
         // Capped: press artwork reuses a handful of inks, but a noisy CMYK
         // photograph has no such working set, and an uncapped map would grow
         // an entry per distinct tuple. Past the cap it stops learning and
@@ -287,7 +352,13 @@ CosStream? _buildSubstitute(
       rgb[out++] = value & 0xff;
     }
   }
+  return _substituteStream(dict, width, height, rgb);
+}
 
+/// The substitute XObject for [rgb], carrying the source [dict]'s alpha and
+/// sampling entries through.
+CosStream _substituteStream(
+    CosDictionary dict, int width, int height, Uint8List rgb) {
   final substitute = CosDictionary()
     ..['Type'] = const CosName('XObject')
     ..['Subtype'] = const CosName('Image')
@@ -430,6 +501,51 @@ class _ImageSamples {
   }
 
   PdfInkColorants? inkAt(int x, int y) => space.inkColorants(valuesAt(x, y));
+
+  /// The sample at ([x], [y]) composited over one backdrop under overprint
+  /// mode [mode], packed 0xRRGGBB, or -1 when the sample has no colorant
+  /// reading (the substitute build then declines). Teaches [spots] the
+  /// image's own spot equivalents on the way. Every substitute memo stores
+  /// exactly this value.
+  int compositeAt(
+    int x,
+    int y,
+    PdfColorants backdrop,
+    PdfColor backdropColor,
+    int mode,
+    Map<String, List<double>> spots,
+    PdfColorContext? colorContext,
+  ) {
+    final ink = inkAt(x, y);
+    if (ink == null) return -1;
+    for (var i = 0; i < ink.colorants.spots.length; i++) {
+      if (i < ink.spotEquivalents.length) {
+        spots.putIfAbsent(ink.colorants.spots[i], () => ink.spotEquivalents[i]);
+      }
+    }
+    final composite = ink.over(backdrop, mode);
+    // The same exact-answer rule the vector compositor applies
+    // (PdfOverprintCompositor._srgbFor): an overprint that changed nothing
+    // must reuse the backdrop's own rendered pixels, and one that knocked the
+    // backdrop out must reuse the ink's, so neither picks up a shade of
+    // round-trip drift. Only a genuinely new combination converts through the
+    // separations model.
+    final PdfColor color;
+    if (composite == backdrop) {
+      color = backdropColor;
+    } else if (composite == ink.colorants) {
+      color = space.toSrgb(valuesAt(x, y));
+    } else {
+      color = colorantsToSrgb(
+        composite,
+        spots,
+        cmykToSrgb: colorContext?.deviceCmyk,
+      );
+    }
+    return ((color.red * 255).round().clamp(0, 255) << 16) |
+        ((color.green * 255).round().clamp(0, 255) << 8) |
+        (color.blue * 255).round().clamp(0, 255);
+  }
 
   /// Whether every sample holds the same raw component tuple.
   ///

@@ -884,6 +884,45 @@ class _TagTree {
 // tier-1: EBCOT bit-plane decoding
 // ---------------------------------------------------------------------
 
+/// Zero-coding context (0-8) per band family (0: LL/LH, 1: HL, 2: HH),
+/// indexed by a coefficient's packed neighbour byte (see
+/// [_BitModel._neighbors]). The packed value peaks at 0x4A (h 2, v 2, d 4),
+/// so 128 entries cover every reachable state.
+final List<Uint8List> _zcTables = [
+  for (var family = 0; family < 3; family++)
+    Uint8List.fromList([
+      for (var packed = 0; packed < 128; packed++)
+        _zcContextOf(family, packed & 3, (packed >> 2) & 3, (packed >> 4) & 7),
+    ]),
+];
+
+/// Zero-coding context lookup (T.800 Table D.1): significant neighbours
+/// (h, v, d) -> context, per band family.
+int _zcContextOf(int family, int h, int v, int d) {
+  if (family == 1) {
+    // HL: horizontal and vertical swap roles
+    final t = h;
+    h = v;
+    v = t;
+  }
+  if (family == 2) {
+    // HH: diagonal-dominated table
+    if (d >= 3) return 8;
+    if (d == 2) return h + v > 0 ? 7 : 6;
+    if (d == 1) return h + v >= 2 ? 5 : (h + v == 1 ? 4 : 3);
+    return h + v >= 2 ? 2 : (h + v == 1 ? 1 : 0);
+  }
+  if (h == 2) return 8;
+  if (h == 1) {
+    if (v >= 1) return 7;
+    return d >= 1 ? 6 : 5;
+  }
+  if (v == 2) return 4;
+  if (v == 1) return 3;
+  if (d >= 2) return 2;
+  return d == 1 ? 1 : 0;
+}
+
 class _BitModel {
   _BitModel(this.width, this.height, this.planes, this.family, this.decoder)
       : magnitudes = Int32List(width * height),
@@ -891,7 +930,9 @@ class _BitModel {
         lowPlanes = Int8List(width * height),
         _significant = Uint8List(width * height),
         _refined = Uint8List(width * height),
-        _visited = Uint8List(width * height) {
+        _visited = Uint8List(width * height),
+        _neighbors = Uint8List(width * height),
+        _zc = _zcTables[family] {
     _mps = Int8List(19);
     _index = Uint8List(19);
     _index[0] = 4; // first ZC context
@@ -908,6 +949,15 @@ class _BitModel {
   final Uint8List _significant;
   final Uint8List _refined;
   final Uint8List _visited;
+
+  /// Packed significance counts of each coefficient's 8 neighbours, kept
+  /// incrementally by [_markSignificant] instead of rescanning the 3x3
+  /// neighbourhood per coefficient per pass: horizontal count in bits 0-1
+  /// (+0x01 each), vertical in bits 2-3 (+0x04), diagonal in bits 4-6 (+0x10).
+  final Uint8List _neighbors;
+
+  /// This band family's row of [_zcTables], hoisted out of the hot path.
+  final Uint8List _zc;
   late final Int8List _mps;
   late final Uint8List _index;
   int planesDecoded = 0;
@@ -926,47 +976,7 @@ class _BitModel {
 
   // zero-coding context lookup: neighbors (h, v, d) → context, per band
   // family (0: LL/LH, 1: HL, 2: HH)
-  int _zcContext(int x, int y) {
-    var h = 0, v = 0, d = 0;
-    if (x > 0 && _significant[y * width + x - 1] != 0) h++;
-    if (x + 1 < width && _significant[y * width + x + 1] != 0) h++;
-    if (y > 0 && _significant[(y - 1) * width + x] != 0) v++;
-    if (y + 1 < height && _significant[(y + 1) * width + x] != 0) v++;
-    if (x > 0 && y > 0 && _significant[(y - 1) * width + x - 1] != 0) d++;
-    if (x + 1 < width && y > 0 && _significant[(y - 1) * width + x + 1] != 0) {
-      d++;
-    }
-    if (x > 0 && y + 1 < height && _significant[(y + 1) * width + x - 1] != 0) {
-      d++;
-    }
-    if (x + 1 < width &&
-        y + 1 < height &&
-        _significant[(y + 1) * width + x + 1] != 0) {
-      d++;
-    }
-    if (family == 1) {
-      // HL: horizontal and vertical swap roles
-      final t = h;
-      h = v;
-      v = t;
-    }
-    if (family == 2) {
-      // HH: diagonal-dominated table
-      if (d >= 3) return 8;
-      if (d == 2) return h + v > 0 ? 7 : 6;
-      if (d == 1) return h + v >= 2 ? 5 : (h + v == 1 ? 4 : 3);
-      return h + v >= 2 ? 2 : (h + v == 1 ? 1 : 0);
-    }
-    if (h == 2) return 8;
-    if (h == 1) {
-      if (v >= 1) return 7;
-      return d >= 1 ? 6 : 5;
-    }
-    if (v == 2) return 4;
-    if (v == 1) return 3;
-    if (d >= 2) return 2;
-    return d == 1 ? 1 : 0;
-  }
+  int _zcContext(int index) => _zc[_neighbors[index]];
 
   /// Sign coding: context 9–13 plus an XOR bit, from the H/V neighbor
   /// significance/sign contributions.
@@ -987,16 +997,35 @@ class _BitModel {
     return (v == 1 ? 11 : (v == 0 ? 12 : 13), 1);
   }
 
-  bool _hasSignificantNeighbor(int x, int y) {
-    for (var dy = -1; dy <= 1; dy++) {
-      for (var dx = -1; dx <= 1; dx++) {
-        if (dx == 0 && dy == 0) continue;
-        final nx = x + dx, ny = y + dy;
-        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-        if (_significant[ny * width + nx] != 0) return true;
-      }
+  bool _hasSignificantNeighbor(int index) => _neighbors[index] != 0;
+
+  /// Marks the coefficient at ([x], [y]) significant and bumps its eight
+  /// neighbours' counts in [_neighbors]. A coefficient becomes significant at
+  /// most once per code block, so the counts never exceed h 2, v 2, d 4.
+  ///
+  /// The counts assume non-causal contexts: the vertically-causal code-block
+  /// style (0x08) would have to hide the next stripe's row from each stripe's
+  /// last row here. That style is rejected in [_JpxParser._readCodingParameters]
+  /// today, so every context sees all eight neighbours.
+  void _markSignificant(int x, int y, int index) {
+    _significant[index] = 1;
+    final n = _neighbors;
+    final left = x > 0;
+    final right = x + 1 < width;
+    if (y > 0) {
+      final i = index - width;
+      if (left) n[i - 1] += 0x10;
+      if (right) n[i + 1] += 0x10;
+      n[i] += 0x04;
     }
-    return false;
+    if (y + 1 < height) {
+      final i = index + width;
+      if (left) n[i - 1] += 0x10;
+      if (right) n[i + 1] += 0x10;
+      n[i] += 0x04;
+    }
+    if (left) n[index - 1] += 0x01;
+    if (right) n[index + 1] += 0x01;
   }
 
   void decodePasses(int passCount) {
@@ -1034,15 +1063,15 @@ class _BitModel {
       for (var x = 0; x < width; x++) {
         for (var y = y0; y < math.min(y0 + 4, height); y++) {
           final index = y * width + x;
-          if (_significant[index] != 0 || !_hasSignificantNeighbor(x, y)) {
+          if (_significant[index] != 0 || !_hasSignificantNeighbor(index)) {
             continue;
           }
           _visited[index] = 1;
-          final d = decoder.decode(_mps, _index, _zcContext(x, y));
+          final d = decoder.decode(_mps, _index, _zcContext(index));
           if (d == 1) {
             final (sc, xorBit) = _scContext(x, y);
             final sign = decoder.decode(_mps, _index, sc) ^ xorBit;
-            _significant[index] = 1;
+            _markSignificant(x, y, index);
             signs[index] = sign;
             magnitudes[index] = bit;
             lowPlanes[index] = plane;
@@ -1061,7 +1090,7 @@ class _BitModel {
           if (_significant[index] == 0 || _visited[index] != 0) continue;
           int context;
           if (_refined[index] == 0) {
-            context = _hasSignificantNeighbor(x, y) ? 15 : 14;
+            context = _hasSignificantNeighbor(index) ? 15 : 14;
             _refined[index] = 1;
           } else {
             context = 16;
@@ -1089,7 +1118,7 @@ class _BitModel {
             final index = (y0 + k) * width + x;
             if (_significant[index] != 0 ||
                 _visited[index] != 0 ||
-                _hasSignificantNeighbor(x, y0 + k)) {
+                _hasSignificantNeighbor(index)) {
               runLength = false;
               break;
             }
@@ -1108,7 +1137,7 @@ class _BitModel {
           final index = y * width + x;
           final (sc, xorBit) = _scContext(x, y);
           final sign = decoder.decode(_mps, _index, sc) ^ xorBit;
-          _significant[index] = 1;
+          _markSignificant(x, y, index);
           signs[index] = sign;
           magnitudes[index] = bit;
           lowPlanes[index] = plane;
@@ -1117,11 +1146,11 @@ class _BitModel {
         for (; y < y0 + columnHeight; y++) {
           final index = y * width + x;
           if (_significant[index] != 0 || _visited[index] != 0) continue;
-          final d = decoder.decode(_mps, _index, _zcContext(x, y));
+          final d = decoder.decode(_mps, _index, _zcContext(index));
           if (d == 1) {
             final (sc, xorBit) = _scContext(x, y);
             final sign = decoder.decode(_mps, _index, sc) ^ xorBit;
-            _significant[index] = 1;
+            _markSignificant(x, y, index);
             signs[index] = sign;
             magnitudes[index] = bit;
             lowPlanes[index] = plane;
@@ -1252,6 +1281,11 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
   // sample it has already updated this pass. The lifts are therefore
   // parity-disjoint and run in place, without the per-lift scratch buffers the
   // straight double-buffered form allocated (5+ Float32Lists per row/column).
+  //
+  // Each pass walks its own parity with stride 2 and reads the interior
+  // neighbours directly; only the two end samples mirror through [at]. The
+  // float operations and their order match the per-sample mirroring form, so
+  // the output is bit-identical.
   double at(int i) {
     var index = i;
     if (index < 0) index = -index;
@@ -1259,18 +1293,21 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     return signal[index.clamp(0, n - 1)];
   }
 
+  final evenStart = i0.isEven ? 0 : 1;
+  final oddStart = 1 - evenStart;
+  final last = n - 1;
   if (reversible) {
     // 5/3 (T.800 F.3.8.2): even samples first (reading odd neighbours), then
     // odd samples (reading the now-updated even neighbours).
-    for (var i = 0; i < n; i++) {
-      if ((i0 + i).isEven) {
-        signal[i] -= ((at(i - 1) + at(i + 1) + 2) / 4).floorToDouble();
-      }
+    for (var i = evenStart; i < n; i += 2) {
+      final left = i == 0 ? at(-1) : signal[i - 1];
+      final right = i == last ? at(n) : signal[i + 1];
+      signal[i] -= ((left + right + 2) / 4).floorToDouble();
     }
-    for (var i = 0; i < n; i++) {
-      if ((i0 + i).isOdd) {
-        signal[i] += ((at(i - 1) + at(i + 1)) / 2).floorToDouble();
-      }
+    for (var i = oddStart; i < n; i += 2) {
+      final left = i == 0 ? at(-1) : signal[i - 1];
+      final right = i == last ? at(n) : signal[i + 1];
+      signal[i] += ((left + right) / 2).floorToDouble();
     }
   } else {
     // 9/7 (T.800 F.4.8.2)
@@ -1279,24 +1316,23 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     const beta = -0.052980118572961;
     const gamma = 0.882911075530934;
     const delta = 0.443506852043971;
-    for (var i = 0; i < n; i++) {
-      if ((i0 + i).isEven) {
-        signal[i] *= k;
-      } else {
-        signal[i] /= k;
-      }
+    for (var i = evenStart; i < n; i += 2) {
+      signal[i] *= k;
     }
-    void lift(double coefficient, bool evenTargets) {
-      for (var i = 0; i < n; i++) {
-        if ((i0 + i).isEven == evenTargets) {
-          signal[i] -= coefficient * (at(i - 1) + at(i + 1));
-        }
+    for (var i = oddStart; i < n; i += 2) {
+      signal[i] /= k;
+    }
+    void lift(double coefficient, int start) {
+      for (var i = start; i < n; i += 2) {
+        final left = i == 0 ? at(-1) : signal[i - 1];
+        final right = i == last ? at(n) : signal[i + 1];
+        signal[i] -= coefficient * (left + right);
       }
     }
 
-    lift(delta, true);
-    lift(gamma, false);
-    lift(beta, true);
-    lift(alpha, false);
+    lift(delta, evenStart);
+    lift(gamma, oddStart);
+    lift(beta, evenStart);
+    lift(alpha, oddStart);
   }
 }

@@ -354,6 +354,8 @@
   "sidebarSignatureRevocationUnknown": "Revocation status could not be checked",
   "sidebarWriteReplyHint": "Write a reply…",
   "sigTitle": "Signature",
+  "sigUseTrackpad": "Use trackpad",
+  "sigTrackpadHint": "Draw on your trackpad with one finger. Press any key when finished.",
   "signIdCreate": "Create",
   "signIdEmail": "Email (optional)",
   "signIdName": "Name",

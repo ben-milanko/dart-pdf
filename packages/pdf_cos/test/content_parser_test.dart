@@ -116,6 +116,108 @@ void main() {
     expect(cursor.operationCount, 3);
   });
 
+  test('nextOperator leaves number-only operands unboxed with their code', () {
+    final cursor =
+        ContentStreamParser.cursor(ascii('10 20.5 m q 1 0 0 1 5 -5 cm /F1 Tf'));
+
+    expect(cursor.nextOperator(), 'm');
+    expect(cursor.pendingIsNumeric, isTrue);
+    expect(cursor.operatorCode, 0x6d);
+    expect(cursor.numbers.sublist(0, cursor.numberCount), [10, 20.5]);
+
+    expect(cursor.nextOperator(), 'q');
+    expect((cursor.pendingIsNumeric, cursor.numberCount), (true, 0));
+    expect(cursor.operatorCode, 0x71);
+
+    expect(cursor.nextOperator(), 'cm');
+    expect(cursor.operatorCode, 0x6d63);
+    final cm = cursor.takeOperation();
+    expect(cm.numberOperands, [1, 0, 0, 1, 5, -5]);
+    expect(cm.operands, [
+      const CosInteger(1),
+      const CosInteger(0),
+      const CosInteger(0),
+      const CosInteger(1),
+      const CosInteger(5),
+      const CosInteger(-5),
+    ]);
+
+    expect(cursor.nextOperator(), 'Tf');
+    expect(cursor.pendingIsNumeric, isFalse);
+    expect(cursor.takeOperation().operands, [const CosName('F1')]);
+
+    expect(cursor.nextOperator(), isNull);
+    expect(cursor.operationCount, 4);
+    expect(cursor.isFinished, isTrue);
+  });
+
+  test('braces and long keywords carry no operator code', () {
+    final cursor = ContentStreamParser.cursor(
+        ascii('0 0 m 50 50 { S } /P <<>> BDC 1 abcd EMC BI /W 1 /H 1 '
+            '/CS /G /BPC 8 ID \x7f EI'));
+    final seen = <(String, int, bool)>[];
+    String? operator;
+    while ((operator = cursor.nextOperator()) != null) {
+      seen.add((operator!, cursor.operatorCode, cursor.pendingIsNumeric));
+    }
+    expect(seen, [
+      ('m', 0x6d, true),
+      ('{', -1, true),
+      ('S', 0x53, true),
+      ('}', -1, true),
+      ('BDC', 0x434442, false),
+      ('abcd', -1, true),
+      ('EMC', 0x434d45, true),
+      ('BI', 0x4942, false),
+    ]);
+  });
+
+  test('operands stay exact through the unboxed operand buffer', () {
+    final numbers = ContentStreamParser.parse(
+            ascii('9007199254740993 -0 -0.0 .5 5. 123456789012345678 +3 '
+                '-9007199254740993 1.25 m'))
+        .single;
+    final values = numbers.numberOperands!;
+    expect(values, [
+      9007199254740993,
+      0,
+      -0.0,
+      0.5,
+      5.0,
+      123456789012345678,
+      3,
+      -9007199254740993,
+      1.25,
+    ]);
+    expect([for (final v in values) v is int],
+        [true, true, false, false, false, true, true, true, false]);
+    expect((values[2] as double).isNegative, isTrue);
+    expect(numbers.operands[0], const CosInteger(9007199254740993));
+    expect(numbers.operands[2], const CosReal(-0.0));
+    expect(numbers.operands[7], const CosInteger(-9007199254740993));
+
+    // Numbers before the first non-number operand convert in order.
+    final mixed = ContentStreamParser.parse(
+            ascii('1 2.5 9007199254740993 /Name true 3 -0.0 xyz'))
+        .single;
+    expect(mixed.numberOperands, isNull);
+    expect(mixed.operands, [
+      const CosInteger(1),
+      const CosReal(2.5),
+      const CosInteger(9007199254740993),
+      const CosName('Name'),
+      const CosBoolean(true),
+      const CosInteger(3),
+      const CosReal(-0.0),
+    ]);
+
+    // An operator with more operands than the initial buffer holds.
+    final many = ContentStreamParser.parse(
+            ascii('${[for (var i = 0; i < 20; i++) '$i.5'].join(' ')} xx'))
+        .single;
+    expect(many.numberOperands, [for (var i = 0; i < 20; i++) i + 0.5]);
+  });
+
   test('DCT inline image ignores EI-like bytes before JPEG EOI', () {
     final bytes = BytesBuilder()
       ..add(ascii('q BI /W 1 /H 1 /CS /RGB /BPC 8 /F /DCT ID\r\n'))

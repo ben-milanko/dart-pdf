@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart'
     show pdfInkCurveControls, pdfInkStrokeWidth;
 
@@ -488,6 +490,62 @@ class _PdfSignaturePreviewPainter extends CustomPainter {
       oldDelegate.borderColor != borderColor;
 }
 
+/// What a [PdfTrackpadSignatureEvent] reports.
+enum PdfTrackpadSignaturePhase {
+  /// A finger landed on the trackpad: the pen goes down.
+  down,
+
+  /// The drawing finger moved.
+  move,
+
+  /// The drawing finger lifted: the pen comes up.
+  up,
+
+  /// The user ended the capture (the host's "press any key" gesture).
+  finish,
+}
+
+/// One sample from a [PdfTrackpadSignatureCapture]. [x] and [y] place the
+/// drawing finger on the trackpad surface, 0–1 across its width and height
+/// with y down; they are meaningless for [PdfTrackpadSignaturePhase.finish].
+class PdfTrackpadSignatureEvent {
+  const PdfTrackpadSignatureEvent(this.phase, {this.x = 0, this.y = 0});
+
+  final PdfTrackpadSignaturePhase phase;
+  final double x;
+  final double y;
+
+  @override
+  String toString() => 'PdfTrackpadSignatureEvent($phase, $x, $y)';
+}
+
+/// Draws a signature with a finger on the trackpad, the way Preview does:
+/// the trackpad surface maps absolutely onto the signature pad, a finger
+/// down is the pen down, and a key press ends the capture.
+///
+/// Absolute finger positions are a native affordance (AppKit's indirect
+/// `NSTouch`es, Windows Precision Touchpad HID reports, Android's captured
+/// `SOURCE_TOUCHPAD` events) that Flutter's pointer events don't carry, so
+/// the host supplies the capture: listening to [capture] starts it (the host
+/// grabs the trackpad and parks the cursor), cancelling the subscription or
+/// the stream closing ends it. The pad itself ends the capture on any key
+/// press or when the app loses focus, and ignores clicks while it runs (a
+/// tap-to-click while dotting an "i" must not press a button), so a host
+/// only has to stream touches. The DartPDF app installs its implementation
+/// as [platform] at startup; with no capture installed, or when
+/// [isAvailable] reports no trackpad, the pad simply doesn't offer the mode.
+abstract class PdfTrackpadSignatureCapture {
+  /// The capture [showPdfSignatureDialog] offers when it isn't handed one.
+  static PdfTrackpadSignatureCapture? platform;
+
+  /// Whether a trackpad is attached right now; asked each time the pad
+  /// opens. Defaults to true.
+  Future<bool> isAvailable() async => true;
+
+  /// Starts a capture on listen; see the class docs.
+  Stream<PdfTrackpadSignatureEvent> capture();
+}
+
 /// Shows the signature pad dialog; resolves to the drawn signature, or
 /// null on cancel. [predictStrokes] forward-extrapolates the in-progress
 /// stroke to mask input latency, exactly like the ink tool (see
@@ -496,13 +554,16 @@ class _PdfSignaturePreviewPainter extends CustomPainter {
 /// [initialColor] and [initialStrokeWidth] seed the pad's ink and pen so
 /// it reopens on the style the last signature was drawn with, and
 /// [pickColor] supplies the "any colour" picker behind the pad's custom
-/// swatch (defaulting to a plain [showPdfColorPicker]).
+/// swatch (defaulting to a plain [showPdfColorPicker]). [trackpad] offers
+/// drawing on the trackpad (defaulting to
+/// [PdfTrackpadSignatureCapture.platform]).
 Future<PdfInkSignature?> showPdfSignatureDialog(
   BuildContext context, {
   bool predictStrokes = true,
   Color? initialColor,
   double initialStrokeWidth = PdfInkSignature.defaultStrokeWidth,
   PdfSignatureColorPicker? pickColor,
+  PdfTrackpadSignatureCapture? trackpad,
 }) =>
     showPdfDialog<PdfInkSignature>(
       context: context,
@@ -511,6 +572,7 @@ Future<PdfInkSignature?> showPdfSignatureDialog(
         initialColor: initialColor,
         initialStrokeWidth: initialStrokeWidth,
         pickColor: pickColor,
+        trackpad: trackpad ?? PdfTrackpadSignatureCapture.platform,
       ),
     );
 
@@ -518,7 +580,8 @@ Future<PdfInkSignature?> showPdfSignatureDialog(
 /// mouse, finger, or stylus (pressure is recorded and rendered as
 /// variable width, like the ink tool), pick an ink color - one of the
 /// three pen presets or any colour at all, through the picker behind the
-/// custom swatch - set the pen thickness, clear, done.
+/// custom swatch - set the pen thickness, clear, done. With a [trackpad]
+/// capture it can also be drawn with a finger on the trackpad.
 ///
 /// The pad draws at the scale the signature is stamped at
 /// ([PdfInkSignature.referenceWidth]), so the pen thickness on the pad is
@@ -530,6 +593,7 @@ class PdfSignatureDialog extends StatefulWidget {
     this.initialColor,
     this.initialStrokeWidth = PdfInkSignature.defaultStrokeWidth,
     this.pickColor,
+    this.trackpad,
   });
 
   /// Forward-extrapolates a short speculative lead beyond the pen tip on
@@ -548,6 +612,12 @@ class PdfSignatureDialog extends StatefulWidget {
   /// Opens the "any colour" picker for the pad's custom swatch. Null
   /// falls back to [showPdfColorPicker] with no recents wired.
   final PdfSignatureColorPicker? pickColor;
+
+  /// Offers a "Use trackpad" mode that draws with a finger on the
+  /// trackpad (see [PdfTrackpadSignatureCapture]); null hides it. Unlike
+  /// [showPdfSignatureDialog] this does not fall back to
+  /// [PdfTrackpadSignatureCapture.platform].
+  final PdfTrackpadSignatureCapture? trackpad;
 
   @override
   State<PdfSignatureDialog> createState() => _PdfSignatureDialogState();
@@ -617,7 +687,9 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
     });
   }
 
-  void _panEnd(DragEndDetails details) {
+  void _panEnd(DragEndDetails details) => _endStroke();
+
+  void _endStroke() {
     final stroke = _active;
     if (stroke == null) return;
     setState(() {
@@ -626,6 +698,99 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
       _active = null;
       _activePressures = null;
     });
+  }
+
+  StreamSubscription<PdfTrackpadSignatureEvent>? _trackpadCapture;
+
+  /// Whether [PdfSignatureDialog.trackpad] reported a trackpad attached.
+  bool _trackpadAvailable = false;
+
+  /// Takes the keyboard while a capture runs, so any key can finish it.
+  final _trackpadFocus = FocusNode(debugLabel: 'pdf-signature-trackpad');
+
+  /// Ends a capture when the app loses focus, so a host that parked the
+  /// cursor gets it back.
+  AppLifecycleListener? _lifecycle;
+
+  bool get _trackpadActive => _trackpadCapture != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final trackpad = widget.trackpad;
+    if (trackpad == null) return;
+    _lifecycle =
+        AppLifecycleListener(onInactive: _stopTrackpad, onHide: _stopTrackpad);
+    trackpad.isAvailable().then((available) {
+      if (mounted && available) setState(() => _trackpadAvailable = true);
+    }, onError: (Object _) {});
+  }
+
+  void _startTrackpad() {
+    final trackpad = widget.trackpad;
+    if (trackpad == null || _trackpadActive) return;
+    _endStroke();
+    setState(() {
+      _trackpadCapture = trackpad.capture().listen(
+            _onTrackpad,
+            onError: (Object _) => _stopTrackpad(),
+            onDone: _stopTrackpad,
+          );
+    });
+    _trackpadFocus.requestFocus();
+  }
+
+  /// "Press any key when finished"; every other key is swallowed while the
+  /// capture runs so none reaches the dialog or the document behind it.
+  KeyEventResult _onTrackpadKey(FocusNode node, KeyEvent event) {
+    if (!_trackpadActive) return KeyEventResult.ignored;
+    if (event is KeyDownEvent) _stopTrackpad();
+    return KeyEventResult.handled;
+  }
+
+  void _stopTrackpad() {
+    final capture = _trackpadCapture;
+    if (capture == null) return;
+    _trackpadCapture = null;
+    capture.cancel();
+    if (!mounted) return;
+    _endStroke();
+    setState(() {});
+  }
+
+  /// The whole trackpad surface maps onto the whole pad, like Preview's
+  /// trackpad signatures: where the finger lands is where the pen lands.
+  void _onTrackpad(PdfTrackpadSignatureEvent event) {
+    if (!mounted) return;
+    final point = Offset(event.x.clamp(0.0, 1.0) * _padWidth,
+        event.y.clamp(0.0, 1.0) * _padHeight);
+    switch (event.phase) {
+      case PdfTrackpadSignaturePhase.down:
+        _endStroke();
+        setState(() {
+          _active = [point];
+          _activePressures = null;
+        });
+      case PdfTrackpadSignaturePhase.move:
+        setState(() => (_active ??= []).add(point));
+      case PdfTrackpadSignaturePhase.up:
+        final active = _active;
+        if (active != null && (active.isEmpty || active.last != point)) {
+          active.add(point);
+        }
+        _endStroke();
+      case PdfTrackpadSignaturePhase.finish:
+        _stopTrackpad();
+    }
+  }
+
+  @override
+  void dispose() {
+    _trackpadCapture?.cancel();
+    _trackpadCapture = null;
+    _lifecycle?.dispose();
+    _trackpadFocus.dispose();
+    super.dispose();
   }
 
   /// The in-progress stroke with a display-only predicted lead appended
@@ -652,7 +817,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
   @override
   Widget build(BuildContext context) {
     final activeDisplay = _activeDisplay;
-    return AlertDialog(
+    final dialog = AlertDialog(
       title: Text(pdfL10n(context).sigTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -665,7 +830,10 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
               // the pad is always paper-white, like the page the
               // signature will land on - only its border follows the theme
               color: Colors.white,
-              border: Border.all(color: Theme.of(context).colorScheme.outline),
+              border: _trackpadActive
+                  ? Border.all(
+                      color: Theme.of(context).colorScheme.primary, width: 2)
+                  : Border.all(color: Theme.of(context).colorScheme.outline),
               borderRadius: BorderRadius.circular(8),
             ),
             child: ClipRRect(
@@ -693,6 +861,24 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
                       color: _ink,
                       strokeWidth: _strokeWidth * _padScale,
                     ),
+                    child: _trackpadActive
+                        ? Align(
+                            alignment: Alignment.topCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                pdfL10n(context).sigTrackpadHint,
+                                key: const ValueKey(
+                                    'pdf-signature-trackpad-hint'),
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: Colors.black54),
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
                 ),
               ),
@@ -720,6 +906,13 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
               onTap: _pickInk,
             ),
             const Spacer(),
+            if (_trackpadAvailable)
+              TextButton.icon(
+                key: const ValueKey('pdf-signature-trackpad'),
+                onPressed: _trackpadActive ? null : _startTrackpad,
+                icon: const Icon(Icons.touch_app_outlined, size: 18),
+                label: Text(pdfL10n(context).sigUseTrackpad),
+              ),
             TextButton(
               onPressed: _isEmpty
                   ? null
@@ -769,6 +962,14 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
           child: Text(pdfL10n(context).done),
         )),
       ],
+    );
+    if (widget.trackpad == null) return dialog;
+    return Focus(
+      focusNode: _trackpadFocus,
+      onKeyEvent: _onTrackpadKey,
+      // clicks mean nothing mid-capture: with tap-to-click a quick dab on
+      // the trackpad is also a click, and it must not press a button
+      child: AbsorbPointer(absorbing: _trackpadActive, child: dialog),
     );
   }
 }

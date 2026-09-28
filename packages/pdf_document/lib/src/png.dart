@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
+import 'package:pdf_cos/pdf_cos.dart' show inflateZlib;
 
 /// A decoded PNG, normalized for PDF embedding: 8-bit samples, gray or
 /// RGB, with the alpha channel (if any) split off for a /SMask.
@@ -10,8 +10,8 @@ import 'package:archive/archive.dart';
 /// transparency (palette and color-key), and Adam7 interlacing. 16-bit
 /// samples are reduced to their high byte.
 class PngImage {
-  PngImage._(this.width, this.height, this.components, this.samples,
-      this.alpha);
+  PngImage._(
+      this.width, this.height, this.components, this.samples, this.alpha);
 
   final int width;
   final int height;
@@ -78,8 +78,9 @@ class PngImage {
       throw ArgumentError('unsupported PNG bit depth $bitDepth');
     }
 
-    // decodeBytes already returns a freshly allocated Uint8List (#533).
-    final raw = const ZLibDecoder().decodeBytes(idat.takeBytes());
+    // Freshly allocated (#533), and tolerant of bytes after the zlib stream
+    // on the web too.
+    final raw = inflateZlib(idat.takeBytes());
 
     // raw channel data, 8 bits per channel, full image. Palette indices
     // must stay verbatim - only real samples scale to 0–255.
@@ -87,19 +88,24 @@ class PngImage {
     final pixels = interlace == 1
         ? _deinterlace(raw, width, height, channels, bitDepth, scale)
         : _unfilterImage(raw, 0, width, height, channels, bitDepth,
-            Uint8List(width * height * channels),
-            scaleSubByte: scale)
+                Uint8List(width * height * channels),
+                scaleSubByte: scale)
             .$1;
 
-    return _normalize(
-        width, height, colorType, pixels, channels, palette, transparency,
-        bitDepth);
+    return _normalize(width, height, colorType, pixels, channels, palette,
+        transparency, bitDepth);
   }
 
   /// Converts unfiltered channel data into gray/RGB samples + alpha.
-  static PngImage _normalize(int width, int height, int colorType,
-      Uint8List pixels, int channels, Uint8List? palette,
-      Uint8List? transparency, int bitDepth) {
+  static PngImage _normalize(
+      int width,
+      int height,
+      int colorType,
+      Uint8List pixels,
+      int channels,
+      Uint8List? palette,
+      Uint8List? transparency,
+      int bitDepth) {
     final count = width * height;
     switch (colorType) {
       case 0: // grayscale (+ optional color-key tRNS)
@@ -149,8 +155,7 @@ class PngImage {
             if (a != 255) anyTransparent = true;
           }
         }
-        return PngImage._(
-            width, height, 3, rgb, anyTransparent ? alpha : null);
+        return PngImage._(width, height, 3, rgb, anyTransparent ? alpha : null);
       case 4: // gray + alpha
         final gray = Uint8List(count);
         final alpha = Uint8List(count);
@@ -228,8 +233,8 @@ class PngImage {
           }
       }
       prior.setAll(0, row);
-      _emitRow(row, width, channels, bitDepth, scaleSubByte, out,
-          y * stride, channels);
+      _emitRow(row, width, channels, bitDepth, scaleSubByte, out, y * stride,
+          channels);
     }
     return (out, p - offset);
   }

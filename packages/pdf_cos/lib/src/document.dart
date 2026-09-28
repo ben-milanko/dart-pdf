@@ -87,10 +87,16 @@ class CosDocument {
   // (see [_cacheKey]) so [getObject] - the hottest path in the package -
   // resolves a warm object without allocating a CosReference per call (#522).
   final Map<int, CosObject> _cache = {};
-  // Identity-keyed reverse index of [_cache]: object -> the ref it loaded
-  // under. Keeps [referenceTo] O(1) instead of a linear scan of the cache on
-  // every call (editing code maps a mutated object back to its number per
-  // mutation). Kept in lockstep with [_cache] at every insert/remove site.
+  // The refs [_cacheKey] can't pack exactly (see [_packable]): junk
+  // generations, and object numbers past 2^32 - which a junk trailer /Size
+  // hands [CosIncrementalUpdater]'s allocator. Keyed by the ref itself, so
+  // nothing aliases; empty for any sane file.
+  final Map<CosReference, CosObject> _unpackedCache = {};
+  // Identity-keyed reverse index of [_cache] and [_unpackedCache]: object ->
+  // the ref it loaded under. Keeps [referenceTo] O(1) instead of a linear scan
+  // of the cache on every call (editing code maps a mutated object back to its
+  // number per mutation). Kept in lockstep with both at every insert/remove
+  // site.
   final Map<CosObject, CosReference> _reverseCache = Map.identity();
   final Map<int, _ObjectStream> _objectStreams = {};
 
@@ -135,6 +141,14 @@ class CosDocument {
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
 
+  /// The /Encrypt dictionary [_encryption] was derived from, indirect
+  /// entries inlined ([_inlineEncrypt]): what [openAppended] compares a
+  /// revision's /Encrypt with before donating the handler. Kept apart from
+  /// the live object because [applyIncrementalUpdate] keeps the handler while
+  /// a folded revision may redefine that object. Null when unencrypted, or
+  /// when the dictionary nests deeper than [_sameCos] follows (no donation).
+  CosObject? _authenticatedEncrypt;
+
   /// Object numbers currently mid-parse, guarding against definitions
   /// that reference their own object (fuzzed and corrupt files).
   final Set<int> _loadingObjects = {};
@@ -168,14 +182,19 @@ class CosDocument {
           {String password = '', List<int>? populatedRanges}) =>
       _open(bytes, password, populatedRanges, null);
 
-  /// Opens [bytes] - this document's own bytes with incremental updates
-  /// appended, such as an editor's save over it - reusing this document's
-  /// already-authenticated security handler, so a revision this process just
-  /// wrote to an encrypted file reopens without the password being threaded
-  /// through again. When the update points at a different /Encrypt object
-  /// (or the document is unencrypted) this is an ordinary [open] with the
-  /// empty password.
-  CosDocument openAppended(Uint8List bytes) => _open(bytes, '', null, this);
+  /// Opens [bytes] - another revision of this document: its own bytes with
+  /// incremental updates appended, such as an editor's save over it, or the
+  /// shorter prefix an earlier revision ended at (an editor's undo) - reusing
+  /// this document's already-authenticated security handler, so a revision
+  /// this process just wrote to an encrypted file reopens without the
+  /// password being threaded through again, and without re-running the
+  /// password check (for AES-256, Algorithm 2.B: ~10 ms native, ~75 ms on
+  /// the web). The handler is donated only while the revision points at the
+  /// same /Encrypt object with the same entries (key material, permissions
+  /// and crypt filters); otherwise (and for an unencrypted document) this is
+  /// an ordinary [open] with [password].
+  CosDocument openAppended(Uint8List bytes, {String password = ''}) =>
+      _open(bytes, password, null, this);
 
   static CosDocument _open(Uint8List bytes, String password,
       List<int>? populatedRanges, CosDocument? keysFrom) {
@@ -229,15 +248,23 @@ class CosDocument {
   /// resolve re-reads it from the appended bytes. Returns the set of redefined
   /// object numbers.
   ///
-  /// Throws when the update cannot be applied incrementally (this document was
-  /// opened through xref recovery, [newBytes] is not an append, or the appended
-  /// xref chain is malformed); the caller should re-open from scratch instead.
+  /// A document opened through xref recovery ([startXref] 0) takes updates
+  /// too: [CosIncrementalUpdater] chains its section to it with `/Prev 0`,
+  /// which is exactly where this walk stops, and the appended entries override
+  /// the recovered ones - the same "last definition wins" a recovery of the
+  /// new bytes applies. Its first update gives it a real [startXref], so later
+  /// ones chain normally. Only a chain confined to the appended bytes is taken
+  /// that way: the recovered entries replace whatever the old bytes' broken
+  /// sections say, so a section reached below them is refused.
+  ///
+  /// Throws when the update cannot be applied incrementally ([newBytes] is not
+  /// an append, the appended xref chain is malformed, or - on a recovered
+  /// document - it adds no section or reaches into the old bytes); the caller
+  /// should re-open from scratch instead.
+  ///
+  /// Each applied update is journaled, so [rollbackTo] can take the document
+  /// back to where it was before.
   Set<int> applyIncrementalUpdate(Uint8List newBytes) {
-    if (startXref <= 0) {
-      // A recovered document has no trustworthy xref chain to hang a /Prev off.
-      throw CosParseException(
-          'cannot incrementally update a recovered document');
-    }
     if (newBytes.length <= bytes.length) {
       throw CosParseException('incremental update is not an append');
     }
@@ -245,16 +272,34 @@ class CosDocument {
     // reader stops descending at the old startxref (everything below it is
     // already loaded). First occurrence among the appended sections wins and
     // overrides whatever the old chain held for that object.
+    final recovered = startXref <= 0;
     final reader = CosXrefReader(newBytes, shift: _offsetShift);
     final newStartXref = reader.findStartXref();
-    final appended = reader.walkFrom(newStartXref, stopAt: startXref);
+    final appended = reader.walkFrom(newStartXref,
+        stopAt: startXref,
+        floor: recovered ? bytes.length - _offsetShift : null);
+    if (recovered && !appended.parsedSection) {
+      // Nothing to fold: a re-open would rescan the appended bytes instead.
+      throw CosParseException('update to a recovered document adds no section');
+    }
     final changed = appended.entries.keys.toSet();
+    final populated = _populated;
+    _journal.add(_AppliedUpdate(
+      length: bytes.length,
+      startXref: startXref,
+      // Not copied: a folded section's trailer is merged into a new dictionary
+      // below, so this one stays the previous revision's.
+      trailer: trailer,
+      previous: {for (final number in changed) number: _xref[number]},
+      populatedLength: populated?.length ?? 0,
+      populatedEnd: populated == null || populated.isEmpty ? 0 : populated.last,
+    ));
+    if (_journal.length > _maxJournaledUpdates) _journal.removeAt(0);
     appended.entries.forEach((number, entry) => _xref[number] = entry);
 
     // An appended revision is real bytes end to end, so a sparse buffer's hole
     // map has to grow with it - otherwise every object the update defines
     // would read as an unfetched hole and the revision would apply invisibly.
-    final populated = _populated;
     if (populated != null) {
       if (populated.isNotEmpty && populated.last == bytes.length) {
         populated[populated.length - 1] = newBytes.length;
@@ -279,19 +324,113 @@ class CosDocument {
 
     // Drop cached state for every redefined object so the next resolve re-reads
     // it from the appended bytes; untouched objects keep their warm cache.
+    _evictRedefined(changed);
+    return changed;
+  }
+
+  /// Takes this document back to an earlier revision that
+  /// [applyIncrementalUpdate] advanced it past: the undo counterpart of that
+  /// method, for a holder whose buffer shrinks back to a prefix (a render
+  /// worker following an editor's undo). [length] is that revision's byte
+  /// length, and [bytes] must still hold it as their prefix.
+  ///
+  /// Restores the xref entries, trailer, [startXref] and populated ranges the
+  /// undone revisions replaced, views [bytes] down to [length], and evicts only
+  /// the objects those revisions redefined - every untouched object, and
+  /// anything keyed on its identity (decoded-image caches), stays warm - then
+  /// advances [revision]. Returns the evicted object numbers and how many
+  /// revisions were undone: `steps` 0 (nothing evicted) when [length] is the
+  /// current one.
+  ///
+  /// Returns null, changing nothing, when [length] is not a revision this
+  /// document can return to: never journaled (it was opened there, or it lies
+  /// further back than the 256 most recent updates), or the prefix no
+  /// longer ends with the `startxref` that revision had - the caller re-opens
+  /// the prefix instead. A document opened through recovery fails that check
+  /// at the revision it was opened at unless the broken file happened to
+  /// declare `startxref 0`, and then restoring is exact anyway.
+  ({Set<int> changed, int steps})? rollbackTo(int length) {
+    if (length == bytes.length) return (changed: <int>{}, steps: 0);
+    var index = _journal.length - 1;
+    while (index >= 0 && _journal[index].length > length) {
+      index--;
+    }
+    if (index < 0 || _journal[index].length != length) return null;
+    final target = _journal[index];
+    final prefix = Uint8List.sublistView(bytes, 0, length);
+    try {
+      final declared =
+          CosXrefReader(prefix, shift: _offsetShift).findStartXref();
+      if (declared != target.startXref) return null;
+    } on Exception {
+      return null;
+    } on RangeError {
+      return null;
+    }
+
+    // Newest first, so a number several undone revisions redefined ends at
+    // the value it had before the oldest of them.
+    final changed = <int>{};
+    for (var i = _journal.length - 1; i >= index; i--) {
+      _journal[i].previous.forEach((number, entry) {
+        changed.add(number);
+        if (entry == null) {
+          _xref.remove(number);
+        } else {
+          _xref[number] = entry;
+        }
+      });
+    }
+    final steps = _journal.length - index;
+    _journal.length = index;
+
+    // [applyIncrementalUpdate] only ever extends the last range or appends
+    // ranges, so cutting back to the old count and end restores the snapshot.
+    final populated = _populated;
+    if (populated != null) {
+      populated.length = target.populatedLength;
+      if (populated.isNotEmpty) populated.last = target.populatedEnd;
+      cosSparseBufferRanges[prefix] = List<int>.unmodifiable(populated);
+    }
+    bytes = prefix;
+    startXref = target.startXref;
+    trailer = target.trailer;
+    _evictRedefined(changed);
+    return (changed: changed, steps: steps);
+  }
+
+  /// Revisions [rollbackTo] can undo, oldest first: one entry per
+  /// [applyIncrementalUpdate], capped at [_maxJournaledUpdates].
+  final List<_AppliedUpdate> _journal = [];
+
+  /// How many updates back [rollbackTo] reaches. Each entry is a few dozen
+  /// bytes plus the xref entries its revision replaced.
+  static const int _maxJournaledUpdates = 256;
+
+  /// Drops the cached state of every object in [redefined] - loaded objects
+  /// (both caches and the reverse index) and parsed object streams - with the
+  /// lazily built header scan, and advances [revision]: what a revision that
+  /// redefines those objects, forward ([applyIncrementalUpdate]) or back
+  /// ([rollbackTo]), leaves stale. Untouched objects keep their warm cache.
+  void _evictRedefined(Set<int> redefined) {
     _cache.removeWhere((key, obj) {
-      if (!changed.contains(key ~/ 65536)) return false;
+      if (!redefined.contains(_objectNumberOf(key))) return false;
       final reverse = _reverseCache[obj];
       if (reverse != null &&
+          _packable(reverse.objectNumber, reverse.generation) &&
           _cacheKey(reverse.objectNumber, reverse.generation) == key) {
         _reverseCache.remove(obj);
       }
       return true;
     });
-    _objectStreams.removeWhere((number, _) => changed.contains(number));
+    _unpackedCache.removeWhere((ref, obj) {
+      if (!redefined.contains(ref.objectNumber)) return false;
+      if (_reverseCache[obj] == ref) _reverseCache.remove(obj);
+      return true;
+    });
+    _objectStreams.removeWhere((number, _) => redefined.contains(number));
     _scannedHeaders = null;
     _revision++;
-    return changed;
   }
 
   /// Opens a document from an asynchronous, random-access [source], fetching
@@ -340,7 +479,9 @@ class CosDocument {
 
   static CosDocument _recoverTimed(Uint8List bytes, int shift, String password,
       List<int>? populated, CosDocument? keysFrom) {
-    final entries = _scanObjectHeaders(bytes, shift, populated);
+    final trailerKeywords = <int>[];
+    final entries =
+        _scanObjectHeaders(bytes, shift, populated, trailers: trailerKeywords);
     if (entries.isEmpty) {
       throw CosParseException(
           'cross-reference recovery found no objects in the file');
@@ -350,10 +491,7 @@ class CosDocument {
     // (later revisions win), then doc-level keys from any xref stream
     // dictionaries (files without the trailer keyword).
     final trailer = CosDictionary();
-    var t = shift;
-    while (true) {
-      t = _indexOf(bytes, 'trailer', t);
-      if (t < 0) break;
+    for (final t in trailerKeywords) {
       try {
         final candidate =
             CosParser(bytes, offset: t + 'trailer'.length).parseObject();
@@ -365,7 +503,6 @@ class CosDocument {
       } on Exception {
         // junk that happens to contain the keyword
       }
-      t += 'trailer'.length;
     }
 
     final document =
@@ -390,6 +527,7 @@ class CosDocument {
       }
     }
     document._cache.clear();
+    document._unpackedCache.clear();
     document._reverseCache.clear();
     document._objectStreams.clear();
 
@@ -452,11 +590,25 @@ class CosDocument {
   /// [populated] bounds the scan to the byte ranges a sparse buffer actually
   /// holds (see [_populated]); a hole is all zeros, so scanning it can only
   /// cost time.
+  ///
+  /// [trailers], when given, collects the offset of every `trailer` keyword
+  /// in the same pass (in file order, non-overlapping), so recovery reads the
+  /// file once instead of once per keyword.
+  ///
+  /// One Horspool pass over a 3-byte window for both keywords (`obj` and the
+  /// `tra` of `trailer`): the window's last byte says how far along the next
+  /// possible match can start ([_scanSkip]), so most bytes are never compared.
+  /// A byte-at-a-time scan and a separate `trailer` search were each about
+  /// half of a recovery open on a large file.
   static Map<int, CosXrefEntry> _scanObjectHeaders(
-      Uint8List bytes, int shift, List<int>? populated) {
+      Uint8List bytes, int shift, List<int>? populated,
+      {List<int>? trailers}) {
     final entries = <int, CosXrefEntry>{};
+    final n = bytes.length;
+    final skip = _scanSkip;
     var hole = 0; // index of the populated range the cursor is at or before
-    for (var i = shift; i + 3 <= bytes.length; i++) {
+    var i = shift;
+    while (i + 3 <= n) {
       if (populated != null) {
         while (
             hole * 2 + 1 < populated.length && i >= populated[hole * 2 + 1]) {
@@ -464,23 +616,58 @@ class CosDocument {
         }
         if (hole * 2 >= populated.length) break;
         if (i < populated[hole * 2]) {
-          i = populated[hole * 2] - 1;
+          i = populated[hole * 2];
           continue;
         }
       }
-      if (bytes[i] != 0x6F /* o */ ||
-          bytes[i + 1] != 0x62 /* b */ ||
-          bytes[i + 2] != 0x6A /* j */) {
+      final last = bytes[i + 2];
+      final step = skip[last];
+      if (step != 0) {
+        i += step;
         continue;
       }
-      if (i + 3 < bytes.length && CosLexer.isRegular(bytes[i + 3])) continue;
-      final header = _objectHeaderBefore(bytes, i, shift);
-      if (header == null) continue;
-      final (start, objectNumber, generation) = header;
-      entries[objectNumber] = CosXrefEntry.inUse(start - shift, generation);
+      if (last == 0x6A /* j */) {
+        if (bytes[i] == 0x6F /* o */ &&
+            bytes[i + 1] == 0x62 /* b */ &&
+            !(i + 3 < n && CosLexer.isRegular(bytes[i + 3]))) {
+          final header = _objectHeaderBefore(bytes, i, shift);
+          if (header != null) {
+            final (start, objectNumber, generation) = header;
+            entries[objectNumber] =
+                CosXrefEntry.inUse(start - shift, generation);
+          }
+        }
+      } else if (trailers != null &&
+          i + 7 <= n &&
+          bytes[i] == 0x74 /* t */ &&
+          bytes[i + 1] == 0x72 /* r */ &&
+          bytes[i + 3] == 0x69 /* i */ &&
+          bytes[i + 4] == 0x6C /* l */ &&
+          bytes[i + 5] == 0x65 /* e */ &&
+          bytes[i + 6] == 0x72 /* r */) {
+        // Neither keyword can start inside `trailer`, so skip all of it.
+        trailers.add(i);
+        i += 7;
+        continue;
+      }
+      i++;
     }
     return entries;
   }
+
+  /// [_scanObjectHeaders]' skip table: for each possible last byte of the
+  /// 3-byte window, how far the window can advance before that byte could line
+  /// up with `obj` or `tra`. `o`/`t` sit two before the end, `b`/`r` one, and
+  /// `j`/`a` end a candidate (0: compare in place). The six letters are
+  /// distinct, so each has one shift.
+  static final Uint8List _scanSkip = Uint8List(256)
+    ..fillRange(0, 256, 3)
+    ..[0x6F] = 2 // o
+    ..[0x62] = 1 // b
+    ..[0x6A] = 0 // j
+    ..[0x74] = 2 // t
+    ..[0x72] = 1 // r
+    ..[0x61] = 0; // a
 
   /// Walks backwards from an `obj` keyword over `N G `, returning the
   /// offset of the object number and the parsed numbers, or null when the
@@ -527,7 +714,8 @@ class CosDocument {
   /// Runs before any other object loads, so only the /Encrypt dictionary
   /// itself (whose strings stay raw by design) is parsed undecrypted.
   /// [keysFrom] ([openAppended]) donates its handler when this revision
-  /// still points at the same /Encrypt object, skipping authentication.
+  /// still points at the same /Encrypt object, unchanged from the dictionary
+  /// that handler was derived from, skipping authentication.
   void _initEncryption(String password, [CosDocument? keysFrom]) {
     final encryptRef = trailer['Encrypt'];
     final encrypt = resolve(encryptRef);
@@ -537,8 +725,10 @@ class CosDocument {
     }
     final donor = keysFrom?._encryption;
     if (donor != null &&
-        keysFrom?._encryptObjectNumber == _encryptObjectNumber) {
+        keysFrom!._encryptObjectNumber == _encryptObjectNumber &&
+        _sameEncryptDictionary(encrypt, keysFrom)) {
       _encryption = donor;
+      _authenticatedEncrypt = keysFrom._authenticatedEncrypt;
       return;
     }
     Uint8List? firstId;
@@ -547,8 +737,92 @@ class CosDocument {
       final first = resolve(id[0]);
       if (first is CosString) firstId = first.bytes;
     }
+    // Snapshot before the handler is installed: once [_encryption] is set,
+    // any indirect sub-object of /Encrypt that loads for the first time is
+    // decrypted, while a later revision's [_sameEncryptDictionary] resolves
+    // (before its own handler) to the raw bytes - and they would never match.
+    final snapshot = _inlineEncrypt(encrypt, resolve, 0);
     _encryption = StandardSecurityHandler.fromEncrypt(
         encrypt, firstId, password, resolve);
+    _authenticatedEncrypt = snapshot;
+  }
+
+  /// Whether [encrypt] is, entry for entry, the /Encrypt dictionary [donor]'s
+  /// handler was derived from ([_authenticatedEncrypt]) - not merely the one
+  /// [donor]'s trailer points at now. The handler is a function of that
+  /// dictionary alone (the password check and key wrapping in /O, /U, /OE,
+  /// /UE; the key inputs /P, /Length, /EncryptMetadata; the ciphers in /V,
+  /// /CF, /StmF, /StrF) plus /ID[0] - which an editor keeps across revisions
+  /// (§14.4) - and the password. The object number alone does not prove it
+  /// unchanged: a revision may rewrite that object under the same number (new
+  /// key material, or only a different crypt filter), and then must
+  /// authenticate afresh.
+  bool _sameEncryptDictionary(CosDictionary encrypt, CosDocument donor) {
+    final theirs = donor._authenticatedEncrypt;
+    return theirs != null && _sameCos(encrypt, resolve, theirs, _direct, 0);
+  }
+
+  /// [object] with every reference inside it resolved and inlined, to the
+  /// depth [_sameCos] compares; null past that depth.
+  static CosObject? _inlineEncrypt(
+      CosObject? object, CosObject Function(CosObject?) resolve, int depth) {
+    final x = resolve(object);
+    if (x is CosDictionary) {
+      if (depth > 4) return null;
+      final out = <String, CosObject>{};
+      for (final MapEntry(:key, :value) in x.entries.entries) {
+        final inlined = _inlineEncrypt(value, resolve, depth + 1);
+        if (inlined == null) return null;
+        out[key] = inlined;
+      }
+      return CosDictionary(out);
+    }
+    if (x is CosArray) {
+      if (depth > 4) return null;
+      final out = <CosObject>[];
+      for (final item in x.items) {
+        final inlined = _inlineEncrypt(item, resolve, depth + 1);
+        if (inlined == null) return null;
+        out.add(inlined);
+      }
+      return CosArray(out);
+    }
+    return x;
+  }
+
+  /// The resolver for an already-inlined tree ([_authenticatedEncrypt]).
+  static CosObject _direct(CosObject? object) => object ?? CosNull.instance;
+
+  /// Structural equality of [a] (resolved in [resolveA]) and [b] (in
+  /// [resolveB]): strings by bytes, names/numbers/booleans by value,
+  /// dictionaries and arrays entry for entry. Anything deeper than an
+  /// /Encrypt dictionary's crypt filters answers false, which only costs the
+  /// donation.
+  static bool _sameCos(CosObject? a, CosObject Function(CosObject?) resolveA,
+      CosObject? b, CosObject Function(CosObject?) resolveB, int depth) {
+    final x = resolveA(a), y = resolveB(b);
+    if (x is CosDictionary) {
+      if (y is! CosDictionary ||
+          depth > 4 ||
+          x.entries.length != y.entries.length) {
+        return false;
+      }
+      for (final MapEntry(:key, :value) in x.entries.entries) {
+        if (!y.containsKey(key) ||
+            !_sameCos(value, resolveA, y[key], resolveB, depth + 1)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (x is CosArray) {
+      if (y is! CosArray || depth > 4 || x.length != y.length) return false;
+      for (var i = 0; i < x.length; i++) {
+        if (!_sameCos(x[i], resolveA, y[i], resolveB, depth + 1)) return false;
+      }
+      return true;
+    }
+    return x == y; // CosString compares its bytes
   }
 
   /// The version from the file header, e.g. `1.7`. The catalog's /Version
@@ -593,24 +867,78 @@ class CosDocument {
   /// from the file, so it resolves (and [referenceTo] finds it) before the
   /// pending update is saved. [CosIncrementalUpdater.addObject] calls this
   /// for every object it allocates.
-  void adoptObject(CosReference ref, CosObject object) {
-    _cache[_cacheKey(ref.objectNumber, ref.generation)] = object;
+  void adoptObject(CosReference ref, CosObject object) => _store(ref, object);
+
+  /// Caches [object] under [ref] - packed when [_packable], otherwise in the
+  /// side map - and records the reverse mapping.
+  void _store(CosReference ref, CosObject object) {
+    final objectNumber = ref.objectNumber;
+    final generation = ref.generation;
+    if (_packable(objectNumber, generation)) {
+      _cache[_cacheKey(objectNumber, generation)] = object;
+    } else {
+      _unpackedCache[ref] = object;
+    }
     _reverseCache[object] = ref;
   }
 
-  /// Packs (objectNumber, generation) into one int cache key. Generations
-  /// are at most 65535 (a 5-digit xref field), and object numbers stay far
-  /// below 2^37, so the product fits dart2js's 53 safe bits. Multiplication,
-  /// not `<< 16`: JS bitwise shifts truncate to 32 bits under dart2js.
+  /// Packs (objectNumber, generation) into one int cache key, with the object
+  /// number in the low 32 bits. The low bits must carry the object number:
+  /// the VM/AOT/wasm `int.hashCode` is a multiply that keeps trailing zero
+  /// bits, so the old `objectNumber * 65536 + generation` put every key's low
+  /// 16 bits at zero and piled a large document's keys into shared
+  /// linear-probe chains (~8 us per lookup at 29k cached objects instead of
+  /// ~20 ns; full-graph walks like compaction spent most of their time there).
+  /// Don't "simplify" it back. Generation-0 keys - nearly every object - are
+  /// the object numbers themselves, which also keeps them under 2^30, on
+  /// dart2js's fast numeric-key path.
+  ///
+  /// Only [_packable] refs get a packed key: an object number in 0..2^32-1 and
+  /// a generation in 0..65535 (the xref field's range - an object body or a
+  /// reference can still carry any integer). Every key is then unique and
+  /// below 2^48, exact on dart2js's 53-bit ints too. Anything else lives in
+  /// [_unpackedCache], keyed by the [CosReference] itself - including the
+  /// object numbers past 2^32 that [CosIncrementalUpdater] allocates from a
+  /// junk trailer /Size, which must keep resolving. Multiplication, not
+  /// `<< 32`: JS bitwise operators truncate to 32 bits under dart2js.
   static int _cacheKey(int objectNumber, int generation) =>
-      objectNumber * 65536 + generation;
+      generation * _objectNumberLimit + objectNumber;
+
+  /// Whether [_cacheKey] holds (objectNumber, generation) exactly.
+  static bool _packable(int objectNumber, int generation) =>
+      objectNumber >= 0 &&
+      objectNumber < _objectNumberLimit &&
+      generation >= 0 &&
+      generation <= _maxPackedGeneration;
+
+  /// The object number [_cacheKey] packed into [key]. `%`, not `&`, for the
+  /// same dart2js reason.
+  static int _objectNumberOf(int key) => key % _objectNumberLimit;
+
+  /// One past the largest object number [_cacheKey] packs.
+  static const int _objectNumberLimit = 0x100000000;
+
+  /// The largest generation [_cacheKey] packs: the 5-digit xref field's max.
+  static const int _maxPackedGeneration = 0xFFFF;
+
+  /// [_cacheKey], exposed as a test hook. Not part of the stable API.
+  static int debugCacheKey(int objectNumber, int generation) =>
+      _cacheKey(objectNumber, generation);
 
   /// Loads an object by number, parsing it on first access.
   CosObject getObject(int objectNumber, int generation) {
-    final key = _cacheKey(objectNumber, generation);
-    final cached = _cache[key];
+    if (!_packable(objectNumber, generation)) {
+      return _unpackedCache[CosReference(objectNumber, generation)] ??
+          _load(objectNumber, generation);
+    }
+    final cached = _cache[_cacheKey(objectNumber, generation)];
     if (cached != null) return cached;
+    return _load(objectNumber, generation);
+  }
 
+  /// [getObject]'s miss path: parses the object and caches it (unless it is
+  /// missing or re-entrant, which answer null uncached).
+  CosObject _load(int objectNumber, int generation) {
     final entry = _xref[objectNumber];
     if (entry == null) return CosNull.instance;
 
@@ -677,8 +1005,7 @@ class CosDocument {
     // key derives from it, and its presence marks the payload as still the
     // file's original bytes (see [CosStream.sourceRef]).
     if (result is CosStream) result.sourceRef = ref;
-    _cache[key] = result;
-    _reverseCache[result] = ref;
+    _store(ref, result);
     return result;
   }
 
@@ -899,6 +1226,31 @@ class CosDocument {
     }
     return index;
   }
+}
+
+/// What one [CosDocument.applyIncrementalUpdate] replaced, so
+/// [CosDocument.rollbackTo] can put it back.
+class _AppliedUpdate {
+  _AppliedUpdate({
+    required this.length,
+    required this.startXref,
+    required this.trailer,
+    required this.previous,
+    required this.populatedLength,
+    required this.populatedEnd,
+  });
+
+  /// The document's byte length before the update: the revision it undoes to.
+  final int length;
+  final int startXref;
+  final CosDictionary trailer;
+
+  /// The xref entry each redefined object number had, null when it had none.
+  final Map<int, CosXrefEntry?> previous;
+
+  /// The populated-range list's length and last value (for a sparse buffer).
+  final int populatedLength;
+  final int populatedEnd;
 }
 
 /// Key for the decoded-stream cache: a [CosStream] by identity plus the

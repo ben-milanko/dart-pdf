@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{تم تحديد عنصر واحد} two{تم تحديد عنصرين} few{تم تحديد {count} عناصر} many{تم تحديد {count} عنصرًا} other{تم تحديد {count}}}",
   "sidebarWriteReplyHint": "اكتب ردًا…",
   "sigTitle": "التوقيع",
+  "sigUseTrackpad": "استخدام لوحة التتبع",
+  "sigTrackpadHint": "ارسم على لوحة التتبع بإصبع واحد. اضغط أي مفتاح عند الانتهاء.",
   "signIdCreate": "إنشاء",
   "signIdEmail": "البريد الإلكتروني (اختياري)",
   "signIdName": "الاسم",

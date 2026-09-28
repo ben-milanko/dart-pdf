@@ -5,7 +5,9 @@
 // pixels for a different target size.
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:test/test.dart';
@@ -25,6 +27,125 @@ PdfDecodedPixels _pixels(int fill, {int width = 2, int height = 2}) =>
       width,
       height,
     );
+
+/// A 200pt page under a PDF/X (CMYK) OutputIntent that draws one gray JPEG
+/// twice: as page content, and inside the form of an `/SMask /S /Luminosity`
+/// group that masks a red fill. Under the OutputIntent the page draw is
+/// colour-managed gray while the mask reads the raw samples, so the two
+/// decodes of the one stream differ.
+PdfDocument _luminosityMaskDocument() {
+  const width = 96;
+  const height = 64;
+  final gray = img.Image(width: width, height: height);
+  for (final pixel in gray) {
+    final value = (pixel.x * 255 ~/ (width - 1) + pixel.y * 3) % 256;
+    pixel
+      ..r = value
+      ..g = value
+      ..b = value;
+  }
+  CosStream content(String ops) =>
+      CosStream(CosDictionary(), Uint8List.fromList(ops.codeUnits));
+
+  final builder = CosDocumentBuilder();
+  final jpeg = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(height),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('DCTDecode'),
+    }),
+    img.encodeJpg(gray, quality: 90),
+  ));
+  final maskForm = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Form'),
+      'BBox': CosArray(const [
+        CosInteger(0),
+        CosInteger(0),
+        CosInteger(200),
+        CosInteger(200),
+      ]),
+      'Group': CosDictionary({
+        'S': const CosName('Transparency'),
+        'CS': const CosName('DeviceGray'),
+      }),
+      'Resources': CosDictionary({
+        'XObject': CosDictionary({'Im0': jpeg}),
+      }),
+    }),
+    Uint8List.fromList('q 200 0 0 200 0 0 cm /Im0 Do Q'.codeUnits),
+  ));
+  final profile = builder.add(
+      CosStream(CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()));
+  final pages = CosDictionary({
+    'Type': const CosName('Pages'),
+    'Count': const CosInteger(1),
+  });
+  final pagesRef = builder.add(pages);
+  final page = builder.add(CosDictionary({
+    'Type': const CosName('Page'),
+    'Parent': pagesRef,
+    'MediaBox': CosArray(const [
+      CosInteger(0),
+      CosInteger(0),
+      CosInteger(200),
+      CosInteger(200),
+    ]),
+    'Resources': CosDictionary({
+      'XObject': CosDictionary({'Im0': jpeg}),
+      'ExtGState': CosDictionary({
+        'GS0': CosDictionary({
+          'Type': const CosName('ExtGState'),
+          'SMask': CosDictionary({
+            'Type': const CosName('Mask'),
+            'S': const CosName('Luminosity'),
+            'G': maskForm,
+          }),
+        }),
+      }),
+    }),
+    'Contents': builder.add(content('q 200 0 0 200 0 0 cm /Im0 Do Q '
+        'q /GS0 gs 1 0 0 rg 0 0 200 200 re f Q')),
+  }));
+  pages['Kids'] = CosArray([page]);
+  final catalog = builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': pagesRef,
+    'OutputIntents': CosArray([
+      CosDictionary({
+        'Type': const CosName('OutputIntent'),
+        'S': const CosName('GTS_PDFX'),
+        'DestOutputProfile': profile,
+      }),
+    ]),
+  }));
+  return PdfDocument.open(builder.build(root: catalog));
+}
+
+/// The decoded pixels of every image command in [bytes], depth-first.
+List<PdfDecodedPixels> _decodedImages(Uint8List bytes) {
+  final out = <PdfDecodedPixels>[];
+  void walk(List<PdfRenderCommand> commands) {
+    for (final command in commands) {
+      switch (command) {
+        case PdfDrawImageCommand(:final request):
+          out.add(request.decoded!);
+        case PdfEndSoftMaskedCommand(:final maskCommands):
+          walk(maskCommands);
+        default:
+          break;
+      }
+    }
+  }
+
+  walk(deserializeCommands(bytes));
+  return out;
+}
 
 void main() {
   group('PdfImageDecodeCache (#451)', () {
@@ -184,6 +305,102 @@ void main() {
         return _pixels(1);
       });
       expect(decodes, 1);
+    });
+  });
+
+  // Luminosity masks used to bypass the cache, so every record re-decoded
+  // each mask at native size. Their decode ignores target and region for
+  // every format, so one native entry, cropped or downsampled per record, is
+  // byte-identical to decoding again.
+  group('luminosity masks', () {
+    test('a luminosity decode is keyed apart from the ordinary decode', () {
+      final cache = PdfImageDecodeCache();
+      final stream = _stream(1);
+      var decodes = 0;
+      final ordinary = cache.decode(stream, null, null, () {
+        decodes++;
+        return _pixels(1);
+      });
+      final mask = cache.decode(stream, null, null, luminosityMask: true, () {
+        decodes++;
+        return _pixels(2);
+      });
+
+      expect(decodes, 2);
+      expect(ordinary!.rgba.first, 1);
+      expect(mask!.rgba.first, 2);
+      expect(
+          cache
+              .decode(stream, null, null, luminosityMask: true, () => null)!
+              .rgba
+              .first,
+          2);
+      expect(cache.decode(stream, null, null, () => null)!.rgba.first, 1);
+      expect(cache.get(stream, null, null)!.rgba.first, 1,
+          reason: 'get/put serve ordinary decodes only');
+      expect(cache.length, 2);
+    });
+
+    test('records reuse one native decode, byte-identical to decoding again',
+        () {
+      final document = _luminosityMaskDocument();
+      final page = document.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: document.cos, device: recorder).drawPage(page);
+      final masked = recorder.commands
+          .whereType<PdfEndSoftMaskedCommand>()
+          .single
+          .maskCommands
+          .whereType<PdfDrawImageCommand>()
+          .single
+          .request;
+      expect(masked.isLuminosityMask, isTrue);
+
+      Uint8List record(double ratio, PdfImageDecodeCache? cache,
+              {PdfRect? region}) =>
+          serializeCommands(recorder.commands,
+              cos: document.cos,
+              decodeImages: true,
+              maxImagePixelRatio: ratio,
+              pageRasterPixels: pdfPageRasterPixels(page.cropBox, ratio),
+              imageDecodeRegion: region,
+              imageCache: cache,
+              compactStateScopes: true)!;
+
+      // A worker's usual sequence: the full page, a thumbnail tile, then a
+      // deep-zoom detail patch.
+      const region = PdfRect(0, 0, 100, 100);
+      final cache = PdfImageDecodeCache();
+      final full = record(2, cache);
+      expect((cache.hits, cache.misses), (0, 2),
+          reason: 'the page draw and the mask each decode once');
+      final thumbnail = record(0.25, cache);
+      expect((cache.hits, cache.misses), (2, 2));
+      final detail = record(4, cache, region: region);
+      expect((cache.hits, cache.misses), (4, 2));
+      expect(cache.length, 2,
+          reason: 'one native entry per decode of the stream, not per record');
+
+      expect(full, record(2, null));
+      expect(thumbnail, record(0.25, null));
+      expect(detail, record(4, null, region: region));
+
+      // The page draw is managed gray and the mask raw gray: had the two
+      // shared an entry, one of them would have shipped the other's pixels.
+      final [pageImage, maskImage] = _decodedImages(full);
+      expect(pageImage.rgba.length, maskImage.rgba.length);
+      expect(pageImage.rgba, isNot(maskImage.rgba));
+      // Each record really took its own route off the one native entry: the
+      // full page at native size, the thumbnail downsampled, the detail patch
+      // cropped to the lower-left quarter of the JPEG.
+      (int, int) size(Uint8List bytes) {
+        final mask = _decodedImages(bytes).last;
+        return (mask.width, mask.height);
+      }
+
+      expect(size(full), (96, 64));
+      expect(size(thumbnail).$1, lessThan(96));
+      expect(size(detail), (48, 32));
     });
   });
 

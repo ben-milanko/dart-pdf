@@ -1,5 +1,73 @@
 # Changelog
 
+## 5.1.0
+
+- `DartPdfEditorLocalizations` gained abstract getters `sigUseTrackpad` and
+  `sigTrackpadHint`. A custom subclass must implement them; extending a
+  bundled locale class picks them up.
+- Draw signatures on the trackpad, the way Preview does. The signature pad
+  offers "Use trackpad" when `showPdfSignatureDialog` / `PdfSignatureDialog`
+  get a `trackpad:` capture (defaulting to
+  `PdfTrackpadSignatureCapture.platform`) whose `isAvailable()` reports one:
+  the trackpad surface maps absolutely onto the pad, a finger down is the pen
+  down, any key finishes, clicks are absorbed and losing app focus ends it.
+  Flutter pointer events carry no absolute finger positions, so the host
+  supplies the capture; the DartPDF app does on macOS, Windows and Android.
+- Lead each row of the annotation sidebar and the annotation library with the
+  annotation's own rendered appearance (`PdfAnnotationAppearancePreview`),
+  falling back to the subtype icon when there is no appearance stream.
+- On touch, fold the annotation sidebar's lock and delete and the bookmark
+  panel's add-child, edit and delete into a per-row more (⋮) menu. Desktop
+  keeps the hover-revealed icons.
+- Stop a moved stamp leaving a white box over the page until its re-render
+  landed. The overlay no longer washes the old spot with paper, and the
+  appearance layer drops pictures whose stream and /Rect are no longer live
+  as soon as a revision lands.
+- Stop one rejected stream killing the web render worker. When the browser's
+  `DecompressionStream` refused a payload, the unobserved output future
+  escaped as an uncaught error, fired `Worker.onerror`, and every later page
+  of the document fell back to main-thread rendering.
+- Compile the web render worker at dart2js -O3 (0.81-0.86x of the worker's
+  record time). `build_web_worker` takes `-O<n>` / `--optimization-level`
+  (default 3) and now exits non-zero when the compile fails.
+- Apply editor revisions to the render workers in place. Native worker
+  isolates grow a buffer instead of copying the whole document per edit
+  (growth per edit on a 60 MB file: 188 MB to 0.5 MB), roll back in place on
+  undo and keep their image caches, and the pool seeds its urgent lane from
+  the host's revision view through the new, non-breaking
+  `PdfRenderWorker.updateRevisionTo`. The web worker takes revisions in place
+  too instead of restarting per edit, undo and redo; an older cached worker
+  bundle keeps the restart path.
+- Stop hashing the whole file on the UI isolate when opening a PDF without a
+  trailer /ID with a form-secret store attached; the decision waits for the
+  first read of the form's fields. Undo reopens with the session's
+  authenticated keys, so an AES-256 undo no longer re-runs the password hash
+  (about 26 ms to under 1 ms).
+- Keep signature validation work across revisions. The controller holds each
+  signature's crypto core by field name and drops it only where signed bytes
+  can change, so an edit, undo or a trust store arriving no longer re-hashes
+  signed files, and on native platforms a miss covering 512 KB or more is
+  hashed on a helper isolate. A signature whose /ByteRange can never validate
+  is not sent there again.
+- Rebuild a thumbnail tile's viewport frame only when its current-page ring or
+  viewport mark changes, instead of rebuilding every tile on every scroll tick.
+- Path-cache hits skip the recency relink and the record key:
+  `PdfBudgetedCache.lookup` counts a hit without touching recency, for
+  admission-only caches.
+- Paint unembedded-font text faster on a cold page. The run-layout key is
+  typed, digits and capitals in a kern-free substitute face are composed from
+  cached glyphs instead of shaped, and word pieces are shared across runs
+  (label-dense CAD pages paint cold in 28 ms instead of 155 ms; text-cache
+  memory is lower). Composition matches shaping except for a rare subpixel
+  rounding flip of one glyph.
+- Rasterize a retained page's first base raster from its already-built
+  picture through a layer (`PdfPageRenderer.rasterizeViaLayer`) instead of
+  replaying the transcript a second time on the UI isolate.
+- Follow pdf_graphics' codec v11 through the seam: a Type3 glyph cell shared
+  by every stamp is restored, compacted and image-walked once
+  (`PdfPageRenderer.collectImageRequests(distinctCells: true)` for the decode
+  callers), so a bitmap-font page's picture builds in 37 ms instead of 456 ms.
+
 ## 5.0.0
 
 ### Breaking changes

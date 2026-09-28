@@ -67,8 +67,7 @@ void main() {
         PdfLineTo(10, 0),
         PdfLineTo(10, 5),
       ]);
-      final subs =
-          flattenPath(path, PdfMatrix(2, 0, 0, 2, 1, 1));
+      final subs = flattenPath(path, PdfMatrix(2, 0, 0, 2, 1, 1));
       expect(subs, hasLength(1));
       expect(subs[0].closed, isFalse);
       expect(subs[0].points, [1, 1, 21, 1, 21, 11]);
@@ -126,9 +125,7 @@ void main() {
       for (var i = 0; i <= 500; i++) {
         final t = i / 500;
         final mt = 1 - t;
-        final bx = 3 * mt * mt * t * 0 +
-            3 * mt * t * t * 100 +
-            t * t * t * 100;
+        final bx = 3 * mt * mt * t * 0 + 3 * mt * t * t * 100 + t * t * t * 100;
         final by = 3 * mt * mt * t * 55 + 3 * mt * t * t * -55;
         expect(distToPolyline(bx, by), lessThanOrEqualTo(tol * 1.05),
             reason: 't=$t');
@@ -162,6 +159,36 @@ void main() {
       expect(subs[0].closed, isTrue);
       expect(subs[1].closed, isFalse);
       expect(subs[1].points, [5, 5, 6, 5]);
+    });
+
+    test('a packed path flattens exactly like its segment objects', () {
+      // flattenPath reads through a cursor so an interpreter-built (packed)
+      // path is never materialized; both representations must agree to the
+      // bit, including the pen rules for a line before any move and after a
+      // close.
+      const segments = [
+        PdfLineTo(1, 1), // no current point yet: ignored
+        PdfMoveTo(0, 0),
+        PdfLineTo(10, 0),
+        PdfCubicTo(20, 0, 20, 10, 10, 10),
+        PdfClosePath(),
+        PdfLineTo(5, 5), // after a close: ignored
+        PdfMoveTo(30, 30),
+        PdfLineTo(40, 35),
+        PdfCubicTo(45, 40, 35, 50, 30.5, 45.25),
+      ];
+      final builder = PdfPathBuilder();
+      for (final segment in segments) {
+        builder.addSegment(segment);
+      }
+      final packed = builder.takePath();
+      final m = PdfMatrix(2, 0.5, -0.25, 1.5, 3, 7);
+      List<Object> flat(PdfPath path) => [
+            for (final sub in flattenPath(path, m)) ...[sub.closed, sub.points],
+          ];
+      final expected = flat(const PdfPath(segments));
+      expect(expected, hasLength(4));
+      expect(flat(packed), expected);
     });
 
     test('FlatBounds covers all subpaths', () {
@@ -211,8 +238,8 @@ void main() {
     });
 
     test('dashes continue across polyline corners', () {
-      final sub = FlatSubpath(
-          Float64List.fromList([0, 0, 5, 0, 5, 5]), closed: false);
+      final sub =
+          FlatSubpath(Float64List.fromList([0, 0, 5, 0, 5, 5]), closed: false);
       final out = dashSubpaths([sub], [6, 2], 0);
       // first dash runs 6 units: 5 along x then 1 down the corner
       expect(out[0].points, [0, 0, 5, 0, 5, 1]);

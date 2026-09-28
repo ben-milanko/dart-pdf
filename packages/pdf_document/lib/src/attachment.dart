@@ -37,8 +37,8 @@ class PdfAttachments {
     }
 
     final attachments = <PdfEmbeddedFile>[];
-    for (var i = 0; i < document.pageCount; i++) {
-      final annots = cos.resolve(document.page(i).dict['Annots']);
+    for (final page in document.pages) {
+      final annots = cos.resolve(page.dict['Annots']);
       if (annots is! CosArray) continue;
       for (final item in annots.items) {
         final annot = cos.resolve(item);

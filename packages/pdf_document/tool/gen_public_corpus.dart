@@ -12,6 +12,8 @@
 // Document classes (the CAD sheet comes from pdf_cos/tool/gen_cad_pdf.dart,
 // orchestrated by tool/gen_corpus.sh):
 //   text-report-40p.pdf    office-style text: paragraphs, bold headings
+//   prose-report-20p.pdf   real-vocabulary English prose, one Tj per line,
+//                          in unembedded (substituted) Helvetica
 //   letterhead-report-40p.pdf  the same text under a small shared letterhead
 //                          image XObject on every page - the corporate-report
 //                          class
@@ -235,6 +237,276 @@ Uint8List buildTextReport(int pageCount, {int seed = 20260718}) {
         sb.writeln('(${_sentence(rng)} ${_sentence(rng)}) Tj T*');
       }
       sb.writeln('T*');
+      lines++;
+    }
+    sb.writeln('ET');
+    final contentRef = _addContent(builder, sb.toString());
+    builder.add(CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': treeRef,
+      'MediaBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(pageW),
+        const CosReal(pageH),
+      ]),
+      'Resources': CosDictionary({
+        'Font': CosDictionary({'F1': regularRef, 'F2': boldRef}),
+      }),
+      'Contents': contentRef,
+    }));
+  }
+  return builder.build(root: const CosReference(1, 0));
+}
+
+/// Repo-authored English for [buildProseReport] (written for this corpus and
+/// CC0 with it). Varied on purpose - a few hundred distinct words across
+/// unrelated topics - so the chain below has a real vocabulary to walk.
+const _proseSource = '''
+The river rose slowly through the night, and by morning the lower fields had
+become a shallow brown lake. Nobody in the village was surprised. The old
+stone bridge had seen worse floods, and the farmers had moved their sheep to
+the high ground two days earlier, after the first heavy rain. What worried
+people was the road to the station, which ran along the bank for almost a
+mile before it climbed toward the market town.
+Printing changed slowly as well. For centuries a page was set by hand, one
+letter at a time, from wooden cases that held every size and weight of type.
+A skilled compositor could set perhaps fifteen hundred characters in an hour,
+and a single mistake meant lifting out a whole line and starting again. When
+the machines arrived, they did not replace the craft so much as move it,
+because someone still had to decide where each word would break and how much
+space belonged between the lines.
+Our garden faces south, which is both a blessing and a problem. Tomatoes,
+beans and peppers love the long afternoons, but the lettuce bolts before the
+middle of summer unless it grows in the shade of the fence. Last year we
+tried planting it between the rows of sweet corn, and the taller plants kept
+the leaves cool enough to last well into autumn. This spring we will add a
+second bed near the gate and see whether carrots do better in the looser soil.
+The inspection team arrived at the depot shortly after eight. They checked
+the signal cabinets first, opening each door in turn and recording the
+condition of the cables, the terminals and the earth connections. Two of the
+cabinets showed signs of water getting in through a damaged seal, so the
+engineer wrote a note to replace both seals before the end of the month.
+After lunch the team walked the length of the yard with a camera and a
+measuring wheel, marking every drain cover that needed cleaning.
+A good soup begins with patience rather than ingredients. Onions should cook
+gently until they are soft and golden, never brown, and the stock should be
+warm before it goes into the pot. Salt matters more than most cooks admit;
+add a little at the start, taste again near the end, and trust your tongue
+over the recipe. Fresh herbs belong in the bowl, not in the pan, where their
+flavour disappears within minutes.
+The history of the town is written in its buildings. The oldest houses
+cluster around the square, with thick walls, small windows and roofs of
+heavy slate. Later streets follow the line of the railway, built in brick
+when the mill was busy and money was easy to borrow. The newest suburbs sit
+on the hill to the east, where the views are wide and the gardens are large,
+but where almost nobody walks to the shops anymore.
+Mathematics teaches a particular kind of honesty. A proof either holds or it
+does not, and no amount of confidence will rescue an argument with a missing
+step. Students often find this frustrating at first, then strangely calming,
+because the rules never change depending on who is asking. The same idea
+carries into engineering, where a calculation that looks almost right can
+still put a beam in the wrong place.
+Winter mornings on the coast are quiet in a way that summer never is. The
+cafes stay closed until ten, the car parks are empty, and the only sound is
+the wind moving through the dunes. A few people walk their dogs along the
+tide line, collecting shells or pieces of smooth green glass. By midday the
+light turns silver and the islands on the horizon seem close enough to touch.
+Every useful document has a structure, even when the reader cannot see it.
+Headings divide the argument into steps, paragraphs group related sentences,
+and tables gather numbers that would be tiresome to follow in prose. A clear
+report tells the reader what happened, why it matters, and what should be done
+next, and it does all three before the reader grows tired of turning pages.
+The meeting ran long because nobody could agree about the budget. The finance
+manager wanted to delay the new equipment until the following year, while the
+operations lead argued that the old machines would fail before then and cost
+far more to repair. In the end they agreed to buy half of the equipment now,
+review the numbers in six months, and ask the supplier for a better price on
+the rest.
+Birds return to the wetland each spring in a predictable order. The first to
+arrive are the ducks, followed within a week by herons and egrets, and finally
+by the small waders that feed along the mud at low water. Volunteers count
+them every Saturday morning, writing the totals on a clipboard that hangs
+inside the old boat shed, and the records now stretch back more than thirty
+years.
+Astronomers measure distance with a ladder of methods, each resting on the
+one below. Nearby stars shift against the background as the Earth circles the
+Sun, and that small wobble gives their distance directly. Farther out, certain
+pulsing stars brighten and fade with a rhythm that reveals their true power,
+so comparing how bright they appear with how bright they really are tells us
+how far their light has travelled. Beyond that, exploding stars serve as
+beacons across billions of years.
+The orchestra tuned for several minutes while latecomers found their seats.
+An oboe sounded the first note, the strings answered, and gradually the brass
+and woodwinds settled around the same pitch. When the conductor finally
+raised his baton the hall fell silent, and the opening chords of the symphony
+seemed to rise from the floor itself rather than from the stage.
+Software rarely fails in the place where the bug was written. A variable is
+set carelessly in one module, passed quietly through three others, and only
+causes trouble when a customer in another timezone saves a file on the last
+day of the month. Good engineers learn to distrust their first explanation,
+reproduce the problem before touching the code, and write a test that proves
+the fix instead of hoping for the best.
+Doctors in rural clinics often work without the equipment a city hospital
+takes for granted. They rely on careful questions, a steady hand, and an
+instinct built from thousands of patients over many years. A fever in a child,
+a cough that lingers, a pain that moves from one side to the other: each
+symptom is a clue, and the order in which they appeared can matter as much as
+the symptoms themselves.
+The football season ended in heavy rain, with both teams sliding across a
+pitch that looked more like a ploughed field than a stadium. The visitors
+scored early from a corner, the home side equalised just before half time,
+and the second half was a scrappy struggle that neither goalkeeper will want
+to watch again. Supporters stayed until the final whistle anyway, soaked and
+cheerful, singing all the way back to the buses.
+A contract should say plainly what each party promises and what happens if a
+promise is broken. Lawyers add definitions, schedules and clauses about notice
+periods, but the heart of the agreement is usually a single page: the price,
+the delivery date, the standard of the work, and the remedy if it arrives late
+or damaged. Everything else exists to settle arguments that nobody expects
+to have.
+Harvest machinery has grown enormous over the last fifty years. A modern
+combine can cut, thresh and clean grain across a field in a single afternoon,
+guided by satellites to within a few centimetres, while a driver in an
+air-conditioned cab watches yields appear on a screen. Yet the timing still
+depends on the weather, and a wet week in August can undo a season of careful
+planning.
+Weather forecasting improved dramatically once computers could solve the
+equations of the atmosphere faster than the atmosphere itself changed. The
+models divide the sky into millions of boxes, estimate temperature, pressure,
+humidity and wind in each one, and step forward in time minute by minute.
+Small errors grow quickly, which is why a forecast for tomorrow is reliable
+while one for next fortnight is little better than a guess.
+Travelling by overnight train has a charm that flying cannot match. You board
+in the evening with a book and a sandwich, watch the suburbs thin into dark
+countryside, and fall asleep to the steady rhythm of the rails. In the morning
+the blinds open on mountains or vineyards or a harbour full of fishing boats,
+and breakfast arrives on a narrow tray while the conductor announces the next
+station.
+Libraries have changed their purpose more than their buildings suggest. Fewer
+visitors come to borrow novels, but many more arrive to use the computers,
+print forms, attend a language class, or simply sit somewhere warm and quiet
+for an afternoon. Librarians now spend as much time helping people apply for
+jobs or benefits as they do cataloguing books, and the reading room has become
+one of the last public spaces where nobody expects you to buy anything.
+''';
+
+/// Real-vocabulary prose: [_proseSource] walked as an order-2 word chain -
+/// every consecutive word pair in the output also appears in the source, so
+/// the text reads as English with its natural (Zipf-like) word frequencies -
+/// set one `Tj` per line in unembedded Helvetica, paragraphs separated by a
+/// blank line and a Helvetica-Bold heading every few paragraphs.
+///
+/// The other text documents draw every word from the same 26-word list, so
+/// any cache of words or word pieces holds the whole vocabulary after one
+/// line and they flatter it; the substituted-text cold render (#649, #962)
+/// needs text whose distinct words outnumber such a cache.
+Uint8List buildProseReport(int pageCount, {int seed = 20260927}) {
+  const pageW = 612.0, pageH = 792.0;
+  const linesPerPage = 46, maxLine = 84;
+  final rng = _Lcg(seed);
+  final words = _proseSource.split(RegExp(r'\s+'))
+    ..removeWhere((w) => w.isEmpty);
+  // Successors of each (word, word) state, in source order.
+  final next = <String, List<String>>{};
+  for (var i = 0; i + 2 < words.length; i++) {
+    (next['${words[i]} ${words[i + 1]}'] ??= []).add(words[i + 2]);
+  }
+  var a = words[0], b = words[1];
+  String word() {
+    final options = next['$a $b'];
+    String w;
+    if (options == null) {
+      // A dead end (the source's last pair): restart at a sentence start.
+      var i = rng.intBelow(words.length - 2);
+      while (i > 0 && !words[i - 1].endsWith('.')) {
+        i--;
+      }
+      a = words[i];
+      b = words[i + 1];
+      return '$a $b';
+    }
+    w = options[rng.intBelow(options.length)];
+    a = b;
+    b = w;
+    return w;
+  }
+
+  String sentence() {
+    // Run to the end of a sentence, capped so a long wander still ends.
+    final parts = <String>[];
+    while (parts.length < 60) {
+      final w = word();
+      parts.add(w);
+      if (w.endsWith('.')) break;
+    }
+    var text = parts.join(' ');
+    if (!text.endsWith('.')) text = '$text.';
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  final builder = CosDocumentBuilder();
+  // 1 = catalog, 2 = pages tree, 3/4 = fonts, then content+page per page.
+  const treeRef = CosReference(2, 0);
+  const regularRef = CosReference(3, 0);
+  const boldRef = CosReference(4, 0);
+  final pageRefs = [
+    for (var i = 0; i < pageCount; i++) CosReference(5 + i * 2 + 1, 0),
+  ];
+  builder.add(
+      CosDictionary({'Type': const CosName('Catalog'), 'Pages': treeRef})); // 1
+  builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Kids': CosArray(pageRefs),
+    'Count': CosInteger(pageCount),
+  })); // 2
+  for (final base in ['Helvetica', 'Helvetica-Bold']) {
+    builder.add(CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('Type1'),
+      'BaseFont': CosName(base),
+    })); // 3, 4
+  }
+
+  var paragraphs = 0;
+  var pending = <String>[]; // wrapped lines not yet placed
+  for (var p = 0; p < pageCount; p++) {
+    final sb = StringBuffer('BT /F1 11 Tf 72 ${pageH - 72} Td 14 TL\n');
+    var lines = 0;
+    while (lines < linesPerPage) {
+      if (pending.isEmpty) {
+        if (paragraphs > 0) {
+          sb.writeln('T*');
+          lines++;
+          if (lines >= linesPerPage) break;
+        }
+        if (paragraphs % 4 == 0) {
+          final heading = sentence();
+          final cut = heading.length <= 60 ? -1 : heading.lastIndexOf(' ', 60);
+          final title = heading.length <= 60
+              ? heading
+              : '${heading.substring(0, cut > 0 ? cut : 60)}.';
+          sb.writeln('/F2 13 Tf (${paragraphs ~/ 4 + 1}. $title) Tj T* '
+              '/F1 11 Tf');
+          lines++;
+        }
+        paragraphs++;
+        // A paragraph of 3-6 sentences, wrapped to the measure.
+        final text = [for (var i = 3 + rng.intBelow(4); i > 0; i--) sentence()]
+            .join(' ');
+        var line = StringBuffer();
+        for (final w in text.split(' ')) {
+          if (line.isNotEmpty && line.length + 1 + w.length > maxLine) {
+            pending.add(line.toString());
+            line = StringBuffer();
+          }
+          if (line.isNotEmpty) line.write(' ');
+          line.write(w);
+        }
+        if (line.isNotEmpty) pending.add(line.toString());
+        continue;
+      }
+      sb.writeln('(${pending.removeAt(0)}) Tj T*');
       lines++;
     }
     sb.writeln('ET');
@@ -961,6 +1233,7 @@ void main(List<String> argv) {
 
   final textReport = buildTextReport(40);
   write('text-report-40p.pdf', textReport);
+  write('prose-report-20p.pdf', buildProseReport(20));
   write('letterhead-report-40p.pdf', buildLetterheadReport(40));
   write('image-scan-4p.pdf', buildImageScan(4));
   write('cmyk-jpeg-1p.pdf', buildCmykJpeg());

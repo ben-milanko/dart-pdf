@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{Вибрано {count}} few{Вибрано {count}} many{Вибрано {count}} other{Вибрано {count}}}",
   "sidebarWriteReplyHint": "Напишіть відповідь…",
   "sigTitle": "Підпис",
+  "sigUseTrackpad": "Використати трекпад",
+  "sigTrackpadHint": "Малюйте одним пальцем на трекпаді. Коли закінчите, натисніть будь-яку клавішу.",
   "signIdCreate": "Створити",
   "signIdEmail": "Електронна пошта (необов’язково)",
   "signIdName": "Ім’я",

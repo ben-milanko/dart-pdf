@@ -16,6 +16,7 @@ import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 import 'tab_drag.dart';
+import 'trackpad_signature.dart';
 import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -54,6 +55,10 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // keeps the full-featured editor. A viewer-only app would drop the
     // dart_pdf_editor_assets dependency and this call to save the ~1.7 MB.
     registerBundledEditorAssets();
+    // Preview-style "draw your signature on the trackpad" in the signature
+    // pad on macOS, Windows and Android (the runners supply the absolute
+    // finger positions).
+    PlatformTrackpadSignatureCapture.installIfSupported();
     // Competitive-harness-only zero-copy presentation experiment. Keeping it
     // URL-gated means normal users and correctness suites stay on the complete
     // SkWasm renderer while `PERF_DART_QUERY=domSurface=1` can A/B the worker-
@@ -106,7 +111,8 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // setting is migrated as a fixed diagnostic override.
     unawaited(_startMemoryBudget());
     // Offer the host's installed fonts in the editor's font menu by default.
-    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // Fire-and-forget, with the directory scan on a helper isolate so it never
+    // lands in this frame: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,
     // bundled and "Load font…" choices.
     unawaited(_loadPlatformFonts());
@@ -119,6 +125,9 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   }
 
   Future<void> _loadPlatformFonts() async {
+    // Widget tests would scan the host's real fonts into a process-wide global
+    // on an isolate whose result can land in a later test.
+    if (runningUnderFlutterTest) return;
     try {
       pdfPlatformFonts = await loadPlatformFonts();
     } catch (e) {
@@ -207,13 +216,9 @@ class _DartPdfWindow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        prefs,
-        AppDevTools.instance.showPerformanceOverlay,
-        AppDevTools.instance.localeOverride,
-      ]),
-      builder: (context, _) => MaterialApp(
+    return _WindowShellSelector(
+      prefs: prefs,
+      builder: (context) => MaterialApp(
         title: 'DartPDF',
         builder: (context, child) => KeyboardAvailability(child: child!),
         localizationsDelegates: const [
@@ -267,4 +272,74 @@ class _DartPdfWindow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Rebuilds a window's [MaterialApp] only when a value it reads changes: the
+/// theme mode, the Settings locale, and the DevTools locale override and
+/// performance overlay.
+///
+/// [PdfEditingPreferences] notifies for every preference, and the tool-style
+/// sliders write one on each drag tick. Rebuilding MaterialApp for those
+/// rebuilt both seeded ThemeData and, through the Navigator's route refresh,
+/// the whole [EditorScreen] (~300 elements per tick), although nothing in the
+/// shell reads them. Widgets below that do read preferences listen to them
+/// directly.
+class _WindowShellSelector extends StatefulWidget {
+  const _WindowShellSelector({required this.prefs, required this.builder});
+
+  final PdfEditingPreferences prefs;
+  final WidgetBuilder builder;
+
+  @override
+  State<_WindowShellSelector> createState() => _WindowShellSelectorState();
+}
+
+class _WindowShellSelectorState extends State<_WindowShellSelector> {
+  // Baselined in initState, not lazily: a lazy first read would happen inside
+  // the first _onChanged - the preference load applying a saved theme or
+  // locale - and compare the new values with themselves.
+  late (ThemeMode, Locale?, Locale?, bool) _selected;
+
+  (ThemeMode, Locale?, Locale?, bool) _select() => (
+        widget.prefs.themeMode,
+        widget.prefs.locale,
+        AppDevTools.instance.localeOverride.value,
+        AppDevTools.instance.showPerformanceOverlay.value,
+      );
+
+  void _onChanged() {
+    final selected = _select();
+    if (selected == _selected) return;
+    setState(() => _selected = selected);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = _select();
+    widget.prefs.addListener(_onChanged);
+    AppDevTools.instance.localeOverride.addListener(_onChanged);
+    AppDevTools.instance.showPerformanceOverlay.addListener(_onChanged);
+  }
+
+  @override
+  void didUpdateWidget(_WindowShellSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.prefs == widget.prefs) return;
+    oldWidget.prefs.removeListener(_onChanged);
+    widget.prefs.addListener(_onChanged);
+    // This update rebuilds anyway; just re-baseline against the new instance.
+    _selected = _select();
+  }
+
+  @override
+  void dispose() {
+    widget.prefs.removeListener(_onChanged);
+    AppDevTools.instance.localeOverride.removeListener(_onChanged);
+    AppDevTools.instance.showPerformanceOverlay.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context);
 }

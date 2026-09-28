@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.1.0
+
+- Add `buildDeferredOverprintPdf`: three pages that declare overprint and use
+  the colorant buffer three ways (never read, read over unknown backdrop only,
+  and a control that reads a cyan box), for counter gates on the lazy buffer
+  start and the glyph-run probe.
+- Add `package:pdf_test_fixtures/icc_profiles.dart`, a browser-safe library
+  exporting the ICC profile fixtures without the umbrella's VM-only
+  generators.
+- `PdfTileSpec` gains `masked` and `maskBlank`, and
+  `buildSyntheticCadImageStrip` a `tileWidthPt` placement, so the CAD image
+  fixture can draw colour tiles under sparse stencil /Masks the way real
+  raster CAD sheets do (`gen_cad_image_pdf.dart`'s new `faithful2` profile).
+
 ## 5.0.0
 
 - Add `buildListBoxFormPdf`: a multi-select list box whose /V array was

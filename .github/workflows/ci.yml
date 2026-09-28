@@ -27,6 +27,10 @@ jobs:
         run: dart tool/patrol_attempt_triage_test.dart
       - name: Test Flutter GPU corpus summarizer
         run: dart tool/gpu_corpus_summary_test.dart
+      - name: Test perf-nightly render trend rule
+        run: dart tool/perf/render_trend_test.dart
+      - name: Test perf-nightly ratio check, timeout budget and dashboard
+        run: dart tool/perf/nightly_test.dart
       # Enforce the lockstep versioning invariant: every workspace package
       # must depend on its siblings at the current release version (`^x.y.z`).
       # A stale lower bound makes pub.dev's downgrade analysis fail (0/20 on
@@ -73,6 +77,19 @@ jobs:
           flags: pdf_cos
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      # FlateDecode and SHA-384/512 take pure-Dart web implementations under
+      # dart2js (conditional imports: zlib_inflate.dart, sha2_digest.dart); the
+      # VM run above only sees them through direct imports. Run those tests
+      # compiled to JS so FlateFilter, the compactor and the AES-256 (R6)
+      # password hash are exercised on the path browsers take. Content
+      # operands materialize by dart2js number rules there too (an integral
+      # double is an int), which only a JS run can see.
+      - name: Test pdf_cos zlib inflate, SHA-384/512 and content operands under dart2js
+        working-directory: packages/pdf_cos
+        run: >-
+          dart test -p node test/zlib_inflate_test.dart
+          test/sha512_js_test.dart
+          test/content_operand_platform_test.dart
 
       - name: Test pdf_document
         working-directory: packages/pdf_document
@@ -103,6 +120,12 @@ jobs:
           flags: pdf_graphics
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      # The web render worker walks content through the interpreter's numeric
+      # fast path; its parity with the materialized walk depends on dart2js
+      # number semantics (signed zeros), so check it compiled to JS as well.
+      - name: Test pdf_graphics content fast path under dart2js
+        working-directory: packages/pdf_graphics
+        run: dart test -p node test/cursor_fast_path_test.dart
 
       - name: Test dart_pdf_cli
         working-directory: packages/dart_pdf_cli
@@ -684,12 +707,13 @@ jobs:
         run: |
           dart run dart_pdf_editor:build_web_worker \
             --out packages/dart_pdf_editor/lib/src/sparse_test_worker.js
-      - name: Test sparse buffers and responsive PDF compression in web workers
+      - name: Test sparse buffers, in-place revisions and responsive PDF compression in web workers
         working-directory: packages/dart_pdf_editor
         run: >-
           flutter test --platform chrome --no-cross-origin-isolation
           test/render_worker_sparse_web_test.dart test/compression_worker_test.dart
           test/render_worker_text_reuse_test.dart
+          test/render_worker_revision_web_test.dart
           --reporter expanded
       - name: Test high-zoom tiles and atomic region replay in Chrome
         working-directory: packages/dart_pdf_editor

@@ -115,6 +115,13 @@ worker in the app build pipeline.
    your sources, and compiles it to `web/pdf_render_worker.dart.js`, which
    `flutter build web` and `flutter run` serve next to `index.html`.
 
+   The worker is compiled at dart2js `-O3`, which drops the implicit type
+   checks but keeps bounds checks. Page recording in the worker is about
+   1.2x faster than at `-O2`, and the output is the same. Pass
+   `--optimization-level 2` to keep the checks while debugging. `-O4` is
+   accepted but not recommended: it also drops bounds checks, and the parsers
+   rely on those to recover from truncated files.
+
 2. **Point the app at that custom URL** once, before opening a viewer:
 
    ```dart
@@ -259,9 +266,14 @@ Still open:
   COOP/COEP, Safari, or apps that set `pdfRenderWorkerUseSharedArrayBuffer =
   false` fall back to the older transferable `ArrayBuffer` startup path. Result
   buffers are still transferred `ArrayBuffer`s either way.
-- The worker holds a fixed snapshot of the document bytes, like the isolate; an
-  editing session must restart the worker when the bytes change (the shells
-  already do this on every revision).
+- Editing: like the isolate, the worker takes each append-only revision in
+  place (an `update` message carrying only the appended tail), keeping its
+  decoded images and the unchanged pages' transcripts. An undo re-opens the
+  shorter prefix inside the same worker. It advertises this in `ready`
+  (`revisionUpdate: 1`); against an older, separately cached worker bundle
+  the host keeps restarting the worker on every revision. With a
+  `SharedArrayBuffer` seed, the first edit copies the document into the
+  worker's own buffer (the shared one is never written).
 
 ## WebAssembly (dart2wasm) hosts
 

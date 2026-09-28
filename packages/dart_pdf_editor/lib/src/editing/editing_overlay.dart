@@ -639,9 +639,6 @@ typedef _AfterGhost = ({
   ui.Picture picture,
   Rect from,
   Rect to,
-  Rect? source,
-  ui.Picture? sourceClean,
-  Color? sourceWash,
   double rotation,
   double localAngle,
   bool flipX,
@@ -1089,12 +1086,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfEmbeddedFont? _resizeEmbeddedFont;
   PdfAnnotation? _resizeEmbeddedFontFor;
 
-  // Clean page for a selected annotation's original footprint. Move commits
-  // clip this into the source rect so the annotation disappears without
-  // covering underlying page content with a paper-colored box.
-  ui.Picture? _sourceCleanPicture;
-  Object? _sourceCleanFor;
-
   // rubber-band selection (mouse drags on empty page area)
   Offset? _marqueeStart;
   Offset? _marqueeCurrent;
@@ -1123,8 +1114,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ui.Picture? _afterGhost;
   Rect? _afterGhostFrom;
   Rect? _afterGhostTo;
-  Rect? _afterGhostSourceRect;
-  ui.Picture? _afterGhostSourceClean;
   double _afterGhostRotation = 0;
   double _afterGhostLocalAngle = 0;
   bool _afterGhostFlipX = false;
@@ -2266,9 +2255,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhost = null;
     _afterGhostFrom = null;
     _afterGhostTo = null;
-    _afterGhostSourceRect = null;
-    _afterGhostSourceClean?.dispose();
-    _afterGhostSourceClean = null;
     _afterGhostRotation = 0;
     _afterGhostLocalAngle = 0;
     _afterGhostFlipX = false;
@@ -2308,21 +2294,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// [flipX]/[flipY] mirror the afterimage so a resize that inverted the
   /// annotation stays inverted while the page re-renders.
   ///
-  /// [washSource] paints the old on-raster footprint over with paper before
-  /// the new raster lands, so the stale raster does not keep showing the
-  /// annotation at its previous position during the commit gap.
+  /// The old position needs no covering: the page raster under the overlay
+  /// never includes annotations, and the annotation layer stops painting the
+  /// moved mark's stale picture as soon as the revision lands.
   void _commitWithGhost(VoidCallback commit,
       {Rect? to,
       double rotation = 0,
       double localAngle = 0,
       bool flipX = false,
-      bool flipY = false,
-      bool washSource = true}) {
+      bool flipY = false}) {
     final from = localAngle == 0 ? _selectedViewRect : _selectionChrome?.$1;
-    final source = _selectedViewRect;
     final ghost = _ghost;
-    final sourceAnnotation = washSource ? _controller.selectedAnnotation : null;
-    final beforeDoc = _controller.document;
     final before = _controller.revisionId;
     commit();
     if (before == _controller.revisionId) return;
@@ -2334,87 +2316,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhost = ghost;
     _afterGhostFrom = from;
     _afterGhostTo = to;
-    _afterGhostSourceRect = washSource ? source : null;
-    final sourceCleanKey = washSource && sourceAnnotation != null
-        ? (
-            document: beforeDoc,
-            page: widget.pageIndex,
-            annotation: sourceAnnotation.dict,
-            color: widget.pageColor,
-            showAnnotations: widget.showAnnotations,
-          )
-        : null;
-    if (washSource &&
-        _sourceCleanPicture != null &&
-        _sourceCleanFor == sourceCleanKey) {
-      _afterGhostSourceClean = _sourceCleanPicture;
-      _sourceCleanPicture = null;
-      _sourceCleanFor = null;
-    } else {
-      if (_sourceCleanPicture != null) {
-        _sourceCleanPicture!.dispose();
-        _sourceCleanPicture = null;
-        _sourceCleanFor = null;
-      }
-      if (washSource &&
-          sourceAnnotation != null &&
-          sourceAnnotation.subtype != 'Stamp') {
-        unawaited(_renderAfterGhostSourceClean(
-          document: beforeDoc,
-          pageIndex: widget.pageIndex,
-          annotation: sourceAnnotation,
-          ghost: ghost,
-          afterRevisionId: afterRevisionId,
-        ));
-      }
-    }
     _afterGhostRotation = rotation;
     _afterGhostLocalAngle = localAngle;
     _afterGhostFlipX = flipX;
     _afterGhostFlipY = flipY;
     _afterRevisionId = afterRevisionId;
-  }
-
-  Future<void> _renderAfterGhostSourceClean({
-    required PdfDocument document,
-    required int pageIndex,
-    required PdfAnnotation annotation,
-    required ui.Picture ghost,
-    required int afterRevisionId,
-  }) async {
-    // The drag/release feedback must hit the screen first. Rendering a clean
-    // page can parse and interpret a large CAD page synchronously before its
-    // first await, so defer it until the current frame is delivered.
-    await SchedulerBinding.instance.endOfFrame;
-    if (!mounted ||
-        _afterGhost != ghost ||
-        _afterRevisionId != afterRevisionId) {
-      return;
-    }
-    final name = annotation.name;
-    try {
-      final picture = await PdfPageRenderer.renderPicture(
-        document.page(pageIndex),
-        pageColor: widget.pageColor,
-        annotations: widget.showAnnotations,
-        skipAnnotation: (a) =>
-            identical(a.dict, annotation.dict) ||
-            (name != null && a.name == name),
-      );
-      if (!mounted ||
-          _afterGhost != ghost ||
-          _afterRevisionId != afterRevisionId) {
-        picture.dispose();
-        return;
-      }
-      setState(() {
-        _afterGhostSourceClean?.dispose();
-        _afterGhostSourceClean = picture;
-      });
-    } catch (_) {
-      // A clean-page failure leaves the existing afterimage in place. The
-      // normal page raster will still replace it when rendering completes.
-    }
   }
 
   void _captureLastStampAfterimage(int before,
@@ -2954,81 +2860,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  /// Keeps a clean page (without the selected annotation) ready for move
-  /// commits, so the old location can be erased by restoring the real page
-  /// content instead of painting a white/paper rectangle over it.
-  Future<void> _ensureSourceClean() async {
-    // Do not start a clean-page render while the annotation is being moved.
-    // That render may synchronously parse/interpret a complex page before its
-    // first await, which competes directly with drag frames. If no clean page
-    // is ready on release, [_renderAfterGhostSourceClean] fills it in after
-    // the committed preview has already painted.
-    if (_moveStart != null) return;
-    final slots = _controller.selectedAnnotationSlots;
-    if (slots.length != 1 || slots.single.$1 != widget.pageIndex) {
-      _sourceCleanPicture?.dispose();
-      _sourceCleanPicture = null;
-      _sourceCleanFor = null;
-      return;
-    }
-    final annotation =
-        _controller.annotationAt(widget.pageIndex, slots.single.$2);
-    if (annotation == null) return;
-    final key = (
-      document: _controller.document,
-      page: widget.pageIndex,
-      annotation: annotation.dict,
-      color: widget.pageColor,
-      showAnnotations: widget.showAnnotations,
-    );
-    if (_sourceCleanFor == key) return;
-    _sourceCleanPicture?.dispose();
-    _sourceCleanPicture = null;
-    _sourceCleanFor = key;
-    // Moving stamps is a hot path: pre-rendering the entire page without the
-    // stamp can synchronously parse a complex CAD page and make the drag feel
-    // sticky. Use the committed source wash until the normal page raster lands.
-    if (annotation.subtype == 'Stamp') return;
-    final name = annotation.name;
-    try {
-      final picture = await PdfPageRenderer.renderPicture(
-        _controller.pageAt(widget.pageIndex),
-        pageColor: widget.pageColor,
-        annotations: widget.showAnnotations,
-        skipAnnotation: (a) =>
-            identical(a.dict, annotation.dict) ||
-            (name != null && a.name == name),
-      );
-      if (!mounted || _sourceCleanFor != key) {
-        picture.dispose();
-        return;
-      }
-      if (_moveStart != null) {
-        _sourceCleanPicture?.dispose();
-        _sourceCleanPicture = picture;
-        return;
-      }
-      setState(() {
-        _sourceCleanPicture?.dispose();
-        _sourceCleanPicture = picture;
-      });
-    } catch (_) {
-      // If the clean render fails, leave the stale raster alone rather than
-      // painting an opaque box over the page content.
-    }
-  }
-
   /// Drops the lifted clean-page picture once a resize drag ends.
   void _clearResizeClean() {
     _resizeCleanPicture?.dispose();
     _resizeCleanPicture = null;
     _resizeCleanFor = null;
-  }
-
-  void _clearSourceClean() {
-    _sourceCleanPicture?.dispose();
-    _sourceCleanPicture = null;
-    _sourceCleanFor = null;
   }
 
   @override
@@ -3056,7 +2892,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _resizeCleanPicture?.dispose();
     _elementClean?.dispose();
     _elementOnly?.dispose();
-    _clearSourceClean();
     _flashController.dispose();
     _activeStrokeRepaint.dispose();
     _cursorRepaint.dispose();
@@ -4105,7 +3940,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _moveCurrent = position;
           _cursor = SystemMouseCursors.move; // 4-arrow while dragging
         });
-        _ensureSourceClean();
         return;
       }
     }
@@ -4119,7 +3953,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _moveCurrent = position;
         _cursor = SystemMouseCursors.move;
       });
-      _ensureSourceClean();
       return;
     }
     final mouseLike = details.kind == null ||
@@ -6057,7 +5890,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.previewLineHeight = _textEditLineSpacing;
     _textEditText.previewLetterSpacing = _textEditCharSpacing * _geometry.scale;
     _ensureGhost();
-    _ensureSourceClean();
     // Start the content-element pair as soon as one is selected, not when a
     // drag begins: a quick press-and-flick would otherwise commit before the
     // render lands, leaving the page to blank on its own.
@@ -6126,7 +5958,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final acceptsEditingGestures = _tool != null ||
         _selectMode ||
         _controller.activeSavedAnnotation != null;
-    final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
@@ -6136,11 +5967,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             picture: _ghost!,
             from: selected,
             to: selected,
-            source: washRestGhost ? selected : null,
-            sourceClean: washRestGhost ? _sourceCleanPicture : null,
-            sourceWash: washRestGhost
-                ? Color.alphaBlend(widget.pageColor, const Color(0xFFFFFFFF))
-                : null,
             rotation: 0.0,
             localAngle: 0.0,
             flipX: false,
@@ -6152,12 +5978,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             picture: _afterGhost!,
             from: _afterGhostFrom!,
             to: _afterGhostTo!,
-            source: _afterGhostSourceRect,
-            sourceClean: _afterGhostSourceClean,
-            sourceWash: _afterGhostSourceRect != null &&
-                    _afterGhostSourceClean == null
-                ? Color.alphaBlend(widget.pageColor, const Color(0xFFFFFFFF))
-                : null,
             rotation: _afterGhostRotation,
             localAngle: _afterGhostLocalAngle,
             flipX: _afterGhostFlipX,
@@ -8034,9 +7854,7 @@ class _EditingPreviewPainter extends CustomPainter {
   final Color fadeColor;
 
   /// A just-committed move/resize/rotate, kept painted at full strength
-  /// until the new revision's raster lands. [source] is the old
-  /// on-raster position; when [sourceClean] is ready, that rect is restored
-  /// from a clean page render so no duplicate or paper-colored box remains.
+  /// until the new revision's raster lands.
   final _AfterGhost? afterGhost;
 
   /// A just-committed shape's drag preview, same deal.
@@ -8631,21 +8449,6 @@ class _EditingPreviewPainter extends CustomPainter {
 
     final committed = afterGhost;
     if (committed != null) {
-      final source = committed.source;
-      final sourceClean = committed.sourceClean;
-      if (source != null && sourceClean != null) {
-        canvas.save();
-        canvas.clipRect(source.inflate(2));
-        canvas.scale(geometry.scale);
-        canvas.drawPicture(sourceClean);
-        canvas.restore();
-      } else if (source != null && committed.sourceWash != null) {
-        final page = Offset.zero & size;
-        final clipped = source.inflate(2).intersect(page);
-        if (!clipped.isEmpty) {
-          canvas.drawRect(clipped, Paint()..color = committed.sourceWash!);
-        }
-      }
       // full strength: this *is* the committed result, standing in for
       // the raster that hasn't landed yet
       paintAnnotationDragPreview(canvas,

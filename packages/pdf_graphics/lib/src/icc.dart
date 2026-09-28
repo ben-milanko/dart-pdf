@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'color.dart';
+import 'unit_clamp.dart';
 
 /// PDF/ICC rendering intents, in the ICC transform-table order.
 enum PdfRenderingIntent {
@@ -92,9 +93,22 @@ class IccProfile {
   /// endpoint. This mirrors the endpoint used by ICC BPC black detection.
   List<double> sourceBlackPoint(
       {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
-    final black = List<double>.filled(channels, channels == 4 ? 1.0 : 0.0);
-    return List<double>.unmodifiable(toPcs(black, intent: intent));
+    return _sourceBlack[intent.index] ??= () {
+      final black = List<double>.filled(channels, channels == 4 ? 1.0 : 0.0);
+      return List<double>.unmodifiable(toPcs(black, intent: intent));
+    }();
   }
+
+  // Black points per intent, filled on first use. Every ICC-sourced colour
+  // converted through a CMYK output condition at relative colorimetric (the
+  // default image intent) asks for both, and recomputing them was a third of
+  // each such conversion: a `toPcs`, plus a `fromPcs` and a `toPcs` through the
+  // output profile. The profile is immutable and the results are unmodifiable,
+  // so a cached answer is the answer.
+  final List<List<double>?> _sourceBlack =
+      List<List<double>?>.filled(PdfRenderingIntent.values.length, null);
+  final List<List<double>?> _destinationBlack =
+      List<List<double>?>.filled(PdfRenderingIntent.values.length, null);
 
   /// Destination-side printable black in the relative XYZ PCS.
   ///
@@ -103,10 +117,12 @@ class IccProfile {
   /// the ICC CMM behavior relevant to press profiles.
   List<double> destinationBlackPoint(
       {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
-    final device = fromPcs(const [0.0, 0.0, 0.0], intent: intent);
-    return device == null
-        ? sourceBlackPoint(intent: intent)
-        : List<double>.unmodifiable(toPcs(device, intent: intent));
+    return _destinationBlack[intent.index] ??= () {
+      final device = fromPcs(const [0.0, 0.0, 0.0], intent: intent);
+      return device == null
+          ? sourceBlackPoint(intent: intent)
+          : List<double>.unmodifiable(toPcs(device, intent: intent));
+    }();
   }
 
   static IccProfile? parse(Uint8List bytes) {
@@ -158,16 +174,32 @@ class IccProfile {
 
     final a2b = <int, _Lut>{};
     final b2a = <int, _Lut>{};
+    // Profiles routinely point several intent tags at one table (every
+    // press profile in the Ghent suite aliases A2B2 to A2B0, and many v2
+    // profiles alias all three), so parse each distinct table once. A table is
+    // a pure function of its offset here: all forward tables share one PCS
+    // reading and all reverse tables another.
+    //
+    // No closure here may capture [bytes]: the transforms returned below close
+    // over this scope, and would keep the whole decoded profile alive with it.
+    final forwardAt = <int, _Lut?>{};
+    final reverseAt = <int, _Lut?>{};
     for (var intent = 0; intent < 3; intent++) {
       final forward = tag('A2B$intent');
       if (forward != null) {
-        final lut = _Lut.parse(bytes, forward.$1, pcsIsLab: pcs == 'Lab ');
+        final at = forward.$1;
+        final lut = forwardAt.containsKey(at)
+            ? forwardAt[at]
+            : forwardAt[at] = _Lut.parse(bytes, at, pcsIsLab: pcs == 'Lab ');
         if (lut != null && lut.inChannels == channelCount) a2b[intent] = lut;
       }
       final reverse = tag('B2A$intent');
       if (reverse != null) {
-        final lut = _Lut.parse(bytes, reverse.$1,
-            pcsIsLab: false, inputPcsIsLab: pcs == 'Lab ');
+        final at = reverse.$1;
+        final lut = reverseAt.containsKey(at)
+            ? reverseAt[at]
+            : reverseAt[at] = _Lut.parse(bytes, at,
+                pcsIsLab: false, inputPcsIsLab: pcs == 'Lab ');
         if (lut != null &&
             lut.inChannels == 3 &&
             lut.outChannels == channelCount) {
@@ -218,14 +250,14 @@ class IccProfile {
       final trc = _Curve.parse(bytes, trcTag.$1);
       if (trc == null) return null;
       PdfColor transform(List<double> values) {
-        final y = trc.apply(values[0].clamp(0.0, 1.0));
+        final y = trc.apply(clampUnit(values[0]));
         final v = _srgbEncode(y);
         return PdfColor(v, v, v);
       }
 
       List<double> pcsTransform(
           List<double> values, PdfRenderingIntent intent) {
-        final y = trc.apply(values[0].clamp(0.0, 1.0));
+        final y = trc.apply(clampUnit(values[0]));
         return [y * 0.9642, y, y * 0.8249];
       }
 
@@ -257,9 +289,9 @@ class IccProfile {
       final bTrc = _Curve.parse(bytes, bt.$1);
       if (rTrc == null || gTrc == null || bTrc == null) return null;
       PdfColor transform(List<double> values) {
-        final lr = rTrc.apply(values[0].clamp(0.0, 1.0));
-        final lg = gTrc.apply(values[1].clamp(0.0, 1.0));
-        final lb = bTrc.apply(values[2].clamp(0.0, 1.0));
+        final lr = rTrc.apply(clampUnit(values[0]));
+        final lg = gTrc.apply(clampUnit(values[1]));
+        final lb = bTrc.apply(clampUnit(values[2]));
         return _xyzD50ToSrgb(
           rXyz[0] * lr + gXyz[0] * lg + bXyz[0] * lb,
           rXyz[1] * lr + gXyz[1] * lg + bXyz[1] * lb,
@@ -269,9 +301,9 @@ class IccProfile {
 
       List<double> pcsTransform(
           List<double> values, PdfRenderingIntent intent) {
-        final lr = rTrc.apply(values[0].clamp(0.0, 1.0));
-        final lg = gTrc.apply(values[1].clamp(0.0, 1.0));
-        final lb = bTrc.apply(values[2].clamp(0.0, 1.0));
+        final lr = rTrc.apply(clampUnit(values[0]));
+        final lg = gTrc.apply(clampUnit(values[1]));
+        final lb = bTrc.apply(clampUnit(values[2]));
         return [
           rXyz[0] * lr + gXyz[0] * lg + bXyz[0] * lb,
           rXyz[1] * lr + gXyz[1] * lg + bXyz[1] * lb,
@@ -328,9 +360,9 @@ class IccProfile {
         final r = 3.1338561 * x - 1.6168667 * y - 0.4906146 * z;
         final g = -0.9787684 * x + 1.9161415 * y + 0.0334540 * z;
         final b = 0.0719453 * x - 0.2289914 * y + 1.4052427 * z;
-        out[o] = encode[(r.clamp(0.0, 1.0) * 4095).round()];
-        out[o + 1] = encode[(g.clamp(0.0, 1.0) * 4095).round()];
-        out[o + 2] = encode[(b.clamp(0.0, 1.0) * 4095).round()];
+        out[o] = encode[(clampUnit(r) * 4095).round()];
+        out[o + 1] = encode[(clampUnit(g) * 4095).round()];
+        out[o + 2] = encode[(clampUnit(b) * 4095).round()];
       }
 
       return IccProfile._(3, transform,
@@ -404,11 +436,37 @@ class IccProfile {
   }
 
   static double _srgbEncode(double linear) {
-    final v = linear.clamp(0.0, 1.0);
+    final v = clampUnit(linear);
     return v <= 0.0031308
         ? v * 12.92
         : 1.055 * math.pow(v, 1 / 2.4).toDouble() - 0.055;
   }
+}
+
+/// Reads [count] samples starting at [offset] - big-endian u16 when [wide],
+/// otherwise u8 - normalized to the same `u16 / 65535` or `u8 / 255` doubles
+/// a sample-at-a-time read produces.
+///
+/// The declared extent is checked against [bytes] before anything is
+/// allocated, so a header that claims a huge table cannot allocate more than
+/// the input could hold. A table that runs past the end throws the same
+/// [RangeError] its first out-of-range sample read would have, which
+/// [IccProfile.parse] turns into null.
+Float64List _readTable(Uint8List bytes, ByteData data, int offset, int count,
+    {required bool wide}) {
+  final end = offset + count * (wide ? 2 : 1);
+  if (end > bytes.length) throw RangeError.range(end, 0, bytes.length);
+  final table = Float64List(count);
+  if (wide) {
+    for (var i = 0; i < count; i++) {
+      table[i] = data.getUint16(offset + i * 2) / 65535;
+    }
+  } else {
+    for (var i = 0; i < count; i++) {
+      table[i] = bytes[offset + i] / 255;
+    }
+  }
+  return table;
 }
 
 /// A tone curve: `curv` (identity, gamma, or sampled table) or `para`
@@ -430,10 +488,7 @@ class _Curve {
         final gamma = data.getUint16(offset + 12) / 256;
         return _Curve._((x) => math.pow(x, gamma).toDouble());
       }
-      final table = [
-        for (var i = 0; i < count; i++)
-          data.getUint16(offset + 12 + i * 2) / 65535,
-      ];
+      final table = _readTable(bytes, data, offset + 12, count, wide: true);
       return _Curve._((x) => _sample(table, x));
     }
     if (type == 'para') {
@@ -465,8 +520,8 @@ class _Curve {
     return null;
   }
 
-  static double _sample(List<double> table, double x) {
-    final clamped = x.clamp(0.0, 1.0) * (table.length - 1);
+  static double _sample(Float64List table, double x) {
+    final clamped = clampUnit(x) * (table.length - 1);
     final i0 = clamped.floor();
     final i1 = math.min(i0 + 1, table.length - 1);
     final frac = clamped - i0;
@@ -493,10 +548,16 @@ class _Lut {
 
   final int inChannels;
   final int outChannels;
-  final List<List<double>> inputCurves; // sampled, normalized 0..1
+  // Every table is a Float64List, never a growable List<double>. A press
+  // profile's six mft2 tables hold about a million samples, and boxed they
+  // cost ~30 ms to parse and ~28 MB to keep, per profile and per isolate
+  // (#755 parses the OutputIntent profile in each one). All of them must be
+  // typed: with only the CLUT typed, `_Curve._sample` sees two list types and
+  // goes polymorphic, which made per-pixel conversion slower on dart2js.
+  final List<Float64List> inputCurves; // sampled, normalized 0..1
   final List<int> gridPoints; // per input channel
-  final List<double> clut; // normalized 0..1
-  final List<List<double>> outputCurves;
+  final Float64List clut; // normalized 0..1
+  final List<Float64List> outputCurves;
   final bool pcsIsLab;
 
   /// mft2 stores Lab with the legacy 0xFF00 == 100.0 encoding.
@@ -541,24 +602,22 @@ class _Lut {
         final outEntries = wide ? data.getUint16(offset + 50) : 256;
         if (wide) p = offset + 52;
 
-        double readValue() {
-          final v = wide ? data.getUint16(p) / 65535 : bytes[p] / 255;
-          p += wide ? 2 : 1;
-          return v;
+        Float64List readTable(int count) {
+          final table = _readTable(bytes, data, p, count, wide: wide);
+          p += count * (wide ? 2 : 1);
+          return table;
         }
 
         final inputCurves = [
-          for (var c = 0; c < inChannels; c++)
-            [for (var i = 0; i < inEntries; i++) readValue()],
+          for (var c = 0; c < inChannels; c++) readTable(inEntries),
         ];
         var clutSize = outChannels;
         for (var c = 0; c < inChannels; c++) {
           clutSize *= grid;
         }
-        final clut = [for (var i = 0; i < clutSize; i++) readValue()];
+        final clut = readTable(clutSize);
         final outputCurves = [
-          for (var c = 0; c < outChannels; c++)
-            [for (var i = 0; i < outEntries; i++) readValue()],
+          for (var c = 0; c < outChannels; c++) readTable(outEntries),
         ];
         return _Lut._(
           inChannels: inChannels,
@@ -591,16 +650,18 @@ class _Lut {
     final aOffset = data.getUint32(offset + 28);
     if (clutOffset == 0) return null;
 
-    List<List<double>>? sampleCurves(int base, int count) {
+    List<Float64List>? sampleCurves(int base, int count) {
       if (base == 0) return List.generate(count, (_) => _identity);
-      final curves = <List<double>>[];
+      final curves = <Float64List>[];
       var p = offset + base;
       for (var c = 0; c < count; c++) {
         final curve = _Curve.parse(bytes, p);
         if (curve == null) return null;
-        curves.add([
-          for (var i = 0; i < 256; i++) curve.apply(i / 255),
-        ]);
+        final sampled = Float64List(256);
+        for (var i = 0; i < 256; i++) {
+          sampled[i] = curve.apply(i / 255);
+        }
+        curves.add(sampled);
         // advance past this curve element (4-byte aligned)
         final type = String.fromCharCodes(bytes, p, p + 4);
         var size = 12;
@@ -625,17 +686,9 @@ class _Lut {
     for (final g in gridPoints) {
       clutSize *= g;
     }
-    final clut = <double>[];
-    var p = clutBase + 20;
-    for (var i = 0; i < clutSize; i++) {
-      if (precision == 1) {
-        clut.add(bytes[p] / 255);
-        p += 1;
-      } else {
-        clut.add(data.getUint16(p) / 65535);
-        p += 2;
-      }
-    }
+    // Any precision byte other than 1 reads as 16-bit, as it always has.
+    final clut =
+        _readTable(bytes, data, clutBase + 20, clutSize, wide: precision != 1);
 
     final aCurves = sampleCurves(aOffset, inChannels);
     final bCurves = sampleCurves(bOffset, outChannels);
@@ -653,9 +706,13 @@ class _Lut {
     );
   }
 
-  static final List<double> _identity = [
-    for (var i = 0; i < 256; i++) i / 255,
-  ];
+  static final Float64List _identity = (() {
+    final table = Float64List(256);
+    for (var i = 0; i < 256; i++) {
+      table[i] = i / 255;
+    }
+    return table;
+  })();
 
   /// Runs [values] through the pipeline; returns PCS values (Lab
   /// decoded to L 0..100 / a,b -128..127, or XYZ 0..~2).
@@ -665,7 +722,7 @@ class _Lut {
     final frac = _frac;
     final out = _out;
     for (var c = 0; c < inChannels; c++) {
-      mapped[c] = _Curve._sample(inputCurves[c], values[c].clamp(0.0, 1.0));
+      mapped[c] = _Curve._sample(inputCurves[c], clampUnit(values[c]));
     }
 
     // ICC leaves the CLUT interpolation algorithm to the CMM. Use the
@@ -678,9 +735,10 @@ class _Lut {
     } else if (inChannels == 4) {
       final grid = gridPoints[0];
       final position = mapped[0] * (grid - 1);
-      final lower = math.min(position.floor(), grid - 2).clamp(0, grid - 1);
+      final lower =
+          clampIndex(math.min(position.floor(), grid - 2), 0, grid - 1);
       final upper = math.min(lower + 1, grid - 1);
-      final amount = (position - lower).clamp(0.0, 1.0);
+      final amount = clampUnit(position - lower);
       _tetrahedral(mapped, 1, lower, _tetraLow);
       _tetrahedral(mapped, 1, upper, _tetraHigh);
       for (var o = 0; o < outChannels; o++) {
@@ -720,8 +778,8 @@ class _Lut {
     for (var c = 0; c < inChannels; c++) {
       final g = gridPoints[c];
       final position = mapped[c] * (g - 1);
-      low[c] = math.min(position.floor(), g - 2).clamp(0, g - 1);
-      frac[c] = (position - low[c]).clamp(0.0, 1.0);
+      low[c] = clampIndex(math.min(position.floor(), g - 2), 0, g - 1);
+      frac[c] = clampUnit(position - low[c]);
     }
     for (var o = 0; o < outChannels; o++) {
       out[o] = 0;
@@ -755,15 +813,15 @@ class _Lut {
     final px = mapped[start] * (gx - 1);
     final py = mapped[start + 1] * (gy - 1);
     final pz = mapped[start + 2] * (gz - 1);
-    final x0 = math.min(px.floor(), gx - 2).clamp(0, gx - 1);
-    final y0 = math.min(py.floor(), gy - 2).clamp(0, gy - 1);
-    final z0 = math.min(pz.floor(), gz - 2).clamp(0, gz - 1);
+    final x0 = clampIndex(math.min(px.floor(), gx - 2), 0, gx - 1);
+    final y0 = clampIndex(math.min(py.floor(), gy - 2), 0, gy - 1);
+    final z0 = clampIndex(math.min(pz.floor(), gz - 2), 0, gz - 1);
     final x1 = math.min(x0 + 1, gx - 1);
     final y1 = math.min(y0 + 1, gy - 1);
     final z1 = math.min(z0 + 1, gz - 1);
-    final rx = (px - x0).clamp(0.0, 1.0);
-    final ry = (py - y0).clamp(0.0, 1.0);
-    final rz = (pz - z0).clamp(0.0, 1.0);
+    final rx = clampUnit(px - x0);
+    final ry = clampUnit(py - y0);
+    final rz = clampUnit(pz - z0);
 
     int base(int x, int y, int z) => inChannels == 3
         ? ((x * gy + y) * gz + z) * outChannels
@@ -780,7 +838,9 @@ class _Lut {
 
     for (var o = 0; o < outChannels; o++) {
       final c0 = clut[i000 + o];
-      late final double c1, c2, c3;
+      // Definitely assigned on every branch below; `late` would allocate a
+      // cell per call on the web for no reason.
+      final double c1, c2, c3;
       if (rx >= ry && ry >= rz) {
         c1 = clut[i100 + o] - c0;
         c2 = clut[i110 + o] - clut[i100 + o];
@@ -817,18 +877,17 @@ class _Lut {
     final encoded = pcsIsLab
         ? inputLegacyLab16
             ? [
-                (pcsValues[0] * 652.80 / 65535).clamp(0.0, 1.0).toDouble(),
-                ((pcsValues[1] + 128) * 256 / 65535).clamp(0.0, 1.0).toDouble(),
-                ((pcsValues[2] + 128) * 256 / 65535).clamp(0.0, 1.0).toDouble(),
+                clampUnit(pcsValues[0] * 652.80 / 65535),
+                clampUnit((pcsValues[1] + 128) * 256 / 65535),
+                clampUnit((pcsValues[2] + 128) * 256 / 65535),
               ]
             : [
-                (pcsValues[0] / 100).clamp(0.0, 1.0).toDouble(),
-                ((pcsValues[1] + 128) / 255).clamp(0.0, 1.0).toDouble(),
-                ((pcsValues[2] + 128) / 255).clamp(0.0, 1.0).toDouble(),
+                clampUnit(pcsValues[0] / 100),
+                clampUnit((pcsValues[1] + 128) / 255),
+                clampUnit((pcsValues[2] + 128) / 255),
               ]
         : [
-            for (var i = 0; i < 3; i++)
-              (pcsValues[i] * 32768 / 65535).clamp(0.0, 1.0).toDouble(),
+            for (var i = 0; i < 3; i++) clampUnit(pcsValues[i] * 32768 / 65535),
           ];
     // B2A LUTs were parsed with pcsIsLab=false so [apply] leaves their device
     // outputs in the XYZ numeric scaling. Undo that final presentation scale;
@@ -836,7 +895,7 @@ class _Lut {
     final scaled = apply(encoded);
     return [
       for (var i = 0; i < outChannels; i++)
-        (scaled[i] * 32768 / 65535).clamp(0.0, 1.0).toDouble(),
+        clampUnit(scaled[i] * 32768 / 65535),
     ];
   }
 }

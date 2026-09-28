@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count} geselecteerd} other{{count} geselecteerd}}",
   "sidebarWriteReplyHint": "Schrijf een antwoord…",
   "sigTitle": "Handtekening",
+  "sigUseTrackpad": "Trackpad gebruiken",
+  "sigTrackpadHint": "Teken met één vinger op je trackpad. Druk op een willekeurige toets als je klaar bent.",
   "signIdCreate": "Aanmaken",
   "signIdEmail": "E-mail (optioneel)",
   "signIdName": "Naam",

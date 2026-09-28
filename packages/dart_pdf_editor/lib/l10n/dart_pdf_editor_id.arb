@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count} dipilih} other{{count} dipilih}}",
   "sidebarWriteReplyHint": "Tulis balasan…",
   "sigTitle": "Tanda tangan",
+  "sigUseTrackpad": "Gunakan trackpad",
+  "sigTrackpadHint": "Gambar di trackpad dengan satu jari. Tekan tombol apa saja jika sudah selesai.",
   "signIdCreate": "Buat",
   "signIdEmail": "Email (opsional)",
   "signIdName": "Nama",

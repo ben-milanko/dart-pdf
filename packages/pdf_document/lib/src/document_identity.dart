@@ -32,5 +32,13 @@ Uint8List? pdfTrailerPermanentId(PdfDocument document) {
 /// keeps answering to the same key.
 Uint8List pdfPermanentDocumentId(PdfDocument document, {Uint8List? bytes}) =>
     pdfTrailerPermanentId(document) ??
-    Uint8List.fromList(
-        crypto.sha256.convert(bytes ?? document.cos.bytes).bytes);
+    pdfFallbackDocumentId(bytes ?? document.cos.bytes);
+
+/// The identity [pdfPermanentDocumentId] falls back to for a file without a
+/// trailer /ID: the SHA-256 of [bytes].
+///
+/// O(bytes) - roughly 8 ms per MB native and 6-8 ms per MB on the web - so a
+/// caller on an open path should take the free [pdfTrailerPermanentId] first
+/// and hash only once something is actually filed under the identity.
+Uint8List pdfFallbackDocumentId(Uint8List bytes) =>
+    Uint8List.fromList(crypto.sha256.convert(bytes).bytes);

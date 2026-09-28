@@ -9576,6 +9576,11 @@ class _AnnotationAppearanceLayerState
   List<ui.Picture> _pictures = const [];
   Size? _picturePageSize;
 
+  /// The appearance key of each of [_pictures] (parallel to it), so a
+  /// revision can drop the stale entries without waiting for a render pass
+  /// (see [_dropStalePictures]).
+  List<(Object, PdfRect)> _pictureKeys = const [];
+
   /// Rendered appearances keyed on the appearance stream plus the /Rect it
   /// was drawn into.
   ///
@@ -9640,6 +9645,10 @@ class _AnnotationAppearanceLayerState
       final keepCurrent = oldWidget.pageEpoch == widget.pageEpoch &&
           oldWidget.rotation == widget.rotation &&
           oldSize == newSize;
+      if (keepCurrent &&
+          identical(oldWidget.page.document.cos, widget.page.document.cos)) {
+        _dropStalePictures();
+      }
       _render(keepCurrent: keepCurrent);
     } else if (schedulerChanged) {
       _render(keepCurrent: true);
@@ -9672,7 +9681,44 @@ class _AnnotationAppearanceLayerState
   /// frame that reuses a cached appearance.
   void _disposePictures() {
     _pictures = const [];
+    _pictureKeys = const [];
     _picturePageSize = null;
+  }
+
+  /// Stops painting appearances the new revision no longer has, before the
+  /// render pass that replaces them.
+  ///
+  /// A revision keeps the current pictures up until that pass publishes, so
+  /// untouched marks don't flicker. A moved, restyled or deleted mark is the
+  /// exception: its picture would linger at the old spot, and a heavy
+  /// appearance (a vector snapshot replays a whole page) can take seconds to
+  /// re-render. The editing overlay paints the committed result in the
+  /// meantime, and the page raster under this layer never includes
+  /// annotations, so dropping the stale picture reveals the real page
+  /// content instead of hiding it behind a paper-coloured box.
+  ///
+  /// Only valid within one COS graph: keys compare appearance streams by
+  /// identity, which an incremental revision preserves for every untouched
+  /// annotation.
+  void _dropStalePictures() {
+    if (_pictureKeys.isEmpty) return;
+    final live = {
+      for (final annotation in widget.page.annotations)
+        if (!annotation.isHidden &&
+            !annotation.isNoView &&
+            annotation.normalAppearance != null)
+          _appearanceKey(annotation),
+    };
+    if (_pictureKeys.every(live.contains)) return;
+    final keys = <(Object, PdfRect)>[];
+    final pictures = <ui.Picture>[];
+    for (var i = 0; i < _pictures.length; i++) {
+      if (!live.contains(_pictureKeys[i])) continue;
+      keys.add(_pictureKeys[i]);
+      pictures.add(_pictures[i]);
+    }
+    _pictureKeys = keys;
+    _pictures = pictures;
   }
 
   void _disposeCache() {
@@ -9876,12 +9922,18 @@ class _AnnotationAppearanceLayerState
     bool ready = true,
   }) {
     if (!mounted || generation != _generation) return;
-    final next = [
-      for (final annotation in annotations)
-        ...?_cache[_appearanceKey(annotation)],
-    ];
+    final keys = <(Object, PdfRect)>[];
+    final next = <ui.Picture>[];
+    for (final annotation in annotations) {
+      final key = _appearanceKey(annotation);
+      for (final picture in _cache[key] ?? const <ui.Picture>[]) {
+        keys.add(key);
+        next.add(picture);
+      }
+    }
     setState(() {
       _pictures = next;
+      _pictureKeys = keys;
       _picturePageSize = pageSize;
     });
     _flushRetired();

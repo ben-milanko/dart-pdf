@@ -195,12 +195,17 @@ class PdfTakeoffSummary {
   /// Builds the summary by walking every page's annotations. [pages] limits
   /// the scan to specific page indices; null scans the whole document.
   factory PdfTakeoffSummary.of(PdfDocument document, {Iterable<int>? pages}) {
-    final indices = pages ?? Iterable<int>.generate(document.pageCount);
+    // The whole document comes from one page-tree walk; page(i) per index
+    // rescans a flat /Kids array on a cold wrapper.
+    final all = pages == null ? document.pages : null;
+    final count = all?.length ?? document.pageCount;
+    final indices = pages ?? Iterable<int>.generate(count);
     final byKey = <String, PdfTakeoffGroup>{};
     final order = <String>[];
     for (final pageIndex in indices) {
-      if (pageIndex < 0 || pageIndex >= document.pageCount) continue;
-      for (final annot in document.page(pageIndex).annotations) {
+      if (pageIndex < 0 || pageIndex >= count) continue;
+      final page = all?[pageIndex] ?? document.page(pageIndex);
+      for (final annot in page.annotations) {
         final result = annot.measurementResult;
         if (result == null) continue;
         final takeoff = annot.takeoff;

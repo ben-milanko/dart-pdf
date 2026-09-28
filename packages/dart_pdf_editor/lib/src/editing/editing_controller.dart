@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,7 @@ import 'form_secret_store.dart';
 import 'editing_stamps.dart';
 import 'line_style.dart';
 import 'saved_annotation.dart';
+import 'signature_validation_worker.dart';
 import 'text_prompt.dart';
 import 'thumbnail_cache.dart';
 
@@ -477,11 +479,13 @@ class PdfEditingController extends ChangeNotifier {
     if (formSecretStore != null) {
       // the identity of the document as opened: /ID[0], or the SHA-256 of
       // these bytes (written as /ID by the first withheld fill, so a saved
-      // copy answers to the same key)
-      _formSecretIdBytes = pdfPermanentDocumentId(_document, bytes: bytes);
-      formSecretsLoaded = _loadFormSecrets();
+      // copy answers to the same key). /ID[0] is a trailer lookup; the hash
+      // is O(file) - ~8 ms/MB on the UI isolate - so it waits for the first
+      // thing filed or read under it ([_resolveFormSecretId]).
+      _formSecretIdBytes = pdfTrailerPermanentId(_document);
+      _openFormSecrets();
     } else {
-      formSecretsLoaded = Future<void>.value();
+      _formSecretsRead.complete();
     }
   }
 
@@ -497,18 +501,156 @@ class PdfEditingController extends ChangeNotifier {
   /// current revision: undo/redo write the value that revision had.
   final PdfFormSecretStore? formSecretStore;
 
+  /// The opened file's /ID[0], or its fallback identity once
+  /// [_resolveFormSecretId] has hashed it.
   Uint8List? _formSecretIdBytes;
 
   /// The [PdfFormSecretStore] key of this document ([pdfFormSecretDocumentId]
   /// of its trailer /ID, or of the SHA-256 of the opened bytes), or null
-  /// without a [formSecretStore].
-  String? get formSecretDocumentId => _formSecretIdBytes == null
-      ? null
-      : pdfFormSecretDocumentId(_formSecretIdBytes!);
+  /// without a [formSecretStore]. For a file without /ID the first read
+  /// hashes the opened bytes.
+  String? get formSecretDocumentId {
+    final id = _resolveFormSecretId();
+    return id == null ? null : pdfFormSecretDocumentId(id);
+  }
+
+  /// The form-secret identity bytes (null without a store), hashing the
+  /// bytes as opened ([pdfFallbackDocumentId]) the first time a file without
+  /// a trailer /ID needs them - a withheld fill, [forgetFormSecrets], an
+  /// undo/redo that moves a stored value, or a store read.
+  ///
+  /// The hash covers the opened prefix, never the current revision: every
+  /// revision appends to that prefix, and the first withheld fill writes
+  /// this value as the file's /ID, so later edits must not move it.
+  Uint8List? _resolveFormSecretId() {
+    if (formSecretStore == null) return null;
+    return _formSecretIdBytes ??= pdfFallbackDocumentId(_openedBytes);
+  }
+
+  /// Decides at open whether this document's stored values need reading
+  /// ([_loadFormSecrets]): only a field the opened file shows as
+  /// withheld-and-filled takes one ([_holdsWithheldValue]).
+  ///
+  /// No /AcroForm: nothing to restore into, decided in O(1). With a trailer
+  /// /ID the store is read now, as it always was - the id is free, and the
+  /// load parses the form only if the store holds something for it. Without
+  /// one, reading the store means hashing the file first, so the decision
+  /// waits for the first read of the form's fields ([_decideFormSecretsOn]):
+  /// the form layer reads them anyway once a page showing a widget attaches,
+  /// or a fill looks a field up, and a password field's prefill needs them
+  /// too. The open itself then touches no field, whatever the form holds.
+  void _openFormSecrets() {
+    _formSecretsPending = _formSecretIdBytes == null;
+    final PdfAcroForm? form;
+    try {
+      form = acroForm;
+    } catch (_) {
+      // a catalog too broken to read: leave it to the load, as before
+      _settleFormSecrets(load: true);
+      return;
+    }
+    if (form == null) {
+      _settleFormSecrets(load: false);
+    } else if (!_formSecretsPending) {
+      _settleFormSecrets(load: true);
+    }
+  }
+
+  /// Whether this no-/ID document still waits for the first read of its
+  /// form fields to decide whether its stored values need reading.
+  bool _formSecretsPending = false;
+
+  final Completer<void> _formSecretsRead = Completer<void>();
+
+  /// Ends the open-time decision: reads the store ([_loadFormSecrets]) when
+  /// [load], and completes [formSecretsLoaded] either way.
+  void _settleFormSecrets({required bool load}) {
+    _formSecretsPending = false;
+    _formSecretsRead.complete(load ? _loadFormSecrets() : null);
+  }
+
+  /// The hook [acroForm] hands [PdfAcroForm.of] while a no-/ID decision is
+  /// pending: settles it off the first read of that form's fields.
+  ///
+  /// [opened] says whether the form is revision 0 - the file as opened, or
+  /// as a redaction burn ([_resetTo], which starts a fresh history) left it,
+  /// the same bytes [_loadFormSecrets] filters against. Only then do its
+  /// fields answer exactly: [fields]`.any(`[_holdsWithheldValue]`)` is the
+  /// very test the load applies, orphan widgets the form reconciles
+  /// included, and it costs one pass over a list the read just built. A form
+  /// read first at a later revision may have lost a field revision 0
+  /// withheld (a Flatten from a cover page; undo brings it back), so it
+  /// falls back to the eager open's load: the hash and the store read, paid
+  /// then rather than at open. Reading revision 0's fields instead would
+  /// skip the hash, but on a small file whose bytes are mostly form that
+  /// read costs several times the hash it saves.
+  void Function(List<PdfFormField>) _decideFormSecretsOn({
+    required bool opened,
+  }) =>
+      (fields) {
+        if (!_formSecretsPending) return;
+        var load = true;
+        if (opened) {
+          try {
+            load = fields.any(_holdsWithheldValue);
+          } catch (_) {
+            // a field too broken to read: leave it to the load
+          }
+        }
+        _settleFormSecrets(load: load);
+      };
+
+  /// Revision 0's bytes: the file as opened, or as a redaction burn left it.
+  Uint8List get _openedBytes => Uint8List.sublistView(_bytes, 0, _revisions[0]);
+
+  /// Settles a pending no-/ID decision now: reads the current revision's
+  /// form fields, which runs [_decideFormSecretsOn]. For a caller that needs
+  /// the stored values without waiting for the form layer - the
+  /// [formSecretsLoaded] getter, a prefill of a field from another
+  /// [PdfAcroForm].
+  void _settleFormSecretsNow() {
+    if (!_formSecretsPending) return;
+    try {
+      acroForm?.fields;
+    } catch (_) {
+      // settled below
+    }
+    if (_formSecretsPending) _settleFormSecrets(load: true);
+  }
+
+  /// A password field whose value the file withholds
+  /// ([PdfFormFilling.passwordWithheldKey]) - the only kind of field a
+  /// [formSecretStore] value is restored into.
+  ///
+  /// The marker goes first: it is one lookup in the field's own dictionary
+  /// (the filler writes it there and nowhere else), while `isPassword` and
+  /// `value` resolve inheritable entries up the /Parent chain. Run over
+  /// every field of a deep hierarchy (/FT on a root hundreds of levels up),
+  /// the other order cost O(fields x depth) - more than the whole-file hash
+  /// the no-/ID decision replaced.
+  static bool _holdsWithheldValue(PdfFormField field) =>
+      field.dict[PdfFormFilling.passwordWithheldKey] ==
+          const CosBoolean(true) &&
+      field.isPassword &&
+      field.value == null;
+
+  /// Whether the form-secret identity has been resolved: at construction
+  /// for a file with a trailer /ID, and only on first need for one without.
+  @visibleForTesting
+  bool get debugFormSecretIdResolved => _formSecretIdBytes != null;
 
   /// Completes once the [formSecretStore]'s values for this document have
-  /// been read (immediately without a store).
-  late final Future<void> formSecretsLoaded;
+  /// been read (immediately without a store, or when the opened file
+  /// withholds no password value).
+  ///
+  /// A file without a trailer /ID reads the store only once something reads
+  /// its form fields - the form layer does as soon as a page showing a
+  /// widget attaches. Asking for this future reads them then and there if
+  /// nothing has yet.
+  Future<void> get formSecretsLoaded {
+    _settleFormSecretsNow();
+    return _formSecretsRead.future;
+  }
 
   /// Parallels [_revisions]: the withheld password values (field name ->
   /// value, `''` for an explicit clear) in effect at each revision. Maps are
@@ -536,20 +678,13 @@ class PdfEditingController extends ChangeNotifier {
     }
     if (_disposed || loaded.isEmpty) return;
     // only fields the file still shows as withheld-and-filled take a value:
-    // a stale entry (the field was cleared or refilled elsewhere) is ignored
-    final form = PdfAcroForm.of(PdfDocument.open(
-        Uint8List.sublistView(_bytes, 0, _revisions.first),
-        password: _password));
+    // a stale entry (the field was cleared or refilled elsewhere) is ignored.
+    // Revision 0 reopens with the authenticated keys, as an undo does
+    final form = PdfAcroForm.of(_openRevision(_openedBytes));
     final usable = <String, String>{};
     loaded.forEach((name, value) {
       final field = form?.fieldNamed(name);
-      if (field != null &&
-          field.isPassword &&
-          field.value == null &&
-          field.dict[PdfFormFilling.passwordWithheldKey] ==
-              const CosBoolean(true)) {
-        usable[name] = value;
-      }
+      if (field != null && _holdsWithheldValue(field)) usable[name] = value;
     });
     if (usable.isEmpty) return;
     for (final secrets in _revisionSecrets) {
@@ -563,6 +698,8 @@ class PdfEditingController extends ChangeNotifier {
   /// value; otherwise [PdfFormField.value].
   String? formFieldTextValue(PdfFormField field) {
     if (formSecretStore != null && field.isPassword) {
+      // a field read off another PdfAcroForm than [acroForm]
+      _settleFormSecretsNow();
       final secret = _revisionSecrets[_cursor][field.name];
       if (secret != null) return secret;
     }
@@ -584,6 +721,8 @@ class PdfEditingController extends ChangeNotifier {
   Future<void> forgetFormSecrets() async {
     final store = formSecretStore;
     if (store == null) return;
+    // nothing left to read back
+    if (_formSecretsPending) _settleFormSecrets(load: false);
     for (var i = 0; i < _revisionSecrets.length; i++) {
       _revisionSecrets[i] = {};
     }
@@ -936,12 +1075,30 @@ class PdfEditingController extends ChangeNotifier {
   ///
   /// [grew] must be true only when [bytes] extends the currently open
   /// document. Undo shrinks the buffer and [_resetTo] replaces it outright,
-  /// and neither is an append - those reopen.
+  /// and neither is an append - those reopen ([_openRevision]).
   void _reloadDocument({required bool grew}) {
     if (grew && _tryApplyIncrementalUpdate()) return;
-    _document = PdfDocument.open(bytes, password: _password);
+    final revision = bytes;
+    // An undo lands on a shorter prefix: cores of signatures past it belong
+    // to history that the next edit may overwrite.
+    _dropSignatureCores(beyond: revision.length);
+    _document = _openRevision(revision);
     _revisionId++;
   }
+
+  /// Opens [bytes] - another revision of this session's file - with the
+  /// current document's already-authenticated security handler when that
+  /// revision declares the same, unchanged /Encrypt dictionary, else by
+  /// authenticating [_password] like a fresh open.
+  ///
+  /// Every undo target is a byte prefix of the same session buffer, so it
+  /// normally qualifies (same /Encrypt): an undo on an AES-256 file no longer
+  /// re-runs the password hash (Algorithm 2.B - ~10 ms native, ~75 ms web -
+  /// on the UI isolate). A revision that rewrote /Encrypt under the same
+  /// object number does not; it authenticates [_password] like a fresh open.
+  /// See [PdfDocument.openAppended].
+  PdfDocument _openRevision(Uint8List bytes) =>
+      _document.openAppended(bytes, password: _password);
 
   /// Debug-only sanity check behind the assert in [_tryApplyIncrementalUpdate].
   ///
@@ -1086,6 +1243,9 @@ class PdfEditingController extends ChangeNotifier {
   }) {
     _revisions.removeRange(_cursor + 1, _revisions.length);
     _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
+    // Everything past [beforeLength] was just written - after an undo, over
+    // bytes a signature further along the old history may have covered.
+    _dropSignatureCores(beyond: beforeLength);
     final secrets = _pendingSecrets ?? _revisionSecrets[_cursor];
     _pendingSecrets = null;
     _revisionSecrets
@@ -1252,13 +1412,11 @@ class PdfEditingController extends ChangeNotifier {
         'The signer did not return a new incremental PDF revision.',
       );
     }
-    for (var i = 0; i < before.length; i++) {
-      if (signed[i] != before[i]) {
-        throw const FormatException(
-          'The signed PDF rewrote the current document instead of appending '
-          'an incremental signature revision.',
-        );
-      }
+    if (!_isPrefix(before, signed)) {
+      throw const FormatException(
+        'The signed PDF rewrote the current document instead of appending '
+        'an incremental signature revision.',
+      );
     }
     final existingCount = PdfSignature.of(_document).length;
     final candidate = PdfDocument.open(signed, password: _password);
@@ -1266,7 +1424,13 @@ class PdfEditingController extends ChangeNotifier {
     if (signatures.length <= existingCount) {
       throw const FormatException('The signed PDF has no new signature.');
     }
-    final validation = signatures.last.validate();
+    // The candidate is exactly the revision about to be committed, so the
+    // crypto cores this validation computes hold for it (and every append
+    // after it): keep them, and the signature panel hashes nothing more.
+    final computed = <String, PdfSignatureCryptoCore>{};
+    final validation = signatures.last.validate(
+      cores: (signature, compute) => computed[signature.field.name] = compute(),
+    );
     if (!validation.intact || !validation.coversWholeDocument) {
       throw FormatException(
         validation.problems.isEmpty
@@ -1298,6 +1462,30 @@ class PdfEditingController extends ChangeNotifier {
         annotationPages: visualPages,
       ),
     );
+    // after the commit, which drops cores past the signed-over length
+    _signatureCores.addAll(computed);
+    return true;
+  }
+
+  /// Whether [prefix] is a byte prefix of [bytes], compared a 32-bit word at a
+  /// time when both views are 4-byte aligned (the session buffer's revisions
+  /// and a freshly saved file are).
+  static bool _isPrefix(Uint8List prefix, Uint8List bytes) {
+    final length = prefix.length;
+    if (bytes.length < length) return false;
+    var i = 0;
+    if (prefix.offsetInBytes % 4 == 0 && bytes.offsetInBytes % 4 == 0) {
+      final words = length >> 2;
+      final a = Uint32List.view(prefix.buffer, prefix.offsetInBytes, words);
+      final b = Uint32List.view(bytes.buffer, bytes.offsetInBytes, words);
+      for (; i < words; i++) {
+        if (a[i] != b[i]) return false;
+      }
+      i = words << 2;
+    }
+    for (; i < length; i++) {
+      if (prefix[i] != bytes[i]) return false;
+    }
     return true;
   }
 
@@ -1415,6 +1603,13 @@ class PdfEditingController extends ChangeNotifier {
   /// until then). The result is cached per (revision, field), so repeated
   /// reads while the panel rebuilds are free.
   ///
+  /// The expensive, revision-independent part - hashing the signed bytes and
+  /// verifying the signature ([PdfSignatureCryptoCore]) - is kept across
+  /// revisions, so an edit re-validates without re-hashing; on native it is
+  /// computed on a helper isolate when a large document misses it. Chain
+  /// building, revocation and everything a revision can change are always
+  /// redone.
+  ///
   /// Pass `schedule: false` to peek at the cache without kicking off work.
   PdfSignatureValidation? validationFor(PdfSignature signature,
       {bool schedule = true}) {
@@ -1427,8 +1622,12 @@ class PdfEditingController extends ChangeNotifier {
       final generation = _validationGeneration;
       final store = _trustStore;
       final revocation = _revocationClient;
+      // (a closed tab counts: the helper isolate or the network may answer
+      // after dispose)
       bool stale() =>
-          _revisionId != revision || _validationGeneration != generation;
+          _disposed ||
+          _revisionId != revision ||
+          _validationGeneration != generation;
       // Off the current frame: opening the panel stays instant even when the
       // signer's certificate chain is expensive to verify (or, with a
       // revocation client, waits on the network).
@@ -1440,10 +1639,20 @@ class PdfEditingController extends ChangeNotifier {
         }
         PdfSignatureValidation? result;
         try {
+          await _ensureSignatureCores();
+          if (stale()) {
+            if (_revisionId != revision) _validating.remove(key);
+            return;
+          }
+          final cores = identical(signature.document, _document)
+              ? _resolveSignatureCore
+              : null;
           result = revocation == null
-              ? signature.validate(trustStore: store)
+              ? signature.validate(trustStore: store, cores: cores)
               : await signature.validateOnline(
-                  trustStore: store, revocationClient: revocation);
+                  trustStore: store,
+                  revocationClient: revocation,
+                  cores: cores);
         } catch (_) {
           // A signature we can't validate simply stays "checking"-free; the
           // panel falls back to showing it without a verdict.
@@ -1456,6 +1665,154 @@ class PdfEditingController extends ChangeNotifier {
       });
     }
     return null;
+  }
+
+  /// Signed-bytes crypto ([PdfSignatureCryptoCore]) by signature field name,
+  /// reused across revisions: every revision appends to the same buffer, so
+  /// the bytes a signature covers never change - except where a revision
+  /// rewrites them, which is exactly where [_dropSignatureCores] runs (a new
+  /// edit over an undone tail, an undo, a redaction burn, a whole-buffer
+  /// commit). An entry is used only while it still
+  /// [PdfSignatureCryptoCore.describes] the signature dictionary. Never the
+  /// whole verdict: coverage, PAdES level, /DSS revocation, the chain and live
+  /// revocation are recomputed per revision.
+  final Map<String, PdfSignatureCryptoCore> _signatureCores = {};
+
+  /// The core computation running on a helper isolate, if any. At most one
+  /// runs at a time.
+  _SignatureCoreJob? _signatureCoreJob;
+
+  /// The revision [_ensureSignatureCores] last settled: it checked every kept
+  /// core against that revision's signatures (dropping the ones that no longer
+  /// describe theirs) and offered the missing ones to a helper isolate once.
+  /// While it is current, [_resolveSignatureCore] trusts a kept core without
+  /// comparing it again, and no validation of the revision starts another job.
+  int _signatureCoresRevision = -1;
+
+  /// The /ByteRange of each signature a helper isolate was asked for and
+  /// could not compute a core for (its computation throws, or the whole job
+  /// failed), by field name. Such a signature is not sent again while its
+  /// range and covered bytes stand: validation computes its core inline
+  /// instead (and keeps it, when that works).
+  final Map<String, List<int>> _signatureCoresUnavailable = {};
+
+  int _signatureCoreJobCount = 0;
+
+  /// How many signature cores are kept for reuse across revisions.
+  @visibleForTesting
+  int get debugSignatureCoreCount => _signatureCores.length;
+
+  /// How many signature-core computations have been started on a helper
+  /// isolate, each with a copy of the revision.
+  @visibleForTesting
+  int get debugSignatureCoreJobCount => _signatureCoreJobCount;
+
+  /// Covered bytes from which [validationFor] computes missing signature cores
+  /// on a helper isolate (native only) instead of inline: below it the hash
+  /// costs less than copying the revision out and reopening it there.
+  @visibleForTesting
+  static int signatureCoreOffloadBytes = 512 << 10;
+
+  /// [PdfSignatureCoreResolver] over [_signatureCores]; a miss is computed
+  /// inline against the current revision and kept.
+  PdfSignatureCryptoCore _resolveSignatureCore(
+      PdfSignature signature, PdfSignatureCryptoCore Function() compute) {
+    final name = signature.field.name;
+    final cached = _signatureCores[name];
+    // Once this revision is settled every kept core describes its signature
+    // (the settle dropped the rest, and anything added since was computed for
+    // this revision); PdfSignature checks the one it is handed regardless.
+    if (cached != null &&
+        (_signatureCoresRevision == _revisionId ||
+            cached.describes(signature))) {
+      return cached;
+    }
+    return _signatureCores[name] = compute();
+  }
+
+  /// Computes, on a helper isolate, the cores the current revision's
+  /// signatures lack - all of them in one pass over one copy of the bytes, so
+  /// the validation that follows hashes nothing on this isolate. Chain
+  /// building, revocation and the network stay here: a trust store is large
+  /// to send and a host revocation client may not be sendable. A no-op on the
+  /// web and below [signatureCoreOffloadBytes].
+  ///
+  /// Settles each revision once ([_signatureCoresRevision]): every signature
+  /// row awaits the same job, and a signature that job could not fill is not
+  /// sent again - a helper isolate gets a copy of the whole revision, so one
+  /// per row per edit is the cost this exists to avoid.
+  Future<void> _ensureSignatureCores() async {
+    if (!signatureCoresOffThread) return;
+    // Every row re-reads the slot after its wait, so a job another row
+    // started meanwhile is awaited too rather than doubled.
+    for (var running = _signatureCoreJob;
+        running != null;
+        running = _signatureCoreJob) {
+      await running.done.future;
+    }
+    if (_disposed || _signatureCoresRevision == _revisionId) return;
+    _signatureCoresRevision = _revisionId;
+    final missing = <String, List<int>>{};
+    var covered = 0;
+    for (final signature in signatureByFieldName.values) {
+      final name = signature.field.name;
+      final cached = _signatureCores[name];
+      if (cached != null) {
+        if (cached.describes(signature)) continue;
+        _signatureCores.remove(name);
+      }
+      // Nothing to hash at this revision - a malformed /ByteRange, or a
+      // signature that came in with another file's pages and kept that file's
+      // offsets. Validation reports why without hashing anything.
+      if (!signature.hasSignableByteRange) continue;
+      final ranges = signature.byteRange;
+      final tried = _signatureCoresUnavailable[name];
+      if (tried != null && listEquals(tried, ranges)) continue;
+      missing[name] = ranges;
+      covered += ranges[1] + ranges[3];
+    }
+    if (missing.isEmpty || covered < signatureCoreOffloadBytes) return;
+    final revision = bytes;
+    final job = _SignatureCoreJob(revision.length);
+    _signatureCoreJob = job;
+    _signatureCoreJobCount++;
+    var cores = const <String, PdfSignatureCryptoCore>{};
+    try {
+      cores = await computeSignatureCores(revision,
+          password: _password, fieldNames: missing.keys.toList());
+    } catch (_) {
+      // whatever is missing is computed inline by the validation itself
+    } finally {
+      if (job.valid && !_disposed) {
+        _signatureCores.addAll(cores);
+        for (final MapEntry(key: name, value: ranges) in missing.entries) {
+          if (!cores.containsKey(name)) {
+            _signatureCoresUnavailable[name] = ranges;
+          }
+        }
+      }
+      if (identical(_signatureCoreJob, job)) _signatureCoreJob = null;
+      job.done.complete();
+    }
+  }
+
+  /// Forgets the cores whose signed bytes may have been rewritten: all of
+  /// them, or those covering bytes past [beyond]. A computation in flight over
+  /// such bytes is discarded when it lands.
+  void _dropSignatureCores({int? beyond}) {
+    if (beyond == null) {
+      _signatureCores.clear();
+      _signatureCoresUnavailable.clear();
+    } else {
+      _signatureCores.removeWhere((_, core) => core.coveredEnd > beyond);
+      _signatureCoresUnavailable
+          .removeWhere((_, ranges) => ranges[2] + ranges[3] > beyond);
+    }
+    _signatureCoresRevision = -1;
+    final job = _signatureCoreJob;
+    if (job != null && (beyond == null || job.length > beyond)) {
+      job.valid = false;
+    }
   }
 
   /// Removes a digital signature as one undoable revision: drops its signature
@@ -2830,12 +3187,17 @@ class PdfEditingController extends ChangeNotifier {
   /// discarding undo history. Used by [applyRedactions] (the burned file
   /// is not a prefix of the prior buffer).
   void _resetTo(Uint8List bytes, {required PdfEditImpact impact}) {
+    // a file without /ID keeps filing its secrets under the hash of the bytes
+    // as opened - take it before they are replaced (the burn is O(file) too)
+    _resolveFormSecretId();
     final secrets = _revisionSecrets[_cursor];
     _revisionSecrets
       ..clear()
       ..add(secrets);
     _bytes = bytes;
     _used = bytes.length;
+    // a burn rewrites the whole file, signed bytes included
+    _dropSignatureCores();
     _revisions
       ..clear()
       ..add(bytes.length);
@@ -2856,7 +3218,10 @@ class PdfEditingController extends ChangeNotifier {
     // viewer blanks each page's raster instead of holding the (now
     // un-redacted) one up while the fresh render lands
     if (impact.destructive) _destructiveStampEpoch++;
-    _document = PdfDocument.open(bytes, password: _password);
+    // the compaction refuses an encrypted file, so a burned file opens plainly
+    // and keys are donated only when nothing burned and the editor saved an
+    // ordinary incremental update
+    _document = _openRevision(bytes);
     _revisionId++;
     _invalidateElements();
     notifyListeners();
@@ -4776,6 +5141,9 @@ class PdfEditingController extends ChangeNotifier {
       pageStructureChanged: result['pageStructureChanged'] as bool? ?? false,
       destructive: result['destructive'] as bool? ?? false,
     );
+    // The worker rebuilt the whole file, and nothing checks that it kept the
+    // previous revision as a byte prefix: no signed bytes are known intact.
+    _dropSignatureCores();
     _commitSavedRevision(
       saved,
       beforeLength: beforeLength,
@@ -8844,7 +9212,10 @@ class PdfEditingController extends ChangeNotifier {
   /// pointer event.
   PdfAcroForm? get acroForm {
     if (!_formResolved) {
-      _form = PdfAcroForm.of(_document);
+      _form = PdfAcroForm.of(_document,
+          onFields: _formSecretsPending
+              ? _decideFormSecretsOn(opened: _cursor == 0)
+              : null);
       _formResolved = true;
     }
     return _form;
@@ -8920,11 +9291,13 @@ class PdfEditingController extends ChangeNotifier {
     _pendingSecrets = {...current, name: value};
     final bool committed;
     try {
+      // always the id the store files under - never null, which would make
+      // setPasswordValue hash the *current* revision for a file without /ID
       committed = _fillField(
           name,
           const {PdfFieldType.text},
           (e, f) =>
-              e.setPasswordValue(f, value, documentId: _formSecretIdBytes));
+              e.setPasswordValue(f, value, documentId: _resolveFormSecretId()));
     } finally {
       _pendingSecrets = null;
     }
@@ -9468,4 +9841,15 @@ class PdfSignatureTrustAction {
   /// Runs the action. The host re-validates by updating the controller's
   /// [PdfEditingController.trustStore] once the new anchors are in.
   final Future<void> Function() onPressed;
+}
+
+/// A [PdfEditingController] signature-core computation on a helper isolate,
+/// over the first [length] bytes of the session buffer. [valid] drops when a
+/// revision rewrites any of those bytes, and the result is then discarded.
+class _SignatureCoreJob {
+  _SignatureCoreJob(this.length);
+
+  final int length;
+  bool valid = true;
+  final Completer<void> done = Completer<void>();
 }

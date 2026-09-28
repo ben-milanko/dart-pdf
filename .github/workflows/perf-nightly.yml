@@ -1,19 +1,44 @@
 # Nightly perf trend run (the long-term performance push).
 #
 # Wall-time numbers from a shared runner are only comparable within one job,
-# so regressions are judged by the BASELINE-RERUN RATIO CHECK: the previous
-# nightly's commit is checked out into a worktree and re-measured on this
-# same runner, interleaved with the current tree (tool/perf/perf_diff.sh),
-# and the job fails on a >15% median regression - which emails the
-# maintainer. The absolute numbers still land on the perf-data branch for
-# the trend dashboard (GitHub Pages serves history/index.html from there;
-# one-time setup: repo Settings -> Pages -> deploy from perf-data branch).
+# so VM regressions are judged by the BASELINE-RERUN RATIO CHECK: a baseline
+# commit is checked out into a worktree and re-measured on this same runner,
+# interleaved with the current tree (tool/perf/nightly_ratio_check.sh, over
+# tool/perf/perf_diff.sh), and a >15% median regression is red. Two baselines,
+# each in its own step:
+#   - nightly: the previous nightly's commit. A regression is red on the night
+#     it lands, naming its own commit range, and is the baseline from the next
+#     night on. To re-check a red night, re-run the job or dispatch the
+#     workflow on the same commit: while HEAD has not moved, a red night's
+#     comparison is repeated rather than HEAD compared with itself, and a
+#     re-run replaces its earlier attempt's night on perf-data. A night whose
+#     check errored judged nothing, so its baseline is carried into the next
+#     night once (tool/perf/nightly_state.dart has the rules).
+#   - accepted (Sundays, the check_accepted dispatch input, or whenever the
+#     last accepted check on record is a week old): the commit in
+#     tool/perf/baselines/nightly-accepted.sha, which only moves in a reviewed
+#     PR (like the counter gate's --update-baseline). It catches creep that
+#     stays under 15% a night, and anything not yet accepted.
+# The flutter-render suites are too slow to re-measure a baseline, so they are
+# judged night over night instead (tool/perf/render_trend.dart).
+#
+# No verdict stops the history: the absolute numbers and each night's verdict
+# land on the perf-data branch on a red night too - skipping the append on red
+# froze the baseline and the dashboard for two months from 2026-07-26 - and the
+# job fails in its LAST step, so a red night still emails the maintainer.
+# GitHub Pages serves the dashboard from perf-data (one-time setup: repo
+# Settings -> Pages -> deploy from perf-data branch).
 name: perf-nightly
 
 on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      check_accepted:
+        description: 'Also ratio-check against tool/perf/baselines/nightly-accepted.sha (the Sunday check)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -25,7 +50,17 @@ concurrency:
 jobs:
   nightly:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # A job timeout is a cancellation, which skips the append below and loses
+    # the night, so it must never be what stops a slow check. Every step from
+    # the sweeps through the append has its own timeout-minutes (a check that
+    # runs out of time fails its step, is recorded as `error`, and the history
+    # still lands), and the job allows their sum plus 20 min of setup:
+    # 45 + 80 + 80 + 10 + 5 + 10 + 15 + 20 = 265 (tool/perf/nightly_test.dart
+    # holds the workflow to that). Over the 68 logged nights 07-20..09-25 the
+    # sweeps took 15-28 min and one baseline's ratio check projects to 32-60
+    # min at these iteration counts: a weekday runs ~50-90 min, a Sunday
+    # (two baselines) ~80-150 min.
+    timeout-minutes: 270
     steps:
       - uses: actions/checkout@v7
         with:
@@ -42,33 +77,189 @@ jobs:
         run: |
           git fetch origin perf-data:perf-data 2>/dev/null || echo "no perf-data branch yet"
 
+      # Resolved before anything touches perf-data: the append step's worktree
+      # advances the local perf-data ref, so a later read would return HEAD.
+      # The previous nightly comes from the verdict records - only this
+      # workflow writes those, while a backfill appends OLD commits to the
+      # envelope history - falling back to the vm-sweep tail before the verdict
+      # file exists. On a re-run, perf-data is read as it stood before this
+      # run's first attempt appended (outputs: base, sha, rule, accepted_due,
+      # run_commit, superseded - see tool/perf/nightly_state.dart).
+      - name: Resolve the previous nightly's commit
+        id: prev
+        timeout-minutes: 5
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          out="$RUNNER_TEMP/prev.out"
+          if ! dart tool/perf/nightly_state.dart resolve --ref perf-data \
+              --head "$(git rev-parse HEAD)" --run-id "$RUN_ID" > "$out"; then
+            echo "::warning::could not read perf-data's nightly state - tonight's checks run without a baseline"
+            : > "$out"
+          fi
+          cat "$out"
+          cat "$out" >> "$GITHUB_OUTPUT"
+
       - name: Run CI-safe scenario sweeps
+        id: sweeps
+        timeout-minutes: 45
         run: tool/perf/nightly.sh out/perf-history
 
-      - name: Baseline-rerun ratio check vs previous nightly
-        run: |
-          PREV_SHA=""
-          if git rev-parse -q --verify perf-data >/dev/null; then
-            PREV_SHA=$(git show perf-data:history/vm-sweep.ndjson 2>/dev/null |
-              tail -1 |
-              python3 -c 'import json,sys; line = sys.stdin.read().strip(); print(json.loads(line)["rev"]["sha"] if line else "")' || true)
-          fi
-          if [ -z "$PREV_SHA" ] || ! git cat-file -e "$PREV_SHA" 2>/dev/null; then
-            echo "no previous nightly sha - skipping ratio check (first run)"
-            exit 0
-          fi
-          if [ "$PREV_SHA" = "$(git rev-parse HEAD)" ]; then
-            echo "no new commits since last nightly - skipping ratio check"
-            exit 0
-          fi
-          echo "ratio check vs $PREV_SHA (same-runner, interleaved)"
-          tool/perf/perf_diff.sh "$PREV_SHA" save-incremental \
-            --iterations 2 --threshold 1.15 --clean
-          tool/perf/perf_diff.sh "$PREV_SHA" ghent-suite-open \
-            --iterations 2 --threshold 1.15 --clean
+      # continue-on-error: a red verdict - or a check that runs out its
+      # timeout-minutes, which fails the step the same way - must not skip the
+      # append below. The last step turns the job red instead.
+      - name: Ratio check vs the previous nightly
+        id: ratio
+        continue-on-error: true
+        timeout-minutes: 80
+        env:
+          PREV_SHA: ${{ steps.prev.outputs.sha }}
+        run: tool/perf/nightly_ratio_check.sh nightly "$PREV_SHA"
 
-      - name: Append history + rebuild dashboard on perf-data
+      # Sundays, plus a backstop: when the last accepted check on record is a
+      # week old (GitHub dropped a Sunday run, or its sweeps failed) or there
+      # is none, it runs tonight instead of waiting for the next Sunday.
+      - name: Ratio check vs the accepted baseline (weekly)
+        id: accepted
+        continue-on-error: true
+        timeout-minutes: 80
+        env:
+          CHECK_ACCEPTED: ${{ inputs.check_accepted }}
+          ACCEPTED_DUE: ${{ steps.prev.outputs.accepted_due }}
+          ACCEPTED_WHY: ${{ steps.prev.outputs.accepted_why }}
         run: |
+          if [ "$(date -u +%u)" = 7 ] || [ "$CHECK_ACCEPTED" = true ] ||
+            [ "$ACCEPTED_DUE" = true ]; then
+            echo "accepted: running (${ACCEPTED_WHY:-Sunday or dispatch input})"
+            tool/perf/nightly_ratio_check.sh accepted \
+              --sha-file tool/perf/baselines/nightly-accepted.sha
+          else
+            echo "accepted: runs on Sundays, with the check_accepted input, or a week after the last one - not tonight (${ACCEPTED_WHY:-})"
+            echo "accepted=not-run" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Tonight's flutter-render envelopes vs the previous nights' (suite
+      # median of per-file renderMs ratios against the median of up to 5 prior
+      # nights, red at 1.4x; a flagged night is the new level, so a step is red
+      # once; nights at tonight's own commit are left out). Reads perf-data at
+      # the prev step's base: before the append below adds tonight, and on a
+      # re-run before the earlier attempt added it.
+      - name: Render trend check vs the previous nights
+        id: render_trend
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          BASE: ${{ steps.prev.outputs.base }}
+        run: |
+          set +e
+          prior="$RUNNER_TEMP/flutter-render-prior.ndjson"
+          : > "$prior"
+          if [ -n "$BASE" ]; then
+            git show "$BASE:history/flutter-render.ndjson" > "$prior" 2>/dev/null || : > "$prior"
+          fi
+          dart tool/perf/render_trend.dart --history "$prior" \
+            --current out/perf-history/flutter-render.ndjson \
+            --nights 5 --threshold 1.4 --summary "$GITHUB_STEP_SUMMARY"
+          rc=$?
+          case "$rc" in
+            0) verdict=ok ;;
+            1) verdict=regressed ;;
+            *) verdict=error ;;
+          esac
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      # One line per measured night, appended to perf-data's
+      # history/nightly-verdicts.jsonl (.jsonl, not .ndjson: the dashboard
+      # charts every *.ndjson line as an envelope; it draws its verdict strip
+      # from this file instead). Its sha is the next night's nightly baseline.
+      - name: Record tonight's verdict
+        id: verdict
+        if: ${{ !cancelled() && steps.sweeps.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          PREV_SHA: ${{ steps.prev.outputs.sha }}
+          PREV_RULE: ${{ steps.prev.outputs.rule }}
+          NIGHTLY: ${{ steps.ratio.outputs.nightly }}
+          RATIO_OUTCOME: ${{ steps.ratio.outcome }}
+          ACCEPTED: ${{ steps.accepted.outputs.accepted }}
+          ACCEPTED_SHA: ${{ steps.accepted.outputs.accepted_sha }}
+          ACCEPTED_OUTCOME: ${{ steps.accepted.outcome }}
+          TREND: ${{ steps.render_trend.outputs.verdict }}
+          TREND_OUTCOME: ${{ steps.render_trend.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          mkdir -p out
+          python3 - <<'EOF'
+          import datetime, json, os, subprocess
+          env = os.environ
+          def died(outcome):
+              # A step that failed (or timed out) before recording its verdict.
+              return 'error' if outcome == 'failure' else 'skipped'
+          checks = {
+              'nightly': env.get('NIGHTLY') or died(env.get('RATIO_OUTCOME')),
+              'accepted': env.get('ACCEPTED') or died(env.get('ACCEPTED_OUTCOME')),
+              'renderTrend': env.get('TREND') or died(env.get('TREND_OUTCOME')),
+          }
+          states = set(checks.values())
+          verdict = ('regressed' if 'regressed' in states
+                     else 'error' if 'error' in states else 'ok')
+          record = {
+              'date': datetime.datetime.now(datetime.timezone.utc)
+                  .strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                             text=True).strip(),
+              'prevSha': env.get('PREV_SHA') or None,
+              'prevRule': env.get('PREV_RULE') or None,
+              'acceptedSha': env.get('ACCEPTED_SHA') or None,
+              'verdict': verdict,
+              'checks': checks,
+              'runId': env.get('RUN_ID'),
+              'attempt': int(env.get('RUN_ATTEMPT') or 1),
+          }
+          line = json.dumps(record)
+          print(line)
+          with open('out/nightly-verdict.jsonl', 'a') as f:
+              f.write(line + '\n')
+          with open(env['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'verdict={verdict}\n')
+          EOF
+
+      # The night's envelopes survive even if the append below fails; before
+      # this, the only copy of a red night was the (90-day) Actions log.
+      # The name carries the attempt: a re-run keeps the run id, and
+      # upload-artifact refuses a second artifact of the same name in one run.
+      - name: Upload tonight's envelopes
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-history-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            out/perf-history/
+            out/nightly-verdict.jsonl
+          if-no-files-found: warn
+          retention-days: 90
+
+      # Runs on a red verdict too, but never after a failed or cancelled sweep:
+      # that would append partial history and make an unmeasured commit the
+      # next night's baseline. One night per run: the Perf-Nightly-Run trailer
+      # lets a re-run find its earlier attempt's append and replace it.
+      - name: Append history + rebuild dashboard on perf-data
+        if: ${{ !cancelled() && steps.sweeps.outcome == 'success' }}
+        timeout-minutes: 15
+        env:
+          VERDICT: ${{ steps.verdict.outputs.verdict }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_COMMIT: ${{ steps.prev.outputs.run_commit }}
+          SUPERSEDED: ${{ steps.prev.outputs.superseded }}
+        run: |
+          if [ "$SUPERSEDED" = true ]; then
+            echo "::notice::a later night is already on perf-data, so this re-run's night stays in its artifact and on this run page"
+            exit 0
+          fi
           git config user.name "perf-nightly"
           git config user.email "perf-nightly@users.noreply.github.com"
           if git rev-parse -q --verify perf-data >/dev/null; then
@@ -77,16 +268,43 @@ jobs:
             git worktree add --detach ../perf-data
             (cd ../perf-data && git checkout --orphan perf-data && git rm -rf -q . || true)
           fi
+          if [ -n "$RUN_COMMIT" ]; then
+            # A re-run: drop the earlier attempt's lines so the night is
+            # recorded once, with this attempt's numbers and verdict.
+            dart tool/perf/nightly_state.dart drop-run --commit "$RUN_COMMIT" --dir ../perf-data
+          fi
           mkdir -p ../perf-data/history
           for f in out/perf-history/*.ndjson; do
             [ -e "$f" ] || continue
             cat "$f" >> "../perf-data/history/$(basename "$f")"
           done
+          if [ -e out/nightly-verdict.jsonl ]; then
+            cat out/nightly-verdict.jsonl >> ../perf-data/history/nightly-verdicts.jsonl
+          fi
           node tool/perf/report/build_report.mjs \
             --history ../perf-data/history \
             --targets tool/perf/targets.json \
             --out ../perf-data/index.html
+          run="run $RUN_ID"
+          if [ "${RUN_ATTEMPT:-1}" -gt 1 ]; then run="$run attempt $RUN_ATTEMPT"; fi
           cd ../perf-data
           git add -A
-          git commit -m "perf-nightly: $(date -u +%F) @ $(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)"
+          git commit \
+            -m "perf-nightly: $(date -u +%F) @ $(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD) (${VERDICT:-no verdict}, $run)" \
+            -m "Perf-Nightly-Run: $RUN_ID"
           git push origin HEAD:perf-data
+
+      - name: Fail on a red verdict
+        if: ${{ !cancelled() && (steps.ratio.outcome == 'failure' || steps.accepted.outcome == 'failure' || steps.render_trend.outcome == 'failure') }}
+        timeout-minutes: 5
+        env:
+          NIGHTLY: ${{ steps.ratio.outputs.nightly }}
+          ACCEPTED: ${{ steps.accepted.outputs.accepted }}
+          TREND: ${{ steps.render_trend.outputs.verdict }}
+        run: |
+          echo "::error::perf-nightly: nightly=${NIGHTLY:-error} accepted=${ACCEPTED:-error} renderTrend=${TREND:-error} - see the check steps above; tonight's history was still recorded"
+          echo "To re-check this night, re-run the job (or dispatch on the same commit): it repeats tonight's comparisons, and a re-run replaces this night on perf-data."
+          if [ "${NIGHTLY:-error}" = error ]; then
+            echo "The nightly check errored, so it judged nothing: the next night compares against this night's baseline instead, once. If that errors too, the range is covered only by the weekly accepted check or a local tool/perf.sh diff against this night's prevSha."
+          fi
+          exit 1

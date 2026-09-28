@@ -144,6 +144,32 @@ enum PdfPerfCount {
   fontsParsed,
   fontParseFailed,
 
+  /// Text runs whose glyph outlines were baked into one page-space path
+  /// (pdf_graphics). Only a tiling-pattern text fill and a page with a live
+  /// colorant buffer need that path, so an ordinary text page counts 0.
+  glyphOutlinePaths,
+
+  /// Pages that opened an overprint colorant buffer (pdf_graphics): the page
+  /// declares `/OP`, `/op` or a DeviceCMYK blending group. Every other page
+  /// counts 0 in all the `colorant*` counters.
+  colorantBufferPages,
+
+  /// Draws a colorant buffer took (fills, strokes, glyph runs, clips, images,
+  /// shadings, unknown marks), the same count its per-page draw cap uses.
+  colorantDraws,
+
+  /// Of [colorantDraws], those whose geometry was actually rasterized into
+  /// the buffer.
+  colorantRasterized,
+
+  /// Draws and queries that read the buffer's backdrop cells: an effective
+  /// overprint or group blend, a shading, an overprinting image or stencil,
+  /// a group's uniform backdrop.
+  colorantBackdropReads,
+
+  /// Transparency groups opened on a colorant buffer.
+  colorantGroups,
+
   /// Style-matched fallback fonts embedded by replaceText.
   fallbackFontEmbedded,
 

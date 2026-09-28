@@ -103,6 +103,18 @@
       "params": { "ops": 24 },
       "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
     },
+    "editlat-underlay": {
+      "kind": "editlat",
+      "pdf": "test_corpora/dartpdf/raster-underlay-1p.pdf",
+      "params": { "ops": 8, "gap": 1500, "mode": "mixed" },
+      "note": "Per-edit latency on a raster underlay page through PdfViewer(editing:) and its default render worker: 8 edits 1.5 s apart alternating a rectangle and a 20pt content move of the image. editlatContentReadyMsMedian is edit to new raster (a restarted worker re-decodes the underlay); editlatWorkerGenerations should stay 1 (a worker that updates revisions in place)."
+    },
+    "editlat-plan": {
+      "kind": "editlat",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "ops": 8, "gap": 1500, "mode": "mixed" },
+      "note": "The editlat journey on a dense vector sheet; also the shape to run with PERF_PDF for a large real-world file, where editlatAnnotSyncMsMedian shows the UI-thread hand-off of each revision to the worker."
+    },
     "warm-plan-off": {
       "kind": "warm",
       "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",

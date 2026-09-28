@@ -189,6 +189,24 @@ class PdfBudgetedCache<K, V> {
     return cloner == null ? entry.value : cloner(entry.value);
   }
 
+  /// The stored value for [key], counted as a hit or miss like [take] but
+  /// without touching LRU order or running the [cloner]; null on a miss.
+  ///
+  /// For admission-only caches: ones that store an entry only while it fits
+  /// and never rely on their own bounds to evict. Their recency order is then
+  /// insertion order, which is all the [PdfCacheRegistry] ceiling's hard trim
+  /// needs, so a hot lookup can skip the list unlink and relink a [take] pays.
+  /// Returns the master itself, never a clone.
+  V? lookup(K key) {
+    final entry = _entries[key];
+    if (entry == null) {
+      _misses++;
+      return null;
+    }
+    _hits++;
+    return entry.value;
+  }
+
   /// Stores [value] under [key] (the cache takes ownership, disposing any
   /// previous value for that key) and evicts down to the bounds. Returns
   /// [value] itself - the caller has handed it off. Use [putAndClone] when the

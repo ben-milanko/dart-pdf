@@ -1204,6 +1204,12 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get sigTitle => '서명';
 
   @override
+  String get sigUseTrackpad => '트랙패드 사용';
+
+  @override
+  String get sigTrackpadHint => '한 손가락으로 트랙패드에 그리세요. 완료되면 아무 키나 누르세요.';
+
+  @override
   String get signIdCreate => '만들기';
 
   @override

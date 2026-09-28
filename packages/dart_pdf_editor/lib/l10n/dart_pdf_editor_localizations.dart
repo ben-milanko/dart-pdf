@@ -2260,6 +2260,18 @@ abstract class DartPdfEditorLocalizations {
   /// **'Signature'**
   String get sigTitle;
 
+  /// Signature pad button that starts drawing the signature with a finger on the laptop trackpad (like macOS Preview).
+  ///
+  /// In en, this message translates to:
+  /// **'Use trackpad'**
+  String get sigUseTrackpad;
+
+  /// Hint shown over the signature pad while trackpad drawing is active.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw on your trackpad with one finger. Press any key when finished.'**
+  String get sigTrackpadHint;
+
   /// Confirm button label in the create-signing-identity dialog.
   ///
   /// In en, this message translates to:

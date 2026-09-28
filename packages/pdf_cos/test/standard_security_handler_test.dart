@@ -269,6 +269,126 @@ void main() {
     expect(title.text, 'Rewritten');
   });
 
+  group('openAppended on another revision', () {
+    // An update over [original] that rewrites /Info, optionally also
+    // replacing the /Encrypt object (same number) with [encrypt].
+    Uint8List revise(CosDocument original, {CosDictionary? encrypt}) {
+      final updater = CosIncrementalUpdater(original);
+      final infoRef = original.trailer['Info'] as CosReference;
+      final info = original.resolve(infoRef) as CosDictionary;
+      info['Title'] = CosString.fromText('Rewritten');
+      updater.replaceObject(infoRef.objectNumber, info);
+      if (encrypt != null) {
+        updater.replaceObject(original.encryptObjectNumber!, encrypt);
+      }
+      return updater.save();
+    }
+
+    String titleOf(CosDocument document) =>
+        ((document.resolve(document.trailer['Info']) as CosDictionary)['Title']
+                as CosString)
+            .text;
+
+    test('an earlier revision (an undo) reuses the keys, not the password', () {
+      final bytes = buildEncryptedPdf(revision: 6, userPassword: 'user');
+      final original = CosDocument.open(bytes, password: 'user');
+      final latest = original.openAppended(revise(original));
+      expect(latest.encryption, same(original.encryption));
+
+      // the prefix the first revision ended at: same /Encrypt, no password
+      final earlier = latest.openAppended(bytes);
+      expect(earlier.encryption, same(original.encryption));
+      expect(titleOf(earlier), 'Secret Title');
+    });
+
+    test('a revision that re-keys /Encrypt authenticates its own password', () {
+      final original = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'user'),
+          password: 'user');
+      // same object number and file key (the fixture's), but /U, /UE, /O,
+      // /OE now answer to a different user password
+      final other = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'other'),
+          password: 'other');
+      final rekeyed = revise(original,
+          encrypt: other.resolve(other.trailer['Encrypt']) as CosDictionary);
+
+      expect(() => original.openAppended(rekeyed),
+          throwsA(isA<CosPasswordException>()),
+          reason: 'the old keys are not donated to different key material');
+      final reopened = original.openAppended(rekeyed, password: 'other');
+      expect(reopened.encryption, isNot(same(original.encryption)));
+      expect(titleOf(reopened), 'Rewritten');
+    });
+
+    test('a donor that folded in a re-keyed /Encrypt vouches only for its own',
+        () {
+      // applyIncrementalUpdate keeps the handler it authenticated while the
+      // folded revision redefines the /Encrypt object: the guard compares
+      // against the dictionary those keys came from, not the donor's trailer
+      final original = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'user'),
+          password: 'user');
+      final other = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'other'),
+          password: 'other');
+      final rekeyed = revise(original,
+          encrypt: other.resolve(other.trailer['Encrypt']) as CosDictionary);
+      final keys = original.encryption;
+      original.applyIncrementalUpdate(rekeyed);
+      expect(original.encryption, same(keys));
+
+      expect(() => original.openAppended(rekeyed),
+          throwsA(isA<CosPasswordException>()),
+          reason: 'the keys were derived from the old /Encrypt, not this one');
+      final reopened = original.openAppended(rekeyed, password: 'other');
+      expect(reopened.encryption, isNot(same(keys)));
+      expect(titleOf(reopened), 'Rewritten');
+    });
+
+    test('an /Encrypt entry the handler never read still donates', () {
+      // an indirect object under /Encrypt that fromEncrypt does not load:
+      // the donor's snapshot must hold its raw strings (taken before the
+      // handler decrypts new loads), which is what the next revision sees
+      final original = CosDocument.open(
+          buildEncryptedPdf(revision: 6, userPassword: 'user'),
+          password: 'user');
+      final encrypt =
+          original.resolve(original.trailer['Encrypt']) as CosDictionary;
+      final updater = CosIncrementalUpdater(original);
+      final extra = updater
+          .addObject(CosDictionary({'Note': CosString.fromText('vendor')}));
+      updater.replaceObject(original.encryptObjectNumber!,
+          CosDictionary({...encrypt.entries, 'VendorNote': extra}));
+      final bytes = updater.save();
+
+      final extended = CosDocument.open(bytes, password: 'user');
+      final reopened = extended.openAppended(bytes);
+      expect(reopened.encryption, same(extended.encryption),
+          reason: 'the same /Encrypt, so the same keys, without the password');
+      expect(titleOf(reopened), 'Secret Title');
+    });
+
+    test('a revision that only swaps a crypt filter is not given the old keys',
+        () {
+      // /O, /U, /OE, /UE untouched - the key is the same - but the rewritten
+      // /Encrypt declares streams unencrypted: the old handler would still
+      // AES-decrypt them
+      final original = CosDocument.open(buildEncryptedPdf(revision: 6));
+      final encrypt =
+          original.resolve(original.trailer['Encrypt']) as CosDictionary;
+      final identityStreams = revise(original,
+          encrypt: CosDictionary(
+              {...encrypt.entries, 'StmF': const CosName('Identity')}));
+
+      final reopened = original.openAppended(identityStreams);
+      expect(reopened.encryption, isNot(same(original.encryption)));
+      expect(original.encryption!.streamCipher, PdfCipher.aes256);
+      expect(reopened.encryption!.streamCipher, PdfCipher.none);
+      expect(titleOf(reopened), 'Rewritten');
+    });
+  });
+
   test('the /Encrypt string ciphers are the ones the handler advertises', () {
     // sanity: the fixture handler really uses RC4 so the round-trips above
     // are meaningful (a no-op cipher would pass every assertion vacuously).

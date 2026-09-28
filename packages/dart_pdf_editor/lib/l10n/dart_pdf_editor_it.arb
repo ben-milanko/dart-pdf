@@ -359,6 +359,8 @@
   "sidebarSelectedCount": "{count, plural, one{{count} selezionato} other{{count} selezionati}}",
   "sidebarWriteReplyHint": "Scrivi una risposta…",
   "sigTitle": "Firma",
+  "sigUseTrackpad": "Usa trackpad",
+  "sigTrackpadHint": "Disegna sul trackpad con un dito. Premi un tasto qualsiasi quando hai finito.",
   "signIdCreate": "Crea",
   "signIdEmail": "Email (facoltativo)",
   "signIdName": "Nome",

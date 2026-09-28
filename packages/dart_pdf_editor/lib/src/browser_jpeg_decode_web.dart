@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
@@ -184,6 +185,9 @@ Future<Uint8List?> inflateZlibWithBrowser(Uint8List encoded) async {
     final decompressor = web.DecompressionStream('deflate');
     final writer = decompressor.writable.getWriter();
     final output = web.Response(decompressor.readable).arrayBuffer().toDart;
+    // A rejected write skips `await output`; keep its rejection from being
+    // reported as an uncaught error on top of the null returned below.
+    output.ignore();
     await writer.write(encoded.toJS).toDart;
     await writer.close().toDart;
     return (await output).toDart.asUint8List();

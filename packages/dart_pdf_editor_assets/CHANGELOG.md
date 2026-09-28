@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.0
+
+- Version bump to track the 5.1.0 suite.
+
 ## 5.0.0
 
 - Bundle Carlito, the metric-compatible Calibri clone, in regular, bold,

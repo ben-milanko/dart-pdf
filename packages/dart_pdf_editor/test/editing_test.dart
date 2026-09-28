@@ -1600,8 +1600,10 @@ void main() {
       expect(editing.tool, PdfEditTool.select);
       expect(editing.selectedAnnotation?.subtype, 'Text');
 
-      // the first Delete button belongs to the page-1 note tile
-      await tester.tap(find.byTooltip('Delete').first);
+      // on touch the page-1 note tile's delete lives in its "more" menu
+      await tester.tap(find.byKey(const ValueKey('pdf-annotation-more-0-0')));
+      await settle(tester);
+      await tester.tap(find.byKey(const ValueKey('pdf-annotation-delete-0-0')));
       await settle(tester);
       expect(editing.document.page(0).annotations, isEmpty);
       expect(editing.document.page(1).annotations, hasLength(1));

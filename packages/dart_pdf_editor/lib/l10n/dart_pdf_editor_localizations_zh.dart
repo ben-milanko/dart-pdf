@@ -1201,6 +1201,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get sigTitle => '签名';
 
   @override
+  String get sigUseTrackpad => '使用触控板';
+
+  @override
+  String get sigTrackpadHint => '用一根手指在触控板上书写。完成后按任意键。';
+
+  @override
   String get signIdCreate => '创建';
 
   @override
@@ -3390,6 +3396,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get sigTitle => '簽名';
+
+  @override
+  String get sigUseTrackpad => '使用觸控式軌跡板';
+
+  @override
+  String get sigTrackpadHint => '用一根手指在觸控式軌跡板上書寫。完成後按任意鍵。';
 
   @override
   String get signIdCreate => '建立';

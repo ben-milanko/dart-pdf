@@ -113,8 +113,7 @@ PdfResourceOptimizationStats prunePdfResources(PdfDocument document) {
             0, ['Resources used by PostScript XObjects were preserved.']);
       }
     }
-    for (var i = 0; i < document.pageCount; i++) {
-      final page = document.page(i);
+    for (final page in document.pages) {
       resources.add(page.resources);
       final contents = cos.resolve(page.dict['Contents']);
       final chunks = contents is CosArray ? contents.items : [contents];

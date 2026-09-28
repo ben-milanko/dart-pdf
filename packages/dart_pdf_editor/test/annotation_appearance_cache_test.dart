@@ -484,4 +484,49 @@ void main() {
     expect(await reds(oldCenter), 0,
         reason: 'the stale picture must not linger at the old /Rect');
   });
+
+  // Regression: a moved annotation's old picture used to stay painted until
+  // its re-render published, so the editing overlay washed the old spot with
+  // paper to hide it - and a heavy appearance (a vector snapshot replaying a
+  // whole CAD page) left that paper box over the real page content for as
+  // long as the re-render took. The layer now drops the stale picture in the
+  // same frame the revision lands, keeping every untouched one.
+  testWidgets('a move drops the stale picture before its re-render lands',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+    editing.addRectangle(0, const PdfRect(300, 600, 450, 640));
+    await tester.pumpAndSettle();
+
+    List<ui.Picture> painted() => [
+          for (final paint
+              in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+            if (paint.painter.runtimeType.toString() ==
+                '_AnnotationAppearancePainter')
+              ...(paint.painter as dynamic).pictures as List<ui.Picture>,
+        ];
+    final before = painted();
+    expect(before, hasLength(2));
+
+    final pending = Completer<ui.Picture?>();
+    PdfViewer.debugAnnotationAppearanceRendererOverride =
+        (_, __, ___) => pending.future;
+    addTearDown(() {
+      PdfViewer.debugAnnotationAppearanceRendererOverride = null;
+      if (!pending.isCompleted) pending.complete(null);
+    });
+
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    editing.moveSelected(0, -300);
+    await tester.pump();
+
+    // The re-render is still pending: only the untouched box paints.
+    expect(painted(), [same(before[1])]);
+
+    pending.complete(dot());
+    await tester.pumpAndSettle();
+    expect(painted(), hasLength(2));
+  });
 }

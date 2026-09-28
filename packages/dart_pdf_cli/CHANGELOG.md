@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Align dependency constraints with the dart-pdf 5.1.0 package suite.
+
 ## 0.2.0
 
 - The forms listing reports the whole selection of a multi-select list box:

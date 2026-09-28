@@ -12,6 +12,7 @@ add_executable(${BINARY_NAME} WIN32
   "image_clipboard.cpp"
   "main.cpp"
   "platform_channels.cpp"
+  "trackpad_signature.cpp"
   "utils.cpp"
   "windows_drop.cpp"
   "win32_window.cpp"
@@ -45,6 +46,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib" "ole32.lib")
 # file_dialogs.cpp: the common-item open/save dialogs (IFileDialog lives in
 # shell32; ole32 is already linked above for COM itself).
 target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")
+# trackpad_signature.cpp: HidP_* parsing of Precision Touchpad reports.
+target_link_libraries(${BINARY_NAME} PRIVATE "hid.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

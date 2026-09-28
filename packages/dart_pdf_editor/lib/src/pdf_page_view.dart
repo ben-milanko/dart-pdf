@@ -4056,6 +4056,28 @@ class _PdfPageViewState extends State<PdfPageView>
               pixelRatio: effective,
               stripPlan: stripPlan,
             );
+      } else if (scene != null &&
+          !stripScene &&
+          !_sceneIsTileOnly(scene) &&
+          _imageState == null &&
+          !_pictureHasImageDraws) {
+        // The first full base raster of a flat-replay scene. [picture] is the
+        // scene's own 1:1 replay (built with it, or restored with it), so
+        // scaling it through a layer gives the same pixels as replaying the
+        // transcript again - which is what scene.rasterize does: a second
+        // full walk in this same UI task, on a 5k-20k-command page that is
+        // too dense to present directly and not dense enough for strips.
+        // Later zoom settles keep the flat replay. "No full base yet" is
+        // `_imageState`, not `_image`: the vector-first route parks an
+        // image-free raster in `_image` without recording state. Image-bearing
+        // pages (which are the ones that route serves) stay on the flat replay
+        // until an on-device Impeller check shows the layer path draws their
+        // images as fast.
+        rasterize = () => PdfPageRenderer.rasterizeViaLayer(
+              picture,
+              scene.pageSize,
+              effective,
+            );
       } else if (scene != null && !stripScene && !_sceneIsTileOnly(scene)) {
         rasterize = () => scene.rasterize(pixelRatio: effective);
       } else {

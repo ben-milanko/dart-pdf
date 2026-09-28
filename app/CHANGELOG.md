@@ -1,5 +1,43 @@
 # Changelog
 
+## 5.1.0
+
+- Draw your signature with a finger on the trackpad, the way Preview does, on
+  macOS, Windows and Android. Pick "Use trackpad" on the signature pad: the
+  trackpad maps onto the pad, touching it puts the pen down, and any key
+  finishes. The option only appears when a trackpad is attached.
+- See each annotation as it looks on the page in the annotation list and the
+  annotation library, instead of a generic icon.
+- On phones and tablets, a row's actions in the annotation list and the
+  bookmarks panel (lock, delete, add child, edit) now live in its ⋮ menu
+  instead of a row of icons.
+- Fix a moved stamp leaving a white box over the page while it re-drew. On a
+  large drawing the box could hide the page underneath for seconds.
+- Open a PDF from a fast local disk straight into editing on the desktop,
+  instead of showing a read-only preview first and then reloading the page.
+  Files on network shares, USB sticks and other slow storage still show the
+  preview first.
+- Keep dragging the stroke width and opacity sliders smooth: moving them no
+  longer rebuilds the whole window on every tick. Installed fonts are now
+  scanned in the background instead of while the editor first appears.
+- Fix blank pages and missing text in the web app for PDFs whose compressed
+  streams carry a stray byte at the end, and stop Reduce file size in the web
+  app emptying those streams in the saved file. One such stream no longer
+  sends every later page to slower rendering either.
+- P-521 ECDSA signatures now validate. They were all reported invalid.
+- Faster throughout: password-protected (AES) files open, render and undo
+  faster; checking signatures is several times quicker, no longer re-runs
+  after every edit, and on large signed files runs in the background outside
+  the web app; JPEG 2000
+  images decode about twice as fast; large drawings, scanned pages, pages
+  with overprint and pages set in unembedded fonts render sooner; edits,
+  undo and redo reach the page faster, and in the web app no longer restart
+  the page renderer; Reduce file size and redaction are faster on large
+  files; and page operations on documents with thousands of pages are
+  immediate.
+- Fix page edits (move, delete, insert, append) that could drop a page from
+  some PDFs whose page tree declares the wrong page count.
+
 ## 5.0.0
 
 - Fill forms that calculate, format and check their own values. The built-in

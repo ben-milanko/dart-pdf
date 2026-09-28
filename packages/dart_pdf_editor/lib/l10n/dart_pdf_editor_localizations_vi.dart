@@ -1210,6 +1210,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get sigTitle => 'Chữ ký';
 
   @override
+  String get sigUseTrackpad => 'Dùng bàn di chuột';
+
+  @override
+  String get sigTrackpadHint =>
+      'Vẽ trên bàn di chuột bằng một ngón tay. Nhấn phím bất kỳ khi hoàn tất.';
+
+  @override
   String get signIdCreate => 'Tạo';
 
   @override

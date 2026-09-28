@@ -157,10 +157,15 @@ extension PdfPageOperations on PdfEditor {
   /// Collects the current leaves in order, copying any attributes a page
   /// inherits from its ancestors onto the page itself - flattening is
   /// about to cut those ancestors out of the tree.
-  List<_Leaf> _materializedLeaves() {
-    final count = document.pageCount;
-    return [for (var i = 0; i < count; i++) _materialize(document.page(i))];
-  }
+  ///
+  /// One [PdfDocument.pages] walk, not a `page(i)` per index: on a flat tree
+  /// with a cold page cache (every wrapper after a non-structural revision)
+  /// each lookup rescans the /Kids prefix, which made a page op on a
+  /// 3000-page document cost ~0.8 s. The walk also takes every leaf in true
+  /// document order, where the /Count-trusting lookup repeats or skips pages
+  /// under an intermediate node whose /Count is too small.
+  List<_Leaf> _materializedLeaves() =>
+      [for (final page in document.pages) _materialize(page)];
 
   _Leaf _materialize(PdfPage page) {
     final cos = document.cos;
@@ -313,7 +318,10 @@ class _PageImporter {
 
   List<_Leaf> importPages(List<int> indices) {
     final cos = source.cos;
-    final pages = [for (final i in indices) source.page(i)];
+    // One walk of the source tree rather than a page(i) per index, which
+    // rescans a flat /Kids array from the start on every lookup.
+    final all = source.pages;
+    final pages = [for (final i in indices) all[i]];
     if (documentData) _prepareForms(pages);
 
     // pre-register every imported page so references between them - link

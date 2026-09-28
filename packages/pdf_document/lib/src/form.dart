@@ -43,13 +43,23 @@ enum PdfFormTextVerticalAlignment {
 /// The document's interactive form (§12.7.2): the catalog's /AcroForm
 /// dictionary plus the field tree hanging off /Fields.
 class PdfAcroForm {
-  PdfAcroForm._(this.document, this.dict);
+  PdfAcroForm._(this.document, this.dict, this._onFields);
 
   /// The document's form, or null if it has none.
-  static PdfAcroForm? of(PdfDocument document) {
+  ///
+  /// [onFields], when given, is called once with [fields] the first time
+  /// anything reads them - for a caller that only needs to look at the fields
+  /// once something walks them anyway, and should ride on that walk rather
+  /// than pay for one of its own.
+  static PdfAcroForm? of(PdfDocument document,
+      {void Function(List<PdfFormField> fields)? onFields}) {
     final dict = document.cos.resolve(document.catalog['AcroForm']);
-    return dict is CosDictionary ? PdfAcroForm._(document, dict) : null;
+    return dict is CosDictionary
+        ? PdfAcroForm._(document, dict, onFields)
+        : null;
   }
+
+  void Function(List<PdfFormField> fields)? _onFields;
 
   final PdfDocument document;
 
@@ -110,20 +120,26 @@ class PdfAcroForm {
   /// annotations that a broken producer left out of /Fields (see
   /// [_reconcileOrphanWidgets]), so the list reflects what actually shows
   /// on the page rather than the registered-but-invisible copies.
-  List<PdfFormField> get fields => _fields ??= () {
-        final out = <PdfFormField>[];
-        final roots = document.cos.resolve(dict['Fields']);
-        if (roots is CosArray) {
-          for (final item in roots.items) {
-            final node = document.cos.resolve(item);
-            if (node is CosDictionary) {
-              _collect(node, '', out, <CosDictionary>{});
-            }
-          }
+  List<PdfFormField> get fields => _fields ?? _collectFields();
+
+  List<PdfFormField> _collectFields() {
+    final out = <PdfFormField>[];
+    final roots = document.cos.resolve(dict['Fields']);
+    if (roots is CosArray) {
+      for (final item in roots.items) {
+        final node = document.cos.resolve(item);
+        if (node is CosDictionary) {
+          _collect(node, '', out, <CosDictionary>{});
         }
-        _reconcileOrphanWidgets(out);
-        return out;
-      }();
+      }
+    }
+    _reconcileOrphanWidgets(out);
+    _fields = out;
+    final onFields = _onFields;
+    _onFields = null;
+    onFields?.call(out);
+    return out;
+  }
 
   /// Looks up a field by its fully qualified name.
   PdfFormField? fieldNamed(String name) {
@@ -151,7 +167,7 @@ class PdfAcroForm {
 
   /// Page dictionaries by index, resolved once per form instance.
   List<CosDictionary> get _pages => _pageDicts ??= [
-        for (var i = 0; i < document.pageCount; i++) document.page(i).dict,
+        for (final page in document.pages) page.dict,
       ];
 
   /// Widget dictionary → the first page whose /Annots lists it, built by one
