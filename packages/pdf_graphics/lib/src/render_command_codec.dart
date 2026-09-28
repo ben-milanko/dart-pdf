@@ -550,11 +550,10 @@ Uint8List serializePageText(PdfPageText page) {
     // Per-character advances (issue #647) - without them the UI isolate falls
     // back to interpolating a highlight across the run and misses the glyphs.
     final offsets = run.charOffsets;
-    w.u32(offsets?.length ?? 0);
-    if (offsets != null) {
-      for (final offset in offsets) {
-        w.f64(offset);
-      }
+    if (offsets == null) {
+      w.u32(0);
+    } else {
+      w.f64List(offsets);
     }
   }
   return w.takeBytes();
@@ -580,9 +579,7 @@ PdfPageText deserializePageText(Uint8List bytes) {
     final bounds = _readRect(r);
     final isRightToLeft = r.boolean();
     final offsetCount = r.u32();
-    final offsets = offsetCount == 0
-        ? null
-        : [for (var j = 0; j < offsetCount; j++) r.f64()];
+    final offsets = offsetCount == 0 ? null : r.f64s(offsetCount);
     runs.add(PdfExtractedRun(
       text: runText,
       startIndex: startIndex,
@@ -1449,8 +1446,8 @@ PdfRenderCommand _readCommand(_Reader r) {
         transferOffset: transferOffset,
       );
     case _tDrawTiledCell:
-      final originsX = Float64List.fromList(r.f64List());
-      final originsY = Float64List.fromList(r.f64List());
+      final originsX = r.f64Array();
+      final originsY = r.f64Array();
       final cellCommands = _readTiledCell(r);
       return PdfDrawTiledCellCommand(cellCommands, originsX, originsY);
     default:
@@ -1870,10 +1867,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
   if (offsets == null) {
     w.u32(0);
   } else {
-    w.u32(offsets.length);
-    for (final offset in offsets) {
-      w.f64(offset);
-    }
+    w.f64List(offsets);
   }
 }
 
@@ -1913,8 +1907,7 @@ PdfTextRun _readTextRun(_Reader r) {
   final leadingSpace = r.f64();
   final visibleWidth = r.boolean() ? r.f64() : null;
   final offsetCount = r.u32();
-  final offsets =
-      offsetCount == 0 ? null : [for (var i = 0; i < offsetCount; i++) r.f64()];
+  final offsets = offsetCount == 0 ? null : r.f64s(offsetCount);
   return PdfTextRun(
     text: text,
     transform: transform,
@@ -2185,6 +2178,16 @@ class _Writer {
   void f64List(List<double> xs) {
     u32(xs.length);
     _ensure(xs.length * 8);
+    if (xs is Float64List) {
+      // Indexed: a for-in over a typed list boxes every element it yields on
+      // the VM - and per-character offsets and tiled-cell origins arrive as
+      // Float64List.
+      for (var i = 0; i < xs.length; i++) {
+        _view.setFloat64(_len, xs[i]);
+        _len += 8;
+      }
+      return;
+    }
     for (final x in xs) {
       _view.setFloat64(_len, x);
       _len += 8;
@@ -2294,6 +2297,19 @@ class _Reader {
   List<double> f64List() {
     final n = u32();
     return <double>[for (var i = 0; i < n; i++) f64()];
+  }
+
+  /// [_Writer.f64List]'s layout read into an unboxed list.
+  Float64List f64Array() => f64s(u32());
+
+  /// [n] float64 values, unboxed - [f64List] boxes each one on the VM.
+  Float64List f64s(int n) {
+    final out = Float64List(n);
+    for (var i = 0; i < n; i++) {
+      out[i] = _data.getFloat64(_o);
+      _o += 8;
+    }
+    return out;
   }
 
   List<int> i32List() {

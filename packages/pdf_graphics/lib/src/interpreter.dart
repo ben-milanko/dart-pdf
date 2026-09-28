@@ -482,6 +482,16 @@ class PdfInterpreter {
   final StringBuffer _textBuffer = StringBuffer();
   bool _textBufferInUse = false;
 
+  // Reused unboxed buffer [_showText] collects a run's per-character offsets
+  // into, copied out once per run: a growable `<double>[]` boxes every offset
+  // on the VM (a heap double per character, plus regrowth copies). A run
+  // *takes* it (leaving null) and puts it back when done, so a Type3 CharProc
+  // that shows text of its own mid-run finds null and allocates a private
+  // buffer, and an exception simply drops it. Oversized buffers (a run past
+  // 4096 characters) are not kept.
+  Float64List? _charOffsetScratch;
+  static final Float64List _noCharOffsets = Float64List(0);
+
   /// True while executing a Type3 CharProc that opened with `d1` (§9.6.5):
   /// such a glyph is a pure shape painted in the text colour, so colour-setting
   /// operators inside it "shall be ignored". Set by the `d1` case, saved and
@@ -2863,12 +2873,16 @@ class PdfInterpreter {
     // glyph list already carries the same offsets). Only horizontal text has a
     // meaningful x offset per character; vertical runs advance along y and
     // leave this null.
-    final charOffsets = (collectCharOffsets || glyphs == null) &&
-            !vertical &&
-            !_scanImages &&
-            emScale != 0
-        ? <double>[]
-        : null;
+    final collectOffsets = (collectCharOffsets || glyphs == null) &&
+        !vertical &&
+        !_scanImages &&
+        emScale != 0;
+    var offsetBuf = _noCharOffsets;
+    var offsetCount = 0;
+    if (collectOffsets) {
+      offsetBuf = _charOffsetScratch ?? Float64List(64);
+      _charOffsetScratch = null;
+    }
     var lastOffset = 0.0; // tail of charOffsets, kept out of the list
     final hScale = _state.horizontalScale == 0 ? 1.0 : _state.horizontalScale;
     var advance = 0.0; // text-space along the writing direction (x or y)
@@ -2926,14 +2940,25 @@ class PdfInterpreter {
         if (!font.isCid && code == 0x20) tx += _state.wordSpacing;
         advance += tx * _state.horizontalScale;
       }
-      if (charOffsets != null && text.isNotEmpty) {
+      if (collectOffsets && text.isNotEmpty) {
         // Consumers binary-search these, so keep them non-decreasing: a
         // pathological negative Tc can tighten past a glyph's own width and
         // walk the pen backwards. `lastOffset` tracks the tail in a local -
-        // this runs once per glyph, so avoid re-reading charOffsets.last.
+        // this runs once per glyph, so avoid re-reading the buffer.
+        //
+        // Grow with room for the closing boundary too, so the write after
+        // the loop never has to.
+        final needed = offsetCount + text.length + 1;
+        if (needed > offsetBuf.length) {
+          final grown = Float64List(math.max(offsetBuf.length * 2, needed));
+          for (var i = 0; i < offsetCount; i++) {
+            grown[i] = offsetBuf[i];
+          }
+          offsetBuf = grown;
+        }
         final start = math.max(advanceBefore / emScale, lastOffset);
         if (text.length == 1) {
-          charOffsets.add(start);
+          offsetBuf[offsetCount++] = start;
           lastOffset = start;
         } else {
           // One code can map to several characters through /ToUnicode (a
@@ -2942,7 +2967,7 @@ class PdfInterpreter {
           final end = math.max(advance / emScale, start);
           final step = (end - start) / text.length;
           for (var i = 0; i < text.length; i++) {
-            charOffsets.add(start + step * i);
+            offsetBuf[offsetCount++] = start + step * i;
           }
           lastOffset = start + step * (text.length - 1);
         }
@@ -2950,7 +2975,18 @@ class PdfInterpreter {
       if (visible) visibleAdvance = advance;
     }
     // Closing boundary, so charOffsets always has text.length + 1 entries.
-    charOffsets?.add(math.max(advance / emScale, lastOffset));
+    // Copied out by index into an exact-size list - `sublist` would cost
+    // dart2js a subarray view plus a second typed array per run.
+    Float64List? charOffsets;
+    if (collectOffsets) {
+      offsetBuf[offsetCount++] = math.max(advance / emScale, lastOffset);
+      final out = Float64List(offsetCount);
+      for (var i = 0; i < offsetCount; i++) {
+        out[i] = offsetBuf[i];
+      }
+      charOffsets = out;
+      if (offsetBuf.length <= 4096) _charOffsetScratch = offsetBuf;
+    }
 
     if (size != 0 && _contentVisible && !_scanImages) {
       // text rendering matrix: em space → page space (§9.4.4).

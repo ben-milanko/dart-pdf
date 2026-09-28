@@ -222,6 +222,50 @@ void main() {
     });
   });
 
+  test('typed and boxed char offsets write the same bytes and read unboxed',
+      () {
+    // The interpreter hands the codec Float64List offsets; older callers and
+    // tests pass List<double>. Both must write the identical wire bytes, and
+    // the reader must hand back an unboxed table either way.
+    const offsets = <double>[0, 0.25, 0.5, 1.75];
+    PdfTextRun run(List<double> offsets) => PdfTextRun(
+          text: 'abc',
+          transform: PdfMatrix.identity,
+          color: PdfColor.black,
+          width: 1.75,
+          charOffsets: offsets,
+        );
+    final boxed = serializeCommands([PdfDrawTextCommand(run(offsets))])!;
+    final typed = serializeCommands(
+        [PdfDrawTextCommand(run(Float64List.fromList(offsets)))])!;
+    expect(typed, boxed);
+    final restored =
+        (deserializeCommands(typed).single as PdfDrawTextCommand).run;
+    expect(restored.charOffsets, isA<Float64List>());
+    expect(restored.charOffsets, offsets);
+
+    PdfPageText page(List<double> offsets) => PdfPageText(
+          pageIndex: 0,
+          text: 'abc',
+          runs: [
+            PdfExtractedRun(
+              text: 'abc',
+              startIndex: 0,
+              transform: PdfMatrix.identity,
+              width: 1.75,
+              bounds: const PdfRect(0, 0, 1.75, 1),
+              charOffsets: offsets,
+            ),
+          ],
+        );
+    final pageBoxed = serializePageText(page(offsets));
+    final pageTyped = serializePageText(page(Float64List.fromList(offsets)));
+    expect(pageTyped, pageBoxed);
+    final text = deserializePageText(pageTyped).runs.single.charOffsets;
+    expect(text, isA<Float64List>());
+    expect(text, offsets);
+  });
+
   group('worker state-scope compaction', () {
     test('drops clip-free scopes but preserves clip-owning scopes', () {
       final doc = CosDocument.open(buildClassicPdf());
