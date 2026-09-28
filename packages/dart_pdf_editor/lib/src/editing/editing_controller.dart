@@ -2829,39 +2829,80 @@ class PdfEditingController extends ChangeNotifier {
     if (delay != null) _inkTimer = Timer(delay, finishInk);
   }
 
-  /// The strokes of the most recent ink commit, while [document] is
-  /// still the revision they landed in - the page overlay keeps painting
-  /// them until that revision's raster is on screen, so the drawing
-  /// doesn't blink out for the render's duration.
-  ({
-    int revisionId,
-    Map<int, List<List<(double, double)>>> strokes,
-    Map<int, List<List<double>?>> pressures,
-    Color color,
-    double strokeWidth,
-  })? _committedInk;
+  /// The strokes of the recent ink commits, oldest first, while [document]
+  /// is still the revision the newest one landed in - the page overlay keeps
+  /// painting them until the page's raster (and annotation layer) is on
+  /// screen, so the drawing doesn't blink out for the render's duration.
+  ///
+  /// Back-to-back commits accumulate: the next stroke can commit before the
+  /// previous one has rendered (a slow or held render, quick handwriting), and
+  /// the new revision restarts that render. Keeping only the latest commit
+  /// made every earlier stroke vanish until the page caught up. The viewer
+  /// drops a page's entries once that page is current again
+  /// ([retireCommittedInk]); any other revision (an undo, another edit) ends
+  /// the run.
+  final List<
+      ({
+        int revisionId,
+        Map<int, List<List<(double, double)>>> strokes,
+        Map<int, List<List<double>?>> pressures,
+        Color color,
+        double strokeWidth,
+      })> _committedInks = [];
 
-  /// The just-committed ink on [pageIndex] (see [_committedInk]), or
-  /// null once the document has moved past the committing revision.
+  /// The just-committed ink on [pageIndex], each commit that has not reached
+  /// the page's raster yet, oldest first (see [_committedInks]). Empty once
+  /// the document has moved past the committing revision.
+  List<
+      ({
+        List<List<(double, double)>> strokes,
+        List<List<double>?> pressures,
+        Color color,
+        double strokeWidth,
+      })> committedInksOn(int pageIndex) {
+    if (_committedInks.isEmpty ||
+        _committedInks.last.revisionId != _revisionId) {
+      return const [];
+    }
+    return [
+      for (final committed in _committedInks)
+        if (committed.strokes[pageIndex] case final strokes?
+            when strokes.isNotEmpty)
+          (
+            strokes: strokes,
+            pressures: committed.pressures[pageIndex] ??
+                List<List<double>?>.filled(strokes.length, null),
+            color: committed.color,
+            strokeWidth: committed.strokeWidth,
+          ),
+    ];
+  }
+
+  /// The most recent ink commit on [pageIndex] (the last of
+  /// [committedInksOn]), or null once the document has moved past the
+  /// committing revision.
   ({
     List<List<(double, double)>> strokes,
     List<List<double>?> pressures,
     Color color,
     double strokeWidth,
   })? committedInkOn(int pageIndex) {
-    final committed = _committedInk;
-    if (committed == null || committed.revisionId != _revisionId) {
-      return null;
+    final committed = committedInksOn(pageIndex);
+    return committed.isEmpty ? null : committed.last;
+  }
+
+  /// Forgets the committed ink on [pageIndex] from revisions up to
+  /// [throughRevision] ([revisionId] values): the viewer calls this once that
+  /// page shows a revision at least that new, so the overlay stops carrying
+  /// strokes the page now draws itself. Does not notify - the overlay only
+  /// paints this ink while the page is behind.
+  void retireCommittedInk(int pageIndex, {required int throughRevision}) {
+    for (final committed in _committedInks) {
+      if (committed.revisionId > throughRevision) break;
+      committed.strokes.remove(pageIndex);
+      committed.pressures.remove(pageIndex);
     }
-    final strokes = committed.strokes[pageIndex];
-    if (strokes == null || strokes.isEmpty) return null;
-    return (
-      strokes: strokes,
-      pressures: committed.pressures[pageIndex] ??
-          List<List<double>?>.filled(strokes.length, null),
-      color: committed.color,
-      strokeWidth: committed.strokeWidth,
-    );
+    _committedInks.removeWhere((committed) => committed.strokes.isEmpty);
   }
 
   /// Whether touch input is in play this session: always true on
@@ -2931,6 +2972,7 @@ class PdfEditingController extends ChangeNotifier {
     final pressures = Map.of(_inkPressures);
     _ink.clear();
     _inkPressures.clear();
+    final before = _revisionId;
     final committed = apply(
       (editor) {
         strokes.forEach((page, pageStrokes) {
@@ -2949,7 +2991,13 @@ class PdfEditingController extends ChangeNotifier {
       },
     );
     if (committed) {
-      _committedInk = (
+      // A run of commits the page has not caught up with keeps growing; any
+      // revision in between (undo, another edit) starts a fresh one.
+      if (_committedInks.isNotEmpty &&
+          _committedInks.last.revisionId != before) {
+        _committedInks.clear();
+      }
+      _committedInks.add((
         revisionId: _revisionId,
         strokes: strokes,
         pressures: pressures,
@@ -2957,7 +3005,7 @@ class PdfEditingController extends ChangeNotifier {
           alpha: preferences.opacity.clamp(0.0, 1.0),
         ),
         strokeWidth: preferences.strokeWidth,
-      );
+      ));
     }
   }
 
