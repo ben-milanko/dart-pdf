@@ -245,6 +245,28 @@ class PdfColorantRaster {
     }
   }
 
+  /// Whether every cell of [spans] that [paintFlat] would write - inside the
+  /// clip box and the clip mask - already holds [value]; vacuously true when
+  /// the clip excludes them all. Then `paintFlat(spans, value)`, or the same
+  /// over any subset of [spans], would change nothing.
+  bool clippedCellsAll(ColorantSpans spans, int value) {
+    final mask = _clipMask;
+    for (var i = 0; i < spans.length; i++) {
+      final y = spans.yAt(i);
+      if (y < _clipY0 || y >= _clipY1) continue;
+      final row = y * width;
+      var from = spans.startAt(i), to = spans.endAt(i);
+      if (from < _clipX0) from = _clipX0;
+      if (to > _clipX1) to = _clipX1;
+      for (var x = from; x < to; x++) {
+        final index = row + x;
+        if (mask != null && mask[index] == 0) continue;
+        if (cells[index] != value) return false;
+      }
+    }
+    return true;
+  }
+
   /// Fills every covered cell with [value] - the knockout case, where the
   /// draw replaces whatever colorants were underneath.
   void paintFlat(ColorantSpans spans, int value) {

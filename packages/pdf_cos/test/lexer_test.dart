@@ -222,6 +222,35 @@ void main() {
         (CosTokenType.eof, null, 10));
   });
 
+  test('token buffer carries a packed keyword code for short keywords only',
+      () {
+    final lexer = CosLexer(ascii('re { } BDC true abcd 1.5 -0.0 /re 7 EMC'));
+    final buffer = CosTokenBuffer();
+    (Object?, int) next() {
+      final token = lexer.nextToken(buffer);
+      return (token.value, buffer.keywordCode);
+    }
+
+    expect(next(), ('re', 0x6572));
+    // Braces are keyword tokens but never operators: no code, so a consumer
+    // dispatching on it cannot re-run the previous operator.
+    expect(next(), ('{', -1));
+    expect(next(), ('}', -1));
+    expect(next(), ('BDC', 0x434442));
+    expect(next(), ('true', -1));
+    expect(next(), ('abcd', -1));
+    // Reals are stored unboxed and still read back through every accessor.
+    expect(next(), (1.5, -1));
+    expect(buffer.realValue, 1.5);
+    lexer.nextToken(buffer);
+    expect((buffer.type, buffer.realValue.isNegative, buffer.value),
+        (CosTokenType.real, true, -0.0));
+    expect(next(), ('re', -1)); // a name
+    expect(buffer.type, CosTokenType.name);
+    expect(next(), (7, -1));
+    expect(next(), ('EMC', 0x434d45));
+  });
+
   test('comments are skipped', () {
     final tokens = lexAll('42 % the answer\n7');
     expect(tokens.map((t) => t.intValue), [42, 7]);

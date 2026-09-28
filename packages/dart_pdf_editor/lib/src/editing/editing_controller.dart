@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,7 @@ import 'form_secret_store.dart';
 import 'editing_stamps.dart';
 import 'line_style.dart';
 import 'saved_annotation.dart';
+import 'signature_validation_worker.dart';
 import 'text_prompt.dart';
 import 'thumbnail_cache.dart';
 
@@ -1076,7 +1078,11 @@ class PdfEditingController extends ChangeNotifier {
   /// and neither is an append - those reopen ([_openRevision]).
   void _reloadDocument({required bool grew}) {
     if (grew && _tryApplyIncrementalUpdate()) return;
-    _document = _openRevision(bytes);
+    final revision = bytes;
+    // An undo lands on a shorter prefix: cores of signatures past it belong
+    // to history that the next edit may overwrite.
+    _dropSignatureCores(beyond: revision.length);
+    _document = _openRevision(revision);
     _revisionId++;
   }
 
@@ -1237,6 +1243,9 @@ class PdfEditingController extends ChangeNotifier {
   }) {
     _revisions.removeRange(_cursor + 1, _revisions.length);
     _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
+    // Everything past [beforeLength] was just written - after an undo, over
+    // bytes a signature further along the old history may have covered.
+    _dropSignatureCores(beyond: beforeLength);
     final secrets = _pendingSecrets ?? _revisionSecrets[_cursor];
     _pendingSecrets = null;
     _revisionSecrets
@@ -1403,13 +1412,11 @@ class PdfEditingController extends ChangeNotifier {
         'The signer did not return a new incremental PDF revision.',
       );
     }
-    for (var i = 0; i < before.length; i++) {
-      if (signed[i] != before[i]) {
-        throw const FormatException(
-          'The signed PDF rewrote the current document instead of appending '
-          'an incremental signature revision.',
-        );
-      }
+    if (!_isPrefix(before, signed)) {
+      throw const FormatException(
+        'The signed PDF rewrote the current document instead of appending '
+        'an incremental signature revision.',
+      );
     }
     final existingCount = PdfSignature.of(_document).length;
     final candidate = PdfDocument.open(signed, password: _password);
@@ -1417,7 +1424,13 @@ class PdfEditingController extends ChangeNotifier {
     if (signatures.length <= existingCount) {
       throw const FormatException('The signed PDF has no new signature.');
     }
-    final validation = signatures.last.validate();
+    // The candidate is exactly the revision about to be committed, so the
+    // crypto cores this validation computes hold for it (and every append
+    // after it): keep them, and the signature panel hashes nothing more.
+    final computed = <String, PdfSignatureCryptoCore>{};
+    final validation = signatures.last.validate(
+      cores: (signature, compute) => computed[signature.field.name] = compute(),
+    );
     if (!validation.intact || !validation.coversWholeDocument) {
       throw FormatException(
         validation.problems.isEmpty
@@ -1449,6 +1462,30 @@ class PdfEditingController extends ChangeNotifier {
         annotationPages: visualPages,
       ),
     );
+    // after the commit, which drops cores past the signed-over length
+    _signatureCores.addAll(computed);
+    return true;
+  }
+
+  /// Whether [prefix] is a byte prefix of [bytes], compared a 32-bit word at a
+  /// time when both views are 4-byte aligned (the session buffer's revisions
+  /// and a freshly saved file are).
+  static bool _isPrefix(Uint8List prefix, Uint8List bytes) {
+    final length = prefix.length;
+    if (bytes.length < length) return false;
+    var i = 0;
+    if (prefix.offsetInBytes % 4 == 0 && bytes.offsetInBytes % 4 == 0) {
+      final words = length >> 2;
+      final a = Uint32List.view(prefix.buffer, prefix.offsetInBytes, words);
+      final b = Uint32List.view(bytes.buffer, bytes.offsetInBytes, words);
+      for (; i < words; i++) {
+        if (a[i] != b[i]) return false;
+      }
+      i = words << 2;
+    }
+    for (; i < length; i++) {
+      if (prefix[i] != bytes[i]) return false;
+    }
     return true;
   }
 
@@ -1566,6 +1603,13 @@ class PdfEditingController extends ChangeNotifier {
   /// until then). The result is cached per (revision, field), so repeated
   /// reads while the panel rebuilds are free.
   ///
+  /// The expensive, revision-independent part - hashing the signed bytes and
+  /// verifying the signature ([PdfSignatureCryptoCore]) - is kept across
+  /// revisions, so an edit re-validates without re-hashing; on native it is
+  /// computed on a helper isolate when a large document misses it. Chain
+  /// building, revocation and everything a revision can change are always
+  /// redone.
+  ///
   /// Pass `schedule: false` to peek at the cache without kicking off work.
   PdfSignatureValidation? validationFor(PdfSignature signature,
       {bool schedule = true}) {
@@ -1578,8 +1622,12 @@ class PdfEditingController extends ChangeNotifier {
       final generation = _validationGeneration;
       final store = _trustStore;
       final revocation = _revocationClient;
+      // (a closed tab counts: the helper isolate or the network may answer
+      // after dispose)
       bool stale() =>
-          _revisionId != revision || _validationGeneration != generation;
+          _disposed ||
+          _revisionId != revision ||
+          _validationGeneration != generation;
       // Off the current frame: opening the panel stays instant even when the
       // signer's certificate chain is expensive to verify (or, with a
       // revocation client, waits on the network).
@@ -1591,10 +1639,20 @@ class PdfEditingController extends ChangeNotifier {
         }
         PdfSignatureValidation? result;
         try {
+          await _ensureSignatureCores();
+          if (stale()) {
+            if (_revisionId != revision) _validating.remove(key);
+            return;
+          }
+          final cores = identical(signature.document, _document)
+              ? _resolveSignatureCore
+              : null;
           result = revocation == null
-              ? signature.validate(trustStore: store)
+              ? signature.validate(trustStore: store, cores: cores)
               : await signature.validateOnline(
-                  trustStore: store, revocationClient: revocation);
+                  trustStore: store,
+                  revocationClient: revocation,
+                  cores: cores);
         } catch (_) {
           // A signature we can't validate simply stays "checking"-free; the
           // panel falls back to showing it without a verdict.
@@ -1607,6 +1665,154 @@ class PdfEditingController extends ChangeNotifier {
       });
     }
     return null;
+  }
+
+  /// Signed-bytes crypto ([PdfSignatureCryptoCore]) by signature field name,
+  /// reused across revisions: every revision appends to the same buffer, so
+  /// the bytes a signature covers never change - except where a revision
+  /// rewrites them, which is exactly where [_dropSignatureCores] runs (a new
+  /// edit over an undone tail, an undo, a redaction burn, a whole-buffer
+  /// commit). An entry is used only while it still
+  /// [PdfSignatureCryptoCore.describes] the signature dictionary. Never the
+  /// whole verdict: coverage, PAdES level, /DSS revocation, the chain and live
+  /// revocation are recomputed per revision.
+  final Map<String, PdfSignatureCryptoCore> _signatureCores = {};
+
+  /// The core computation running on a helper isolate, if any. At most one
+  /// runs at a time.
+  _SignatureCoreJob? _signatureCoreJob;
+
+  /// The revision [_ensureSignatureCores] last settled: it checked every kept
+  /// core against that revision's signatures (dropping the ones that no longer
+  /// describe theirs) and offered the missing ones to a helper isolate once.
+  /// While it is current, [_resolveSignatureCore] trusts a kept core without
+  /// comparing it again, and no validation of the revision starts another job.
+  int _signatureCoresRevision = -1;
+
+  /// The /ByteRange of each signature a helper isolate was asked for and
+  /// could not compute a core for (its computation throws, or the whole job
+  /// failed), by field name. Such a signature is not sent again while its
+  /// range and covered bytes stand: validation computes its core inline
+  /// instead (and keeps it, when that works).
+  final Map<String, List<int>> _signatureCoresUnavailable = {};
+
+  int _signatureCoreJobCount = 0;
+
+  /// How many signature cores are kept for reuse across revisions.
+  @visibleForTesting
+  int get debugSignatureCoreCount => _signatureCores.length;
+
+  /// How many signature-core computations have been started on a helper
+  /// isolate, each with a copy of the revision.
+  @visibleForTesting
+  int get debugSignatureCoreJobCount => _signatureCoreJobCount;
+
+  /// Covered bytes from which [validationFor] computes missing signature cores
+  /// on a helper isolate (native only) instead of inline: below it the hash
+  /// costs less than copying the revision out and reopening it there.
+  @visibleForTesting
+  static int signatureCoreOffloadBytes = 512 << 10;
+
+  /// [PdfSignatureCoreResolver] over [_signatureCores]; a miss is computed
+  /// inline against the current revision and kept.
+  PdfSignatureCryptoCore _resolveSignatureCore(
+      PdfSignature signature, PdfSignatureCryptoCore Function() compute) {
+    final name = signature.field.name;
+    final cached = _signatureCores[name];
+    // Once this revision is settled every kept core describes its signature
+    // (the settle dropped the rest, and anything added since was computed for
+    // this revision); PdfSignature checks the one it is handed regardless.
+    if (cached != null &&
+        (_signatureCoresRevision == _revisionId ||
+            cached.describes(signature))) {
+      return cached;
+    }
+    return _signatureCores[name] = compute();
+  }
+
+  /// Computes, on a helper isolate, the cores the current revision's
+  /// signatures lack - all of them in one pass over one copy of the bytes, so
+  /// the validation that follows hashes nothing on this isolate. Chain
+  /// building, revocation and the network stay here: a trust store is large
+  /// to send and a host revocation client may not be sendable. A no-op on the
+  /// web and below [signatureCoreOffloadBytes].
+  ///
+  /// Settles each revision once ([_signatureCoresRevision]): every signature
+  /// row awaits the same job, and a signature that job could not fill is not
+  /// sent again - a helper isolate gets a copy of the whole revision, so one
+  /// per row per edit is the cost this exists to avoid.
+  Future<void> _ensureSignatureCores() async {
+    if (!signatureCoresOffThread) return;
+    // Every row re-reads the slot after its wait, so a job another row
+    // started meanwhile is awaited too rather than doubled.
+    for (var running = _signatureCoreJob;
+        running != null;
+        running = _signatureCoreJob) {
+      await running.done.future;
+    }
+    if (_disposed || _signatureCoresRevision == _revisionId) return;
+    _signatureCoresRevision = _revisionId;
+    final missing = <String, List<int>>{};
+    var covered = 0;
+    for (final signature in signatureByFieldName.values) {
+      final name = signature.field.name;
+      final cached = _signatureCores[name];
+      if (cached != null) {
+        if (cached.describes(signature)) continue;
+        _signatureCores.remove(name);
+      }
+      // Nothing to hash at this revision - a malformed /ByteRange, or a
+      // signature that came in with another file's pages and kept that file's
+      // offsets. Validation reports why without hashing anything.
+      if (!signature.hasSignableByteRange) continue;
+      final ranges = signature.byteRange;
+      final tried = _signatureCoresUnavailable[name];
+      if (tried != null && listEquals(tried, ranges)) continue;
+      missing[name] = ranges;
+      covered += ranges[1] + ranges[3];
+    }
+    if (missing.isEmpty || covered < signatureCoreOffloadBytes) return;
+    final revision = bytes;
+    final job = _SignatureCoreJob(revision.length);
+    _signatureCoreJob = job;
+    _signatureCoreJobCount++;
+    var cores = const <String, PdfSignatureCryptoCore>{};
+    try {
+      cores = await computeSignatureCores(revision,
+          password: _password, fieldNames: missing.keys.toList());
+    } catch (_) {
+      // whatever is missing is computed inline by the validation itself
+    } finally {
+      if (job.valid && !_disposed) {
+        _signatureCores.addAll(cores);
+        for (final MapEntry(key: name, value: ranges) in missing.entries) {
+          if (!cores.containsKey(name)) {
+            _signatureCoresUnavailable[name] = ranges;
+          }
+        }
+      }
+      if (identical(_signatureCoreJob, job)) _signatureCoreJob = null;
+      job.done.complete();
+    }
+  }
+
+  /// Forgets the cores whose signed bytes may have been rewritten: all of
+  /// them, or those covering bytes past [beyond]. A computation in flight over
+  /// such bytes is discarded when it lands.
+  void _dropSignatureCores({int? beyond}) {
+    if (beyond == null) {
+      _signatureCores.clear();
+      _signatureCoresUnavailable.clear();
+    } else {
+      _signatureCores.removeWhere((_, core) => core.coveredEnd > beyond);
+      _signatureCoresUnavailable
+          .removeWhere((_, ranges) => ranges[2] + ranges[3] > beyond);
+    }
+    _signatureCoresRevision = -1;
+    final job = _signatureCoreJob;
+    if (job != null && (beyond == null || job.length > beyond)) {
+      job.valid = false;
+    }
   }
 
   /// Removes a digital signature as one undoable revision: drops its signature
@@ -2990,6 +3196,8 @@ class PdfEditingController extends ChangeNotifier {
       ..add(secrets);
     _bytes = bytes;
     _used = bytes.length;
+    // a burn rewrites the whole file, signed bytes included
+    _dropSignatureCores();
     _revisions
       ..clear()
       ..add(bytes.length);
@@ -4933,6 +5141,9 @@ class PdfEditingController extends ChangeNotifier {
       pageStructureChanged: result['pageStructureChanged'] as bool? ?? false,
       destructive: result['destructive'] as bool? ?? false,
     );
+    // The worker rebuilt the whole file, and nothing checks that it kept the
+    // previous revision as a byte prefix: no signed bytes are known intact.
+    _dropSignatureCores();
     _commitSavedRevision(
       saved,
       beforeLength: beforeLength,
@@ -9630,4 +9841,15 @@ class PdfSignatureTrustAction {
   /// Runs the action. The host re-validates by updating the controller's
   /// [PdfEditingController.trustStore] once the new anchors are in.
   final Future<void> Function() onPressed;
+}
+
+/// A [PdfEditingController] signature-core computation on a helper isolate,
+/// over the first [length] bytes of the session buffer. [valid] drops when a
+/// revision rewrites any of those bytes, and the result is then discarded.
+class _SignatureCoreJob {
+  _SignatureCoreJob(this.length);
+
+  final int length;
+  bool valid = true;
+  final Completer<void> done = Completer<void>();
 }

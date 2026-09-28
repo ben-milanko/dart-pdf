@@ -44,8 +44,12 @@ void main() {
   test('entry and weight caps bound retained native geometry', () {
     final cache = PdfCanvasPathCache(maxEntries: 1);
     addTearDown(cache.dispose);
+    final other = PdfPath(path.segments);
     final a = cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new);
-    cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    final declined = cache.pathFor(other, PdfFillRule.nonzero, ui.Path.new);
+    expect(cache.pathFor(other, PdfFillRule.nonzero, ui.Path.new),
+        isNot(same(declined)),
+        reason: 'the entry cap declines another source path');
     expect(cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new), same(a),
         reason: 'a full cache retains its reusable subset');
 
@@ -111,20 +115,81 @@ void main() {
   test('pressure reopens admission and disposal leaves all paths uncached', () {
     final cache = PdfCanvasPathCache(maxEntries: 1);
     addTearDown(cache.dispose);
+    final other = PdfPath(path.segments);
     final first = cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new);
-    final declined = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    final declined = cache.pathFor(other, PdfFillRule.evenOdd, ui.Path.new);
     PdfCacheRegistry.instance.handleMemoryPressure();
-    final replacement = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    final replacement = cache.pathFor(other, PdfFillRule.evenOdd, ui.Path.new);
     expect(replacement, isNot(same(declined)));
-    expect(cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new),
+    expect(cache.pathFor(other, PdfFillRule.evenOdd, ui.Path.new),
         same(replacement));
     expect(cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new),
         isNot(same(first)));
     cache.dispose();
-    final uncached = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    final uncached = cache.pathFor(other, PdfFillRule.evenOdd, ui.Path.new);
     expect(uncached, isNot(same(replacement)));
-    expect(cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new),
+    expect(cache.pathFor(other, PdfFillRule.evenOdd, ui.Path.new),
         isNot(same(uncached)));
+  });
+
+  test('both fill rules of one path share an entry and sum its weight', () {
+    // Weight admission alone gates a known path's second rule: 512 + 512
+    // cannot fit 1000, so the even-odd build is declined and the non-zero
+    // path stays retained.
+    final tight = PdfCanvasPathCache(maxWeight: 1000);
+    final kept = tight.pathFor(path, PdfFillRule.nonzero, ui.Path.new);
+    final declined = tight.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    expect(tight.pathFor(path, PdfFillRule.evenOdd, ui.Path.new),
+        isNot(same(declined)));
+    expect(tight.pathFor(path, PdfFillRule.nonzero, ui.Path.new), same(kept));
+    tight.dispose();
+
+    // The entry cap counts source paths, so a full cache still takes the
+    // other rule of a path it already holds.
+    final cache = PdfCanvasPathCache(maxEntries: 1);
+    addTearDown(cache.dispose);
+    final nonZero = cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new);
+    final evenOdd = cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new);
+    expect(evenOdd, isNot(same(nonZero)));
+    expect(
+        cache.pathFor(path, PdfFillRule.nonzero, ui.Path.new), same(nonZero));
+    expect(
+        cache.pathFor(path, PdfFillRule.evenOdd, ui.Path.new), same(evenOdd));
+    final occupancy = PdfCacheRegistry.instance
+        .snapshot()
+        .singleWhere((entry) => entry.label == 'canvas-paths');
+    expect(occupancy.length, 1);
+    expect(occupancy.weight, 1024);
+    expect(occupancy.evictions, 0);
+    // Counters count source paths: the first even-odd use found the entry, so
+    // it is a hit even though it built its slot.
+    expect(occupancy.hits, 3);
+    expect(occupancy.misses, 1);
+  });
+
+  test('the process ceiling trims retained paths in insertion order', () {
+    final registry = PdfCacheRegistry.instance;
+    addTearDown(() => registry.maxTotalWeight = 0);
+    final cache = PdfCanvasPathCache();
+    addTearDown(cache.dispose);
+    final sources = List.generate(4, (_) => PdfPath(path.segments));
+    final first = [
+      for (final source in sources)
+        cache.pathFor(source, PdfFillRule.nonzero, ui.Path.new),
+    ];
+    // A lookup does not refresh recency, so this hit leaves the first path
+    // the oldest: every replay visits every path in paint order anyway.
+    expect(cache.pathFor(sources[0], PdfFillRule.nonzero, ui.Path.new),
+        same(first[0]));
+    expect(registry.totalWeight, registry.weightForLabel('canvas-paths'),
+        reason: 'no other weight-bearing cache should be live in this test');
+    registry.maxTotalWeight = registry.totalWeight - 512;
+    for (var i = 1; i < sources.length; i++) {
+      expect(cache.pathFor(sources[i], PdfFillRule.nonzero, ui.Path.new),
+          same(first[i]));
+    }
+    expect(cache.pathFor(sources[0], PdfFillRule.nonzero, ui.Path.new),
+        isNot(same(first[0])));
   });
 
   testWidgets('retained paths keep fills, dashes and clips exact across zooms',

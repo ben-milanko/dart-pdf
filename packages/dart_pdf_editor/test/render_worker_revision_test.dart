@@ -7,6 +7,8 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/render_worker_host.dart';
+import 'package:dart_pdf_editor/src/render_worker_isolate.dart'
+    as isolate_worker;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart' show cosSparseBufferRanges;
 import 'package:pdf_document/pdf_document.dart';
@@ -325,9 +327,149 @@ void main() {
     });
   });
 
+  // An undo rolls the isolate's document back in place (CosDocument's
+  // rollback journal) rather than re-opening the shorter prefix cold. These
+  // workers report how they applied each update.
+  group('rollback on undo', () {
+    setUp(() {
+      isolate_worker.debugReportPdfRenderWorkerRevisions = true;
+      isolate_worker.debugPdfRenderWorkerRevisionReports.clear();
+    });
+    tearDown(() {
+      isolate_worker.debugReportPdfRenderWorkerRevisions = false;
+      isolate_worker.debugPdfRenderWorkerRevisionReports.clear();
+    });
+    List<String> paths() => [
+          for (final report
+              in isolate_worker.debugPdfRenderWorkerRevisionReports)
+            report.path,
+        ];
+
+    testWidgets(
+        'several undos in one sync roll back every revision and drop each '
+        "undone page's caches", (tester) async {
+      await tester.runAsync(() async {
+        final controller = PdfEditingController(buildMultiPagePdf(3));
+        addTearDown(controller.dispose);
+        final worker =
+            PdfPooledRenderWorker(controller.bytes, 1, copySource: false);
+        addTearDown(worker.dispose);
+        const pages = [0, 1, 2];
+
+        // Content edits that change what each page's text extracts as.
+        controller.apply((e) =>
+            e.stampPage(0, (s) => s.text('ALPHA', x: 72, y: 600, size: 18)));
+        _feed(worker, controller);
+        controller.apply((e) =>
+            e.stampPage(1, (s) => s.text('BRAVO', x: 72, y: 600, size: 18)));
+        _feed(worker, controller);
+        for (final page in pages) {
+          await worker.record(page); // caches the pages' records and text
+        }
+        expect((await worker.extractText(1))!.text, contains('BRAVO'));
+
+        // The host hears both undos as one update naming only the last
+        // transition's page: undoing ALPHA on page 0.
+        controller.undo();
+        controller.undo();
+        expect(controller.lastRevisionDelta!.changedPages, {0});
+        _feed(worker, controller);
+
+        await _expectMatchesFresh(worker, controller.bytes, pages,
+            step: 'two undos in one sync');
+        expect((await worker.extractText(1))!.text, isNot(contains('BRAVO')),
+            reason: "page 1's cached text belonged to the undone revision");
+        expect((await worker.extractText(0))!.text, isNot(contains('ALPHA')));
+        expect(paths(), ['append', 'append', 'rollback']);
+      });
+    });
+
+    testWidgets(
+        'an update naming another revision\'s pages still drops the pages of '
+        'the revision the worker undid', (tester) async {
+      await tester.runAsync(() async {
+        final controller = PdfEditingController(buildMultiPagePdf(3));
+        addTearDown(controller.dispose);
+        final worker =
+            PdfPooledRenderWorker(controller.bytes, 1, copySource: false);
+        addTearDown(worker.dispose);
+        const pages = [0, 1, 2];
+
+        controller.apply((e) =>
+            e.stampPage(0, (s) => s.text('ALPHA', x: 72, y: 600, size: 18)));
+        _feed(worker, controller);
+        controller.apply((e) =>
+            e.stampPage(1, (s) => s.text('BRAVO', x: 72, y: 600, size: 18)));
+        _feed(worker, controller);
+        for (final page in pages) {
+          await worker.record(page);
+        }
+        expect((await worker.extractText(1))!.text, contains('BRAVO'));
+
+        // Undo BRAVO, stamp CHARLIE on page 2, undo that: one update, back
+        // to ALPHA's revision - a single rollback step for the worker, which
+        // undoes BRAVO, while the update names CHARLIE's page.
+        controller.undo();
+        controller.apply((e) =>
+            e.stampPage(2, (s) => s.text('CHARLIE', x: 72, y: 600, size: 18)));
+        controller.undo();
+        expect(controller.lastRevisionDelta!.changedPages, {2});
+        _feed(worker, controller);
+
+        await _expectMatchesFresh(worker, controller.bytes, pages,
+            step: 'undo, edit, undo in one sync');
+        expect((await worker.extractText(1))!.text, isNot(contains('BRAVO')));
+        expect((await worker.extractText(0))!.text, contains('ALPHA'));
+        expect(paths(), ['append', 'append', 'rollback']);
+      });
+    });
+
+    testWidgets('an undo re-records its page without decoding images again',
+        (tester) async {
+      await tester.runAsync(() async {
+        final controller =
+            PdfEditingController(buildSyntheticRasterUnderlaySheet(
+          underlays: const [PdfUnderlaySpec(width: 320, height: 240)],
+          layers: 2,
+          ops: 40,
+          pageW: 612,
+          pageH: 792,
+        ));
+        addTearDown(controller.dispose);
+        final worker =
+            PdfPooledRenderWorker(controller.bytes, 1, copySource: false);
+        addTearDown(worker.dispose);
+        await worker.record(0); // decodes the underlay and its soft mask
+
+        controller
+            .apply((e) => e.addSquare(0, const PdfRect(40, 40, 200, 200)));
+        _feed(worker, controller);
+        await _expectImagePageMatchesFresh(worker, controller.bytes,
+            step: 'edit');
+        controller.undo();
+        _feed(worker, controller);
+        await _expectImagePageMatchesFresh(worker, controller.bytes,
+            step: 'undo');
+        controller.redo();
+        _feed(worker, controller);
+        // Reports ride the worker's reply port ahead of this record's reply.
+        await worker.record(0);
+
+        final reports = isolate_worker.debugPdfRenderWorkerRevisionReports;
+        expect(paths(), ['append', 'rollback', 'append']);
+        // Decodes so far, reported at each update: the warm-up paid for the
+        // images, and neither the edit's re-record nor the undo's decoded
+        // them again - a re-open would have started a new, empty cache.
+        expect(reports.first.imageDecodes, greaterThan(0));
+        expect(reports.map((r) => r.imageDecodes).toSet(),
+            {reports.first.imageDecodes});
+      });
+    });
+  });
+
   testWidgets(
-      'a coalesced undo + edit (base below the worker revision) re-opens '
-      'exactly', (tester) async {
+      'a coalesced undo + edit (base below the worker revision) rolls back '
+      'and appends exactly', (tester) async {
     await tester.runAsync(() async {
       final controller = PdfEditingController(buildMultiPagePdf(3));
       addTearDown(controller.dispose);
@@ -347,7 +489,7 @@ void main() {
 
       // The worker misses both undos and hears only edit C, whose base is
       // below the revision it holds: C's tail lands on bytes its open document
-      // still views, so it has to re-open rather than append.
+      // still views, so it rolls back to the base before appending.
       controller.undo();
       controller.undo();
       controller.apply((e) => e.addCircle(0, const PdfRect(40, 300, 140, 380)));
@@ -550,6 +692,42 @@ Future<Uint8List?> _recorded(PdfRenderWorker worker, int pageIndex,
     {int priority = 0}) async {
   final commands = await worker.record(pageIndex, priority: priority);
   return commands == null ? null : serializeCommands(commands);
+}
+
+/// Expects [worker] to record page 0 as a fresh worker opened on a private
+/// copy of [bytes] does, decoded images included: the wire form with image
+/// placeholders (a record's image commands can't be re-serialized without
+/// their document) plus every image's decoded pixels.
+Future<void> _expectImagePageMatchesFresh(
+  PdfRenderWorker worker,
+  Uint8List bytes, {
+  required String step,
+}) async {
+  Future<(Uint8List?, List<Object>)?> recorded(PdfRenderWorker from) async {
+    final commands = await from.record(0);
+    if (commands == null) return null;
+    return (
+      serializeCommands(commands, imagePlaceholders: true),
+      [
+        for (final command in commands)
+          if (command case PdfDrawImageCommand(:final request))
+            if (request.decoded case final pixels?)
+              (pixels.width, pixels.height, Object.hashAll(pixels.rgba)),
+      ],
+    );
+  }
+
+  final fresh = PdfPooledRenderWorker(Uint8List.fromList(bytes), 1);
+  try {
+    final want = await recorded(fresh);
+    expect(want, isNotNull, reason: '$step: reference record');
+    expect(want!.$2, isNotEmpty, reason: '$step: the page decodes images');
+    final got = await recorded(worker);
+    expect(got?.$1, want.$1, reason: '$step: commands');
+    expect(got?.$2, want.$2, reason: '$step: decoded images');
+  } finally {
+    fresh.dispose();
+  }
 }
 
 /// Expects [worker] to record [pages] (at [priority]) byte-identically to a

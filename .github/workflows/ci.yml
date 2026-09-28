@@ -81,10 +81,15 @@ jobs:
       # dart2js (conditional imports: zlib_inflate.dart, sha2_digest.dart); the
       # VM run above only sees them through direct imports. Run those tests
       # compiled to JS so FlateFilter, the compactor and the AES-256 (R6)
-      # password hash are exercised on the path browsers take.
-      - name: Test pdf_cos zlib inflate and SHA-384/512 under dart2js
+      # password hash are exercised on the path browsers take. Content
+      # operands materialize by dart2js number rules there too (an integral
+      # double is an int), which only a JS run can see.
+      - name: Test pdf_cos zlib inflate, SHA-384/512 and content operands under dart2js
         working-directory: packages/pdf_cos
-        run: dart test -p node test/zlib_inflate_test.dart test/sha512_js_test.dart
+        run: >-
+          dart test -p node test/zlib_inflate_test.dart
+          test/sha512_js_test.dart
+          test/content_operand_platform_test.dart
 
       - name: Test pdf_document
         working-directory: packages/pdf_document
@@ -115,6 +120,12 @@ jobs:
           flags: pdf_graphics
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      # The web render worker walks content through the interpreter's numeric
+      # fast path; its parity with the materialized walk depends on dart2js
+      # number semantics (signed zeros), so check it compiled to JS as well.
+      - name: Test pdf_graphics content fast path under dart2js
+        working-directory: packages/pdf_graphics
+        run: dart test -p node test/cursor_fast_path_test.dart
 
       - name: Test dart_pdf_cli
         working-directory: packages/dart_pdf_cli

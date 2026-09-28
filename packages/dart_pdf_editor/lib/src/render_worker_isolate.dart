@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugPrint, defaultTargetPlatform;
-import 'package:pdf_cos/pdf_cos.dart' show CosDocument;
+import 'package:pdf_cos/pdf_cos.dart' show CosDocument, cosSparseBufferRanges;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -36,6 +36,21 @@ bool debugDeferPdfRenderWorkerCancelUntilNextRequest = false;
 /// Number of stale request-scoped cancel messages ignored by native workers.
 /// Test/diagnostic counter; reset it before a focused probe.
 int debugPdfRenderWorkerIgnoredStaleCancels = 0;
+
+/// Test hook: native workers spawned while this is true report how they
+/// applied each revision update into [debugPdfRenderWorkerRevisionReports].
+/// Read once, at spawn, like [debugDeferPdfRenderWorkerCancelUntilNextRequest].
+bool debugReportPdfRenderWorkerRevisions = false;
+
+/// How native workers applied revision updates, in arrival order, while
+/// [debugReportPdfRenderWorkerRevisions] was set at their spawn. `path` is
+/// 'append' (folded in place), 'rollback' (an undo rolled back in place, then
+/// any appended tail folded), 'unchanged' or 'reopen'; `imageDecodes` is the
+/// worker's decoded-image cache misses so far (it restarts at 0 with a
+/// re-open, which starts a new cache). Test/diagnostic list; clear it before a
+/// focused probe.
+final debugPdfRenderWorkerRevisionReports =
+    <({String path, int imageDecodes})>[];
 
 /// Native backend: a long-lived background isolate that opens its own
 /// [PdfDocument] from the bytes once and records pages on request, sending the
@@ -163,6 +178,13 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       }
       if (message is List<Object?> &&
           message.isNotEmpty &&
+          message.first == 'revisionApplied') {
+        debugPdfRenderWorkerRevisionReports
+            .add((path: message[1] as String, imageDecodes: message[2] as int));
+        return;
+      }
+      if (message is List<Object?> &&
+          message.isNotEmpty &&
           message.first == 'cancelIgnored') {
         debugPdfRenderWorkerIgnoredStaleCancels++;
         developer.log(
@@ -225,7 +247,8 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes]),
           populatedRanges: populatedRanges,
           perfEnabled: PdfPerfLog.enabled,
-          deferStaleCancel: debugDeferPdfRenderWorkerCancelUntilNextRequest),
+          deferStaleCancel: debugDeferPdfRenderWorkerCancelUntilNextRequest,
+          reportRevisions: debugReportPdfRenderWorkerRevisions),
       debugName: 'pdf-render-worker',
       errorsAreFatal: false,
     );
@@ -764,7 +787,8 @@ class _WorkerInit {
   _WorkerInit(this.reply, this.bytes,
       {this.populatedRanges,
       this.perfEnabled = false,
-      this.deferStaleCancel = false});
+      this.deferStaleCancel = false,
+      this.reportRevisions = false});
 
   /// Populated byte pairs; unlike the buffer's Expando, these cross isolates.
   final List<int>? populatedRanges;
@@ -782,6 +806,10 @@ class _WorkerInit {
   /// cancel that targets the active request and replay it once the next request
   /// goes active, recreating issue #220's late-arrival ordering deterministically.
   final bool deferStaleCancel;
+
+  /// Test hook (see [debugReportPdfRenderWorkerRevisions]): report how each
+  /// 'update' was applied.
+  final bool reportRevisions;
 }
 
 /// Isolate entrypoint: open the document once, then serve record and bin
@@ -824,6 +852,7 @@ void _workerMain(_WorkerInit init) {
   final textCache = PdfWorkerTextCache();
   final binCommands = _BinCommandCache(textCache);
   final suspendedRecord = _SuspendedRecordCache();
+  final appliedPages = _AppliedRevisionPages();
 
   PdfCancellationToken? activeToken;
   int? activeRequestId;
@@ -893,11 +922,11 @@ void _workerMain(_WorkerInit init) {
         // of them alive (~one document per worker per edit).
         //
         // The write lands at or past [baseLength]. For a forward append that is
-        // past everything the open document views. Any other shape (an undo, or
-        // a coalesced undo+edit whose base is below the live revision) has
-        // [baseLength] != the document's length, so it re-opens below and
-        // evicts every cache that referenced the old document before anything
-        // reads the overwritten bytes again.
+        // past everything the open document views. When the base is below the
+        // live revision (an undo, or a coalesced undo+edit) the document is
+        // rolled back to the base first, which evicts every object the undone
+        // revisions defined - the only ones that read the overwritten bytes -
+        // before anything reads them again; failing that, it re-opens below.
         //
         // Grow with ~6% slack, not doubling: every worker isolate owns its
         // buffer, so doubling would park up to a document of dead capacity in
@@ -909,35 +938,78 @@ void _workerMain(_WorkerInit init) {
         }
         buffer.setRange(baseLength, newLength, appended);
         final live = Uint8List.sublistView(buffer, 0, newLength);
-        var incremental = false;
+        // The pages whose cached records and text the revision leaves stale
+        // (null: all of them), and how it was applied - null until the
+        // document reflects [live].
+        Set<int>? stale;
+        String? how;
         final doc = document;
-        if (doc != null && baseLength == doc.cos.bytes.length) {
+        if (doc != null && baseLength <= doc.cos.bytes.length) {
           try {
-            doc.applyIncrementalUpdate(live);
-            incremental = true;
+            // Undo in place: back to the base through the COS journal. The
+            // image cache and every object the undone revisions did not touch
+            // stay warm, where a re-open started all of them cold.
+            var undone = 0;
+            Set<int>? undonePages = const {};
+            if (baseLength < doc.cos.bytes.length) {
+              final rolled = doc.rollbackTo(baseLength);
+              if (rolled == null) throw StateError('not a journaled revision');
+              undone = rolled.steps;
+              undonePages = appliedPages.popTo(baseLength, undone);
+            }
+            if (newLength > baseLength) {
+              doc.applyIncrementalUpdate(live);
+              appliedPages.push(baseLength, changed);
+            }
+            // [changed] is the last host transition's pages. When several
+            // transitions reach the worker as one update (undos, or an undo
+            // then an edit), the undone revisions' pages come from the worker's
+            // own record of what it applied.
+            stale = undonePages == null || changed == null
+                ? null
+                : {...undonePages, ...changed};
+            how = undone > 0
+                ? 'rollback'
+                : newLength > baseLength
+                    ? 'append'
+                    : 'unchanged';
           } catch (_) {
-            // Not a forward append (an undo shrinks to a prefix) or an
-            // unsupported document: re-open from the target prefix instead.
+            // Not a revision this document can roll back to, or an appended
+            // chain it can't fold in place (malformed, or reaching below a
+            // recovered document's bytes): re-open from the target instead.
           }
         }
-        if (!incremental) {
+        if (how == null) {
+          // A fresh document, so every cached command and decoded image (which
+          // referenced the old one) must go. The current document's handler
+          // opens the revision when it can, so an encrypted file does not
+          // derive its keys again in every worker.
+          how = 'reopen';
+          stale = null;
+          imageCache = PdfImageDecodeCache();
+          appliedPages.clear();
+          final ranges = nextRanges;
+          if (ranges != null) cosSparseBufferRanges[live] = ranges;
+          PdfDocument? reopened;
           try {
-            document = PdfDocument.open(live, populatedRanges: nextRanges);
-            imageCache = PdfImageDecodeCache(); // new document, new streams
-          } catch (_) {
-            document = null;
-          }
+            reopened = doc?.openAppended(live);
+          } catch (_) {}
+          try {
+            reopened ??= PdfDocument.open(live, populatedRanges: nextRanges);
+          } catch (_) {}
+          document = reopened;
         }
         workerBytes = buffer;
         workerLength = newLength;
         populatedRanges = nextRanges;
-        // On the in-place fast path only the changed pages' cached commands are
-        // stale; a re-open makes a fresh document, so every cached command
-        // (which referenced the old one) must go. A suspended record walks the
-        // old document too, so it follows the same eviction.
-        binCommands.evictPages(incremental ? changed : null);
-        suspendedRecord.evict(incremental ? changed : null);
-        textCache.evictPages(incremental ? changed : null);
+        // A suspended record walks the document too, so it follows the same
+        // eviction as the cached commands and text.
+        binCommands.evictPages(stale);
+        suspendedRecord.evict(stale);
+        textCache.evictPages(stale);
+        if (init.reportRevisions) {
+          init.reply.send(['revisionApplied', how, imageCache.misses]);
+        }
       } catch (_) {
         // Malformed update (rejected before anything was written): leave the
         // document and buffer as they were and just free the worker slot below
@@ -1518,6 +1590,44 @@ Future<Uint8List?> _buildRegionIndexAsync(
   if (index == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
   return serializeRegionReplayIndex(index);
+}
+
+/// The pages each revision a worker's document folded in place changed,
+/// newest last, parallel to its COS rollback journal: what undoing those
+/// revisions leaves stale. An update names only the pages of the host's last
+/// transition, which is the undone revision only when no transitions were
+/// coalesced into it.
+class _AppliedRevisionPages {
+  // (the byte length the revision was applied at, the pages it changed or
+  // null for all of them)
+  final _revisions = <(int, Set<int>?)>[];
+
+  /// Records a revision folded in at [baseLength] that changed [pages].
+  void push(int baseLength, Set<int>? pages) {
+    _revisions.add((baseLength, pages));
+    // The COS journal keeps 256; a longer rollback is refused there anyway.
+    if (_revisions.length > 256) _revisions.removeAt(0);
+  }
+
+  /// Forgets the revisions a rollback to [length] undid and returns the pages
+  /// they changed - null (all pages) when one changed every page, or when
+  /// the count does not match the [steps] the COS journal undid.
+  Set<int>? popTo(int length, int steps) {
+    Set<int>? pages = <int>{};
+    var popped = 0;
+    while (_revisions.isNotEmpty && _revisions.last.$1 >= length) {
+      final revisionPages = _revisions.removeLast().$2;
+      popped++;
+      if (revisionPages == null) {
+        pages = null;
+      } else {
+        pages?.addAll(revisionPages);
+      }
+    }
+    return popped == steps ? pages : null;
+  }
+
+  void clear() => _revisions.clear();
 }
 
 /// Tiny per-worker LRU of the command lists strip bins replay, keyed
