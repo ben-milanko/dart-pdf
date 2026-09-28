@@ -258,6 +258,21 @@ class PdfDocument {
     return changed;
   }
 
+  /// Takes this open document back to an earlier revision it advanced past
+  /// with [applyIncrementalUpdate] (see [CosDocument.rollbackTo]) and drops the
+  /// page-tree caches, so a render worker can follow an undo without
+  /// re-parsing the document or losing the objects the undone revisions did
+  /// not touch. [length] is that revision's byte length; `cos.bytes` must
+  /// still hold it as their prefix. Returns the redefined COS object numbers
+  /// and how many revisions were undone, or null - nothing changed - when
+  /// [length] is not a revision this document can roll back to; re-open
+  /// instead.
+  ({Set<int> changed, int steps})? rollbackTo(int length) {
+    final result = cos.rollbackTo(length);
+    if (result != null && result.steps > 0) invalidatePageCache();
+    return result;
+  }
+
   /// Folds an append-only revision into the COS layer (see
   /// [applyIncrementalUpdate]) and returns a *fresh* [PdfDocument] over it.
   ///

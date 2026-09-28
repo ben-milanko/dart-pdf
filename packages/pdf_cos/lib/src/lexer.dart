@@ -112,7 +112,9 @@ class CosLexer {
       case 0x2F:
         return _name(start, reuse);
       // { and } only occur inside PostScript calculator functions; surface
-      // them as keywords so a function parser can handle them.
+      // them as keywords so a function parser can handle them. They carry no
+      // [CosTokenBuffer.keywordCode] (setToken resets it to -1): a content
+      // stream's stray brace must not read as the previous operator.
       case 0x7B:
         position++;
         return _token(reuse, CosTokenType.keyword, start, '{');
@@ -187,7 +189,11 @@ class CosLexer {
     // semantics instead of trading precision for the fast path.
     if (valid && digits > 0 && digits <= 15) {
       final value = mantissa / _pow10[p - dot - 1];
-      return _token(reuse, CosTokenType.real, start, negative ? -value : value);
+      if (reuse != null) {
+        reuse.setReal(start, negative ? -value : value);
+        return reuse;
+      }
+      return CosToken(CosTokenType.real, start, negative ? -value : value);
     }
 
     final raw = String.fromCharCodes(bytes, start, p);
@@ -353,7 +359,12 @@ class CosLexer {
           'unexpected byte 0x${bytes[position].toRadixString(16)}', start);
     }
     position = p;
-    return _token(reuse, CosTokenType.keyword, start, _internKeyword(start, p));
+    if (reuse == null) {
+      return CosToken(
+          CosTokenType.keyword, start, _internKeyword(start, p, null));
+    }
+    _internKeyword(start, p, reuse);
+    return reuse;
   }
 
   /// Interned strings for keywords up to 3 bytes, packed little-endian into
@@ -362,9 +373,16 @@ class CosLexer {
   /// String.fromCharCodes allocation per operator token.
   static final Map<int, String> _keywordIntern = {};
 
-  String _internKeyword(int start, int end) {
+  /// Returns the keyword spelled by `bytes[start, end)`. When [reuse] is
+  /// given, also stores the keyword token in it - with the packed code as its
+  /// [CosTokenBuffer.keywordCode] for a keyword of at most three bytes.
+  String _internKeyword(int start, int end, CosTokenBuffer? reuse) {
     final len = end - start;
-    if (len > 3) return String.fromCharCodes(bytes, start, end);
+    if (len > 3) {
+      final keyword = String.fromCharCodes(bytes, start, end);
+      reuse?.setToken(CosTokenType.keyword, start, keyword);
+      return keyword;
+    }
     var packed = bytes[start];
     if (len > 1) packed |= bytes[start + 1] << 8;
     if (len > 2) packed |= bytes[start + 2] << 16;
@@ -452,7 +470,12 @@ class CosLexer {
       0x646e65 => 'end',
       _ => null,
     };
-    if (known != null) return known;
+    final keyword = known ?? _internUnknownKeyword(packed, start, end);
+    reuse?.setKeyword(start, keyword, packed);
+    return keyword;
+  }
+
+  String _internUnknownKeyword(int packed, int start, int end) {
     final hit = _keywordIntern[packed];
     if (hit != null) return hit;
     final s = String.fromCharCodes(bytes, start, end);

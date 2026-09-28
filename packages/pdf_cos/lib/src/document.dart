@@ -248,15 +248,23 @@ class CosDocument {
   /// resolve re-reads it from the appended bytes. Returns the set of redefined
   /// object numbers.
   ///
-  /// Throws when the update cannot be applied incrementally (this document was
-  /// opened through xref recovery, [newBytes] is not an append, or the appended
-  /// xref chain is malformed); the caller should re-open from scratch instead.
+  /// A document opened through xref recovery ([startXref] 0) takes updates
+  /// too: [CosIncrementalUpdater] chains its section to it with `/Prev 0`,
+  /// which is exactly where this walk stops, and the appended entries override
+  /// the recovered ones - the same "last definition wins" a recovery of the
+  /// new bytes applies. Its first update gives it a real [startXref], so later
+  /// ones chain normally. Only a chain confined to the appended bytes is taken
+  /// that way: the recovered entries replace whatever the old bytes' broken
+  /// sections say, so a section reached below them is refused.
+  ///
+  /// Throws when the update cannot be applied incrementally ([newBytes] is not
+  /// an append, the appended xref chain is malformed, or - on a recovered
+  /// document - it adds no section or reaches into the old bytes); the caller
+  /// should re-open from scratch instead.
+  ///
+  /// Each applied update is journaled, so [rollbackTo] can take the document
+  /// back to where it was before.
   Set<int> applyIncrementalUpdate(Uint8List newBytes) {
-    if (startXref <= 0) {
-      // A recovered document has no trustworthy xref chain to hang a /Prev off.
-      throw CosParseException(
-          'cannot incrementally update a recovered document');
-    }
     if (newBytes.length <= bytes.length) {
       throw CosParseException('incremental update is not an append');
     }
@@ -264,16 +272,34 @@ class CosDocument {
     // reader stops descending at the old startxref (everything below it is
     // already loaded). First occurrence among the appended sections wins and
     // overrides whatever the old chain held for that object.
+    final recovered = startXref <= 0;
     final reader = CosXrefReader(newBytes, shift: _offsetShift);
     final newStartXref = reader.findStartXref();
-    final appended = reader.walkFrom(newStartXref, stopAt: startXref);
+    final appended = reader.walkFrom(newStartXref,
+        stopAt: startXref,
+        floor: recovered ? bytes.length - _offsetShift : null);
+    if (recovered && !appended.parsedSection) {
+      // Nothing to fold: a re-open would rescan the appended bytes instead.
+      throw CosParseException('update to a recovered document adds no section');
+    }
     final changed = appended.entries.keys.toSet();
+    final populated = _populated;
+    _journal.add(_AppliedUpdate(
+      length: bytes.length,
+      startXref: startXref,
+      // Not copied: a folded section's trailer is merged into a new dictionary
+      // below, so this one stays the previous revision's.
+      trailer: trailer,
+      previous: {for (final number in changed) number: _xref[number]},
+      populatedLength: populated?.length ?? 0,
+      populatedEnd: populated == null || populated.isEmpty ? 0 : populated.last,
+    ));
+    if (_journal.length > _maxJournaledUpdates) _journal.removeAt(0);
     appended.entries.forEach((number, entry) => _xref[number] = entry);
 
     // An appended revision is real bytes end to end, so a sparse buffer's hole
     // map has to grow with it - otherwise every object the update defines
     // would read as an unfetched hole and the revision would apply invisibly.
-    final populated = _populated;
     if (populated != null) {
       if (populated.isNotEmpty && populated.last == bytes.length) {
         populated[populated.length - 1] = newBytes.length;
@@ -298,8 +324,97 @@ class CosDocument {
 
     // Drop cached state for every redefined object so the next resolve re-reads
     // it from the appended bytes; untouched objects keep their warm cache.
+    _evictRedefined(changed);
+    return changed;
+  }
+
+  /// Takes this document back to an earlier revision that
+  /// [applyIncrementalUpdate] advanced it past: the undo counterpart of that
+  /// method, for a holder whose buffer shrinks back to a prefix (a render
+  /// worker following an editor's undo). [length] is that revision's byte
+  /// length, and [bytes] must still hold it as their prefix.
+  ///
+  /// Restores the xref entries, trailer, [startXref] and populated ranges the
+  /// undone revisions replaced, views [bytes] down to [length], and evicts only
+  /// the objects those revisions redefined - every untouched object, and
+  /// anything keyed on its identity (decoded-image caches), stays warm - then
+  /// advances [revision]. Returns the evicted object numbers and how many
+  /// revisions were undone: `steps` 0 (nothing evicted) when [length] is the
+  /// current one.
+  ///
+  /// Returns null, changing nothing, when [length] is not a revision this
+  /// document can return to: never journaled (it was opened there, or it lies
+  /// further back than the 256 most recent updates), or the prefix no
+  /// longer ends with the `startxref` that revision had - the caller re-opens
+  /// the prefix instead. A document opened through recovery fails that check
+  /// at the revision it was opened at unless the broken file happened to
+  /// declare `startxref 0`, and then restoring is exact anyway.
+  ({Set<int> changed, int steps})? rollbackTo(int length) {
+    if (length == bytes.length) return (changed: <int>{}, steps: 0);
+    var index = _journal.length - 1;
+    while (index >= 0 && _journal[index].length > length) {
+      index--;
+    }
+    if (index < 0 || _journal[index].length != length) return null;
+    final target = _journal[index];
+    final prefix = Uint8List.sublistView(bytes, 0, length);
+    try {
+      final declared =
+          CosXrefReader(prefix, shift: _offsetShift).findStartXref();
+      if (declared != target.startXref) return null;
+    } on Exception {
+      return null;
+    } on RangeError {
+      return null;
+    }
+
+    // Newest first, so a number several undone revisions redefined ends at
+    // the value it had before the oldest of them.
+    final changed = <int>{};
+    for (var i = _journal.length - 1; i >= index; i--) {
+      _journal[i].previous.forEach((number, entry) {
+        changed.add(number);
+        if (entry == null) {
+          _xref.remove(number);
+        } else {
+          _xref[number] = entry;
+        }
+      });
+    }
+    final steps = _journal.length - index;
+    _journal.length = index;
+
+    // [applyIncrementalUpdate] only ever extends the last range or appends
+    // ranges, so cutting back to the old count and end restores the snapshot.
+    final populated = _populated;
+    if (populated != null) {
+      populated.length = target.populatedLength;
+      if (populated.isNotEmpty) populated.last = target.populatedEnd;
+      cosSparseBufferRanges[prefix] = List<int>.unmodifiable(populated);
+    }
+    bytes = prefix;
+    startXref = target.startXref;
+    trailer = target.trailer;
+    _evictRedefined(changed);
+    return (changed: changed, steps: steps);
+  }
+
+  /// Revisions [rollbackTo] can undo, oldest first: one entry per
+  /// [applyIncrementalUpdate], capped at [_maxJournaledUpdates].
+  final List<_AppliedUpdate> _journal = [];
+
+  /// How many updates back [rollbackTo] reaches. Each entry is a few dozen
+  /// bytes plus the xref entries its revision replaced.
+  static const int _maxJournaledUpdates = 256;
+
+  /// Drops the cached state of every object in [redefined] - loaded objects
+  /// (both caches and the reverse index) and parsed object streams - with the
+  /// lazily built header scan, and advances [revision]: what a revision that
+  /// redefines those objects, forward ([applyIncrementalUpdate]) or back
+  /// ([rollbackTo]), leaves stale. Untouched objects keep their warm cache.
+  void _evictRedefined(Set<int> redefined) {
     _cache.removeWhere((key, obj) {
-      if (!changed.contains(_objectNumberOf(key))) return false;
+      if (!redefined.contains(_objectNumberOf(key))) return false;
       final reverse = _reverseCache[obj];
       if (reverse != null &&
           _packable(reverse.objectNumber, reverse.generation) &&
@@ -309,14 +424,13 @@ class CosDocument {
       return true;
     });
     _unpackedCache.removeWhere((ref, obj) {
-      if (!changed.contains(ref.objectNumber)) return false;
+      if (!redefined.contains(ref.objectNumber)) return false;
       if (_reverseCache[obj] == ref) _reverseCache.remove(obj);
       return true;
     });
-    _objectStreams.removeWhere((number, _) => changed.contains(number));
+    _objectStreams.removeWhere((number, _) => redefined.contains(number));
     _scannedHeaders = null;
     _revision++;
-    return changed;
   }
 
   /// Opens a document from an asynchronous, random-access [source], fetching
@@ -365,7 +479,9 @@ class CosDocument {
 
   static CosDocument _recoverTimed(Uint8List bytes, int shift, String password,
       List<int>? populated, CosDocument? keysFrom) {
-    final entries = _scanObjectHeaders(bytes, shift, populated);
+    final trailerKeywords = <int>[];
+    final entries =
+        _scanObjectHeaders(bytes, shift, populated, trailers: trailerKeywords);
     if (entries.isEmpty) {
       throw CosParseException(
           'cross-reference recovery found no objects in the file');
@@ -375,10 +491,7 @@ class CosDocument {
     // (later revisions win), then doc-level keys from any xref stream
     // dictionaries (files without the trailer keyword).
     final trailer = CosDictionary();
-    var t = shift;
-    while (true) {
-      t = _indexOf(bytes, 'trailer', t);
-      if (t < 0) break;
+    for (final t in trailerKeywords) {
       try {
         final candidate =
             CosParser(bytes, offset: t + 'trailer'.length).parseObject();
@@ -390,7 +503,6 @@ class CosDocument {
       } on Exception {
         // junk that happens to contain the keyword
       }
-      t += 'trailer'.length;
     }
 
     final document =
@@ -478,11 +590,25 @@ class CosDocument {
   /// [populated] bounds the scan to the byte ranges a sparse buffer actually
   /// holds (see [_populated]); a hole is all zeros, so scanning it can only
   /// cost time.
+  ///
+  /// [trailers], when given, collects the offset of every `trailer` keyword
+  /// in the same pass (in file order, non-overlapping), so recovery reads the
+  /// file once instead of once per keyword.
+  ///
+  /// One Horspool pass over a 3-byte window for both keywords (`obj` and the
+  /// `tra` of `trailer`): the window's last byte says how far along the next
+  /// possible match can start ([_scanSkip]), so most bytes are never compared.
+  /// A byte-at-a-time scan and a separate `trailer` search were each about
+  /// half of a recovery open on a large file.
   static Map<int, CosXrefEntry> _scanObjectHeaders(
-      Uint8List bytes, int shift, List<int>? populated) {
+      Uint8List bytes, int shift, List<int>? populated,
+      {List<int>? trailers}) {
     final entries = <int, CosXrefEntry>{};
+    final n = bytes.length;
+    final skip = _scanSkip;
     var hole = 0; // index of the populated range the cursor is at or before
-    for (var i = shift; i + 3 <= bytes.length; i++) {
+    var i = shift;
+    while (i + 3 <= n) {
       if (populated != null) {
         while (
             hole * 2 + 1 < populated.length && i >= populated[hole * 2 + 1]) {
@@ -490,23 +616,58 @@ class CosDocument {
         }
         if (hole * 2 >= populated.length) break;
         if (i < populated[hole * 2]) {
-          i = populated[hole * 2] - 1;
+          i = populated[hole * 2];
           continue;
         }
       }
-      if (bytes[i] != 0x6F /* o */ ||
-          bytes[i + 1] != 0x62 /* b */ ||
-          bytes[i + 2] != 0x6A /* j */) {
+      final last = bytes[i + 2];
+      final step = skip[last];
+      if (step != 0) {
+        i += step;
         continue;
       }
-      if (i + 3 < bytes.length && CosLexer.isRegular(bytes[i + 3])) continue;
-      final header = _objectHeaderBefore(bytes, i, shift);
-      if (header == null) continue;
-      final (start, objectNumber, generation) = header;
-      entries[objectNumber] = CosXrefEntry.inUse(start - shift, generation);
+      if (last == 0x6A /* j */) {
+        if (bytes[i] == 0x6F /* o */ &&
+            bytes[i + 1] == 0x62 /* b */ &&
+            !(i + 3 < n && CosLexer.isRegular(bytes[i + 3]))) {
+          final header = _objectHeaderBefore(bytes, i, shift);
+          if (header != null) {
+            final (start, objectNumber, generation) = header;
+            entries[objectNumber] =
+                CosXrefEntry.inUse(start - shift, generation);
+          }
+        }
+      } else if (trailers != null &&
+          i + 7 <= n &&
+          bytes[i] == 0x74 /* t */ &&
+          bytes[i + 1] == 0x72 /* r */ &&
+          bytes[i + 3] == 0x69 /* i */ &&
+          bytes[i + 4] == 0x6C /* l */ &&
+          bytes[i + 5] == 0x65 /* e */ &&
+          bytes[i + 6] == 0x72 /* r */) {
+        // Neither keyword can start inside `trailer`, so skip all of it.
+        trailers.add(i);
+        i += 7;
+        continue;
+      }
+      i++;
     }
     return entries;
   }
+
+  /// [_scanObjectHeaders]' skip table: for each possible last byte of the
+  /// 3-byte window, how far the window can advance before that byte could line
+  /// up with `obj` or `tra`. `o`/`t` sit two before the end, `b`/`r` one, and
+  /// `j`/`a` end a candidate (0: compare in place). The six letters are
+  /// distinct, so each has one shift.
+  static final Uint8List _scanSkip = Uint8List(256)
+    ..fillRange(0, 256, 3)
+    ..[0x6F] = 2 // o
+    ..[0x62] = 1 // b
+    ..[0x6A] = 0 // j
+    ..[0x74] = 2 // t
+    ..[0x72] = 1 // r
+    ..[0x61] = 0; // a
 
   /// Walks backwards from an `obj` keyword over `N G `, returning the
   /// offset of the object number and the parsed numbers, or null when the
@@ -1065,6 +1226,31 @@ class CosDocument {
     }
     return index;
   }
+}
+
+/// What one [CosDocument.applyIncrementalUpdate] replaced, so
+/// [CosDocument.rollbackTo] can put it back.
+class _AppliedUpdate {
+  _AppliedUpdate({
+    required this.length,
+    required this.startXref,
+    required this.trailer,
+    required this.previous,
+    required this.populatedLength,
+    required this.populatedEnd,
+  });
+
+  /// The document's byte length before the update: the revision it undoes to.
+  final int length;
+  final int startXref;
+  final CosDictionary trailer;
+
+  /// The xref entry each redefined object number had, null when it had none.
+  final Map<int, CosXrefEntry?> previous;
+
+  /// The populated-range list's length and last value (for a sparse buffer).
+  final int populatedLength;
+  final int populatedEnd;
 }
 
 /// Key for the decoded-stream cache: a [CosStream] by identity plus the

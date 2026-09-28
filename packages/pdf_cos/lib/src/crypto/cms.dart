@@ -763,18 +763,21 @@ bool _sameDer(Uint8List a, Uint8List b) {
   return true;
 }
 
-X509Certificate? _findIssuer(
+/// The issuer of [of] among [candidates], and whether its signature on [of]
+/// verified: the first name match whose signature verifies, else the first
+/// name match alone (unverified), so the problem reported is "bad signature"
+/// rather than "issuer not found". The caller reads the flag rather than
+/// verifying the pair a second time.
+(X509Certificate, bool verified)? _findIssuer(
     X509Certificate of, List<X509Certificate> candidates) {
   for (final candidate in candidates) {
     if (_sameDer(candidate.subjectDer, of.issuerDer) &&
         of.isSignedBy(candidate)) {
-      return candidate;
+      return (candidate, true);
     }
   }
-  // fall back to name match alone so the problem reported is "bad
-  // signature" rather than "issuer not found"
   for (final candidate in candidates) {
-    if (_sameDer(candidate.subjectDer, of.issuerDer)) return candidate;
+    if (_sameDer(candidate.subjectDer, of.issuerDer)) return (candidate, false);
   }
   return null;
 }
@@ -807,8 +810,8 @@ CertificateChainResult verifyCertificateChain({
       problems.add('certificate chain is longer than 10 links');
       break;
     }
-    final issuer = _findIssuer(current, [...trustAnchors, ...intermediates]);
-    if (issuer == null) {
+    final found = _findIssuer(current, [...trustAnchors, ...intermediates]);
+    if (found == null) {
       final selfSigned = _sameDer(current.subjectDer, current.issuerDer);
       problems.add(selfSigned
           ? 'self-signed certificate "${nameOf(current)}" is not a '
@@ -816,7 +819,8 @@ CertificateChainResult verifyCertificateChain({
           : 'no certificate found for issuer of "${nameOf(current)}"');
       break;
     }
-    if (!current.isSignedBy(issuer)) {
+    final (issuer, verified) = found;
+    if (!verified) {
       problems.add('signature on "${nameOf(current)}" does not verify '
           'against its issuer "${nameOf(issuer)}"');
       break;

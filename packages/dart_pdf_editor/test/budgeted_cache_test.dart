@@ -77,6 +77,22 @@ void main() {
       expect(cache.containsKey(1), isFalse);
     });
 
+    test('a lookup counts hits and misses but leaves recency untouched', () {
+      final cache = PdfBudgetedCache<int, _Res>(
+        maxEntries: 3,
+        cloner: (r) => r.clone(),
+      );
+      final masters = [for (var i = 0; i < 3; i++) cache.put(i, _Res(i))];
+      expect(cache.lookup(0), same(masters[0]), reason: 'the master, no clone');
+      expect(cache.lookup(1), same(masters[1]));
+      expect(cache.lookup(9), isNull);
+      expect(cache.keys, [0, 1, 2], reason: 'insertion order is kept');
+      expect(cache.hits, 2);
+      expect(cache.misses, 1);
+      cache.put(3, _Res(3)); // evicts the oldest insertion despite its lookup
+      expect(cache.keys, [1, 2, 3]);
+    });
+
     test('the cap is floored at 1', () {
       final cache = PdfBudgetedCache<int, _Res>(maxEntries: 0);
       cache.put(0, _Res(0));
@@ -428,13 +444,17 @@ void main() {
   });
 
   group('counters', () {
-    test('hits/misses track take; resetCounters zeroes them', () {
+    test('hits/misses track take and lookup; resetCounters zeroes them', () {
       final cache = PdfBudgetedCache<int, _Res>(maxEntries: 4);
       cache.put(0, _Res(0));
       expect(cache.take(0), isNotNull);
       expect(cache.take(9), isNull);
       expect(cache.hits, 1);
       expect(cache.misses, 1);
+      expect(cache.lookup(0), isNotNull);
+      expect(cache.lookup(9), isNull);
+      expect(cache.hits, 2);
+      expect(cache.misses, 2);
       cache.resetCounters();
       expect(cache.hits, 0);
       expect(cache.misses, 0);

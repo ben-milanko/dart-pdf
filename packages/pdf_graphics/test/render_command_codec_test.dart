@@ -790,6 +790,219 @@ void main() {
     });
   });
 
+  // Format 11 writes a tiled cell's command list once per record and refers
+  // back to it by id. The interpreter stamps a Type3 glyph as a single-origin
+  // tiled cell sharing one recorded list (#535); written in full per stamp, a
+  // bitmap-font page shipped every glyph's commands and pixels once per
+  // letter, and read back as one fresh list per stamp - which is what the
+  // canvas keys its cached cell picture on. The transcript oracle expands
+  // cells per origin and cannot see sharing, so these check identity too.
+  group('tiled cell identity (v11)', () {
+    PdfPath segment(double x) => PdfPath([PdfMoveTo(x, 0), PdfLineTo(x, 10)]);
+    PdfFillPathCommand fill(double x, PdfColor color) =>
+        PdfFillPathCommand(segment(x), color, PdfFillRule.nonzero, 1);
+    PdfStrokePathCommand stroke(double x, PdfColor color, PdfStroke stroke) =>
+        PdfStrokePathCommand(segment(x), color, stroke, 1);
+    PdfDrawTiledCellCommand stamp(List<PdfRenderCommand> cell, double x) =>
+        PdfDrawTiledCellCommand(
+            cell, Float64List.fromList([x]), Float64List.fromList([0]));
+
+    const red = PdfColor(1, 0, 0);
+    const blue = PdfColor(0, 0, 1);
+    const dashed = PdfStroke(width: 0.25, dashArray: [3, 2], dashPhase: 1.5);
+
+    List<PdfDrawTiledCellCommand> stamps(List<PdfRenderCommand> commands) =>
+        commands.whereType<PdfDrawTiledCellCommand>().toList();
+
+    test('a shared cell is written once and reads back as one list', () {
+      final glyph = <PdfRenderCommand>[
+        for (var i = 0; i < 20; i++) fill(i.toDouble(), red),
+        stroke(0, blue, dashed),
+      ];
+      final commands = [for (var i = 0; i < 50; i++) stamp(glyph, i * 6.0)];
+      final bytes = serializeCommands(commands)!;
+
+      // The control: 50 lists with the same content but no shared identity
+      // cost what every stamp used to.
+      final unshared = serializeCommands([
+        for (var i = 0; i < 50; i++) stamp(List.of(glyph), i * 6.0),
+      ])!;
+      expect(bytes.length * 10, lessThan(unshared.length),
+          reason: 'the 49 repeats should be references, not bodies');
+
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+      final cells = stamps(restored);
+      expect(cells, hasLength(50));
+      for (final cell in cells) {
+        expect(identical(cell.cellCommands, cells.first.cellCommands), isTrue,
+            reason: 'every stamp shares the one restored cell list');
+      }
+      expect(cells.map((c) => c.originsX.single).toList(),
+          [for (var i = 0; i < 50; i++) i * 6.0]);
+      expect(serializeCommands(restored), equals(bytes),
+          reason: 're-serializing the decoded buffer yields the same bytes');
+    });
+
+    test('nested cells keep their slot order', () {
+      // B nests in A, and C holds both, so ids are handed out mid-body: a
+      // reader that numbered a cell after its body would give B's slot to A.
+      final b = <PdfRenderCommand>[fill(1, blue)];
+      final a = <PdfRenderCommand>[fill(2, red), stamp(b, 3), fill(4, red)];
+      final c = <PdfRenderCommand>[stamp(a, 5), stamp(b, 6)];
+      final commands = [
+        stamp(a, 0),
+        stamp(b, 10),
+        stamp(c, 20),
+        stamp(a, 30),
+        stamp(c, 40),
+        stamp(b, 50),
+      ];
+      final bytes = serializeCommands(commands)!;
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+
+      final top = stamps(restored);
+      final ra = top[0].cellCommands;
+      final rb = top[1].cellCommands;
+      final rc = top[2].cellCommands;
+      expect(
+          identical(ra, rb) || identical(rb, rc) || identical(ra, rc), isFalse);
+      expect(identical(stamps(ra).single.cellCommands, rb), isTrue);
+      expect(identical(stamps(rc)[0].cellCommands, ra), isTrue);
+      expect(identical(stamps(rc)[1].cellCommands, rb), isTrue);
+      expect(identical(top[3].cellCommands, ra), isTrue);
+      expect(identical(top[4].cellCommands, rc), isTrue);
+      expect(identical(top[5].cellCommands, rb), isTrue);
+      expect(serializeCommands(restored), equals(bytes));
+    });
+
+    test(
+        'paint after a back-referenced cell is read against the last paint '
+        'written', () {
+      // The v10 paint state runs in write order. The cell's body leaves it
+      // at blue; a later reference writes no body, so the state must stay at
+      // the red written just before it - on both sides.
+      final glyph = <PdfRenderCommand>[fill(1, blue), stroke(2, blue, dashed)];
+      final commands = <PdfRenderCommand>[
+        fill(0, red),
+        stamp(glyph, 10),
+        fill(3, red),
+        stamp(glyph, 20),
+        fill(4, red),
+        stroke(5, red, dashed),
+      ];
+      final bytes = serializeCommands(commands)!;
+      final restored = deserializeCommands(bytes);
+      expect(_transcript(restored), equals(_transcript(commands)));
+
+      final cells = stamps(restored);
+      expect(identical(cells[0].cellCommands, cells[1].cellCommands), isTrue);
+      final fills = restored.whereType<PdfFillPathCommand>().toList();
+      expect(fills.map((f) => f.color.blue), [0, 0, 0]);
+      expect(identical(fills[1].color, fills[2].color), isTrue,
+          reason: 'the fill after the reference reuses red, sent once');
+      final trailing = restored.last as PdfStrokePathCommand;
+      expect(trailing.stroke.dashArray, [3, 2],
+          reason: "the stroke state still comes from the cell's body");
+      expect(serializeCommands(restored), equals(bytes));
+    });
+
+    test('a corrupt cell reference fails at decode', () {
+      Matcher fails(String message) => throwsA(isA<FormatException>()
+          .having((e) => e.message, 'message', contains(message)));
+
+      // Each buffer ends with a back-reference: tag 2 and a big-endian u32.
+      Uint8List corrupt(List<PdfRenderCommand> commands,
+          {int? tag, int? id, int expectedId = 0}) {
+        final bytes = serializeCommands(commands)!;
+        final view = ByteData.sublistView(bytes);
+        expect(bytes[bytes.length - 5], 2, reason: 'ends in a reference');
+        expect(view.getUint32(bytes.length - 4), expectedId);
+        if (tag != null) bytes[bytes.length - 5] = tag;
+        if (id != null) view.setUint32(bytes.length - 4, id);
+        return bytes;
+      }
+
+      final glyph = <PdfRenderCommand>[fill(0, red)];
+      final twice = [stamp(glyph, 0), stamp(glyph, 6)];
+      expect(deserializeCommands(corrupt(twice)), hasLength(2));
+      expect(() => deserializeCommands(corrupt(twice, id: 1)),
+          fails('tiled cell id 1 out of range'));
+      expect(() => deserializeCommands(corrupt(twice, tag: 3)),
+          fails('unknown tiled cell tag'));
+
+      // A cell whose body refers to itself: B's second stamp is the last
+      // thing inside A, so pointing it at A's id (0) is a cycle.
+      final inner = <PdfRenderCommand>[fill(1, blue)];
+      final outer = <PdfRenderCommand>[stamp(inner, 0), stamp(inner, 6)];
+      expect(
+          () => deserializeCommands(
+              corrupt([stamp(outer, 0)], id: 0, expectedId: 1)),
+          fails('tiled cell 0 referenced inside its own body'));
+    });
+
+    test('a Type3 bitmap-font document crosses the seam as its own cells', () {
+      // Six pages of TeX PK-font text: every glyph a 1-bit inline ImageMask
+      // stamped per letter. The worker's decoded record used to rebuild one
+      // list per stamp.
+      final file = File('../../test_corpora/dartpdf/type3-text-6p.pdf');
+      if (!file.existsSync()) {
+        markTestSkipped('test_corpora/dartpdf not found');
+        return;
+      }
+      final doc = PdfDocument.open(file.readAsBytesSync());
+      final imageCache = PdfImageDecodeCache();
+      var stampCount = 0;
+      var sourceCells = 0;
+      var restoredCells = 0;
+      var totalBytes = 0;
+      int distinct(List<PdfRenderCommand> commands) {
+        final seen = Set<List<PdfRenderCommand>>.identity();
+        void walk(List<PdfRenderCommand> list) {
+          for (final c in list) {
+            if (c is PdfDrawTiledCellCommand && seen.add(c.cellCommands)) {
+              walk(c.cellCommands);
+            }
+          }
+        }
+
+        walk(commands);
+        return seen.length;
+      }
+
+      for (var i = 0; i < doc.pageCount; i++) {
+        final page = doc.page(i);
+        final recorder = RecordingPdfDevice();
+        PdfInterpreter(cos: doc.cos, device: recorder, collectCharOffsets: true)
+          ..drawPage(page)
+          ..drawAnnotations(page);
+        // The worker's final record: decoded pixels, compacted scopes.
+        final bytes = serializeCommands(recorder.commands,
+            cos: doc.cos,
+            decodeImages: true,
+            maxImagePixelRatio: 2,
+            pageRasterPixels: pdfPageRasterPixels(page.cropBox, 2),
+            imageCache: imageCache,
+            compactStateScopes: true)!;
+        totalBytes += bytes.length;
+        final restored = deserializeCommands(bytes);
+        stampCount += stamps(restored).length;
+        sourceCells += distinct(recorder.commands);
+        restoredCells += distinct(restored);
+        expect(serializeCommands(restored, cos: doc.cos, decodeImages: true),
+            equals(bytes),
+            reason: 'page $i re-serializes to the same bytes');
+      }
+      expect(stampCount, 35128);
+      expect(sourceCells, 156);
+      expect(restoredCells, sourceCells,
+          reason: 'one restored list per recorded cell, not per stamp');
+      // 24.96 MB when every stamp carried its glyph's commands and pixels.
+      expect(totalBytes, lessThan(2400000));
+    });
+  });
+
   group('image decode offload', () {
     test('uses predecoded image request pixels', () {
       final cos = CosDocument.open(buildClassicPdf());

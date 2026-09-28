@@ -1497,8 +1497,7 @@ class PdfInterpreter {
     final token = cancellation;
     var opCount = 0;
     while (maxOperations == null || opCount < maxOperations) {
-      final op = cursor.nextOperation();
-      if (op == null) return true;
+      if (cursor.nextOperator() == null) return true;
       if (++opCount % yieldInterval == 0) {
         await Future<void>.delayed(Duration.zero);
         if (token != null && token.cancelled) {
@@ -1509,7 +1508,8 @@ class PdfInterpreter {
           token.cancelled) {
         throw const PdfCancelledException();
       }
-      _execOp(op, resources, formDepth);
+      if (cursor.pendingIsNumeric && _execNumeric(cursor)) continue;
+      _execOp(cursor.takeOperation(), resources, formDepth);
     }
     return false;
   }
@@ -1531,14 +1531,137 @@ class PdfInterpreter {
     final token = cancellation;
     var opCount = 0;
     while (true) {
-      final op = cursor.nextOperation();
-      if (op == null) return;
+      if (cursor.nextOperator() == null) return;
       if (token != null && ++opCount & (_cancelCheckInterval - 1) == 0) {
         if (token.cancelled) throw const PdfCancelledException();
       }
-      _execOp(op, resources, formDepth);
+      if (cursor.pendingIsNumeric && _execNumeric(cursor)) continue;
+      _execOp(cursor.takeOperation(), resources, formDepth);
     }
   }
+
+  /// Runs the number-only operator [cursor] has pending straight from its
+  /// operand buffer, dispatching on its packed operator code. Returns false -
+  /// leaving the operator to [_execOp] - for an operator outside this set or
+  /// one with too few operands, so the fallback keeps the general path's
+  /// defaults.
+  ///
+  /// This is the cursor walk's hot path (the worker record, retained scenes,
+  /// text extraction): a vector-dense page is overwhelmingly these operators,
+  /// and taking them here allocates no [ContentOperation], no operand list and
+  /// no boxed operand, and replaces the ordered String switch with an int
+  /// switch. Every case calls the same helper as its [_execOp] case, so the
+  /// two paths share one implementation of each operator.
+  bool _execNumeric(ContentOperationCursor cursor) {
+    final n = cursor.numbers;
+    final count = cursor.numberCount;
+    switch (cursor.operatorCode) {
+      // --- path construction ---
+      case 0x6c: // l
+        _lineTo(count > 0 ? n[0] : 0, count > 1 ? n[1] : 0);
+      case 0x6d: // m
+        _moveTo(count > 0 ? n[0] : 0, count > 1 ? n[1] : 0);
+      case 0x63: // c
+        if (count < 6) return false;
+        _curveTo(n[0], n[1], n[2], n[3], n[4], n[5]);
+      case 0x76: // v
+        if (count < 4) return false;
+        _curveTo(_currentX, _currentY, n[0], n[1], n[2], n[3]);
+      case 0x79: // y
+        if (count < 4) return false;
+        _curveTo(n[0], n[1], n[2], n[3], n[2], n[3]);
+      case 0x68: // h
+        _closePath();
+      case 0x6572: // re
+        if (count < 4) return false;
+        _re(n[0], n[1], n[2], n[3]);
+
+      // --- path painting (stray operands are ignored, as in _execOp) ---
+      case 0x53: // S
+        _paint(stroke: true);
+      case 0x73: // s
+        _closePath();
+        _paint(stroke: true);
+      case 0x66 || 0x46: // f F
+        _paint(fill: PdfFillRule.nonzero);
+      case 0x2a66: // f*
+        _paint(fill: PdfFillRule.evenOdd);
+      case 0x42: // B
+        _paint(fill: PdfFillRule.nonzero, stroke: true);
+      case 0x2a42: // B*
+        _paint(fill: PdfFillRule.evenOdd, stroke: true);
+      case 0x62: // b
+        _closePath();
+        _paint(fill: PdfFillRule.nonzero, stroke: true);
+      case 0x2a62: // b*
+        _closePath();
+        _paint(fill: PdfFillRule.evenOdd, stroke: true);
+      case 0x6e: // n
+        _paint();
+      case 0x57: // W
+        _pendingClip = PdfFillRule.nonzero;
+      case 0x2a57: // W*
+        _pendingClip = PdfFillRule.evenOdd;
+
+      // --- graphics state ---
+      case 0x71: // q
+        _saveState();
+      case 0x51: // Q
+        _restoreState();
+      case 0x6d63: // cm
+        if (count < 6) return false;
+        _cm(n[0], n[1], n[2], n[3], n[4], n[5]);
+      // From `w` on, every operand is read through [_z]: see there.
+      case 0x77: // w
+        if (count < 1) return false;
+        _setLineWidth(_z(n[0]));
+
+      // --- text state and positioning ---
+      case 0x6454: // Td
+        if (count < 2) return false;
+        _textLineMove(_z(n[0]), _z(n[1]));
+      case 0x4454: // TD
+        if (count < 2) return false;
+        _textLineMoveSettingLeading(_z(n[0]), _z(n[1]));
+      case 0x6d54: // Tm
+        if (count < 6) return false;
+        _setTextMatrix(
+            _z(n[0]), _z(n[1]), _z(n[2]), _z(n[3]), _z(n[4]), _z(n[5]));
+      case 0x4c54: // TL
+        if (count < 1) return false;
+        _setLeading(_z(n[0]));
+      case 0x6354: // Tc
+        if (count < 1) return false;
+        _setCharSpacing(_z(n[0]));
+      case 0x7754: // Tw
+        if (count < 1) return false;
+        _setWordSpacing(_z(n[0]));
+      case 0x7a54: // Tz
+        if (count < 1) return false;
+        _setHorizontalScaling(_z(n[0]));
+      case 0x7354: // Ts
+        if (count < 1) return false;
+        _setTextRise(_z(n[0]));
+
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  static const bool _isWeb = identical(0, 0.0);
+
+  /// A fast-path operand of `w`, `Td`, `TD`, `Tm`, `TL`, `Tc`, `Tw`, `Tz` or
+  /// `Ts`, read the way [_execOp] reads it.
+  ///
+  /// Those operators take their operands from [ContentOperation.operands],
+  /// and on the web `-0` and `-0.0` are ints that materialize as the shared
+  /// `CosInteger(0)`: a zero's sign is dropped. `v + 0.0` is +0 for -0 and
+  /// `v` for everything else, so the fast path drops it too; on the VM this
+  /// is the identity and compiles away. `m l c v y re cm` read
+  /// [ContentOperation.numberOperands] in [_execOp], which keeps the sign,
+  /// so their fast-path operands are read as they are.
+  static double _z(double v) => _isWeb ? v + 0.0 : v;
 
   void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
     final numbers = op.numberOperands;
@@ -1580,23 +1703,18 @@ class PdfInterpreter {
           _curveTo(_number(numbers, 0), _number(numbers, 1), x2, y2, x2, y2);
           return;
         case 're':
-          final x = _number(numbers, 0), y = _number(numbers, 1);
-          final w = _number(numbers, 2), h = _number(numbers, 3);
-          _moveTo(x, y);
-          _lineTo(x + w, y);
-          _lineTo(x + w, y + h);
-          _lineTo(x, y + h);
-          _closePath();
+          _re(_number(numbers, 0), _number(numbers, 1), _number(numbers, 2),
+              _number(numbers, 3));
           return;
         case 'cm':
-          _state.ctm = PdfMatrix(
+          _cm(
             _number(numbers, 0),
             _number(numbers, 1),
             _number(numbers, 2),
             _number(numbers, 3),
             _number(numbers, 4),
             _number(numbers, 5),
-          ).concat(_state.ctm);
+          );
           return;
       }
     }
@@ -1629,13 +1747,7 @@ class PdfInterpreter {
       case 'h':
         _closePath();
       case 're':
-        final x = _num(o, 0), y = _num(o, 1);
-        final w = _num(o, 2), h = _num(o, 3);
-        _moveTo(x, y);
-        _lineTo(x + w, y);
-        _lineTo(x + w, y + h);
-        _lineTo(x, y + h);
-        _closePath();
+        _re(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3));
 
       // --- path painting ---
       case 'S':
@@ -1666,29 +1778,14 @@ class PdfInterpreter {
 
       // --- graphics state ---
       case 'q':
-        _stateStack.add(_GraphicsState.from(_state));
-        _overprint?.save();
-        device.save();
+        _saveState();
       case 'Q':
-        if (_stateStack.isNotEmpty) {
-          final restored = _stateStack.removeLast();
-          final mask = _state.softMask;
-          if (mask != null && !identical(mask, restored.softMask)) {
-            _finalizeSoftMask(mask);
-          }
-          if (_state.blendMode != restored.blendMode) {
-            device.setBlendMode(restored.blendMode);
-          }
-          _deliverOverprint(restored.fillOverprint, restored.strokeOverprint,
-              restored.overprintMode);
-          _state = restored;
-          _overprint?.restore();
-          device.restore();
-        }
+        _restoreState();
       case 'cm':
-        _state.ctm = _matrixFrom(o).concat(_state.ctm);
+        _cm(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3), _num(o, 4),
+            _num(o, 5));
       case 'w':
-        _state.stroke = _state.stroke.copyWith(width: _num(o, 0));
+        _setLineWidth(_num(o, 0));
       case 'J':
         _state.stroke = _state.stroke.copyWith(cap: _num(o, 0).toInt());
       case 'j':
@@ -1880,23 +1977,22 @@ class PdfInterpreter {
       case 'Td':
         _textLineMove(_num(o, 0), _num(o, 1));
       case 'TD':
-        _state.leading = -_num(o, 1);
-        _textLineMove(_num(o, 0), _num(o, 1));
+        _textLineMoveSettingLeading(_num(o, 0), _num(o, 1));
       case 'Tm':
-        _lineMatrix = _matrixFrom(o);
-        _textMatrix = _lineMatrix;
+        _setTextMatrix(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3),
+            _num(o, 4), _num(o, 5));
       case 'T*':
         _textLineMove(0, -_state.leading);
       case 'TL':
-        _state.leading = _num(o, 0);
+        _setLeading(_num(o, 0));
       case 'Tc':
-        _state.charSpacing = _num(o, 0);
+        _setCharSpacing(_num(o, 0));
       case 'Tw':
-        _state.wordSpacing = _num(o, 0);
+        _setWordSpacing(_num(o, 0));
       case 'Tz':
-        _state.horizontalScale = _num(o, 0) / 100;
+        _setHorizontalScaling(_num(o, 0));
       case 'Ts':
-        _state.rise = _num(o, 0);
+        _setTextRise(_num(o, 0));
       case 'Tr':
         _state.renderMode = _num(o, 0).toInt();
       case 'Tj':
@@ -1909,8 +2005,8 @@ class PdfInterpreter {
           _showText((o[0] as CosString).bytes);
         }
       case '"':
-        _state.wordSpacing = _num(o, 0);
-        _state.charSpacing = _num(o, 1);
+        _setWordSpacing(_num(o, 0));
+        _setCharSpacing(_num(o, 1));
         _textLineMove(0, -_state.leading);
         if (o.length > 2 && o[2] is CosString) {
           _showText((o[2] as CosString).bytes);
@@ -1970,6 +2066,81 @@ class PdfInterpreter {
         break;
     }
   }
+
+  // --- operator implementations shared by [_execNumeric] and [_execOp] ---
+
+  /// `q`: pushes the graphics state.
+  void _saveState() {
+    _stateStack.add(_GraphicsState.from(_state));
+    _overprint?.save();
+    device.save();
+  }
+
+  /// `Q`: pops the graphics state; an unbalanced `Q` is ignored.
+  void _restoreState() {
+    if (_stateStack.isEmpty) return;
+    final restored = _stateStack.removeLast();
+    final mask = _state.softMask;
+    if (mask != null && !identical(mask, restored.softMask)) {
+      _finalizeSoftMask(mask);
+    }
+    if (_state.blendMode != restored.blendMode) {
+      device.setBlendMode(restored.blendMode);
+    }
+    _deliverOverprint(restored.fillOverprint, restored.strokeOverprint,
+        restored.overprintMode);
+    _state = restored;
+    _overprint?.restore();
+    device.restore();
+  }
+
+  /// `re`: appends a closed rectangle subpath.
+  void _re(double x, double y, double w, double h) {
+    _moveTo(x, y);
+    _lineTo(x + w, y);
+    _lineTo(x + w, y + h);
+    _lineTo(x, y + h);
+    _closePath();
+  }
+
+  /// `cm`: concatenates a matrix onto the CTM.
+  void _cm(double a, double b, double c, double d, double e, double f) {
+    _state.ctm = PdfMatrix(a, b, c, d, e, f).concat(_state.ctm);
+  }
+
+  /// `w`
+  void _setLineWidth(double width) {
+    _state.stroke = _state.stroke.copyWith(width: width);
+  }
+
+  /// `TD`: `Td` that also sets the leading to `-ty`.
+  void _textLineMoveSettingLeading(double tx, double ty) {
+    _state.leading = -ty;
+    _textLineMove(tx, ty);
+  }
+
+  /// `Tm`
+  void _setTextMatrix(
+      double a, double b, double c, double d, double e, double f) {
+    _lineMatrix = PdfMatrix(a, b, c, d, e, f);
+    _textMatrix = _lineMatrix;
+  }
+
+  /// `TL`
+  void _setLeading(double leading) => _state.leading = leading;
+
+  /// `Tc`
+  void _setCharSpacing(double spacing) => _state.charSpacing = spacing;
+
+  /// `Tw`
+  void _setWordSpacing(double spacing) => _state.wordSpacing = spacing;
+
+  /// `Tz`: the operand is a percentage.
+  void _setHorizontalScaling(double percent) =>
+      _state.horizontalScale = percent / 100;
+
+  /// `Ts`
+  void _setTextRise(double rise) => _state.rise = rise;
 
   /// Whether [op] sets a colour or colour space - the operators a `d1` Type3
   /// CharProc must ignore (§9.6.5, referencing the colour operators of §8.6.8).
@@ -2235,7 +2406,10 @@ class PdfInterpreter {
     // the collect pass decodes. So a page that opens a buffer is walked in
     // full even when the caller only wanted the image set. Pages that declare
     // no overprint (the overwhelming majority) keep the cheap scan.
-    if (_overprint != null) _scanImages = false;
+    if (_overprint != null) {
+      _scanImages = false;
+      PdfPerf.add(PdfPerfCount.colorantBufferPages);
+    }
   }
 
   /// Whether any ExtGState reachable from [resources] turns overprint on.
@@ -2873,13 +3047,14 @@ class PdfInterpreter {
             : textFill;
         if (mode != 3 && mode != 7 && !paintedAsTiling) {
           final overprint = _overprint;
-          // Only a live colorant buffer reads the outlines here; every other
-          // page takes the em-box branch without building them.
-          final glyphPath =
-              overprint != null && pattern == null && glyphs != null
-                  ? _glyphOutlinePath(glyphs, transform)
-                  : null;
-          if (overprint != null && glyphPath != null) {
+          // Only a colorant buffer reads the outlines here, and only when it
+          // rasterizes the run or probes its bounds: a run it queues and never
+          // replays, or drops at its draw cap or inside a soft mask, never
+          // builds them. Every other page takes the em-box branch.
+          if (overprint != null &&
+              pattern == null &&
+              glyphs != null &&
+              _hasOutline(glyphs)) {
             // Embedded stroke-only text is historically rendered by filling
             // the glyph outline with the stroking colour. Resolve the same
             // geometry using the stroking overprint tuple, then deliver that
@@ -2891,14 +3066,32 @@ class PdfInterpreter {
             final isOverprint =
                 strokeOnly ? _state.strokeOverprint : _state.fillOverprint;
             final alpha = strokeOnly ? _state.strokeAlpha : _state.fillAlpha;
-            final resolved = overprint.fill(
+            // The outline path, and its control-point box for a single
+            // glyph's sub-cell fallback, are each built on the first ask. The
+            // unknown-backdrop probe needs neither: it maps each outline's
+            // cached em-space box instead, so a run it settles is never
+            // built at all.
+            PdfPath? built;
+            PdfPath glyphPath() =>
+                built ??= _glyphOutlinePath(glyphs, transform)!;
+            PdfRect? bounds;
+            var boundsKnown = false;
+            PdfRect? glyphBounds() {
+              if (!boundsKnown) {
+                boundsKnown = true;
+                bounds = _pathBounds(glyphPath());
+              }
+              return bounds;
+            }
+
+            final resolved = overprint.fillLazily(
               glyphPath,
               PdfFillRule.nonzero,
               runFill,
               ink,
               blendInk: blendInk,
-              subCellBounds:
-                  glyphs?.length == 1 ? _pathBounds(glyphPath) : null,
+              subCellBounds: glyphs.length == 1 ? glyphBounds : null,
+              unknownProbe: () => _glyphRunProbeBox(glyphs, transform),
               overprint: isOverprint,
               mode: _state.overprintMode,
               opaque: _opaquePaint(alpha),
@@ -3335,6 +3528,60 @@ class PdfInterpreter {
     return segments.isEmpty ? null : PdfPath(segments);
   }
 
+  /// A page-space box around every outline control point of [glyphs] under
+  /// the run [transform], without building the outline path: each outline's
+  /// em-space control-point box (cached on the outline, which a font shares
+  /// across runs) is mapped corner by corner through the glyph's placement.
+  ///
+  /// It holds every point [_glyphOutlinePath] would produce: the corners go
+  /// through the same `translation.concat(transform)` coefficients and the
+  /// same `a * x + c * y + e` evaluation, and each rounded step is monotonic
+  /// in x and y. A small margin covers anything that argument misses; a
+  /// bigger box only makes the unknown-backdrop probe decline more often.
+  /// Null when no glyph has an outline point.
+  static PdfRect? _glyphRunProbeBox(
+      List<PdfGlyphPlacement> glyphs, PdfMatrix transform) {
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = -double.infinity, maxY = -double.infinity;
+    void add(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    for (final g in glyphs) {
+      final outline = g.outline;
+      if (outline == null) continue;
+      final em = _emBounds[outline] ??= _pathBounds(outline) ?? _noEmBounds;
+      if (identical(em, _noEmBounds)) continue;
+      final m = PdfMatrix.translation(g.offset, g.offsetY).concat(transform);
+      final l = em.left, b = em.bottom, r = em.right, t = em.top;
+      add(m.transformX(l, b), m.transformY(l, b));
+      add(m.transformX(r, b), m.transformY(r, b));
+      add(m.transformX(l, t), m.transformY(l, t));
+      add(m.transformX(r, t), m.transformY(r, t));
+    }
+    if (minX > maxX) return null;
+    final scale = math.max(
+        math.max(minX.abs(), maxX.abs()), math.max(minY.abs(), maxY.abs()));
+    final margin = 1e-6 + scale * 1e-9;
+    return PdfRect(minX - margin, minY - margin, maxX + margin, maxY + margin);
+  }
+
+  static final Expando<PdfRect> _emBounds = Expando('pdfGlyphEmBounds');
+  static const PdfRect _noEmBounds = PdfRect(0, 0, 0, 0);
+
+  /// Whether [_glyphOutlinePath] builds a path for [glyphs]: some glyph
+  /// carries an outline with at least one segment.
+  static bool _hasOutline(List<PdfGlyphPlacement> glyphs) {
+    for (final g in glyphs) {
+      final outline = g.outline;
+      if (outline != null && outline.segmentCount > 0) return true;
+    }
+    return false;
+  }
+
   void _fillWithPattern(PdfPath path, PdfFillRule rule, CosObject pattern) {
     final dict = _patternDict(pattern);
     if (dict == null) return;
@@ -3655,15 +3902,32 @@ class PdfInterpreter {
 
   /// Axis-aligned bounds of a path's control points, in user space - a
   /// conservative superset of the fill area, enough to size a shading mesh.
+  ///
+  /// Read through a cursor: `segments` would materialize a packed
+  /// interpreter path (the shading-clip and group-bounds callers pass them),
+  /// and a `sync*` point generator per segment was a tenth of an overprint
+  /// text page, where every single-glyph run asks for these bounds.
   static PdfRect? _pathBounds(PdfPath path) {
     var minX = double.infinity, minY = double.infinity;
     var maxX = -double.infinity, maxY = -double.infinity;
-    for (final segment in path.segments) {
-      for (final (x, y) in _segmentPoints(segment)) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
+    void add(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    final reader = path.cursor();
+    while (reader.moveNext()) {
+      switch (reader.verb) {
+        case PdfPathVerb.moveTo || PdfPathVerb.lineTo:
+          add(reader.x1, reader.y1);
+        case PdfPathVerb.cubicTo:
+          add(reader.x1, reader.y1);
+          add(reader.x2, reader.y2);
+          add(reader.x3, reader.y3);
+        case PdfPathVerb.close:
+          break;
       }
     }
     if (minX > maxX) return null;

@@ -66,6 +66,31 @@ void main() {
     expect(stats, (1, 4 * 3));
   });
 
+  test('decode callers can list a shared cell once; pricing keeps each stamp',
+      () {
+    // A Type3 bitmap glyph is one cell list stamped per letter. Decoding
+    // needs its images once; the motion-safe gate prices every draw.
+    final glyph = [_image(4, 3)];
+    PdfDrawTiledCellCommand stamp(List<PdfRenderCommand> cell, double x) =>
+        PdfDrawTiledCellCommand(
+            cell, Float64List.fromList([x]), Float64List.fromList([0]));
+    final commands = [
+      stamp(glyph, 0),
+      stamp(glyph, 10),
+      stamp([_image(2, 2)], 20),
+      stamp(glyph, 30),
+    ];
+    final everyStamp = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, everyStamp);
+    expect(everyStamp, hasLength(4));
+    final distinct = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, distinct,
+        distinctCells: true);
+    expect(distinct, hasLength(2));
+    expect(identical(distinct.first, everyStamp.first), isTrue);
+    expect(PdfPageRenderer.imageDrawPixels(commands), 3 * 4 * 3 + 2 * 2);
+  });
+
   test('an image-free buffer reports zero', () {
     expect(PdfPageRenderer.decodedImageStats(const [PdfSaveCommand()]), (0, 0));
   });

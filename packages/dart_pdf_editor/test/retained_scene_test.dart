@@ -69,6 +69,52 @@ void main() {
     });
   });
 
+  testWidgets('a layer-scaled 1:1 replay rasterizes like a flat replay',
+      (tester) async {
+    // PdfPageView's first base raster of a retained page scales the scene's
+    // own 1:1 picture through a layer (rasterizeViaLayer) instead of
+    // replaying the whole transcript again at the target ratio
+    // (scene.rasterize). That swap is only sound while the two agree to the
+    // byte, at the ratios a page actually rasters at.
+    await tester.runAsync(() async {
+      final cases = [
+        ('classic', buildClassicPdf(), const PdfPageRenderPlan()),
+        ('embedded font', buildEmbeddedFontPdf(), const PdfPageRenderPlan()),
+        (
+          'rotated',
+          buildEmbeddedFontPdf(),
+          const PdfPageRenderPlan(rotation: 90)
+        ),
+        (
+          'dense linework',
+          buildSyntheticCadStrip(ops: 8000, streams: 2, pageW: 600, pageH: 400),
+          const PdfPageRenderPlan(),
+        ),
+        ('image', buildEmbeddedFontImagePdf(), const PdfPageRenderPlan()),
+      ];
+      for (final (name, bytes, plan) in cases) {
+        final page = PdfDocument.open(bytes).page(0);
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        final picture = scene.replay(pixelRatio: 1);
+        for (final ratio in [0.35, 1.0, 1.5, 2.4]) {
+          final flat = await scene.rasterize(pixelRatio: ratio);
+          final layered = await PdfPageRenderer.rasterizeViaLayer(
+              picture, scene.pageSize, ratio);
+          expect((layered.width, layered.height), (flat.width, flat.height),
+              reason: '$name at $ratio');
+          final a = await _bytes(flat);
+          final b = await _bytes(layered);
+          expect(b.buffer.asUint8List(), a.buffer.asUint8List(),
+              reason: '$name raster mismatch at $ratio');
+          flat.dispose();
+          layered.dispose();
+        }
+        picture.dispose();
+        scene.dispose();
+      }
+    });
+  });
+
   testWidgets('retained scene exposes its already-decoded images',
       (tester) async {
     await tester.runAsync(() async {
