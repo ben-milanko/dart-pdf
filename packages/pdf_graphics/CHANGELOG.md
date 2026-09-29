@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
 ## 5.1.0
 
 - Output change: downscaled 8-bit images under a same-size stencil /Mask or

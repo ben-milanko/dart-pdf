@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
 ## 5.1.0
 
 - Verify P-521 ECDSA signatures. The P-521 order constant was 609 bits

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
@@ -197,8 +198,8 @@ void main() {
           ),
         ),
       ));
-      IconButton saveButton() => tester.widget<IconButton>(
-          find.widgetWithIcon(IconButton, Icons.save_alt));
+      IconButton saveButton() => tester
+          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.save_alt));
 
       // freshly opened: the document matches what was opened, nothing to save
       expect(saveButton().onPressed, isNull);
@@ -386,6 +387,66 @@ void main() {
       // the previous raster up until the re-render lands)
       editing.undo();
       expect(editing.committedInkOn(0), isNull);
+    });
+
+    testWidgets(
+        'back-to-back ink commits all stay painted until the page catches up',
+        (tester) async {
+      // Hold every appearance render until released: the page is still
+      // drawing the first stroke when the second commits (a slow or held
+      // render, quick handwriting). The second commit restarts that render,
+      // so only the afterimage can keep the first stroke on screen.
+      var gate = Completer<void>();
+      PdfViewer.debugAnnotationAppearancePicturesRendererOverride =
+          (page, annotation, rotation) async {
+        await gate.future;
+        return PdfPageRenderer.renderAnnotationPictures(page, annotation,
+            rotation: rotation);
+      };
+      addTearDown(() =>
+          PdfViewer.debugAnnotationAppearancePicturesRendererOverride = null);
+      final (editing, boundary) = await pumpViewer(tester);
+      editing
+        ..color = const Color(0xFFFF0000)
+        ..tool = PdfEditTool.ink;
+      await tester.pump();
+
+      Future<void> stroke(Offset start) async {
+        final gesture = await tester.startGesture(start);
+        await gesture.moveBy(const Offset(40, 0));
+        await tester.pump();
+        await gesture.moveBy(const Offset(40, 0));
+        await tester.pump();
+        await gesture.up();
+        await tester.pump(const Duration(milliseconds: 900));
+        await tester.pump();
+      }
+
+      bool inked(ByteData data, Offset start) =>
+          patchHas(data, 800, 600, start.dx + 40, start.dy, 4, strongRed);
+
+      final first = view(150, 500);
+      final second = view(350, 500);
+      await stroke(first);
+      await stroke(second);
+      expect(editing.document.page(0).annotations, hasLength(2));
+      expect(editing.committedInksOn(0), hasLength(2));
+      var data = await capture(tester, boundary);
+      expect(inked(data, second), isTrue, reason: 'the newest ink');
+      expect(inked(data, first), isTrue,
+          reason: 'the earlier ink must not vanish when the next commits');
+
+      // The layer lands both: the afterimages retire, the page draws them.
+      gate.complete();
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(editing.committedInksOn(0), isEmpty);
+      data = await capture(tester, boundary);
+      expect(inked(data, first) && inked(data, second), isTrue);
+      gate = Completer<void>()..complete();
     });
 
     testWidgets('signature hover previews without committing, click places',

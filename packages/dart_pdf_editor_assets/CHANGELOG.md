@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
 ## 5.1.0
 
 - Version bump to track the 5.1.0 suite.

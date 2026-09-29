@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
 ## 5.1.0
 
 - Stop page edits dropping pages from a page tree whose intermediate /Count

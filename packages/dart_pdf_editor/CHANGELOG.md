@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.1.1
+
+- Fix ink written in quick succession disappearing from the page. The editing
+  overlay kept only the latest ink commit as its afterimage, but ink
+  auto-commits 800 ms after the last stroke, so the next glyph could commit
+  before the page had drawn the previous one; the new revision restarted the
+  annotation layer's pass and the earlier glyph was painted nowhere until the
+  page re-rendered, while the annotation list still showed it. Back-to-back
+  ink commits now accumulate, and each page's afterimages are retired only
+  once its raster and annotation layer are both current.
+- Add `PdfEditingController.committedInksOn(page)`, every ink commit on a page
+  that has not reached its raster yet (oldest first), and
+  `retireCommittedInk(page, throughRevision:)`, which the viewer calls once a
+  page shows that revision. `committedInkOn` is unchanged and returns the
+  newest of them.
+
 ## 5.1.0
 
 - `DartPdfEditorLocalizations` gained abstract getters `sigUseTrackpad` and

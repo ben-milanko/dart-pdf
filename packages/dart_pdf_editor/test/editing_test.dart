@@ -101,6 +101,32 @@ void main() {
       expect(editing.outline.items.single.children, isEmpty);
     });
 
+    test('back-to-back ink commits accumulate their afterimages', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      editing.addInkStroke(0, [(10, 10), (20, 20)]);
+      editing.finishInk();
+      editing.addInkStroke(0, [(30, 30), (40, 40)]);
+      editing.addInkStroke(1, [(50, 50), (60, 60)]);
+      editing.finishInk();
+      expect(editing.committedInksOn(0).map((ink) => ink.strokes.single.first),
+          [(10, 10), (30, 30)]);
+      expect(editing.committedInkOn(0)!.strokes.single.first, (30, 30));
+      expect(editing.committedInksOn(1), hasLength(1));
+
+      // the page caught up with the first commit only
+      editing.retireCommittedInk(0, throughRevision: editing.revisionId - 1);
+      expect(editing.committedInksOn(0).single.strokes.single.first, (30, 30));
+      expect(editing.committedInksOn(1), hasLength(1));
+
+      // any other revision ends the run
+      editing.undo();
+      expect(editing.committedInksOn(0), isEmpty);
+      editing.addInkStroke(0, [(70, 70), (80, 80)]);
+      editing.finishInk();
+      expect(editing.committedInksOn(0).single.strokes.single.first, (70, 70));
+      editing.dispose();
+    });
+
     test('ink strokes buffer until finishInk commits one Ink annotation', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addInkStroke(0, [(100, 100), (150, 130), (200, 100)])

@@ -10222,6 +10222,14 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   bool _rastered = false;
   bool _annotationLayerCurrent = true;
 
+  /// The editing revision [widget.page] belongs to, read when that page
+  /// arrived: once this page's raster and annotation layer are current, the
+  /// committed-ink afterimages up to it are on the page itself and are retired
+  /// ([PdfEditingController.retireCommittedInk]). Read at arrival rather than
+  /// at readiness, because a render finishing between the next commit and
+  /// the rebuild that delivers its page must not retire the newer ink.
+  late int? _pageRevision = widget.editing?.revisionId;
+
   /// Whether this page overlaps the viewport (#657). Read from
   /// [_PdfViewerPage.onScreenSpan] rather than passed down, so a span change
   /// rebuilds only the pages whose answer actually flipped.
@@ -10297,6 +10305,11 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         (newLayer && !identical(oldWidget.page, widget.page))) {
       _annotationLayerCurrent = !newLayer;
     }
+    if (!identical(oldWidget.page, widget.page) ||
+        oldWidget.index != widget.index ||
+        !identical(oldWidget.editing, widget.editing)) {
+      _pageRevision = widget.editing?.revisionId;
+    }
   }
 
   void _onRasterReady() {
@@ -10313,6 +10326,21 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       _rastered = true;
     }
     widget.onRasterStateChanged(widget.index, true);
+    _retireLandedInk();
+  }
+
+  /// Hands back the committed-ink afterimages this page now draws itself.
+  void _retireLandedInk() {
+    final editing = widget.editing;
+    final revision = _pageRevision;
+    if (editing == null ||
+        revision == null ||
+        !_rastered ||
+        !_annotationLayerCurrent ||
+        !identical(widget.page.document.cos, editing.document.cos)) {
+      return;
+    }
+    editing.retireCommittedInk(widget.index, throughRevision: revision);
   }
 
   @override
@@ -10325,6 +10353,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   void _onAnnotationLayerReady() {
     if (_annotationLayerCurrent || !mounted) return;
     setState(() => _annotationLayerCurrent = true);
+    _retireLandedInk();
   }
 
   @override
@@ -10478,7 +10507,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             !editing.preferences.showPageRulers &&
                             !editing.preferences.showSnapGrid &&
                             (rasterCurrent ||
-                                editing.committedInkOn(widget.index) == null)
+                                editing.committedInksOn(widget.index).isEmpty)
                         ? const SizedBox.shrink()
                         : Positioned.fill(
                             child: ValueListenableBuilder<double>(

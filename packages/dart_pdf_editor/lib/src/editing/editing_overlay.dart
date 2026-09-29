@@ -5995,14 +5995,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         wrapResize == null && _resizeHandle != null && _resizeRect != null
             ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
             : _afterShapeResize;
-    // strokes beyond the pending ink: the committed-ink afterimage, held
-    // until the new raster lands. (The signature tool's live preview is
-    // pointer-frequency, so it rides the cursor layer instead.)
-    final committedInk = widget.rasterCurrent
-        ? null
-        : _controller.committedInkOn(widget.pageIndex);
+    // strokes beyond the pending ink: the committed-ink afterimages (every
+    // commit the page has not caught up with), held until the new raster
+    // lands. (The signature tool's live preview is pointer-frequency, so it
+    // rides the cursor layer instead.)
+    final committedInks = widget.rasterCurrent
+        ? const <Never>[]
+        : _controller.committedInksOn(widget.pageIndex);
     final extraInk = <_InkPaint>[
-      if (committedInk != null)
+      for (final committedInk in committedInks)
         (
           strokes: committedInk.strokes,
           pressures: committedInk.pressures,

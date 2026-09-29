@@ -95,6 +95,14 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="5.1.1" date="2026-09-29">
+      <description>
+        <ul>
+          <li>Ink written in quick succession no longer disappears from the page.</li>
+          <li>Includes all the improvements from 5.1.0.</li>
+        </ul>
+      </description>
+    </release>
     <release version="5.1.0" date="2026-09-28">
       <description>
         <ul>

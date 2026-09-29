@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.1.1
+
+- Fix ink disappearing while you write quickly. Writing one character right
+  after another with the ink tool made each earlier one vanish from the page
+  until it re-drew, even though the annotation list showed them all. Every
+  stroke now stays on screen.
+
 ## 5.1.0
 
 - Draw your signature with a finger on the trackpad, the way Preview does, on
