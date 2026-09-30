@@ -1381,29 +1381,37 @@ class _ShellControlGrid extends StatelessWidget {
   final List<PdfShellControlItem> controls;
 
   @override
-  Widget build(BuildContext context) => GridView.count(
-        crossAxisCount: 4,
-        shrinkWrap: true,
-        padding: EdgeInsets.zero,
-        physics: const NeverScrollableScrollPhysics(),
-        childAspectRatio: 1.15,
-        mainAxisSpacing: 6,
-        crossAxisSpacing: 6,
-        children: [
-          for (final control in controls)
-            _ShellControlTile(
-              key: control.key,
-              icon: control.icon,
-              label: control.label,
-              active: control.selected,
-              enabled: control.enabled,
-              onTap: () {
-                Navigator.of(context).pop();
-                control.onPressed();
-              },
-            ),
-        ],
-      );
+  Widget build(BuildContext context) {
+    // Fixed-aspect grid tiles cannot grow with accessibility text. List rows
+    // let labels wrap and grow naturally inside the sheet's existing scroll.
+    final useList = MediaQuery.textScalerOf(context).scale(11) > 11 * 1.3;
+    final tiles = [
+      for (final control in controls)
+        _ShellControlTile(
+          key: control.key,
+          icon: control.icon,
+          label: control.label,
+          active: control.selected,
+          enabled: control.enabled,
+          useList: useList,
+          onTap: () {
+            Navigator.of(context).pop();
+            control.onPressed();
+          },
+        ),
+    ];
+    if (useList) return Column(children: tiles);
+    return GridView.count(
+      crossAxisCount: 4,
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 1.15,
+      mainAxisSpacing: 6,
+      crossAxisSpacing: 6,
+      children: tiles,
+    );
+  }
 }
 
 class _ShellControlTile extends StatelessWidget {
@@ -1413,6 +1421,7 @@ class _ShellControlTile extends StatelessWidget {
     required this.label,
     required this.active,
     required this.enabled,
+    required this.useList,
     required this.onTap,
   });
 
@@ -1420,6 +1429,7 @@ class _ShellControlTile extends StatelessWidget {
   final String label;
   final bool active;
   final bool enabled;
+  final bool useList;
   final VoidCallback onTap;
 
   @override
@@ -1452,24 +1462,33 @@ class _ShellControlTile extends StatelessWidget {
                     : Colors.transparent,
               ),
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, size: 22, color: fg),
-                  const SizedBox(height: 6),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11, color: fg),
+            child: useList
+                ? ListTile(
+                    enabled: enabled,
+                    selected: active,
+                    leading: Icon(icon, size: 22, color: fg),
+                    title:
+                        Text(label, style: TextStyle(fontSize: 11, color: fg)),
+                  )
+                : Padding(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon, size: 22, color: fg),
+                        const SizedBox(height: 6),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 11, color: fg),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
