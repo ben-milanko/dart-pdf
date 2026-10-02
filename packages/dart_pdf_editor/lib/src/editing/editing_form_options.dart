@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
@@ -158,6 +159,7 @@ class _PdfFormOptionsEditorState extends State<PdfFormOptionsEditor> {
                             labelText: l10n.formOptionsExportValue,
                             isDense: true,
                           ),
+                          contextMenuBuilder: pdfTextContextMenu,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -169,6 +171,7 @@ class _PdfFormOptionsEditorState extends State<PdfFormOptionsEditor> {
                             labelText: l10n.formOptionsDisplayText,
                             isDense: true,
                           ),
+                          contextMenuBuilder: pdfTextContextMenu,
                         ),
                       ),
                       IconButton(

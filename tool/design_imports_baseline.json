@@ -1,6 +1,7 @@
 {
   "materialImporters": [
     "packages/dart_pdf_editor/lib/src/comparison/comparison_view.dart",
+    "packages/dart_pdf_editor/lib/src/design/material_host.dart",
     "packages/dart_pdf_editor/lib/src/design/material_presenter.dart",
     "packages/dart_pdf_editor/lib/src/dialog.dart",
     "packages/dart_pdf_editor/lib/src/editing/annotation_presentation.dart",
@@ -53,14 +54,9 @@
     "packages/dart_pdf_printing/lib/src/print_progress_dialog.dart"
   ],
   "counters": {
-    "DropdownButton": {
-      "packages/dart_pdf_editor/lib/src/editing/editing_measure.dart": 3,
-      "packages/dart_pdf_editor/lib/src/editing/editing_properties.dart": 2,
-      "packages/dart_pdf_editor/lib/src/editing/editing_stamps.dart": 2,
-      "packages/dart_pdf_editor/lib/src/editing/editing_toolbar.dart": 2,
-      "packages/dart_pdf_editor/lib/src/editing/text_style_prompt.dart": 1
-    },
+    "DropdownButton": {},
     "ScaffoldMessenger": {},
+    "TextFieldWithoutMenu": {},
     "showMenu": {},
     "showModalBottomSheet": {}
   }

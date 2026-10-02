@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'models/measurement_scale.dart';
@@ -111,15 +112,13 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text('1  '),
-          DropdownButton<String>(
+          PdfDropdown<String>(
             key: const ValueKey('pdf-scale-page-unit'),
             value: _pageUnit,
-            onChanged: (value) {
-              if (value != null) setState(() => _pageUnit = value);
-            },
+            onChanged: (value) => setState(() => _pageUnit = value),
             items: [
               for (final unit in _pdfPageUnits)
-                DropdownMenuItem(value: unit, child: Text(unit)),
+                PdfDropdownItem(value: unit, label: unit),
             ],
           ),
           const Text('  =  '),
@@ -133,18 +132,17 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
                   const TextInputType.numberWithOptions(decimal: true),
               textAlign: TextAlign.end,
               onSubmitted: (_) => _submit(),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
           ),
           const SizedBox(width: 8),
-          DropdownButton<String>(
+          PdfDropdown<String>(
             key: const ValueKey('pdf-scale-unit'),
             value: _unit,
-            onChanged: (value) {
-              if (value != null) setState(() => _unit = value);
-            },
+            onChanged: (value) => setState(() => _unit = value),
             items: [
               for (final unit in _pdfScaleUnits)
-                DropdownMenuItem(value: unit, child: Text(unit)),
+                PdfDropdownItem(value: unit, label: unit),
             ],
           ),
         ],
@@ -248,6 +246,7 @@ class _PdfDepthDialogState extends State<_PdfDepthDialog> {
                   const TextInputType.numberWithOptions(decimal: true),
               textAlign: TextAlign.end,
               onSubmitted: (_) => _submit(),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
           ),
           if (unit != null && unit.isNotEmpty) ...[
@@ -335,18 +334,17 @@ class _PdfCalibrationLengthDialogState
                       const TextInputType.numberWithOptions(decimal: true),
                   textAlign: TextAlign.end,
                   onSubmitted: (_) => _submit(),
+                  contextMenuBuilder: pdfTextContextMenu,
                 ),
               ),
               const SizedBox(width: 8),
-              DropdownButton<String>(
+              PdfDropdown<String>(
                 key: const ValueKey('pdf-calibrate-unit'),
                 value: _unit,
-                onChanged: (value) {
-                  if (value != null) setState(() => _unit = value);
-                },
+                onChanged: (value) => setState(() => _unit = value),
                 items: [
                   for (final unit in _pdfScaleUnits)
-                    DropdownMenuItem(value: unit, child: Text(unit)),
+                    PdfDropdownItem(value: unit, label: unit),
                 ],
               ),
             ],

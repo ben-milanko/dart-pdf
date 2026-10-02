@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextFont,
         PdfTextStyle;
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_font_controls.dart';
@@ -161,6 +162,7 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                 decoration:
                     InputDecoration(labelText: pdfL10n(context).textStyleText),
                 onSubmitted: (_) => _submit(),
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               const SizedBox(height: 12),
               Row(children: [
@@ -209,21 +211,20 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                       onPressed: _openFontMenu,
                     )
                   else
-                    DropdownButton<PdfStandardFontFamily>(
+                    PdfDropdown<PdfStandardFontFamily>(
                       key: const ValueKey('pdf-styled-family'),
                       value: _font.family,
                       isDense: true,
                       underline: const SizedBox.shrink(),
                       items: [
                         for (final family in PdfStandardFontFamily.values)
-                          DropdownMenuItem(
+                          PdfDropdownItem(
                             value: family,
                             key: ValueKey('pdf-styled-family-${family.name}'),
-                            child: Text(family.label),
+                            label: family.label,
                           ),
                       ],
                       onChanged: (family) {
-                        if (family == null) return;
                         setState(() {
                           _font = PdfStandardFont.styled(family,
                               bold: _font.isBold, italic: _font.isItalic);

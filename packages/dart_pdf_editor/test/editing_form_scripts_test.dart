@@ -121,6 +121,45 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 5));
   });
 
+  group('the form tool', () {
+    // The form-authoring tool's double-tap fills through the same form
+    // layer as reading mode, so the field's scripts run there too.
+    Future<void> openWithFormTool(
+        WidgetTester tester, PdfEditingController session) async {
+      session.tool = PdfEditTool.form;
+      await tester.pump();
+      await tester.tapAt(nameField);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(nameField);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editorKey, findsOneWidget);
+    }
+
+    testWidgets('filters typing through the keystroke script', (tester) async {
+      final session = await pumpViewer(tester);
+      await openWithFormTool(tester, session);
+      await tester.enterText(editorKey, '12.5x');
+      expect(tester.widget<TextField>(editorKey).controller!.text, '5',
+          reason: 'the whole entry is refused: it holds a letter');
+      await tester.enterText(editorKey, '12.5');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expect(session.acroForm!.fieldNamed('name')!.value, '12.5');
+      expect(session.tool, PdfEditTool.form, reason: 'the tool stays armed');
+    });
+
+    testWidgets('refuses a value the validate script rejects', (tester) async {
+      final session = await pumpViewer(tester);
+      await openWithFormTool(tester, session);
+      await tester.enterText(editorKey, '2000');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editorKey, findsOneWidget);
+      expect(find.textContaining('less than or equal to 1000'), findsOneWidget);
+      expect(session.acroForm!.fieldNamed('name')!.value, '5');
+    });
+  });
+
   test('controller checks and normalises without editing', () {
     final session = PdfEditingController(scriptedForm());
     addTearDown(session.dispose);

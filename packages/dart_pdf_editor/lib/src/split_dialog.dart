@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'design/material_host.dart';
 import 'dialog.dart';
 import 'l10n/pdf_l10n.dart';
 import 'design/editor_presenter.dart';
@@ -87,6 +88,7 @@ class _SplitDialogState extends State<_SplitDialog> {
                     _invalid ? l10n.splitInvalidRanges(widget.pageCount) : null,
                 errorMaxLines: 3,
               ),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
           ],
         ),

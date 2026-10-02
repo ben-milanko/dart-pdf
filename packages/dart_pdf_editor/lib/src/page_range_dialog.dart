@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'design/material_host.dart';
 import 'dialog.dart';
 import 'l10n/pdf_l10n.dart';
 import 'design/editor_presenter.dart';
@@ -102,6 +103,7 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
             textInputAction: TextInputAction.next,
             onSubmitted: (_) => _submit(),
             decoration: InputDecoration(labelText: label, isDense: true),
+            contextMenuBuilder: pdfTextContextMenu,
           ),
         );
 

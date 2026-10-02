@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/design/material_host.dart' show PdfDropdown;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -529,7 +530,7 @@ void main() {
       await pumpPanel(tester, editing);
 
       final end = find.byKey(const ValueKey('pdf-prop-line-end-ending'));
-      expect(tester.widget<DropdownButton<PdfLineEnding>>(end).value, isNull);
+      expect(tester.widget<PdfDropdown<PdfLineEnding>>(end).value, isNull);
       expect(find.descendant(of: end, matching: find.text('Varies')),
           findsOneWidget);
 

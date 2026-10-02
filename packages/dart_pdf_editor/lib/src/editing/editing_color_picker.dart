@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'models/color_format.dart';
@@ -252,6 +253,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
           isDense: true,
           border: OutlineInputBorder(),
         ),
+        contextMenuBuilder: pdfTextContextMenu,
       );
     }
     final labels = _labels[_format]!;
@@ -277,6 +279,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
                 contentPadding: EdgeInsets.symmetric(vertical: 9),
                 border: OutlineInputBorder(),
               ),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 2),
             Text(labels[i], style: Theme.of(context).textTheme.labelSmall),

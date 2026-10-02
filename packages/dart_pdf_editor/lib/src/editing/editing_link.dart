@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
@@ -122,6 +123,7 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
                 hintText: 'https://example.com',
               ),
               onSubmitted: (_) => _submit(),
+              contextMenuBuilder: pdfTextContextMenu,
             )
           else
             TextField(
@@ -133,6 +135,7 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
                 helperText: '1 – ${widget.pageCount}',
               ),
               onSubmitted: (_) => _submit(),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
         ],
       ),

@@ -42,6 +42,7 @@ import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
 import '../keyboard_availability.dart';
 import '../design/editor_presenter.dart';
+import '../design/material_host.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
 typedef PdfEditingToolbarWidgetBuilder = Widget Function(
@@ -4167,15 +4168,16 @@ class _StyleMenuState extends State<_StyleMenu> {
       child: Row(children: [
         SizedBox(width: 86, child: Text(label)),
         Expanded(
-          child: DropdownButton<PdfLineEnding>(
+          child: PdfDropdown<PdfLineEnding>(
             key: ValueKey(keyValue),
             isExpanded: true,
             isDense: true,
             value: value,
             items: [
               for (final ending in PdfLineEnding.values)
-                DropdownMenuItem(
+                PdfDropdownItem(
                   value: ending,
+                  label: pdfLineEndingLabel(context, ending),
                   child: Row(children: [
                     SizedBox(
                       width: 36,
@@ -4193,9 +4195,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                   ]),
                 ),
             ],
-            onChanged: (ending) {
-              if (ending != null) onChanged(ending);
-            },
+            onChanged: onChanged,
           ),
         ),
       ]),
@@ -4385,7 +4385,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       child: Row(
                         children: [
                           Expanded(child: Text(pdfL10n(context).tbLineType)),
-                          DropdownButton<PdfLineStyle>(
+                          PdfDropdown<PdfLineStyle>(
                             key: const ValueKey('pdf-line-type'),
                             isDense: true,
                             value: restylingAnnotation
@@ -4395,15 +4395,13 @@ class _StyleMenuState extends State<_StyleMenu> {
                             underline: const SizedBox.shrink(),
                             items: [
                               for (final style in PdfLineStyle.values)
-                                DropdownMenuItem(
+                                PdfDropdownItem(
                                   value: style,
                                   key: ValueKey('pdf-line-type-${style.name}'),
-                                  child:
-                                      Text(pdfLineStyleLabel(context, style)),
+                                  label: pdfLineStyleLabel(context, style),
                                 ),
                             ],
                             onChanged: (value) {
-                              if (value == null) return;
                               controller.preferences.lineStyle = value;
                               if (restylingAnnotation &&
                                   controller.canSetLineStyleSelected) {

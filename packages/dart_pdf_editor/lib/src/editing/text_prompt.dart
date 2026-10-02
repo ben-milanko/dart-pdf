@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../design/editor_presenter.dart';
@@ -23,6 +24,7 @@ Future<String?> showPdfTextPrompt(
         autofocus: true,
         maxLines: multiline ? 4 : 1,
         onSubmitted: (value) => Navigator.of(context).pop(value),
+        contextMenuBuilder: pdfTextContextMenu,
       ),
       actions: [
         TextButton(

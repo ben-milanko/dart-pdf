@@ -11,6 +11,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../debug_overlays.dart';
+import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
@@ -26,6 +27,7 @@ import 'editing_link.dart';
 import 'editing_measure.dart';
 import 'editing_text_menu.dart';
 import 'editing_tool_behavior.dart';
+import 'form_tab_navigation.dart';
 import 'handle_layout.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
@@ -33,14 +35,6 @@ import '../design/editor_presenter.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
-
-/// A [TextField.buildCounter] that draws nothing, so a form field's /MaxLen
-/// cap stays silent instead of adding a counter under the field.
-Widget? _noInputCounter(BuildContext context,
-        {required int currentLength,
-        required int? maxLength,
-        required bool isFocused}) =>
-    null;
 
 TextAlign _flutterTextAlign(PdfTextAlign align) => switch (align) {
       PdfTextAlign.left => TextAlign.left,
@@ -996,15 +990,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int _textEditStyleRevision = 0;
   int _editSelectedTextRevision = 0;
   int _textEditFocusHoldRevision = 0;
-
-  // form-tool text fill: when set, the inline editor commits into this
-  // field's /V instead of creating a free-text annotation
-  String? _textEditFieldName;
-  bool _textEditMultiline = true;
-  // the field's /MaxLen, and whether it is a password field (edited masked
-  // and single-line, its afterimage masked too) - #931
-  int? _textEditMaxLength;
-  bool _textEditPassword = false;
 
   // select-tool drags. A rotated selection resizes in its local frame:
   // _resizeFrom/_resizeRect are then the chrome's local box (the rect
@@ -2929,7 +2914,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         });
       }
     }
-    if (_textEditExisting && _textEditFieldName == null) {
+    if (_textEditExisting) {
       // The opacity control restyles the selected annotation in place while
       // its inline editor stays open. Follow the new appearance alpha so the
       // live glyphs do not remain opaque and make the control look inert.
@@ -2961,7 +2946,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_textEditRect == null) return;
     // a new box in flight follows the tune popup's box-level defaults live
     // (alignment, spacing, underline) instead of only picking them up on open
-    if (!_textEditExisting && _textEditFieldName == null) {
+    if (!_textEditExisting) {
       final align = _controller.preferences.textAlign;
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
@@ -3430,51 +3415,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return null;
   }
 
-  /// Opens the inline editor over a text field's widget, prefilled with
-  /// its value - the form tool's tap-to-fill. The commit goes into the
-  /// field's /V instead of creating an annotation.
-  void _openFormTextEditor(PdfFormField field, int widgetIndex) {
-    final rect = field.widgetRect(widgetIndex);
-    if (rect == null) return;
-    final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
-        .firstMatch(field.defaultAppearance ?? '');
-    final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
-    final formFont = tf == null
-        ? PdfStandardFont.helvetica
-        : PdfStandardFont.fromName(tf.group(1)!);
-    final formSize = size > 0 ? size : 12.0;
-    _textEditText.resetStyles(_TextEditStyle(
-        font: formFont, size: formSize, color: const Color(0xFF000000)));
-    _textEditText.text = _controller.formFieldTextValue(field) ?? '';
-    setState(() {
-      _textEditRect = _geometry.toViewRect(rect);
-      _textEditPageRect = rect;
-      _textEditRotation = 0;
-      _textEditExisting = false;
-      _textEditAnnotationSlot = null;
-      _textEditTool = _tool;
-      _textEditFieldName = field.name;
-      _textEditPassword = field.isPassword;
-      _textEditMultiline = field.isMultiline && !field.isPassword;
-      _textEditMaxLength = field.maxLength;
-      _textEditFont = formFont;
-      // an auto-size /DA (0 Tf) edits at a readable default; the
-      // committed appearance derives its own size as usual
-      _textEditSize = formSize;
-      _textEditColor = const Color(0xFF000000);
-      _textEditFill = null;
-      _textEditOpacity = 1;
-    });
-    _beginInteraction(PdfEditingInteractionIntent.text, _lastPointerKind);
-    _controller.setEditingText(true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
-    });
-  }
-
-  /// Commits the editor's text: a new free-text annotation, the
-  /// selected one rewritten, or - for the form tool - the field's new
-  /// value. Empty text adds nothing / changes nothing.
+  /// Commits the editor's text: a new free-text annotation, or the
+  /// selected one rewritten. Empty text adds nothing / changes nothing.
+  /// (The form tool's field fill is the page's [FormInteractionLayer].)
   void _commitTextEdit() {
     if (_textEditRect == null) return;
     final before = _controller.revisionId;
@@ -3486,35 +3429,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _finishTextEdit() {
     final rect = _textEditRect;
     if (rect == null) return;
-    final fieldName = _textEditFieldName;
-    if (fieldName != null) {
-      // form fields: empty is a legitimate value (clearing the field)
-      final value = _textEditText.text;
-      final font = _textEditFont;
-      final size = _textEditSize;
-      final password = _textEditPassword;
-      _closeTextEditor();
-      final before = _controller.revisionId;
-      _controller.setFormFieldText(fieldName, value);
-      if (before == _controller.revisionId) return;
-      _clearAfterimage();
-      _afterText = (
-        rect: rect,
-        text: password ? _controller.formPasswordMask(value) : value,
-        font: font,
-        size: size,
-        color: const Color(0xFF000000),
-        fill: null,
-        opacity: 1,
-        washed: true, // cover the old value until the raster lands
-        rotation: 0,
-        align: PdfTextAlign.left,
-        underline: false,
-        lineSpacing: kPdfFreeTextDefaultLineSpacing,
-      );
-      _afterRevisionId = _controller.revisionId;
-      return;
-    }
     final text = _textEditText.text.trimRight();
     final existing = _textEditExisting;
     final richRuns =
@@ -3581,10 +3495,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// nothing on close), matching the desktop convention where Escape
   /// *finishes* the box rather than throwing it away - discarding it read
   /// as Escape "deleting" the annotation you'd just placed. An existing box
-  /// or a form field reverts to its saved value instead (a real cancel,
-  /// and still non-destructive - the box stays).
+  /// reverts to its saved value instead (a real cancel, and still
+  /// non-destructive - the box stays).
   void _onEscapeTextEdit() {
-    if (_textEditExisting || _textEditFieldName != null) {
+    if (_textEditExisting) {
       _cancelTextEdit();
     } else {
       _commitTextEdit();
@@ -3619,13 +3533,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() {
         _textEditRect = null;
         _textEditPageRect = null;
-        _textEditFieldName = null;
         _textEditAnnotationSlot = null;
       });
     } else {
       _textEditRect = null;
       _textEditPageRect = null;
-      _textEditFieldName = null;
       _textEditAnnotationSlot = null;
     }
     _controller.setEditingText(false);
@@ -4819,55 +4731,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  /// The form tool's double-tap (and read mode's tap): routes the hit
-  /// field at [local] to its fill interaction. [globalPosition] anchors
-  /// the choice menu.
-  Future<void> _fillFormFieldAt(Offset local, Offset globalPosition) async {
+  /// The form tool's double-tap: hands the hit field to this page's
+  /// [FormInteractionLayer], the one component that fills fields - its
+  /// inline editor runs the field's keystroke and validation scripts, and a
+  /// choice field's menu opens at [globalPosition].
+  void _fillFormFieldAt(Offset local, Offset globalPosition) {
     final (x, y) = _geometry.toPagePoint(local);
     final hit = _controller.formFieldAt(widget.pageIndex, x, y);
     if (hit == null) return;
     final (field, widgetIndex) = hit;
-    if (field.isReadOnly) return;
-    switch (field.type) {
-      case PdfFieldType.text:
-        _openFormTextEditor(field, widgetIndex);
-      case PdfFieldType.checkBox:
-        _controller.toggleFormCheckBox(field.name);
-      case PdfFieldType.radioGroup:
-        final state = field.widgetOnState(widgetIndex);
-        if (state != null) _controller.setFormRadioValue(field.name, state);
-      case PdfFieldType.comboBox || PdfFieldType.listBox:
-        await _pickFormChoice(field, globalPosition);
-      case PdfFieldType.pushButton:
-        final picker = widget.formImagePicker;
-        if (picker == null) return;
-        final name = field.name;
-        final bytes = await picker(context, field);
-        if (bytes != null) {
-          await _controller.setFormButtonImageAsync(name, bytes);
-        }
-      case PdfFieldType.signature || PdfFieldType.unknown:
-        break;
-    }
-  }
-
-  /// A choice field's options as a context menu at the tap position.
-  Future<void> _pickFormChoice(
-      PdfFormField field, Offset globalPosition) async {
-    final options = field.options;
-    if (options.isEmpty) return;
-    final name = field.name;
-    final values = await PdfEditorPresenter.of(context).formChoice(
-      context,
-      PdfFormChoiceRequest(
-        fieldName: name,
-        options: options,
-        anchor: globalPosition & Size.zero,
-        multiSelect: field.isMultiSelect,
-        selected: field.values.toSet(),
-      ),
+    pdfFormFillRequests(_controller).value = PdfFormFillRequest(
+      pageIndex: widget.pageIndex,
+      fieldName: field.name,
+      widgetIndex: widgetIndex,
+      revisionId: _controller.revisionId,
+      anchor: globalPosition,
     );
-    if (values != null) pdfApplyFormChoice(_controller, name, values);
   }
 
   /// Rasterizes this page once for the eyedropper, keyed on the revision id
@@ -5149,8 +5028,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_tool == PdfEditTool.form) {
       final details = _doubleTapDownDetails;
       if (details != null) {
-        unawaited(
-            _fillFormFieldAt(details.localPosition, details.globalPosition));
+        _fillFormFieldAt(details.localPosition, details.globalPosition);
       }
       return;
     }
@@ -5474,8 +5352,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// toggle restyles it; with none it styles the whole box (or just sets the
   /// face when the box is still empty).
   void _toggleInlineTextStyle({required bool italic}) {
-    // form fields carry a single /DA font - no rich styling to toggle
-    if (_textEditRect == null || _textEditFieldName != null) return;
+    if (_textEditRect == null) return;
 
     final base = _canStyleInlineTextSelection
         ? _currentInlineTextStyle().font
@@ -5508,7 +5385,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// underlines the whole box (or just sets the default when the box is
   /// still empty).
   void _toggleInlineUnderline() {
-    if (_textEditRect == null || _textEditFieldName != null) return;
+    if (_textEditRect == null) return;
     final on = !_currentInlineTextStyle().underline;
     if (_canStyleInlineTextSelection) {
       _applyInlineTextStyle(underline: on);
@@ -5629,9 +5506,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     tooltip: pdfL10n(context).overlayUnderline,
                     isSelected: current.underline,
                     // underline works with or without a selection (whole box)
-                    onPressed: _textEditFieldName == null
-                        ? _toggleInlineUnderline
-                        : null,
+                    onPressed: _toggleInlineUnderline,
                   ),
                   Builder(builder: (buttonContext) {
                     return IconButton(
@@ -6494,55 +6369,32 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                               child: _zoomAwareCursor(
                                   context,
                                   TextField(
-                                    key: ValueKey(_textEditFieldName == null
-                                        ? 'pdf-freetext-editor'
-                                        : 'pdf-form-text-editor'),
+                                    key: const ValueKey('pdf-freetext-editor'),
                                     controller: _textEditText,
                                     focusNode: _textEditFocus,
                                     autofocus: true,
-                                    obscureText: _textEditFieldName != null &&
-                                        _textEditPassword,
-                                    maxLength: _textEditFieldName == null
-                                        ? null
-                                        : _textEditMaxLength,
-                                    // the /MaxLen cap is silent: no counter
-                                    buildCounter: _noInputCounter,
-                                    // single-line form fields edit single-line:
-                                    // Enter commits instead of inserting a newline
-                                    maxLines: _textEditFieldName == null ||
-                                            _textEditMultiline
-                                        ? null
-                                        : 1,
-                                    expands: _textEditFieldName == null ||
-                                        _textEditMultiline,
+                                    maxLines: null,
+                                    expands: true,
                                     onSubmitted: (_) => _commitTextEdit(),
                                     textDirection: direction,
                                     // free text follows the box's /Q alignment so
                                     // the live text sits where it commits; a box
-                                    // with no explicit /Q (and form fields) stays
-                                    // direction-aware start-aligned
-                                    textAlign: _textEditFieldName == null &&
-                                            _textEditAlign != null
+                                    // with no explicit /Q stays direction-aware
+                                    // start-aligned
+                                    textAlign: _textEditAlign != null
                                         ? _flutterTextAlign(_textEditAlign!)
                                         : TextAlign.start,
-                                    textAlignVertical:
-                                        _textEditFieldName == null ||
-                                                _textEditMultiline
-                                            ? TextAlignVertical.top
-                                            : TextAlignVertical.center,
+                                    textAlignVertical: TextAlignVertical.top,
                                     // pin line height to the box's leading so the
                                     // preview spacing is font-independent, matching
                                     // the committed appearance - changing a run's
                                     // font no longer nudges the lines until commit
-                                    strutStyle: _textEditFieldName == null
-                                        ? StrutStyle(
-                                            fontSize:
-                                                _textEditText.maxStyleSize *
-                                                    _geometry.scale,
-                                            height: _textEditLineSpacing,
-                                            forceStrutHeight: true,
-                                          )
-                                        : null,
+                                    strutStyle: StrutStyle(
+                                      fontSize: _textEditText.maxStyleSize *
+                                          _geometry.scale,
+                                      height: _textEditLineSpacing,
+                                      forceStrutHeight: true,
+                                    ),
                                     cursorColor: _textEditColor,
                                     cursorWidth: 2 * _chromeScale,
                                     cursorHeight: pdfZoomAwareCursorHeight(
@@ -6560,20 +6412,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     // AND displace the menu off-screen
                                     contextMenuBuilder:
                                         (context, editableTextState) =>
-                                            pdfPlacedTextSelectionMenu(
+                                            pdfStockTextContextMenu(
+                                      context,
                                       editableTextState,
-                                      AdaptiveTextSelectionToolbar.editableText(
-                                          editableTextState: editableTextState),
+                                      systemMenu: false,
+                                      place: pdfPlacedTextSelectionMenu,
                                     ),
                                     // mirrors the committed appearance: same size
                                     // in view pixels, same leading/spacing,
                                     // matching family, color and underline
                                     style: TextStyle(
-                                      color: _textEditFieldName == null
-                                          ? _textEditColor.withValues(
-                                              alpha: _textEditOpacity.clamp(
-                                                  0.0, 1.0))
-                                          : _textEditColor,
+                                      color: _textEditColor.withValues(
+                                          alpha:
+                                              _textEditOpacity.clamp(0.0, 1.0)),
                                       fontSize: _textEditSize * _geometry.scale,
                                       height: _textEditLineSpacing,
                                       letterSpacing: _textEditCharSpacing *
@@ -6625,9 +6476,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     ),
                   ),
                 ),
-              if (_textEditRect != null &&
-                  _textEditFieldName == null &&
-                  _controller.hasTouchInput)
+              if (_textEditRect != null && _controller.hasTouchInput)
                 _buildInlineTextStyleChip(_textEditRect!),
               if (showChip && widget.showSelectionChip)
                 _buildSelectionChip(chrome?.$1 ?? selected),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_panel.dart';
@@ -161,7 +162,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
               // the next match instead of dismissing the field.
               onEditingComplete: () {},
               onChanged: _onChanged,
-              onSubmitted: _onSubmitted,
+              onSubmitted: _onSubmitted, contextMenuBuilder: pdfTextContextMenu,
             ),
           ),
           if (widget.showOptions)
@@ -690,6 +691,7 @@ class _ReplaceBarState extends State<_ReplaceBar> {
             ),
             style: Theme.of(context).textTheme.bodySmall,
             onChanged: (_) => setState(() {}),
+            contextMenuBuilder: pdfTextContextMenu,
           ),
           const SizedBox(height: 6),
           Row(children: [

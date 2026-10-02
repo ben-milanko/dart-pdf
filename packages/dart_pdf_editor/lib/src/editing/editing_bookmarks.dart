@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
@@ -528,6 +529,7 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
                   border: const OutlineInputBorder(),
                 ),
                 textInputAction: TextInputAction.next,
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               const SizedBox(height: 12),
               TextField(
@@ -541,6 +543,7 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
                 ),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               CheckboxListTile(
                 key: const ValueKey('pdf-bookmark-open'),

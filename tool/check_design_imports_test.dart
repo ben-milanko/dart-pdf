@@ -88,6 +88,12 @@ void f() {
   showModalBottomSheet<void>(context: c);
   ScaffoldMessenger.of(c);
   DropdownButtonHideUnderline(child: DropdownButtonFormField());
+  TextField(key: k, decoration: d(')'));
+  TextField(contextMenuBuilder: (c, s) => Adaptive(c, s));
+  TextFormField(contextMenuBuilder: pdfTextContextMenu, onChanged: (v) {});
+  SelectableText('x', contextMenuBuilder: (c, s) =>
+      pdfStockTextContextMenu(c, s, systemMenu: false));
+  TextFieldTapRegion(child: x);
 }
 ''');
     write('$lib/src/design/menu.dart', '''
@@ -132,6 +138,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
           'showModalBottomSheet': {'$lib/src/editing/leaky.dart': 1},
           'ScaffoldMessenger': {'$lib/src/editing/leaky.dart': 1},
           'DropdownButton': {'$lib/src/editing/leaky.dart': 1},
+          'TextFieldWithoutMenu': {'$lib/src/editing/leaky.dart': 2},
         },
         'counters skip comments and lib/src/design/');
 

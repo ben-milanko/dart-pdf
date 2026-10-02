@@ -8912,9 +8912,11 @@ class _PdfViewerState extends State<PdfViewer>
         presenter: widget.presenter,
         textPrompt: widget.editingTextPrompt,
         styledTextPrompt: widget.editingStyledTextPrompt,
+        // built in the scoped context, below the presenter scope and the
+        // host wrapper, so its theme and localizations lookups see them
         child: Builder(builder: (scoped) {
           _scopedContext = scoped;
-          return _buildViewer(context);
+          return _buildViewer(scoped);
         }),
       );
 
@@ -10611,6 +10613,32 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               pageIndex: widget.index,
                               geometry: geometry,
                               zoom: zoom,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              // the form tool's field fill: the same form layer as reading
+              // mode, without its tap targets - the tool's overlay owns the
+              // taps and hands its double-tap here (pdfFormFillRequests), so
+              // keystroke scripts and validation run in either mode
+              if (editing != null)
+                Positioned.fill(
+                  child: ListenableBuilder(
+                    listenable: editing,
+                    builder: (context, _) => editing.tool == PdfEditTool.form
+                        ? ValueListenableBuilder<double>(
+                            valueListenable: widget.transformScale,
+                            builder: (context, zoom, _) => FormInteractionLayer(
+                              controller: editing,
+                              pageIndex: widget.index,
+                              geometry: geometry,
+                              pageColor: widget.pageColor,
+                              rasterCurrent: _rastered,
+                              zoom: zoom,
+                              formImagePicker: widget.formImagePicker,
+                              onRevealField: widget.onRevealRect,
+                              tapTargets: false,
                             ),
                           )
                         : const SizedBox.shrink(),

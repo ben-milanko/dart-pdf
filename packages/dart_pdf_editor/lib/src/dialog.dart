@@ -3,6 +3,7 @@ import 'package:flutter/semantics.dart' show SemanticsProperties;
 import 'package:flutter/services.dart';
 
 import 'design/editor_presenter.dart';
+import 'design/material_host.dart';
 import 'l10n/pdf_l10n.dart';
 
 /// Marks the primary action in a [showPdfDialog] as its Enter action.
@@ -215,8 +216,9 @@ class _PdfDialogKeyboardScopeState extends State<_PdfDialogKeyboardScope> {
 /// The route carries the opening context's themes and its [PdfEditorScope]
 /// (an [InheritedTheme]), so a dialog that opens another stock prompt still
 /// asks the same [PdfEditorPresenter]. The barrier's semantic label comes
-/// from the editor's own localizations, so no `MaterialLocalizations` are
-/// needed to open one.
+/// from the editor's own localizations, and whatever a non-Material host
+/// lacks (Material and Cupertino localizations, a theme) is re-injected
+/// inside the route ([PdfMaterialHost]), so it opens from any host.
 ///
 /// This is the stock presentation: [PdfEditorPresenter.dialog] defaults to
 /// it, and the editor's own dialogs go through the presenter.
@@ -249,7 +251,11 @@ Future<T?> showPdfDialog<T>({
     DialogRoute<T>(
       context: context,
       builder: (context) {
-        final child = _PdfDialogKeyboardScope(builder: builder);
+        // Whatever the host lacks (Material localizations, a theme) is
+        // re-injected here, in the route's own context under the root
+        // navigator - a pass-through under a Material host.
+        final child =
+            pdfHostRoute(context, _PdfDialogKeyboardScope(builder: builder));
         // Re-inject only when the route's own context lost it (a scope
         // between the root and a nested navigator that opened the dialog on
         // the root one is captured too; this is the belt to that brace).

@@ -1083,9 +1083,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         presenter: widget.presenter,
         textPrompt: widget.textPrompt,
         styledTextPrompt: widget.styledTextPrompt,
+        // built in the scoped context, below the presenter scope and the
+        // host wrapper, so its theme and localizations lookups see them
         child: Builder(builder: (scoped) {
           _scopedContext = scoped;
-          return _buildView(context);
+          return _buildView(scoped);
         }),
       );
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
@@ -401,6 +402,7 @@ class _PdfAnnotationLibraryPanelState extends State<PdfAnnotationLibraryPanel> {
                           border: const OutlineInputBorder(),
                         ),
                         onChanged: (_) => setState(() {}),
+                        contextMenuBuilder: pdfTextContextMenu,
                       ),
                     ),
                     if (_controller.activeSavedAnnotation != null)

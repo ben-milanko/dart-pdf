@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
@@ -1596,6 +1597,7 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
                     ),
                     onChanged: (value) =>
                         setSheetState(() => searchQuery = value),
+                    contextMenuBuilder: pdfTextContextMenu,
                   ),
                 ),
                 Flexible(

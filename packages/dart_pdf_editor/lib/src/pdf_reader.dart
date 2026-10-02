@@ -435,7 +435,10 @@ class _PdfReaderState extends State<PdfReader> {
 
   @override
   Widget build(BuildContext context) => pdfInstallPresenter(context,
-      presenter: widget.presenter, child: _buildReader(context));
+      presenter: widget.presenter,
+      // built below the presenter scope and the host wrapper, so its theme
+      // and localizations lookups see them
+      child: Builder(builder: _buildReader));
 
   Widget _buildReader(BuildContext context) {
     if (_isSource) return _buildFromSource();

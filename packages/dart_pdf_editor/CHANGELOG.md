@@ -109,6 +109,45 @@
   `MaterialLocalizations`, and its barrier label comes from the editor's own
   localizations (new string `dialogDismiss`).
 - `showPdfRemoveSignatureDialog` is now a stock `confirm` (unchanged look).
+- The stock editor runs under any host: `PdfViewer`, `PdfReader`,
+  `PdfEditorView` and `PdfComparisonView` work under a `CupertinoApp` or a
+  plain `WidgetsApp` as well as a `MaterialApp`. Each wraps its content in
+  the new `PdfMaterialHost`, which supplies what the stock (Material) chrome
+  needs and the host lacks - Material and Cupertino localizations (from
+  `flutter_localizations`, English where a locale has none), a `Theme`
+  derived from the host's `CupertinoTheme` or, failing that, its platform
+  brightness, `DefaultSelectionStyle` and `IconTheme`, and a transparent
+  `Material` surface. Under a host that already has a `Theme` and both
+  localizations it adds nothing. Wrap any stock widget you mount on its own
+  (a `PdfEditingToolbar` beside your own viewer) in `PdfMaterialHost` the
+  same way.
+- What builds under the root navigator re-injects those too: `showPdfDialog`
+  (so it now opens from any context, not just from inside the editor), the
+  presenter's popup menus, its bottom sheets (a library-owned route,
+  `showModalBottomSheet`'s presentation unchanged) and the fullscreen reflow
+  image.
+- Notices show under any host: with no `ScaffoldMessenger` above,
+  `PdfEditorPresenter.notice`'s default now shows the notice (and its Undo)
+  as a SnackBar-styled toast in the root overlay instead of returning false.
+- Every editor text field (and the reflow view's `SelectableText`) uses the
+  new `pdfTextContextMenu`, the platform's stock context menu with the
+  localizations it needs re-injected - a right-click or long-press under a
+  non-Material host used to paint an error widget. Under a Material host it
+  is the default menu. Use it on text fields of your own dialogs.
+- The ten `DropdownButton`/`DropdownButtonFormField`s (line type, line
+  endings, scale and calibration units, stamp date/time format, the styled
+  text font family) are now a dropdown that opens through
+  `PdfEditorPresenter.menu`, drawn like the `DropdownButton` it replaces and
+  keeping its keys; its options open as a popup menu over the button.
+  `DropdownButton`'s menu route had no hook for running under a non-Material
+  host.
+- Fix: the form tool's double-tap fill now runs a field's keystroke and
+  validation scripts (`AFNumber_Keystroke`, `AFRange_Validate`, ...), refusing
+  characters and invalid values exactly as reading mode does. Both modes
+  fill through one component (the page's form layer); the form tool keeps
+  its own taps (select, move, resize) and hands its double-tap over.
+- `tool/check_design_imports.dart` also counts text fields without the
+  shared context menu; it and the `DropdownButton` counter are at 0.
 
 ## 5.1.1
 

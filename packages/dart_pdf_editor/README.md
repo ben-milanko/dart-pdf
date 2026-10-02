@@ -359,6 +359,31 @@ deprecated. Your own dialogs opened with `showPdfDialog` get Enter-to-submit
 by wrapping the primary action in `PdfDialogSubmit.action(onSubmit: ...,
 child: ...)`, which takes any widget.
 
+### Any host: MaterialApp, CupertinoApp or WidgetsApp
+
+The editor does not need a `MaterialApp`. `PdfViewer`, `PdfReader`,
+`PdfEditorView` and `PdfComparisonView` run under a `CupertinoApp` or a plain
+`WidgetsApp` too:
+
+```dart
+CupertinoApp(
+  home: CupertinoPageScaffold(child: PdfEditorView(bytes: bytes)),
+)
+```
+
+Each wraps its content in `PdfMaterialHost`, which supplies whatever the
+stock chrome needs and the host lacks: Material and Cupertino localizations,
+a theme derived from the host's `CupertinoTheme` (or its platform brightness
+and `DefaultSelectionStyle`), and a surface for ink and text fields. Under a
+`MaterialApp` it adds nothing. The editor's dialogs, menus, sheets, notices
+and text-field context menus build under the root navigator, outside that
+wrapper, so they re-inject the same things; without a `ScaffoldMessenger`,
+notices appear as a toast in the root overlay. Wrap any stock widget you
+mount on its own (a `PdfEditingToolbar` next to your own viewer) in
+`PdfMaterialHost`, and give text fields in your own dialogs
+`contextMenuBuilder: pdfTextContextMenu`. The chrome still draws Material
+Icons, so `uses-material-design: true` is still needed.
+
 ### Commands and tool groups
 
 Everything the stock toolbar does goes through `PdfEditorCommands`, which

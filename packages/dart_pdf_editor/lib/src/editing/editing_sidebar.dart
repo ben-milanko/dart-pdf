@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../search_field_style.dart';
@@ -327,6 +328,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         border:
             const OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius),
       ),
+      contextMenuBuilder: pdfTextContextMenu,
     );
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 8, trailing.isNotEmpty ? 4 : 12, 4),
@@ -962,6 +964,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               border: const OutlineInputBorder(),
             ),
             onSubmitted: (_) => _sendReply(page, root),
+            contextMenuBuilder: pdfTextContextMenu,
           ),
           Wrap(alignment: WrapAlignment.end, spacing: 4, children: [
             TextButton(

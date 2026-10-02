@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf_document/pdf_document.dart';
 
 import '../design/editor_presenter.dart';
+import '../design/material_host.dart';
 import '../search_field_style.dart';
 import 'editing_controller.dart';
 import 'text_prompt.dart';
@@ -512,6 +513,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                   border: const OutlineInputBorder(
                       borderRadius: pdfSearchFieldBorderRadius),
                 ),
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               const SizedBox(height: 8),
               Flexible(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'signing_identity_store.dart';
@@ -125,6 +126,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
               validator: (value) => (value == null || value.trim().isEmpty)
                   ? pdfL10n(context).signIdNameRequired
                   : null,
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 8),
             TextFormField(
@@ -133,6 +135,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   InputDecoration(labelText: pdfL10n(context).signIdEmail),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 8),
             TextFormField(
@@ -141,6 +144,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   labelText: pdfL10n(context).signIdOrganization),
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _create(),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 16),
             Container(

@@ -30,6 +30,7 @@ import '../editing/text_style_prompt.dart'
         showPdfStyledTextPrompt;
 import '../page_range_dialog.dart' show showPdfPageRangeDialog;
 import '../split_dialog.dart' show showPdfSplitDialog;
+import 'material_host.dart';
 import 'material_presenter.dart';
 
 /// How the editor presents its UI: dialogs, bottom sheets, popup menus,
@@ -88,7 +89,7 @@ class PdfEditorPresenter {
 
   /// Shows a bottom sheet (the compact shell controls, the shortcut editor,
   /// the mobile tool sheet, takeoff totals). Default: a Material modal
-  /// bottom sheet.
+  /// bottom sheet on a route the library owns, which works under any host.
   Future<T?> sheet<T>(BuildContext context, PdfSheetRequest<T> request) =>
       pdfStockSheet<T>(context, request);
 
@@ -100,8 +101,9 @@ class PdfEditorPresenter {
 
   /// Shows a transient, non-blocking notice. Returns whether it was shown -
   /// a once-only notice (the XFA form notice) tries again later when it
-  /// returns false. Default: a SnackBar on the nearest `ScaffoldMessenger`
-  /// (false when there is none).
+  /// returns false. Default: a SnackBar on the nearest `ScaffoldMessenger`,
+  /// or the same notice as a toast in the root overlay when there is none
+  /// (false only without an overlay either).
   bool notice(BuildContext context, PdfEditorNotice notice) =>
       pdfStockNotice(context, notice);
 
@@ -833,8 +835,9 @@ Future<PdfLinkTarget?> pdfPresentLinkPrompt(
 
 /// Installs the presenter a root editor widget was given: [presenter] (or
 /// the inherited one), with [textPrompt]/[styledTextPrompt] - the older
-/// per-widget prompt parameters - taking precedence for this subtree. Always
-/// wraps, so the tree's shape does not change with the arguments.
+/// per-widget prompt parameters - taking precedence for this subtree, plus a
+/// [PdfMaterialHost] so the stock chrome runs under any host. Always wraps,
+/// so the tree's shape does not change with the arguments.
 Widget pdfInstallPresenter(
   BuildContext context, {
   PdfEditorPresenter? presenter,
@@ -849,7 +852,8 @@ Widget pdfInstallPresenter(
     effective = _PromptOverridePresenter(effective,
         textPrompt: textPrompt, styledTextPrompt: styledTextPrompt);
   }
-  return PdfEditorScope(presenter: effective, child: child);
+  return PdfEditorScope(
+      presenter: effective, child: PdfMaterialHost(child: child));
 }
 
 /// [base], except that [textPrompt]/[styledTextPrompt] answer the text

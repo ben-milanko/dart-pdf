@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../editing/editing_panel.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
@@ -187,7 +188,9 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
     if (widget.viewerTheme != null) {
       panes = PdfViewerTheme(data: widget.viewerTheme!, child: panes);
     }
-    return Column(children: [
+    // the stock chrome under any host (a pass-through under a Material one)
+    return PdfMaterialHost(
+        child: Column(children: [
       _PdfComparisonToolbar(
         mode: _mode,
         onMode: _setMode,
@@ -202,7 +205,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
           Expanded(child: panes),
         ]),
       ),
-    ]);
+    ]));
   }
 
   Widget _sideBySide() {

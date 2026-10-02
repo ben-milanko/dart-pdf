@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
@@ -214,44 +215,42 @@ class _StampDateTimeFormatControls extends StatelessWidget {
         KeyedSubtree(
           key: ValueKey(
               'pdf-stamp-date-format-field-${controller.preferences.stampDateFormat.name}'),
-          child: DropdownButtonFormField<PdfStampDateFormat>(
+          child: PdfDropdown<PdfStampDateFormat>(
             key: const ValueKey('pdf-stamp-date-format'),
-            initialValue: controller.preferences.stampDateFormat,
+            value: controller.preferences.stampDateFormat,
             decoration:
                 InputDecoration(labelText: pdfL10n(context).stampDateFormat),
             items: [
               for (final format in PdfStampDateFormat.values)
-                DropdownMenuItem<PdfStampDateFormat>(
+                PdfDropdownItem<PdfStampDateFormat>(
                   key: ValueKey('pdf-stamp-date-format-${format.name}'),
                   value: format,
-                  child: Text(format.format(sample, localeName: localeName)),
+                  label: format.format(sample, localeName: localeName),
                 ),
             ],
-            onChanged: (value) {
-              if (value != null) controller.preferences.stampDateFormat = value;
-            },
+            onChanged: (value) =>
+                controller.preferences.stampDateFormat = value,
           ),
         ),
         const SizedBox(height: 8),
         KeyedSubtree(
           key: ValueKey(
               'pdf-stamp-time-format-field-${controller.preferences.stampTimeFormat.name}'),
-          child: DropdownButtonFormField<PdfStampTimeFormat>(
+          child: PdfDropdown<PdfStampTimeFormat>(
             key: const ValueKey('pdf-stamp-time-format'),
-            initialValue: controller.preferences.stampTimeFormat,
+            value: controller.preferences.stampTimeFormat,
             decoration:
                 InputDecoration(labelText: pdfL10n(context).stampTimeFormat),
             items: [
               for (final format in PdfStampTimeFormat.values)
-                DropdownMenuItem<PdfStampTimeFormat>(
+                PdfDropdownItem<PdfStampTimeFormat>(
                   key: ValueKey('pdf-stamp-time-format-${format.name}'),
                   value: format,
-                  child: Text(_timePreview(context, format, sample)),
+                  label: _timePreview(context, format, sample),
                 ),
             ],
-            onChanged: (value) {
-              if (value != null) controller.preferences.stampTimeFormat = value;
-            },
+            onChanged: (value) =>
+                controller.preferences.stampTimeFormat = value,
           ),
         ),
       ],
@@ -684,6 +683,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       decoration: InputDecoration(
                           labelText: pdfL10n(context).stampWidth),
                       onSubmitted: (_) => _commitSize(),
+                      contextMenuBuilder: pdfTextContextMenu,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -696,6 +696,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       decoration: InputDecoration(
                           labelText: pdfL10n(context).stampHeight),
                       onSubmitted: (_) => _commitSize(),
+                      contextMenuBuilder: pdfTextContextMenu,
                     ),
                   ),
                 ],
@@ -721,6 +722,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             ? (value) => _replaceSelected(
                                 selected!.copyWith(text: value))
                             : null,
+                        contextMenuBuilder: pdfTextContextMenu,
                       ),
                     ),
                     const SizedBox(width: 8),

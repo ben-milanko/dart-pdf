@@ -21,8 +21,10 @@
 //
 // (c) Raw component counters, outside lib/src/design/: uses of showMenu,
 //     showModalBottomSheet, ScaffoldMessenger and DropdownButton(FormField),
-//     per file. These are the calls a non-Material host cannot survive; later
-//     stages route them through library-owned seams. Comments do not count.
+//     and text fields (TextField, TextFormField, SelectableText) without the
+//     shared context menu, per file. These are the calls a non-Material host
+//     cannot survive; they go through library-owned seams instead (the
+//     presenter, PdfDropdown, pdfTextContextMenu). Comments do not count.
 //
 // The baseline is tool/design_imports_baseline.json. After removing a
 // Material import or a raw use, run with --update-baseline to tighten it; it
@@ -56,13 +58,68 @@ const headlessRoots = [
 const counterLib = 'packages/dart_pdf_editor/lib';
 const counterExempt = 'packages/dart_pdf_editor/lib/src/design/';
 
-/// The raw component uses counted by (c).
-final counters = <String, RegExp>{
-  'showMenu': RegExp(r'\bshowMenu\s*[<(]'),
-  'showModalBottomSheet': RegExp(r'\bshowModalBottomSheet\s*[<(]'),
-  'ScaffoldMessenger': RegExp(r'\bScaffoldMessenger\b'),
-  'DropdownButton': RegExp(r'\bDropdownButton(FormField)?\b'),
+/// The raw component uses counted by (c), each over comment-stripped code.
+final counters = <String, int Function(String code)>{
+  'showMenu': _matches(RegExp(r'\bshowMenu\s*[<(]')),
+  'showModalBottomSheet': _matches(RegExp(r'\bshowModalBottomSheet\s*[<(]')),
+  'ScaffoldMessenger': _matches(RegExp(r'\bScaffoldMessenger\b')),
+  'DropdownButton': _matches(RegExp(r'\bDropdownButton(FormField)?\b')),
+  'TextFieldWithoutMenu': textFieldsWithoutSharedMenu,
 };
+
+int Function(String) _matches(RegExp pattern) =>
+    (code) => pattern.allMatches(code).length;
+
+/// The context-menu builders that re-inject what a non-Material host lacks
+/// (lib/src/design/material_host.dart).
+const sharedTextMenus = ['pdfTextContextMenu', 'pdfStockTextContextMenu'];
+
+/// `TextField`, `TextFormField` and `SelectableText` constructions in [code]
+/// whose arguments do not pass one of the [sharedTextMenus] as their
+/// `contextMenuBuilder`. Their stock menu builds in the root overlay, where a
+/// non-Material host has no MaterialLocalizations.
+int textFieldsWithoutSharedMenu(String code) {
+  var count = 0;
+  final call =
+      RegExp(r'\b(TextField|TextFormField|SelectableText)(\.rich)?\s*\(');
+  for (final m in call.allMatches(code)) {
+    final args = _argumentsAt(code, m.end - 1);
+    final menu = args.indexOf('contextMenuBuilder:');
+    if (menu < 0 ||
+        !sharedTextMenus.any((name) => args.indexOf(name, menu) >= 0)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/// The text between the `(` at [open] and its matching `)` (quotes are
+/// skipped; [code] is comment-stripped).
+String _argumentsAt(String code, int open) {
+  var depth = 0;
+  String? quote;
+  for (var i = open; i < code.length; i++) {
+    final c = code[i];
+    if (quote != null) {
+      if (c == r'\') {
+        i++;
+      } else if (code.startsWith(quote, i)) {
+        i += quote.length - 1;
+        quote = null;
+      }
+      continue;
+    }
+    if (c == "'" || c == '"') {
+      quote = code.startsWith(c * 3, i) ? c * 3 : c;
+      i += quote.length - 1;
+    } else if (c == '(') {
+      depth++;
+    } else if (c == ')' && --depth == 0) {
+      return code.substring(open + 1, i);
+    }
+  }
+  return code.substring(open + 1);
+}
 
 /// Material edges a headless closure tolerates until a deprecated API goes:
 /// repo-relative file -> the only names its Material import may `show`.
@@ -196,8 +253,8 @@ ScanResult scan(String root, PackageResolver resolver) {
       final rel = _relative(root, file.path);
       if (rel.startsWith(counterExempt)) continue;
       final code = stripComments(file.readAsStringSync());
-      counters.forEach((name, pattern) {
-        final n = pattern.allMatches(code).length;
+      counters.forEach((name, count) {
+        final n = count(code);
         if (n > 0) counts[name]![rel] = n;
       });
     }
