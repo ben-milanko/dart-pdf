@@ -1059,6 +1059,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
             DemoLayout.toggle,
             FittedBox(
               child: Switch(
+                key: const ValueKey('demo-overlay-switch'),
                 value: tab.switchOn,
                 onChanged: (value) => setState(() => tab.switchOn = value),
               ),

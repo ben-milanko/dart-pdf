@@ -930,6 +930,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                       behavior: ScrollConfiguration.of(context)
                           .copyWith(scrollbars: false),
                       child: ReorderableListView.builder(
+                        key: const ValueKey('pdf-thumbnail-list'),
                         scrollDirection: scrollAxis,
                         scrollController: _scroll,
                         buildDefaultDragHandles: false,
@@ -2809,6 +2810,7 @@ class _PageTileState extends State<_PageTile> {
                         label: pdfL10n(context).thumbDeletePages(1),
                         button: true,
                         child: IconButton(
+                          key: ValueKey('pdf-thumbnail-delete-$pageIndex'),
                           icon: const Icon(Icons.delete_outline, size: 16),
                           style: IconButton.styleFrom(
                             padding: EdgeInsets.zero,

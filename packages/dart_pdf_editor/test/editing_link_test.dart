@@ -110,7 +110,8 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'https://example.com');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-link-url')), 'https://example.com');
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 
@@ -144,7 +145,7 @@ void main() {
       // switch to the "page in document" mode
       await tester.tap(find.text('Page in document'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '3');
+      await tester.enterText(find.byKey(const ValueKey('pdf-link-page')), '3');
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 

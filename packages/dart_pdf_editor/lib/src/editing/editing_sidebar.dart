@@ -367,9 +367,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       onEnter: (_) => _setHover(slot, true),
       onExit: (_) => _setHover(slot, false),
       child: ListTile(
+        key: ValueKey('pdf-annotation-row-$pageIndex-$index'),
         dense: true,
         leading: _selecting
             ? Checkbox(
+                key: ValueKey('pdf-annotation-check-$pageIndex-$index'),
                 value: _checked.contains(slot),
                 onChanged: editable ? (_) => _toggle(slot) : null,
               )

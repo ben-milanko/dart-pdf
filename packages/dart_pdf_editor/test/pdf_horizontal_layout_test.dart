@@ -39,8 +39,8 @@ void main() {
 
   group('PdfPageLayout', () {
     test('exposes the scroll axis', () {
-      expect(const PdfPageLayout.verticalContinuous().scrollAxis,
-          Axis.vertical);
+      expect(
+          const PdfPageLayout.verticalContinuous().scrollAxis, Axis.vertical);
       expect(const PdfPageLayout.horizontalContinuous().scrollAxis,
           Axis.horizontal);
     });
@@ -169,7 +169,7 @@ void main() {
     await tester.tap(find.byKey(const Key('overlay')));
     await tester.pump(const Duration(milliseconds: 400));
     expect(taps, 1);
-    expect(find.byType(TextButton), findsOneWidget);
+    expect(find.byKey(const Key('overlay')), findsOneWidget);
   });
 
   testWidgets('search navigates to a match in a horizontal layout',
@@ -219,8 +219,7 @@ void main() {
     expect(controller.currentPage, 3);
 
     // flip to horizontal - the reader stays on page 3
-    await tester
-        .pumpWidget(build(const PdfPageLayout.horizontalContinuous()));
+    await tester.pumpWidget(build(const PdfPageLayout.horizontalContinuous()));
     await tester.pump(); // adopt the new layout
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(controller.currentPage, 3);

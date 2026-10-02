@@ -4043,6 +4043,7 @@ class _EditorScreenState extends State<EditorScreen>
         ? parts.saveButton(enabledWhenUnchanged: true)
         : null;
     return AppBar(
+      key: const ValueKey('editor-app-bar'),
       leading: app.leading,
       leadingWidth: _appMenuLeadingWidth,
       centerTitle: false,
@@ -4379,6 +4380,7 @@ class _EditorScreenState extends State<EditorScreen>
           builder: (context, _) => !tab.viewer!.hasSelection
               ? const SizedBox.shrink()
               : IconButton(
+                  key: const ValueKey('selection-copy-action'),
                   icon: const Icon(Icons.copy),
                   tooltip: appL10n(context).editorCopySelectedTextTooltip,
                   onPressed: () async {
@@ -4905,6 +4907,7 @@ class _EditorScreenState extends State<EditorScreen>
                 Expanded(child: label()),
                 if (showClose)
                   IconButton(
+                    key: ValueKey('tab-close-$index'),
                     icon: const Icon(Icons.close, size: 16),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,

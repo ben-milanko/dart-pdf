@@ -42,6 +42,13 @@ Uint8List buildLinkOverTextPdf() {
   return ascii(buffer.toString());
 }
 
+/// The selection-mode check on every annotation row.
+final selectionChecks = find.byWidgetPredicate((widget) {
+  final key = widget.key;
+  return key is ValueKey<String> &&
+      key.value.startsWith('pdf-annotation-check-');
+});
+
 void main() {
   Future<void> pumpSidebar(WidgetTester tester, PdfEditingController editing,
       PdfViewerController viewer) async {
@@ -394,7 +401,7 @@ void main() {
     await tester.longPress(find.text('Note'));
     await tester.pump();
     expect(find.text('1 selected'), findsOneWidget);
-    expect(find.byType(Checkbox), findsNWidgets(3));
+    expect(selectionChecks, findsNWidgets(3));
 
     // check the page-1 square too (the first of the two Square tiles)
     await tester.tap(find.text('Square').first);
@@ -407,7 +414,7 @@ void main() {
     expect(editing.document.page(1).annotations, hasLength(1));
     // the revision swap leaves selection mode
     expect(find.text('2 selected'), findsNothing);
-    expect(find.byType(Checkbox), findsNothing);
+    expect(selectionChecks, findsNothing);
 
     // both went in one revision: a single undo restores them together
     editing.undo();
@@ -443,7 +450,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     expect(editing.selectedAnnotationSlots, [(0, 0)]);
     // no checkbox mode - this is the desktop modifier path
-    expect(find.byType(Checkbox), findsNothing);
+    expect(selectionChecks, findsNothing);
   });
 
   testWidgets('shift-click selects the range from the anchor', (tester) async {
@@ -508,22 +515,11 @@ void main() {
     await tester.pump();
     expect(find.text('1 selected'), findsOneWidget);
 
-    final squareTile = find.ancestor(
-      of: find.text('Square'),
-      matching: find.byType(ListTile),
-    );
-    final circleTile = find.ancestor(
-      of: find.text('Circle'),
-      matching: find.byType(ListTile),
-    );
-    final squareCheckbox = tester.widget<Checkbox>(find.descendant(
-      of: squareTile,
-      matching: find.byType(Checkbox),
-    ));
-    final circleCheckbox = tester.widget<Checkbox>(find.descendant(
-      of: circleTile,
-      matching: find.byType(Checkbox),
-    ));
+    // the locked square (slot 0) can't be checked; the circle (slot 1) can
+    final squareCheckbox = tester.widget<Checkbox>(
+        find.byKey(const ValueKey('pdf-annotation-check-0-0')));
+    final circleCheckbox = tester.widget<Checkbox>(
+        find.byKey(const ValueKey('pdf-annotation-check-0-1')));
     expect(squareCheckbox.onChanged, isNull);
     expect(circleCheckbox.onChanged, isNotNull);
 

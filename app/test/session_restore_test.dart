@@ -221,7 +221,11 @@ void main() {
 
     // Nothing opened - we land back on the welcome screen, no error placeholder.
     expect(tabTitle('missing.pdf'), findsNothing);
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Open a PDF')),
+        findsOneWidget);
   });
 
   testWidgets('skips restore when launched to open a specific document',
@@ -294,7 +298,9 @@ void main() {
     fs.FileSelectorPlatform.instance = fake;
     addTearDown(() => fs.FileSelectorPlatform.instance = original);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Open a PDF'));
+    await tester.tap(find.descendant(
+        of: find.byKey(const ValueKey('welcome-open-pdf')),
+        matching: find.text('Open a PDF')));
     await tester.runAsync(() async {
       for (var i = 0; i < 12; i++) {
         await tester.pump(const Duration(milliseconds: 20));
@@ -321,7 +327,9 @@ void main() {
         _FakeFileSelector([_StalledXFile(a, gate), _StalledXFile(b, gate)]);
     addTearDown(() => fs.FileSelectorPlatform.instance = original);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Open a PDF'));
+    await tester.tap(find.descendant(
+        of: find.byKey(const ValueKey('welcome-open-pdf')),
+        matching: find.text('Open a PDF')));
     // Real frames: the picker plumbing hops through platform channels.
     await tester.runAsync(() => pumpFrames(tester));
     await tester.pump();

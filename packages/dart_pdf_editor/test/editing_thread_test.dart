@@ -37,8 +37,7 @@ void main() {
   // then open its "more" menu.
   Future<void> openMore(WidgetTester tester, int page, int index) async {
     final moreKey = ValueKey('pdf-annotation-more-$page-$index');
-    final tile = find.ancestor(
-        of: find.byKey(moreKey), matching: find.byType(ListTile));
+    final tile = find.byKey(ValueKey('pdf-annotation-row-$page-$index'));
     final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await gesture.addPointer(location: Offset.zero);
     await gesture.moveTo(tester.getCenter(tile));

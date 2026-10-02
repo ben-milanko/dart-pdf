@@ -124,7 +124,8 @@ void main() {
       );
       // Reads are gated: nothing has painted yet.
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-progressive-loading')),
+          findsOneWidget);
       expect(find.byType(PdfViewer), findsNothing);
 
       // Release the gate and let the open complete.

@@ -116,6 +116,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                 style: theme.textTheme.titleLarge),
             const SizedBox(height: 12),
             TextFormField(
+              key: const ValueKey('pdf-identity-name'),
               controller: _name,
               autofocus: true,
               decoration: InputDecoration(

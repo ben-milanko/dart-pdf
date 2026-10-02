@@ -113,13 +113,13 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('pdf-text-menu-link')));
         await tester.pumpAndSettle();
 
-        final url = find.descendant(
-            of: find.byType(AlertDialog), matching: find.byType(TextField));
+        final url = find.byKey(const ValueKey('pdf-link-url'));
         expect(url, findsOneWidget);
         await tester.enterText(url, 'https://example.com');
         await tester.pump();
         await _openFieldMenu(tester, url);
-        expect(find.byType(AdaptiveTextSelectionToolbar), findsOneWidget);
+        expect(find.byKey(const ValueKey('pdf-text-context-menu')),
+            findsOneWidget);
         expectNoHostErrors(tester);
 
         // dismiss the field menu, then apply the link
@@ -148,7 +148,8 @@ void main() {
         expect(editor, findsOneWidget);
         await tester.enterText(editor, 'Jane');
         await _openFieldMenu(tester, editor);
-        expect(find.byType(AdaptiveTextSelectionToolbar), findsOneWidget);
+        expect(find.byKey(const ValueKey('pdf-text-context-menu')),
+            findsOneWidget);
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
         // Escape may have closed the field editor along with its menu
@@ -309,10 +310,11 @@ void main() {
       showPdfTextPrompt(root, title: 'Name', initial: 'hello world')
           .then((v) => answer = v);
       await tester.pumpAndSettle();
-      final field = find.byType(TextField);
+      final field = find.byKey(const ValueKey('pdf-text-prompt-field'));
       expect(field, findsOneWidget);
       await _openFieldMenu(tester, field);
-      expect(find.byType(AdaptiveTextSelectionToolbar), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-text-context-menu')), findsOneWidget);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       await tester.enterText(field, 'Ada');

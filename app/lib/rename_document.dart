@@ -68,6 +68,7 @@ class _RenameDocumentDialogState extends State<_RenameDocumentDialog> {
       ),
       actions: [
         TextButton(
+          key: const ValueKey('rename-document-cancel'),
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),

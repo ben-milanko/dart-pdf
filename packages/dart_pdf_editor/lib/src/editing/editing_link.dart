@@ -115,6 +115,7 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
           const SizedBox(height: 16),
           if (_kind == _LinkKind.web)
             TextField(
+              key: const ValueKey('pdf-link-url'),
               controller: _url,
               autofocus: true,
               keyboardType: TextInputType.url,
@@ -127,6 +128,7 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
             )
           else
             TextField(
+              key: const ValueKey('pdf-link-page'),
               controller: _page,
               autofocus: true,
               keyboardType: TextInputType.number,

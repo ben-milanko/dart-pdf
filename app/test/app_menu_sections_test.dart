@@ -66,12 +66,7 @@ void main() {
 
     final row = find.byKey(const ValueKey('menu-read-only'));
     expect(row, findsOneWidget);
-    expect(
-        tester
-            .widget<Switch>(
-                find.descendant(of: row, matching: find.byType(Switch)))
-            .value,
-        isFalse);
+    expect(tester.getSemantics(row), isSemantics(isToggled: false));
 
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
@@ -82,12 +77,7 @@ void main() {
     expect(find.byType(PdfReader), findsOneWidget);
     // ...and the switch now reads back on.
     await openMenu(tester);
-    expect(
-        tester
-            .widget<Switch>(
-                find.descendant(of: row, matching: find.byType(Switch)))
-            .value,
-        isTrue);
+    expect(tester.getSemantics(row), isSemantics(isToggled: true));
   });
 
   testWidgets('the palette row leads the menu and carries its shortcut',

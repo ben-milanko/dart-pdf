@@ -103,10 +103,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(prefsOf(tester).themePreference, PdfThemePreference.dark);
     expect(
-      Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+      Theme.of(tester.element(find.byKey(const ValueKey('welcome-open-pdf'))))
+          .brightness,
       Brightness.dark,
     );
-    expect(find.widgetWithText(FilledButton, 'Abrir un PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Abrir un PDF')),
+        findsOneWidget);
   });
 
   testWidgets('theme mode, language and the DevTools overrides switch live',
@@ -115,7 +120,8 @@ void main() {
     await tester.pumpAndSettle();
     final prefs = prefsOf(tester);
     Brightness brightness() =>
-        Theme.of(tester.element(find.byType(Scaffold).first)).brightness;
+        Theme.of(tester.element(find.byKey(const ValueKey('welcome-open-pdf'))))
+            .brightness;
     MaterialApp app() => tester.widget<MaterialApp>(find.byType(MaterialApp));
 
     expect(brightness(), Brightness.light);
@@ -127,21 +133,41 @@ void main() {
     expect(brightness(), Brightness.light);
 
     // The Settings language picker.
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Open a PDF')),
+        findsOneWidget);
     prefs.locale = const Locale('es');
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, 'Abrir un PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Abrir un PDF')),
+        findsOneWidget);
     prefs.locale = null;
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Open a PDF')),
+        findsOneWidget);
 
     // The DevTools locale override wins over the (unset) Settings choice.
     AppDevTools.instance.localeOverride.value = const Locale('es');
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, 'Abrir un PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Abrir un PDF')),
+        findsOneWidget);
     AppDevTools.instance.localeOverride.value = null;
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('welcome-open-pdf')),
+            matching: find.text('Open a PDF')),
+        findsOneWidget);
 
     expect(app().showPerformanceOverlay, isFalse);
     AppDevTools.instance.showPerformanceOverlay.value = true;

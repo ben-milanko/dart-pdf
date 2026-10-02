@@ -526,6 +526,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     geometry: geometry,
                   ),
                 Divider(
+                  key: const ValueKey('pdf-search-options-divider'),
                   height: 1,
                   indent: geometry.contentStartInset,
                   endIndent: geometry.contentEndInset,

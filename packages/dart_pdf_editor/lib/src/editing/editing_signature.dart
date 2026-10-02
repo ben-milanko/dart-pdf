@@ -466,12 +466,14 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
       ),
       actions: [
         TextButton(
+          key: const ValueKey('pdf-signature-cancel'),
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
         PdfDialogSubmit.action(
             onSubmit: _pad.isEmpty ? null : _accept,
             child: FilledButton(
+              key: const ValueKey('pdf-signature-done'),
               onPressed: _pad.isEmpty ? null : _accept,
               child: Text(pdfL10n(context).done),
             )),
