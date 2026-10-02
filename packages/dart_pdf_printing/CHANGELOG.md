@@ -1,5 +1,14 @@
 ## Unreleased
 
+- **BREAKING:** built on `material_ui` like `dart_pdf_editor` 6.0: the print
+  preview and progress dialogs use material_ui widgets and run under a
+  material_ui, legacy Material, Cupertino or plain widgets host. Requires
+  Flutter 3.47.0. See `doc/migrating-to-6.md`. The generated
+  `DartPdfPrintingLocalizations.localizationsDelegates` still lists the
+  legacy `flutter_localizations` delegates; a material_ui app registers
+  `DartPdfPrintingLocalizations.delegate` next to
+  `PdfEditorLocalizations.delegates`.
+
 - The print preview's drop-downs are `PdfDropdown`s and its text fields use
   the editor's shared context menu (`pdfTextContextMenu`), so the dialog runs
   under a `CupertinoApp` or `WidgetsApp` host. Tests reading the selectors use

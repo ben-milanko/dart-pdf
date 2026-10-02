@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 6.0 (material_ui 1.4's floor). No code changes: the
+  package uses only the widgets layer.
+
 ## 0.4.2
 
 - Align dependency constraints with the dart-pdf 5.1.1 package suite.

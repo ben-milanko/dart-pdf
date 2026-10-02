@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 6.0 (material_ui 1.4's floor).
+
 - Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
   matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44
   (`ReorderableListView.onReorderItem`), so this strands nobody.
