@@ -112,6 +112,23 @@ Migration notes for hosts: `doc/migrating-to-6.md`.
 - `PdfShellBar` is not exported; tests that need its context import
   `package:dart_pdf_editor/src/shell_chrome.dart` directly.
 
+- **Legacy default icon colour vs identity checks.** material_ui's
+  `IconButton` (also `Tab`, `SearchAnchor`) decides "the IconTheme has no
+  custom colour" with `identical(IconTheme.of(context).color,
+  kDefaultIconDarkColor)` (`kDefaultIconLightColor` when dark). Both
+  libraries declare those as `final` globals, not `const`, so a legacy
+  `ThemeData`'s default icon colour is a *different object* from
+  material_ui's and reads as custom. `PdfMaterialHost` re-applies the legacy
+  host's `IconTheme` inside the bridged `Theme` (C2), so under any legacy
+  host every toolbar `IconButton` drew in black87 (white when dark),
+  selected or not, and the armed tool lost its primary tint. The bridge now
+  swaps a legacy default colour for material_ui's
+  (`pdfLegacyHostIconTheme`, also applied to the bridged `ThemeData`'s
+  `iconTheme`); any other host colour passes through. Covered by
+  `legacy_host_test.dart`'s "the selected tool keeps its tint" (light and
+  dark; both failed before). Found by a perf probe: under the legacy host
+  the toolbar did ~13% fewer rebuilds than under any same-library host.
+
 ## Tests
 
 - `test/support/pump_host.dart` gained `PdfTestHost.legacyMaterial` and
@@ -138,6 +155,9 @@ Migration notes for hosts: `doc/migrating-to-6.md`.
   -22%, but jankCount 16 -> 20 (runs 12-18 vs 17-24), unchanged when the
   toolbar card's new Material is reverted, so it comes with the library
   switch itself under the legacy harness host; worth a look in PR B, where
-  the harness becomes a material_ui host.
+  the harness becomes a material_ui host. **Later:** the buildP50 drop was
+  the icon-colour bug below, not a win: the toolbar's buttons had stopped
+  changing colour, so their 200 ms tint transitions (36 over the run, each
+  a `ThemeData.lerp` + subtree rebuild a frame) never ran.
 - App `main.dart.js` (release web): 4,478,710 bytes vs 4,507,631 at the
   base (-28.9 KB raw; gzip 1,091,448 vs 1,095,447).

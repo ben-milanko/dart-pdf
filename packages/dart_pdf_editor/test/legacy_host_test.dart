@@ -139,6 +139,35 @@ void main() {
     expectNoHostErrors(tester);
   });
 
+  // The host's default IconTheme colour is the legacy library's
+  // kDefaultIconDarkColor/kDefaultIconLightColor object, and material_ui's
+  // IconButton tests for its own by identity: untranslated, it read as a
+  // custom colour and drew every toolbar button in it, selected or not.
+  for (final brightness in Brightness.values) {
+    testWidgets(
+        'the selected tool keeps its tint under the host default IconTheme '
+        '(${brightness.name})', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await _pump(tester, PdfEditorView(controller: editing),
+          brightness: brightness);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.rectangle);
+
+      Color? iconColor(String key) => IconTheme.of(tester.element(find
+              .descendant(
+                  of: find.byKey(ValueKey(key)), matching: find.byType(Icon))
+              .first))
+          .color;
+      final host = _hostTheme(brightness).colorScheme;
+      expect(iconColor('pdf-tool-rectangle'), host.primary);
+      expect(iconColor('pdf-tool-ellipse'), host.onSurfaceVariant);
+      expectNoHostErrors(tester);
+    });
+  }
+
   testWidgets('PdfEditorThemeData colour tokens win over the legacy host',
       (tester) async {
     const red = Color(0xFFC62828);

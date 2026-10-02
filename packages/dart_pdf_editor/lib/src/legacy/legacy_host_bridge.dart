@@ -70,6 +70,30 @@ ThemeData? _hostTheme(BuildContext context) {
 
 final _bridged = Expando<ThemeData>('pdfLegacyHostTheme');
 
+/// [data] - a legacy host's `IconTheme` - with a legacy default icon colour
+/// swapped for material_ui's own; any other colour is kept.
+///
+/// material_ui's `IconButton` (like its `Tab` and `SearchAnchor`) tells "no
+/// custom icon colour" by *identity*: `identical(IconTheme.of(context).color,
+/// kDefaultIconDarkColor)`. Both libraries declare that colour as a `final`
+/// (not `const`) global, so the legacy host's default is a different object
+/// and reads as a custom colour: every toolbar `IconButton` then draws in
+/// that one colour whatever its state, and the selected tool loses its
+/// primary tint (and the 200 ms tint transition when it changes).
+IconThemeData pdfLegacyHostIconTheme(IconThemeData data) =>
+    kPdfLegacyMaterialBridge ? _materialIconTheme(data) : data;
+
+IconThemeData _materialIconTheme(IconThemeData data) {
+  final color = data.color;
+  if (identical(color, legacy.kDefaultIconDarkColor)) {
+    return data.copyWith(color: kDefaultIconDarkColor);
+  }
+  if (identical(color, legacy.kDefaultIconLightColor)) {
+    return data.copyWith(color: kDefaultIconLightColor);
+  }
+  return data;
+}
+
 ThemeData _bridgeTheme(legacy.ThemeData host) {
   final c = host.colorScheme;
   final t = host.textTheme;
@@ -80,7 +104,7 @@ ThemeData _bridgeTheme(legacy.ThemeData host) {
       horizontal: host.visualDensity.horizontal,
       vertical: host.visualDensity.vertical,
     ),
-    iconTheme: host.iconTheme,
+    iconTheme: _materialIconTheme(host.iconTheme),
     textTheme: TextTheme(
       displayLarge: t.displayLarge,
       displayMedium: t.displayMedium,
