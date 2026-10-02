@@ -6,7 +6,14 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugPrint, defaultTargetPlatform, visibleForTesting;
 import 'package:pdf_cos/pdf_cos.dart'
-    show CosDictionary, CosDocument, CosName, CosStream, cosSparseBufferRanges;
+    show
+        CosArray,
+        CosObject,
+        CosDictionary,
+        CosDocument,
+        CosName,
+        CosStream,
+        cosSparseBufferRanges;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -1344,8 +1351,10 @@ Future<Uint8List?> _recordResumablePage(
     // Stream straight into the wire buffer unless the record is
     // command-limited, or decodes a light page that declares an image (see
     // [pdfWorkerRecordStreams]).
-    final writer = pdfWorkerRecordStreams(page, content.length,
-            decodeImages: decodeImages, commandLimit: commandLimit)
+    final writer = pdfWorkerRecordStreams(page, content,
+            decodeImages: decodeImages,
+            annotations: annotations,
+            commandLimit: commandLimit)
         ? PdfStreamingCommandWriter(cos: document.cos)
         : null;
     final recorder = writer == null ? RecordingPdfDevice() : null;
@@ -1474,33 +1483,145 @@ const int pdfWorkerStreamedImagePageMinContentBytes = 16 << 20;
 /// ([PdfStreamingCommandWriter]) rather than recording a command graph.
 ///
 /// A command-limited record keeps the recorder: its limit counts commands
-/// before scope compaction. A decoding record of a page whose resources
-/// declare an image XObject keeps it too unless its decoded content
-/// ([contentLength]) is at least [minContentBytes]. Everything else streams:
-/// non-decoding records, image-free pages and heavy image pages. Images found
-/// only during the walk (inline, or inside a form) still stream and take the
-/// re-serialize in [_finishStreamedRecord] - correct, just not the cheapest.
+/// before scope compaction. A decoding record of a page that draws an image
+/// keeps it too unless its decoded [content] is at least [minContentBytes].
+/// Everything else streams: non-decoding records, image-free pages and heavy
+/// image pages.
+///
+/// "Draws an image" is read up front from what the page could reach: an image
+/// XObject in its resources, or in a form's or tiling pattern's resources
+/// below them (depth- and count-bounded); an inline image (a `BI` token in
+/// [content], scanned up to 256 KB); and, when the record draws [annotations], an image in any
+/// annotation appearance (the editor's own image stamps and signatures). A
+/// false positive only costs the stream's win on that page; a miss streams and
+/// takes the re-serialize in [_finishStreamedRecord] - correct, just slower.
 @visibleForTesting
-bool pdfWorkerRecordStreams(PdfPage page, int contentLength,
+bool pdfWorkerRecordStreams(PdfPage page, Uint8List content,
     {required bool decodeImages,
+    bool annotations = true,
     int? commandLimit,
     int minContentBytes = pdfWorkerStreamedImagePageMinContentBytes}) {
   if (commandLimit != null) return false;
-  if (!decodeImages || contentLength >= minContentBytes) return true;
-  return !_declaresImageXObject(page);
+  if (!decodeImages || content.length >= minContentBytes) return true;
+  final scan = _ImageReachScan(page.document.cos);
+  if (scan.resources(page.resources, 0)) return false;
+  if (_hasInlineImage(content)) return false;
+  if (annotations && scan.annotations(page.dict['Annots'])) return false;
+  return true;
 }
 
-bool _declaresImageXObject(PdfPage page) {
-  final cos = page.document.cos;
-  final xObjects = cos.resolve(page.resources['XObject']);
-  if (xObjects is! CosDictionary) return false;
-  for (final value in xObjects.entries.values) {
-    final xObject = cos.resolve(value);
-    if (xObject is! CosStream) continue;
-    final subtype = cos.resolve(xObject.dictionary['Subtype']);
-    if (subtype is CosName && subtype.value == 'Image') return true;
+/// Whether [content] holds a `BI` operator token (an inline image). A byte
+/// scan, not a parse: `BI` inside a string or a name reads as a hit, which
+/// only keeps the recorder for that page.
+bool _hasInlineImage(Uint8List content) {
+  if (content.length > _inlineImageScanMaxBytes) return false;
+  bool delimiter(int b) =>
+      b == 0x20 || b == 0x0A || b == 0x0D || b == 0x09 || b == 0x0C || b == 0;
+  final length = content.length;
+  for (var i = 1; i < length; i++) {
+    if (content[i] != 0x49 || content[i - 1] != 0x42) continue; // 'BI'
+    if (i > 1 && !delimiter(content[i - 2])) continue;
+    if (i + 1 < length && !delimiter(content[i + 1])) continue;
+    return true;
   }
   return false;
+}
+
+/// The largest content scanned for an inline image. The scan is linear in the
+/// content, like the walk it decides (~0.8 ms per MB, about 2% of a CAD
+/// page's walk), and the recorder's lead is largest on light pages (1.21x on
+/// a 5 KB letterhead page, 1.06-1.12x past 1 MB), so a heavy page with an
+/// inline image just streams.
+const int _inlineImageScanMaxBytes = 256 << 10;
+
+/// One record's walk over what a page's resources and annotations reach,
+/// looking for an image XObject.
+///
+/// Each resource dictionary and form is visited once (by identity), at most
+/// [_maxDepth] forms deep and [_maxVisits] objects in all: past either bound
+/// it answers "draws an image", the conservative side. Answers are memoised
+/// per dictionary or form ([_drawsImage]), so documents sharing one big
+/// resource dictionary across pages resolve its XObjects once, not on every
+/// decoding record. `CosDocument` memoises loaded objects, so identity is
+/// stable within a revision, and an edited object is a new one.
+class _ImageReachScan {
+  _ImageReachScan(this.cos);
+
+  final CosDocument cos;
+  final _visited = Set<Object>.identity();
+  var _visits = 0;
+
+  static const _maxDepth = 8;
+  static const _maxVisits = 512;
+  static final _drawsImage = Expando<bool>('pdfWorkerDrawsImage');
+
+  bool resources(CosObject? value, int depth) {
+    final dict = cos.resolve(value);
+    if (dict is! CosDictionary) return false;
+    final known = _drawsImage[dict];
+    if (known != null) return known;
+    if (!_visited.add(dict)) return false;
+    if (depth > _maxDepth || ++_visits > _maxVisits) return true;
+    var found = false;
+    final xObjects = cos.resolve(dict['XObject']);
+    if (xObjects is CosDictionary) {
+      for (final entry in xObjects.entries.values) {
+        if (_stream(cos.resolve(entry), depth)) {
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) {
+      final patterns = cos.resolve(dict['Pattern']);
+      if (patterns is CosDictionary) {
+        for (final entry in patterns.entries.values) {
+          final pattern = cos.resolve(entry);
+          if (pattern is CosStream &&
+              resources(pattern.dictionary['Resources'], depth + 1)) {
+            found = true;
+            break;
+          }
+        }
+      }
+    }
+    return _drawsImage[dict] = found;
+  }
+
+  /// An image XObject, or a form (an appearance stream is one) whose
+  /// resources reach one.
+  bool _stream(Object? value, int depth) {
+    if (value is! CosStream) return false;
+    final subtype = cos.resolve(value.dictionary['Subtype']);
+    if (subtype is CosName && subtype.value == 'Image') return true;
+    final known = _drawsImage[value];
+    if (known != null) return known;
+    if (!_visited.add(value)) return false;
+    if (depth > _maxDepth || ++_visits > _maxVisits) return true;
+    return _drawsImage[value] =
+        resources(value.dictionary['Resources'], depth + 1);
+  }
+
+  bool annotations(CosObject? value) {
+    final annots = cos.resolve(value);
+    if (annots is! CosArray) return false;
+    for (final item in annots.items) {
+      final annot = cos.resolve(item);
+      if (annot is! CosDictionary) continue;
+      final ap = cos.resolve(annot['AP']);
+      if (ap is! CosDictionary) continue;
+      // The normal appearance: one stream, or one per appearance state.
+      final normal = cos.resolve(ap['N']);
+      if (normal is CosStream) {
+        if (_stream(normal, 0)) return true;
+      } else if (normal is CosDictionary) {
+        for (final state in normal.entries.values) {
+          if (_stream(cos.resolve(state), 0)) return true;
+        }
+      }
+    }
+    return false;
+  }
 }
 
 /// Completes a streamed [_recordResumablePage]: the same buffers the recorder

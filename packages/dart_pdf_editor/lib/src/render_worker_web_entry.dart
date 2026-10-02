@@ -300,7 +300,8 @@ void runPdfRenderWorker() {
 
   // A host 'trim': let go of what is kept only for reuse, on the same
   // document. The image cache is cleared in place (the timing snapshots hold
-  // it); the flate samples start over with a fresh predecoder, whose
+  // it); the retained command graphs go, the text cache stays (see
+  // PdfWorkerTranscriptCache.trimRetained); the flate samples start over with a fresh predecoder, whose
   // prepared-page set would otherwise skip re-seeding them. It runs only
   // between walks ([trimQueued]): a walk in flight has prepared the decoded
   // stream seeds it is about to read, and trimming under it would send those
@@ -308,6 +309,7 @@ void runPdfRenderWorker() {
   var trimQueued = false;
   void trimDocumentCaches() {
     imageCache.clear();
+    transcriptCache.trimRetained();
     flateSampleCache = _BrowserFlateSampleCache();
     flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
     for (final cached in pageSurfaceBitmaps.values) {
