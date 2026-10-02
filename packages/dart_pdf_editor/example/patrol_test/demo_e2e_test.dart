@@ -225,10 +225,12 @@ void main() {
           Offset(demo.pageRect.width * 0.48, demo.pageRect.height * 0.40);
       await $.tester.tapAt(position);
       await $.pump(const Duration(milliseconds: 400));
-      expect($(AlertDialog), findsOneWidget);
+      // the editor's widgets are material_ui types: find them by key, not
+      // by this file's (legacy) Material types
+      expect(find.byKey(const ValueKey('pdf-text-prompt')), findsOneWidget);
 
       await $.tester.enterText(
-        find.byType(TextField).last,
+        find.byKey(const ValueKey('pdf-text-prompt-field')),
         'First Patrol note',
       );
       await $.tester.tap(find.text('OK'));
@@ -244,10 +246,10 @@ void main() {
 
       await demo.tapToolbarTooltip('Edit annotation text');
       await $.pump();
-      expect(
-          find.widgetWithText(TextField, 'First Patrol note'), findsOneWidget);
+      expect(find.widgetWithText(EditableText, 'First Patrol note'),
+          findsOneWidget);
       await $.tester.enterText(
-        find.byType(TextField).last,
+        find.byType(EditableText).last,
         'Revised Patrol note',
       );
       await $.tester.tap(find.text('OK'));
@@ -548,28 +550,32 @@ class _DemoHarness {
     await $.pump();
     final button = find.byKey(ValueKey(key));
     await tester.ensureVisible(button);
+    // a material_ui IconButton: read its enabled state through semantics
+    final semantics = tester.ensureSemantics();
     expect(
-      tester.widget<IconButton>(button).onPressed,
-      isNotNull,
+      tester.getSemantics(button),
+      isSemantics(isEnabled: true),
       reason: '$key should be enabled before it is tapped',
     );
+    semantics.dispose();
     await $(ValueKey(key)).tap();
     await $.pump(const Duration(milliseconds: 400));
   }
 
+  /// Taps a selection-strip action by its label. The editor's tooltips are
+  /// material_ui widgets, which this file's (legacy) `Tooltip` type does not
+  /// match, so the labels map to the buttons' `pdf-*` keys.
   Future<void> tapToolbarTooltip(String label) async {
-    final button = _tooltipStartingWith(label);
+    final key = switch (label) {
+      'Delete annotation' => 'pdf-delete-selected',
+      'Edit annotation text' => 'pdf-edit-selected-text',
+      _ => throw ArgumentError.value(label, 'label', 'no key mapped'),
+    };
+    final button = find.byKey(ValueKey(key)).first;
     await tester.ensureVisible(button);
-    await tester.tap(button.first);
+    await tester.tap(button);
     await $.pump(const Duration(milliseconds: 400));
   }
-
-  Finder _tooltipStartingWith(String label) => find.byWidgetPredicate(
-        (widget) =>
-            widget is Tooltip &&
-            (widget.message == label ||
-                (widget.message?.startsWith('$label (') ?? false)),
-      );
 }
 
 Future<void> _configurePreferences() async {
