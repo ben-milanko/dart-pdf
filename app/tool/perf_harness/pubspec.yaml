@@ -12,6 +12,6 @@ dependencies:
     sdk: flutter
   dart_pdf_editor: ^5.1.1
   pdf_document: ^5.1.1
-
+  material_ui: ^1.4.0
 flutter:
   uses-material-design: true

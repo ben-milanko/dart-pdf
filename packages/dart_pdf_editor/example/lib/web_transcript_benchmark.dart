@@ -6,7 +6,7 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:web/web.dart' as web;
 
 const _cadUrl = String.fromEnvironment('CAD_PERF_URL');
