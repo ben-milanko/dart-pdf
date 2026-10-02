@@ -2287,4 +2287,51 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'ปิด';
+
+  @override
+  String get tbBarGrip => 'ลากเพื่อเชื่อมต่อ หรือคลิกเพื่อเลือกตำแหน่ง';
+
+  @override
+  String get tbDockTop => 'บน';
+
+  @override
+  String get tbDockBottom => 'ล่าง';
+
+  @override
+  String get tbDockLeft => 'ซ้าย';
+
+  @override
+  String get tbDockRight => 'ขวา';
+
+  @override
+  String get tbDockWithMainToolbar => 'รวมกับแถบเครื่องมือหลัก';
+
+  @override
+  String get tbStyleInToolBars => 'ภายในแถบเครื่องมือ';
+
+  @override
+  String get tbSeparateStyleBar => 'แถบสไตล์แยก';
+
+  @override
+  String get tbToolbarLayout => 'เค้าโครงแถบเครื่องมือ';
+
+  @override
+  String get tbToolbarLayoutMain => 'แถบเครื่องมือหลัก';
+
+  @override
+  String get tbToolbarLayoutStyle => 'ตัวควบคุมสไตล์';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'แถบสไตล์รวมสี เส้น ความทึบ และแบบอักษรไว้ที่เดียวสำหรับทุกเครื่องมือและทุกการเลือก';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'แถบเครื่องมือ';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'แถบเครื่องมือที่เชื่อมไว้ที่ขอบจะเปิดค้างอยู่ตรงนั้น หากรวมกับแถบหลัก จะเปิดเมื่อคุณเลือกกลุ่มของมัน';
+
+  @override
+  String get tbToolbarLayoutReset => 'รีเซ็ตเค้าโครง';
 }

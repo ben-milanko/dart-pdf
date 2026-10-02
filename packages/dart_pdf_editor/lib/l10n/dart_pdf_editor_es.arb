@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Guías del cursor y cuadrícula",
   "commandSaveAs": "Guardar como…",
-  "dialogDismiss": "Cerrar"
+  "dialogDismiss": "Cerrar",
+  "tbBarGrip": "Arrastra para acoplar o haz clic para elegir la posición",
+  "tbDockTop": "Arriba",
+  "tbDockBottom": "Abajo",
+  "tbDockLeft": "Izquierda",
+  "tbDockRight": "Derecha",
+  "tbDockWithMainToolbar": "Con la barra principal",
+  "tbStyleInToolBars": "Dentro de las barras de herramientas",
+  "tbSeparateStyleBar": "Barra de estilo independiente",
+  "tbToolbarLayout": "Diseño de barras de herramientas",
+  "tbToolbarLayoutMain": "Barra principal",
+  "tbToolbarLayoutStyle": "Controles de estilo",
+  "tbToolbarLayoutStyleHint": "Una barra de estilo reúne color, trazo, opacidad y fuente en un solo lugar para cada herramienta y selección.",
+  "tbToolbarLayoutToolBars": "Barras de herramientas",
+  "tbToolbarLayoutToolBarsHint": "Una barra acoplada a un borde permanece abierta allí. Con la barra principal, se abre al elegir su grupo.",
+  "tbToolbarLayoutReset": "Restablecer diseño"
 }

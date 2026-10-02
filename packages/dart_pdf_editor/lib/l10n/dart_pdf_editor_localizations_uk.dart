@@ -2341,4 +2341,52 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Закрити';
+
+  @override
+  String get tbBarGrip =>
+      'Перетягніть, щоб закріпити, або натисніть, щоб вибрати місце';
+
+  @override
+  String get tbDockTop => 'Згори';
+
+  @override
+  String get tbDockBottom => 'Знизу';
+
+  @override
+  String get tbDockLeft => 'Ліворуч';
+
+  @override
+  String get tbDockRight => 'Праворуч';
+
+  @override
+  String get tbDockWithMainToolbar => 'З основною панеллю';
+
+  @override
+  String get tbStyleInToolBars => 'Усередині панелей інструментів';
+
+  @override
+  String get tbSeparateStyleBar => 'Окрема панель стилю';
+
+  @override
+  String get tbToolbarLayout => 'Розташування панелей';
+
+  @override
+  String get tbToolbarLayoutMain => 'Основна панель';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Налаштування стилю';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Панель стилю тримає колір, обведення, прозорість і шрифт в одному місці для кожного інструмента й виділення.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Панелі інструментів';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Панель, закріплена біля краю, лишається там відкритою. З основною панеллю вона відкривається, коли ви вибираєте її групу.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Скинути розташування';
 }

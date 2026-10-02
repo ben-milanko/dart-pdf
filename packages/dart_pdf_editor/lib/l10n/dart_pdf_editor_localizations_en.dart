@@ -2292,6 +2292,53 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Dismiss';
+
+  @override
+  String get tbBarGrip => 'Drag to dock, or click for placement';
+
+  @override
+  String get tbDockTop => 'Top';
+
+  @override
+  String get tbDockBottom => 'Bottom';
+
+  @override
+  String get tbDockLeft => 'Left';
+
+  @override
+  String get tbDockRight => 'Right';
+
+  @override
+  String get tbDockWithMainToolbar => 'With main toolbar';
+
+  @override
+  String get tbStyleInToolBars => 'Inside tool bars';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate style bar';
+
+  @override
+  String get tbToolbarLayout => 'Toolbar layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Main toolbar';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Style controls';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'A style bar keeps color, stroke, opacity and font in one place for every tool and selection.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Tool bars';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Reset layout';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4582,6 +4629,53 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get dialogDismiss => 'Dismiss';
+
+  @override
+  String get tbBarGrip => 'Drag to dock, or click for placement';
+
+  @override
+  String get tbDockTop => 'Top';
+
+  @override
+  String get tbDockBottom => 'Bottom';
+
+  @override
+  String get tbDockLeft => 'Left';
+
+  @override
+  String get tbDockRight => 'Right';
+
+  @override
+  String get tbDockWithMainToolbar => 'With main toolbar';
+
+  @override
+  String get tbStyleInToolBars => 'Inside tool bars';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate style bar';
+
+  @override
+  String get tbToolbarLayout => 'Toolbar layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Main toolbar';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Style controls';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'A style bar keeps colour, stroke, opacity and font in one place for every tool and selection.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Tool bars';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Reset layout';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -6872,4 +6966,51 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get dialogDismiss => 'Dismiss';
+
+  @override
+  String get tbBarGrip => 'Drag to dock, or click for placement';
+
+  @override
+  String get tbDockTop => 'Top';
+
+  @override
+  String get tbDockBottom => 'Bottom';
+
+  @override
+  String get tbDockLeft => 'Left';
+
+  @override
+  String get tbDockRight => 'Right';
+
+  @override
+  String get tbDockWithMainToolbar => 'With main toolbar';
+
+  @override
+  String get tbStyleInToolBars => 'Inside tool bars';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate style bar';
+
+  @override
+  String get tbToolbarLayout => 'Toolbar layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Main toolbar';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Style controls';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'A style bar keeps colour, stroke, opacity and font in one place for every tool and selection.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Tool bars';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Reset layout';
 }

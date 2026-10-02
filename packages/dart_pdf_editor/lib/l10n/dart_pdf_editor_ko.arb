@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value}pt",
   "shellCursorGuidesAndGrid": "커서 안내선 및 격자",
   "commandSaveAs": "다른 이름으로 저장…",
-  "dialogDismiss": "닫기"
+  "dialogDismiss": "닫기",
+  "tbBarGrip": "드래그하여 도킹하거나 클릭하여 위치 선택",
+  "tbDockTop": "위",
+  "tbDockBottom": "아래",
+  "tbDockLeft": "왼쪽",
+  "tbDockRight": "오른쪽",
+  "tbDockWithMainToolbar": "기본 도구 모음과 함께",
+  "tbStyleInToolBars": "도구 막대 안에",
+  "tbSeparateStyleBar": "별도 스타일 막대",
+  "tbToolbarLayout": "도구 모음 레이아웃",
+  "tbToolbarLayoutMain": "기본 도구 모음",
+  "tbToolbarLayoutStyle": "스타일 컨트롤",
+  "tbToolbarLayoutStyleHint": "스타일 막대는 모든 도구와 선택에 대해 색상, 선, 불투명도, 글꼴을 한곳에 모아 둡니다.",
+  "tbToolbarLayoutToolBars": "도구 막대",
+  "tbToolbarLayoutToolBarsHint": "가장자리에 도킹한 도구 막대는 그곳에 열린 채로 있습니다. 기본 도구 모음과 함께이면 그룹을 선택할 때 열립니다.",
+  "tbToolbarLayoutReset": "레이아웃 재설정"
 }

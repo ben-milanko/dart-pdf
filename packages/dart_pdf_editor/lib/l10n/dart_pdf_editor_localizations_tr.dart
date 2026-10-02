@@ -2299,4 +2299,52 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Kapat';
+
+  @override
+  String get tbBarGrip =>
+      'Yerleştirmek için sürükleyin veya konum için tıklayın';
+
+  @override
+  String get tbDockTop => 'Üst';
+
+  @override
+  String get tbDockBottom => 'Alt';
+
+  @override
+  String get tbDockLeft => 'Sol';
+
+  @override
+  String get tbDockRight => 'Sağ';
+
+  @override
+  String get tbDockWithMainToolbar => 'Ana araç çubuğuyla';
+
+  @override
+  String get tbStyleInToolBars => 'Araç çubuklarının içinde';
+
+  @override
+  String get tbSeparateStyleBar => 'Ayrı stil çubuğu';
+
+  @override
+  String get tbToolbarLayout => 'Araç çubuğu düzeni';
+
+  @override
+  String get tbToolbarLayoutMain => 'Ana araç çubuğu';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Stil denetimleri';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Stil çubuğu renk, çizgi, opaklık ve yazı tipini her araç ve seçim için tek bir yerde tutar.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Araç çubukları';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Bir kenara yerleştirilen araç çubuğu orada açık kalır. Ana araç çubuğuyla birlikteyse grubunu seçtiğinizde açılır.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Düzeni sıfırla';
 }

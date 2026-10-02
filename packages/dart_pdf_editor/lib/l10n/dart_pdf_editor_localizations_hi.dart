@@ -2297,4 +2297,52 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'खारिज करें';
+
+  @override
+  String get tbBarGrip =>
+      'डॉक करने के लिए खींचें, या स्थान चुनने के लिए क्लिक करें';
+
+  @override
+  String get tbDockTop => 'ऊपर';
+
+  @override
+  String get tbDockBottom => 'नीचे';
+
+  @override
+  String get tbDockLeft => 'बाएँ';
+
+  @override
+  String get tbDockRight => 'दाएँ';
+
+  @override
+  String get tbDockWithMainToolbar => 'मुख्य टूलबार के साथ';
+
+  @override
+  String get tbStyleInToolBars => 'टूल बार के अंदर';
+
+  @override
+  String get tbSeparateStyleBar => 'अलग स्टाइल बार';
+
+  @override
+  String get tbToolbarLayout => 'टूलबार लेआउट';
+
+  @override
+  String get tbToolbarLayoutMain => 'मुख्य टूलबार';
+
+  @override
+  String get tbToolbarLayoutStyle => 'स्टाइल नियंत्रण';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'स्टाइल बार हर टूल और चयन के लिए रंग, स्ट्रोक, अपारदर्शिता और फ़ॉन्ट को एक ही जगह रखता है।';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'टूल बार';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'किनारे पर डॉक किया गया टूल बार वहीं खुला रहता है। मुख्य टूलबार के साथ होने पर, समूह चुनने पर खुलता है।';
+
+  @override
+  String get tbToolbarLayoutReset => 'लेआउट रीसेट करें';
 }

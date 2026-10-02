@@ -2340,4 +2340,51 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'رفض';
+
+  @override
+  String get tbBarGrip => 'اسحب للإرساء أو انقر لاختيار الموضع';
+
+  @override
+  String get tbDockTop => 'أعلى';
+
+  @override
+  String get tbDockBottom => 'أسفل';
+
+  @override
+  String get tbDockLeft => 'يسار';
+
+  @override
+  String get tbDockRight => 'يمين';
+
+  @override
+  String get tbDockWithMainToolbar => 'مع شريط الأدوات الرئيسي';
+
+  @override
+  String get tbStyleInToolBars => 'داخل أشرطة الأدوات';
+
+  @override
+  String get tbSeparateStyleBar => 'شريط نمط منفصل';
+
+  @override
+  String get tbToolbarLayout => 'تخطيط أشرطة الأدوات';
+
+  @override
+  String get tbToolbarLayoutMain => 'شريط الأدوات الرئيسي';
+
+  @override
+  String get tbToolbarLayoutStyle => 'عناصر التحكم في النمط';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'يجمع شريط النمط اللون والحد والشفافية والخط في مكان واحد لكل أداة وتحديد.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'أشرطة الأدوات';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'يبقى شريط الأدوات المرسى على حافة مفتوحًا هناك. ومع الشريط الرئيسي يُفتح عند اختيار مجموعته.';
+
+  @override
+  String get tbToolbarLayoutReset => 'إعادة تعيين التخطيط';
 }

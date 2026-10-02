@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} пт",
   "shellCursorGuidesAndGrid": "Направляющие курсора и сетка",
   "commandSaveAs": "Сохранить как…",
-  "dialogDismiss": "Закрыть"
+  "dialogDismiss": "Закрыть",
+  "tbBarGrip": "Перетащите, чтобы закрепить, или нажмите, чтобы выбрать место",
+  "tbDockTop": "Сверху",
+  "tbDockBottom": "Снизу",
+  "tbDockLeft": "Слева",
+  "tbDockRight": "Справа",
+  "tbDockWithMainToolbar": "С основной панелью",
+  "tbStyleInToolBars": "Внутри панелей инструментов",
+  "tbSeparateStyleBar": "Отдельная панель стиля",
+  "tbToolbarLayout": "Расположение панелей",
+  "tbToolbarLayoutMain": "Основная панель",
+  "tbToolbarLayoutStyle": "Настройки стиля",
+  "tbToolbarLayoutStyleHint": "Панель стиля собирает цвет, обводку, прозрачность и шрифт в одном месте для любого инструмента и выделения.",
+  "tbToolbarLayoutToolBars": "Панели инструментов",
+  "tbToolbarLayoutToolBarsHint": "Панель, закреплённая у края, остаётся там открытой. С основной панелью она открывается при выборе её группы.",
+  "tbToolbarLayoutReset": "Сбросить расположение"
 }

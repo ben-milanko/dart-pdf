@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Cursor guides and grid",
   "commandSaveAs": "Save as…",
-  "dialogDismiss": "Dismiss"
+  "dialogDismiss": "Dismiss",
+  "tbBarGrip": "Drag to dock, or click for placement",
+  "tbDockTop": "Top",
+  "tbDockBottom": "Bottom",
+  "tbDockLeft": "Left",
+  "tbDockRight": "Right",
+  "tbDockWithMainToolbar": "With main toolbar",
+  "tbStyleInToolBars": "Inside tool bars",
+  "tbSeparateStyleBar": "Separate style bar",
+  "tbToolbarLayout": "Toolbar layout",
+  "tbToolbarLayoutMain": "Main toolbar",
+  "tbToolbarLayoutStyle": "Style controls",
+  "tbToolbarLayoutStyleHint": "A style bar keeps colour, stroke, opacity and font in one place for every tool and selection.",
+  "tbToolbarLayoutToolBars": "Tool bars",
+  "tbToolbarLayoutToolBarsHint": "A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.",
+  "tbToolbarLayoutReset": "Reset layout"
 }

@@ -2272,4 +2272,51 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => '閉じる';
+
+  @override
+  String get tbBarGrip => 'ドラッグしてドッキング、またはクリックして配置を選択';
+
+  @override
+  String get tbDockTop => '上';
+
+  @override
+  String get tbDockBottom => '下';
+
+  @override
+  String get tbDockLeft => '左';
+
+  @override
+  String get tbDockRight => '右';
+
+  @override
+  String get tbDockWithMainToolbar => 'メインツールバーと一緒';
+
+  @override
+  String get tbStyleInToolBars => 'ツールバー内';
+
+  @override
+  String get tbSeparateStyleBar => '独立したスタイルバー';
+
+  @override
+  String get tbToolbarLayout => 'ツールバーのレイアウト';
+
+  @override
+  String get tbToolbarLayoutMain => 'メインツールバー';
+
+  @override
+  String get tbToolbarLayoutStyle => 'スタイルの設定';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'スタイルバーは、どのツールや選択でも色・線・不透明度・フォントを同じ場所にまとめます。';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'ツールバー';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '端にドッキングしたツールバーはそこに開いたままになります。メインツールバーと一緒の場合は、グループを選ぶと開きます。';
+
+  @override
+  String get tbToolbarLayoutReset => 'レイアウトをリセット';
 }

@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "カーソルガイドとグリッド",
   "commandSaveAs": "名前を付けて保存…",
-  "dialogDismiss": "閉じる"
+  "dialogDismiss": "閉じる",
+  "tbBarGrip": "ドラッグしてドッキング、またはクリックして配置を選択",
+  "tbDockTop": "上",
+  "tbDockBottom": "下",
+  "tbDockLeft": "左",
+  "tbDockRight": "右",
+  "tbDockWithMainToolbar": "メインツールバーと一緒",
+  "tbStyleInToolBars": "ツールバー内",
+  "tbSeparateStyleBar": "独立したスタイルバー",
+  "tbToolbarLayout": "ツールバーのレイアウト",
+  "tbToolbarLayoutMain": "メインツールバー",
+  "tbToolbarLayoutStyle": "スタイルの設定",
+  "tbToolbarLayoutStyleHint": "スタイルバーは、どのツールや選択でも色・線・不透明度・フォントを同じ場所にまとめます。",
+  "tbToolbarLayoutToolBars": "ツールバー",
+  "tbToolbarLayoutToolBarsHint": "端にドッキングしたツールバーはそこに開いたままになります。メインツールバーと一緒の場合は、グループを選ぶと開きます。",
+  "tbToolbarLayoutReset": "レイアウトをリセット"
 }

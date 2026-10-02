@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Cursorhulplijnen en raster",
   "commandSaveAs": "Opslaan als…",
-  "dialogDismiss": "Sluiten"
+  "dialogDismiss": "Sluiten",
+  "tbBarGrip": "Sleep om te koppelen of klik voor plaatsing",
+  "tbDockTop": "Boven",
+  "tbDockBottom": "Onder",
+  "tbDockLeft": "Links",
+  "tbDockRight": "Rechts",
+  "tbDockWithMainToolbar": "Bij de hoofdwerkbalk",
+  "tbStyleInToolBars": "In de werkbalken",
+  "tbSeparateStyleBar": "Aparte stijlbalk",
+  "tbToolbarLayout": "Werkbalkindeling",
+  "tbToolbarLayoutMain": "Hoofdwerkbalk",
+  "tbToolbarLayoutStyle": "Stijlbediening",
+  "tbToolbarLayoutStyleHint": "Een stijlbalk houdt kleur, lijn, dekking en lettertype op één plek voor elk gereedschap en elke selectie.",
+  "tbToolbarLayoutToolBars": "Werkbalken",
+  "tbToolbarLayoutToolBarsHint": "Een aan een rand gekoppelde werkbalk blijft daar open. Bij de hoofdwerkbalk opent hij wanneer je zijn groep kiest.",
+  "tbToolbarLayoutReset": "Indeling herstellen"
 }

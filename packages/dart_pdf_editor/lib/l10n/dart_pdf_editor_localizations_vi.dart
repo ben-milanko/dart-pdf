@@ -2293,4 +2293,51 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Bỏ qua';
+
+  @override
+  String get tbBarGrip => 'Kéo để neo, hoặc nhấp để chọn vị trí';
+
+  @override
+  String get tbDockTop => 'Trên';
+
+  @override
+  String get tbDockBottom => 'Dưới';
+
+  @override
+  String get tbDockLeft => 'Trái';
+
+  @override
+  String get tbDockRight => 'Phải';
+
+  @override
+  String get tbDockWithMainToolbar => 'Cùng thanh công cụ chính';
+
+  @override
+  String get tbStyleInToolBars => 'Trong các thanh công cụ';
+
+  @override
+  String get tbSeparateStyleBar => 'Thanh kiểu riêng';
+
+  @override
+  String get tbToolbarLayout => 'Bố cục thanh công cụ';
+
+  @override
+  String get tbToolbarLayoutMain => 'Thanh công cụ chính';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Điều khiển kiểu';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Thanh kiểu giữ màu, nét, độ mờ và phông chữ ở một chỗ cho mọi công cụ và vùng chọn.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Thanh công cụ';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Thanh công cụ neo vào một cạnh sẽ luôn mở ở đó. Khi đi cùng thanh chính, nó mở khi bạn chọn nhóm của nó.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Đặt lại bố cục';
 }

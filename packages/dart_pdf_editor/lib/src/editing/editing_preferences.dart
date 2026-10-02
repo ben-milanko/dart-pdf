@@ -17,6 +17,7 @@ import 'models/custom_stamp.dart';
 import 'models/ink_signature.dart';
 import 'models/measurement_scale.dart';
 import 'models/panel_dock.dart';
+import 'tool_shortcuts.dart' show PdfEditToolGroup;
 import 'saved_annotation.dart';
 
 /// The app theme a host runs the editor UI in, as the user chose it:
@@ -221,6 +222,12 @@ class PdfEditingPreferences extends ChangeNotifier
   PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
   PdfPanelDock _annotationLibraryPanelDock = PdfPanelDock.right;
   PdfPanelDock _toolbarDock = PdfPanelDock.bottom;
+  // Tool bars pinned to an edge of their own, by group. A group absent here
+  // rides with the main toolbar and shows only while its group is open.
+  final Map<PdfEditToolGroup, PdfPanelDock> _toolStripDocks = {};
+  // The separate style bar's edge; null keeps the style controls inside the
+  // tool bars.
+  PdfPanelDock? _styleBarDock;
   // Tab-group membership: panels sharing the same dock AND the same group id
   // render as one tabbed panel; a panel alone in its group is a standalone
   // side-by-side panel. The default id is each panel's own enum index, so
@@ -473,6 +480,14 @@ class PdfEditingPreferences extends ChangeNotifier
       _propertiesPanelDock =
           _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
       _toolbarDock = _readDock(store, 'toolbarDock', _toolbarDock);
+      for (final group in PdfEditToolGroup.values) {
+        final dock = PdfPanelDock.values.asNameMap()[
+            store.getString('${_prefix}toolStripDock.${group.name}')];
+        if (dock != null) _toolStripDocks[group] = dock;
+      }
+      _styleBarDock = PdfPanelDock.values
+              .asNameMap()[store.getString('${_prefix}styleBarDock')] ??
+          _styleBarDock;
       for (final p in PdfDockablePanel.values) {
         _panelGroups[p] =
             store.getInt('${_prefix}panelGroup.${p.name}') ?? _panelGroups[p]!;
@@ -1723,6 +1738,57 @@ class PdfEditingPreferences extends ChangeNotifier
     if (value == _toolbarDock) return;
     _toolbarDock = value;
     _setDock('toolbarDock', value);
+  }
+
+  /// Tool bars docked to an edge of their own, by group. A group absent from
+  /// the map rides with the main toolbar: its bar shows next to it while the
+  /// group is open. A docked bar stays on its edge whether or not its group is
+  /// open, like a docked palette in a desktop editor. Persisted.
+  Map<PdfEditToolGroup, PdfPanelDock> get toolStripDocks =>
+      Map.unmodifiable(_toolStripDocks);
+
+  /// The edge [group]'s tool bar is docked to, or null when it rides with the
+  /// main toolbar.
+  PdfPanelDock? toolStripDock(PdfEditToolGroup group) => _toolStripDocks[group];
+
+  /// Docks [group]'s tool bar to [dock], or returns it to the main toolbar
+  /// when [dock] is null.
+  void setToolStripDock(PdfEditToolGroup group, PdfPanelDock? dock) {
+    if (_toolStripDocks[group] == dock) return;
+    final key = '${_prefix}toolStripDock.${group.name}';
+    if (dock == null) {
+      _toolStripDocks.remove(group);
+      _write((s) => s.remove(key));
+    } else {
+      _toolStripDocks[group] = dock;
+      _write((s) => s.setString(key, dock.name));
+    }
+    notifyListeners();
+  }
+
+  /// The edge of the separate style bar - one bar holding the colour, stroke,
+  /// opacity and font controls for the selection or the armed tool, always in
+  /// the same place. Null (the default) keeps those controls inside each tool
+  /// bar instead. Persisted.
+  PdfPanelDock? get styleBarDock => _styleBarDock;
+
+  set styleBarDock(PdfPanelDock? value) {
+    if (value == _styleBarDock) return;
+    _styleBarDock = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}styleBarDock')
+        : s.setString('${_prefix}styleBarDock', value.name));
+    notifyListeners();
+  }
+
+  /// Puts the main toolbar back on the bottom edge, returns every tool bar to
+  /// it, and moves the style controls back inside the tool bars.
+  void resetToolbarLayout() {
+    toolbarDock = PdfPanelDock.bottom;
+    styleBarDock = null;
+    for (final group in _toolStripDocks.keys.toList()) {
+      setToolStripDock(group, null);
+    }
   }
 
   /// The dock a specific [panel] is attached to, keyed by identity - the

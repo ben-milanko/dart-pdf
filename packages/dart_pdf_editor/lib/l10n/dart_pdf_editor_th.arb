@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "เส้นนำเคอร์เซอร์และเส้นตาราง",
   "commandSaveAs": "บันทึกเป็น…",
-  "dialogDismiss": "ปิด"
+  "dialogDismiss": "ปิด",
+  "tbBarGrip": "ลากเพื่อเชื่อมต่อ หรือคลิกเพื่อเลือกตำแหน่ง",
+  "tbDockTop": "บน",
+  "tbDockBottom": "ล่าง",
+  "tbDockLeft": "ซ้าย",
+  "tbDockRight": "ขวา",
+  "tbDockWithMainToolbar": "รวมกับแถบเครื่องมือหลัก",
+  "tbStyleInToolBars": "ภายในแถบเครื่องมือ",
+  "tbSeparateStyleBar": "แถบสไตล์แยก",
+  "tbToolbarLayout": "เค้าโครงแถบเครื่องมือ",
+  "tbToolbarLayoutMain": "แถบเครื่องมือหลัก",
+  "tbToolbarLayoutStyle": "ตัวควบคุมสไตล์",
+  "tbToolbarLayoutStyleHint": "แถบสไตล์รวมสี เส้น ความทึบ และแบบอักษรไว้ที่เดียวสำหรับทุกเครื่องมือและทุกการเลือก",
+  "tbToolbarLayoutToolBars": "แถบเครื่องมือ",
+  "tbToolbarLayoutToolBarsHint": "แถบเครื่องมือที่เชื่อมไว้ที่ขอบจะเปิดค้างอยู่ตรงนั้น หากรวมกับแถบหลัก จะเปิดเมื่อคุณเลือกกลุ่มของมัน",
+  "tbToolbarLayoutReset": "รีเซ็ตเค้าโครง"
 }

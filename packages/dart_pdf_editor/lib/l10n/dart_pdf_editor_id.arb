@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Panduan kursor dan kisi",
   "commandSaveAs": "Simpan sebagai…",
-  "dialogDismiss": "Tutup"
+  "dialogDismiss": "Tutup",
+  "tbBarGrip": "Seret untuk menambatkan, atau klik untuk memilih posisi",
+  "tbDockTop": "Atas",
+  "tbDockBottom": "Bawah",
+  "tbDockLeft": "Kiri",
+  "tbDockRight": "Kanan",
+  "tbDockWithMainToolbar": "Bersama toolbar utama",
+  "tbStyleInToolBars": "Di dalam bilah alat",
+  "tbSeparateStyleBar": "Bilah gaya terpisah",
+  "tbToolbarLayout": "Tata letak toolbar",
+  "tbToolbarLayoutMain": "Toolbar utama",
+  "tbToolbarLayoutStyle": "Kontrol gaya",
+  "tbToolbarLayoutStyleHint": "Bilah gaya menyatukan warna, goresan, opasitas, dan font di satu tempat untuk setiap alat dan pilihan.",
+  "tbToolbarLayoutToolBars": "Bilah alat",
+  "tbToolbarLayoutToolBarsHint": "Bilah alat yang ditambatkan ke tepi tetap terbuka di sana. Bersama toolbar utama, bilah terbuka saat Anda memilih grupnya.",
+  "tbToolbarLayoutReset": "Atur ulang tata letak"
 }

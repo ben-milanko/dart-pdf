@@ -2263,6 +2263,52 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => '关闭';
+
+  @override
+  String get tbBarGrip => '拖动以停靠，或点击选择位置';
+
+  @override
+  String get tbDockTop => '顶部';
+
+  @override
+  String get tbDockBottom => '底部';
+
+  @override
+  String get tbDockLeft => '左侧';
+
+  @override
+  String get tbDockRight => '右侧';
+
+  @override
+  String get tbDockWithMainToolbar => '随主工具栏';
+
+  @override
+  String get tbStyleInToolBars => '在工具栏内';
+
+  @override
+  String get tbSeparateStyleBar => '独立样式栏';
+
+  @override
+  String get tbToolbarLayout => '工具栏布局';
+
+  @override
+  String get tbToolbarLayoutMain => '主工具栏';
+
+  @override
+  String get tbToolbarLayoutStyle => '样式控件';
+
+  @override
+  String get tbToolbarLayoutStyleHint => '样式栏将颜色、描边、不透明度和字体集中在同一位置，适用于每个工具和选区。';
+
+  @override
+  String get tbToolbarLayoutToolBars => '工具栏';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '停靠到边缘的工具栏会一直在那里打开。随主工具栏时，选择其分组才会打开。';
+
+  @override
+  String get tbToolbarLayoutReset => '重置布局';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4524,4 +4570,51 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get dialogDismiss => '關閉';
+
+  @override
+  String get tbBarGrip => '拖曳以停駐，或點按以選擇位置';
+
+  @override
+  String get tbDockTop => '頂端';
+
+  @override
+  String get tbDockBottom => '底端';
+
+  @override
+  String get tbDockLeft => '左側';
+
+  @override
+  String get tbDockRight => '右側';
+
+  @override
+  String get tbDockWithMainToolbar => '隨主工具列';
+
+  @override
+  String get tbStyleInToolBars => '在工具列內';
+
+  @override
+  String get tbSeparateStyleBar => '獨立樣式列';
+
+  @override
+  String get tbToolbarLayout => '工具列配置';
+
+  @override
+  String get tbToolbarLayoutMain => '主工具列';
+
+  @override
+  String get tbToolbarLayoutStyle => '樣式控制項';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      '樣式列將顏色、筆畫、不透明度和字型集中在同一處，適用於每個工具和選取範圍。';
+
+  @override
+  String get tbToolbarLayoutToolBars => '工具列';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '停駐在邊緣的工具列會一直在那裡開啟。隨主工具列時，選擇其群組才會開啟。';
+
+  @override
+  String get tbToolbarLayoutReset => '重設配置';
 }

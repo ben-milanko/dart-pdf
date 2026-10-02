@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "游標參考線和格線",
   "commandSaveAs": "另存新檔…",
-  "dialogDismiss": "關閉"
+  "dialogDismiss": "關閉",
+  "tbBarGrip": "拖曳以停駐，或點按以選擇位置",
+  "tbDockTop": "頂端",
+  "tbDockBottom": "底端",
+  "tbDockLeft": "左側",
+  "tbDockRight": "右側",
+  "tbDockWithMainToolbar": "隨主工具列",
+  "tbStyleInToolBars": "在工具列內",
+  "tbSeparateStyleBar": "獨立樣式列",
+  "tbToolbarLayout": "工具列配置",
+  "tbToolbarLayoutMain": "主工具列",
+  "tbToolbarLayoutStyle": "樣式控制項",
+  "tbToolbarLayoutStyleHint": "樣式列將顏色、筆畫、不透明度和字型集中在同一處，適用於每個工具和選取範圍。",
+  "tbToolbarLayoutToolBars": "工具列",
+  "tbToolbarLayoutToolBarsHint": "停駐在邊緣的工具列會一直在那裡開啟。隨主工具列時，選擇其群組才會開啟。",
+  "tbToolbarLayoutReset": "重設配置"
 }

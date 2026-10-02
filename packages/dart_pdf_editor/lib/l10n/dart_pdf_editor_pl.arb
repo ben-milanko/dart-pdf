@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} pkt",
   "shellCursorGuidesAndGrid": "Prowadnice kursora i siatka",
   "commandSaveAs": "Zapisz jako…",
-  "dialogDismiss": "Zamknij"
+  "dialogDismiss": "Zamknij",
+  "tbBarGrip": "Przeciągnij, aby zadokować, lub kliknij, aby wybrać położenie",
+  "tbDockTop": "Góra",
+  "tbDockBottom": "Dół",
+  "tbDockLeft": "Lewo",
+  "tbDockRight": "Prawo",
+  "tbDockWithMainToolbar": "Z głównym paskiem",
+  "tbStyleInToolBars": "Wewnątrz pasków narzędzi",
+  "tbSeparateStyleBar": "Osobny pasek stylu",
+  "tbToolbarLayout": "Układ pasków narzędzi",
+  "tbToolbarLayoutMain": "Główny pasek narzędzi",
+  "tbToolbarLayoutStyle": "Ustawienia stylu",
+  "tbToolbarLayoutStyleHint": "Pasek stylu trzyma kolor, obrys, krycie i czcionkę w jednym miejscu dla każdego narzędzia i zaznaczenia.",
+  "tbToolbarLayoutToolBars": "Paski narzędzi",
+  "tbToolbarLayoutToolBarsHint": "Pasek zadokowany przy krawędzi pozostaje tam otwarty. Z głównym paskiem otwiera się po wybraniu jego grupy.",
+  "tbToolbarLayoutReset": "Resetuj układ"
 }

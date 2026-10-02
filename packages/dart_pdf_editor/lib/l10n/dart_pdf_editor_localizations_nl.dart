@@ -2304,4 +2304,51 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Sluiten';
+
+  @override
+  String get tbBarGrip => 'Sleep om te koppelen of klik voor plaatsing';
+
+  @override
+  String get tbDockTop => 'Boven';
+
+  @override
+  String get tbDockBottom => 'Onder';
+
+  @override
+  String get tbDockLeft => 'Links';
+
+  @override
+  String get tbDockRight => 'Rechts';
+
+  @override
+  String get tbDockWithMainToolbar => 'Bij de hoofdwerkbalk';
+
+  @override
+  String get tbStyleInToolBars => 'In de werkbalken';
+
+  @override
+  String get tbSeparateStyleBar => 'Aparte stijlbalk';
+
+  @override
+  String get tbToolbarLayout => 'Werkbalkindeling';
+
+  @override
+  String get tbToolbarLayoutMain => 'Hoofdwerkbalk';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Stijlbediening';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Een stijlbalk houdt kleur, lijn, dekking en lettertype op één plek voor elk gereedschap en elke selectie.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Werkbalken';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Een aan een rand gekoppelde werkbalk blijft daar open. Bij de hoofdwerkbalk opent hij wanneer je zijn groep kiest.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Indeling herstellen';
 }

@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} пт",
   "shellCursorGuidesAndGrid": "Напрямні курсора та сітка",
   "commandSaveAs": "Зберегти як…",
-  "dialogDismiss": "Закрити"
+  "dialogDismiss": "Закрити",
+  "tbBarGrip": "Перетягніть, щоб закріпити, або натисніть, щоб вибрати місце",
+  "tbDockTop": "Згори",
+  "tbDockBottom": "Знизу",
+  "tbDockLeft": "Ліворуч",
+  "tbDockRight": "Праворуч",
+  "tbDockWithMainToolbar": "З основною панеллю",
+  "tbStyleInToolBars": "Усередині панелей інструментів",
+  "tbSeparateStyleBar": "Окрема панель стилю",
+  "tbToolbarLayout": "Розташування панелей",
+  "tbToolbarLayoutMain": "Основна панель",
+  "tbToolbarLayoutStyle": "Налаштування стилю",
+  "tbToolbarLayoutStyleHint": "Панель стилю тримає колір, обведення, прозорість і шрифт в одному місці для кожного інструмента й виділення.",
+  "tbToolbarLayoutToolBars": "Панелі інструментів",
+  "tbToolbarLayoutToolBarsHint": "Панель, закріплена біля краю, лишається там відкритою. З основною панеллю вона відкривається, коли ви вибираєте її групу.",
+  "tbToolbarLayoutReset": "Скинути розташування"
 }

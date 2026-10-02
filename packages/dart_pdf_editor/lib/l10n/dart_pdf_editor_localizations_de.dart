@@ -2308,4 +2308,52 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Schließen';
+
+  @override
+  String get tbBarGrip =>
+      'Ziehen zum Andocken oder klicken für die Platzierung';
+
+  @override
+  String get tbDockTop => 'Oben';
+
+  @override
+  String get tbDockBottom => 'Unten';
+
+  @override
+  String get tbDockLeft => 'Links';
+
+  @override
+  String get tbDockRight => 'Rechts';
+
+  @override
+  String get tbDockWithMainToolbar => 'Mit Hauptsymbolleiste';
+
+  @override
+  String get tbStyleInToolBars => 'In den Werkzeugleisten';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate Stilleiste';
+
+  @override
+  String get tbToolbarLayout => 'Symbolleisten-Layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Hauptsymbolleiste';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Stil-Steuerelemente';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Eine Stilleiste hält Farbe, Strich, Deckkraft und Schrift für jedes Werkzeug und jede Auswahl an einem Ort.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Werkzeugleisten';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Eine an einen Rand angedockte Werkzeugleiste bleibt dort geöffnet. Mit der Hauptsymbolleiste öffnet sie sich, wenn Sie ihre Gruppe wählen.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Layout zurücksetzen';
 }

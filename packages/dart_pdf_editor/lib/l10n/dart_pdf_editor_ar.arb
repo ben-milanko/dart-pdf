@@ -671,5 +671,20 @@
   "guidesGridSpacingValue": "{value} نقطة",
   "shellCursorGuidesAndGrid": "أدلة المؤشر والشبكة",
   "commandSaveAs": "حفظ باسم…",
-  "dialogDismiss": "رفض"
+  "dialogDismiss": "رفض",
+  "tbBarGrip": "اسحب للإرساء أو انقر لاختيار الموضع",
+  "tbDockTop": "أعلى",
+  "tbDockBottom": "أسفل",
+  "tbDockLeft": "يسار",
+  "tbDockRight": "يمين",
+  "tbDockWithMainToolbar": "مع شريط الأدوات الرئيسي",
+  "tbStyleInToolBars": "داخل أشرطة الأدوات",
+  "tbSeparateStyleBar": "شريط نمط منفصل",
+  "tbToolbarLayout": "تخطيط أشرطة الأدوات",
+  "tbToolbarLayoutMain": "شريط الأدوات الرئيسي",
+  "tbToolbarLayoutStyle": "عناصر التحكم في النمط",
+  "tbToolbarLayoutStyleHint": "يجمع شريط النمط اللون والحد والشفافية والخط في مكان واحد لكل أداة وتحديد.",
+  "tbToolbarLayoutToolBars": "أشرطة الأدوات",
+  "tbToolbarLayoutToolBarsHint": "يبقى شريط الأدوات المرسى على حافة مفتوحًا هناك. ومع الشريط الرئيسي يُفتح عند اختيار مجموعته.",
+  "tbToolbarLayoutReset": "إعادة تعيين التخطيط"
 }

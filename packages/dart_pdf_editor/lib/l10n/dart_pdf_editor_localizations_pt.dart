@@ -2304,4 +2304,52 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Dispensar';
+
+  @override
+  String get tbBarGrip =>
+      'Arraste para encaixar ou clique para escolher a posição';
+
+  @override
+  String get tbDockTop => 'Topo';
+
+  @override
+  String get tbDockBottom => 'Base';
+
+  @override
+  String get tbDockLeft => 'Esquerda';
+
+  @override
+  String get tbDockRight => 'Direita';
+
+  @override
+  String get tbDockWithMainToolbar => 'Com a barra principal';
+
+  @override
+  String get tbStyleInToolBars => 'Dentro das barras de ferramentas';
+
+  @override
+  String get tbSeparateStyleBar => 'Barra de estilo separada';
+
+  @override
+  String get tbToolbarLayout => 'Layout das barras de ferramentas';
+
+  @override
+  String get tbToolbarLayoutMain => 'Barra principal';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Controles de estilo';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Uma barra de estilo reúne cor, traço, opacidade e fonte num só lugar para cada ferramenta e seleção.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Barras de ferramentas';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Uma barra encaixada numa borda fica aberta ali. Com a barra principal, ela abre quando você escolhe o grupo.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Redefinir layout';
 }

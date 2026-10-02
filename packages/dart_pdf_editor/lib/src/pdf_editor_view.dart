@@ -770,6 +770,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfEditingController get _session => _shell.session;
   PdfViewerController get _viewer => _shell.viewer;
   PdfEditingPreferences get _prefs => _shell.preferences;
+
+  /// Whether any floating toolbar bar sits on the bottom edge, where the
+  /// viewer needs a scrollable tail so the last page can clear it.
+  static bool _toolbarUsesBottom(PdfEditingPreferences prefs) =>
+      prefs.toolbarDock == PdfPanelDock.bottom ||
+      prefs.styleBarDock == PdfPanelDock.bottom ||
+      prefs.toolStripDocks.containsValue(PdfPanelDock.bottom);
   PdfPerformanceController get _performance => _shell.performance;
   TextEditingController get _searchField => _shell.searchController;
   FocusNode get _searchFocus => _shell.searchFocus;
@@ -1180,6 +1187,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             pageGrid: features.thumbnails,
             pageColor: features.pageColorEditable,
             editingGuides: true,
+            // the stock toolbar's bars can be rearranged; a host's own
+            // toolbar ([toolbarBuilder]) arranges itself
+            toolbarLayout: features.toolbar && widget.toolbarBuilder == null,
+            toolbarGroups: features.toolGroups,
+            toolGroups: widget.toolGroups,
             author: features.author,
             authorName: session.preferences.author,
             onAuthorPressed: _promptAuthor,
@@ -1692,6 +1704,19 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     showColorProcessing: features.colorProcessing,
                     showAnnotationLibrary: features.annotationLibrary,
                     dock: prefs.toolbarDock,
+                    // floating, the bars spread over the viewer's edges and
+                    // each one can be dragged (or menu-placed) to another;
+                    // the phone bar stays one fixed bar
+                    onDock:
+                        dockToolbar ? null : (dock) => prefs.toolbarDock = dock,
+                    overlay: !dockToolbar,
+                    toolStripDocks: prefs.toolStripDocks,
+                    onToolStripDock:
+                        dockToolbar ? null : prefs.setToolStripDock,
+                    styleBarDock: prefs.styleBarDock,
+                    onStyleBarDock: dockToolbar
+                        ? null
+                        : (dock) => prefs.styleBarDock = dock,
                     compact: dockToolbar,
                     cardAlignment: switch (prefs.toolbarDock) {
                       PdfPanelDock.left => Alignment.centerLeft,
@@ -1700,12 +1725,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       PdfPanelDock.bottom =>
                         Alignment.center,
                     },
-                    leading: [
-                      if (!dockToolbar)
-                        (context, controller, viewer) =>
-                            const PdfToolbarMoveHandle(),
-                      ...widget.toolbarLeading,
-                    ],
+                    leading: widget.toolbarLeading,
                     trailing: widget.toolbarTrailing,
                   );
           final viewOptionsControl = PdfShellControlItem(
@@ -1868,7 +1888,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         // underneath them.
                         trailingPadding: showToolbar &&
                                 !dockToolbar &&
-                                prefs.toolbarDock == PdfPanelDock.bottom
+                                _toolbarUsesBottom(prefs)
                             ? 144
                             : 0,
                         pageLayout: widget.pageLayout,
@@ -1912,6 +1932,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 floatingToolbar:
                     toolbar != null && !dockToolbar ? toolbar : null,
                 floatingToolbarDock: prefs.toolbarDock,
+                // the stock toolbar lays its bars out on every edge itself
+                floatingToolbarFillsViewer: widget.toolbarBuilder == null,
                 dockedToolbar: toolbar != null && dockToolbar ? toolbar : null,
                 onToolbarDock: toolbar != null && !dockToolbar
                     ? (dock) => prefs.toolbarDock = dock

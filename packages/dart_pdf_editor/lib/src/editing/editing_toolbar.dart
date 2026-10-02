@@ -42,6 +42,7 @@ import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
 import '../keyboard_availability.dart';
+import '../shell_chrome.dart' show PdfToolbarDragData, PdfToolbarMoveHandle;
 import '../design/editor_presenter.dart';
 import '../design/material_host.dart';
 
@@ -175,6 +176,216 @@ Future<void> showPdfEditingGuidesDialog(
   );
 }
 
+/// The four edges as toolbar placement choices, labelled for menus.
+List<(PdfPanelDock?, String)> pdfToolbarEdgeChoices(BuildContext context) {
+  final l10n = pdfL10n(context);
+  return [
+    (PdfPanelDock.top, l10n.tbDockTop),
+    (PdfPanelDock.bottom, l10n.tbDockBottom),
+    (PdfPanelDock.left, l10n.tbDockLeft),
+    (PdfPanelDock.right, l10n.tbDockRight),
+  ];
+}
+
+/// Opens the stock toolbar layout settings: which edge the main toolbar
+/// docks to, where the style controls live (inside the tool bars or in a
+/// style bar on an edge), and where each tool group's bar lives (with the
+/// main toolbar, or docked to an edge), plus a reset.
+///
+/// The same choices the bars' grips offer by drag and by their placement
+/// menus, gathered in one place for keyboard and screen-reader users and for
+/// anyone who would rather pick than drag. [groups] limits the tool bars
+/// listed (null lists every stock group but Select); [toolGroups] supplies
+/// their names and icons. Changes apply live and persist through
+/// [preferences].
+Future<void> showPdfToolbarLayoutDialog(
+  BuildContext context, {
+  required PdfEditingPreferences preferences,
+  Set<PdfEditToolGroup>? groups,
+  List<PdfToolGroup> toolGroups = pdfToolGroups,
+}) async {
+  await pdfPresentDialog<void>(
+    context,
+    builder: (context) {
+      final l10n = pdfL10n(context);
+      final theme = Theme.of(context);
+      final edges = pdfToolbarEdgeChoices(context);
+      final bars = [
+        for (final group in toolGroups)
+          if (group.kind case final kind?
+              when kind != PdfEditToolGroup.select &&
+                  (groups == null || groups.contains(kind)))
+            (kind, group),
+      ];
+      Widget section(String title, {String? hint}) => Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleSmall),
+                if (hint != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(hint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant)),
+                  ),
+              ],
+            ),
+          );
+      Widget picker({
+        required Key key,
+        required IconData icon,
+        required String label,
+        required List<(PdfPanelDock?, String)> choices,
+        required PdfPanelDock? value,
+        required ValueChanged<PdfPanelDock?> onChanged,
+      }) {
+        // a sentinel index keeps the null ("not on its own edge") choice
+        // distinct from "no selection"
+        final index = choices.indexWhere((c) => c.$1 == value);
+        return ListTile(
+          leading: Icon(icon),
+          title: Text(label),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+          trailing: PdfDropdown<int>(
+            key: key,
+            value: index < 0 ? null : index,
+            isDense: true,
+            items: [
+              for (final (i, (dock, text)) in choices.indexed)
+                PdfDropdownItem<int>(
+                  key: ValueKey('${(key as ValueKey<String>).value}-'
+                      '${dock?.name ?? 'attached'}'),
+                  value: i,
+                  label: text,
+                ),
+            ],
+            onChanged: (i) => onChanged(choices[i].$1),
+          ),
+        );
+      }
+
+      return AlertDialog(
+        title: Text(l10n.tbToolbarLayout),
+        contentPadding: const EdgeInsets.only(top: 8),
+        content: SizedBox(
+          width: 440,
+          child: ListenableBuilder(
+            listenable: preferences,
+            builder: (context, _) => SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  picker(
+                    key: const ValueKey('pdf-layout-main'),
+                    icon: Icons.build_outlined,
+                    label: l10n.tbToolbarLayoutMain,
+                    choices: edges,
+                    value: preferences.toolbarDock,
+                    onChanged: (dock) {
+                      if (dock != null) preferences.toolbarDock = dock;
+                    },
+                  ),
+                  section(l10n.tbToolbarLayoutStyle,
+                      hint: l10n.tbToolbarLayoutStyleHint),
+                  picker(
+                    key: const ValueKey('pdf-layout-style'),
+                    icon: Icons.palette_outlined,
+                    label: l10n.tbStyle,
+                    choices: [(null, l10n.tbStyleInToolBars), ...edges],
+                    value: preferences.styleBarDock,
+                    onChanged: (dock) => preferences.styleBarDock = dock,
+                  ),
+                  if (bars.isNotEmpty) ...[
+                    section(l10n.tbToolbarLayoutToolBars,
+                        hint: l10n.tbToolbarLayoutToolBarsHint),
+                    for (final (kind, group) in bars)
+                      picker(
+                        key: ValueKey('pdf-layout-bar-${kind.name}'),
+                        icon: group.icon,
+                        label: group.label(context),
+                        choices: [
+                          (null, l10n.tbDockWithMainToolbar),
+                          ...edges,
+                        ],
+                        value: preferences.toolStripDock(kind),
+                        onChanged: (dock) =>
+                            preferences.setToolStripDock(kind, dock),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('pdf-layout-reset'),
+            onPressed: preferences.resetToolbarLayout,
+            child: Text(l10n.tbToolbarLayoutReset),
+          ),
+          PdfDialogSubmit(
+            child: TextButton(
+              key: const ValueKey('pdf-layout-done'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.done),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// Lays the toolbar's per-edge bar groups out over the viewer
+/// ([PdfEditingToolbar.overlay]): the top and bottom groups span the width
+/// and claim their height first, then the side groups are centred in the band
+/// between them - so a side rail can never run underneath a horizontal bar.
+class _ToolbarEdgesLayout extends MultiChildLayoutDelegate {
+  _ToolbarEdgesLayout();
+
+  @override
+  void performLayout(Size size) {
+    var top = 0.0;
+    var bottom = 0.0;
+    if (hasChild(PdfPanelDock.top)) {
+      top = layoutChild(
+        PdfPanelDock.top,
+        BoxConstraints.tightFor(width: size.width)
+            .copyWith(maxHeight: size.height / 2),
+      ).height;
+      positionChild(PdfPanelDock.top, Offset.zero);
+    }
+    if (hasChild(PdfPanelDock.bottom)) {
+      bottom = layoutChild(
+        PdfPanelDock.bottom,
+        BoxConstraints.tightFor(width: size.width)
+            .copyWith(maxHeight: size.height - top),
+      ).height;
+      positionChild(PdfPanelDock.bottom, Offset(0, size.height - bottom));
+    }
+    final band = (size.height - top - bottom).clamp(0.0, size.height);
+    final side = BoxConstraints(
+      minHeight: band,
+      maxHeight: band,
+      maxWidth: size.width / 2,
+    );
+    if (hasChild(PdfPanelDock.left)) {
+      layoutChild(PdfPanelDock.left, side);
+      positionChild(PdfPanelDock.left, Offset(0, top));
+    }
+    if (hasChild(PdfPanelDock.right)) {
+      final width = layoutChild(PdfPanelDock.right, side).width;
+      positionChild(PdfPanelDock.right, Offset(size.width - width, top));
+    }
+  }
+
+  @override
+  bool shouldRelayout(_ToolbarEdgesLayout oldDelegate) => false;
+}
+
 /// A ready-made toolbar for [PdfEditingController].
 ///
 /// The bar is organised as a **dock** with a compact Hand / Select navigation
@@ -186,6 +397,14 @@ Future<void> showPdfEditingGuidesDialog(
 /// only the settings it supports. Selecting an annotation or a page element
 /// raises its own strip with the actions and restyle controls that apply to
 /// it.
+///
+/// Every bar can move. [dock] picks the main toolbar's edge; with [overlay]
+/// each group's tool bar can be docked to an edge of its own
+/// ([toolStripDocks]), where it stays as a persistent palette, and
+/// [styleBarDock] moves the style controls into one style bar that serves the
+/// selection and every tool from the same place. The `on…Dock` callbacks give
+/// each bar a grip: drag it onto an edge, or click it for a placement menu.
+/// [showPdfToolbarLayoutDialog] offers the same choices as settings.
 ///
 /// On narrow (phone) widths the dock collapses to an active-tool switcher, a
 /// quick-colour row and a *Tools* handle. The switcher recalls recently used
@@ -224,6 +443,12 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showColorProcessing = true,
     this.showAnnotationLibrary = true,
     this.dock = PdfPanelDock.bottom,
+    this.onDock,
+    this.toolStripDocks = const {},
+    this.onToolStripDock,
+    this.styleBarDock,
+    this.onStyleBarDock,
+    this.overlay = false,
     this.compact,
     this.cardAlignment = Alignment.center,
     this.leading = const [],
@@ -356,6 +581,53 @@ class PdfEditingToolbar extends StatefulWidget {
   /// with any contextual strip opening inward. Top and bottom docks retain
   /// the standard horizontal layout. Compact/mobile mode remains horizontal.
   final PdfPanelDock dock;
+
+  /// Moves the main toolbar to another edge. When set, the dock leads with a
+  /// grip: drag it onto an edge drop zone (inside a shell that shows them),
+  /// or click it for a placement menu. Null shows no grip.
+  final ValueChanged<PdfPanelDock>? onDock;
+
+  /// Tool bars docked to an edge of their own, by group ([PdfToolGroup.kind]).
+  ///
+  /// A group absent here rides with the main toolbar: its bar opens beside
+  /// the dock while the group is picked, as it always has. A docked group's
+  /// bar instead stays on its edge whether or not the group is open - a
+  /// persistent palette, as docked toolbars are in desktop PDF editors - and
+  /// shows its tool's settings while one of its tools is armed.
+  ///
+  /// Placing bars on several edges needs the whole viewer area, so this only
+  /// applies with [overlay]; a standalone toolbar keeps every bar beside its
+  /// dock.
+  final Map<PdfEditToolGroup, PdfPanelDock> toolStripDocks;
+
+  /// Docks a group's tool bar to an edge, or (null) returns it to the main
+  /// toolbar. When set, each tool bar leads with a grip and a placement
+  /// menu. See [PdfEditingPreferences.setToolStripDock].
+  final void Function(PdfEditToolGroup group, PdfPanelDock? dock)?
+      onToolStripDock;
+
+  /// Where the style controls live.
+  ///
+  /// Null (the default) keeps them inside each tool bar and the selection
+  /// bar, after the tools and the tool's own options. An edge moves them into
+  /// one **style bar** of their own: colour, stroke, opacity and the style
+  /// popup for whatever is being worked on - the selected annotations first,
+  /// otherwise the armed tool - always in the same place. The bar hides while
+  /// nothing restyles. Without [overlay] the bar sits beside the dock
+  /// whatever the edge. See [PdfEditingPreferences.styleBarDock].
+  final PdfPanelDock? styleBarDock;
+
+  /// Moves the style controls: an edge for the style bar, or null to put
+  /// them back inside the tool bars. When set, the style bar leads with a
+  /// grip and a placement menu, and each tool bar's menu offers the bar.
+  final ValueChanged<PdfPanelDock?>? onStyleBarDock;
+
+  /// Whether the toolbar fills the area it is given and lays its bars out on
+  /// several of its edges ([dock], [toolStripDocks], [styleBarDock]). The gaps
+  /// between bars let pointer events through, so a host stacks the toolbar
+  /// over its viewer. False (the default) sizes the toolbar to its content
+  /// with every bar beside the dock - the standalone layout.
+  final bool overlay;
 
   /// Overrides the width-based compact/mobile layout decision.
   ///
@@ -1417,12 +1689,38 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         },
       );
 
-  // ---- desktop: dock + contextual strip -----------------------------------
+  // ---- desktop: dock, context strip, docked tool bars, style bar ---------
 
-  /// The contextual toolbar follows the primary dock: a side dock stacks
-  /// controls vertically, while a top/bottom dock keeps the familiar row.
+  /// The edge of the bar being built. Every desktop bar is built inside
+  /// [_onEdge], so the shared strip helpers lay out along the edge that bar
+  /// is docked to - a tool bar on the right is a vertical rail even while the
+  /// main toolbar runs along the bottom.
+  PdfPanelDock _buildEdge = PdfPanelDock.bottom;
+
+  T _onEdge<T>(PdfPanelDock edge, T Function() build) {
+    final saved = _buildEdge;
+    _buildEdge = edge;
+    try {
+      return build();
+    } finally {
+      _buildEdge = saved;
+    }
+  }
+
+  /// A side edge stacks a bar's controls vertically; a top/bottom edge keeps
+  /// the familiar row.
   Axis get _stripAxis =>
-      widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
+      _buildEdge.isHorizontal ? Axis.vertical : Axis.horizontal;
+
+  /// Where a card sits across its edge: centred along the edge in overlay
+  /// mode, the host's [PdfEditingToolbar.cardAlignment] otherwise.
+  AlignmentGeometry get _cardAlignment => !widget.overlay
+      ? widget.cardAlignment
+      : switch (_buildEdge) {
+          PdfPanelDock.left => Alignment.centerLeft,
+          PdfPanelDock.right => Alignment.centerRight,
+          PdfPanelDock.top || PdfPanelDock.bottom => Alignment.center,
+        };
 
   Widget _stripFlex(List<Widget> children) => Flex(
         direction: _stripAxis,
@@ -1435,57 +1733,263 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ? IntrinsicHeight(child: child)
       : IntrinsicWidth(child: child);
 
+  /// The edge [group]'s tool bar is docked to, or null when it rides with the
+  /// main toolbar (always null outside [PdfEditingToolbar.overlay]).
+  PdfPanelDock? _toolStripDockOf(_ToolGroup group) {
+    final kind = group.kind;
+    if (!widget.overlay || kind == null || kind == PdfEditToolGroup.select) {
+      return null;
+    }
+    return widget.toolStripDocks[kind];
+  }
+
+  bool get _separateStyleBar => widget.styleBarDock != null;
+
   Widget _buildDesktop(BuildContext context) {
-    final strip = _desktopStrip(context);
-    if (widget.dock.isHorizontal) {
-      final rail = _dock(context);
+    final main = widget.dock;
+    // each edge's bars, outermost (hugging the edge) first
+    final bars = {for (final edge in PdfPanelDock.values) edge: <Widget>[]};
+    bars[main]!.add(_onEdge(main, () => _dock(context)));
+    final context_ = _onEdge(main, () => _contextStrip(context));
+    if (context_ != null) bars[main]!.add(context_);
+    final open = _openGroup;
+    for (final group in _visibleGroups) {
+      final edge = _toolStripDockOf(group);
+      if (edge == null) continue;
+      bars[edge]!.add(KeyedSubtree(
+        key: ValueKey('pdf-tool-bar-${group.id}'),
+        child: _onEdge(edge,
+            () => _groupStrip(context, group, open: open?.id == group.id)),
+      ));
+    }
+    final styleDock = widget.styleBarDock;
+    if (styleDock != null) {
+      final edge = widget.overlay ? styleDock : main;
+      final bar = _onEdge(edge, () => _styleBar(context));
+      if (bar != null) {
+        bars[edge]!.add(KeyedSubtree(
+          key: const ValueKey('pdf-style-bar'),
+          child: bar,
+        ));
+      }
+    }
+    if (!widget.overlay) return _edgeGroup(main, bars[main]!);
+    return CustomMultiChildLayout(
+      delegate: _ToolbarEdgesLayout(),
+      children: [
+        for (final MapEntry(key: edge, value: list) in bars.entries)
+          if (list.isNotEmpty)
+            LayoutId(id: edge, child: _edgeGroup(edge, list)),
+      ],
+    );
+  }
+
+  /// The bars sharing one [edge], the first hugging it and the rest opening
+  /// inward - so the main toolbar never moves when a strip opens beside it.
+  Widget _edgeGroup(PdfPanelDock edge, List<Widget> bars) {
+    if (edge.isHorizontal) {
       final children = <Widget>[
-        if (widget.dock == PdfPanelDock.right && strip != null) ...[
-          Flexible(child: strip),
-          const SizedBox(width: 8),
-        ],
-        rail,
-        if (widget.dock == PdfPanelDock.left && strip != null) ...[
-          const SizedBox(width: 8),
-          Flexible(child: strip),
+        for (var i = 0; i < bars.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          // the outermost bar keeps its size; the inner ones give way
+          if (i == 0) bars[i] else Flexible(child: bars[i]),
         ],
       ];
       return Padding(
         padding: const EdgeInsets.fromLTRB(8, 14, 8, 14),
         child: Row(
+          // physical edges, not reading order
+          textDirection: TextDirection.ltr,
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
-          children: children,
+          children: edge == PdfPanelDock.right
+              ? children.reversed.toList()
+              : children,
         ),
       );
     }
+    final children = <Widget>[
+      for (var i = 0; i < bars.length; i++) ...[
+        if (i > 0) const SizedBox(height: 8),
+        bars[i],
+      ],
+    ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      padding: edge == PdfPanelDock.top
+          ? const EdgeInsets.fromLTRB(14, 10, 14, 8)
+          : const EdgeInsets.fromLTRB(14, 8, 14, 10),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          if (strip != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: strip,
-            ),
-          _dock(context),
-        ],
+        children:
+            edge == PdfPanelDock.bottom ? children.reversed.toList() : children,
       ),
     );
   }
 
-  /// The contextual strip above the dock: a selected annotation's actions,
-  /// a selected element's actions, or the open group's tools + settings.
-  /// Null when resting (Select active, nothing selected).
-  Widget? _desktopStrip(BuildContext context) {
+  /// The strip beside the dock: a selected annotation's actions, a selected
+  /// element's actions, or the open group's tools + settings when that
+  /// group's bar rides with the main toolbar. Null when resting (Select
+  /// active, nothing selected) or when the open group's bar is docked
+  /// elsewhere.
+  Widget? _contextStrip(BuildContext context) {
     final selectedAnnot = controller.selectedAnnotation;
     if (selectedAnnot != null) return _selectionStrip(context);
     if (controller.selectedElement != null) return _elementStrip(context);
     final group = _openGroup;
     if (group == null || group.kind == PdfEditToolGroup.select) return null;
+    if (_toolStripDockOf(group) != null) return null;
     return _groupStrip(context, group);
   }
+
+  /// The style bar: one place for the colour, stroke, opacity and style-popup
+  /// controls of whatever is being worked on. Null while nothing restyles.
+  Widget? _styleBar(BuildContext context) {
+    final l10n = pdfL10n(context);
+    final List<Widget> controls;
+    final String? target;
+    final annotation = controller.selectedAnnotation;
+    if (annotation != null) {
+      controls = controller.isCroppingImage
+          ? const []
+          : _selectionStyle(context, axis: _stripAxis);
+      target = l10n.tbSelectionCount(controller.selectedAnnotationSlots.length);
+    } else if (controller.selectedElement != null) {
+      controls = const [];
+      target = null;
+    } else {
+      final group = _openGroup;
+      final tool = controller.tool;
+      final markup = controller.markupTool;
+      controls = group == null || group.kind == PdfEditToolGroup.select
+          ? const []
+          : _groupStyle(context, group, axis: _stripAxis);
+      target = markup != null
+          ? _markupName(context, markup)
+          : tool != null && _groupForTool(tool)?.id == group?.id
+              ? _toolName(context, tool)
+              : group?.label(context);
+    }
+    if (controls.isEmpty) return null;
+    final onStyleBarDock = widget.onStyleBarDock;
+    final strip = _intrinsicStrip(
+      _stripFlex([
+        Padding(
+          padding: _stripAxis == Axis.horizontal
+              ? const EdgeInsets.fromLTRB(6, 7, 6, 7)
+              : const EdgeInsets.fromLTRB(7, 6, 7, 6),
+          child: _stripFlex([
+            if (onStyleBarDock != null)
+              _barGrip(
+                key: const ValueKey('pdf-style-bar-move'),
+                icon: Icons.palette_outlined,
+                onDock: onStyleBarDock,
+                choices: [
+                  (null, l10n.tbStyleInToolBars),
+                  ..._edgeChoices(context),
+                ],
+                current: widget.styleBarDock,
+              ),
+            _StripLabel(l10n.tbStyle, hint: target, axis: _stripAxis),
+          ]),
+        ),
+        _StripDivider(axis: _stripAxis),
+        Padding(
+          padding: _stripAxis == Axis.horizontal
+              ? const EdgeInsets.fromLTRB(10, 7, 12, 7)
+              : const EdgeInsets.fromLTRB(7, 10, 7, 12),
+          child: _stripFlex(controls),
+        ),
+      ]),
+    );
+    return _centeredCard(
+      context,
+      padding: EdgeInsets.zero,
+      scrollDirection: _stripAxis,
+      child: strip,
+    );
+  }
+
+  /// The four edges as placement choices, in reading order of the dialog.
+  List<(PdfPanelDock?, String)> _edgeChoices(BuildContext context) =>
+      pdfToolbarEdgeChoices(context);
+
+  /// A bar's grip: drag it onto an edge drop zone, or click it for a menu of
+  /// [choices] (a null value is the bar's "not docked on its own" choice).
+  /// [extra] rows follow a divider.
+  Widget _barGrip({
+    required Key key,
+    required IconData icon,
+    required ValueChanged<PdfPanelDock?> onDock,
+    required List<(PdfPanelDock?, String)> choices,
+    required PdfPanelDock? current,
+    List<(String label, bool checked, VoidCallback onSelected)> extra =
+        const [],
+    double dimension = 32,
+  }) {
+    // read now: the builder runs after [_onEdge] has moved on
+    final axis = _stripAxis;
+    return Builder(
+      builder: (gripContext) => PdfToolbarMoveHandle(
+        handleKey: key,
+        data: PdfToolbarDragData(onDock: onDock),
+        tooltip: pdfL10n(gripContext).tbBarGrip,
+        feedbackIcon: icon,
+        axis: axis,
+        dimension: dimension,
+        onTap: () => _showPlacementMenu(
+          gripContext,
+          onDock: onDock,
+          choices: choices,
+          current: current,
+          extra: extra,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPlacementMenu(
+    BuildContext gripContext, {
+    required ValueChanged<PdfPanelDock?> onDock,
+    required List<(PdfPanelDock?, String)> choices,
+    required PdfPanelDock? current,
+    required List<(String label, bool checked, VoidCallback onSelected)> extra,
+  }) async {
+    final box = gripContext.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final anchor = box.localToGlobal(Offset.zero) & box.size;
+    final picked = await PdfEditorPresenter.of(gripContext).menu<int>(
+      gripContext,
+      PdfMenuRequest<int>(anchor: anchor, entries: [
+        for (final (i, (dock, label)) in choices.indexed)
+          PdfMenuItem<int>(
+            key: ValueKey('pdf-bar-place-${dock?.name ?? 'attached'}'),
+            value: i,
+            label: label,
+            checked: dock == current,
+          ),
+        if (extra.isNotEmpty) const PdfMenuDivider<int>(),
+        for (final (i, (label, checked, _)) in extra.indexed)
+          PdfMenuItem<int>(
+            key: ValueKey('pdf-bar-extra-$i'),
+            value: choices.length + i,
+            label: label,
+            checked: checked,
+          ),
+      ]),
+    );
+    if (picked == null) return;
+    if (picked < choices.length) {
+      onDock(choices[picked].$1);
+    } else {
+      extra[picked - choices.length].$3();
+    }
+  }
+
+  /// The edge a separate style bar opens on when switched on from a tool
+  /// bar's menu: across the viewer from a top/bottom main toolbar, otherwise
+  /// the top, where its row of sliders reads best.
+  PdfPanelDock get _defaultStyleBarDock =>
+      widget.dock == PdfPanelDock.top ? PdfPanelDock.bottom : PdfPanelDock.top;
 
   /// A dock-aligned floating card. When the controls overflow, they scroll
   /// along the toolbar's axis so the rounded card edge never gets clipped by
@@ -1496,9 +2000,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     EdgeInsetsGeometry padding = const EdgeInsets.all(8),
     Axis scrollDirection = Axis.horizontal,
   }) {
+    // read now: the layout callback runs after [_onEdge] has moved on
+    final alignment = _cardAlignment;
     return LayoutBuilder(
       builder: (context, constraints) => Align(
-        alignment: widget.cardAlignment,
+        alignment: alignment,
         child: Container(
           key: const ValueKey('pdf-editing-toolbar-card'),
           constraints: scrollDirection == Axis.horizontal
@@ -1542,7 +2048,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Widget _dock(BuildContext context) {
-    final axis = widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
+    final axis = _stripAxis;
+    final onDock = widget.onDock;
     final groups = _visibleGroups;
     final navigation =
         groups.where((group) => group.kind == PdfEditToolGroup.select);
@@ -1551,6 +2058,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         .where((group) => group.kind != PdfEditToolGroup.select)
         .toList(growable: false);
     final children = <Widget>[
+      if (onDock != null)
+        _barGrip(
+          key: const ValueKey('pdf-toolbar-move'),
+          icon: Icons.build_outlined,
+          // the main toolbar always has an edge; there is no null choice
+          onDock: (dock) {
+            if (dock != null) onDock(dock);
+          },
+          choices: _edgeChoices(context),
+          current: widget.dock,
+          dimension: 40,
+        ),
       for (final builder in widget.leading)
         builder(context, controller, viewerController),
       if (widget.leading.isNotEmpty) _DockDivider(axis: axis),
@@ -1629,8 +2148,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     );
   }
 
-  /// The tools-left / settings-right card for an open [group].
-  Widget _groupStrip(BuildContext context, _ToolGroup group) {
+  /// The tools-first / settings-last card for [group]. A docked tool bar
+  /// shows while its group is closed too ([open] false): tools only, since
+  /// the settings belong to an armed tool.
+  Widget _groupStrip(BuildContext context, _ToolGroup group,
+      {bool open = true}) {
     final hasTextSelection = viewerController.hasSelection;
     // the Edit group's tools (content/form/redact) read as bare icons -
     // too cryptic for destructive document edits - so they get text labels
@@ -1694,18 +2216,49 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       toolButtons.add(_takeoffButton(context));
     }
 
-    final settings = _groupSettings(context, group, axis: _stripAxis);
+    final settings = open
+        ? _groupSettings(context, group,
+            axis: _stripAxis, inlineStyle: !_separateStyleBar)
+        : const <Widget>[];
+    final kind = group.kind;
+    final onToolStripDock = widget.onToolStripDock;
+    final onStyleBarDock = widget.onStyleBarDock;
+    final grip = onToolStripDock == null ||
+            kind == null ||
+            kind == PdfEditToolGroup.select
+        ? null
+        : _barGrip(
+            key: ValueKey('pdf-tool-bar-move-${group.id}'),
+            icon: group.icon,
+            onDock: (dock) => onToolStripDock(kind, dock),
+            choices: [
+              (null, pdfL10n(context).tbDockWithMainToolbar),
+              ..._edgeChoices(context),
+            ],
+            current: _toolStripDockOf(group),
+            extra: [
+              if (onStyleBarDock != null)
+                (
+                  pdfL10n(context).tbSeparateStyleBar,
+                  _separateStyleBar,
+                  () => onStyleBarDock(
+                      _separateStyleBar ? null : _defaultStyleBarDock),
+                ),
+            ],
+          );
     final strip = _intrinsicStrip(
       _stripFlex([
         Padding(
           padding: _stripAxis == Axis.horizontal
-              ? const EdgeInsets.fromLTRB(12, 7, 10, 7)
-              : const EdgeInsets.fromLTRB(7, 12, 7, 10),
+              ? EdgeInsets.fromLTRB(grip == null ? 12 : 4, 7, 10, 7)
+              : EdgeInsets.fromLTRB(7, grip == null ? 12 : 4, 7, 10),
           child: _stripFlex([
+            if (grip != null) grip,
             _StripLabel(
               group.label(context),
               axis: _stripAxis,
-              hint: group.kind == PdfEditToolGroup.markup &&
+              hint: open &&
+                      group.kind == PdfEditToolGroup.markup &&
                       !hasTextSelection &&
                       controller.markupTool == null
                   ? pdfL10n(context).tbSelectTextForMarkup
@@ -1733,8 +2286,53 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     );
   }
 
-  /// The settings cluster for the active tool of [group].
+  /// The settings cluster for the active tool of [group]: the tool's own
+  /// options (ink commit, signature library, measure scale, form field
+  /// type…) and then - unless a style bar has them ([inlineStyle] false) -
+  /// its style controls. Style always comes last, so the colour swatches sit
+  /// at the trailing end of every strip, the selection strip's included.
   List<Widget> _groupSettings(
+    BuildContext context,
+    _ToolGroup group, {
+    Axis axis = Axis.horizontal,
+    bool inlineStyle = true,
+  }) {
+    final options = _groupOptions(context, group, axis: axis);
+    if (!inlineStyle) return options;
+    final style = _groupStyle(context, group, axis: axis);
+    return [
+      ...options,
+      if (options.isNotEmpty && style.isNotEmpty) _MiniDivider(axis: axis),
+      ...style,
+    ];
+  }
+
+  /// The armed tool's own, non-style options in [group].
+  List<Widget> _groupOptions(
+    BuildContext context,
+    _ToolGroup group, {
+    Axis axis = Axis.horizontal,
+  }) {
+    switch (group.kind) {
+      case PdfEditToolGroup.draw:
+        if (controller.tool == null && viewerController.hasSelection) {
+          return const [];
+        }
+        return _drawToolExtras(context);
+      case PdfEditToolGroup.insert:
+        return _insertToolExtras(context);
+      case PdfEditToolGroup.measure:
+        return [_scaleChip(context)];
+      case PdfEditToolGroup.edit:
+        return _editToolExtras(context, axis: axis);
+      default:
+        return const [];
+    }
+  }
+
+  /// The style controls for the active tool of [group]: colour, stroke,
+  /// opacity and the style popup, as that tool supports them.
+  List<Widget> _groupStyle(
     BuildContext context,
     _ToolGroup group, {
     Axis axis = Axis.horizontal,
@@ -1759,10 +2357,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ];
         }
         if (tool == PdfEditTool.eraser) {
-          return [
-            ..._drawToolExtras(context),
-            ..._tuneTrailing(context, fields, axis: axis),
-          ];
+          return _tuneTrailing(context, fields, axis: axis);
         }
         return [
           ..._colorCluster(context),
@@ -1770,7 +2365,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           _strokePresets(context),
           _MiniDivider(axis: axis),
           _opacitySlider(context),
-          ..._drawToolExtras(context),
           ..._tuneTrailing(context, fields, axis: axis),
         ];
       case PdfEditToolGroup.shapes:
@@ -1787,7 +2381,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ..._colorCluster(context),
           if (widget.showColor) _MiniDivider(axis: axis),
           _opacitySlider(context),
-          ..._insertToolExtras(context),
           ..._tuneTrailing(context, fields, axis: axis),
         ];
       case PdfEditToolGroup.measure:
@@ -1795,12 +2388,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ..._colorCluster(context),
           if (widget.showColor) _MiniDivider(axis: axis),
           _strokePresets(context),
-          _MiniDivider(axis: axis),
-          _scaleChip(context),
           ..._tuneTrailing(context, fields, axis: axis),
         ];
-      case PdfEditToolGroup.edit:
-        return _editToolExtras(context, axis: axis);
       default:
         return const [];
     }
@@ -1989,19 +2578,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// popup carries stroke/font/etc).
   Widget _selectionStrip(BuildContext context) {
     if (controller.isCroppingImage) return _cropStrip(context);
-    final canRestyle = controller.canRestyleSelected;
     final selectedFieldName = controller.selectedWidgetFieldName;
-    final settings = <Widget>[
-      if (widget.showColor && canRestyle) ..._colorCluster(context),
-      if (widget.showColor && canRestyle && widget.showStyle)
-        _MiniDivider(axis: _stripAxis),
-      if (canRestyle) _opacitySlider(context),
-      ..._tuneTrailing(
-        context,
-        _selectionStyleFields(),
-        axis: _stripAxis,
-      ),
-    ];
+    // with a style bar, the selection's styling lives there instead
+    final settings = _separateStyleBar
+        ? const <Widget>[]
+        : _selectionStyle(context, axis: _stripAxis);
     final strip = _intrinsicStrip(
       _stripFlex([
         Padding(
@@ -2079,6 +2660,25 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       scrollDirection: _stripAxis,
       child: strip,
     );
+  }
+
+  /// The restyle controls for the current annotation selection.
+  List<Widget> _selectionStyle(
+    BuildContext context, {
+    Axis axis = Axis.horizontal,
+  }) {
+    final canRestyle = controller.canRestyleSelected;
+    return [
+      if (widget.showColor && canRestyle) ..._colorCluster(context),
+      if (widget.showColor && canRestyle && widget.showStyle)
+        _MiniDivider(axis: axis),
+      if (canRestyle) _opacitySlider(context),
+      ..._tuneTrailing(
+        context,
+        _selectionStyleFields(),
+        axis: axis,
+      ),
+    ];
   }
 
   /// The toolbar shown while the interactive image-crop tool is armed: a
