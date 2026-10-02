@@ -1082,6 +1082,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // touch drags on empty page area pan the viewer instead
   bool _viewportPanning = false;
 
+  /// A select-tool drag that began over page text: the viewer owns it
+  /// (see [PdfEditingInteractionHost.beginTextSelection]).
+  bool _textSelecting = false;
+
   // rotate drag: the pointer's start angle about the selection center,
   // the annotation's resting rotation when the drag started, and the
   // current delta (view space, clockwise positive - y is down)
@@ -1870,6 +1874,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a second finger landed: stop panning so the viewer's pinch-zoom
     // recognizer takes both touches (no fling - the gesture isn't a pan)
     _pointers.clearPan();
+    if (_textSelecting) {
+      _textSelecting = false;
+      _host.endTextSelection?.call(cancelled: true);
+    }
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -3873,6 +3881,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final mouseLike = details.kind == null ||
         details.kind == PointerDeviceKind.mouse ||
         details.kind == PointerDeviceKind.trackpad;
+    // a plain mouse drag over page text selects the text, like a reader;
+    // Shift/⌘/Ctrl still rubber-bands over it
+    if (mouseLike &&
+        !_additiveModifier &&
+        (_host.beginTextSelection?.call(details.globalPosition) ?? false)) {
+      _textSelecting = true;
+      return;
+    }
     if (mouseLike) {
       _beginInteraction(PdfEditingInteractionIntent.marquee, details.kind);
       setState(() {
@@ -3954,6 +3970,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _panUpdate(DragUpdateDetails details) {
     if (_controller.isCroppingImage) return;
     if (_pointers.gestureBailed || _pointers.rawPointer != null) return;
+    if (_textSelecting) {
+      _host.updateTextSelection?.call(details.globalPosition);
+      return;
+    }
     final position = details.localPosition;
     _interaction.sample();
     if (_panErasing) {
@@ -4106,6 +4126,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _panEnd(DragEndDetails details) {
     if (_controller.isCroppingImage) return;
     if (_pointers.rawPointer != null) return; // the raw pointer-up commits
+    if (_textSelecting) {
+      _textSelecting = false;
+      _host.endTextSelection?.call();
+      return;
+    }
     final before = _controller.revisionId;
     final transition = _interaction.state.transition;
     _finishPan(details);
@@ -4924,6 +4949,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _openTextEditor(_selectedViewRect!, existing: true);
         return;
       }
+      if (!_additiveModifier) _host.clearTextSelection?.call();
       // shift/⌘-click toggles membership in the selection
       _controller.selectAnnotationAt(widget.pageIndex, x, y,
           toggle: _additiveModifier);
@@ -5090,12 +5116,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         cursor = SystemMouseCursors.move;
       } else {
         final (x, y) = _geometry.toPagePoint(event.localPosition);
-        // a pointer over a selectable annotation, a crosshair-ish basic
-        // over empty page (a drag there rubber-bands)
+        // a pointer over a selectable annotation, an I-beam over page
+        // text (a drag there selects it), a crosshair-ish basic over empty
+        // page (a drag there rubber-bands)
         cursor =
             _controller.selectableAnnotationAt(widget.pageIndex, x, y) != null
                 ? SystemMouseCursors.click
-                : SystemMouseCursors.basic;
+                : (_host.pageTextAt?.call(event.position) ?? false)
+                    ? SystemMouseCursors.text
+                    : SystemMouseCursors.basic;
       }
     } else if (_tool == PdfEditTool.note) {
       cursor = SystemMouseCursors.click;
