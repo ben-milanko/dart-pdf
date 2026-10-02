@@ -1843,6 +1843,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// change width as the selection or tool changes.
   static const _propertiesRailWidth = 228.0;
 
+  ThemeData? _denseSource;
+  ThemeData? _dense;
+
+  /// The ambient theme at compact density, made once per ambient theme: a
+  /// fresh `copyWith` on every rebuild would read as a new theme and rebuild
+  /// every themed control in the bars each time a tool is armed.
+  ThemeData _denseTheme(ThemeData source) {
+    if (!identical(source, _denseSource)) {
+      _denseSource = source;
+      _dense = source.copyWith(visualDensity: VisualDensity.compact);
+    }
+    return _dense!;
+  }
+
   /// A docked bar: a solid surface along [_buildEdge] with a hairline on its
   /// inner side, its controls starting at the leading end and scrolling along
   /// the edge when they overflow.
@@ -1862,7 +1876,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       PdfPanelDock.right => Border(left: side),
     };
     final horizontal = axis == Axis.horizontal;
-    final theme = Theme.of(context);
+    final dense = _denseTheme(Theme.of(context));
     return Listener(
       // a touch here (arming a tool is usually the first touch) reveals
       // the touch-only controls before the page is ever touched
@@ -1892,10 +1906,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   : const EdgeInsets.symmetric(vertical: 6),
               // docked toolbars are dense, and compact controls keep every
               // bar's content inside the fixed band height
-              child: Theme(
-                data: theme.copyWith(visualDensity: VisualDensity.compact),
-                child: child,
-              ),
+              child: Theme(data: dense, child: child),
             ),
           ),
         ),
