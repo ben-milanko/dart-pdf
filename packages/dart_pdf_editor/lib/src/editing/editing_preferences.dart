@@ -8,7 +8,6 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
 import 'line_style.dart';
@@ -17,6 +16,7 @@ import 'models/custom_stamp.dart';
 import 'models/ink_signature.dart';
 import 'models/measurement_scale.dart';
 import 'models/panel_dock.dart';
+import 'preferences_store.dart';
 import 'saved_annotation.dart';
 
 /// The app theme a host runs the editor UI in, as the user chose it:
@@ -138,15 +138,22 @@ class PdfViewModeController extends ChangeNotifier
 /// Values load asynchronously ([ready]); each change is written back
 /// immediately. Where no local storage exists - plain widget tests, for
 /// example - loading fails silently and the defaults stand.
+///
+/// They live on the device (shared_preferences) unless [store] says
+/// otherwise: pass a [PdfPreferencesStore] to keep them in the host's own
+/// settings, a per-user profile, or memory ([PdfMemoryPreferencesStore]).
 class PdfEditingPreferences extends ChangeNotifier
     implements PdfViewModeHolder {
-  PdfEditingPreferences() {
+  PdfEditingPreferences({PdfPreferencesStore? store}) : _injectedStore = store {
     _ready = _load();
   }
 
   static const _prefix = 'dart_pdf_editor.editing.';
 
-  SharedPreferences? _store;
+  /// The store passed to the constructor; null uses the device default.
+  final PdfPreferencesStore? _injectedStore;
+
+  PdfPreferencesStore? _store;
   late final Future<void> _ready;
   bool _modified = false;
 
@@ -267,9 +274,9 @@ class PdfEditingPreferences extends ChangeNotifier
   static const _viewportsKey = '${_prefix}documentViewports';
 
   Future<void> _load() async {
-    final SharedPreferences store;
+    final PdfPreferencesStore store;
     try {
-      store = await SharedPreferences.getInstance();
+      store = _injectedStore ?? await PdfPreferencesStore.sharedPreferences();
     } catch (_) {
       return; // no local storage here (e.g. widget tests) - defaults stand
     }
@@ -587,7 +594,7 @@ class PdfEditingPreferences extends ChangeNotifier
     _writeViewports();
   }
 
-  void _write(Future<Object?> Function(SharedPreferences store) write) {
+  void _write(Future<Object?> Function(PdfPreferencesStore store) write) {
     _modified = true;
     final store = _store;
     if (store != null) unawaited(write(store));
@@ -1650,7 +1657,7 @@ class PdfEditingPreferences extends ChangeNotifier
   }
 
   PdfPanelDock _readDock(
-          SharedPreferences store, String key, PdfPanelDock fallback) =>
+          PdfPreferencesStore store, String key, PdfPanelDock fallback) =>
       PdfPanelDock.values.asNameMap()[store.getString('$_prefix$key')] ??
       fallback;
 

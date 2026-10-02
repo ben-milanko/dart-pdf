@@ -57,6 +57,7 @@ export 'src/editing/editing_page_clipboard.dart';
 export 'src/editing/editing_panel.dart';
 export 'src/editing/editing_pencil.dart';
 export 'src/editing/editing_preferences.dart';
+export 'src/editing/preferences_store.dart';
 export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';
 export 'src/editing/editing_signature.dart';
