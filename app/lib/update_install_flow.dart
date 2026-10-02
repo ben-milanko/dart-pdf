@@ -149,8 +149,8 @@ class _UpdateProgressDialog extends StatelessWidget {
               ? l10n.updateRestarting
               : value.fraction == null
                   ? l10n.updatePreparing
-                  : l10n.updateDownloadingPercent(
-                      (value.fraction! * 100).round());
+                  : l10n.updateDownloadingPercent((value.fraction! * 100)
+                      .round());
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
