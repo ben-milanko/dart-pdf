@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The app is built on `material_ui`, the package Flutter's Material widgets
+  are moving to, instead of the retiring `package:flutter/material.dart`.
+  Nothing should look or behave differently: the editor now takes the app's
+  theme directly instead of through a compatibility layer.
 - Read-only mode keeps one header bar, like editing: the document controls
   share the app bar instead of a second bar under it.
 - The developer tools panel (F12) docks with the editor's own panels on a
