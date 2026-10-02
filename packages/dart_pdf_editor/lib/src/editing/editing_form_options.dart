@@ -207,20 +207,23 @@ class _PdfFormOptionsEditorState extends State<PdfFormOptionsEditor> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+          onSubmit: _save,
           child: FilledButton(
             key: const ValueKey('pdf-form-options-save'),
-            onPressed: () => Navigator.of(context).pop(
-              PdfFormOptionsEdit(
-                options: _options,
-                editable: widget.combo ? _flag : null,
-                multiSelect: widget.combo ? null : _flag,
-              ),
-            ),
+            onPressed: _save,
             child: Text(l10n.save),
           ),
         ),
       ],
     );
   }
+
+  void _save() => Navigator.of(context).pop(
+        PdfFormOptionsEdit(
+          options: _options,
+          editable: widget.combo ? _flag : null,
+          multiSelect: widget.combo ? null : _flag,
+        ),
+      );
 }

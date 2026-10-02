@@ -391,12 +391,13 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
             onPressed: _applying ? null : () => Navigator.of(context).pop(),
             child: Text(pdfL10n(context).cancel),
           ),
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: canApply ? () => unawaited(_apply()) : null,
               child: FilledButton(
-            key: const ValueKey('pdf-color-process-apply'),
-            onPressed: canApply ? () => unawaited(_apply()) : null,
-            child: Text(pdfL10n(context).apply),
-          )),
+                key: const ValueKey('pdf-color-process-apply'),
+                onPressed: canApply ? () => unawaited(_apply()) : null,
+                child: Text(pdfL10n(context).apply),
+              )),
         ],
       ),
     );

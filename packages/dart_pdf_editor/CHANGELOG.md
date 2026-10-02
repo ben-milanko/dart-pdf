@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`).
+  5.0.0 already needed 3.44, since the thumbnail strip's reorder uses
+  `ReorderableListView.onReorderItem`, which first shipped in Flutter 3.44, so
+  this strands nobody. A new `floor-analyze` CI job analyzes the package on
+  Flutter 3.44.0 to keep the floor honest.
+- Add `PdfThemePreference` and `PdfEditingPreferences.themePreference`, the
+  saved theme choice as an editor-owned enum instead of Material's
+  `ThemeMode`. It is stored under the same key, so a choice saved by an older
+  build reads back. `themeMode` still works and is deprecated (removed in
+  6.0.0); map the new value to `ThemeMode` in the host.
+- Add `PdfDialogSubmit.action(onSubmit:, child:)`, which marks any widget as
+  a dialog's Enter action. The `ButtonStyleButton`-only default constructor is
+  deprecated (removed in 6.0.0). Enter now tells a focused command button
+  (which keeps Enter) from a focused value control such as segments, a
+  dropdown or a checkbox (Enter submits) by semantics role rather than by
+  Material widget type, so controls from any design system classify the same.
+- Add `pdfSearchFieldBorderRadius`; `pdfSearchInputBorder` (a Material
+  `OutlineInputBorder`) is deprecated (removed in 6.0.0).
+- Move the headless model types (`PdfMeasurementScale`, `PdfInkSignature`,
+  `PdfSavedSignature`, the trackpad signature capture types, `PdfCustomStamp`,
+  `PdfStampDateFormat`/`PdfStampTimeFormat`, the picker and prompt typedefs,
+  `PdfSnapshot`, `PdfClipboardPdf`, `PdfSelectedContentImage`,
+  `PdfColorFormat`, `PdfDockablePanel`, `PdfPanelDock`, `PdfSidebarSide`) out
+  of the files that hold their Material dialogs. They are exported exactly as
+  before; `PdfEditingController` and `PdfPageView` no longer import Material
+  through them, which a new CI check (`tool/check_design_imports.dart`) keeps
+  true. `PdfDockablePanel.icon` values are now plain `IconData` constants equal
+  to the Material icons they were.
+- Localize the remaining English strings: the guides, snapping and rulers
+  dialog, the search field placeholder, the page-range dialog's default title
+  and button, the styled-text dialog's "Keep" font label, the progressive
+  loader's error and the crop overlay's tooltips.
+- README: a "Customising the UI" section covering `uses-material-design` and
+  localization delegate registration.
+
 ## 5.1.1
 
 - Fix ink written in quick succession disappearing from the page. The editing

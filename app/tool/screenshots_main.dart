@@ -30,6 +30,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_viewer_example/demo_document.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dart_pdf_editor_app/app.dart' show materialThemeMode;
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/keyboard_availability.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
@@ -101,9 +102,9 @@ class AppScreenshots extends StatefulWidget {
 
 class _Scene {
   const _Scene(this.name,
-      {this.themeMode = ThemeMode.light, this.thumbnails = false});
+      {this.theme = PdfThemePreference.light, this.thumbnails = false});
   final String name;
-  final ThemeMode themeMode;
+  final PdfThemePreference theme;
 
   /// Whether the page-thumbnail side panel is open for this scene.
   final bool thumbnails;
@@ -117,7 +118,7 @@ const _scenes = <_Scene>[
   // - the full workspace.
   _Scene('02-editor', thumbnails: true),
   // The same editor in dark mode.
-  _Scene('03-dark', themeMode: ThemeMode.dark, thumbnails: true),
+  _Scene('03-dark', theme: PdfThemePreference.dark, thumbnails: true),
 ];
 
 class _AppScreenshotsState extends State<AppScreenshots> {
@@ -158,7 +159,7 @@ class _AppScreenshotsState extends State<AppScreenshots> {
       // shell reads panel visibility once at init, so flipping the pref on a
       // live shell won't collapse an open panel - re-keying forces a fresh read
       // (the theme still applies live through the prefs listenable).
-      _prefs.themeMode = scene.themeMode;
+      _prefs.themePreference = scene.theme;
       _prefs.showThumbnailSidebar = scene.thumbnails;
       if (mounted) setState(() => _scene = scene);
       await _settle(heavy: true);
@@ -195,7 +196,7 @@ class _AppScreenshotsState extends State<AppScreenshots> {
             brightness: Brightness.dark,
             useMaterial3: true,
           ),
-          themeMode: _prefs.themeMode,
+          themeMode: materialThemeMode(_prefs.themePreference),
           home: EditorScreen(
             key: ValueKey(_scene.name),
             prefs: _prefs,

@@ -77,16 +77,48 @@ void main() {
     expect(borders, isNot(contains(Colors.black26)));
   });
 
-  test('the theme mode persists as a preference', () async {
+  test('the theme preference persists as a preference', () async {
     SharedPreferences.setMockInitialValues({});
     final a = PdfEditingPreferences();
     await a.ready;
-    expect(a.themeMode, ThemeMode.system);
-    a.themeMode = ThemeMode.dark;
+    expect(a.themePreference, PdfThemePreference.system);
+    a.themePreference = PdfThemePreference.dark;
     await pumpEventQueue();
 
     final b = PdfEditingPreferences();
     await b.ready;
+    expect(b.themePreference, PdfThemePreference.dark);
+  });
+
+  test('a theme saved by the ThemeMode-typed member reads back', () async {
+    // Older builds wrote ThemeMode.name under this key; the new enum
+    // shares the key and the value names.
+    SharedPreferences.setMockInitialValues(
+        {'dart_pdf_editor.editing.themeMode': 'light'});
+    final prefs = PdfEditingPreferences();
+    await prefs.ready;
+    expect(prefs.themePreference, PdfThemePreference.light);
+  });
+
+  test('the deprecated themeMode still reads and writes the preference',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final a = PdfEditingPreferences();
+    await a.ready;
+    // ignore: deprecated_member_use_from_same_package
+    expect(a.themeMode, ThemeMode.system);
+    // ignore: deprecated_member_use_from_same_package
+    a.themeMode = ThemeMode.dark;
+    expect(a.themePreference, PdfThemePreference.dark);
+    await pumpEventQueue();
+
+    final b = PdfEditingPreferences();
+    await b.ready;
+    expect(b.themePreference, PdfThemePreference.dark);
+    // ignore: deprecated_member_use_from_same_package
     expect(b.themeMode, ThemeMode.dark);
+    b.themePreference = PdfThemePreference.light;
+    // ignore: deprecated_member_use_from_same_package
+    expect(b.themeMode, ThemeMode.light);
   });
 }

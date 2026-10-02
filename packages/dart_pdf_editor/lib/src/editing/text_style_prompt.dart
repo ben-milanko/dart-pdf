@@ -109,7 +109,8 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
 
   // the button/dropdown label for the current font pick
   String get _fontLabel =>
-      _embedded?.familyName ?? (_styleTouched ? _font.family.label : 'Keep');
+      _embedded?.familyName ??
+      (_styleTouched ? _font.family.label : pdfL10n(context).textStyleKeepFont);
 
   void _submit() {
     // an embedded pick takes precedence and carries its own weight/slant, so
@@ -262,12 +263,13 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
             child: FilledButton(
-          key: const ValueKey('pdf-styled-ok'),
-          onPressed: _submit,
-          child: Text(pdfL10n(context).apply),
-        )),
+              key: const ValueKey('pdf-styled-ok'),
+              onPressed: _submit,
+              child: Text(pdfL10n(context).apply),
+            )),
       ],
     );
   }

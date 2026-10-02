@@ -456,6 +456,10 @@ void main() {
       ));
 
       final field = tester.widget<TextField>(find.byKey(fieldKey));
+      expect(field.decoration?.border,
+          const OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius));
+      // The deprecated Material const is the same border.
+      // ignore: deprecated_member_use_from_same_package
       expect(field.decoration?.border, pdfSearchInputBorder);
     });
 

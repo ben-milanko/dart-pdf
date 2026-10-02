@@ -26,11 +26,12 @@ Future<bool> showPdfRemoveSignatureDialog(
           onPressed: () => Navigator.of(context).pop(false),
           child: Text(pdfL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(true),
             child: FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(pdfL10n(context).remove),
-        )),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(pdfL10n(context).remove),
+            )),
       ],
     ),
   );

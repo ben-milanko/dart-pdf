@@ -55,8 +55,14 @@ Future<void> _showDefaultAppSetup(BuildContext context) {
   return showPdfDialog<void>(
     context: context,
     builder: (context) {
+      void close() => Navigator.of(context).pop();
+      void openSettings() {
+        Navigator.of(context).pop();
+        _openDefaultAppsSettings(context);
+      }
+
       final closeButton = TextButton(
-        onPressed: () => Navigator.of(context).pop(),
+        onPressed: close,
         child: Text(appL10n(context).close),
       );
       return AlertDialog(
@@ -64,16 +70,14 @@ Future<void> _showDefaultAppSetup(BuildContext context) {
         content: Text(_defaultAppInstructions(context)),
         actions: [
           if (_canOpenDefaultAppsSettings) closeButton,
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+            onSubmit: _canOpenDefaultAppsSettings ? openSettings : close,
             child: _canOpenDefaultAppsSettings
                 ? FilledButton.icon(
                     key: const ValueKey('default-app-open-settings'),
                     icon: const Icon(Icons.open_in_new),
                     label: Text(appL10n(context).settingsOpenSettings),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      _openDefaultAppsSettings(context);
-                    },
+                    onPressed: openSettings,
                   )
                 : closeButton,
           ),
@@ -199,23 +203,24 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 Text(appL10n(context).settingsAppearance,
                     style: theme.textTheme.titleSmall),
                 const SizedBox(height: 8),
-                SegmentedButton<ThemeMode>(
+                SegmentedButton<PdfThemePreference>(
                   segments: [
                     ButtonSegment(
-                        value: ThemeMode.system,
+                        value: PdfThemePreference.system,
                         icon: const Icon(Icons.brightness_auto),
                         label: Text(appL10n(context).settingsThemeSystem)),
                     ButtonSegment(
-                        value: ThemeMode.light,
+                        value: PdfThemePreference.light,
                         icon: const Icon(Icons.light_mode),
                         label: Text(appL10n(context).settingsThemeLight)),
                     ButtonSegment(
-                        value: ThemeMode.dark,
+                        value: PdfThemePreference.dark,
                         icon: const Icon(Icons.dark_mode),
                         label: Text(appL10n(context).settingsThemeDark)),
                   ],
-                  selected: {widget.prefs.themeMode},
-                  onSelectionChanged: (s) => widget.prefs.themeMode = s.first,
+                  selected: {widget.prefs.themePreference},
+                  onSelectionChanged: (s) =>
+                      widget.prefs.themePreference = s.first,
                 ),
                 const SizedBox(height: 16),
                 Text(appL10n(context).settingsLanguage,
@@ -326,11 +331,12 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         ),
       ),
       actions: [
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(),
             child: TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(appL10n(context).close),
-        )),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(appL10n(context).close),
+            )),
       ],
     );
   }

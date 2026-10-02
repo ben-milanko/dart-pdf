@@ -101,7 +101,7 @@ void main() {
     });
     await tester.pumpWidget(const DartPdfEditorApp());
     await tester.pumpAndSettle();
-    expect(prefsOf(tester).themeMode, ThemeMode.dark);
+    expect(prefsOf(tester).themePreference, PdfThemePreference.dark);
     expect(
       Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
       Brightness.dark,
@@ -119,10 +119,10 @@ void main() {
     MaterialApp app() => tester.widget<MaterialApp>(find.byType(MaterialApp));
 
     expect(brightness(), Brightness.light);
-    prefs.themeMode = ThemeMode.dark;
+    prefs.themePreference = PdfThemePreference.dark;
     await tester.pumpAndSettle();
     expect(brightness(), Brightness.dark);
-    prefs.themeMode = ThemeMode.light;
+    prefs.themePreference = PdfThemePreference.light;
     await tester.pumpAndSettle();
     expect(brightness(), Brightness.light);
 

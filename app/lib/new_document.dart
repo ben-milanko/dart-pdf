@@ -82,16 +82,21 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
             onPressed: () => Navigator.of(context).pop(),
             child: Text(appL10n(context).cancel),
           ),
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: () => Navigator.of(context).pop(
+                    orientation == Orientation.portrait
+                        ? preset.size.portrait
+                        : preset.size.landscape,
+                  ),
               child: FilledButton(
-            key: const ValueKey('new-document-create'),
-            onPressed: () => Navigator.of(context).pop(
-              orientation == Orientation.portrait
-                  ? preset.size.portrait
-                  : preset.size.landscape,
-            ),
-            child: Text(appL10n(context).newDocCreate),
-          )),
+                key: const ValueKey('new-document-create'),
+                onPressed: () => Navigator.of(context).pop(
+                  orientation == Orientation.portrait
+                      ? preset.size.portrait
+                      : preset.size.landscape,
+                ),
+                child: Text(appL10n(context).newDocCreate),
+              )),
         ],
       ),
     ),

@@ -140,11 +140,12 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
             child: FilledButton(
-          onPressed: _submit,
-          child: Text(l10n.ok),
-        )),
+              onPressed: _submit,
+              child: Text(l10n.ok),
+            )),
       ],
     );
   }

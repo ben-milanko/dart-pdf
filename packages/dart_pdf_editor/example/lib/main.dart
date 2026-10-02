@@ -215,7 +215,11 @@ class _ViewerAppState extends State<ViewerApp> {
           brightness: Brightness.dark,
           useMaterial3: true,
         ),
-        themeMode: _prefs.themeMode,
+        themeMode: switch (_prefs.themePreference) {
+          PdfThemePreference.system => ThemeMode.system,
+          PdfThemePreference.light => ThemeMode.light,
+          PdfThemePreference.dark => ThemeMode.dark,
+        },
         home: ViewerScreen(
           prefs: _prefs,
           cacheStore: widget.cacheStore,
@@ -424,11 +428,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Cancel'),
                 ),
-                PdfDialogSubmit(
+                PdfDialogSubmit.action(
+                    onSubmit: () => Navigator.pop(ctx, field.text),
                     child: TextButton(
-                  onPressed: () => Navigator.pop(ctx, field.text),
-                  child: const Text('Save'),
-                )),
+                      onPressed: () => Navigator.pop(ctx, field.text),
+                      child: const Text('Save'),
+                    )),
               ],
             );
           },
@@ -560,10 +565,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   void _cycleTheme() {
-    _prefs.themeMode = switch (_prefs.themeMode) {
-      ThemeMode.system => ThemeMode.light,
-      ThemeMode.light => ThemeMode.dark,
-      ThemeMode.dark => ThemeMode.system,
+    _prefs.themePreference = switch (_prefs.themePreference) {
+      PdfThemePreference.system => PdfThemePreference.light,
+      PdfThemePreference.light => PdfThemePreference.dark,
+      PdfThemePreference.dark => PdfThemePreference.system,
     };
   }
 
@@ -582,10 +587,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Key _pdfShellKey(_DocumentTab tab, String mode) =>
       ValueKey<Object>((tab, mode, _workerConfigEpoch));
 
-  String get _nextThemeLabel => switch (_prefs.themeMode) {
-        ThemeMode.system => appL10n(context).exThemeSystem,
-        ThemeMode.light => appL10n(context).exThemeLight,
-        ThemeMode.dark => appL10n(context).exThemeDark,
+  String get _nextThemeLabel => switch (_prefs.themePreference) {
+        PdfThemePreference.system => appL10n(context).exThemeSystem,
+        PdfThemePreference.light => appL10n(context).exThemeLight,
+        PdfThemePreference.dark => appL10n(context).exThemeDark,
       };
 
   bool get _usesAppleShortcuts =>
@@ -1539,11 +1544,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
               onPressed: () => Navigator.of(context).pop(),
               child: Text(appL10n(context).cancel),
             ),
-            PdfDialogSubmit(
+            PdfDialogSubmit.action(
+                onSubmit: () => Navigator.of(context).pop((format, dpi)),
                 child: FilledButton(
-              onPressed: () => Navigator.of(context).pop((format, dpi)),
-              child: Text(appL10n(context).exExport),
-            )),
+                  onPressed: () => Navigator.of(context).pop((format, dpi)),
+                  child: Text(appL10n(context).exExport),
+                )),
           ],
         ),
       ),
@@ -2142,12 +2148,13 @@ class _OpenUrlDialogState extends State<_OpenUrlDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
             child: FilledButton(
-          key: const ValueKey('open-url-confirm'),
-          onPressed: _submit,
-          child: Text(appL10n(context).exOpen),
-        )),
+              key: const ValueKey('open-url-confirm'),
+              onPressed: _submit,
+              child: Text(appL10n(context).exOpen),
+            )),
       ],
     );
   }
@@ -2265,24 +2272,27 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _run,
             child: FilledButton.icon(
-          key: const ValueKey('ocr-run'),
-          icon: const Icon(Icons.document_scanner_outlined),
-          label: Text(appL10n(context).exRunOcr),
-          onPressed: () {
-            final endpoint = _endpoint.text.trim();
-            if (endpoint.isEmpty) return;
-            final key = _apiKey.text.trim();
-            Navigator.of(context).pop(_OcrSettings(
-              endpoint: endpoint,
-              model: _model.text.trim(),
-              apiKey: key.isEmpty ? null : key,
-            ));
-          },
-        )),
+              key: const ValueKey('ocr-run'),
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: Text(appL10n(context).exRunOcr),
+              onPressed: _run,
+            )),
       ],
     );
+  }
+
+  void _run() {
+    final endpoint = _endpoint.text.trim();
+    if (endpoint.isEmpty) return;
+    final key = _apiKey.text.trim();
+    Navigator.of(context).pop(_OcrSettings(
+      endpoint: endpoint,
+      model: _model.text.trim(),
+      apiKey: key.isEmpty ? null : key,
+    ));
   }
 }
 

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
-    show pdfFloatingToastMargin, pdfSearchInputBorder;
+    show pdfFloatingToastMargin, pdfSearchFieldBorderRadius;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -336,7 +336,8 @@ class _RecentSearchField extends StatelessWidget {
                   onPressed: controller.clear,
                   icon: const Icon(Icons.close),
                 ),
-          border: pdfSearchInputBorder,
+          border: const OutlineInputBorder(
+              borderRadius: pdfSearchFieldBorderRadius),
           isDense: true,
         ),
       );

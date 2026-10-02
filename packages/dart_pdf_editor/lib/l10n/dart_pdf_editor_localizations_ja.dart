@@ -2208,4 +2208,62 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => '複数選択を許可';
+
+  @override
+  String get searchFieldHint => '検索';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'ドキュメントを開けませんでした: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'ページをエクスポート';
+
+  @override
+  String get pageRangeExportConfirm => 'エクスポート';
+
+  @override
+  String get textStyleKeepFont => '変更しない';
+
+  @override
+  String get guidesDialogTitle => 'ガイド、スナップ、定規';
+
+  @override
+  String get guidesSmartAlignment => 'スマート整列ガイド';
+
+  @override
+  String get guidesPageRulers => 'ページ定規';
+
+  @override
+  String get guidesPageRulersHint => 'ページの端にポイント単位の寸法を表示';
+
+  @override
+  String get guidesVerticalCursorLine => '垂直カーソル線';
+
+  @override
+  String get guidesHorizontalCursorLine => '水平カーソル線';
+
+  @override
+  String get guidesSnapToGrid => 'グリッドにスナップ';
+
+  @override
+  String get guidesSnapToGridHint => 'Alt キーを押している間はスナップしません';
+
+  @override
+  String get guidesShowGrid => 'グリッド線を表示';
+
+  @override
+  String get guidesShowGridHint => '表示のみ。PDF には追加されません';
+
+  @override
+  String get guidesGridSpacing => 'グリッド間隔';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'カーソルガイドとグリッド';
 }

@@ -2,20 +2,39 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Locale, ThemeMode;
+// Only for the deprecated [PdfEditingPreferences.themeMode], removed in 6.0.
+// tool/check_design_imports.dart allows exactly this show list here.
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
-import 'editing_color_picker.dart' show PdfColorFormat;
-import 'editing_panel.dart' show PdfDockablePanel, PdfPanelDock;
 import 'line_style.dart';
-import 'editing_measure.dart';
+import 'models/color_format.dart';
+import 'models/custom_stamp.dart';
+import 'models/ink_signature.dart';
+import 'models/measurement_scale.dart';
+import 'models/panel_dock.dart';
 import 'saved_annotation.dart';
-import 'editing_signature.dart';
-import 'editing_stamps.dart';
+
+/// The app theme a host runs the editor UI in, as the user chose it:
+/// follow the platform's brightness, or force light or dark. Persisted by
+/// [PdfEditingPreferences.themePreference].
+///
+/// The editor's own enum rather than Material's `ThemeMode`, so the
+/// preferences stay design-system neutral. A Material host maps it in one
+/// line:
+///
+/// ```dart
+/// themeMode: switch (prefs.themePreference) {
+///   PdfThemePreference.system => ThemeMode.system,
+///   PdfThemePreference.light => ThemeMode.light,
+///   PdfThemePreference.dark => ThemeMode.dark,
+/// },
+/// ```
+enum PdfThemePreference { system, light, dark }
 
 /// Which surface owns the document area: fixed-layout pages, the inferred
 /// text reflow view, or the full-area page grid. Exactly one at a time -
@@ -167,7 +186,7 @@ class PdfEditingPreferences extends ChangeNotifier
   List<PdfCustomStamp> _customStamps = const [];
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
-  ThemeMode _themeMode = ThemeMode.system;
+  PdfThemePreference _themePreference = PdfThemePreference.system;
   Locale? _locale;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   List<Color> _recentColors = const [];
@@ -365,9 +384,13 @@ class PdfEditingPreferences extends ChangeNotifier
               decoded,
         ]);
       }
-      final themeMode = store.getString('${_prefix}themeMode');
-      if (themeMode != null) {
-        _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
+      // Stored under the key the deprecated ThemeMode-typed member used:
+      // both enums name their values system/light/dark, so a choice saved by
+      // an older build reads straight back.
+      final theme = store.getString('${_prefix}themeMode');
+      if (theme != null) {
+        _themePreference =
+            PdfThemePreference.values.asNameMap()[theme] ?? _themePreference;
       }
       final locale = store.getString('${_prefix}locale');
       if (locale != null && locale.isNotEmpty) {
@@ -1177,16 +1200,35 @@ class PdfEditingPreferences extends ChangeNotifier
   }
 
   /// The app theme the host runs the viewer UI in. The viewer and the
-  /// stock chrome all follow the ambient [Theme]; this just remembers
-  /// the user's choice for the host's `MaterialApp.themeMode`.
-  ThemeMode get themeMode => _themeMode;
+  /// stock chrome all follow the ambient theme; this just remembers the
+  /// user's choice for the host to apply (for a `MaterialApp`, map it onto
+  /// `themeMode` - see [PdfThemePreference]).
+  PdfThemePreference get themePreference => _themePreference;
 
-  set themeMode(ThemeMode value) {
-    if (value == _themeMode) return;
-    _themeMode = value;
+  set themePreference(PdfThemePreference value) {
+    if (value == _themePreference) return;
+    _themePreference = value;
     _write((s) => s.setString('${_prefix}themeMode', value.name));
     notifyListeners();
   }
+
+  /// [themePreference] as Material's `ThemeMode`.
+  @Deprecated('Use themePreference, the design-system-neutral '
+      'PdfThemePreference, and map it to ThemeMode in the host. '
+      'Removed in 6.0.0.')
+  ThemeMode get themeMode => switch (_themePreference) {
+        PdfThemePreference.system => ThemeMode.system,
+        PdfThemePreference.light => ThemeMode.light,
+        PdfThemePreference.dark => ThemeMode.dark,
+      };
+
+  @Deprecated('Use themePreference, the design-system-neutral '
+      'PdfThemePreference. Removed in 6.0.0.')
+  set themeMode(ThemeMode value) => themePreference = switch (value) {
+        ThemeMode.system => PdfThemePreference.system,
+        ThemeMode.light => PdfThemePreference.light,
+        ThemeMode.dark => PdfThemePreference.dark,
+      };
 
   /// The UI language the user picked in Settings, or null (the default) to
   /// follow the platform locale. A host feeds this to its `MaterialApp`

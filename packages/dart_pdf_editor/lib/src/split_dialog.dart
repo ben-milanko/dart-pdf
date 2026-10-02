@@ -96,12 +96,13 @@ class _SplitDialogState extends State<_SplitDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
             child: FilledButton(
-          key: const ValueKey('pdf-split-confirm'),
-          onPressed: _submit,
-          child: Text(l10n.splitConfirm),
-        )),
+              key: const ValueKey('pdf-split-confirm'),
+              onPressed: _submit,
+              child: Text(l10n.splitConfirm),
+            )),
       ],
     );
   }

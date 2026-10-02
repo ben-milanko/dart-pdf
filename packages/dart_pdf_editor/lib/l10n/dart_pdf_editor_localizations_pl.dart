@@ -2274,4 +2274,65 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Zezwalaj na wielokrotny wybór';
+
+  @override
+  String get searchFieldHint => 'Szukaj';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Nie można otworzyć dokumentu: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Eksportuj strony';
+
+  @override
+  String get pageRangeExportConfirm => 'Eksportuj';
+
+  @override
+  String get textStyleKeepFont => 'Zachowaj';
+
+  @override
+  String get guidesDialogTitle => 'Prowadnice, przyciąganie i linijki';
+
+  @override
+  String get guidesSmartAlignment => 'Inteligentne prowadnice wyrównania';
+
+  @override
+  String get guidesPageRulers => 'Linijki strony';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Pokazuj wymiary w punktach przy krawędziach strony';
+
+  @override
+  String get guidesVerticalCursorLine => 'Pionowa linia kursora';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Pozioma linia kursora';
+
+  @override
+  String get guidesSnapToGrid => 'Przyciągaj do siatki';
+
+  @override
+  String get guidesSnapToGridHint =>
+      'Przytrzymaj Alt, aby pominąć przyciąganie';
+
+  @override
+  String get guidesShowGrid => 'Pokaż linie siatki';
+
+  @override
+  String get guidesShowGridHint =>
+      'Tylko na ekranie; nie jest dodawana do pliku PDF';
+
+  @override
+  String get guidesGridSpacing => 'Odstęp siatki';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pkt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Prowadnice kursora i siatka';
 }

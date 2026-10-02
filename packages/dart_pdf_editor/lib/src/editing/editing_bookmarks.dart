@@ -556,12 +556,13 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
             onPressed: () => Navigator.of(context).pop(),
             child: Text(pdfL10n(context).cancel),
           ),
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: _save,
               child: FilledButton(
-            key: const ValueKey('pdf-bookmark-save'),
-            onPressed: _save,
-            child: Text(pdfL10n(context).save),
-          )),
+                key: const ValueKey('pdf-bookmark-save'),
+                onPressed: _save,
+                child: Text(pdfL10n(context).save),
+              )),
         ],
       );
 }

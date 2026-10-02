@@ -66,7 +66,7 @@ Future<void> showPdfEditingGuidesDialog(
   await showPdfDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Guides, snapping and rulers'),
+      title: Text(pdfL10n(context).guidesDialogTitle),
       contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       content: SizedBox(
         width: 360,
@@ -79,7 +79,7 @@ Future<void> showPdfEditingGuidesDialog(
                 SwitchListTile(
                   key: const ValueKey('pdf-smart-alignment-guides'),
                   secondary: const Icon(Icons.align_horizontal_center),
-                  title: const Text('Smart alignment guides'),
+                  title: Text(pdfL10n(context).guidesSmartAlignment),
                   subtitle: Text(pdfL10n(context).guidesSnapHint),
                   value: preferences.smartAlignmentGuides,
                   onChanged: (value) =>
@@ -88,8 +88,8 @@ Future<void> showPdfEditingGuidesDialog(
                 SwitchListTile(
                   key: const ValueKey('pdf-page-rulers'),
                   secondary: const Icon(Icons.straighten),
-                  title: const Text('Page rulers'),
-                  subtitle: const Text('Show point measurements at page edges'),
+                  title: Text(pdfL10n(context).guidesPageRulers),
+                  subtitle: Text(pdfL10n(context).guidesPageRulersHint),
                   value: preferences.showPageRulers,
                   onChanged: (value) => preferences.showPageRulers = value,
                 ),
@@ -97,7 +97,7 @@ Future<void> showPdfEditingGuidesDialog(
                 SwitchListTile(
                   key: const ValueKey('pdf-cursor-guide-vertical'),
                   secondary: const Icon(Icons.vertical_align_center),
-                  title: const Text('Vertical cursor line'),
+                  title: Text(pdfL10n(context).guidesVerticalCursorLine),
                   value: preferences.showVerticalCursorGuide,
                   onChanged: (value) =>
                       preferences.showVerticalCursorGuide = value,
@@ -105,7 +105,7 @@ Future<void> showPdfEditingGuidesDialog(
                 SwitchListTile(
                   key: const ValueKey('pdf-cursor-guide-horizontal'),
                   secondary: const Icon(Icons.horizontal_rule),
-                  title: const Text('Horizontal cursor line'),
+                  title: Text(pdfL10n(context).guidesHorizontalCursorLine),
                   value: preferences.showHorizontalCursorGuide,
                   onChanged: (value) =>
                       preferences.showHorizontalCursorGuide = value,
@@ -114,9 +114,9 @@ Future<void> showPdfEditingGuidesDialog(
                 SwitchListTile(
                   key: const ValueKey('pdf-grid-snap'),
                   secondary: const Icon(Icons.grid_4x4),
-                  title: const Text('Snap to grid'),
+                  title: Text(pdfL10n(context).guidesSnapToGrid),
                   subtitle: PdfKeyboardAvailability.of(context)
-                      ? const Text('Hold Alt to bypass snapping')
+                      ? Text(pdfL10n(context).guidesSnapToGridHint)
                       : null,
                   value: preferences.snapToGrid,
                   onChanged: (value) => preferences.snapToGrid = value,
@@ -124,15 +124,15 @@ Future<void> showPdfEditingGuidesDialog(
                 SwitchListTile(
                   key: const ValueKey('pdf-grid-visible'),
                   secondary: const Icon(Icons.grid_on_outlined),
-                  title: const Text('Show grid lines'),
-                  subtitle: const Text('Display only; not added to the PDF'),
+                  title: Text(pdfL10n(context).guidesShowGrid),
+                  subtitle: Text(pdfL10n(context).guidesShowGridHint),
                   value: preferences.showSnapGrid,
                   onChanged: (value) => preferences.showSnapGrid = value,
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                   child: Row(children: [
-                    const Text('Grid spacing'),
+                    Text(pdfL10n(context).guidesGridSpacing),
                     Expanded(
                       child: Slider(
                         key: const ValueKey('pdf-grid-spacing'),
@@ -140,14 +140,16 @@ Future<void> showPdfEditingGuidesDialog(
                         min: 1,
                         max: 144,
                         divisions: 143,
-                        label: '${spacingLabel(preferences.gridSpacing)} pt',
+                        label: pdfL10n(context).guidesGridSpacingValue(
+                            spacingLabel(preferences.gridSpacing)),
                         onChanged: (value) => preferences.gridSpacing = value,
                       ),
                     ),
                     SizedBox(
                       width: 48,
                       child: Text(
-                        '${spacingLabel(preferences.gridSpacing)} pt',
+                        pdfL10n(context).guidesGridSpacingValue(
+                            spacingLabel(preferences.gridSpacing)),
                         textAlign: TextAlign.end,
                       ),
                     ),
@@ -159,12 +161,13 @@ Future<void> showPdfEditingGuidesDialog(
         ),
       ),
       actions: [
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(),
             child: TextButton(
-          key: const ValueKey('pdf-guides-done'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(pdfL10n(context).done),
-        )),
+              key: const ValueKey('pdf-guides-done'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(pdfL10n(context).done),
+            )),
       ],
     ),
   );
@@ -1455,12 +1458,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(pdfL10n(context).cancel),
           ),
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: () => Navigator.of(context).pop(true),
               child: FilledButton(
-            key: const ValueKey('pdf-redaction-confirm-apply'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(pdfL10n(context).apply),
-          )),
+                key: const ValueKey('pdf-redaction-confirm-apply'),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(pdfL10n(context).apply),
+              )),
         ],
       ),
     );

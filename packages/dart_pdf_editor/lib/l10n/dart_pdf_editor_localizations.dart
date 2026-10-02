@@ -4047,6 +4047,114 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Allow multiple selections'**
   String get formOptionsMultiSelect;
+
+  /// Placeholder in the compact document-search field in the header bar.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get searchFieldHint;
+
+  /// Default error shown when a progressively loaded (streamed) PDF cannot be opened. {error} is the technical error message.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open document: {error}'**
+  String progressiveOpenFailed(String error);
+
+  /// Default title of the page-range dialog used to export a range of pages.
+  ///
+  /// In en, this message translates to:
+  /// **'Export pages'**
+  String get pageRangeExportTitle;
+
+  /// Default confirm button of the page-range export dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Export'**
+  String get pageRangeExportConfirm;
+
+  /// Font button label in the styled-text dialog while the font is left untouched (the text keeps its existing font). Capitalized; compare textStyleKeep, the lowercase size placeholder.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep'**
+  String get textStyleKeepFont;
+
+  /// Title of the editing guides settings dialog (smart guides, rulers, cursor lines, grid).
+  ///
+  /// In en, this message translates to:
+  /// **'Guides, snapping and rulers'**
+  String get guidesDialogTitle;
+
+  /// Switch in the guides dialog: show alignment guides and snap annotations to other annotations while dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Smart alignment guides'**
+  String get guidesSmartAlignment;
+
+  /// Switch in the guides dialog: show rulers along the page edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Page rulers'**
+  String get guidesPageRulers;
+
+  /// Subtitle of the page rulers switch; 'point' is the PDF unit (1/72 inch).
+  ///
+  /// In en, this message translates to:
+  /// **'Show point measurements at page edges'**
+  String get guidesPageRulersHint;
+
+  /// Switch in the guides dialog: draw a vertical line through the pointer across the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical cursor line'**
+  String get guidesVerticalCursorLine;
+
+  /// Switch in the guides dialog: draw a horizontal line through the pointer across the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal cursor line'**
+  String get guidesHorizontalCursorLine;
+
+  /// Switch in the guides dialog: snap drawn and moved annotations to a grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Snap to grid'**
+  String get guidesSnapToGrid;
+
+  /// Subtitle of the snap-to-grid switch (keyboard hosts only). Alt temporarily disables snapping.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold Alt to bypass snapping'**
+  String get guidesSnapToGridHint;
+
+  /// Switch in the guides dialog: draw the snap grid over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Show grid lines'**
+  String get guidesShowGrid;
+
+  /// Subtitle of the grid lines switch: the grid is only drawn on screen, never written into the document.
+  ///
+  /// In en, this message translates to:
+  /// **'Display only; not added to the PDF'**
+  String get guidesShowGridHint;
+
+  /// Label of the grid spacing slider in the guides dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid spacing'**
+  String get guidesGridSpacing;
+
+  /// Grid spacing value; 'pt' is the PDF point unit (1/72 inch). {value} is a number such as 12 or 7.5.
+  ///
+  /// In en, this message translates to:
+  /// **'{value} pt'**
+  String guidesGridSpacingValue(String value);
+
+  /// View options entry that opens the guides, snapping and rulers settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor guides and grid'**
+  String get shellCursorGuidesAndGrid;
 }
 
 class _DartPdfEditorLocalizationsDelegate

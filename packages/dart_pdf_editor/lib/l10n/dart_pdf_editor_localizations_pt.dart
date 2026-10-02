@@ -2238,4 +2238,64 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Permitir seleção múltipla';
+
+  @override
+  String get searchFieldHint => 'Pesquisar';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Não foi possível abrir o documento: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Exportar páginas';
+
+  @override
+  String get pageRangeExportConfirm => 'Exportar';
+
+  @override
+  String get textStyleKeepFont => 'Manter';
+
+  @override
+  String get guidesDialogTitle => 'Guias, ajuste e réguas';
+
+  @override
+  String get guidesSmartAlignment => 'Guias de alinhamento inteligentes';
+
+  @override
+  String get guidesPageRulers => 'Réguas da página';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Mostrar medidas em pontos nas bordas da página';
+
+  @override
+  String get guidesVerticalCursorLine => 'Linha vertical do cursor';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Linha horizontal do cursor';
+
+  @override
+  String get guidesSnapToGrid => 'Ajustar à grade';
+
+  @override
+  String get guidesSnapToGridHint =>
+      'Mantenha Alt pressionado para ignorar o ajuste';
+
+  @override
+  String get guidesShowGrid => 'Mostrar linhas da grade';
+
+  @override
+  String get guidesShowGridHint => 'Apenas exibição; não é adicionada ao PDF';
+
+  @override
+  String get guidesGridSpacing => 'Espaçamento da grade';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Guias do cursor e grade';
 }

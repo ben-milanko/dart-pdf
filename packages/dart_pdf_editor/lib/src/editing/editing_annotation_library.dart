@@ -609,11 +609,12 @@ class PdfAnnotationLibraryDialog extends StatelessWidget {
           icon: const Icon(Icons.approval_outlined),
           label: Text(pdfL10n(context).annotationLibraryCustomStamps),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(),
             child: TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(pdfL10n(context).close),
-        )),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(pdfL10n(context).close),
+            )),
       ],
     );
   }

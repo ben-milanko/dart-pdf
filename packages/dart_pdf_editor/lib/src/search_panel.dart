@@ -52,6 +52,9 @@ class PdfSearchField extends StatefulWidget {
   /// Optional focus node, for a host-level ⌘F shortcut.
   final FocusNode? focusNode;
 
+  /// The field's placeholder. The default, `'Search'`, shows the localized
+  /// word ([DartPdfEditorLocalizations.searchFieldHint]); any other value is
+  /// shown as given.
   final String hintText;
 
   @override
@@ -120,14 +123,17 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
               controller: _field,
               focusNode: widget.focusNode,
               decoration: InputDecoration(
-                hintText: widget.hintText,
+                hintText: widget.hintText == 'Search'
+                    ? pdfL10n(context).searchFieldHint
+                    : widget.hintText,
                 prefixIcon: const Icon(Icons.search, size: 18),
                 prefixIconConstraints:
                     const BoxConstraints(minWidth: 32, minHeight: 32),
                 isDense: true,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border: pdfSearchInputBorder,
+                border: const OutlineInputBorder(
+                    borderRadius: pdfSearchFieldBorderRadius),
                 suffixIcon: controller.isSearching
                     ? const Padding(
                         padding: EdgeInsets.all(8),

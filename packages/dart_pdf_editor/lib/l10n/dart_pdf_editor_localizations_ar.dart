@@ -2276,4 +2276,62 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'السماح بتحديدات متعددة';
+
+  @override
+  String get searchFieldHint => 'بحث';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'تعذر فتح المستند: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'تصدير الصفحات';
+
+  @override
+  String get pageRangeExportConfirm => 'تصدير';
+
+  @override
+  String get textStyleKeepFont => 'إبقاء';
+
+  @override
+  String get guidesDialogTitle => 'الأدلة والمحاذاة والمساطر';
+
+  @override
+  String get guidesSmartAlignment => 'أدلة المحاذاة الذكية';
+
+  @override
+  String get guidesPageRulers => 'مساطر الصفحة';
+
+  @override
+  String get guidesPageRulersHint => 'إظهار القياسات بالنقاط عند حواف الصفحة';
+
+  @override
+  String get guidesVerticalCursorLine => 'خط المؤشر العمودي';
+
+  @override
+  String get guidesHorizontalCursorLine => 'خط المؤشر الأفقي';
+
+  @override
+  String get guidesSnapToGrid => 'المحاذاة إلى الشبكة';
+
+  @override
+  String get guidesSnapToGridHint => 'اضغط مطولاً على Alt لتجاوز المحاذاة';
+
+  @override
+  String get guidesShowGrid => 'إظهار خطوط الشبكة';
+
+  @override
+  String get guidesShowGridHint => 'للعرض فقط؛ لا تُضاف إلى ملف PDF';
+
+  @override
+  String get guidesGridSpacing => 'تباعد الشبكة';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value نقطة';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'أدلة المؤشر والشبكة';
 }

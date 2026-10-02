@@ -205,11 +205,12 @@ class _WhatsNewDialogState extends State<_WhatsNewDialog> {
         ),
       ),
       actions: [
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(),
             child: TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(appL10n(context).close),
-        )),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(appL10n(context).close),
+            )),
       ],
     );
   }

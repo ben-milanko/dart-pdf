@@ -5,22 +5,9 @@ import 'package:flutter/services.dart';
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
+import 'models/color_format.dart';
 
-/// The value-entry formats [PdfColorPicker] can show: hex (the default),
-/// RGB (0–255), HSL (degrees and percentages), and CMYK (percentages -
-/// a naive device conversion for entry and display; the committed color
-/// is still RGB, no color management is applied).
-enum PdfColorFormat {
-  hex('HEX'),
-  rgb('RGB'),
-  hsl('HSL'),
-  cmyk('CMYK');
-
-  const PdfColorFormat(this.label);
-
-  /// The switcher's display name.
-  final String label;
-}
+export 'models/color_format.dart';
 
 /// A compact full-spectrum color picker: a saturation/value area, a hue
 /// slider, a value row - hex, RGB, HSL, or CMYK, switchable - kept in
@@ -642,11 +629,12 @@ Future<Color?> showPdfColorPicker(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(current),
             child: FilledButton(
-          onPressed: () => Navigator.of(context).pop(current),
-          child: Text(pdfL10n(context).ok),
-        )),
+              onPressed: () => Navigator.of(context).pop(current),
+              child: Text(pdfL10n(context).ok),
+            )),
       ],
     ),
   );

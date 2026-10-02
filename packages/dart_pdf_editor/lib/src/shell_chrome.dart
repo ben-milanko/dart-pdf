@@ -1589,7 +1589,8 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
                     isDense: true,
                     prefixIcon: const Icon(Icons.search),
                     hintText: pdfL10n(context).shellShortcutsSearchHint,
-                    border: pdfSearchInputBorder,
+                    border: const OutlineInputBorder(
+                        borderRadius: pdfSearchFieldBorderRadius),
                   ),
                   onChanged: (value) =>
                       setSheetState(() => searchQuery = value),
@@ -1863,7 +1864,7 @@ Future<void> showPdfShellViewOptionsSheet(
                 ListTile(
                   key: const ValueKey('pdf-shell-editing-guides'),
                   leading: const Icon(Icons.grid_4x4),
-                  title: const Text('Cursor guides and grid'),
+                  title: Text(pdfL10n(context).shellCursorGuidesAndGrid),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
                     await _selectViewOption(
@@ -2196,13 +2197,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             ),
           ),
         if (editingGuides)
-          const PopupMenuItem(
-            key: ValueKey('pdf-shell-editing-guides'),
+          PopupMenuItem(
+            key: const ValueKey('pdf-shell-editing-guides'),
             value: _ViewOption.editingGuides,
             child: ListTile(
-              leading: Icon(Icons.grid_4x4),
-              title: Text('Guides, snapping and rulers'),
-              trailing: Icon(Icons.chevron_right),
+              leading: const Icon(Icons.grid_4x4),
+              title: Text(pdfL10n(context).guidesDialogTitle),
+              trailing: const Icon(Icons.chevron_right),
               contentPadding: EdgeInsets.zero,
             ),
           ),

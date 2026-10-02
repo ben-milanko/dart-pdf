@@ -542,7 +542,12 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                               onPressed: () => Navigator.of(context).pop(),
                               child: Text(l10n.cancel)),
                           const SizedBox(width: 8),
-                          PdfDialogSubmit(
+                          PdfDialogSubmit.action(
+                              onSubmit: _addingFiles ||
+                                      _loadingPreferences ||
+                                      !_printerReady
+                                  ? null
+                                  : _print,
                               child: FilledButton(
                                   key: const ValueKey('print-preview-print'),
                                   onPressed: _addingFiles ||

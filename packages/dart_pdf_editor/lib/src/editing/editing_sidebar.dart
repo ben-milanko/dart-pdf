@@ -324,7 +324,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 tooltip: pdfL10n(context).sidebarClearSearch,
                 onPressed: () => setState(_search.clear),
               ),
-        border: pdfSearchInputBorder,
+        border:
+            const OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius),
       ),
     );
     return Padding(

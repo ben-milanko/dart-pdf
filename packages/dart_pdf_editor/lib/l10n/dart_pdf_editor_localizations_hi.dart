@@ -2232,4 +2232,63 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'एकाधिक चयन की अनुमति दें';
+
+  @override
+  String get searchFieldHint => 'खोजें';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'दस्तावेज़ नहीं खोला जा सका: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'पृष्ठ एक्सपोर्ट करें';
+
+  @override
+  String get pageRangeExportConfirm => 'एक्सपोर्ट करें';
+
+  @override
+  String get textStyleKeepFont => 'रखें';
+
+  @override
+  String get guidesDialogTitle => 'गाइड, स्नैपिंग और रूलर';
+
+  @override
+  String get guidesSmartAlignment => 'स्मार्ट संरेखण गाइड';
+
+  @override
+  String get guidesPageRulers => 'पृष्ठ रूलर';
+
+  @override
+  String get guidesPageRulersHint => 'पृष्ठ के किनारों पर पॉइंट में माप दिखाएँ';
+
+  @override
+  String get guidesVerticalCursorLine => 'लंबवत कर्सर रेखा';
+
+  @override
+  String get guidesHorizontalCursorLine => 'क्षैतिज कर्सर रेखा';
+
+  @override
+  String get guidesSnapToGrid => 'ग्रिड पर स्नैप करें';
+
+  @override
+  String get guidesSnapToGridHint => 'स्नैपिंग छोड़ने के लिए Alt दबाए रखें';
+
+  @override
+  String get guidesShowGrid => 'ग्रिड रेखाएँ दिखाएँ';
+
+  @override
+  String get guidesShowGridHint =>
+      'केवल प्रदर्शन के लिए; PDF में नहीं जोड़ा जाता';
+
+  @override
+  String get guidesGridSpacing => 'ग्रिड अंतराल';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'कर्सर गाइड और ग्रिड';
 }

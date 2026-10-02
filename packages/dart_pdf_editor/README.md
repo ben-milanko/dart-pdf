@@ -321,6 +321,44 @@ Encrypted sources produce **unencrypted outputs**. See the
 [core splitting API](../pdf_document/README.md#splitting-and-extracting-pages)
 for the bytes-only `PdfSplitter` facade and full extraction semantics.
 
+## Customising the UI
+
+The stock chrome draws Material Icons, so the host app's `pubspec.yaml` must
+bundle that font:
+
+```yaml
+flutter:
+  uses-material-design: true
+```
+
+Register the editor's localizations so its strings follow the app's locale
+(without them it falls back to English). `localizationsDelegates` carries the
+editor's delegate plus Flutter's Material, Cupertino and widgets delegates:
+
+```dart
+MaterialApp(
+  localizationsDelegates: DartPdfEditorLocalizations.localizationsDelegates,
+  supportedLocales: DartPdfEditorLocalizations.supportedLocales,
+  // If the app has its own gen-l10n bundle, list both:
+  // localizationsDelegates: [
+  //   ...AppLocalizations.localizationsDelegates,
+  //   DartPdfEditorLocalizations.delegate,
+  // ],
+  themeMode: switch (prefs.themePreference) {
+    PdfThemePreference.system => ThemeMode.system,
+    PdfThemePreference.light => ThemeMode.light,
+    PdfThemePreference.dark => ThemeMode.dark,
+  },
+  home: ...,
+)
+```
+
+`PdfEditingPreferences.themePreference` is the user's saved theme choice in
+a design-system-neutral enum; the `ThemeMode`-typed `themeMode` is
+deprecated. Your own dialogs opened with `showPdfDialog` get Enter-to-submit
+by wrapping the primary action in `PdfDialogSubmit.action(onSubmit: ...,
+child: ...)`, which takes any widget.
+
 ## Composing your own UI
 
 `PdfEditorView` and `PdfReader` are assembled from public parts:

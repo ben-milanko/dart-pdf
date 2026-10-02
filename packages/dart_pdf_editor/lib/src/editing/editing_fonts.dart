@@ -478,7 +478,8 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                   isDense: true,
                   prefixIcon: const Icon(Icons.search),
                   hintText: pdfL10n(context).propSearchFonts,
-                  border: pdfSearchInputBorder,
+                  border: const OutlineInputBorder(
+                      borderRadius: pdfSearchFieldBorderRadius),
                 ),
               ),
               const SizedBox(height: 8),
