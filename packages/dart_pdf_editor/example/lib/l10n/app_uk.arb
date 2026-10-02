@@ -120,5 +120,16 @@
   "exFileTypePdf": "Документи PDF",
   "exFileTypeImages": "Зображення",
   "exFileTypeFonts": "Шрифти",
-  "exExtractedTitle": "{title} - частина {part}.pdf"
+  "exExtractedTitle": "{title} - частина {part}.pdf",
+  "exUseCupertinoDesign": "Перейти на дизайн Cupertino",
+  "exSettings": "Налаштування",
+  "exDesignSection": "Дизайн",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Під час перемикання відкриті документи й незбережені зміни зберігаються.",
+  "exAppearanceSection": "Вигляд",
+  "exAppearanceSystem": "Системний",
+  "exAppearanceLight": "Світлий",
+  "exAppearanceDark": "Темний",
+  "exOpenDocumentsSection": "Відкриті документи"
 }

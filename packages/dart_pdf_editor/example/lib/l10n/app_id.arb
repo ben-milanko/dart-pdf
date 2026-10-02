@@ -120,5 +120,16 @@
   "exFileTypePdf": "Dokumen PDF",
   "exFileTypeImages": "Gambar",
   "exFileTypeFonts": "Font",
-  "exExtractedTitle": "{title} - bagian {part}.pdf"
+  "exExtractedTitle": "{title} - bagian {part}.pdf",
+  "exUseCupertinoDesign": "Beralih ke desain Cupertino",
+  "exSettings": "Pengaturan",
+  "exDesignSection": "Desain",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Beralih tetap mempertahankan dokumen yang terbuka dan perubahan yang belum disimpan.",
+  "exAppearanceSection": "Tampilan",
+  "exAppearanceSystem": "Sistem",
+  "exAppearanceLight": "Terang",
+  "exAppearanceDark": "Gelap",
+  "exOpenDocumentsSection": "Dokumen terbuka"
 }

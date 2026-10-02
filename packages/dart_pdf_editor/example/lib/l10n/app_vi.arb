@@ -120,5 +120,16 @@
   "exFileTypePdf": "Tài liệu PDF",
   "exFileTypeImages": "Hình ảnh",
   "exFileTypeFonts": "Phông chữ",
-  "exExtractedTitle": "{title} - phần {part}.pdf"
+  "exExtractedTitle": "{title} - phần {part}.pdf",
+  "exUseCupertinoDesign": "Chuyển sang thiết kế Cupertino",
+  "exSettings": "Cài đặt",
+  "exDesignSection": "Thiết kế",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Khi chuyển, các tài liệu đang mở và chỉnh sửa chưa lưu vẫn được giữ nguyên.",
+  "exAppearanceSection": "Giao diện",
+  "exAppearanceSystem": "Hệ thống",
+  "exAppearanceLight": "Sáng",
+  "exAppearanceDark": "Tối",
+  "exOpenDocumentsSection": "Tài liệu đang mở"
 }

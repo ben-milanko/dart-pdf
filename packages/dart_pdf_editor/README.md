@@ -693,8 +693,13 @@ mount on its own (a `PdfEditingToolbar` next to your own viewer) in
 [`example/lib/cupertino_host.dart`](example/lib/cupertino_host.dart) puts the
 layers together: a `CupertinoApp` whose nav bar is built from the header
 parts, whose toolbar is built from the command catalog, and whose presenter
-is `PdfCupertinoPresenter` (`flutter run -t lib/cupertino_host.dart` in
-`example/`).
+is `PdfCupertinoPresenter`. The example switches to it at runtime (app menu >
+"Switch to Cupertino design", and back from the Cupertino Settings page);
+the open documents and their unsaved edits carry over because the edit
+sessions live above the app root, in
+[`example/lib/workspace.dart`](example/lib/workspace.dart).
+`flutter run -t lib/cupertino_host.dart` in `example/` starts it in
+Cupertino.
 
 ### 5. Headless
 

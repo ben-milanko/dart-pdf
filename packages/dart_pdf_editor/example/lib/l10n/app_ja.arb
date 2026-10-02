@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF ドキュメント",
   "exFileTypeImages": "画像",
   "exFileTypeFonts": "フォント",
-  "exExtractedTitle": "{title} - パート{part}.pdf"
+  "exExtractedTitle": "{title} - パート{part}.pdf",
+  "exUseCupertinoDesign": "Cupertino デザインに切り替え",
+  "exSettings": "設定",
+  "exDesignSection": "デザイン",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "切り替えても、開いている書類と未保存の編集はそのまま残ります。",
+  "exAppearanceSection": "外観",
+  "exAppearanceSystem": "システム",
+  "exAppearanceLight": "ライト",
+  "exAppearanceDark": "ダーク",
+  "exOpenDocumentsSection": "開いている書類"
 }

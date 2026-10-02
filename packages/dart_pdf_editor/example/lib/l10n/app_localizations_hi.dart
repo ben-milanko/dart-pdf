@@ -444,4 +444,38 @@ class AppLocalizationsHi extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - भाग $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Cupertino डिज़ाइन पर जाएँ';
+
+  @override
+  String get exSettings => 'सेटिंग्स';
+
+  @override
+  String get exDesignSection => 'डिज़ाइन';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'बदलने पर खुले दस्तावेज़ और बिना सहेजे बदलाव बने रहते हैं।';
+
+  @override
+  String get exAppearanceSection => 'रूप';
+
+  @override
+  String get exAppearanceSystem => 'सिस्टम';
+
+  @override
+  String get exAppearanceLight => 'लाइट';
+
+  @override
+  String get exAppearanceDark => 'डार्क';
+
+  @override
+  String get exOpenDocumentsSection => 'खुले दस्तावेज़';
 }

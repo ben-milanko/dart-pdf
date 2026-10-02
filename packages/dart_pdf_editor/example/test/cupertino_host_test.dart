@@ -1,14 +1,17 @@
-// The Cupertino host example: the editor in a CupertinoApp with a nav bar
-// built from PdfHeaderParts, a toolbar from the command catalog, and a
-// Cupertino presenter - the acceptance test for the 5.x UI seams.
+// The example's Cupertino design: the editor in a CupertinoApp with a nav
+// bar built from PdfHeaderParts, a toolbar from the command catalog, and a
+// Cupertino presenter - the acceptance test for the 5.x UI seams. Started
+// straight into Cupertino, the way `-t lib/cupertino_host.dart` does.
 
 import 'package:dart_pdf_editor/cupertino.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfMemoryCacheStore;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
-import 'package:pdf_viewer_example/cupertino_host.dart';
+import 'package:pdf_viewer_example/main.dart';
+import 'package:pdf_viewer_example/workspace.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -19,7 +22,14 @@ void main() {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(CupertinoHostApp(bytes: buildMultiPagePdf(2)));
+    await tester.pumpWidget(ViewerApp(
+      cacheStore: PdfMemoryCacheStore(),
+      design: ExampleDesignPreference(
+        store: PdfMemoryPreferencesStore(),
+        initial: ExampleDesign.cupertino,
+      ),
+      initialBytes: buildMultiPagePdf(2),
+    ));
     // the editor localizations load asynchronously
     for (var i = 0; i < 10 && find.byType(PdfViewer).evaluate().isEmpty; i++) {
       await tester.pump(const Duration(milliseconds: 50));
@@ -107,11 +117,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(await confirmed, isTrue);
 
-    // Save reports through the Cupertino toast
-    await tester.tap(find.byKey(const ValueKey('pdf-shell-save')));
+    // notices (the host's save report among them) are the Cupertino toast
+    presenter.notice(context, const PdfEditorNotice('Saved'));
     await tester.pump();
     expect(find.byKey(const ValueKey('pdf-cupertino-toast')), findsOneWidget);
-    expect(find.text('Saved (1)'), findsOneWidget);
+    expect(find.text('Saved'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
     expect(find.byKey(const ValueKey('pdf-cupertino-toast')), findsNothing);
     expectNoErrors(tester);
