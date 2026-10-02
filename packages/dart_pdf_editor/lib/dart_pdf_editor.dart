@@ -88,6 +88,8 @@ export 'package:pdf_cos/pdf_cos.dart'
         PdfSourceProgress;
 export 'src/http_byte_source.dart';
 export 'l10n/dart_pdf_editor_localizations.dart';
+export 'src/l10n/editor_localizations.dart';
+export 'src/legacy/legacy_host_bridge.dart' show kPdfLegacyMaterialBridge;
 export 'src/l10n/pdf_l10n.dart';
 export 'src/image_decoder.dart'
     show PdfImageCache, pdfImageContentKey, pdfGpuSoftMaskOf;
