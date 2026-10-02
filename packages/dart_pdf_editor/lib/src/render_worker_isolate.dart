@@ -1240,17 +1240,35 @@ Future<Uint8List?> _recordPageAsync(
   }
 
   final page = document.page(pageIndex);
+  if (commandLimit == null) {
+    // The whole page, image placeholders and all: stream it straight into the
+    // wire buffer - the same bytes the recorder + serialize below would write,
+    // without the command graph in between.
+    final writer = PdfStreamingCommandWriter(cos: document.cos);
+    final interpreter = PdfInterpreter(
+      cos: document.cos,
+      device: writer,
+      cancellation: token,
+      collectCharOffsets: true,
+    );
+    await interpreter.drawPageContentAsync(page, page.contentBytes());
+    if (token.cancelled) throw const PdfCancelledException();
+    textCache.record(pageIndex, writer.takeTextCommands());
+    if (annotations) interpreter.drawAnnotations(page);
+    return writer.snapshot();
+  }
+  // A bounded prefix: its command limit counts recorded commands before scope
+  // compaction, so it keeps the recorder.
   final recorder = RecordingPdfDevice();
   final interpreter = PdfInterpreter(
     cos: document.cos,
     device: recorder,
     cancellation: token,
-    collectCharOffsets: commandLimit == null,
+    collectCharOffsets: false,
   );
   await interpreter.drawPageContentAsync(page, page.contentBytes(),
       operationLimit: commandLimit);
   if (token.cancelled) throw const PdfCancelledException();
-  if (commandLimit == null) textCache.record(pageIndex, recorder.commands);
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
       cos: document.cos,
@@ -1312,17 +1330,29 @@ Future<Uint8List?> _recordResumablePage(
   // finish a walk as they remove it), so this is unreachable today; keep it so
   // a future change can't turn that invariant into a hang.
   if (entry != null && entry.walk.isFinished) entry = null;
+  // A streamed walk cannot honour a command limit (the limit counts commands
+  // before scope compaction); in the rare limited record that finds one
+  // suspended, start over on the recorder.
+  if (entry != null && commandLimit != null && entry.writer != null) {
+    entry.walk.abandon();
+    entry = null;
+  }
   if (entry == null) {
     final page = document.page(pageIndex);
-    final recorder = RecordingPdfDevice();
+    // Unlimited (every visible-page record): stream straight into the wire
+    // buffer. A command-limited record keeps the recorder.
+    final writer = commandLimit == null
+        ? PdfStreamingCommandWriter(cos: document.cos)
+        : null;
+    final recorder = writer == null ? RecordingPdfDevice() : null;
     final interpreter = PdfInterpreter(
       cos: document.cos,
-      device: recorder,
+      device: writer ?? recorder!,
       collectCharOffsets: true,
     );
     final walk = interpreter.beginPageContent(page, page.contentBytes());
     entry = _SuspendedRecord(
-        pageIndex, annotations, page, recorder, interpreter, walk);
+        pageIndex, annotations, page, recorder, writer, interpreter, walk);
   }
 
   final walk = entry.walk;
@@ -1359,22 +1389,31 @@ Future<Uint8List?> _recordResumablePage(
     // as placeholders (decodeImages false) - the prefix is the fast top-down
     // reveal; the final decoded buffer follows when the walk completes. Each
     // partial is a superset of the last.
-    final partial = serializeCommands(entry.recorder.commands,
-        cos: document.cos,
-        decodeImages: false,
-        maxImagePixelRatio: imagePixelRatio,
-        pageRasterPixels:
-            pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
-        imageDecodeRegion: imageDecodeRegion,
-        imagePlaceholders: true,
-        compactStateScopes: true);
+    // A streamed record's partial is a prefix copy of its live buffer.
+    final partial = entry.writer?.snapshot() ??
+        serializeCommands(entry.recorder!.commands,
+            cos: document.cos,
+            decodeImages: false,
+            maxImagePixelRatio: imagePixelRatio,
+            pageRasterPixels:
+                pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
+            imageDecodeRegion: imageDecodeRegion,
+            imagePlaceholders: true,
+            compactStateScopes: true);
     // Null only on an unserializable image, which placeholders preclude here;
     // if it ever happens, skip this partial - the final buffer still arrives.
     if (partial != null) onPartial(partial);
   }
 
   if (token.cancelled) throw const PdfCancelledException();
-  textCache.record(pageIndex, entry.recorder.commands);
+  final writer = entry.writer;
+  if (writer != null) {
+    return _finishStreamedRecord(document, imageCache, textCache, entry, writer,
+        annotations, imagePixelRatio, imageDecodeRegion,
+        decodeImages: decodeImages, onPartial: onPartial);
+  }
+  final recorder = entry.recorder!;
+  textCache.record(pageIndex, recorder.commands);
   if (annotations) entry.interpreter.drawAnnotations(entry.page);
   // A fused progressive full record uses the same content walk for first ink
   // and final pixels. Ship the complete image-free transcript before the
@@ -1382,10 +1421,8 @@ Future<Uint8List?> _recordResumablePage(
   // layer without issuing a second `decodeImages: false` record. Intermediate
   // prefixes above remain useful on dense pages; this final prefix closes the
   // painter-order gap between the last doubling boundary and end-of-page.
-  if (decodeImages &&
-      onPartial != null &&
-      entry.recorder.imageRequests.isNotEmpty) {
-    final vector = serializeCommands(entry.recorder.commands,
+  if (decodeImages && onPartial != null && recorder.imageRequests.isNotEmpty) {
+    final vector = serializeCommands(recorder.commands,
         cos: document.cos,
         decodeImages: false,
         maxImagePixelRatio: imagePixelRatio,
@@ -1401,7 +1438,7 @@ Future<Uint8List?> _recordResumablePage(
   // placeholders. This matches the one-shot path's output byte-for-byte, so
   // routing a streaming vector-first record through here does not change what a
   // non-streaming one produced.
-  return serializeCommands(entry.recorder.commands,
+  return serializeCommands(recorder.commands,
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
@@ -1412,6 +1449,50 @@ Future<Uint8List?> _recordResumablePage(
       imageCache: imageCache,
       imageDecodeFilter: decodeImages ? _decodeImageInBackgroundIsolate : null,
       commandLimit: commandLimit,
+      compactStateScopes: true);
+}
+
+/// Completes a streamed [_recordResumablePage]: the same buffers the recorder
+/// path produces, byte for byte.
+///
+/// The streamed buffer is the non-decoding record. It is the final buffer
+/// when the record does not decode or the page drew no images (the decode
+/// flags only change image records). A decoding record with images ships it
+/// first as the vector snapshot (when streaming partials) and then
+/// re-serializes its transcript with decoding on: an image's decoded size
+/// depends on the page-wide budget over every image, and images write
+/// different lengths decoded, so they cannot be patched into the stream (path
+/// blocks are aligned from the buffer start).
+Uint8List? _finishStreamedRecord(
+    PdfDocument document,
+    PdfImageDecodeCache imageCache,
+    PdfWorkerTextCache textCache,
+    _SuspendedRecord entry,
+    PdfStreamingCommandWriter writer,
+    bool annotations,
+    double? imagePixelRatio,
+    PdfRect? imageDecodeRegion,
+    {required bool decodeImages,
+    void Function(Uint8List)? onPartial}) {
+  textCache.record(entry.pageIndex, writer.takeTextCommands());
+  if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  final streamed = writer.snapshot();
+  if (!decodeImages || writer.imageRequests.isEmpty) return streamed;
+  onPartial?.call(streamed);
+  // The wire transcript with the worker document's own image streams back
+  // in; scope compaction is idempotent over it.
+  final source = compactTranscriptSourceCommands(
+      deserializeCommands(streamed), writer.imageRequests);
+  if (source == null) return null;
+  return serializeCommands(source,
+      cos: document.cos,
+      decodeImages: true,
+      maxImagePixelRatio: imagePixelRatio,
+      pageRasterPixels:
+          pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
+      imageDecodeRegion: imageDecodeRegion,
+      imageCache: imageCache,
+      imageDecodeFilter: _decodeImageInBackgroundIsolate,
       compactStateScopes: true);
 }
 
@@ -1460,15 +1541,21 @@ bool _preferAppleJpxCodec(
 
 /// A full-page record cancelled mid-walk, held so the next record of the same
 /// page resumes it (#530). Bundles everything the resumed walk needs: the walk
-/// cursor, the interpreter holding the graphics state, the recorder holding the
-/// commands drawn so far, and the page for the closing annotation pass.
+/// cursor, the interpreter holding the graphics state, the streaming writer (or
+/// recorder) holding what was drawn so far, and the page for the closing
+/// annotation pass.
 class _SuspendedRecord {
   _SuspendedRecord(this.pageIndex, this.annotations, this.page, this.recorder,
-      this.interpreter, this.walk);
+      this.writer, this.interpreter, this.walk)
+      : assert((recorder == null) != (writer == null));
   final int pageIndex;
   final bool annotations;
   final PdfPage page;
-  final RecordingPdfDevice recorder;
+
+  /// Exactly one of these holds what was drawn so far: the streaming writer
+  /// for an unlimited record, the recorder for a command-limited one.
+  final RecordingPdfDevice? recorder;
+  final PdfStreamingCommandWriter? writer;
   final PdfInterpreter interpreter;
   final PdfPageContentWalk walk;
 

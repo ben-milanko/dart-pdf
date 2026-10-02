@@ -12,6 +12,7 @@ import 'image_decode_cache.dart';
 import 'image_pixels.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'recording_device.dart' show RecordingPdfDevice;
 import 'render_command.dart';
 import 'shading.dart';
 import 'text_extraction.dart';
@@ -153,13 +154,14 @@ class _UnserializableImage implements Exception {
 /// raster footprint, rather than the full-page raster budget.
 ///
 /// [compactStateScopes] removes `save`/`restore` pairs whose scope never
-/// changes the device clip. Recorded geometry, image transforms, paint, and
-/// blend state are already explicit in the commands (the interpreter also
-/// emits blend restoration explicitly), so those pairs are redundant for
-/// replay. Clip-bearing scopes remain byte-for-byte ordered. Render workers
-/// enable this to shrink dense command buffers before they cross to the UI
-/// isolate; the default stays false so the public codec remains a lossless
-/// command-transcript round trip.
+/// changes the device clip or opens a layer inside it ([_ScopeCompactor]).
+/// Recorded geometry, image transforms, paint, and blend state are already
+/// explicit in the commands (the interpreter also emits blend restoration
+/// explicitly), so those pairs are redundant for replay. Render workers enable
+/// this to shrink dense command buffers before they cross to the UI isolate;
+/// the default stays false so the public codec remains a lossless
+/// command-transcript round trip. [PdfStreamingCommandWriter] writes the
+/// same compacted bytes while the page is still being interpreted.
 /// The page raster never exceeds this many pixels (the viewer's full-page
 /// raster cap), so it is the ceiling on the page image budget - the fallback
 /// unit when the caller does not say what raster the buffer is drawn into.
@@ -274,19 +276,21 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     PdfImageDecodeCache? imageCache,
     PdfCommandImageDecodeFilter? imageDecodeFilter,
     bool compactStateScopes = false}) {
-  final wireCommands = compactStateScopes
-      ? _compactStateScopes(commands, commandLimit: commandLimit)
-      : commands;
   final w = _Writer();
   w.u8(_formatVersion);
   // Page-pixel budget: a global downscale applied on top of the per-image
   // cap so the sum of all decoded images fits within a few page rasters. 1.0
   // (no-op) unless decoding with a per-image cap active and the page's images
-  // overflow the budget.
+  // overflow the budget. A compacted record counts the images of the
+  // command-limited prefix it writes (compaction never drops an image); an
+  // uncompacted one has always counted the whole list.
   var budgetScale = 1.0;
   if (decodeImages && maxImagePixelRatio != null && cos != null) {
+    final limited = compactStateScopes &&
+        commandLimit != null &&
+        commandLimit < commands.length;
     budgetScale = pdfCommandImageBudgetScale(
-      wireCommands,
+      limited ? commands.sublist(0, math.max(0, commandLimit)) : commands,
       cos,
       maxImagePixelRatio,
       imageDecodeRegion: imageDecodeRegion,
@@ -295,7 +299,7 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     );
   }
   try {
-    _writeCommands(w, wireCommands, cos,
+    _writeCommands(w, commands, cos,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
         imageDecodeRegion: imageDecodeRegion,
@@ -303,89 +307,65 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
         imagePlaceholders: imagePlaceholders && !decodeImages,
         imageCache: imageCache,
         imageDecodeFilter: imageDecodeFilter,
-        commandLimit: compactStateScopes ? null : commandLimit);
+        commandLimit: commandLimit,
+        compact: compactStateScopes);
   } on _UnserializableImage {
     return null;
   }
   return w.takeBytes();
 }
 
-/// Drops replay-state scopes that cannot change rendering.
+/// Online replay-state scope compaction, shared by [serializeCommands]
+/// (`compactStateScopes`) and [PdfStreamingCommandWriter] so the two write the
+/// same bytes by construction.
 ///
 /// A recorded `q`/`Q` pair only has an observable device effect when a clip
-/// is installed at that same nesting depth. Paths are already transformed to
+/// is installed inside it, or a layer (group, soft mask, tiled cell) opens
+/// inside it - a layer brackets its own device save, and a scope that is
+/// written only once a later clip arrives would otherwise land inside that
+/// layer while its restore lands outside. Paths are already transformed to
 /// page space, every paint command owns its complete style, images own their
 /// transform, and the interpreter emits an explicit blend-mode command when
-/// `Q` restores a different blend. Nested clip scopes protect themselves, so
-/// they do not make an otherwise empty parent scope necessary.
+/// `Q` restores a different blend.
 ///
-/// The command prefix is taken before compaction to preserve [commandLimit]'s
-/// existing preview semantics. Unbalanced prefixes keep their unmatched
-/// state commands. Soft-mask callback transcripts are compacted recursively.
-List<PdfRenderCommand> _compactStateScopes(
-  List<PdfRenderCommand> commands, {
-  int? commandLimit,
-}) {
-  final length = commandLimit == null
-      ? commands.length
-      : math.min(commands.length, math.max(0, commandLimit));
-  final keep = Uint8List(length)..fillRange(0, length, 1);
-  final saveIndices = <int>[];
-  final clipped = <bool>[];
-  var removed = 0;
+/// The decision is made as commands arrive, so a streamed record can be
+/// written without looking ahead:
+/// - `save` opens a *pending* scope and writes nothing;
+/// - before a clip, a group, a soft mask or a tiled cell, every pending scope
+///   is written ([flush]), outermost first. So the written scopes are always
+///   a bottom prefix of the open ones, and the device's save stack can never
+///   be inverted;
+/// - `restore` is written only when its scope was; a restore with no open
+///   scope is written as is;
+/// - scopes still pending when the list (or a partial) ends are not written.
+///
+/// Each soft-mask command list gets its own compactor; tiled-cell bodies are
+/// written uncompacted.
+final class _ScopeCompactor {
+  /// Per open scope: 1 once its `save` was written.
+  Uint8List _written = Uint8List(16);
+  int _depth = 0;
 
-  for (var i = 0; i < length; i++) {
-    switch (commands[i]) {
-      case PdfSaveCommand():
-        saveIndices.add(i);
-        clipped.add(false);
-      case PdfClipPathCommand():
-        if (clipped.isNotEmpty) clipped[clipped.length - 1] = true;
-      case PdfRestoreCommand():
-        if (saveIndices.isEmpty) break;
-        final save = saveIndices.removeLast();
-        final scopeClipped = clipped.removeLast();
-        if (!scopeClipped) {
-          keep[save] = 0;
-          keep[i] = 0;
-          removed += 2;
-        }
-      default:
-        break;
+  void save() {
+    if (_depth == _written.length) {
+      _written = Uint8List(_depth * 2)..setRange(0, _depth, _written);
     }
+    _written[_depth++] = 0;
   }
 
-  final out = List<PdfRenderCommand>.filled(
-    length - removed,
-    const PdfSaveCommand(),
-    growable: false,
-  );
-  var outputIndex = 0;
-  for (var i = 0; i < length; i++) {
-    if (keep[i] == 0) continue;
-    final command = commands[i];
-    if (command
-        case PdfEndSoftMaskedCommand(
-          :final luminosity,
-          :final backdrop,
-          :final maskCommands,
-          :final backdropLuminance,
-          :final transferScale,
-          :final transferOffset,
-        )) {
-      out[outputIndex++] = PdfEndSoftMaskedCommand(
-        luminosity: luminosity,
-        backdrop: backdrop,
-        maskCommands: _compactStateScopes(maskCommands),
-        backdropLuminance: backdropLuminance,
-        transferScale: transferScale,
-        transferOffset: transferOffset,
-      );
-    } else {
-      out[outputIndex++] = command;
+  /// Whether this `restore` is written.
+  bool restore() => _depth == 0 || _written[--_depth] == 1;
+
+  /// Marks every pending scope written and returns how many `save`s to write
+  /// (all the same byte, so their order needs no bookkeeping).
+  int flush() {
+    var n = 0;
+    for (var d = _depth - 1; d >= 0 && _written[d] == 0; d--) {
+      _written[d] = 1;
+      n++;
     }
+    return n;
   }
-  return out;
 }
 
 /// Linear downscale to apply to every image so the sum of the per-image-capped
@@ -609,13 +589,49 @@ void _writeCommands(
     bool imagePlaceholders = false,
     PdfImageDecodeCache? imageCache,
     PdfCommandImageDecodeFilter? imageDecodeFilter,
-    int? commandLimit}) {
+    int? commandLimit,
+    bool compact = false}) {
   final length = commandLimit == null
       ? commands.length
       : math.min(commands.length, math.max(0, commandLimit));
-  w.u32(length);
+  if (!compact) {
+    w.u32(length);
+    for (var i = 0; i < length; i++) {
+      _writeCommand(w, commands[i], cos,
+          decode: decode,
+          maxImageRatio: maxImageRatio,
+          imageDecodeRegion: imageDecodeRegion,
+          budgetScale: budgetScale,
+          imagePlaceholders: imagePlaceholders,
+          imageCache: imageCache,
+          imageDecodeFilter: imageDecodeFilter);
+    }
+    return;
+  }
+  // The count is only known once the scopes are decided: reserve, then patch.
+  final countAt = w._len;
+  w.u32(0);
+  final scopes = _ScopeCompactor();
+  var written = 0;
   for (var i = 0; i < length; i++) {
     final command = commands[i];
+    switch (command) {
+      case PdfSaveCommand():
+        scopes.save();
+        continue;
+      case PdfRestoreCommand():
+        if (!scopes.restore()) continue;
+      case PdfClipPathCommand() ||
+            PdfBeginGroupCommand() ||
+            PdfBeginSoftMaskedCommand() ||
+            PdfDrawTiledCellCommand():
+        for (var n = scopes.flush(); n > 0; n--) {
+          w.u8(_tSave);
+          written++;
+        }
+      default:
+        break;
+    }
     _writeCommand(w, command, cos,
         decode: decode,
         maxImageRatio: maxImageRatio,
@@ -623,8 +639,11 @@ void _writeCommands(
         budgetScale: budgetScale,
         imagePlaceholders: imagePlaceholders,
         imageCache: imageCache,
-        imageDecodeFilter: imageDecodeFilter);
+        imageDecodeFilter: imageDecodeFilter,
+        compact: true);
+    written++;
   }
+  w._view.setUint32(countAt, written);
 }
 
 List<PdfRenderCommand> _readCommands(_Reader r) {
@@ -644,6 +663,8 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
   return out;
 }
 
+/// Writes one command. [compact] compacts the state scopes of a soft mask's
+/// nested list ([_ScopeCompactor]); a tiled cell's body is never compacted.
 void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     {bool decode = false,
     double? maxImageRatio,
@@ -651,7 +672,8 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     double budgetScale = 1.0,
     bool imagePlaceholders = false,
     PdfImageDecodeCache? imageCache,
-    PdfCommandImageDecodeFilter? imageDecodeFilter}) {
+    PdfCommandImageDecodeFilter? imageDecodeFilter,
+    bool compact = false}) {
   switch (command) {
     case PdfSaveCommand():
       w.u8(_tSave);
@@ -783,12 +805,8 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
         :final transferScale,
         :final transferOffset
       ):
-      w.u8(_tEndSoftMasked);
-      w.boolean(luminosity);
-      _writeRect(w, backdrop);
-      w.f64(backdropLuminance);
-      w.f64(transferScale);
-      w.f64(transferOffset);
+      _writeEndSoftMaskedHeader(w, luminosity, backdrop, backdropLuminance,
+          transferScale, transferOffset);
       _writeCommands(w, maskCommands, cos,
           decode: decode,
           maxImageRatio: maxImageRatio,
@@ -796,7 +814,8 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
           budgetScale: budgetScale,
           imagePlaceholders: imagePlaceholders,
           imageCache: imageCache,
-          imageDecodeFilter: imageDecodeFilter); // nested
+          imageDecodeFilter: imageDecodeFilter,
+          compact: compact); // nested
     case PdfDrawTiledCellCommand(
         :final cellCommands,
         :final originsX,
@@ -815,6 +834,18 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
           imageCache: imageCache,
           imageDecodeFilter: imageDecodeFilter); // nested
   }
+}
+
+/// Everything an end-soft-masked record writes before its nested command
+/// list (shared with [PdfStreamingCommandWriter.endSoftMasked]).
+void _writeEndSoftMaskedHeader(_Writer w, bool luminosity, PdfRect backdrop,
+    double backdropLuminance, double transferScale, double transferOffset) {
+  w.u8(_tEndSoftMasked);
+  w.boolean(luminosity);
+  _writeRect(w, backdrop);
+  w.f64(backdropLuminance);
+  w.f64(transferScale);
+  w.f64(transferOffset);
 }
 
 /// Writes a tiled cell's identity tag, and returns true when that is all the
@@ -2084,6 +2115,232 @@ CosObject _readCos(_Reader r) {
 }
 
 // --- low-level reader/writer ---
+
+/// A [PdfDevice] that writes each command into one wire buffer the moment the
+/// interpreter emits it, instead of building the page as [PdfRenderCommand]
+/// objects only to serialize them afterwards.
+///
+/// Its buffer is byte-identical to `serializeCommands(compactStateScopes:
+/// true, imagePlaceholders: true)` over what a [RecordingPdfDevice] would
+/// have recorded from the same walk: it shares [_Writer] and [_writeCommand]
+/// (so the paint dedup, glyph-outline ids and tiled-cell ids advance in the
+/// same order) and the online [_ScopeCompactor]. Images are written in their
+/// non-decoding form; a caller that wants decoded pixels re-serializes from
+/// the transcript (see the render worker), since an image's decoded size
+/// depends on every image of the page.
+///
+/// - [snapshot] is the buffer so far, its top-level count patched in - a
+///   progressive partial is a prefix copy, never a re-serialize. Paths are
+///   padded to 4 bytes from the start of the buffer, so a prefix keeps every
+///   block aligned.
+/// - [imageRequests] lists every image in [RecordingPdfDevice.imageRequests]
+///   order (depth-first per tiled cell, once per occurrence).
+/// - [takeTextCommands] hands back the top-level text and tiled-cell commands
+///   - all `PdfRecordedText.capture` reads - recorded until it is called.
+class PdfStreamingCommandWriter
+    implements PdfDevice, PdfTiledCellSink, PdfTransparencyGroupDevice {
+  /// [cos] resolves image references, exactly as [serializeCommands]'s `cos`.
+  PdfStreamingCommandWriter({CosDocument? cos}) : _cos = cos {
+    _w.u8(_formatVersion);
+    _frames.add(_StreamFrame(_w._len));
+    _w.u32(0);
+  }
+
+  final CosDocument? _cos;
+  final _Writer _w = _Writer();
+
+  /// The open command lists: the page, then any soft mask being drawn.
+  final List<_StreamFrame> _frames = [];
+
+  /// Every image drawn so far, in [RecordingPdfDevice.imageRequests] order.
+  final List<PdfImageRequest> imageRequests = [];
+
+  List<PdfRenderCommand>? _text = [];
+
+  /// Top-level commands written so far.
+  int get commandCount => _frames.first.count;
+
+  /// Bytes written so far.
+  int get length => _w._len;
+
+  /// The top-level text and tiled-cell commands recorded so far; recording
+  /// them stops here (the worker captures page text before annotations).
+  List<PdfRenderCommand> takeTextCommands() {
+    final text = _text ?? const <PdfRenderCommand>[];
+    _text = null;
+    return text;
+  }
+
+  /// A tight copy of the buffer so far with its top-level count patched: a
+  /// complete, replayable command buffer. Scopes still pending are simply not
+  /// in it yet. Only valid between operations (not inside a soft mask).
+  Uint8List snapshot() {
+    assert(_frames.length == 1, 'snapshot inside a soft mask');
+    final out = Uint8List.fromList(Uint8List.sublistView(_w._buf, 0, _w._len));
+    // Big-endian, as [_Writer.u32].
+    ByteData.sublistView(out).setUint32(_frames.first.countAt, commandCount);
+    return out;
+  }
+
+  void _emit(PdfRenderCommand command) {
+    _writeCommand(_w, command, _cos, imagePlaceholders: true, compact: true);
+    _frames.last.count++;
+  }
+
+  void _flushScopes() {
+    final frame = _frames.last;
+    for (var n = frame.scopes.flush(); n > 0; n--) {
+      _w.u8(_tSave);
+      frame.count++;
+    }
+  }
+
+  @override
+  void save() => _frames.last.scopes.save();
+
+  @override
+  void restore() {
+    final frame = _frames.last;
+    if (!frame.scopes.restore()) return;
+    _w.u8(_tRestore);
+    frame.count++;
+  }
+
+  @override
+  void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) =>
+      _emit(PdfFillPathCommand(path, color, rule, alpha));
+
+  @override
+  void fillPathGradient(
+          PdfPath path, PdfFillRule rule, PdfGradient gradient, double alpha) =>
+      _emit(PdfFillPathGradientCommand(path, rule, gradient, alpha));
+
+  @override
+  void fillMesh(PdfMesh mesh, double alpha) =>
+      _emit(PdfFillMeshCommand(mesh, alpha));
+
+  @override
+  void strokePath(
+          PdfPath path, PdfColor color, PdfStroke stroke, double alpha) =>
+      _emit(PdfStrokePathCommand(path, color, stroke, alpha));
+
+  @override
+  void clipPath(PdfPath path, PdfFillRule rule) {
+    _flushScopes();
+    _emit(PdfClipPathCommand(path, rule));
+  }
+
+  @override
+  void drawText(PdfTextRun run) {
+    final command = PdfDrawTextCommand(run);
+    _emit(command);
+    if (_frames.length == 1) _text?.add(command);
+  }
+
+  @override
+  void drawImage(PdfImageRequest request) {
+    imageRequests.add(request);
+    _emit(PdfDrawImageCommand(request));
+  }
+
+  @override
+  void setBlendMode(PdfBlendMode mode) => _emit(PdfSetBlendModeCommand(mode));
+
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      _emit(PdfSetOverprintCommand(fill: fill, stroke: stroke, mode: mode));
+
+  @override
+  void beginGroup(double alpha, {bool knockout = false}) {
+    _flushScopes();
+    _emit(PdfBeginGroupCommand(alpha, knockout: knockout));
+  }
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {
+    _flushScopes();
+    _emit(PdfBeginGroupCommand(
+      alpha,
+      knockout: knockout,
+      isolated: isolated,
+      bounds: bounds,
+      backdropColor: backdropColor,
+    ));
+  }
+
+  @override
+  void endGroup() => _emit(const PdfEndGroupCommand());
+
+  @override
+  void beginSoftMasked() {
+    _flushScopes();
+    _emit(const PdfBeginSoftMaskedCommand());
+  }
+
+  @override
+  void endSoftMasked({
+    required bool luminosity,
+    required PdfRect backdrop,
+    required void Function() drawMask,
+    double backdropLuminance = 0,
+    double transferScale = 1,
+    double transferOffset = 0,
+  }) {
+    // The record [_writeCommand] writes for a PdfEndSoftMaskedCommand, with
+    // its nested list streamed by the mask's own walk into a fresh frame and
+    // the count patched once it returns.
+    _writeEndSoftMaskedHeader(_w, luminosity, backdrop, backdropLuminance,
+        transferScale, transferOffset);
+    final frame = _StreamFrame(_w._len);
+    _w.u32(0);
+    _frames.add(frame);
+    try {
+      drawMask();
+    } finally {
+      _frames.removeLast();
+      _w._view.setUint32(frame.countAt, frame.count);
+      _frames.last.count++;
+    }
+  }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    _flushScopes();
+    // As [RecordingPdfDevice.drawTiledCell]: the cell's images, depth-first,
+    // once per occurrence.
+    void walk(List<PdfRenderCommand> commands) {
+      for (final c in commands) {
+        if (c is PdfDrawImageCommand) {
+          imageRequests.add(c.request);
+        } else if (c is PdfEndSoftMaskedCommand) {
+          walk(c.maskCommands);
+        } else if (c is PdfDrawTiledCellCommand) {
+          walk(c.cellCommands);
+        }
+      }
+    }
+
+    walk(command.cellCommands);
+    _emit(command);
+    if (_frames.length == 1) _text?.add(command);
+  }
+}
+
+/// One command list [PdfStreamingCommandWriter] is writing: where its count
+/// goes, how many commands it has, and its own scope compaction.
+final class _StreamFrame {
+  _StreamFrame(this.countAt);
+  final int countAt;
+  int count = 0;
+  final _ScopeCompactor scopes = _ScopeCompactor();
+}
 
 class _Writer {
   // A graphics-rich (CAD) page serializes to many MB of mostly path geometry -
