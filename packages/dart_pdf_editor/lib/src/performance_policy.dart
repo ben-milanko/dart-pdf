@@ -138,14 +138,17 @@ int pdfDefaultImageCacheBytes({
 /// pool holds its own, outside the viewer's [PdfCacheRegistry] accounting, so
 /// this is per worker:
 ///
-/// - **Desktop** keeps the historical 64 MB.
+/// - **Desktop** keeps the historical 64 MB budget.
 /// - **Mobile and web** take 32 MB, and a web device that admits to 2 GB or
-///   less 16 MB. The cache admits only *reusable* decodes (native-resolution
-///   JPEG, luminosity masks, browser-codec decodes) beyond small target-sized
-///   entries, and those fit: on real image-heavy documents the worker kept
-///   every hit it had behind the host's 72 MB record cache at 32 and 16 MB. A
-///   single reusable decode past the budget (an 8 MP+ JPEG under deep zoom) is
-///   still kept alone, up to the old 64 MB.
+///   less 16 MB.
+///
+/// The budget is not the whole policy: the cache also admits by reuse (see
+/// `PdfImageDecodeCache.maxTransientEntryBytes`). *Reusable* decodes (every
+/// native-resolution decode, luminosity masks, browser-codec decodes) share
+/// the budget, and a single one past it (an 8 MP+ JPEG under deep zoom) is
+/// still kept alone, up to the old 64 MB. Decodes at one exact target size are
+/// kept up to half the budget and only displace each other - they are what an
+/// edit's or undo's re-record of a downscaled image needs.
 int pdfDefaultWorkerImageCacheBytes({
   PdfPerformancePlatform? platform,
   double? deviceMemoryGb,

@@ -35,8 +35,9 @@ only the call site knows what a decode is good for.
   JPEG under a 16-32 MB budget would decode the whole image again for every
   tile.
 - **Transient entries**: decodes at one exact target size, and the
-  Flate/CMYK composites on web. Each is admitted only up to 2 MB, and it may
-  only displace other transient entries.
+  Flate/CMYK composites on web. Each is admitted up to half the budget
+  (`maxTransientEntryBytes`: 32 MB on desktop, 16 MB on mobile/web, 8 MB on
+  a small web device), and it may only displace other transient entries.
 
 The budget comes from `pdfDefaultWorkerImageCacheBytes` and is computed on
 the main thread: desktop 64 MB, mobile and web 32 MB, web with
@@ -64,7 +65,9 @@ app's mobile-background branch uses `trimPressureListeners`.
 
 Browsers send no memory-pressure signal, so on web only the budget helps.
 
-Measured (private corpus, 3 workers behind a 72 MB host record cache):
+Measured with the first cut's 2 MB transient cap (private corpus, 3 workers
+behind a 72 MB host record cache; the cap is now half the budget, see the
+edit/undo section below, and these were not re-run with it):
 
 - **Worker hits**: 57-page image document 267 at a flat 64 MB → 322 at
   32 MB. 138-page CAD set 103 → 70 at 32 MB; the lost hits cost no
@@ -97,7 +100,43 @@ instead (8 MB at 64 MB) left the scans at 0-3 hits. On the 138-page CAD set
 
 A trim on web waits until no walk is running (`_WorkerWalks.whenIdle`): a
 walk in flight has prepared the decoded-stream seeds it is about to read,
-and trimming under it sent them back through the pure-Dart inflate.
+and trimming under it sent them back through the pure-Dart inflate. It also
+drops the transcript cache's retained command graphs
+(`PdfWorkerTranscriptCache.trimRetained`), keeping the text cache (search
+and selection would re-walk for it) and the suspended walk (work in
+progress, not reuse).
+
+### Edit and undo: why target-size decodes are kept up to half the budget
+
+The first cut admitted a target-size decode only up to 2 MB, on the theory
+that only a repeat of the same record hits it and the host's record cache
+answers those. That holds for a scroll, not an edit: an edit or an undo
+bumps the revision, misses the host cache, and re-records the page at the
+ratio it was just recorded at - and the worker keeps its decode cache across
+in-place revision updates and undo for exactly that re-record. With a 2 MB
+cap every downscaled scan, underlay, JPX or large Flate image decoded again
+on every edit, at every budget, desktop included.
+
+Sim (AOT, one worker behind a 72 MB host record cache): open + the scroll
+and zoom pattern above, then one edit and one undo re-record per page at
+ratio 2. Edit/undo time is the median of 5 rounds (3 on the private
+documents); hits are deterministic.
+
+| document | budget | 2 MB cap: edit/undo, hits | half-budget cap |
+|---|---|---|---|
+| raster-underlay-1p (a ~30 MB target) | 64 MB | 884 ms, 0 | 39 ms, 4 |
+| raster-underlay-1p | 32 / 16 MB | ~900 ms, 0 | ~900 ms, 0 (target past the cap) |
+| scan-book-12p | 64 / 32 / 16 MB | 16 / 14 / 13 hits | the same |
+| image-scan-4p, letterhead-report-40p | all | unchanged | unchanged |
+| 57-page image document (private) | 64 / 32 MB | 287 / 262 hits | the same, CPU within noise |
+| 57-page image document | 16 MB | 255 hits | 229 hits, CPU within noise |
+| 58-page design pack (private) | 64 / 32 MB | 292 / 268 hits | the same; scroll+zoom hits 108 / 86 -> 44 / 44 at the same or lower CPU |
+
+A quarter-budget cap (16 MB at 64 MB) still misses the underlay; the whole
+budget let one zoom level's targets churn out the last one's (0 scroll+zoom
+hits on the underlay, against 2). Re-recorded bytes are identical to an
+uncached record on every page. Pinned by `image_decode_cache_test`'s "a
+downscaled decode is reused by a same-ratio re-record".
 
 ## 3. Records streamed straight to the wire (native)
 
@@ -133,9 +172,21 @@ graph the stream saved, so the device is picked up front
 (`pdfWorkerRecordStreams`): a decoding record of a page whose resources
 declare an image XObject keeps the recorder and serializes once, unless its
 decoded content is at least 16 MB (`pdfWorkerStreamedImagePageMinContentBytes`).
-Non-decoding records, image-free pages and heavy image pages stream. Images
-found only during the walk (inline, or in a form) still stream and take the
-re-serialize: correct, just not the cheapest.
+Non-decoding records, image-free pages and heavy image pages stream.
+
+"Declares an image" covers what the page can reach, not just its own
+/XObject dictionary: forms and tiling patterns below it (8 deep, 512 objects,
+conservative past either bound, memoised per resource dictionary or form so
+a shared resource dictionary is resolved once per revision), a `BI` token in
+content up to 256 KB (the scan is linear like the walk, ~0.8 ms per MB, and
+the recorder's lead is largest on light pages), and the normal appearances of
+the page's annotations when the record draws them (the editor's image stamps
+and signatures). Across ghent, pdfjs, dartpdf and the private corpus (first
+50 pages per file) that moves 14 pages to the recorder and none the other
+way; the bytes do not depend on the device. The decision costs 11 ms over a
+138-page CAD set against 4.4 s of walking (JIT). An image the scan still
+misses (inline on a page past 256 KB) streams and takes the re-serialize:
+correct, just not the cheapest.
 
 Where the 16 MB comes from, streamed vs recorded decoding record (ratio 2,
 persistent decode cache, text capture, annotations), AOT, 5 interleaved
