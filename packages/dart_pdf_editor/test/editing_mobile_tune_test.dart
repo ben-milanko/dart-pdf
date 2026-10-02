@@ -51,7 +51,10 @@ void main() {
     // and it opens the style popup's stroke/opacity sliders
     await tester.tap(find.byIcon(Icons.tune));
     await tester.pumpAndSettle();
-    expect(find.byType(Slider), findsWidgets);
+    expect(find.byKey(const ValueKey('pdf-tune-stroke-width-slider')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-tune-opacity-slider')), findsOneWidget);
   });
 
   testWidgets('the mobile dock shows the tune button for a selected annotation',
@@ -73,6 +76,7 @@ void main() {
     // the popup restyles the selection
     await tester.tap(find.byIcon(Icons.tune));
     await tester.pumpAndSettle();
-    expect(find.byType(Slider), findsWidgets);
+    expect(find.byKey(const ValueKey('pdf-tune-stroke-width-slider')),
+        findsOneWidget);
   });
 }

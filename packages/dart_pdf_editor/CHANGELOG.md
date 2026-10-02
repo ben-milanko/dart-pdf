@@ -195,6 +195,54 @@
   docks below the viewer as a solid bar, matching the header and panels,
   which were already compact there. `PdfEditingToolbar.mobileBreakpoint` is
   700; a `PdfEditorThemeData.compactWidth` moves both.
+- Add `PdfReader.headerBuilder`: the reader's header from the same
+  `PdfHeaderParts` `PdfEditorView` hands out (page number, zoom, search, view
+  options, panel switch, the compact Controls part; `save` is always null).
+- Add `PdfHeaderParts.saveButton(enabledWhenUnchanged:)`, a save button that
+  stays enabled while the document is unchanged and saves when pressed - for
+  hosts whose save shares or exports. The ⌘S / Ctrl+S shortcut still saves
+  only when there is something to save (or with `alwaysAllowSave`).
+- Add `PdfEditorView.extraPanels` and `PdfEditorPanel`: a host's own dock
+  panels beside the stock ones, with a panel switch toggle, a resizable frame
+  whose move handle redocks them to any edge, and a bottom sheet on compact
+  layouts. Their dock, width and visibility persist by id
+  (`PdfEditingPreferences.extraPanelDock`/`extraPanelWidth`/
+  `extraPanelOpen`), or the host keeps visibility in a `ValueNotifier`
+  (`PdfEditorPanel.open`). `PdfSidebarPanelFrame.hostPanel` gives a host
+  panel's frame its move handle. Host panels dock standalone; they do not
+  join a stock panel's tab group.
+- The viewer's keyboard commands are intents: `PdfCopyIntent`,
+  `PdfCutIntent`, `PdfPasteIntent`, `PdfSelectAllIntent`, `PdfDismissIntent`,
+  `PdfUndoIntent`, `PdfRedoIntent`, `PdfDeleteSelectionIntent`,
+  `PdfAutosizeTextBoxIntent`, `PdfNudgeSelectionIntent` and
+  `PdfArmToolIntent`. `pdfViewerDefaultShortcuts` holds the stock bindings
+  (unchanged); `PdfViewer.shortcuts` (and `viewerShortcuts` on
+  `PdfEditorView` and `PdfReader`) replaces them. A `Shortcuts` above the
+  viewer can bind more keys to the intents, and an `Actions` above it
+  overrides what one does (the viewer's actions are `Action.overridable`).
+- Add `PdfSignaturePad` and `PdfSignaturePadController`, the signature
+  dialog's drawing surface as a widgets-only widget: pointer and stylus
+  capture with pressure, the predicted lead, and trackpad drawing, over a
+  controller holding the strokes, ink and pen (`toSignature()`).
+  `PdfSignatureDialog` is built on it, with the same keys and behaviour.
+- Add `PdfPreferencesStore` and `PdfEditingPreferences(store:)`, so the
+  preferences can live somewhere other than the device's shared_preferences
+  (`PdfSharedPreferencesStore` is the default; `PdfMemoryPreferencesStore`
+  keeps them in memory).
+- Fix a viewer controller swap on `PdfEditorView`/`PdfReader`: handing in a
+  controller where the shell owned one disposed the old controller while the
+  viewer's pages still used it ("`_PdfForwardingListenable` used after being
+  disposed"), and swapping one host controller for another left the new one
+  unbound. The viewer is now rebuilt bound to the new controller, and a
+  replaced owned controller is disposed at the end of the frame.
+- New `pdf-*` keys for tests that should not depend on Material widget types
+  (they keep working after the move to material_ui): the text prompt and its
+  field, the signature dialog's Done/Cancel, the colour picker's OK/Cancel,
+  the stamp editor's Save, annotation list rows and checkboxes, the link
+  dialog's fields, the thumbnail list and its delete buttons, the toolbar's
+  save, ink confirm/discard, delete, guides dialog and sliders, the identity
+  name field, the stock popup menu divider, the text context menu, and the
+  loading indicators.
 
 ## 5.1.1
 

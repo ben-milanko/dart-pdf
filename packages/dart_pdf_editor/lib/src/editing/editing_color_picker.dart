@@ -630,12 +630,14 @@ Future<Color?> showPdfColorPicker(
       ),
       actions: [
         TextButton(
+          key: const ValueKey('pdf-color-picker-cancel'),
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
         PdfDialogSubmit.action(
             onSubmit: () => Navigator.of(context).pop(current),
             child: FilledButton(
+              key: const ValueKey('pdf-color-picker-ok'),
               onPressed: () => Navigator.of(context).pop(current),
               child: Text(pdfL10n(context).ok),
             )),

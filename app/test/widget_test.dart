@@ -5,6 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/app.dart';
 import 'package:dart_pdf_editor_app/devtools.dart';
 
+/// The welcome screen's "Open a PDF" button, labelled [label].
+Finder openPdfButton(String label) => find.descendant(
+    of: find.byKey(const ValueKey('welcome-open-pdf')),
+    matching: find.text(label));
+
 void main() {
   setUp(() {
     // The mock store is process-global; reset it so a prior test's persisted
@@ -20,7 +25,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // No document open yet: the empty state offers a way in.
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(openPdfButton('Open a PDF'), findsOneWidget);
     expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
   });
 
@@ -34,16 +39,17 @@ void main() {
     // picker drives the same MaterialApp.locale resolution as this override.
     await tester.pumpWidget(const DartPdfEditorApp());
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(openPdfButton('Open a PDF'), findsOneWidget);
 
     AppDevTools.instance.localeOverride.value = const Locale('es');
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(FilledButton, 'Abrir un PDF'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsNothing);
+    expect(openPdfButton('Abrir un PDF'), findsOneWidget);
+    expect(openPdfButton('Open a PDF'), findsNothing);
   });
 
-  testWidgets('a DevTools override onto an unshipped RTL locale flips RTL '
+  testWidgets(
+      'a DevTools override onto an unshipped RTL locale flips RTL '
       'while app strings fall back to English', (WidgetTester tester) async {
     // Forcing a locale with no shipped ARB makes Flutter log a debug-only
     // "not supported by all of its localization delegates" warning (app
@@ -69,11 +75,11 @@ void main() {
     await tester.pumpWidget(const DartPdfEditorApp());
     await tester.pumpAndSettle();
 
-    final direction =
-        Directionality.of(tester.element(find.byType(Scaffold).first));
+    final direction = Directionality.of(
+        tester.element(find.byKey(const ValueKey('welcome-open-pdf'))));
     expect(direction, TextDirection.rtl);
     // The empty state's English fallback is unaffected by the missing he ARB.
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+    expect(openPdfButton('Open a PDF'), findsOneWidget);
   });
 
   testWidgets('the shipped Arabic locale renders RTL with translated strings',
@@ -86,10 +92,10 @@ void main() {
     await tester.pumpWidget(const DartPdfEditorApp());
     await tester.pumpAndSettle();
 
-    final direction =
-        Directionality.of(tester.element(find.byType(Scaffold).first));
+    final direction = Directionality.of(
+        tester.element(find.byKey(const ValueKey('welcome-open-pdf'))));
     expect(direction, TextDirection.rtl);
-    expect(find.widgetWithText(FilledButton, 'فتح ملف PDF'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsNothing);
+    expect(openPdfButton('فتح ملف PDF'), findsOneWidget);
+    expect(openPdfButton('Open a PDF'), findsNothing);
   });
 }

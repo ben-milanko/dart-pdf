@@ -181,12 +181,12 @@ void main() {
       await tester.ensureVisible(toggle);
       await tester.pumpAndSettle();
       expect(find.text('Trust Adobe Approved Trust List'), findsOneWidget);
-      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
 
       await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(setting.value, isTrue);
-      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
 
       await tester.tap(toggle);
       await tester.pumpAndSettle();

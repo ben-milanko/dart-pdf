@@ -133,8 +133,8 @@ void main() {
         ));
     await tester.pump();
 
-    // The list renders ListTile rows; the grid does not.
-    expect(find.byType(ListTile), findsOneWidget);
+    // The list renders `recent-<id>` rows; the grid renders `recent-tile-<id>`.
+    expect(find.byKey(const ValueKey('recent-/a.pdf')), findsOneWidget);
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
 
@@ -153,7 +153,7 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsOneWidget);
-    expect(find.byType(ListTile), findsNothing);
+    expect(find.byKey(const ValueKey('recent-files-list')), findsNothing);
   });
 
   testWidgets('the toggle switches the layout and overrides the default',
@@ -177,7 +177,7 @@ void main() {
     // is still wide (an explicit choice sticks).
     await tester.tap(find.byIcon(Icons.view_list_outlined));
     await tester.pump();
-    expect(find.byType(ListTile), findsOneWidget);
+    expect(find.byKey(const ValueKey('recent-/a.pdf')), findsOneWidget);
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Read-only mode keeps one header bar, like editing: the document controls
+  share the app bar instead of a second bar under it.
+- The developer tools panel (F12) docks with the editor's own panels on a
+  wide window and can be dragged to any edge.
+
 ## 5.1.1
 
 - Fix ink disappearing while you write quickly. Writing one character right

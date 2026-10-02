@@ -174,7 +174,7 @@ void main() {
       return _result(bytes);
     });
     final run = find.byKey(const ValueKey('reduce-size-run'));
-    expect(tester.widget<FilledButton>(run).onPressed, isNull);
+    expect(tester.getSemantics(run), isSemantics(isEnabled: false));
     expect(find.textContaining('invalidates its digital signatures'),
         findsOneWidget);
     await _tap(tester, 'reduce-size-signature-consent');
@@ -499,7 +499,7 @@ void main() {
     final action =
         find.byKey(const ValueKey('palette-result-menu-reduce-file-size'));
     expect(action, findsOneWidget);
-    expect(tester.widget<InkWell>(action).onTap, isNull);
+    expect(tester.getSemantics(action), isSemantics(hasTapAction: false));
     expect(find.text('Needs an open document'), findsOneWidget);
     expect(find.byKey(const ValueKey('reduce-size-dialog')), findsNothing);
   });

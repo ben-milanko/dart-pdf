@@ -131,7 +131,7 @@ void main() {
         find.text('Annotations and form fields flattened into the pages'),
         findsOneWidget,
       );
-      expect(find.widgetWithText(SnackBarAction, 'Undo'), findsOneWidget);
+      expect(find.text('Undo'), findsOneWidget);
       expect(editing.document.page(0).annotations, isEmpty);
 
       // the Undo action restores the annotation
@@ -164,7 +164,7 @@ void main() {
         findsOneWidget,
       );
       // nothing changed, so there is no Undo offered
-      expect(find.widgetWithText(SnackBarAction, 'Undo'), findsNothing);
+      expect(find.text('Undo'), findsNothing);
     });
 
     testWidgets('document flatten includes untouched empty form fields',

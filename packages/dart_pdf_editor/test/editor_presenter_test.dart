@@ -170,7 +170,7 @@ void main() {
 
     commands.flatten(context);
     expect(presenter.calls, ['notice']);
-    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text(presenter.notices.single.message), findsNothing);
     expect(editing.document.page(0).annotations, isEmpty);
     final undo = presenter.notices.single.onUndo;
     expect(undo, isNotNull);

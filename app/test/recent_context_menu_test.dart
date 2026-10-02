@@ -124,9 +124,8 @@ void main() {
 
     await rightClick(tester, listRow('web.pdf'));
 
-    final item = tester.widget<PopupMenuItem<dynamic>>(
-        find.byKey(const ValueKey('recent-menu-open')));
-    expect(item.enabled, isFalse);
+    expect(tester.getSemantics(find.byKey(const ValueKey('recent-menu-open'))),
+        isSemantics(isEnabled: false));
     // Without a path there is nothing to copy as one, but the name still is.
     expect(find.byKey(const ValueKey('recent-menu-copy-path')), findsNothing);
     expect(find.byKey(const ValueKey('recent-menu-copy-name')), findsOneWidget);

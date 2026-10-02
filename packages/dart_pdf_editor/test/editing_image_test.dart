@@ -178,11 +178,8 @@ void main() {
   });
 
   group('image tool visibility in the toolbar', () {
-    // Anything whose tooltip starts with the image tool's - it carries a
-    // trailing " (I)" shortcut hint we don't want to hard-code.
-    final imageTool = find.byWidgetPredicate((w) =>
-        w is IconButton &&
-        (w.tooltip?.startsWith('Image - tap to place') ?? false));
+    // the image tool's strip button, labelled or icon-only
+    final imageTool = find.byKey(const ValueKey('pdf-tool-image'));
 
     Future<PdfEditingController> pumpToolbar(WidgetTester tester,
         {PdfImagePicker? imagePicker}) async {
@@ -223,8 +220,8 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));
       // a 200x200 box centered on (300, 400): [200, 300, 400, 500]
-      expect(editing.addImageInRect(
-          0, const PdfRect(200, 300, 400, 500), _png), isTrue);
+      expect(editing.addImageInRect(0, const PdfRect(200, 300, 400, 500), _png),
+          isTrue);
       return editing;
     }
 
@@ -275,8 +272,8 @@ void main() {
       expect(crop.right, closeTo(0.5, 1e-6));
       // second crop: left half of what remains → left quarter of the source
       final r2 = editing.selectedAnnotation!.rect;
-      editing.cropSelectedImage(PdfRect(
-          r2.left, r2.bottom, (r2.left + r2.right) / 2, r2.top));
+      editing.cropSelectedImage(
+          PdfRect(r2.left, r2.bottom, (r2.left + r2.right) / 2, r2.top));
       crop = editing.selectedAnnotation!.imageStampCrop!;
       expect(crop.right, closeTo(0.25, 1e-6));
     });

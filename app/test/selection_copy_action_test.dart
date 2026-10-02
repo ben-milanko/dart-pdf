@@ -68,13 +68,13 @@ void main() {
         (tester) async {
       await selectPageText(tester);
 
-      expect(find.byTooltip('Copy selected text (⌘C)'), findsNothing);
+      expect(find.byKey(const ValueKey('selection-copy-action')), findsNothing);
     }, variant: TargetPlatformVariant.only(platform));
   }
 
   testWidgets('mobile header retains selection copy', (tester) async {
     await selectPageText(tester);
 
-    expect(find.byTooltip('Copy selected text (⌘C)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-copy-action')), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }

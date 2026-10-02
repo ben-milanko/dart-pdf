@@ -116,8 +116,7 @@ void main() {
       expect(viewport.zoom, closeTo(1.5, 0.02));
     }
 
-    testWidgets('adding pages keeps the current page and zoom',
-        (tester) async {
+    testWidgets('adding pages keeps the current page and zoom', (tester) async {
       final (editing, viewer) = await pumpViewer(tester);
       expectViewport(editing, viewer, page: 3, label: 'Page 4');
 
@@ -1049,7 +1048,7 @@ void main() {
       await tester.pump();
 
       final list = tester.widget<ReorderableListView>(
-        find.byType(ReorderableListView),
+        find.byKey(const ValueKey('pdf-thumbnail-list')),
       );
       list.onReorderStart!(1);
       await tester.pump();
@@ -1255,9 +1254,15 @@ void main() {
       await tester.pumpAndSettle();
 
       // pasted after page 4 (index 3) -> the copy lands at index 4
-      expect(labelsOf(editing.document),
-          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 1', 'Page 5',
-              'Page 6']);
+      expect(labelsOf(editing.document), [
+        'Page 1',
+        'Page 2',
+        'Page 3',
+        'Page 4',
+        'Page 1',
+        'Page 5',
+        'Page 6'
+      ]);
       // the viewer (and the strip that follows it) lands on the pasted page,
       // not back at the top
       expect(viewer.currentPage, 4);

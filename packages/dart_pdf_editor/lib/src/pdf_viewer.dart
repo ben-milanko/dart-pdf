@@ -54,6 +54,7 @@ import 'tile_raster_backend.dart';
 import 'tile_store.dart';
 import 'design/editor_presenter.dart';
 import 'text_selection_geometry.dart';
+import 'viewer_intents.dart';
 import 'viewport.dart';
 
 export 'viewport.dart' show PdfViewport, pdfDocumentKey;
@@ -135,9 +136,6 @@ class _PdfViewerPageKey extends LocalKey {
 /// only where the selection hangs off the page ([PdfEditingReach]); on the
 /// page the overlay does its own handle hit-testing.
 const double _selectionGrabMargin = 24;
-
-const double _annotationNudgeStep = 1;
-const double _annotationNudgeStepCoarse = 10;
 
 /// One search hit with the text around it, ready for a results list
 /// like [PdfSearchResultsPanel].
@@ -1436,6 +1434,7 @@ class PdfViewer extends StatefulWidget {
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
+    this.shortcuts,
     this.renderWorker,
     this.autoRenderWorker = true,
     this.performance,
@@ -1569,6 +1568,20 @@ class PdfViewer extends StatefulWidget {
   /// with Shift ([PdfToolShortcut]); the ⌘/Ctrl clipboard, undo/redo,
   /// delete and Escape bindings are not affected.
   final Map<PdfEditTool, PdfToolShortcut> toolShortcuts;
+
+  /// The viewer's key bindings: copy, select all, Escape, undo/redo, cut,
+  /// paste, delete, the arrow-key nudge. Null uses
+  /// [pdfViewerDefaultShortcuts]; pass a copy of it with keys added,
+  /// changed or removed to rebind them. The [toolShortcuts] are bound on
+  /// top, and nothing is bound while an in-place text editor is open (every
+  /// key is the editor's then).
+  ///
+  /// The keys map to intents ([PdfCopyIntent], [PdfUndoIntent],
+  /// [PdfNudgeSelectionIntent], [PdfArmToolIntent], ...), so a host can
+  /// also bind its own keys to them with a [Shortcuts] above the viewer, or
+  /// change what one does with an [Actions] above it: the viewer's own
+  /// actions are overridable ([Action.overridable]).
+  final Map<ShortcutActivator, Intent>? shortcuts;
 
   final PdfViewerController? controller;
 
@@ -9224,86 +9237,13 @@ class _PdfViewerState extends State<PdfViewer>
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
       );
-      return CallbackShortcuts(
+      final keyed = Shortcuts(
         // while an in-place text editor is open every key belongs to it:
         // backspace deletes characters (not the annotation), ⌘C copies
         // field text, Escape is the editor's own cancel
-        bindings: editing?.isEditingText ?? false
-            ? const {}
-            : {
-                const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
-                    _onCopy,
-                const SingleActivator(LogicalKeyboardKey.keyC, control: true):
-                    _onCopy,
-                const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
-                    _onSelectAll,
-                const SingleActivator(LogicalKeyboardKey.keyA, control: true):
-                    _onSelectAll,
-                const SingleActivator(LogicalKeyboardKey.escape): _onEscape,
-                if (editing != null) ...{
-                  const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
-                      editing.undo,
-                  const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-                      editing.undo,
-                  const SingleActivator(LogicalKeyboardKey.keyZ, alt: true):
-                      editing.autosizeSelectedTextBox,
-                  const SingleActivator(LogicalKeyboardKey.keyZ,
-                      meta: true, shift: true): editing.redo,
-                  const SingleActivator(LogicalKeyboardKey.keyZ,
-                      control: true, shift: true): editing.redo,
-                  const SingleActivator(LogicalKeyboardKey.keyY, control: true):
-                      editing.redo,
-                  const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
-                      _onCut,
-                  const SingleActivator(LogicalKeyboardKey.keyX, control: true):
-                      _onCut,
-                  const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-                      _onPaste,
-                  const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-                      _onPaste,
-                  const SingleActivator(LogicalKeyboardKey.delete):
-                      editing.deleteSelected,
-                  const SingleActivator(LogicalKeyboardKey.backspace):
-                      editing.deleteSelected,
-                  // arrow keys nudge the selection - the annotation(s), or
-                  // the selected page-content element - 1 pt per press, 10 pt
-                  // with Shift for a coarse move. Only bound while something
-                  // is selected so a bare arrow still scrolls the page when
-                  // it isn't.
-                  if (editing.hasAnnotationSelection ||
-                      editing.selectedElement != null) ...{
-                    const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
-                        editing.nudgeSelected(-_annotationNudgeStep, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
-                        editing.nudgeSelected(_annotationNudgeStep, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
-                        editing.nudgeSelected(0, -_annotationNudgeStep),
-                    const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
-                        editing.nudgeSelected(0, _annotationNudgeStep),
-                    const SingleActivator(LogicalKeyboardKey.arrowLeft,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(-_annotationNudgeStepCoarse, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowRight,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(_annotationNudgeStepCoarse, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowUp,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(0, -_annotationNudgeStepCoarse),
-                    const SingleActivator(LogicalKeyboardKey.arrowDown,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(0, _annotationNudgeStepCoarse),
-                  },
-                  // tool shortcuts (V select, P pen, R rectangle, ⇧L
-                  // polyline, …) - safe because an open in-place text
-                  // editor disables every binding above
-                  for (final entry in widget.toolShortcuts.entries)
-                    entry.value.activator: () => _armTool(entry.key),
-                },
-              },
+        shortcuts: editing?.isEditingText ?? false
+            ? const <ShortcutActivator, Intent>{}
+            : _keyBindings(editing != null),
         child: Focus(
           focusNode: _focusNode,
           child: RawGestureDetector(
@@ -9609,8 +9549,88 @@ class _PdfViewerState extends State<PdfViewer>
           ),
         ),
       );
+      // the viewer's commands for the keys above (and for a host's own
+      // Shortcuts); an ancestor of the focused viewer, as Actions must be
+      return Actions(actions: _keyActions, child: keyed);
     });
   }
+
+  /// The key bindings: the host's [PdfViewer.shortcuts] (or the stock
+  /// ones), plus the tool keys while editing. Cached, so a rebuild that
+  /// changes none of the inputs hands [Shortcuts] the same map and its
+  /// manager keeps its index.
+  Map<ShortcutActivator, Intent> _keyBindings(bool editing) {
+    final base = widget.shortcuts ?? pdfViewerDefaultShortcuts;
+    final tools = widget.toolShortcuts;
+    final cached = _keyBindingsCache;
+    if (cached != null &&
+        identical(_keyBindingsBase, base) &&
+        identical(_keyBindingsTools, tools) &&
+        _keyBindingsEditing == editing) {
+      return cached;
+    }
+    _keyBindingsBase = base;
+    _keyBindingsTools = tools;
+    _keyBindingsEditing = editing;
+    return _keyBindingsCache = !editing || tools.isEmpty
+        ? base
+        : {
+            ...base,
+            // tool shortcuts (V select, P pen, R rectangle, ⇧L polyline, …) -
+            // safe because an open in-place text editor disables every
+            // binding
+            for (final entry in tools.entries)
+              entry.value.activator: PdfArmToolIntent(entry.key),
+          };
+  }
+
+  Map<ShortcutActivator, Intent>? _keyBindingsCache;
+  Map<ShortcutActivator, Intent>? _keyBindingsBase;
+  Map<PdfEditTool, PdfToolShortcut>? _keyBindingsTools;
+  bool? _keyBindingsEditing;
+
+  /// What the bound keys do. Each action is overridable - an [Actions]
+  /// above the viewer replaces it - and an editing-only one is disabled
+  /// without an editing session, which lets its key through as if unbound.
+  late final Map<Type, Action<Intent>> _keyActions = () {
+    bool editing(Intent _) => widget.editing != null;
+    Action<Intent> action<T extends Intent>(void Function(T intent) invoke,
+            {bool Function(T intent)? enabled}) =>
+        Action<T>.overridable(
+          context: context,
+          defaultAction: _PdfViewerKeyAction<T>(invoke, enabled),
+        );
+    return <Type, Action<Intent>>{
+      PdfCopyIntent: action<PdfCopyIntent>((_) => _onCopy()),
+      PdfSelectAllIntent: action<PdfSelectAllIntent>((_) => _onSelectAll()),
+      PdfDismissIntent: action<PdfDismissIntent>((_) => _onEscape()),
+      PdfUndoIntent: action<PdfUndoIntent>((_) => widget.editing?.undo(),
+          enabled: editing),
+      PdfRedoIntent: action<PdfRedoIntent>((_) => widget.editing?.redo(),
+          enabled: editing),
+      PdfAutosizeTextBoxIntent: action<PdfAutosizeTextBoxIntent>(
+          (_) => widget.editing?.autosizeSelectedTextBox(),
+          enabled: editing),
+      PdfCutIntent: action<PdfCutIntent>((_) => _onCut(), enabled: editing),
+      PdfPasteIntent:
+          action<PdfPasteIntent>((_) => _onPaste(), enabled: editing),
+      PdfDeleteSelectionIntent: action<PdfDeleteSelectionIntent>(
+          (_) => widget.editing?.deleteSelected(),
+          enabled: editing),
+      // only while something is selected, so a bare arrow still scrolls
+      // the page when nothing is
+      PdfNudgeSelectionIntent: action<PdfNudgeSelectionIntent>(
+          (intent) => widget.editing?.nudgeSelected(intent.dx, intent.dy),
+          enabled: (_) {
+        final editing = widget.editing;
+        return editing != null &&
+            (editing.hasAnnotationSelection || editing.selectedElement != null);
+      }),
+      PdfArmToolIntent: action<PdfArmToolIntent>(
+          (intent) => _armTool(intent.tool),
+          enabled: editing),
+    };
+  }();
 
   int _renderPriority(int pageIndex) =>
       -1000 + (pageIndex - (_jumpFocusPage ?? _controller.currentPage)).abs();
@@ -11497,4 +11517,21 @@ class _SelectionHandlePainter extends CustomPainter {
       oldDelegate.ballRadius != ballRadius ||
       oldDelegate.stemWidth != stemWidth ||
       oldDelegate.color != color;
+}
+
+/// One of the viewer's own key actions ([_PdfViewerState._keyActions]).
+class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
+  _PdfViewerKeyAction(this._invoke, this._enabled);
+
+  final void Function(T intent) _invoke;
+  final bool Function(T intent)? _enabled;
+
+  @override
+  bool isEnabled(T intent) => _enabled?.call(intent) ?? true;
+
+  @override
+  Object? invoke(T intent) {
+    _invoke(intent);
+    return null;
+  }
 }

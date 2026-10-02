@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
@@ -199,9 +200,11 @@ void main() {
         ),
       );
       expect(find.byType(PdfViewer), findsOneWidget);
-      expect(find.byType(TextField), findsNothing);
+      // widgets-layer probes (no input field, no button of any kind), so
+      // they keep meaning something whichever Material library draws them
+      expect(find.byType(EditableText), findsNothing);
       expect(find.byType(PdfThumbnailSidebar), findsNothing);
-      expect(find.byType(IconButton), findsNothing);
+      expect(find.semantics.byFlag(SemanticsFlag.isButton), findsNothing);
     });
 
     testWidgets('thumbnails are read-only: no delete button, no reorder drag',
@@ -1079,7 +1082,7 @@ void main() {
       );
       expect(find.byType(PdfViewer), findsOneWidget);
       expect(find.byType(PdfEditingToolbar), findsNothing);
-      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(EditableText), findsNothing);
       expect(find.byType(PdfThumbnailSidebar), findsNothing);
     });
 
@@ -1216,7 +1219,8 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-fill-none')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-text-border-none')), findsNothing);
       // but the sliders survive
-      expect(find.byType(Slider), findsWidgets);
+      expect(find.byKey(const ValueKey('pdf-tune-opacity-slider')),
+          findsOneWidget);
     });
 
     testWidgets('colorControls locks the freehand highlight color',
@@ -1298,7 +1302,7 @@ void main() {
 
       expect(find.text('Choose a markup, then select text'), findsOneWidget);
       final highlight = find.byKey(const ValueKey('pdf-markup-highlight'));
-      expect(tester.widget<IconButton>(highlight).onPressed, isNotNull);
+      expect(tester.getSemantics(highlight), isSemantics(isEnabled: true));
 
       await tester.tap(highlight, kind: PointerDeviceKind.mouse);
       await tester.pump();
@@ -1312,11 +1316,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.draw), kind: PointerDeviceKind.mouse);
       await tester.pump();
       // the draw button reads back as armed from the internal session
-      final button = tester.widget<IconButton>(find.ancestor(
-        of: find.byIcon(Icons.draw),
-        matching: find.byType(IconButton),
-      ));
-      expect(button.isSelected, isTrue);
+      expect(tester.getSemantics(find.byKey(const ValueKey('pdf-tool-ink'))),
+          isSemantics(isSelected: true));
     });
 
     testWidgets('custom toolbar widgets can drive the owned session',
@@ -2299,13 +2300,12 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-thumbnails-sheet-close')),
           findsOneWidget);
       // the editable delete buttons are present...
-      expect(
-          find.widgetWithIcon(IconButton, Icons.delete_outline), findsWidgets);
+      expect(find.byIcon(Icons.delete_outline), findsWidgets);
       // ...but carry no Tooltip (no OverlayPortal in the reorderable items)
       expect(
           find.descendant(
-            of: find.byType(ReorderableListView),
-            matching: find.byType(Tooltip),
+            of: find.byType(SliverReorderableList),
+            matching: find.byType(OverlayPortal),
           ),
           findsNothing);
       expect(tester.takeException(), isNull);

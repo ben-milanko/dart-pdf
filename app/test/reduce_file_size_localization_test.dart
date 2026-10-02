@@ -62,7 +62,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-          find.widgetWithText(FilledButton, scenario.button), findsOneWidget);
+          find.descendant(
+              of: find.byKey(const ValueKey('reduce-size-run')),
+              matching: find.text(scenario.button)),
+          findsOneWidget);
       expect(
         find.text(
             '${scenario.button} the current document, review the savings, '

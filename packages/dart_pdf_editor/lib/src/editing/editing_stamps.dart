@@ -864,6 +864,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
         PdfDialogSubmit.action(
             onSubmit: _components.isEmpty ? null : _saveStamp,
             child: FilledButton(
+              key: const ValueKey('pdf-stamp-editor-save'),
               onPressed: _components.isEmpty ? null : _saveStamp,
               child: Text(pdfL10n(context).save),
             )),

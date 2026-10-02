@@ -4,6 +4,9 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// The signature pad dialog's Done button.
+final signatureDone = find.byKey(const ValueKey('pdf-signature-done'));
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -394,17 +397,13 @@ void main() {
       expect(find.byType(PdfSignatureDialog), findsOneWidget);
 
       // Done is disabled until something is drawn
-      expect(
-          tester
-              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'))
-              .onPressed,
-          isNull);
+      expect(tester.getSemantics(signatureDone), isSemantics(isEnabled: false));
 
       final pad = find.byKey(const ValueKey('pdf-signature-pad'));
       await tester.timedDrag(
           pad, const Offset(120, 30), const Duration(milliseconds: 200));
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.tap(signatureDone);
       await tester.pumpAndSettle();
 
       expect(editing.preferences.signature, isNotNull);
@@ -472,7 +471,7 @@ void main() {
           find.text('${PdfInkSignature.maxStrokeWidth.toStringAsFixed(1)} pt'),
           findsOneWidget);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.tap(signatureDone);
       await tester.pumpAndSettle();
       expect(result!.color, 0x00AA88);
       expect(result!.strokeWidth, PdfInkSignature.maxStrokeWidth);
@@ -504,17 +503,17 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
       await tester.pumpAndSettle();
       expect(find.byType(PdfColorPicker), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
+      await tester.tap(find.byKey(const ValueKey('pdf-color-picker-cancel')));
       await tester.pumpAndSettle();
       expect(find.byType(PdfColorPicker), findsNothing);
 
       // committing one takes it
       await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'OK'));
+      await tester.tap(find.byKey(const ValueKey('pdf-color-picker-ok')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.tap(signatureDone);
       await tester.pumpAndSettle();
       // the pad's default ink, round-tripped through the picker unchanged
       expect(result!.color, 0x000000);
@@ -574,7 +573,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
       await tester.pumpAndSettle();
       expect(find.byType(PdfColorPicker), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
+      await tester.tap(find.byKey(const ValueKey('pdf-color-picker-cancel')));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('pdf-signature-ink-b71c1c')));
@@ -587,7 +586,7 @@ void main() {
       await tester.timedDrag(find.byKey(const ValueKey('pdf-signature-pad')),
           const Offset(120, 30), const Duration(milliseconds: 200));
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.tap(signatureDone);
       await tester.pumpAndSettle();
 
       // arming the tool must not restore the signature scope over the ink
@@ -627,17 +626,13 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Clear'));
       await tester.pump();
-      expect(
-          tester
-              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'))
-              .onPressed,
-          isNull);
+      expect(tester.getSemantics(signatureDone), isSemantics(isEnabled: false));
 
       // draw again and finish
       await tester.timedDrag(
           pad, const Offset(60, -15), const Duration(milliseconds: 200));
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.tap(signatureDone);
       await tester.pumpAndSettle();
       expect(result, isNotNull);
       expect(result!.strokes, hasLength(1));

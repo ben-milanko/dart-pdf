@@ -7,6 +7,7 @@ import 'design/editor_theme.dart';
 import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
+import 'editing/editor_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_toolbar.dart' show showPdfEditingGuidesDialog;
 import 'editing/tool_shortcuts.dart';
@@ -69,6 +70,7 @@ class PdfShellPanelLayout extends StatefulWidget {
     this.dockedToolbar,
     this.onPanelDock,
     this.onToolbarDock,
+    this.onHostPanelDock,
   });
 
   /// The page viewer, reflow view, or other primary document surface.
@@ -110,6 +112,12 @@ class PdfShellPanelLayout extends StatefulWidget {
   /// Redocks the floating editing toolbar to the dropped-on edge. Null keeps
   /// the toolbar fixed and hides its edge drop zones.
   final ValueChanged<PdfPanelDock>? onToolbarDock;
+
+  /// Redocks a host panel (`PdfEditorView.extraPanels`) to the dropped-on
+  /// edge. Null leaves host panels without a move handle.
+  final void Function(PdfEditorPanel panel, PdfPanelDock dock)? onHostPanelDock;
+
+  bool get _panelsRedock => onPanelDock != null || onHostPanelDock != null;
 
   @override
   State<PdfShellPanelLayout> createState() => _PdfShellPanelLayoutState();
@@ -191,10 +199,11 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       // Panel targets stay shell-relative: panels really do dock outside the
       // viewer and may be dropped over another panel. Toolbar targets are
       // instead mounted in the viewer Stack above.
-      if (widget.onPanelDock != null && _draggingPanel)
+      if (widget._panelsRedock && _draggingPanel)
         Positioned.fill(
           child: _PanelDropZones(
             onPanelDock: widget.onPanelDock,
+            onHostPanelDock: widget.onHostPanelDock,
           ),
         ),
     ]);
@@ -215,7 +224,7 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
     // the panels below read this to drive the drag: their move handles
     // toggle the drop zones on and off.
     result = PdfPanelDragScope(
-      enabled: widget.onPanelDock != null,
+      enabled: widget._panelsRedock,
       onDragStarted: () => _setPanelDragging(true),
       onDragEnded: () => _setPanelDragging(false),
       child: result,
@@ -232,10 +241,12 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
 /// The four edge drop targets shown while a panel is being dragged. Dropping
 /// the panel onto one redocks it to that edge.
 class _PanelDropZones extends StatelessWidget {
-  const _PanelDropZones({this.onPanelDock, this.onToolbarDock});
+  const _PanelDropZones(
+      {this.onPanelDock, this.onToolbarDock, this.onHostPanelDock});
 
   final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
   final ValueChanged<PdfPanelDock>? onToolbarDock;
+  final void Function(PdfEditorPanel panel, PdfPanelDock dock)? onHostPanelDock;
 
   @override
   Widget build(BuildContext context) {
@@ -256,6 +267,7 @@ class _PanelDropZones extends StatelessWidget {
             dock: PdfPanelDock.left,
             onPanelDock: onPanelDock,
             onToolbarDock: onToolbarDock,
+            onHostPanelDock: onHostPanelDock,
           ),
         ),
         Positioned(
@@ -267,6 +279,7 @@ class _PanelDropZones extends StatelessWidget {
             dock: PdfPanelDock.right,
             onPanelDock: onPanelDock,
             onToolbarDock: onToolbarDock,
+            onHostPanelDock: onHostPanelDock,
           ),
         ),
         // top/bottom bands inset horizontally so they never overlap the
@@ -280,6 +293,7 @@ class _PanelDropZones extends StatelessWidget {
             dock: PdfPanelDock.top,
             onPanelDock: onPanelDock,
             onToolbarDock: onToolbarDock,
+            onHostPanelDock: onHostPanelDock,
           ),
         ),
         Positioned(
@@ -291,6 +305,7 @@ class _PanelDropZones extends StatelessWidget {
             dock: PdfPanelDock.bottom,
             onPanelDock: onPanelDock,
             onToolbarDock: onToolbarDock,
+            onHostPanelDock: onHostPanelDock,
           ),
         ),
       ]);
@@ -303,11 +318,13 @@ class _DropTarget extends StatelessWidget {
     required this.dock,
     this.onPanelDock,
     this.onToolbarDock,
+    this.onHostPanelDock,
   });
 
   final PdfPanelDock dock;
   final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
   final ValueChanged<PdfPanelDock>? onToolbarDock;
+  final void Function(PdfEditorPanel panel, PdfPanelDock dock)? onHostPanelDock;
 
   IconData get _icon => switch (dock) {
         PdfPanelDock.left => Icons.west,
@@ -322,6 +339,7 @@ class _DropTarget extends StatelessWidget {
     return DragTarget<Object>(
       onWillAcceptWithDetails: (details) => switch (details.data) {
         PdfDockablePanel() => onPanelDock != null,
+        PdfEditorPanel() => onHostPanelDock != null,
         PdfToolbarDragData() => onToolbarDock != null,
         _ => false,
       },
@@ -329,6 +347,8 @@ class _DropTarget extends StatelessWidget {
         switch (details.data) {
           case final PdfDockablePanel panel:
             onPanelDock?.call(panel, dock);
+          case final PdfEditorPanel panel:
+            onHostPanelDock?.call(panel, dock);
           case PdfToolbarDragData():
             onToolbarDock?.call(dock);
         }

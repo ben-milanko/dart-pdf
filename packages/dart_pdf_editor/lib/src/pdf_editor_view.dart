@@ -11,6 +11,7 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_panel.dart';
+import 'editing/editor_panel.dart';
 import 'editing/editing_pencil.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
@@ -286,6 +287,8 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.theme,
     this.headerBuilder,
+    this.viewerShortcuts,
+    this.extraPanels = const [],
     this.rasterCache,
     this.textCache,
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
@@ -392,6 +395,8 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.theme,
     this.headerBuilder,
+    this.viewerShortcuts,
+    this.extraPanels = const [],
     this.rasterCache,
     this.textCache,
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
@@ -742,6 +747,17 @@ class PdfEditorView extends StatefulWidget {
   /// [PdfEditorFeatures.headerBar] still gates it.
   final PdfHeaderBuilder? headerBuilder;
 
+  /// The viewer's key bindings - see [PdfViewer.shortcuts]. Null keeps the
+  /// stock ones ([pdfViewerDefaultShortcuts]).
+  final Map<ShortcutActivator, Intent>? viewerShortcuts;
+
+  /// The host's own dock panels, shown beside the stock ones: a toggle in
+  /// the panel switch, a frame on their dock that the user can resize and
+  /// drag to another edge, a bottom sheet on compact layouts. Their dock,
+  /// width and visibility persist in the preferences by
+  /// [PdfEditorPanel.id]. See [PdfEditorPanel].
+  final List<PdfEditorPanel> extraPanels;
+
   @override
   State<PdfEditorView> createState() => _PdfEditorViewState();
 }
@@ -1030,6 +1046,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         viewerTheme: widget.viewerTheme,
         theme: widget.theme,
         headerBuilder: widget.headerBuilder,
+        viewerShortcuts: widget.viewerShortcuts,
+        extraPanels: widget.extraPanels,
         // The first-paint buffer only holds the first page(s); its later pages
         // render blank (and its text extracts empty). Keep the persistent
         // content-keyed caches off until the full buffer lands so those blanks
@@ -1084,6 +1102,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     if (!_canSave) return;
     widget.onSave?.call(_session.bytes);
   }
+
+  /// The save button a host asked to keep live without changes
+  /// ([PdfHeaderParts.saveButton]): saves whatever is there.
+  void _saveUnchanged() => widget.onSave?.call(_session.bytes);
 
   void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
@@ -1195,18 +1217,22 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     final hasSave = widget.onSave != null && widget.showSaveButton;
     // Save sits in the header, not in the floating toolbar - ⌘S/Ctrl+S
     // takes the same path.
-    final save = hasSave
-        ? FilledButton.icon(
-            key: const ValueKey('pdf-shell-save'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-            icon: Icon(widget.saveButtonIcon, size: 18),
-            label: Text(widget.saveButtonLabel ?? pdfL10n(context).save),
-            onPressed: _canSave ? _save : null,
-          )
-        : null;
+    Widget saveButton({required bool enabledWhenUnchanged}) =>
+        FilledButton.icon(
+          key: const ValueKey('pdf-shell-save'),
+          style: FilledButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          icon: Icon(widget.saveButtonIcon, size: 18),
+          label: Text(widget.saveButtonLabel ?? pdfL10n(context).save),
+          onPressed: _canSave
+              ? _save
+              : enabledWhenUnchanged
+                  ? _saveUnchanged
+                  : null,
+        );
+    final save = hasSave ? saveButton(enabledWhenUnchanged: false) : null;
     List<PdfShellControlItem> compactControls({required bool includeSave}) => [
           ...viewModeControls,
           if (features.viewOptions) viewOptionsControl,
@@ -1261,6 +1287,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         viewOptions: viewOptions,
         panelSwitch: panelSwitch,
         save: save,
+        saveBuilder: (enabledWhenUnchanged) => hasSave
+            ? saveButton(enabledWhenUnchanged: enabledWhenUnchanged)
+            : null,
         barBuilder: (leading, trailing, color) => PdfShellBar(
             leading: leading,
             trailing: trailing,
@@ -1298,7 +1327,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       return ListenableBuilder(
         // the session owns the document revisions: the viewer must
         // rebuild with the current document whenever it notifies
-        listenable: Listenable.merge([_session, _prefs, _viewMode]),
+        listenable: Listenable.merge([
+          _session,
+          _prefs,
+          _viewMode,
+          for (final panel in widget.extraPanels)
+            if (panel.open case final open?) open,
+        ]),
         builder: (context, _) {
           final session = _session;
           final prefs = _prefs;
@@ -1483,6 +1518,46 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final showPropertiesPanel =
               features.propertiesPanel && prefs.showPropertiesPanel && !altView;
 
+          // the host's own panels: open per their [PdfEditorPanel.open] or
+          // the preferences, docked where the user left them; like Pages and
+          // Bookmarks they stay through reflow and yield to the page grid
+          bool extraOpen(PdfEditorPanel panel) =>
+              panel.open?.value ?? prefs.extraPanelOpen(panel.id);
+          void setExtraOpen(PdfEditorPanel panel, bool open) {
+            if (panel.open case final notifier?) {
+              notifier.value = open;
+            } else {
+              prefs.setExtraPanelOpen(panel.id, open);
+            }
+          }
+
+          PdfPanelDock extraDock(PdfEditorPanel panel) =>
+              prefs.extraPanelDock(panel.id) ?? panel.defaultDock;
+          final visibleExtras = [
+            for (final panel in widget.extraPanels)
+              if (!gridActive && extraOpen(panel)) panel,
+          ];
+          Widget extraFrame(PdfEditorPanel panel,
+                  {required bool bottomSheet}) =>
+              PdfSidebarPanelFrame(
+                key: ValueKey('pdf-shell-panel-${panel.id}-'
+                    '${bottomSheet ? 'sheet-body' : 'docked'}'),
+                width: panel.width,
+                minWidth: panel.minWidth,
+                maxWidth: panel.maxWidth,
+                persistedWidth: prefs.extraPanelWidth(panel.id),
+                onPersistWidth: (width) =>
+                    prefs.setExtraPanelWidth(panel.id, width),
+                dock: bottomSheet ? PdfPanelDock.bottom : extraDock(panel),
+                hostPanel: panel,
+                resizable: true,
+                bottomSheet: bottomSheet,
+                gripKey: ValueKey('pdf-shell-panel-${panel.id}-grip'),
+                // the sheet chrome carries its own close button
+                onClose: bottomSheet ? null : () => setExtraOpen(panel, false),
+                builder: panel.builder,
+              );
+
           // The visible docked panels, in canonical order. Each is placed on
           // its persisted edge ([PdfEditingPreferences.panelDock]) and, within
           // that edge, its persisted tab group ([panelGroup]): panels sharing
@@ -1588,6 +1663,14 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 child: child,
               ));
             }
+            // host panels dock standalone, after the stock ones
+            if (!useSheets) {
+              for (final panel in visibleExtras) {
+                if (extraDock(panel) == dock) {
+                  children.add(extraFrame(panel, bottomSheet: false));
+                }
+              }
+            }
             return children;
           }
 
@@ -1646,6 +1729,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                           'pdf-shell-annotation-library-sheet-close'),
                       onClose: () => prefs.showAnnotationLibraryPanel = false,
                       child: annotationLibrary(bottomSheet: true),
+                    ),
+                  for (final panel in visibleExtras)
+                    PdfPanelBottomSheet(
+                      key: ValueKey('pdf-shell-panel-${panel.id}-sheet'),
+                      title: panel.label,
+                      closeKey:
+                          ValueKey('pdf-shell-panel-${panel.id}-sheet-close'),
+                      onClose: () => setExtraOpen(panel, false),
+                      child: extraFrame(panel, bottomSheet: true),
                     ),
                 ];
           // On a phone the toolbar collapses to a solid bar (below the
@@ -1793,6 +1885,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPressed: () =>
                     prefs.showPropertiesPanel = !prefs.showPropertiesPanel,
               ),
+            for (final panel in widget.extraPanels)
+              if (panel.showInPanelSwitch)
+                PdfShellPanelItem(
+                  key: ValueKey('pdf-shell-panel-${panel.id}-toggle'),
+                  icon: panel.icon,
+                  tooltip: panel.label,
+                  selected: extraOpen(panel),
+                  onPressed: () => setExtraOpen(panel, !extraOpen(panel)),
+                ),
           ];
           final header = features.headerBar
               ? _buildHeader(
@@ -1818,6 +1919,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 topPanels: dockedPanels(PdfPanelDock.top),
                 bottomPanels: dockedPanels(PdfPanelDock.bottom),
                 onPanelDock: _setPanelDock,
+                onHostPanelDock: widget.extraPanels.isEmpty
+                    ? null
+                    : (panel, dock) => prefs.setExtraPanelDock(panel.id, dock),
                 viewer: reflowActive
                     ? PdfReflowView(
                         document: session.document,
@@ -1826,6 +1930,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         backgroundColor: widget.backgroundColor,
                       )
                     : PdfViewer(
+                        // PdfViewer binds its controller once, in initState: a host
+                        // handing in a different one (its own in place of ours)
+                        // gets a fresh viewer bound to it, not one left driving
+                        // the replaced controller
+                        key: ObjectKey(_viewer),
                         document: session.document,
                         controller: _viewer,
                         editing: session,
@@ -1889,6 +1998,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageRasterCachePolicy: widget.pageRasterCachePolicy,
                         pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                         documentId: _documentKey,
+                        shortcuts: widget.viewerShortcuts,
                         // while the full-area page grid overlays the viewer,
                         // pause the viewer entirely: its (invisible) page
                         // renders and preview prerender both compete for the

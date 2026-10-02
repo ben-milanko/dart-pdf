@@ -81,7 +81,9 @@ Future<T?> pdfStockMenu<T>(BuildContext context, PdfMenuRequest<T> request) {
 }
 
 PopupMenuEntry<T> _popupEntry<T>(PdfMenuEntry<T> entry) {
-  if (entry is! PdfMenuItem<T>) return const PopupMenuDivider();
+  if (entry is! PdfMenuItem<T>) {
+    return const PopupMenuDivider(key: ValueKey('pdf-menu-divider'));
+  }
   final content = entry.child ?? _defaultRow(entry);
   // a row may embed controls (the form text-style popup's fields); the
   // popup route builds under the root navigator, so re-inject what a

@@ -8,6 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/src/foundation/_features.dart' show isWindowingEnabled;
 import 'package:flutter_test/flutter_test.dart';
 
+/// The stock text prompt's dialog and field.
+final prompt = find.byKey(const ValueKey('pdf-text-prompt'));
+final promptField = find.byKey(const ValueKey('pdf-text-prompt-field'));
+
 void main() {
   testWidgets('PDF dialogs remain interactive inside a windowed view',
       (tester) async {
@@ -72,14 +76,14 @@ void main() {
               .focusNode
               .hasFocus,
           isTrue);
-      await tester.enterText(find.byType(TextField), 'New');
+      await tester.enterText(promptField, 'New');
       // Flutter's legacy Windows test key-code map omits numpad Enter.
       // Use Linux key data while exercising each platform's widget behavior.
       await tester.sendKeyEvent(key, platform: 'linux');
       await tester.pumpAndSettle();
       expect(result, 'New');
       expect(completions, 1);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(prompt, findsNothing);
     }, variant: TargetPlatformVariant.all());
   }
 
@@ -89,7 +93,8 @@ void main() {
     await openDialog(tester, (context) async {
       result = await showPdfColorPicker(context, initial: Colors.red);
     });
-    await tester.enterText(find.byType(TextField), '00FF00');
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-color-hex')), '00FF00');
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(result, const Color(0xFF00FF00));
@@ -116,15 +121,15 @@ void main() {
     await openDialog(tester, (context) async {
       result = await showPdfTextPrompt(context, title: 'Note', multiline: true);
     });
-    await tester.enterText(find.byType(TextField), 'First');
+    await tester.enterText(promptField, 'First');
     await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await tester.pump();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(prompt, findsOneWidget);
     // The platform text-input client supplies the newline after the shortcut
     // leaves Shift+Enter unhandled.
-    await tester.enterText(find.byType(TextField), 'First\nSecond');
+    await tester.enterText(promptField, 'First\nSecond');
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(result, 'First\nSecond');
@@ -136,7 +141,10 @@ void main() {
     await openDialog(tester, (context) async {
       result = await showPdfTextPrompt(context, title: 'Name');
     });
-    final field = tester.widget<TextField>(find.byType(TextField)).controller!;
+    final field = tester
+        .widget<EditableText>(find.descendant(
+            of: promptField, matching: find.byType(EditableText)))
+        .controller;
     field.value = const TextEditingValue(
       text: '東京',
       selection: TextSelection.collapsed(offset: 2),
@@ -144,7 +152,7 @@ void main() {
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(prompt, findsOneWidget);
     expect(result, isNull);
     field.clearComposing();
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -227,7 +235,8 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(outerSubmits, 1);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('Outer'), findsNothing);
+    expect(prompt, findsNothing);
   });
 
   testWidgets('Enter activates Cancel when it has keyboard focus',

@@ -1569,7 +1569,7 @@ void main() {
     expect(taps, 1);
 
     // only page 0 got an overlay
-    expect(find.byType(TextButton), findsOneWidget);
+    expect(find.byKey(const Key('overlay')), findsOneWidget);
   });
 
   testWidgets('touch horizontal pan rubber-bands and springs back',

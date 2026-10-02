@@ -68,6 +68,7 @@ Future<void> showPdfEditingGuidesDialog(
   await pdfPresentDialog<void>(
     context,
     builder: (context) => AlertDialog(
+      key: const ValueKey('pdf-guides-dialog'),
       title: Text(pdfL10n(context).guidesDialogTitle),
       contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       content: SizedBox(
@@ -1600,6 +1601,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       if (widget.onSave != null) ...[
         _DockDivider(axis: axis),
         IconButton(
+          key: const ValueKey('pdf-toolbar-save'),
           icon: const Icon(Icons.save_alt),
           tooltip: PdfKeyboardAvailability.of(context)
               ? pdfL10n(context).tbSaveShortcut
@@ -1826,11 +1828,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
       if (controller.hasPendingInk && !controller.inkAutoCommits) ...[
         IconButton(
+          key: const ValueKey('pdf-ink-confirm'),
           icon: const Icon(Icons.check),
           tooltip: pdfL10n(context).tbAddInkAnnotation,
           onPressed: controller.finishInk,
         ),
         IconButton(
+          key: const ValueKey('pdf-ink-discard'),
           icon: const Icon(Icons.close),
           tooltip: pdfL10n(context).tbDiscardDrawing,
           onPressed: controller.discardInk,
@@ -2020,6 +2024,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ..._selectedFormFieldActions(context)
             else
               IconButton(
+                key: const ValueKey('pdf-delete-selected'),
                 icon: const Icon(Icons.delete_outline),
                 tooltip: pdfL10n(context).tbDeleteAnnotations(
                     controller.selectedAnnotationSlots.length),
@@ -2390,6 +2395,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             overlayShape: SliderComponentShape.noOverlay,
           ),
           child: Slider(
+            key: const ValueKey('pdf-strip-opacity-slider'),
             value: value.clamp(0.1, 1),
             min: 0.1,
             max: 1,
@@ -2713,6 +2719,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       }
       return [
         IconButton(
+          key: const ValueKey('pdf-delete-selected'),
           icon: const Icon(Icons.delete_outline),
           tooltip: pdfL10n(context)
               .tbDeleteAnnotations(controller.selectedAnnotationSlots.length),
@@ -4304,6 +4311,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                     ),
                   if (fields.stroke)
                     _slider(
+                      key: const ValueKey('pdf-tune-stroke-width'),
                       label: pdfL10n(context).tbStrokeWidthLabel,
                       value: strokeValue,
                       min: 0.5,
@@ -4359,6 +4367,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                     ),
                   if (fields.opacity)
                     _slider(
+                      key: const ValueKey('pdf-tune-opacity'),
                       label: pdfL10n(context).tbOpacity,
                       value: opacityValue,
                       min: 0.1,
@@ -4490,6 +4499,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                     ),
                   if (fields.font)
                     _slider(
+                      key: const ValueKey('pdf-tune-font-size'),
                       label: pdfL10n(context).tbFontSize,
                       value: _draggingFontSize ??
                           selectedStyle?.size ??
@@ -4742,6 +4752,7 @@ class _StyleMenuState extends State<_StyleMenu> {
       SizedBox(width: 86, child: Text(label)),
       Expanded(
         child: Slider(
+          key: key is ValueKey ? ValueKey('${key.value}-slider') : null,
           value: value.clamp(min, max),
           min: min,
           max: max,

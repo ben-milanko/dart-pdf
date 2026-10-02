@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'editing/editing_controller.dart';
@@ -218,11 +219,11 @@ class PdfShellSessionLifecycle {
     if (viewerChanged && _externalViewer == null) {
       _viewportMemory?.dispose();
       _viewportMemory = null;
-      _ownedViewer?.dispose();
+      _retire(_ownedViewer?.dispose);
       _ownedViewer = null;
     }
     if (performanceChanged && _externalPerformance == null) {
-      _ownedPerformance?.dispose();
+      _retire(_ownedPerformance?.dispose);
       _ownedPerformance = null;
     }
 
@@ -269,6 +270,18 @@ class PdfShellSessionLifecycle {
       viewerChanged: viewerChanged,
       documentKeyChanged: keyChanged,
     );
+  }
+
+  /// Disposes an owned controller the host just replaced with its own - at
+  /// the end of this frame, not now. [update] runs in the shell's
+  /// didUpdateWidget, while the viewer, the panels and the header below it
+  /// still hold the old controller: they let go of it (detach, remove their
+  /// listeners, clear its forwarding listenables) only as they rebuild later
+  /// in the same frame, and doing that on a disposed notifier asserts.
+  void _retire(VoidCallback? dispose) {
+    if (dispose == null) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) => dispose());
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   void focusSearch() {

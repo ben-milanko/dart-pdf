@@ -140,11 +140,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('^Opening document')), findsOneWidget);
     expect(find.text('Opening slow…'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Opening slow…'), findsNothing);
     expect(tabTitle('slow.pdf'), findsOneWidget);
   });
 
@@ -171,9 +171,9 @@ void main() {
     // (no app-side copy of it), live without edits
     final save = find.byKey(const ValueKey('pdf-shell-save'));
     expect(save, findsOneWidget);
-    expect(find.byType(AppBar), findsOneWidget);
-    expect(find.descendant(of: find.byType(AppBar), matching: save),
-        findsOneWidget);
+    final appBar = find.byKey(const ValueKey('editor-app-bar'));
+    expect(appBar, findsOneWidget);
+    expect(find.descendant(of: appBar, matching: save), findsOneWidget);
     expect(
       find.descendant(of: save, matching: find.text('Share')),
       findsOneWidget,
@@ -182,7 +182,7 @@ void main() {
       find.descendant(of: save, matching: find.byIcon(Icons.share_outlined)),
       findsOneWidget,
     );
-    expect(tester.widget<ButtonStyleButton>(save).enabled, isTrue);
+    expect(tester.getSemantics(save), isSemantics(isEnabled: true));
 
     await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
     await tester.pumpAndSettle();
@@ -688,10 +688,9 @@ void main() {
 
     await rightClickTab(tester, 'gamma.pdf');
 
-    final item = tester.widget<PopupMenuItem<dynamic>>(
-      find.byKey(const ValueKey('tab-menu-close-right')),
-    );
-    expect(item.enabled, isFalse);
+    expect(
+        tester.getSemantics(find.byKey(const ValueKey('tab-menu-close-right'))),
+        isSemantics(isEnabled: false));
   });
 
   testWidgets('Close all removes every tab', (tester) async {
@@ -702,7 +701,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('tab-strip')), findsNothing);
-    expect(find.byTooltip('Close tab'), findsNothing);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith('tab-close-')),
+        findsNothing);
   });
 
   testWidgets('Close on the active tab activates a surviving neighbour',

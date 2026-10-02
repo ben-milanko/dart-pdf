@@ -586,7 +586,8 @@ void main() {
       // the tap is the centre, edge or not: the placement keeps where the
       // user aimed and the page clip trims what runs off it
       final stamp = editing.document.page(0).annotations.single;
-      expect((stamp.rect.left + stamp.rect.right) / 2, closeTo(box.right, 1e-6));
+      expect(
+          (stamp.rect.left + stamp.rect.right) / 2, closeTo(box.right, 1e-6));
       expect((stamp.rect.bottom + stamp.rect.top) / 2, closeTo(box.top, 1e-6));
       expect(stamp.rect.right, greaterThan(box.right));
       expect(stamp.rect.top, greaterThan(box.top));
@@ -768,8 +769,7 @@ void main() {
 
     test('a plain text stamp is recovered from its caption and colour', () {
       final editing = withSelectedStamp((editing) {
-        expect(
-            editing.placeTextStamp(0, 300, 400, 'REVIEWED', color: 0x1A3E8C),
+        expect(editing.placeTextStamp(0, 300, 400, 'REVIEWED', color: 0x1A3E8C),
             isTrue);
       });
       final saved = editing.saveSelectedAsCustomStamp();
@@ -866,7 +866,8 @@ void main() {
       expect(editing.tool, PdfEditTool.stamp);
       expect(
           find.byKey(const ValueKey('pdf-stamp-menu-preview')), findsOneWidget);
-      expect(find.byTooltip('Custom stamps…'), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annotation-library-stamps')),
+          findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-menu-manage')));
       await tester.pumpAndSettle();
@@ -877,7 +878,7 @@ void main() {
       await tester.enterText(
           find.byKey(const ValueKey('pdf-stamp-text')), 'PAID');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       // saving selects the new stamp and closes both dialogs
@@ -967,7 +968,8 @@ void main() {
       expect(editing.activeStamp, paid);
       expect(
           find.byKey(const ValueKey('pdf-stamp-menu-preview')), findsNothing);
-      expect(find.byTooltip('Custom stamps…'), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annotation-library-stamps')),
+          findsNothing);
     });
 
     testWidgets('stamp taps paint a preview before the PDF edit commits',
@@ -1081,7 +1083,8 @@ void main() {
       expect(cursorPainter(tester).stampPreview, isNull);
     });
 
-    testWidgets('stamp hover previews a TEXT placeholder without an active stamp',
+    testWidgets(
+        'stamp hover previews a TEXT placeholder without an active stamp',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -1287,7 +1290,7 @@ void main() {
       await tester.pump();
       await tester.enterText(textField, 'PAID');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       expect(saved, isNotNull);
@@ -1328,10 +1331,10 @@ void main() {
       await tester.enterText(hexField, '7B1FA2');
       await tester.pump();
       expect(tester.widget<TextField>(hexField).controller!.text, '7B1FA2');
-      await tester.tap(find.widgetWithText(FilledButton, 'OK').last);
+      await tester.tap(find.byKey(const ValueKey('pdf-color-picker-ok')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       expect(saved, isNotNull);
@@ -1365,7 +1368,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-field-date')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final text = saved!.template!.components
@@ -1414,7 +1417,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-add-image')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final template = saved!.template!;
@@ -1456,7 +1459,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-add-circle')));
       await tester.pump();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final circle = saved!.template!.components
@@ -1494,10 +1497,10 @@ void main() {
       await tester.timedDrag(
           pad, const Offset(90, 24), const Duration(milliseconds: 200));
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-done')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final signature = saved!.template!.components
@@ -1545,7 +1548,7 @@ void main() {
       await resize.up();
       await tester.pump();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final text = saved!.template!.components
@@ -1590,7 +1593,7 @@ void main() {
       await resize.up();
       await tester.pump();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final text = saved!.template!.components
@@ -1630,7 +1633,8 @@ void main() {
       // no handles, so the gesture is a no-op instead of resizing.
       await tester.tapAt(origin + Offset(2 * scale, 2 * scale));
       await tester.pump();
-      final empty = await tester.startGesture(origin + Offset(2 * scale, 2 * scale),
+      final empty = await tester.startGesture(
+          origin + Offset(2 * scale, 2 * scale),
           kind: PointerDeviceKind.mouse);
       await empty.moveBy(const Offset(6, 6));
       await empty.up();
@@ -1647,7 +1651,7 @@ void main() {
       await resize.up();
       await tester.pump();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       final border = saved!.template!.components
@@ -1719,7 +1723,7 @@ void main() {
       await tester.enterText(
           find.byKey(const ValueKey('pdf-stamp-text')), 'REVIEWED');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
       await tester.pumpAndSettle();
 
       expect(find.byType(PdfStampPickerDialog), findsOneWidget);
@@ -1833,13 +1837,15 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('06/07/2026').last);
       await tester.pumpAndSettle();
-      expect(editing.preferences.stampDateFormat, PdfStampDateFormat.dayMonthYear);
+      expect(
+          editing.preferences.stampDateFormat, PdfStampDateFormat.dayMonthYear);
 
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-time-format')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('17:05:06 (24 hr)').last);
       await tester.pumpAndSettle();
-      expect(editing.preferences.stampTimeFormat, PdfStampTimeFormat.twentyFourHourSeconds);
+      expect(editing.preferences.stampTimeFormat,
+          PdfStampTimeFormat.twentyFourHourSeconds);
     });
 
     testWidgets('the picker lists app-supplied stamps without delete controls',
@@ -1870,8 +1876,14 @@ void main() {
 
       expect(find.byType(PdfStampPreview), findsOneWidget);
       expect(find.text('Audit · external'), findsOneWidget);
-      expect(find.byTooltip('Edit stamp'), findsNothing);
-      expect(find.byTooltip('Delete stamp'), findsNothing);
+      // no edit/delete affordance on a stamp the user didn't save
+      for (final icon in [Icons.edit_outlined, Icons.delete_outline]) {
+        expect(
+            find.descendant(
+                of: find.byType(PdfStampPickerDialog),
+                matching: find.byIcon(icon)),
+            findsNothing);
+      }
     });
   });
 
