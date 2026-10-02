@@ -1,5 +1,201 @@
 # Changelog
 
+## Unreleased
+
+- Export `PdfDropdown` and `PdfDropdownItem`, the drop-down picker the
+  editor's own dialogs use: its options open through the
+  `PdfEditorPresenter`'s menu, so it works under any host. Companion
+  packages (dart_pdf_printing's print preview) use it too.
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`).
+  5.0.0 already needed 3.44, since the thumbnail strip's reorder uses
+  `ReorderableListView.onReorderItem`, which first shipped in Flutter 3.44, so
+  this strands nobody. A new `floor-analyze` CI job analyzes the package on
+  Flutter 3.44.0 to keep the floor honest.
+- Add `PdfThemePreference` and `PdfEditingPreferences.themePreference`, the
+  saved theme choice as an editor-owned enum instead of Material's
+  `ThemeMode`. It is stored under the same key, so a choice saved by an older
+  build reads back. `themeMode` still works and is deprecated (removed in
+  6.0.0); map the new value to `ThemeMode` in the host.
+- Add `PdfDialogSubmit.action(onSubmit:, child:)`, which marks any widget as
+  a dialog's Enter action. The `ButtonStyleButton`-only default constructor is
+  deprecated (removed in 6.0.0). Enter now tells a focused command button
+  (which keeps Enter) from a focused value control such as segments, a
+  dropdown or a checkbox (Enter submits) by semantics role rather than by
+  Material widget type, so controls from any design system classify the same.
+- Add `pdfSearchFieldBorderRadius`; `pdfSearchInputBorder` (a Material
+  `OutlineInputBorder`) is deprecated (removed in 6.0.0).
+- Move the headless model types (`PdfMeasurementScale`, `PdfInkSignature`,
+  `PdfSavedSignature`, the trackpad signature capture types, `PdfCustomStamp`,
+  `PdfStampDateFormat`/`PdfStampTimeFormat`, the picker and prompt typedefs,
+  `PdfSnapshot`, `PdfClipboardPdf`, `PdfSelectedContentImage`,
+  `PdfColorFormat`, `PdfDockablePanel`, `PdfPanelDock`, `PdfSidebarSide`) out
+  of the files that hold their Material dialogs. They are exported exactly as
+  before; `PdfEditingController` and `PdfPageView` no longer import Material
+  through them, which a new CI check (`tool/check_design_imports.dart`) keeps
+  true. `PdfDockablePanel.icon` values are now plain `IconData` constants equal
+  to the Material icons they were.
+- Localize the remaining English strings: the guides, snapping and rulers
+  dialog, the search field placeholder, the page-range dialog's default title
+  and button, the styled-text dialog's "Keep" font label, the progressive
+  loader's error and the crop overlay's tooltips.
+- README: a "Customising the UI" section covering `uses-material-design` and
+  localization delegate registration.
+- Add `PdfEditorCommands`, the stock toolbar's intents as one public object:
+  `armTool`/`toggleTool` (with the prerequisites - a measure tool asks for
+  the measuring scale, the signature tool for a signature), `openGroup`,
+  `applyMarkup`, `applyColor`, `flatten`/`flattenFormFields` (with an Undo
+  notice), hand/select/clear, and `recentTools`. `PdfEditorView` owns one
+  (or takes the host's through `PdfEditorView.commands`) and provides it to
+  everything beneath it; a standalone `PdfEditingToolbar` shares the commands
+  above it when they drive the same controller and otherwise owns its own.
+  Find them with `PdfEditorCommands.of(context)` / `maybeOf`, or place a
+  `PdfEditorCommandsScope` yourself. Swapping the controller restarts the
+  recent tools and keeps the open tool group, as the toolbar always did. Its
+  prompts and notices go through `PdfEditorPresenter` (below).
+- Add `PdfCommand` (id, icon, label, tooltip, shortcut, `enabled`/`selected`
+  listenables, category, `invoke`) and `PdfEditorCommands.catalog(context)`:
+  the editor's tools and markup kinds in dock order, and, under
+  `PdfEditorView`, its panels, view options, view modes and Save / Save as -
+  filtered by the view's `features` - for a command palette or menu.
+- Add ordered `toolGroups` (a `List<PdfToolGroup>`, default `pdfToolGroups`)
+  to `PdfEditingToolbar` and `PdfEditorView`: reorder or trim the dock, or add
+  groups of your own. `PdfToolEntry.command(PdfCommand)` puts a host action in
+  a group beside the stock tools. `PdfToolGroup` gains `kind` (which stock
+  group's behaviour it has, and which `groups`/`features.toolGroups` value
+  filters it; defaults to the stock group named by its `id`),
+  `labelledTools` and `labelBuilder`. A group the toolbar doesn't know no
+  longer throws.
+- Behaviour change: under `PdfEditorView` (or a `PdfEditorCommandsScope`), a
+  viewer tool shortcut now arms through the commands, so `M` asks for the
+  measuring scale before arming a measure tool and `H` asks for a signature
+  when none is saved, exactly as the toolbar does. A bare `PdfViewer` arms
+  directly, as before.
+- Under `PdfEditorView` the toolbar's open group and recent tools now live in
+  the view's commands, so they survive the toolbar remounting (a dock or
+  breakpoint change).
+- Add `PdfEditorPresenter`, how the editor shows things: `dialog`, `sheet`,
+  `menu` (an anchor rectangle plus `PdfMenuItem`/`PdfMenuDivider` entries),
+  `notice` (message, kind, optional Undo), and the prompts `text`,
+  `styledText`, `confirm`, `link`, `color` (`PdfColorResult.picked` or
+  `.sampleFromPage`), `font`, `formChoice`, `measurementScale`,
+  `measurementInput` (calibration length, volume depth), `pageRange`,
+  `splitRanges` and `signature`, each with a small immutable request type.
+  Every method defaults to today's stock UI; extend the class (don't
+  implement it) and override the ones you want. `PdfEditorView`, `PdfViewer`
+  and `PdfReader` take `presenter:`, or put a `PdfEditorScope` (an
+  `InheritedTheme`) above them; `PdfEditorPresenter.of(context)` finds it.
+  Stock dialogs carry the scope into their routes, so the prompts they open
+  in turn - the stamp editor's colour picker and signature pad, the
+  annotation library's rename, colour processing's picker - ask the same
+  presenter. Every editor notice, popup menu, bottom sheet and dialog now
+  goes through it (`tool/check_design_imports.dart`'s `showMenu`,
+  `showModalBottomSheet` and `ScaffoldMessenger` counters are at 0).
+- `PdfEditorView.textPrompt`/`styledTextPrompt` and
+  `PdfViewer.editingTextPrompt`/`editingStyledTextPrompt` keep working and,
+  when set, take precedence over the presenter's text prompts for that
+  widget's subtree. That fixes the places that ignored them: the author-name
+  prompt, the annotation library's four rename/group prompts, and a saved
+  annotation's name from the annotation menu. The text-selection "Add link"
+  and the link tool now ask `PdfEditorPresenter.link` (there was no way to
+  replace that dialog). The six colour pickers that called
+  `showPdfColorPicker` directly ask `PdfEditorPresenter.color`.
+  `PdfEditingToolbar.textPrompt`/`styledTextPrompt` and the `textPrompt`
+  of `showPdfAnnotationMenu`/`showPdfFormFieldMenu` default to the new
+  `pdfPresentTextPrompt`/`pdfPresentStyledTextPrompt`, which ask the
+  presenter (stock UI unchanged).
+- The font menu's picker result is public: `PdfFontChoice` (sealed:
+  `PdfStandardFontChoice`, `PdfBundledFontChoice`, `PdfPlatformFontChoice`,
+  `PdfDocumentFontChoice`, `PdfLoadFontChoice`) and its catalogue rows,
+  `PdfFontCatalogEntry`. `showPdfFontMenu` still builds the catalogue and
+  applies the pick; only the picker in between is the presenter's.
+- `showPdfDialog` keeps its signature and route (in-view, no native-window
+  promotion; Enter submits through `PdfDialogSubmit`). It no longer asserts
+  `MaterialLocalizations`, and its barrier label comes from the editor's own
+  localizations (new string `dialogDismiss`).
+- `showPdfRemoveSignatureDialog` is now a stock `confirm` (unchanged look).
+- The stock editor runs under any host: `PdfViewer`, `PdfReader`,
+  `PdfEditorView` and `PdfComparisonView` work under a `CupertinoApp` or a
+  plain `WidgetsApp` as well as a `MaterialApp`. Each wraps its content in
+  the new `PdfMaterialHost`, which supplies what the stock (Material) chrome
+  needs and the host lacks - Material and Cupertino localizations (from
+  `flutter_localizations`, English where a locale has none), a `Theme`
+  derived from the host's `CupertinoTheme` or, failing that, its platform
+  brightness, `DefaultSelectionStyle` and `IconTheme`, and a transparent
+  `Material` surface. Under a host that already has a `Theme` and both
+  localizations it adds nothing. Wrap any stock widget you mount on its own
+  (a `PdfEditingToolbar` beside your own viewer) in `PdfMaterialHost` the
+  same way.
+- What builds under the root navigator re-injects those too: `showPdfDialog`
+  (so it now opens from any context, not just from inside the editor), the
+  presenter's popup menus, its bottom sheets (a library-owned route,
+  `showModalBottomSheet`'s presentation unchanged) and the fullscreen reflow
+  image.
+- Notices show under any host: with no `ScaffoldMessenger` above,
+  `PdfEditorPresenter.notice`'s default now shows the notice (and its Undo)
+  as a SnackBar-styled toast in the root overlay instead of returning false.
+- Every editor text field (and the reflow view's `SelectableText`) uses the
+  new `pdfTextContextMenu`, the platform's stock context menu with the
+  localizations it needs re-injected - a right-click or long-press under a
+  non-Material host used to paint an error widget. Under a Material host it
+  is the default menu. Use it on text fields of your own dialogs.
+- The ten `DropdownButton`/`DropdownButtonFormField`s (line type, line
+  endings, scale and calibration units, stamp date/time format, the styled
+  text font family) are now a dropdown that opens through
+  `PdfEditorPresenter.menu`, drawn like the `DropdownButton` it replaces and
+  keeping its keys; its options open as a popup menu over the button.
+  `DropdownButton`'s menu route had no hook for running under a non-Material
+  host.
+- Fix: the form tool's double-tap fill now runs a field's keystroke and
+  validation scripts (`AFNumber_Keystroke`, `AFRange_Validate`, ...), refusing
+  characters and invalid values exactly as reading mode does. Both modes
+  fill through one component (the page's form layer); the form tool keeps
+  its own taps (select, move, resize) and hands its double-tap over.
+- `tool/check_design_imports.dart` also counts text fields without the
+  shared context menu; it and the `DropdownButton` counter are at 0.
+- Add `PdfEditorThemeData`, the editor's design tokens: `success`/`warning`/
+  `danger`/`info` status colours (the signature and review pills), the
+  `sectionLabel` style, `compactWidth` and `toastLift`, plus canvas tokens in
+  `viewer`. Provide it with `PdfEditorView(theme:)` or
+  `PdfEditorScope(theme:)`; read it with `PdfEditorThemeData.of(context)`.
+  Defaults equal the old literals. `PdfEditorScope` also gains `platform`
+  and `PdfEditorScope.platformOf` (the in-page text editors' Apple caret
+  correction reads it instead of the Material theme's platform).
+- `PdfViewerThemeData` gains `merge`, `copyWith`, `lerp` and the canvas
+  tokens that were hard-coded: `marqueeColor`, `snapGridColor`,
+  `alignmentGuideColor`, `redactionHatchColor`, `rulerBackgroundColor`/
+  `rulerForegroundColor`/`rulerAccentColor`, `chipColor`/
+  `chipForegroundColor`, `handleSize`, `inlineSelectionHandleColor` and
+  `diffInsertedColor`/`diffDeletedColor`/`diffReplacedColor`;
+  `PdfScrollbarThemeData` gains `markerColor`, `merge`, `copyWith` and
+  `lerp`; `PdfViewerTheme.maybeOf`. The stock fallbacks now resolve in one
+  place.
+- Add `PdfEditorView.headerBuilder`, which builds the header from
+  `PdfHeaderParts` (page number, zoom, search, view options, panel switch,
+  save, the compact Controls button, `compact`, the `stock` header, and
+  `bar(...)` in the stock look). Export `pdfShellCompactWidth`.
+- Add context-menu entry builders: `annotationMenuEntries`,
+  `textMenuEntries` and `formFieldMenuEntries` (on `PdfViewer` and
+  `PdfEditorView`; `textMenuEntries` on `PdfReader`) receive the stock rows
+  and return the rows to show. `PdfMenuEntry.id` names stock rows by their
+  `pdf-*` key; `pdfAnnotationMenuEntry`/`pdfTextMenuEntry` build rows in the
+  stock style; `PdfFormFieldMenuRequest` describes the field menu.
+  `showPdfAnnotationMenu`/`showPdfFormFieldMenu` take `entriesBuilder:`.
+- Add `PdfEditorPresenter.actionBar` and `readout`, which draw the floating
+  chips (`PdfActionBarRequest`: the touch annotation selection, touch text
+  selection and image crop chips with their actions as data;
+  `PdfReadoutRequest`: the measurement and style readouts). The defaults
+  return the stock chips unchanged.
+- Add `PdfViewer.showInlineTextStyleChip` (and on `PdfEditorView`) to turn
+  off the touch text-style chip over an in-place text editor.
+- Add `PdfViewerController.globalRectOf(page, rect)`, a page-space
+  rectangle's on-screen position, and `selectionGlobalRect`, a
+  `ValueListenable<Rect?>` of the selection's on-screen bounds.
+- Layout change: the editing toolbar's phone breakpoint is now the shells'
+  compact width, 700 (was 600), so between 600 and 700px wide the toolbar
+  docks below the viewer as a solid bar, matching the header and panels,
+  which were already compact there. `PdfEditingToolbar.mobileBreakpoint` is
+  700; a `PdfEditorThemeData.compactWidth` moves both.
+
 ## 5.1.1
 
 - Fix ink written in quick succession disappearing from the page. The editing

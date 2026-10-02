@@ -542,7 +542,12 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                               onPressed: () => Navigator.of(context).pop(),
                               child: Text(l10n.cancel)),
                           const SizedBox(width: 8),
-                          PdfDialogSubmit(
+                          PdfDialogSubmit.action(
+                              onSubmit: _addingFiles ||
+                                      _loadingPreferences ||
+                                      !_printerReady
+                                  ? null
+                                  : _print,
                               child: FilledButton(
                                   key: const ValueKey('print-preview-print'),
                                   onPressed: _addingFiles ||
@@ -580,23 +585,22 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
               labelText: label,
               isDense: true,
               border: const OutlineInputBorder()),
-          child: DropdownButtonHideUnderline(
-              child: DropdownButton<T>(
+          child: PdfDropdown<T>(
             key: ValueKey('print-options-$key'),
             value: value,
             hint: hint == null ? null : Text(hint),
             isExpanded: true,
             isDense: true,
+            underline: const SizedBox.shrink(),
             items: [
               for (final entry in options.entries)
-                DropdownMenuItem(
+                PdfDropdownItem(
                     value: entry.key,
+                    label: entry.value,
                     child: Text(entry.value, overflow: TextOverflow.ellipsis))
             ],
-            onChanged: (value) {
-              if (value != null) changed(value);
-            },
-          )),
+            onChanged: changed,
+          ),
         ),
       );
 
@@ -623,6 +627,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         child: TextField(
           key: ValueKey('print-options-$key'),
           controller: controller,
+          contextMenuBuilder: pdfTextContextMenu,
           keyboardType: TextInputType.numberWithOptions(
               decimal: !integer, signed: min < 0),
           decoration: InputDecoration(
@@ -777,6 +782,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
           TextField(
             key: const ValueKey('print-preview-range'),
             controller: _rangeInput,
+            contextMenuBuilder: pdfTextContextMenu,
             decoration: InputDecoration(
                 labelText: l10n.printOptionsPageRange,
                 hintText: '1, 3-5',

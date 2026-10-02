@@ -167,22 +167,22 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('mobile-app-save')), findsOneWidget);
+    // one header: the editor's own save/share button rides in the app bar
+    // (no app-side copy of it), live without edits
+    final save = find.byKey(const ValueKey('pdf-shell-save'));
+    expect(save, findsOneWidget);
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: save),
+        findsOneWidget);
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('mobile-app-save')),
-        matching: find.text('Share'),
-      ),
+      find.descendant(of: save, matching: find.text('Share')),
       findsOneWidget,
     );
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('mobile-app-save')),
-        matching: find.byIcon(Icons.share_outlined),
-      ),
+      find.descendant(of: save, matching: find.byIcon(Icons.share_outlined)),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('pdf-shell-save')), findsNothing);
+    expect(tester.widget<ButtonStyleButton>(save).enabled, isTrue);
 
     await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
     await tester.pumpAndSettle();
@@ -233,7 +233,7 @@ void main() {
       await tester.pump();
       await openTab(tester, 'alpha.pdf');
 
-      final save = find.byKey(const ValueKey('mobile-app-save'));
+      final save = find.byKey(const ValueKey('pdf-shell-save'));
       expect(
         find.descendant(of: save, matching: find.text('Save')),
         findsOneWidget,

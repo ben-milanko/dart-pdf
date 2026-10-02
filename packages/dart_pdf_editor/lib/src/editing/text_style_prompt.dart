@@ -7,9 +7,11 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextFont,
         PdfTextStyle;
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_font_controls.dart';
+import '../design/editor_presenter.dart';
 
 /// The quick-pick colours the styled-text dialog offers by default - the
 /// same set the toolbar uses. Overridden by the host's own palette when the
@@ -68,8 +70,8 @@ Future<PdfStyledTextEdit?> showPdfStyledTextPrompt(
   List<Color> palette = defaultStyledTextPalette,
   PdfStyledFontPicker? pickFont,
 }) {
-  return showPdfDialog<PdfStyledTextEdit>(
-    context: context,
+  return pdfPresentDialog<PdfStyledTextEdit>(
+    context,
     builder: (context) => _StyledTextDialog(
         initial: initial, palette: palette, pickFont: pickFont),
   );
@@ -109,7 +111,8 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
 
   // the button/dropdown label for the current font pick
   String get _fontLabel =>
-      _embedded?.familyName ?? (_styleTouched ? _font.family.label : 'Keep');
+      _embedded?.familyName ??
+      (_styleTouched ? _font.family.label : pdfL10n(context).textStyleKeepFont);
 
   void _submit() {
     // an embedded pick takes precedence and carries its own weight/slant, so
@@ -159,6 +162,7 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                 decoration:
                     InputDecoration(labelText: pdfL10n(context).textStyleText),
                 onSubmitted: (_) => _submit(),
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               const SizedBox(height: 12),
               Row(children: [
@@ -207,21 +211,20 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                       onPressed: _openFontMenu,
                     )
                   else
-                    DropdownButton<PdfStandardFontFamily>(
+                    PdfDropdown<PdfStandardFontFamily>(
                       key: const ValueKey('pdf-styled-family'),
                       value: _font.family,
                       isDense: true,
                       underline: const SizedBox.shrink(),
                       items: [
                         for (final family in PdfStandardFontFamily.values)
-                          DropdownMenuItem(
+                          PdfDropdownItem(
                             value: family,
                             key: ValueKey('pdf-styled-family-${family.name}'),
-                            child: Text(family.label),
+                            label: family.label,
                           ),
                       ],
                       onChanged: (family) {
-                        if (family == null) return;
                         setState(() {
                           _font = PdfStandardFont.styled(family,
                               bold: _font.isBold, italic: _font.isItalic);
@@ -262,12 +265,13 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
             child: FilledButton(
-          key: const ValueKey('pdf-styled-ok'),
-          onPressed: _submit,
-          child: Text(pdfL10n(context).apply),
-        )),
+              key: const ValueKey('pdf-styled-ok'),
+              onPressed: _submit,
+              child: Text(pdfL10n(context).apply),
+            )),
       ],
     );
   }

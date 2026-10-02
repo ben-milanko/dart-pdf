@@ -2239,4 +2239,69 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Permitir selección múltiple';
+
+  @override
+  String get searchFieldHint => 'Buscar';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'No se pudo abrir el documento: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Exportar páginas';
+
+  @override
+  String get pageRangeExportConfirm => 'Exportar';
+
+  @override
+  String get textStyleKeepFont => 'Mantener';
+
+  @override
+  String get guidesDialogTitle => 'Guías, ajuste y reglas';
+
+  @override
+  String get guidesSmartAlignment => 'Guías de alineación inteligentes';
+
+  @override
+  String get guidesPageRulers => 'Reglas de página';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Mostrar medidas en puntos en los bordes de la página';
+
+  @override
+  String get guidesVerticalCursorLine => 'Línea vertical del cursor';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Línea horizontal del cursor';
+
+  @override
+  String get guidesSnapToGrid => 'Ajustar a la cuadrícula';
+
+  @override
+  String get guidesSnapToGridHint => 'Mantén Alt para omitir el ajuste';
+
+  @override
+  String get guidesShowGrid => 'Mostrar líneas de cuadrícula';
+
+  @override
+  String get guidesShowGridHint => 'Solo en pantalla; no se añade al PDF';
+
+  @override
+  String get guidesGridSpacing => 'Espaciado de la cuadrícula';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Guías del cursor y cuadrícula';
+
+  @override
+  String get commandSaveAs => 'Guardar como…';
+
+  @override
+  String get dialogDismiss => 'Cerrar';
 }

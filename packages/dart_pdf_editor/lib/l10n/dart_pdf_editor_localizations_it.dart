@@ -2241,4 +2241,71 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Consenti selezione multipla';
+
+  @override
+  String get searchFieldHint => 'Cerca';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Impossibile aprire il documento: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Esporta pagine';
+
+  @override
+  String get pageRangeExportConfirm => 'Esporta';
+
+  @override
+  String get textStyleKeepFont => 'Mantieni';
+
+  @override
+  String get guidesDialogTitle => 'Guide, aggancio e righelli';
+
+  @override
+  String get guidesSmartAlignment => 'Guide di allineamento intelligenti';
+
+  @override
+  String get guidesPageRulers => 'Righelli di pagina';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Mostra le misure in punti ai bordi della pagina';
+
+  @override
+  String get guidesVerticalCursorLine => 'Linea verticale del cursore';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Linea orizzontale del cursore';
+
+  @override
+  String get guidesSnapToGrid => 'Aggancia alla griglia';
+
+  @override
+  String get guidesSnapToGridHint =>
+      'Tieni premuto Alt per ignorare l\'aggancio';
+
+  @override
+  String get guidesShowGrid => 'Mostra linee della griglia';
+
+  @override
+  String get guidesShowGridHint =>
+      'Solo visualizzazione; non viene aggiunta al PDF';
+
+  @override
+  String get guidesGridSpacing => 'Spaziatura della griglia';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Guide del cursore e griglia';
+
+  @override
+  String get commandSaveAs => 'Salva con nome…';
+
+  @override
+  String get dialogDismiss => 'Ignora';
 }

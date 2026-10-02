@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
-import 'editing_color_picker.dart';
+import '../design/editor_presenter.dart';
 import 'editing_controller.dart';
 
 /// Opens the full colour picker for an editing session, wiring its
@@ -21,8 +21,9 @@ import 'editing_controller.dart';
 ///
 /// Returns the chosen colour, or null when the dialog is dismissed. This is
 /// the entry point the editing chrome should use instead of
-/// [showPdfColorPicker] directly, so recents, document colours and the
-/// eyedropper show up everywhere a colour is chosen.
+/// `showPdfColorPicker` directly, so recents, document colours and the
+/// eyedropper show up everywhere a colour is chosen. The picker itself is
+/// [PdfEditorPresenter.color].
 Future<Color?> pickEditingColor(
   BuildContext context,
   PdfEditingController controller, {
@@ -32,17 +33,19 @@ Future<Color?> pickEditingColor(
   final preferences = controller.preferences;
   var current = initial;
   while (true) {
-    var sampling = false;
-    final picked = await showPdfColorPicker(
+    final result = await PdfEditorPresenter.of(context).color(
       context,
-      initial: current,
-      initialFormat: preferences.colorPickerFormat,
-      onFormatChanged: (format) => preferences.colorPickerFormat = format,
-      recentColors: preferences.recentColors,
-      documentColors: controller.documentAnnotationColors(),
-      onPickFromPage: fromPage ? () => sampling = true : null,
+      PdfColorRequest(
+        initial: current,
+        format: preferences.colorPickerFormat,
+        onFormatChanged: (format) => preferences.colorPickerFormat = format,
+        recentColors: preferences.recentColors,
+        documentColors: controller.documentAnnotationColors(),
+        allowSampleFromPage: fromPage,
+      ),
     );
-    if (!sampling) {
+    if (result == null || !result.samplesFromPage) {
+      final picked = result?.color;
       if (picked != null) preferences.noteRecentColor(picked);
       return picked;
     }

@@ -529,7 +529,7 @@ void main() {
       await pumpPanel(tester, editing);
 
       final end = find.byKey(const ValueKey('pdf-prop-line-end-ending'));
-      expect(tester.widget<DropdownButton<PdfLineEnding>>(end).value, isNull);
+      expect(tester.widget<PdfDropdown<PdfLineEnding>>(end).value, isNull);
       expect(find.descendant(of: end, matching: find.text('Varies')),
           findsOneWidget);
 

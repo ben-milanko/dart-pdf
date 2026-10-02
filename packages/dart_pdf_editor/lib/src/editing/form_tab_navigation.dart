@@ -1,3 +1,5 @@
+import 'dart:ui' show Offset;
+
 import 'package:flutter/foundation.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -31,8 +33,35 @@ class PdfFormTabRequest {
   final Future<void> revealed;
 }
 
+/// A fill gesture on a form field (the form tool's double-tap) handed to
+/// the field's page's [FormInteractionLayer], so a field fills through one
+/// component whichever tool is armed: the same inline editor, keystroke
+/// filtering and validation, choice menu and image picker.
+@immutable
+class PdfFormFillRequest {
+  const PdfFormFillRequest({
+    required this.pageIndex,
+    required this.fieldName,
+    required this.widgetIndex,
+    required this.revisionId,
+    this.anchor,
+  });
+
+  final int pageIndex;
+  final String fieldName;
+  final int widgetIndex;
+
+  /// The controller revision the gesture hit; a stale request is dropped.
+  final int revisionId;
+
+  /// Where a choice field's menu opens, in global coordinates (the tap);
+  /// null anchors it under the field.
+  final Offset? anchor;
+}
+
 class _FormTabState {
   final request = ValueNotifier<PdfFormTabRequest?>(null);
+  final fill = ValueNotifier<PdfFormFillRequest?>(null);
   PdfFormTabOrder? order;
   int? orderRevision;
 }
@@ -46,6 +75,11 @@ _FormTabState _state(PdfEditingController controller) =>
 ValueNotifier<PdfFormTabRequest?> pdfFormTabRequests(
         PdfEditingController controller) =>
     _state(controller).request;
+
+/// The pending fill gesture for [controller]'s form layers.
+ValueNotifier<PdfFormFillRequest?> pdfFormFillRequests(
+        PdfEditingController controller) =>
+    _state(controller).fill;
 
 /// [controller]'s form traversal order, built once per revision.
 PdfFormTabOrder pdfFormTabOrderOf(PdfEditingController controller) {

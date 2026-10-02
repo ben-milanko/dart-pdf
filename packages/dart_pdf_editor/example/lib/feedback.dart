@@ -204,12 +204,13 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
           icon: const Icon(Icons.copy_outlined),
           label: Text(appL10n(context).feedbackCopyDiagnostics),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _open,
             child: FilledButton.icon(
-          onPressed: _open,
-          icon: const Icon(Icons.open_in_new),
-          label: Text(appL10n(context).feedbackOpenForm),
-        )),
+              onPressed: _open,
+              icon: const Icon(Icons.open_in_new),
+              label: Text(appL10n(context).feedbackOpenForm),
+            )),
       ],
     );
   }

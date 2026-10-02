@@ -252,26 +252,30 @@ class _ReduceFileSizeDialogState extends State<_ReduceFileSizeDialog> {
                       }),
               child: Text(l10n.reduceSizeChangeSettings),
             ),
-            PdfDialogSubmit(
+            PdfDialogSubmit.action(
+                onSubmit: _saving ? null : _saveCopy,
                 child: FilledButton(
-              key: const ValueKey('reduce-size-save'),
-              onPressed: _saving ? null : _saveCopy,
-              child: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(l10n.reduceSizeSaveCopy),
-            )),
+                  key: const ValueKey('reduce-size-save'),
+                  onPressed: _saving ? null : _saveCopy,
+                  child: _saving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(l10n.reduceSizeSaveCopy),
+                )),
           ] else if (!_running)
-            PdfDialogSubmit(
+            PdfDialogSubmit.action(
+                onSubmit: widget.hasSignatures && !_allowInvalidateSignatures
+                    ? null
+                    : _run,
                 child: FilledButton(
-              key: const ValueKey('reduce-size-run'),
-              onPressed: widget.hasSignatures && !_allowInvalidateSignatures
-                  ? null
-                  : _run,
-              child: Text(l10n.reduceSizeRun),
-            )),
+                  key: const ValueKey('reduce-size-run'),
+                  onPressed: widget.hasSignatures && !_allowInvalidateSignatures
+                      ? null
+                      : _run,
+                  child: Text(l10n.reduceSizeRun),
+                )),
         ],
       ),
     );

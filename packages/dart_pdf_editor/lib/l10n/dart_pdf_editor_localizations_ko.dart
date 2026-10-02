@@ -2209,4 +2209,68 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => '여러 항목 선택 허용';
+
+  @override
+  String get searchFieldHint => '검색';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return '문서를 열 수 없습니다: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => '페이지 내보내기';
+
+  @override
+  String get pageRangeExportConfirm => '내보내기';
+
+  @override
+  String get textStyleKeepFont => '유지';
+
+  @override
+  String get guidesDialogTitle => '안내선, 맞춤 및 눈금자';
+
+  @override
+  String get guidesSmartAlignment => '스마트 정렬 안내선';
+
+  @override
+  String get guidesPageRulers => '페이지 눈금자';
+
+  @override
+  String get guidesPageRulersHint => '페이지 가장자리에 포인트 단위 치수 표시';
+
+  @override
+  String get guidesVerticalCursorLine => '세로 커서 선';
+
+  @override
+  String get guidesHorizontalCursorLine => '가로 커서 선';
+
+  @override
+  String get guidesSnapToGrid => '격자에 맞춤';
+
+  @override
+  String get guidesSnapToGridHint => '맞춤을 건너뛰려면 Alt 키를 누르고 있으세요';
+
+  @override
+  String get guidesShowGrid => '격자선 표시';
+
+  @override
+  String get guidesShowGridHint => '화면 표시 전용이며 PDF에는 추가되지 않음';
+
+  @override
+  String get guidesGridSpacing => '격자 간격';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '${value}pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => '커서 안내선 및 격자';
+
+  @override
+  String get commandSaveAs => '다른 이름으로 저장…';
+
+  @override
+  String get dialogDismiss => '닫기';
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../design/viewer_tokens.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -11,10 +12,10 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../debug_overlays.dart';
+import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
-import '../popup_position.dart';
 import '../render_worker.dart';
 import '../renderer.dart';
 import '../theme.dart';
@@ -27,20 +28,14 @@ import 'editing_link.dart';
 import 'editing_measure.dart';
 import 'editing_text_menu.dart';
 import 'editing_tool_behavior.dart';
+import 'form_tab_navigation.dart';
 import 'handle_layout.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
-
-/// A [TextField.buildCounter] that draws nothing, so a form field's /MaxLen
-/// cap stays silent instead of adding a counter under the field.
-Widget? _noInputCounter(BuildContext context,
-        {required int currentLength,
-        required int? maxLength,
-        required bool isFocused}) =>
-    null;
 
 TextAlign _flutterTextAlign(PdfTextAlign align) => switch (align) {
       PdfTextAlign.left => TextAlign.left,
@@ -481,10 +476,7 @@ class _InlineTextHandlePainter extends CustomPainter {
 }
 
 Color _inlineTextHandleColor(BuildContext context) {
-  final theme = PdfViewerTheme.of(context);
-  return theme.selectionHandleColor ??
-      theme.annotationChromeColor ??
-      const Color(0xFF2196F3);
+  return PdfViewerTheme.of(context).inlineSelectionHandle;
 }
 
 /// One page's editing layer: captures the armed tool's gestures in page
@@ -501,7 +493,7 @@ class EditingPageOverlay extends StatefulWidget {
     required this.pageIndex,
     required this.geometry,
     required this.textPrompt,
-    this.linkPrompt = showPdfAddLinkDialog,
+    this.linkPrompt = pdfPresentLinkPrompt,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.interactionHost,
@@ -523,6 +515,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onTextEditClosed,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
+    this.showInlineTextStyleChip = true,
     this.renderWorker,
   });
 
@@ -532,7 +525,8 @@ class EditingPageOverlay extends StatefulWidget {
   final PdfTextPrompt textPrompt;
 
   /// How the link tool ([PdfEditTool.link]) and the text-selection "Add link"
-  /// action collect a hyperlink's target. Defaults to [showPdfAddLinkDialog].
+  /// action collect a hyperlink's target. Defaults to
+  /// [pdfPresentLinkPrompt] ([PdfEditorPresenter.link]).
   final PdfLinkPrompt linkPrompt;
 
   /// How the form tool asks for a push-button field's image. With none,
@@ -597,6 +591,10 @@ class EditingPageOverlay extends StatefulWidget {
   /// overlapping that UI. Selection, handles, and move/resize interactions
   /// are unaffected. Defaults to true.
   final bool showSelectionChip;
+
+  /// Whether touch/stylus in-place text editing shows the floating style
+  /// chip (see [PdfViewer.showInlineTextStyleChip]). Defaults to true.
+  final bool showInlineTextStyleChip;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -700,7 +698,6 @@ typedef _Handle = SelectionHandle;
 
 const List<_Handle> _handles = selectionHandles;
 
-const double _handleSize = 8;
 const double _handleHitRadius = HandleLayout.defaultHitRadius;
 const double _minSizeView = 12;
 
@@ -995,15 +992,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int _textEditStyleRevision = 0;
   int _editSelectedTextRevision = 0;
   int _textEditFocusHoldRevision = 0;
-
-  // form-tool text fill: when set, the inline editor commits into this
-  // field's /V instead of creating a free-text annotation
-  String? _textEditFieldName;
-  bool _textEditMultiline = true;
-  // the field's /MaxLen, and whether it is a password field (edited masked
-  // and single-line, its afterimage masked too) - #931
-  int? _textEditMaxLength;
-  bool _textEditPassword = false;
 
   // select-tool drags. A rotated selection resizes in its local frame:
   // _resizeFrom/_resizeRect are then the chrome's local box (the rect
@@ -2928,7 +2916,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         });
       }
     }
-    if (_textEditExisting && _textEditFieldName == null) {
+    if (_textEditExisting) {
       // The opacity control restyles the selected annotation in place while
       // its inline editor stays open. Follow the new appearance alpha so the
       // live glyphs do not remain opaque and make the control look inert.
@@ -2960,7 +2948,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_textEditRect == null) return;
     // a new box in flight follows the tune popup's box-level defaults live
     // (alignment, spacing, underline) instead of only picking them up on open
-    if (!_textEditExisting && _textEditFieldName == null) {
+    if (!_textEditExisting) {
       final align = _controller.preferences.textAlign;
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
@@ -3429,51 +3417,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return null;
   }
 
-  /// Opens the inline editor over a text field's widget, prefilled with
-  /// its value - the form tool's tap-to-fill. The commit goes into the
-  /// field's /V instead of creating an annotation.
-  void _openFormTextEditor(PdfFormField field, int widgetIndex) {
-    final rect = field.widgetRect(widgetIndex);
-    if (rect == null) return;
-    final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
-        .firstMatch(field.defaultAppearance ?? '');
-    final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
-    final formFont = tf == null
-        ? PdfStandardFont.helvetica
-        : PdfStandardFont.fromName(tf.group(1)!);
-    final formSize = size > 0 ? size : 12.0;
-    _textEditText.resetStyles(_TextEditStyle(
-        font: formFont, size: formSize, color: const Color(0xFF000000)));
-    _textEditText.text = _controller.formFieldTextValue(field) ?? '';
-    setState(() {
-      _textEditRect = _geometry.toViewRect(rect);
-      _textEditPageRect = rect;
-      _textEditRotation = 0;
-      _textEditExisting = false;
-      _textEditAnnotationSlot = null;
-      _textEditTool = _tool;
-      _textEditFieldName = field.name;
-      _textEditPassword = field.isPassword;
-      _textEditMultiline = field.isMultiline && !field.isPassword;
-      _textEditMaxLength = field.maxLength;
-      _textEditFont = formFont;
-      // an auto-size /DA (0 Tf) edits at a readable default; the
-      // committed appearance derives its own size as usual
-      _textEditSize = formSize;
-      _textEditColor = const Color(0xFF000000);
-      _textEditFill = null;
-      _textEditOpacity = 1;
-    });
-    _beginInteraction(PdfEditingInteractionIntent.text, _lastPointerKind);
-    _controller.setEditingText(true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
-    });
-  }
-
-  /// Commits the editor's text: a new free-text annotation, the
-  /// selected one rewritten, or - for the form tool - the field's new
-  /// value. Empty text adds nothing / changes nothing.
+  /// Commits the editor's text: a new free-text annotation, or the
+  /// selected one rewritten. Empty text adds nothing / changes nothing.
+  /// (The form tool's field fill is the page's [FormInteractionLayer].)
   void _commitTextEdit() {
     if (_textEditRect == null) return;
     final before = _controller.revisionId;
@@ -3485,35 +3431,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _finishTextEdit() {
     final rect = _textEditRect;
     if (rect == null) return;
-    final fieldName = _textEditFieldName;
-    if (fieldName != null) {
-      // form fields: empty is a legitimate value (clearing the field)
-      final value = _textEditText.text;
-      final font = _textEditFont;
-      final size = _textEditSize;
-      final password = _textEditPassword;
-      _closeTextEditor();
-      final before = _controller.revisionId;
-      _controller.setFormFieldText(fieldName, value);
-      if (before == _controller.revisionId) return;
-      _clearAfterimage();
-      _afterText = (
-        rect: rect,
-        text: password ? _controller.formPasswordMask(value) : value,
-        font: font,
-        size: size,
-        color: const Color(0xFF000000),
-        fill: null,
-        opacity: 1,
-        washed: true, // cover the old value until the raster lands
-        rotation: 0,
-        align: PdfTextAlign.left,
-        underline: false,
-        lineSpacing: kPdfFreeTextDefaultLineSpacing,
-      );
-      _afterRevisionId = _controller.revisionId;
-      return;
-    }
     final text = _textEditText.text.trimRight();
     final existing = _textEditExisting;
     final richRuns =
@@ -3580,10 +3497,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// nothing on close), matching the desktop convention where Escape
   /// *finishes* the box rather than throwing it away - discarding it read
   /// as Escape "deleting" the annotation you'd just placed. An existing box
-  /// or a form field reverts to its saved value instead (a real cancel,
-  /// and still non-destructive - the box stays).
+  /// reverts to its saved value instead (a real cancel, and still
+  /// non-destructive - the box stays).
   void _onEscapeTextEdit() {
-    if (_textEditExisting || _textEditFieldName != null) {
+    if (_textEditExisting) {
       _cancelTextEdit();
     } else {
       _commitTextEdit();
@@ -3618,13 +3535,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() {
         _textEditRect = null;
         _textEditPageRect = null;
-        _textEditFieldName = null;
         _textEditAnnotationSlot = null;
       });
     } else {
       _textEditRect = null;
       _textEditPageRect = null;
-      _textEditFieldName = null;
       _textEditAnnotationSlot = null;
     }
     _controller.setEditingText(false);
@@ -4505,12 +4420,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// from it and disarms the tool. Nothing is stamped on the page.
   Future<void> _commitCalibration(Offset start, Offset end) async {
     final existing = _controller.preferences.measurementScale;
-    final result = await showPdfCalibrationLengthDialog(
+    final result = await PdfEditorPresenter.of(context).measurementInput(
       context,
-      initialUnit: existing?.unitLabel,
+      PdfMeasurementInputRequest(
+        kind: PdfMeasurementInputKind.calibrationLength,
+        unit: existing?.unitLabel,
+      ),
     );
     if (!mounted || result == null) return;
-    final (length, unit) = result;
+    final length = result.value;
+    final unit = result.unit ?? existing?.unitLabel ?? '';
     _controller.calibrateScale(
       _geometry.toPagePoint(start),
       _geometry.toPagePoint(end),
@@ -4525,11 +4444,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// scale's unit), then stamps a /Polygon takeoff carrying it. Cancelling
   /// the dialog drops the in-progress polygon without stamping anything.
   Future<void> _commitVolume(List<(double, double)> pagePoints) async {
-    final depth = await showPdfDepthDialog(
+    final input = await PdfEditorPresenter.of(context).measurementInput(
       context,
-      unitLabel: _controller.preferences.measurementScale?.unitLabel,
+      PdfMeasurementInputRequest(
+        kind: PdfMeasurementInputKind.depth,
+        unit: _controller.preferences.measurementScale?.unitLabel,
+      ),
     );
-    if (!mounted || depth == null) return;
+    if (!mounted || input == null) return;
+    final depth = input.value;
     _controller.addMeasurement(
         widget.pageIndex, PdfMeasurementKind.volume, pagePoints,
         depth: depth);
@@ -4810,71 +4733,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  /// The form tool's double-tap (and read mode's tap): routes the hit
-  /// field at [local] to its fill interaction. [globalPosition] anchors
-  /// the choice menu.
-  Future<void> _fillFormFieldAt(Offset local, Offset globalPosition) async {
+  /// The form tool's double-tap: hands the hit field to this page's
+  /// [FormInteractionLayer], the one component that fills fields - its
+  /// inline editor runs the field's keystroke and validation scripts, and a
+  /// choice field's menu opens at [globalPosition].
+  void _fillFormFieldAt(Offset local, Offset globalPosition) {
     final (x, y) = _geometry.toPagePoint(local);
     final hit = _controller.formFieldAt(widget.pageIndex, x, y);
     if (hit == null) return;
     final (field, widgetIndex) = hit;
-    if (field.isReadOnly) return;
-    switch (field.type) {
-      case PdfFieldType.text:
-        _openFormTextEditor(field, widgetIndex);
-      case PdfFieldType.checkBox:
-        _controller.toggleFormCheckBox(field.name);
-      case PdfFieldType.radioGroup:
-        final state = field.widgetOnState(widgetIndex);
-        if (state != null) _controller.setFormRadioValue(field.name, state);
-      case PdfFieldType.comboBox || PdfFieldType.listBox:
-        await _pickFormChoice(field, globalPosition);
-      case PdfFieldType.pushButton:
-        final picker = widget.formImagePicker;
-        if (picker == null) return;
-        final name = field.name;
-        final bytes = await picker(context, field);
-        if (bytes != null) {
-          await _controller.setFormButtonImageAsync(name, bytes);
-        }
-      case PdfFieldType.signature || PdfFieldType.unknown:
-        break;
-    }
-  }
-
-  /// A choice field's options as a context menu at the tap position.
-  Future<void> _pickFormChoice(
-      PdfFormField field, Offset globalPosition) async {
-    final options = field.options;
-    if (options.isEmpty) return;
-    final name = field.name;
-    final multi = field.isMultiSelect;
-    final selected = field.values.toSet();
-    final style =
-        Theme.of(context).textTheme.labelMedium?.copyWith(height: 1.1);
-    final picked = await showMenu<String>(
-      context: context,
-      position: pdfPopupPosition(context, globalPosition),
-      items: [
-        for (final (export, display) in options)
-          if (multi)
-            CheckedPopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              checked: selected.contains(export),
-              child: Text(display, style: style),
-            )
-          else
-            PopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              child: Text(display, style: style),
-            ),
-      ],
+    pdfFormFillRequests(_controller).value = PdfFormFillRequest(
+      pageIndex: widget.pageIndex,
+      fieldName: field.name,
+      widgetIndex: widgetIndex,
+      revisionId: _controller.revisionId,
+      anchor: globalPosition,
     );
-    if (picked != null) _controller.pickFormChoiceOption(name, picked);
   }
 
   /// Rasterizes this page once for the eyedropper, keyed on the revision id
@@ -5156,8 +5030,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_tool == PdfEditTool.form) {
       final details = _doubleTapDownDetails;
       if (details != null) {
-        unawaited(
-            _fillFormFieldAt(details.localPosition, details.globalPosition));
+        _fillFormFieldAt(details.localPosition, details.globalPosition);
       }
       return;
     }
@@ -5375,42 +5248,81 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         child: Transform.scale(
           scale: _chromeScale,
           alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
-          child: Material(
-            key: const ValueKey('pdf-selection-chip'),
-            elevation: 3,
-            borderRadius: BorderRadius.circular(22),
-            clipBehavior: Clip.antiAlias,
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
+          child: _selectionActionBar(anchor),
+        ),
+      ),
+    );
+  }
+
+  /// The selection chip's body, drawn by the presenter's
+  /// [PdfEditorPresenter.actionBar] (the stock chip by default).
+  Widget _selectionActionBar(Offset anchor) {
+    final l10n = pdfL10n(context);
+    void delete() => _controller.deleteSelected();
+    void edit() {
+      final rect = _selectedViewRect;
+      if (rect != null) _openTextEditor(rect, existing: true);
+    }
+
+    void more() {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      _host.showAnnotationMenu!(box.localToGlobal(anchor), widget.pageIndex);
+    }
+
+    final canEdit = _controller.canEditSelectedText;
+    final hasMenu =
+        _host.showAnnotationMenu != null && widget.contextMenuEnabled;
+    return PdfEditorPresenter.of(context).actionBar(
+      context,
+      PdfActionBarRequest(
+        kind: PdfActionBarKind.annotationSelection,
+        actions: [
+          PdfActionBarAction(
+              id: 'pdf-selection-chip-delete',
+              label: l10n.delete,
+              icon: Icons.delete_outline,
+              onPressed: delete),
+          if (canEdit)
+            PdfActionBarAction(
+                id: 'pdf-selection-chip-edit',
+                label: l10n.overlayEditText,
+                icon: Icons.edit_outlined,
+                onPressed: edit),
+          if (hasMenu)
+            PdfActionBarAction(
+                id: 'pdf-selection-chip-menu',
+                label: l10n.overlayMore,
+                icon: Icons.more_horiz,
+                onPressed: more),
+        ],
+        stock: Material(
+          key: const ValueKey('pdf-selection-chip'),
+          elevation: 3,
+          borderRadius: BorderRadius.circular(22),
+          clipBehavior: Clip.antiAlias,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              key: const ValueKey('pdf-selection-chip-delete'),
+              icon: const Icon(Icons.delete_outline),
+              tooltip: l10n.delete,
+              onPressed: delete,
+            ),
+            if (canEdit)
               IconButton(
-                key: const ValueKey('pdf-selection-chip-delete'),
-                icon: const Icon(Icons.delete_outline),
-                tooltip: pdfL10n(context).delete,
-                onPressed: _controller.deleteSelected,
+                key: const ValueKey('pdf-selection-chip-edit'),
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: l10n.overlayEditText,
+                onPressed: edit,
               ),
-              if (_controller.canEditSelectedText)
-                IconButton(
-                  key: const ValueKey('pdf-selection-chip-edit'),
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: pdfL10n(context).overlayEditText,
-                  onPressed: () {
-                    final rect = _selectedViewRect;
-                    if (rect != null) _openTextEditor(rect, existing: true);
-                  },
-                ),
-              if (_host.showAnnotationMenu != null && widget.contextMenuEnabled)
-                IconButton(
-                  key: const ValueKey('pdf-selection-chip-menu'),
-                  icon: const Icon(Icons.more_horiz),
-                  tooltip: pdfL10n(context).overlayMore,
-                  onPressed: () {
-                    final box = context.findRenderObject() as RenderBox?;
-                    if (box == null) return;
-                    _host.showAnnotationMenu!(
-                        box.localToGlobal(anchor), widget.pageIndex);
-                  },
-                ),
-            ]),
-          ),
+            if (hasMenu)
+              IconButton(
+                key: const ValueKey('pdf-selection-chip-menu'),
+                icon: const Icon(Icons.more_horiz),
+                tooltip: l10n.overlayMore,
+                onPressed: more,
+              ),
+          ]),
         ),
       ),
     );
@@ -5481,8 +5393,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// toggle restyles it; with none it styles the whole box (or just sets the
   /// face when the box is still empty).
   void _toggleInlineTextStyle({required bool italic}) {
-    // form fields carry a single /DA font - no rich styling to toggle
-    if (_textEditRect == null || _textEditFieldName != null) return;
+    if (_textEditRect == null) return;
 
     final base = _canStyleInlineTextSelection
         ? _currentInlineTextStyle().font
@@ -5515,7 +5426,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// underlines the whole box (or just sets the default when the box is
   /// still empty).
   void _toggleInlineUnderline() {
-    if (_textEditRect == null || _textEditFieldName != null) return;
+    if (_textEditRect == null) return;
     final on = !_currentInlineTextStyle().underline;
     if (_canStyleInlineTextSelection) {
       _applyInlineTextStyle(underline: on);
@@ -5636,9 +5547,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     tooltip: pdfL10n(context).overlayUnderline,
                     isSelected: current.underline,
                     // underline works with or without a selection (whole box)
-                    onPressed: _textEditFieldName == null
-                        ? _toggleInlineUnderline
-                        : null,
+                    onPressed: _toggleInlineUnderline,
                   ),
                   Builder(builder: (buttonContext) {
                     return IconButton(
@@ -5763,7 +5672,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// point isn't occluded (the [_buildSelectionChip]/eyedropper pattern,
   /// keyed on [_lastPointerKind]).
   Widget _buildReadoutChip(String text, Offset anchor,
-      {String keyValue = 'pdf-measure-readout'}) {
+      {String keyValue = 'pdf-measure-readout',
+      PdfReadoutKind kind = PdfReadoutKind.measurement}) {
     final touch = _lastPointerKind == PointerDeviceKind.touch ||
         _lastPointerKind == PointerDeviceKind.stylus;
     final offset = touch ? const Offset(0, -64) : const Offset(16, -36);
@@ -5782,20 +5692,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // outside translation would itself be magnified by page zoom.
           translation: touch ? const Offset(-0.5, 0) : Offset.zero,
           child: IgnorePointer(
-            child: Material(
-              key: ValueKey(keyValue),
-              color: const Color(0xE6202124),
-              elevation: 3,
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    color: Color(0xFFFFFFFF),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+            child: PdfEditorPresenter.of(context).readout(
+              context,
+              PdfReadoutRequest(
+                kind: kind,
+                text: text,
+                stock: Material(
+                  key: ValueKey(keyValue),
+                  color: PdfViewerTheme.of(context).chip,
+                  elevation: 3,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        color: PdfViewerTheme.of(context).chipForeground,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -6163,10 +6080,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         geometry: _geometry,
                         gridSpacing: _controller.preferences.gridSpacing,
                         chromeScale: _chromeScale,
-                        color:
-                            (PdfViewerTheme.of(context).annotationChromeColor ??
-                                    Theme.of(context).colorScheme.primary)
-                                .withValues(alpha: 0.22),
+                        color: PdfViewerTheme.of(context)
+                            .snapGrid(Theme.of(context).colorScheme.primary),
                       ),
                       size: Size.infinite,
                     ),
@@ -6306,7 +6221,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       painter: _AlignmentGuidePainter(
                         guides: _alignmentGuides,
                         chromeScale: _chromeScale,
-                        color: const Color(0xFFE91E63),
+                        color: PdfViewerTheme.of(context).alignmentGuide,
                       ),
                       size: Size.infinite,
                     ),
@@ -6331,11 +6246,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       key: const ValueKey('pdf-page-rulers'),
                       painter: _PageRulerPainter(
                         this,
-                        surfaceColor: Theme.of(context).colorScheme.surface,
-                        textColor: Theme.of(context).colorScheme.onSurface,
-                        accentColor:
-                            PdfViewerTheme.of(context).annotationChromeColor ??
-                                Theme.of(context).colorScheme.primary,
+                        surfaceColor: PdfViewerTheme.of(context)
+                            .rulerBackground(
+                                Theme.of(context).colorScheme.surface),
+                        textColor: PdfViewerTheme.of(context).rulerForeground(
+                            Theme.of(context).colorScheme.onSurface),
+                        accentColor: PdfViewerTheme.of(context)
+                            .rulerAccent(Theme.of(context).colorScheme.primary),
                       ),
                       size: Size.infinite,
                     ),
@@ -6487,9 +6404,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                 .withValues(alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
-                              color: PdfViewerTheme.of(context)
-                                      .annotationChromeColor ??
-                                  const Color(0xFF1E88E5),
+                              color: PdfViewerTheme.of(context).chrome,
                               width: 1.5 * _chromeScale),
                         ),
                         child: ValueListenableBuilder<TextEditingValue>(
@@ -6501,55 +6416,32 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                               child: _zoomAwareCursor(
                                   context,
                                   TextField(
-                                    key: ValueKey(_textEditFieldName == null
-                                        ? 'pdf-freetext-editor'
-                                        : 'pdf-form-text-editor'),
+                                    key: const ValueKey('pdf-freetext-editor'),
                                     controller: _textEditText,
                                     focusNode: _textEditFocus,
                                     autofocus: true,
-                                    obscureText: _textEditFieldName != null &&
-                                        _textEditPassword,
-                                    maxLength: _textEditFieldName == null
-                                        ? null
-                                        : _textEditMaxLength,
-                                    // the /MaxLen cap is silent: no counter
-                                    buildCounter: _noInputCounter,
-                                    // single-line form fields edit single-line:
-                                    // Enter commits instead of inserting a newline
-                                    maxLines: _textEditFieldName == null ||
-                                            _textEditMultiline
-                                        ? null
-                                        : 1,
-                                    expands: _textEditFieldName == null ||
-                                        _textEditMultiline,
+                                    maxLines: null,
+                                    expands: true,
                                     onSubmitted: (_) => _commitTextEdit(),
                                     textDirection: direction,
                                     // free text follows the box's /Q alignment so
                                     // the live text sits where it commits; a box
-                                    // with no explicit /Q (and form fields) stays
-                                    // direction-aware start-aligned
-                                    textAlign: _textEditFieldName == null &&
-                                            _textEditAlign != null
+                                    // with no explicit /Q stays direction-aware
+                                    // start-aligned
+                                    textAlign: _textEditAlign != null
                                         ? _flutterTextAlign(_textEditAlign!)
                                         : TextAlign.start,
-                                    textAlignVertical:
-                                        _textEditFieldName == null ||
-                                                _textEditMultiline
-                                            ? TextAlignVertical.top
-                                            : TextAlignVertical.center,
+                                    textAlignVertical: TextAlignVertical.top,
                                     // pin line height to the box's leading so the
                                     // preview spacing is font-independent, matching
                                     // the committed appearance - changing a run's
                                     // font no longer nudges the lines until commit
-                                    strutStyle: _textEditFieldName == null
-                                        ? StrutStyle(
-                                            fontSize:
-                                                _textEditText.maxStyleSize *
-                                                    _geometry.scale,
-                                            height: _textEditLineSpacing,
-                                            forceStrutHeight: true,
-                                          )
-                                        : null,
+                                    strutStyle: StrutStyle(
+                                      fontSize: _textEditText.maxStyleSize *
+                                          _geometry.scale,
+                                      height: _textEditLineSpacing,
+                                      forceStrutHeight: true,
+                                    ),
                                     cursorColor: _textEditColor,
                                     cursorWidth: 2 * _chromeScale,
                                     cursorHeight: pdfZoomAwareCursorHeight(
@@ -6567,20 +6459,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     // AND displace the menu off-screen
                                     contextMenuBuilder:
                                         (context, editableTextState) =>
-                                            pdfPlacedTextSelectionMenu(
+                                            pdfStockTextContextMenu(
+                                      context,
                                       editableTextState,
-                                      AdaptiveTextSelectionToolbar.editableText(
-                                          editableTextState: editableTextState),
+                                      systemMenu: false,
+                                      place: pdfPlacedTextSelectionMenu,
                                     ),
                                     // mirrors the committed appearance: same size
                                     // in view pixels, same leading/spacing,
                                     // matching family, color and underline
                                     style: TextStyle(
-                                      color: _textEditFieldName == null
-                                          ? _textEditColor.withValues(
-                                              alpha: _textEditOpacity.clamp(
-                                                  0.0, 1.0))
-                                          : _textEditColor,
+                                      color: _textEditColor.withValues(
+                                          alpha:
+                                              _textEditOpacity.clamp(0.0, 1.0)),
                                       fontSize: _textEditSize * _geometry.scale,
                                       height: _textEditLineSpacing,
                                       letterSpacing: _textEditCharSpacing *
@@ -6633,15 +6524,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   ),
                 ),
               if (_textEditRect != null &&
-                  _textEditFieldName == null &&
-                  _controller.hasTouchInput)
+                  _controller.hasTouchInput &&
+                  widget.showInlineTextStyleChip)
                 _buildInlineTextStyleChip(_textEditRect!),
               if (showChip && widget.showSelectionChip)
                 _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))
-                _buildReadoutChip(text, anchor, keyValue: 'pdf-style-readout'),
+                _buildReadoutChip(text, anchor,
+                    keyValue: 'pdf-style-readout', kind: PdfReadoutKind.style),
               if (_controller.isCroppingImage &&
                   _controller.selectedPage == widget.pageIndex &&
                   selectedAnnotation != null)
@@ -6651,9 +6543,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   initialCrop: _geometry.toViewRect(
                       _controller.imageCropDraft ?? selectedAnnotation.rect),
                   chromeScale: _chromeScale,
-                  accentColor:
-                      PdfViewerTheme.of(context).annotationChromeColor ??
-                          const Color(0xFF1E88E5),
+                  accentColor: PdfViewerTheme.of(context).chrome,
                   onChanged: (viewRect) => _controller
                       .updateImageCropDraft(_geometry.toPageRect(viewRect)),
                   onCommit: _controller.commitImageCrop,
@@ -7217,7 +7107,7 @@ class _HoverCursorPainter extends CustomPainter {
     // thin themed line readable over both white paper and dense drawings.
     final guide = guideCursor;
     if (guide != null) {
-      final color = theme.annotationChromeColor ?? const Color(0xFF1E88E5);
+      final color = theme.chrome;
       final halo = Paint()
         ..color = const Color(0x52000000)
         ..strokeWidth = guideHaloWidth;
@@ -7921,10 +7811,9 @@ class _EditingPreviewPainter extends CustomPainter {
   /// stays constant-size on screen while the viewer is zoomed in.
   final double chromeScale;
 
-  Color get _chrome => theme.annotationChromeColor ?? const Color(0xFF1E88E5);
-  Color get _elementChrome =>
-      theme.elementChromeColor ?? const Color(0xFFFB8C00);
-  Color get _flash => theme.flashColor ?? const Color(0xFFFFB300);
+  Color get _chrome => theme.chrome;
+  Color get _elementChrome => theme.elementChrome;
+  Color get _flash => theme.flash;
 
   /// Paints one set of page-space ink strokes with the committed
   /// appearance's smoothing and pressure mapping.
@@ -7961,7 +7850,8 @@ class _EditingPreviewPainter extends CustomPainter {
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.redact:
-        paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
+        paintRedactionHatch(canvas, rect,
+            chromeScale: chromeScale, color: theme.redactionHatch);
       case PdfEditTool.contentDelete:
         // Same region marquee as Snapshot, but orange to signal permanent
         // page-content edits rather than a read-only capture.
@@ -8423,7 +8313,8 @@ class _EditingPreviewPainter extends CustomPainter {
     }
 
     for (final rect in redactionRects) {
-      paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
+      paintRedactionHatch(canvas, rect,
+          chromeScale: chromeScale, color: theme.redactionHatch);
     }
 
     for (final rect in extraSelectionRects) {
@@ -8512,16 +8403,18 @@ class _EditingPreviewPainter extends CustomPainter {
             box.center.dy + handle.dy * box.height / 2,
           );
           final knob = Rect.fromCircle(
-              center: center, radius: _handleSize / 2 * chromeScale);
+              center: center, radius: theme.handleDiameter / 2 * chromeScale);
           canvas.drawRect(knob, fill);
           canvas.drawRect(knob, stroke);
         }
       }
       if (rotateKnob != null) {
-        canvas.drawCircle(rotateKnob, (_handleSize / 2 + 1) * chromeScale,
+        canvas.drawCircle(
+            rotateKnob,
+            (theme.handleDiameter / 2 + 1) * chromeScale,
             Paint()..color = const Color(0xFFFFFFFF));
         canvas.drawCircle(
-            rotateKnob, (_handleSize / 2 + 1) * chromeScale, stroke);
+            rotateKnob, (theme.handleDiameter / 2 + 1) * chromeScale, stroke);
       }
       canvas.restore();
     }
@@ -8533,7 +8426,7 @@ class _EditingPreviewPainter extends CustomPainter {
         ..strokeWidth = 1.5 * chromeScale;
       for (final center in handles) {
         final knob = Rect.fromCircle(
-            center: center, radius: _handleSize / 2 * chromeScale);
+            center: center, radius: theme.handleDiameter / 2 * chromeScale);
         canvas.drawRect(knob, fill);
         canvas.drawRect(knob, stroke);
       }
@@ -8667,20 +8560,21 @@ class _EditingPreviewPainter extends CustomPainter {
 /// dark wash, a solid border, and diagonal cross-hatch lines, so a marked
 /// region is unmistakable before it is burned (after burning the area is a
 /// solid fill baked into the page content).
-void paintRedactionHatch(Canvas canvas, Rect rect, {double chromeScale = 1}) {
+void paintRedactionHatch(Canvas canvas, Rect rect,
+    {double chromeScale = 1, Color color = PdfViewerDefaults.redactionHatch}) {
   if (rect.isEmpty) return;
   final s = chromeScale.isFinite && chromeScale > 0 ? chromeScale : 1.0;
   canvas.drawRect(rect, Paint()..color = const Color(0x22000000));
   canvas.drawRect(
       rect,
       Paint()
-        ..color = const Color(0xFFD32F2F)
+        ..color = color
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 * s);
   canvas.save();
   canvas.clipRect(rect);
   final hatch = Paint()
-    ..color = const Color(0x66D32F2F)
+    ..color = color.withValues(alpha: 0x66 / 0xFF)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1 * s;
   final step = 8.0 * s;

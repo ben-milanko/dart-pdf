@@ -6,7 +6,7 @@ library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 import 'tile_raster_backend.dart';
 
@@ -164,7 +164,7 @@ class _PdfGpuRasterRouteChrome extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: Color(0xFFFFFFFF),
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             height: 1.15,

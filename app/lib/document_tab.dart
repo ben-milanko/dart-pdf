@@ -310,6 +310,24 @@ class DocumentTab {
   final PdfEditingController? session;
   final PdfViewerController? viewer;
 
+  PdfEditorCommands? _commands;
+
+  /// The editor's commands for this tab - the same object its
+  /// [PdfEditorView] runs its toolbar and tool shortcuts through, so the
+  /// command palette arms tools exactly as the toolbar does (a measure tool
+  /// asks for its scale first). Created on first use; null while the tab has
+  /// no edit session.
+  PdfEditorCommands? get commands {
+    final session = this.session;
+    final viewer = this.viewer;
+    if (session == null || viewer == null) return null;
+    return _commands ??= PdfEditorCommands(
+      controller: session,
+      viewerController: viewer,
+      features: const PdfEditorFeatures(),
+    );
+  }
+
   /// A stable identity per open document, used by the shells to remember the
   /// scroll position and zoom across reopens.
   String get documentId => title;
@@ -319,6 +337,7 @@ class DocumentTab {
     // full read so a closed tab stops pulling bytes.
     cancel?.cancel();
     progress?.dispose();
+    _commands?.dispose();
     if (session case final session?) {
       SignatureTrust.platformDefault?.detach(session);
       session.dispose();

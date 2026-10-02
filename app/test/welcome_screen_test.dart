@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:dart_pdf_editor/dart_pdf_editor.dart' show pdfSearchInputBorder;
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show pdfSearchFieldBorderRadius;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -199,7 +200,7 @@ void main() {
     final search = find.byKey(const ValueKey('recent-files-search'));
     expect(search, findsOneWidget);
     expect(tester.widget<TextField>(search).decoration?.border,
-        pdfSearchInputBorder);
+        const OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius));
     await tester.enterText(search, 'BETA');
     await tester.pump();
 

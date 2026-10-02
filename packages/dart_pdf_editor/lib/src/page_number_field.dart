@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'design/material_host.dart';
 import 'pdf_viewer.dart';
 
 /// The classic "page 3 / 12" indicator, with the page number editable:
@@ -131,21 +132,19 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
           style: style,
           textAlign: TextAlign.center,
           keyboardType: labelled ? TextInputType.text : TextInputType.number,
-          inputFormatters: labelled
-              ? const []
-              : [FilteringTextInputFormatter.digitsOnly],
+          inputFormatters:
+              labelled ? const [] : [FilteringTextInputFormatter.digitsOnly],
           decoration: const InputDecoration(
             isDense: true,
             contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
             border: OutlineInputBorder(),
           ),
           onSubmitted: _submit,
+          contextMenuBuilder: pdfTextContextMenu,
         ),
       ),
       Text(
-        labelled
-            ? '  (${controller.currentPage + 1} / $count)'
-            : ' / $count',
+        labelled ? '  (${controller.currentPage + 1} / $count)' : ' / $count',
         style: style,
       ),
     ]);

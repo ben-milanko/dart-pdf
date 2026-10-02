@@ -211,12 +211,13 @@ class _WebOcrConfirmDialog extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(false),
           child: Text(appL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(true),
             child: FilledButton(
-          key: const ValueKey('ocr-web-start'),
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(appL10n(context).ocrWebStart),
-        )),
+              key: const ValueKey('ocr-web-start'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(appL10n(context).ocrWebStart),
+            )),
       ],
     );
   }

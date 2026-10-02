@@ -1,9 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfAcroForm;
 
 import '../l10n/pdf_l10n.dart';
-import '../toast.dart';
 import 'editing_controller.dart';
+import '../design/editor_presenter.dart';
 
 /// Controllers whose dynamic-XFA notice has already been shown. Keyed by
 /// controller so switching tabs, remounting the viewer, or a later revision
@@ -20,7 +20,8 @@ bool pdfXfaNoticePending(PdfEditingController controller) =>
 /// is XFA-only, so its fields don't appear and can't be filled here -
 /// instead of the form silently showing no fields. No-op when the form is
 /// not dynamic XFA, the notice was already shown for this controller, or
-/// there is no [ScaffoldMessenger] to show it in.
+/// the presenter could not show it ([PdfEditorPresenter.notice] returned
+/// false - the stock one without a `ScaffoldMessenger`).
 ///
 /// A hybrid form (XFA plus AcroForm fields) gets no notice: its AcroForm
 /// fields fill normally, and filling drops the stale XFA copy.
@@ -29,15 +30,15 @@ void showPdfXfaNoticeIfNeeded(
   PdfEditingController controller,
 ) {
   if (!pdfXfaNoticePending(controller)) return;
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
-  _xfaNoticeShown[controller] = true;
-  messenger.showSnackBar(SnackBar(
-    key: const ValueKey('pdf-xfa-form-notice'),
-    content: Text(pdfL10n(context).formXfaUnsupportedNotice),
-    behavior: SnackBarBehavior.floating,
-    margin: pdfFloatingToastMargin(context),
-    duration: const Duration(seconds: 10),
-    showCloseIcon: true,
-  ));
+  final shown = PdfEditorPresenter.of(context).notice(
+    context,
+    PdfEditorNotice(
+      pdfL10n(context).formXfaUnsupportedNotice,
+      key: const ValueKey('pdf-xfa-form-notice'),
+      duration: const Duration(seconds: 10),
+      showClose: true,
+      replaceCurrent: false,
+    ),
+  );
+  if (shown) _xfaNoticeShown[controller] = true;
 }

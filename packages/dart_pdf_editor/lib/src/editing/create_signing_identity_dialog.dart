@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'signing_identity_store.dart';
+import '../design/editor_presenter.dart';
 
 /// Shows the "Create signing identity" dialog: the user enters a name (and
 /// optionally an email and organization), and a self-signed P-256
@@ -17,8 +19,8 @@ Future<PdfSigningIdentity?> showCreateSigningIdentityDialog(
   PdfIdentityStore? store,
   String? storeId,
 }) =>
-    showPdfDialog<PdfSigningIdentity>(
-      context: context,
+    pdfPresentDialog<PdfSigningIdentity>(
+      context,
       builder: (context) => Dialog(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 460),
@@ -124,6 +126,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
               validator: (value) => (value == null || value.trim().isEmpty)
                   ? pdfL10n(context).signIdNameRequired
                   : null,
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 8),
             TextFormField(
@@ -132,6 +135,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   InputDecoration(labelText: pdfL10n(context).signIdEmail),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 8),
             TextFormField(
@@ -140,6 +144,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   labelText: pdfL10n(context).signIdOrganization),
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _create(),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 16),
             Container(
@@ -173,17 +178,18 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   child: Text(pdfL10n(context).cancel),
                 ),
                 const SizedBox(width: 8),
-                PdfDialogSubmit(
+                PdfDialogSubmit.action(
+                    onSubmit: _busy ? null : _create,
                     child: FilledButton(
-                  onPressed: _busy ? null : _create,
-                  child: _busy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(pdfL10n(context).signIdCreate),
-                )),
+                      onPressed: _busy ? null : _create,
+                      child: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(pdfL10n(context).signIdCreate),
+                    )),
               ],
             ),
           ],

@@ -2233,4 +2233,70 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Çoklu seçime izin ver';
+
+  @override
+  String get searchFieldHint => 'Ara';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Belge açılamadı: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Sayfaları dışa aktar';
+
+  @override
+  String get pageRangeExportConfirm => 'Dışa aktar';
+
+  @override
+  String get textStyleKeepFont => 'Koru';
+
+  @override
+  String get guidesDialogTitle => 'Kılavuzlar, yaslama ve cetveller';
+
+  @override
+  String get guidesSmartAlignment => 'Akıllı hizalama kılavuzları';
+
+  @override
+  String get guidesPageRulers => 'Sayfa cetvelleri';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Sayfa kenarlarında nokta cinsinden ölçüleri göster';
+
+  @override
+  String get guidesVerticalCursorLine => 'Dikey imleç çizgisi';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Yatay imleç çizgisi';
+
+  @override
+  String get guidesSnapToGrid => 'Izgaraya yasla';
+
+  @override
+  String get guidesSnapToGridHint =>
+      'Yaslamayı atlamak için Alt tuşunu basılı tutun';
+
+  @override
+  String get guidesShowGrid => 'Izgara çizgilerini göster';
+
+  @override
+  String get guidesShowGridHint => 'Yalnızca görüntü; PDF\'ye eklenmez';
+
+  @override
+  String get guidesGridSpacing => 'Izgara aralığı';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'İmleç kılavuzları ve ızgara';
+
+  @override
+  String get commandSaveAs => 'Farklı kaydet…';
+
+  @override
+  String get dialogDismiss => 'Kapat';
 }

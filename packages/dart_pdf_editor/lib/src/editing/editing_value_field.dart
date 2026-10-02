@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
 
 /// A generous ceiling for the typed readout of an open-ended point/size
@@ -131,6 +132,7 @@ class _PdfSliderValueFieldState extends State<PdfSliderValueField> {
           hintText: widget.varies ? pdfL10n(context).propVaries : null,
         ),
         onSubmitted: (_) => _commit(),
+        contextMenuBuilder: pdfTextContextMenu,
       ),
     );
   }

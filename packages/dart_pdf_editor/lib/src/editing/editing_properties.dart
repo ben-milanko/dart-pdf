@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import 'annotation_presentation.dart';
 import 'editing_color_pick.dart';
 import 'editing_controller.dart';
@@ -188,7 +189,7 @@ class _PdfAnnotationPropertiesPanelState
       child: Row(children: [
         SizedBox(width: 92, child: Text(label)),
         Expanded(
-          child: DropdownButton<PdfLineEnding>(
+          child: PdfDropdown<PdfLineEnding>(
             key: key,
             value: value,
             hint: Text(pdfL10n(context).propVaries),
@@ -196,15 +197,14 @@ class _PdfAnnotationPropertiesPanelState
             isExpanded: true,
             items: [
               for (final ending in PdfLineEnding.values)
-                DropdownMenuItem(
+                PdfDropdownItem(
                   value: ending,
+                  label: pdfLineEndingLabel(context, ending),
                   child: Text(pdfLineEndingLabel(context, ending),
                       overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: (ending) {
-              if (ending != null) onChanged(ending);
-            },
+            onChanged: onChanged,
           ),
         ),
       ]),
@@ -356,8 +356,8 @@ class _PdfAnnotationPropertiesPanelState
             padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
             child: Row(children: [
               Expanded(
-                child: Text(title,
-                    style: Theme.of(context).textTheme.labelLarge),
+                child:
+                    Text(title, style: Theme.of(context).textTheme.labelLarge),
               ),
               Icon(expanded ? Icons.expand_more : Icons.chevron_right,
                   size: 20, color: scheme.onSurfaceVariant),
@@ -490,6 +490,7 @@ class _PdfAnnotationPropertiesPanelState
             border: const OutlineInputBorder(),
           ),
           onSubmitted: (_) => onCommit(),
+          contextMenuBuilder: pdfTextContextMenu,
         ),
       ),
     );
@@ -530,6 +531,7 @@ class _PdfAnnotationPropertiesPanelState
             border: const OutlineInputBorder(),
           ),
           onSubmitted: (_) => _commitGeometry(),
+          contextMenuBuilder: pdfTextContextMenu,
         ),
       ),
     );
@@ -610,8 +612,7 @@ class _PdfAnnotationPropertiesPanelState
     if (_controller.canRoundSelectedCorners) {
       final radii = _common<double>([
         for (final annotation in annotations)
-          if (annotation.subtype == 'Square' &&
-              annotation.behavior.canRestyle)
+          if (annotation.subtype == 'Square' && annotation.behavior.canRestyle)
             annotation.cornerRadius,
       ]);
       children.add(_sliderRow(
@@ -644,21 +645,19 @@ class _PdfAnnotationPropertiesPanelState
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
           Expanded(child: Text(pdfL10n(context).propLineType)),
-          DropdownButton<PdfLineStyle>(
+          PdfDropdown<PdfLineStyle>(
             key: const ValueKey('pdf-prop-line-type'),
             value: lineStyles.varies ? null : lineStyles.value,
             hint: Text(pdfL10n(context).propVaries),
             isDense: true,
             items: [
               for (final style in PdfLineStyle.values)
-                DropdownMenuItem(
+                PdfDropdownItem(
                     value: style,
                     key: ValueKey('pdf-prop-line-type-${style.name}'),
-                    child: Text(pdfLineStyleLabel(context, style))),
+                    label: pdfLineStyleLabel(context, style)),
             ],
-            onChanged: (style) {
-              if (style != null) _controller.restyleSelected(lineStyle: style);
-            },
+            onChanged: (style) => _controller.restyleSelected(lineStyle: style),
           ),
         ]),
       ));
@@ -764,8 +763,8 @@ class _PdfAnnotationPropertiesPanelState
               color: annotation.color ?? 0,
             ),
     ];
-    final alignments =
-        _common<PdfTextAlign>([for (final value in freeStyles) value.alignment]);
+    final alignments = _common<PdfTextAlign>(
+        [for (final value in freeStyles) value.alignment]);
     final underlines =
         _common<bool>([for (final value in freeStyles) value.underline]);
     final lineSpacings =
@@ -777,9 +776,8 @@ class _PdfAnnotationPropertiesPanelState
     ]);
     final borders =
         _common<int?>([for (final value in freeStyles) value.borderColor]);
-    final borderColor = borders.value == null
-        ? null
-        : Color(0xFF000000 | borders.value!);
+    final borderColor =
+        borders.value == null ? null : Color(0xFF000000 | borders.value!);
     return [
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -1189,8 +1187,7 @@ class _PdfAnnotationPropertiesPanelState
                     return Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
-                        child: Text(
-                            pdfL10n(context).propSelectAnnotationPrompt,
+                        child: Text(pdfL10n(context).propSelectAnnotationPrompt,
                             textAlign: TextAlign.center),
                       ),
                     );

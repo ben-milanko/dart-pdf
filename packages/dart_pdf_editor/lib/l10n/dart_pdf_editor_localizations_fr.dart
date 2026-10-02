@@ -2249,4 +2249,69 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Autoriser la sélection multiple';
+
+  @override
+  String get searchFieldHint => 'Rechercher';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Impossible d\'ouvrir le document : $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Exporter les pages';
+
+  @override
+  String get pageRangeExportConfirm => 'Exporter';
+
+  @override
+  String get textStyleKeepFont => 'Conserver';
+
+  @override
+  String get guidesDialogTitle => 'Repères, magnétisme et règles';
+
+  @override
+  String get guidesSmartAlignment => 'Repères d\'alignement intelligents';
+
+  @override
+  String get guidesPageRulers => 'Règles de page';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Afficher les mesures en points sur les bords de la page';
+
+  @override
+  String get guidesVerticalCursorLine => 'Ligne verticale du curseur';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Ligne horizontale du curseur';
+
+  @override
+  String get guidesSnapToGrid => 'Aligner sur la grille';
+
+  @override
+  String get guidesSnapToGridHint => 'Maintenir Alt pour ignorer le magnétisme';
+
+  @override
+  String get guidesShowGrid => 'Afficher les lignes de la grille';
+
+  @override
+  String get guidesShowGridHint => 'Affichage uniquement ; non ajouté au PDF';
+
+  @override
+  String get guidesGridSpacing => 'Espacement de la grille';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Repères du curseur et grille';
+
+  @override
+  String get commandSaveAs => 'Enregistrer sous…';
+
+  @override
+  String get dialogDismiss => 'Ignorer';
 }

@@ -140,6 +140,59 @@ void main() {
       }
     });
 
+    testWidgets('a measure tool asks for its scale first, as the toolbar does',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        final controller =
+            tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+        expect(controller.hasMeasurementScale, isFalse);
+        await openWithKeyboard(tester);
+
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')),
+            'measure distance');
+        await tester.pumpAndSettle();
+        await tester.tap(
+            find.byKey(const ValueKey('palette-result-tool-measureDistance')));
+        await tester.pumpAndSettle();
+
+        // The palette armed it through the editor's commands, so the tool's
+        // prerequisite runs instead of arming a measure tool with no scale.
+        expect(find.byKey(const ValueKey('command-palette')), findsNothing);
+        expect(find.byType(PdfScaleDialog), findsOneWidget);
+        expect(controller.tool, isNot(PdfEditTool.measureDistance));
+
+        await tester.enterText(
+            find.byKey(const ValueKey('pdf-scale-value')), '2');
+        await tester.tap(find.byKey(const ValueKey('pdf-scale-apply')));
+        await tester.pumpAndSettle();
+        expect(controller.hasMeasurementScale, isTrue);
+        expect(controller.tool, PdfEditTool.measureDistance);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('panel commands come from the editor catalog', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        final before = prefs.showBookmarkSidebar;
+        await openWithKeyboard(tester);
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), 'bookmarks');
+        await tester.pumpAndSettle();
+        await tester
+            .tap(find.byKey(const ValueKey('palette-result-panel-bookmarks')));
+        await tester.pumpAndSettle();
+        expect(prefs.showBookmarkSidebar, !before);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
     testWidgets("the View commands drive this window's view mode",
         (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.linux;

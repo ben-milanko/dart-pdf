@@ -2228,4 +2228,69 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Cho phép chọn nhiều';
+
+  @override
+  String get searchFieldHint => 'Tìm kiếm';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Không thể mở tài liệu: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Xuất các trang';
+
+  @override
+  String get pageRangeExportConfirm => 'Xuất';
+
+  @override
+  String get textStyleKeepFont => 'Giữ nguyên';
+
+  @override
+  String get guidesDialogTitle => 'Đường dẫn, bám dính và thước';
+
+  @override
+  String get guidesSmartAlignment => 'Đường dẫn căn chỉnh thông minh';
+
+  @override
+  String get guidesPageRulers => 'Thước trang';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Hiển thị số đo theo điểm ở các cạnh trang';
+
+  @override
+  String get guidesVerticalCursorLine => 'Đường con trỏ dọc';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Đường con trỏ ngang';
+
+  @override
+  String get guidesSnapToGrid => 'Bám vào lưới';
+
+  @override
+  String get guidesSnapToGridHint => 'Giữ Alt để bỏ qua bám dính';
+
+  @override
+  String get guidesShowGrid => 'Hiển thị đường lưới';
+
+  @override
+  String get guidesShowGridHint => 'Chỉ hiển thị; không thêm vào PDF';
+
+  @override
+  String get guidesGridSpacing => 'Khoảng cách lưới';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Đường dẫn con trỏ và lưới';
+
+  @override
+  String get commandSaveAs => 'Lưu thành…';
+
+  @override
+  String get dialogDismiss => 'Bỏ qua';
 }

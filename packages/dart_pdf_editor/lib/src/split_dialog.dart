@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'design/material_host.dart';
 import 'dialog.dart';
 import 'l10n/pdf_l10n.dart';
+import 'design/editor_presenter.dart';
 
 /// Asks for comma-separated page ranges, one output PDF per item.
 ///
@@ -17,8 +19,8 @@ Future<List<PdfPageRange>?> showPdfSplitDialog(
   if (pageCount < 1) {
     throw RangeError.range(pageCount, 1, null, 'pageCount');
   }
-  return showPdfDialog<List<PdfPageRange>>(
-    context: context,
+  return pdfPresentDialog<List<PdfPageRange>>(
+    context,
     builder: (_) => _SplitDialog(pageCount: pageCount),
   );
 }
@@ -86,6 +88,7 @@ class _SplitDialogState extends State<_SplitDialog> {
                     _invalid ? l10n.splitInvalidRanges(widget.pageCount) : null,
                 errorMaxLines: 3,
               ),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
           ],
         ),
@@ -96,12 +99,13 @@ class _SplitDialogState extends State<_SplitDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
             child: FilledButton(
-          key: const ValueKey('pdf-split-confirm'),
-          onPressed: _submit,
-          child: Text(l10n.splitConfirm),
-        )),
+              key: const ValueKey('pdf-split-confirm'),
+              onPressed: _submit,
+              child: Text(l10n.splitConfirm),
+            )),
       ],
     );
   }

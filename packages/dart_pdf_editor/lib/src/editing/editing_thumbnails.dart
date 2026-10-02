@@ -12,11 +12,8 @@ import 'package:pdf_document/pdf_document.dart';
 
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
-import '../page_range_dialog.dart';
-import '../split_dialog.dart';
 import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
-import '../popup_position.dart';
 import '../preview_cache.dart';
 import '../tile_store.dart';
 import '../perf_log.dart';
@@ -24,12 +21,12 @@ import '../raster_cache.dart';
 import '../render_worker.dart';
 import '../renderer.dart';
 import '../scrollbar.dart';
-import '../toast.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
 import 'editing_thumbnail_drop.dart';
 import 'thumbnail_cache.dart';
+import '../design/editor_presenter.dart';
 
 /// A panel of page thumbnails: tap one to jump there, drag a tile up or
 /// down to reorder pages (with a mouse just drag; on touch, long-press
@@ -1383,8 +1380,7 @@ class _PageActionsButton extends StatelessWidget {
     final pick = onPickPdfToInsert;
     if (pick == null) return;
     // read everything off the context BEFORE the async gap
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final margin = pdfFloatingToastMargin(context);
+    final presenter = PdfEditorPresenter.of(context);
     final failedMessage = pdfL10n(context).thumbInsertFileFailed;
     final bytes = await pick();
     if (bytes == null) return;
@@ -1398,22 +1394,21 @@ class _PageActionsButton extends StatelessWidget {
     } catch (_) {
       // a non-PDF, corrupt, or password-protected file can't be opened -
       // tell the user rather than failing silently
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(failedMessage),
-          behavior: SnackBarBehavior.floating,
-          margin: margin,
-        ),
-      );
+      if (context.mounted) {
+        presenter.notice(
+            context,
+            PdfEditorNotice(failedMessage,
+                kind: PdfNoticeKind.error, replaceCurrent: false));
+      }
     }
   }
 
   Future<void> _export(BuildContext context) async {
     final onExport = onExportPages;
     if (onExport == null) return;
-    final range = await showPdfPageRangeDialog(
+    final range = await PdfEditorPresenter.of(context).pageRange(
       context,
-      pageCount: controller.document.pageCount,
+      PdfPageRangeRequest(pageCount: controller.document.pageCount),
     );
     if (range == null) return;
     onExport(controller.exportPageRange(range.start, range.end));
@@ -1423,9 +1418,9 @@ class _PageActionsButton extends StatelessWidget {
     final onSplit = onSplitPages;
     if (onSplit == null) return;
     final document = controller.document;
-    final ranges = await showPdfSplitDialog(
+    final ranges = await PdfEditorPresenter.of(context).splitRanges(
       context,
-      pageCount: document.pageCount,
+      PdfSplitRangesRequest(pageCount: document.pageCount),
     );
     if (ranges == null ||
         !context.mounted ||
@@ -1436,9 +1431,12 @@ class _PageActionsButton extends StatelessWidget {
     try {
       outputs = controller.exportPageRanges(ranges);
     } catch (_) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-        content: Text(pdfL10n(context).splitFailed),
-      ));
+      PdfEditorPresenter.of(context).notice(
+          context,
+          PdfEditorNotice(pdfL10n(context).splitFailed,
+              kind: PdfNoticeKind.error,
+              replaceCurrent: false,
+              placement: PdfNoticePlacement.attached));
       return;
     }
     onSplit(outputs);
@@ -2984,7 +2982,7 @@ Future<void> _showPageTileMenu({
   // many pages the action spans (each verb is its own ICU plural)
   final count = targets.length;
 
-  final items = <PopupMenuEntry<_PageTileAction>>[
+  final items = <PdfMenuEntry<_PageTileAction>>[
     if (allowPageEditing) ...[
       _pageMenuRow(context, _PageTileAction.rotateLeft,
           tileKey: 'pdf-thumbnail-menu-rotate-left',
@@ -3045,10 +3043,9 @@ Future<void> _showPageTileMenu({
   ];
   if (items.isEmpty) return;
 
-  final picked = await showMenu<_PageTileAction>(
-    context: context,
-    position: pdfPopupPosition(context, position),
-    items: items,
+  final picked = await PdfEditorPresenter.of(context).menu(
+    context,
+    PdfMenuRequest<_PageTileAction>.at(position, entries: items),
   );
   switch (picked) {
     case null:
@@ -3097,7 +3094,7 @@ Future<void> _jumpToInsertedPage(
   await viewerController.jumpToPage(pageIndex);
 }
 
-PopupMenuItem<_PageTileAction> _pageMenuRow(
+PdfMenuItem<_PageTileAction> _pageMenuRow(
   BuildContext context,
   _PageTileAction action, {
   required String tileKey,
@@ -3105,9 +3102,11 @@ PopupMenuItem<_PageTileAction> _pageMenuRow(
   required String label,
   bool enabled = true,
 }) =>
-    PopupMenuItem<_PageTileAction>(
+    PdfMenuItem<_PageTileAction>(
       key: ValueKey(tileKey),
       value: action,
+      label: label,
+      icon: icon,
       enabled: enabled,
       height: _densePopupMenuHeight,
       child: Row(children: [

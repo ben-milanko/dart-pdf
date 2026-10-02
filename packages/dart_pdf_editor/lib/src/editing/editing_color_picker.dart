@@ -3,24 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
+import 'models/color_format.dart';
+import '../design/editor_presenter.dart';
 
-/// The value-entry formats [PdfColorPicker] can show: hex (the default),
-/// RGB (0–255), HSL (degrees and percentages), and CMYK (percentages -
-/// a naive device conversion for entry and display; the committed color
-/// is still RGB, no color management is applied).
-enum PdfColorFormat {
-  hex('HEX'),
-  rgb('RGB'),
-  hsl('HSL'),
-  cmyk('CMYK');
-
-  const PdfColorFormat(this.label);
-
-  /// The switcher's display name.
-  final String label;
-}
+export 'models/color_format.dart';
 
 /// A compact full-spectrum color picker: a saturation/value area, a hue
 /// slider, a value row - hex, RGB, HSL, or CMYK, switchable - kept in
@@ -264,6 +253,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
           isDense: true,
           border: OutlineInputBorder(),
         ),
+        contextMenuBuilder: pdfTextContextMenu,
       );
     }
     final labels = _labels[_format]!;
@@ -289,6 +279,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
                 contentPadding: EdgeInsets.symmetric(vertical: 9),
                 border: OutlineInputBorder(),
               ),
+              contextMenuBuilder: pdfTextContextMenu,
             ),
             const SizedBox(height: 2),
             Text(labels[i], style: Theme.of(context).textTheme.labelSmall),
@@ -617,8 +608,8 @@ Future<Color?> showPdfColorPicker(
   VoidCallback? onPickFromPage,
 }) {
   var current = initial;
-  return showPdfDialog<Color>(
-    context: context,
+  return pdfPresentDialog<Color>(
+    context,
     builder: (context) => AlertDialog(
       title: Text(pdfL10n(context).colorColorTitle),
       content: SingleChildScrollView(
@@ -642,11 +633,12 @@ Future<Color?> showPdfColorPicker(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(current),
             child: FilledButton(
-          onPressed: () => Navigator.of(context).pop(current),
-          child: Text(pdfL10n(context).ok),
-        )),
+              onPressed: () => Navigator.of(context).pop(current),
+              child: Text(pdfL10n(context).ok),
+            )),
       ],
     ),
   );

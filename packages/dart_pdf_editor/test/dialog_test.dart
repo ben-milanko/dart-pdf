@@ -168,15 +168,12 @@ void main() {
                 return AlertDialog(
                   content: const TextField(autofocus: true),
                   actions: [
-                    PdfDialogSubmit(
+                    PdfDialogSubmit.action(
+                        onSubmit: enabled ? () => submits++ : null,
                         child: FilledButton(
-                      onPressed: enabled
-                          ? () {
-                              submits++;
-                            }
-                          : null,
-                      child: const Text('Save'),
-                    ))
+                          onPressed: enabled ? () => submits++ : null,
+                          child: const Text('Save'),
+                        ))
                   ],
                 );
               }),
@@ -211,14 +208,12 @@ void main() {
                   child: const Text('Open inner'),
                 ),
                 actions: [
-                  PdfDialogSubmit(
-                      child: FilledButton(
-                    onPressed: () {
-                      outerSubmits++;
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('Save outer'),
-                  ))
+                  PdfDialogSubmit.action(
+                      onSubmit: () {
+                        outerSubmits++;
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text('Save outer'))
                 ],
               ),
             ));
@@ -250,11 +245,12 @@ void main() {
               onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Cancel'),
             ),
-            PdfDialogSubmit(
+            PdfDialogSubmit.action(
+                onSubmit: () => Navigator.of(context).pop(true),
                 child: FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Save'),
-            )),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Save'),
+                )),
           ],
         ),
       );
@@ -265,6 +261,106 @@ void main() {
     await tester.pumpAndSettle();
     expect(result, isFalse);
   }, variant: TargetPlatformVariant.all());
+
+  testWidgets('the deprecated ButtonStyleButton form still submits on Enter',
+      (tester) async {
+    var submits = 0;
+    await openDialog(
+        tester,
+        (context) => showPdfDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                content: const TextField(autofocus: true),
+                actions: [
+                  // ignore: deprecated_member_use_from_same_package
+                  PdfDialogSubmit(
+                      child: FilledButton(
+                    onPressed: () => submits++,
+                    child: const Text('Save'),
+                  )),
+                ],
+              ),
+            ));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(submits, 1);
+  });
+
+  // Enter keeps its meaning by role, not by widget type: a value control
+  // (segments, a dropdown) is part of the form, so Enter submits from it;
+  // a focused command button activates itself.
+  Future<int> enterWithFocusOn(
+      WidgetTester tester, Widget Function(FocusNode focus) control) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    var submits = 0;
+    await openDialog(
+        tester,
+        (context) => showPdfDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                content: control(focus),
+                actions: [
+                  PdfDialogSubmit.action(
+                      onSubmit: () => submits++, child: const Text('Save')),
+                ],
+              ),
+            ));
+    focus.requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    return submits;
+  }
+
+  testWidgets('Enter submits from a focused segmented selector',
+      (tester) async {
+    final submits = await enterWithFocusOn(
+        tester,
+        (focus) => SegmentedButton<int>(
+              segments: [
+                ButtonSegment(
+                    value: 1,
+                    label: Focus(
+                        focusNode: focus,
+                        skipTraversal: true,
+                        child: const Text('One'))),
+                const ButtonSegment(value: 2, label: Text('Two')),
+              ],
+              selected: const {1},
+              onSelectionChanged: (_) {},
+            ));
+    expect(submits, 1);
+  });
+
+  testWidgets('Enter submits from a focused dropdown', (tester) async {
+    final submits = await enterWithFocusOn(
+        tester,
+        (focus) => DropdownButton<int>(
+              focusNode: focus,
+              value: 1,
+              items: const [
+                DropdownMenuItem(value: 1, child: Text('One')),
+                DropdownMenuItem(value: 2, child: Text('Two')),
+              ],
+              onChanged: (_) {},
+            ));
+    expect(submits, 1);
+    expect(find.text('Two'), findsNothing, reason: 'the menu stayed closed');
+  });
+
+  testWidgets('a focused command button keeps Enter', (tester) async {
+    var pressed = 0;
+    final submits = await enterWithFocusOn(
+        tester,
+        (focus) => IconButton(
+              focusNode: focus,
+              icon: const Icon(Icons.add),
+              onPressed: () => pressed++,
+            ));
+    expect(submits, 0);
+    expect(pressed, 1);
+  });
 }
 
 Future<void> openDialog(

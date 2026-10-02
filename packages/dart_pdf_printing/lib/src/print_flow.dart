@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show showPdfDialog;
+import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'print_composer.dart';
@@ -59,15 +60,11 @@ Future<void> printPdfWithProgress(
 }) async {
   final progress = ValueNotifier<(int, int)?>(null);
   final navigator = Navigator.of(context, rootNavigator: true);
-  DialogRoute<void>? progressRoute;
+  _ProgressRoute? progressRoute;
   void dismiss() {
     final route = progressRoute;
     progressRoute = null;
-    if (route != null && navigator.mounted && route.isActive) {
-      // Remove this exact route, even if the host opened another route above
-      // it while native page preparation was in flight.
-      navigator.removeRoute(route);
-    }
+    route?.close(navigator);
   }
 
   try {
@@ -83,16 +80,21 @@ Future<void> printPdfWithProgress(
             progressRoute == null &&
             context.mounted &&
             navigator.mounted) {
-          final route = DialogRoute<void>(
+          final route = _ProgressRoute();
+          progressRoute = route;
+          // showPdfDialog keeps the dialog in this view (no native-window
+          // promotion) and carries the host's themes and editor scope.
+          unawaited(showPdfDialog<void>(
             context: context,
             barrierDismissible: false,
-            builder: (_) => PopScope(
-              canPop: false,
-              child: PrintProgressDialog(progress: progress),
-            ),
-          );
-          progressRoute = route;
-          unawaited(navigator.push(route));
+            builder: (dialogContext) {
+              route.attach(navigator, ModalRoute.of(dialogContext));
+              return PopScope(
+                canPop: false,
+                child: PrintProgressDialog(progress: progress),
+              );
+            },
+          ));
         }
         if (rendered >= total) dismiss();
       },
@@ -100,5 +102,35 @@ Future<void> printPdfWithProgress(
   } finally {
     dismiss();
     progress.dispose();
+  }
+}
+
+/// The progress dialog's route, learnt from inside its builder (showPdfDialog
+/// does not hand the route back). Closing removes this exact route, even if
+/// the host opened another route above it while native page preparation was
+/// in flight; closing before the route first builds removes it as it does.
+class _ProgressRoute {
+  ModalRoute<Object?>? _route;
+  bool _closed = false;
+
+  void attach(NavigatorState navigator, ModalRoute<Object?>? route) {
+    if (route == null || identical(route, _route)) return;
+    _route = route;
+    if (_closed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _remove(navigator));
+    }
+  }
+
+  void close(NavigatorState navigator) {
+    _closed = true;
+    _remove(navigator);
+  }
+
+  void _remove(NavigatorState navigator) {
+    final route = _route;
+    _route = null;
+    if (route != null && navigator.mounted && route.isActive) {
+      navigator.removeRoute(route);
+    }
   }
 }

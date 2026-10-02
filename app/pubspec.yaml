@@ -9,7 +9,7 @@ version: 5.1.1+41
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.24.0'
+  flutter: '>=3.44.0'
 
 dependencies:
   flutter:

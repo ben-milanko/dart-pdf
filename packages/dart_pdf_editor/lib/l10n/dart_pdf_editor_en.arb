@@ -2861,5 +2861,95 @@
   "formOptionsMultiSelect": "Allow multiple selections",
   "@formOptionsMultiSelect": {
     "description": "Options dialog switch: a list box allows several options to be chosen."
+  },
+  "searchFieldHint": "Search",
+  "@searchFieldHint": {
+    "description": "Placeholder in the compact document-search field in the header bar."
+  },
+  "progressiveOpenFailed": "Could not open document: {error}",
+  "@progressiveOpenFailed": {
+    "description": "Default error shown when a progressively loaded (streamed) PDF cannot be opened. {error} is the technical error message.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "pageRangeExportTitle": "Export pages",
+  "@pageRangeExportTitle": {
+    "description": "Default title of the page-range dialog used to export a range of pages."
+  },
+  "pageRangeExportConfirm": "Export",
+  "@pageRangeExportConfirm": {
+    "description": "Default confirm button of the page-range export dialog."
+  },
+  "textStyleKeepFont": "Keep",
+  "@textStyleKeepFont": {
+    "description": "Font button label in the styled-text dialog while the font is left untouched (the text keeps its existing font). Capitalized; compare textStyleKeep, the lowercase size placeholder."
+  },
+  "guidesDialogTitle": "Guides, snapping and rulers",
+  "@guidesDialogTitle": {
+    "description": "Title of the editing guides settings dialog (smart guides, rulers, cursor lines, grid)."
+  },
+  "guidesSmartAlignment": "Smart alignment guides",
+  "@guidesSmartAlignment": {
+    "description": "Switch in the guides dialog: show alignment guides and snap annotations to other annotations while dragging."
+  },
+  "guidesPageRulers": "Page rulers",
+  "@guidesPageRulers": {
+    "description": "Switch in the guides dialog: show rulers along the page edges."
+  },
+  "guidesPageRulersHint": "Show point measurements at page edges",
+  "@guidesPageRulersHint": {
+    "description": "Subtitle of the page rulers switch; 'point' is the PDF unit (1/72 inch)."
+  },
+  "guidesVerticalCursorLine": "Vertical cursor line",
+  "@guidesVerticalCursorLine": {
+    "description": "Switch in the guides dialog: draw a vertical line through the pointer across the page."
+  },
+  "guidesHorizontalCursorLine": "Horizontal cursor line",
+  "@guidesHorizontalCursorLine": {
+    "description": "Switch in the guides dialog: draw a horizontal line through the pointer across the page."
+  },
+  "guidesSnapToGrid": "Snap to grid",
+  "@guidesSnapToGrid": {
+    "description": "Switch in the guides dialog: snap drawn and moved annotations to a grid."
+  },
+  "guidesSnapToGridHint": "Hold Alt to bypass snapping",
+  "@guidesSnapToGridHint": {
+    "description": "Subtitle of the snap-to-grid switch (keyboard hosts only). Alt temporarily disables snapping."
+  },
+  "guidesShowGrid": "Show grid lines",
+  "@guidesShowGrid": {
+    "description": "Switch in the guides dialog: draw the snap grid over the page."
+  },
+  "guidesShowGridHint": "Display only; not added to the PDF",
+  "@guidesShowGridHint": {
+    "description": "Subtitle of the grid lines switch: the grid is only drawn on screen, never written into the document."
+  },
+  "guidesGridSpacing": "Grid spacing",
+  "@guidesGridSpacing": {
+    "description": "Label of the grid spacing slider in the guides dialog."
+  },
+  "guidesGridSpacingValue": "{value} pt",
+  "@guidesGridSpacingValue": {
+    "description": "Grid spacing value; 'pt' is the PDF point unit (1/72 inch). {value} is a number such as 12 or 7.5.",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "shellCursorGuidesAndGrid": "Cursor guides and grid",
+  "@shellCursorGuidesAndGrid": {
+    "description": "View options entry that opens the guides, snapping and rulers settings."
+  },
+  "commandSaveAs": "Save as…",
+  "@commandSaveAs": {
+    "description": "Name of the Save as command in the editor's command catalog (a command palette or menu lists it): saves the document to a new file."
+  },
+  "dialogDismiss": "Dismiss",
+  "@dialogDismiss": {
+    "description": "Screen-reader label of the dimmed area behind an editor dialog; activating it closes the dialog."
   }
 }

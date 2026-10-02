@@ -2275,4 +2275,70 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Разрешить множественный выбор';
+
+  @override
+  String get searchFieldHint => 'Поиск';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Не удалось открыть документ: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Экспорт страниц';
+
+  @override
+  String get pageRangeExportConfirm => 'Экспортировать';
+
+  @override
+  String get textStyleKeepFont => 'Не менять';
+
+  @override
+  String get guidesDialogTitle => 'Направляющие, привязка и линейки';
+
+  @override
+  String get guidesSmartAlignment => 'Умные направляющие выравнивания';
+
+  @override
+  String get guidesPageRulers => 'Линейки страницы';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Показывать размеры в пунктах по краям страницы';
+
+  @override
+  String get guidesVerticalCursorLine => 'Вертикальная линия курсора';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Горизонтальная линия курсора';
+
+  @override
+  String get guidesSnapToGrid => 'Привязка к сетке';
+
+  @override
+  String get guidesSnapToGridHint =>
+      'Удерживайте Alt, чтобы отключить привязку';
+
+  @override
+  String get guidesShowGrid => 'Показывать линии сетки';
+
+  @override
+  String get guidesShowGridHint => 'Только на экране; не добавляется в PDF';
+
+  @override
+  String get guidesGridSpacing => 'Шаг сетки';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value пт';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Направляющие курсора и сетка';
+
+  @override
+  String get commandSaveAs => 'Сохранить как…';
+
+  @override
+  String get dialogDismiss => 'Закрыть';
 }

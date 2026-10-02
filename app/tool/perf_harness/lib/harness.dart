@@ -529,7 +529,10 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
 
   /// The scenarios that touch the editor mount the editing stack.
   bool get _isEdit =>
-      _scenario == 'edit' || _scenario == 'hover' || _scenario == 'editlat';
+      _scenario == 'edit' ||
+      _scenario == 'hover' ||
+      _scenario == 'editlat' ||
+      _scenario == 'toolbar';
 
   @override
   void initState() {
@@ -726,6 +729,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveEditLatency(coldOpen);
         case 'hover':
           await _driveHover(coldOpen);
+        case 'toolbar':
+          await _driveToolbar(coldOpen);
         case 'warm':
           await _driveWarm(coldOpen);
         case 'read':
@@ -1516,6 +1521,124 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     }
   }
 
+  // ----- toolbar: arming tools through the stock editor chrome ------------
+  //
+  // Every other edit scenario drives PdfEditingController directly, so none
+  // of them touches the toolbar - its group chips, contextual strips, the
+  // PdfEditorCommands it runs through, and the rebuilds an armed tool
+  // triggers across the editor. This one mounts the full PdfEditorView and
+  // taps the real chips and strip buttons with synthesized mouse clicks,
+  // timing each click to the end of the frame it produced.
+  static const _toolbarSteps = <(String, PdfEditTool?)>[
+    ('pdf-group-shapes', PdfEditTool.rectangle),
+    ('pdf-tool-ellipse', PdfEditTool.ellipse),
+    ('pdf-tool-line', PdfEditTool.line),
+    ('pdf-group-draw', PdfEditTool.ink),
+    ('pdf-tool-highlight', PdfEditTool.highlight),
+    ('pdf-group-insert', PdfEditTool.freeText),
+    ('pdf-tool-note', PdfEditTool.note),
+    ('pdf-group-edit', null),
+    ('pdf-tool-form', PdfEditTool.form),
+    ('pdf-group-markup', null),
+    ('pdf-markup-underline', null),
+  ];
+
+  Element? _elementByKey(Key key) {
+    Element? found;
+    void visit(Element element) {
+      if (found != null) return;
+      if (element.widget.key == key) {
+        found = element;
+        return;
+      }
+      element.visitChildren(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.visitChildren(visit);
+    return found;
+  }
+
+  Future<void> _driveToolbar(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final editing = _editing!;
+    // Let the first page paint before the clicking starts.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    final rounds = _qInt('rounds', 4).clamp(1, 50);
+    const device = 78;
+    var pointer = 1000;
+    var added = false;
+    final latencies = <double>[];
+    var misses = 0;
+    final framesBefore = _frames.length;
+    for (var round = 0; round < rounds; round++) {
+      for (final (key, expected) in _toolbarSteps) {
+        final element = _elementByKey(ValueKey(key));
+        final box = element?.findRenderObject();
+        if (box is! RenderBox || !box.attached) {
+          misses++;
+          _record('[perf] HARNESS TOOLBAR missing $key');
+          continue;
+        }
+        final at = box.localToGlobal(box.size.center(Offset.zero));
+        if (!added) {
+          GestureBinding.instance.handlePointerEvent(PointerAddedEvent(
+              position: at, kind: PointerDeviceKind.mouse, device: device));
+          added = true;
+        }
+        final sw = Stopwatch()..start();
+        pointer++;
+        GestureBinding.instance.handlePointerEvent(PointerDownEvent(
+          pointer: pointer,
+          position: at,
+          kind: PointerDeviceKind.mouse,
+          device: device,
+          buttons: kPrimaryMouseButton,
+        ));
+        GestureBinding.instance.handlePointerEvent(PointerUpEvent(
+          pointer: pointer,
+          position: at,
+          kind: PointerDeviceKind.mouse,
+          device: device,
+        ));
+        await WidgetsBinding.instance.endOfFrame;
+        sw.stop();
+        latencies.add(sw.elapsedMicroseconds / 1000.0);
+        final armed = editing.tool;
+        final markupStep = key.startsWith('pdf-markup-');
+        if (markupStep
+            ? editing.markupTool == null
+            : expected != null && armed != expected) {
+          misses++;
+          _record('[perf] HARNESS TOOLBAR $key armed=$armed '
+              'expected=$expected');
+        }
+        // a beat between clicks, as a person would leave
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    final builds = <double>[
+      for (final f in _frames.skip(framesBefore))
+        f.buildDuration.inMicroseconds / 1000.0,
+    ];
+    final total = builds.fold<double>(0, (a, b) => a + b);
+    latencies.sort();
+    double at(double q) => latencies[((latencies.length - 1) * q).round()];
+    _metric('toolbarArms', latencies.length);
+    _metric('toolbarMisses', misses);
+    if (latencies.isNotEmpty) {
+      _metric('toolbarArmMsP50', at(0.5));
+      _metric('toolbarArmMsP95', at(0.95));
+      _metric('toolbarArmMsMax', latencies.last);
+    }
+    _metric('toolbarFrames', builds.length);
+    _metric('toolbarBuildMsTotal', total);
+    if (latencies.isNotEmpty) {
+      _metric('toolbarBuildMsPerArm', total / latencies.length);
+    }
+  }
+
   @override
   void dispose() {
     _worker?.dispose();
@@ -1531,6 +1654,14 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     final Widget body;
     if (_error != null) {
       body = Center(child: Text('harness error: $_error'));
+    } else if (_scenario == 'toolbar') {
+      body = _editing == null
+          ? const Center(child: Text('loading…'))
+          : PdfEditorView(
+              controller: _editing,
+              viewerController: _viewer,
+              initialFit: PdfViewerFit.width,
+            );
     } else if (_isEdit) {
       body = _editing == null
           ? const Center(child: Text('loading…'))

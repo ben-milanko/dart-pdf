@@ -2,7 +2,7 @@ import 'package:pdf_document/pdf_document.dart'
     show PdfMeasurementKind, PdfRect;
 
 import 'editing_controller.dart';
-import 'editing_signature.dart';
+import 'models/ink_signature.dart';
 
 /// Which controls the style popup should show for a tool (or an annotation
 /// selection) - each context only carries the settings it can actually use,
@@ -180,7 +180,8 @@ abstract class PdfEditToolBehavior {
 
   /// Commits a rubber-banded box for the shape family (rectangle, ellipse,
   /// cloud). Returns true if it consumed the gesture.
-  bool commitShapeRect(PdfEditingController controller, int page, PdfRect rect) =>
+  bool commitShapeRect(
+          PdfEditingController controller, int page, PdfRect rect) =>
       false;
 
   /// Commits a single straight-segment drag from [start] to [end] (both in
@@ -194,8 +195,8 @@ abstract class PdfEditToolBehavior {
   /// family and the poly-shaped measurements. Returns true if it consumed
   /// the gesture; false leaves it to the overlay (the volume tool, which
   /// must prompt for a depth first).
-  bool commitPoly(
-          PdfEditingController controller, int page, List<(double, double)> points) =>
+  bool commitPoly(PdfEditingController controller, int page,
+          List<(double, double)> points) =>
       false;
 
   /// The behaviour for [tool].
@@ -401,8 +402,8 @@ class _MeasurePolyTool extends PdfEditToolBehavior {
   @override
   Set<String> get styleScopeFields => const {'color', 'strokeWidth', 'opacity'};
   @override
-  PdfToolStyleFields get styleFields =>
-      PdfToolStyleFields(stroke: true, opacity: true, font: true, lineEndings: hasEndings);
+  PdfToolStyleFields get styleFields => PdfToolStyleFields(
+      stroke: true, opacity: true, font: true, lineEndings: hasEndings);
 
   @override
   bool commitPoly(PdfEditingController controller, int page,
@@ -517,13 +518,15 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
         )),
     const _LineTool(PdfEditTool.line,
         styleScopeKey: 'line', styleScopeFields: _lineFields),
-    const _LineTool(PdfEditTool.arrow, styleScopeKey: 'arrow', styleScopeFields: {
-      'color',
-      'strokeWidth',
-      'opacity',
-      'lineStyle',
-      'lineScale',
-    }),
+    const _LineTool(PdfEditTool.arrow,
+        styleScopeKey: 'arrow',
+        styleScopeFields: {
+          'color',
+          'strokeWidth',
+          'opacity',
+          'lineStyle',
+          'lineScale',
+        }),
     const _PolyTool(PdfEditTool.polyline,
         styleScopeKey: 'polyline',
         styleScopeFields: _lineFields,
@@ -546,7 +549,8 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
           lineScale: true,
           shapeFill: true,
         )),
-    const _MeasureLineTool(PdfEditTool.measureDistance, PdfMeasurementKind.distance),
+    const _MeasureLineTool(
+        PdfEditTool.measureDistance, PdfMeasurementKind.distance),
     const _MeasureLineTool(PdfEditTool.measureSlope, PdfMeasurementKind.slope),
     const _MeasurePolyTool(
         PdfEditTool.measurePerimeter, PdfMeasurementKind.perimeter,

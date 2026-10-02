@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'design/material_host.dart';
 import 'image_decoder.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
@@ -486,11 +487,14 @@ class _ReflowPageItemState extends State<_ReflowPageItem> {
   /// is unaffected if this page scrolls out and disposes its images.
   void _openImage(ui.Image image) {
     final owned = clonePdfDecodedImage(image);
+    final opener = context;
     Navigator.of(context).push(PageRouteBuilder<void>(
       opaque: false,
       barrierColor: Colors.black,
-      pageBuilder: (context, _, __) =>
+      // the opener's theme and localizations, re-injected under any host
+      pageBuilder: (context, _, __) => pdfHostRoute(context,
           _FullscreenReflowImage(image: owned, onShare: widget.onShareImage),
+          themesFrom: opener),
       transitionsBuilder: (context, animation, _, child) =>
           FadeTransition(opacity: animation, child: child),
     ));
@@ -557,6 +561,10 @@ class _ReflowPage extends StatelessWidget {
     final text = SelectableText(
       block.text,
       style: _styleFor(theme, block, pageMedian),
+      // SelectableText's own default: Flutter's toolbar, never the system
+      // menu (pdfTextContextMenu offers that where a field supports it)
+      contextMenuBuilder: (context, state) =>
+          pdfStockTextContextMenu(context, state, systemMenu: false),
     );
     if (!block.isListItem) return text;
     // Hang the wrapped lines under the marker's text.
