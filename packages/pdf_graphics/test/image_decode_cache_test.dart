@@ -400,6 +400,76 @@ void main() {
     });
   });
 
+  // A scan page past native resolution: every record at or past its native
+  // ratio decodes the same native key, so that decode serves more than the
+  // record that made it - retained like any reusable decode, whatever the
+  // format, even past the transient cap a 1-bit or Flate page blows through.
+  test('a non-DCT native decode is reused across past-native ratios', () {
+    const side = 1024; // 4 MB of RGBA, past the 2 MB transient cap
+    final builder = CosDocumentBuilder();
+    final image = builder.add(CosStream(
+      CosDictionary({
+        'Type': const CosName('XObject'),
+        'Subtype': const CosName('Image'),
+        'Width': const CosInteger(side),
+        'Height': const CosInteger(side),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }),
+      Uint8List.fromList(List.generate(side * side, (i) => (i * 7) & 0xff)),
+    ));
+    final pages = CosDictionary({
+      'Type': const CosName('Pages'),
+      'Count': const CosInteger(1),
+    });
+    final pagesRef = builder.add(pages);
+    final pageRef = builder.add(CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': pagesRef,
+      'MediaBox': CosArray(const [
+        CosInteger(0),
+        CosInteger(0),
+        CosInteger(400),
+        CosInteger(400),
+      ]),
+      'Resources': CosDictionary({
+        'XObject': CosDictionary({'Im0': image}),
+      }),
+      'Contents': builder.add(CosStream(CosDictionary(),
+          Uint8List.fromList('q 400 0 0 400 0 0 cm /Im0 Do Q'.codeUnits))),
+    }));
+    pages['Kids'] = CosArray([pageRef]);
+    final catalog = builder.add(CosDictionary({
+      'Type': const CosName('Catalog'),
+      'Pages': pagesRef,
+    }));
+    final document = PdfDocument.open(builder.build(root: catalog));
+    final page = document.page(0);
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: document.cos, device: recorder).drawPage(page);
+
+    Uint8List record(double ratio, PdfImageDecodeCache? cache) =>
+        serializeCommands(recorder.commands,
+            cos: document.cos,
+            decodeImages: true,
+            maxImagePixelRatio: ratio,
+            pageRasterPixels: pdfPageRasterPixels(page.cropBox, ratio),
+            imageCache: cache,
+            compactStateScopes: true)!;
+
+    // 400pt at ratio 3 and 4 is 1200 and 1600 px: both past the 1024 px
+    // native size, so both are native decodes.
+    final cache = PdfImageDecodeCache();
+    final zoomed = record(3, cache);
+    expect((cache.hits, cache.misses), (0, 1));
+    final further = record(4, cache);
+    expect((cache.hits, cache.misses), (1, 1),
+        reason: 'the second past-native zoom level reuses the native decode');
+    expect(cache.bytes, side * side * 4);
+    expect(zoomed, record(3, null));
+    expect(further, record(4, null));
+  });
+
   // Luminosity masks used to bypass the cache, so every record re-decoded
   // each mask at native size. Their decode ignores target and region for
   // every format, so one native entry, cropped or downsampled per record, is

@@ -66,11 +66,11 @@ class PdfImageDecodeCache {
   /// decode is good for. A **reusable** decode serves requests other than the
   /// one that made it: a native-resolution DCT decode that every target size
   /// and every deep-zoom region crops or downsamples, a luminosity mask, a
-  /// browser-codec decode. The rest - a decode at one exact target size, or a
-  /// native decode of a format with a genuinely scaled decoder - only ever
-  /// serve a repeat of the same record at the same ratio, which the host's
-  /// record cache (in front of every worker) mostly answers already. They
-  /// still earn their keep as small repeated images (a logo on every page), so
+  /// browser-codec decode, any native-resolution decode (it serves every
+  /// record at or past native size). The rest - a decode at one exact target
+  /// size - only ever serve a repeat of the same record at the same ratio,
+  /// which the host's record cache (in front of every worker) mostly answers
+  /// already. They still earn their keep as small repeated images (a logo on every page), so
   /// they are admitted below this size and never displace a reusable entry.
   final int maxTransientEntryBytes;
 

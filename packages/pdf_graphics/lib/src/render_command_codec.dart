@@ -1082,12 +1082,13 @@ _CommandImage? _decodeImageForCommand(
       : imageCache == null
           ? decodePdfImagePixels(document, request.stream)
           // No ratio, or a target at or past native size: a native decode.
-          // It shares its key with the DCT entries above, which crop and
-          // downsample it for every other record - reusable for DCT only;
-          // other formats' native decodes serve just this kind of record.
+          // Reusable for every format: each record at or past native size
+          // asks for this same key (a zoom between two past-native levels, a
+          // scan revisited after the host's record cache dropped it), and DCT
+          // entries above also crop and downsample it for every other record.
           : imageCache.decode(request.stream, null, null,
               () => decodePdfImagePixels(document, request.stream),
-              reusable: pdfImageDecodeIgnoresRegion(document, request.stream));
+              reusable: true);
   if (decoded == null) return null;
   final capped = maxImageRatio == null
       ? decoded
