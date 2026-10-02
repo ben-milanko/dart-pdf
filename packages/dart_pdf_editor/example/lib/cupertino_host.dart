@@ -288,6 +288,11 @@ class _CupertinoHeader extends StatelessWidget {
   final PdfHeaderParts parts;
   final Widget settings;
 
+  /// Below this width the nav bar has no room for the search field beside
+  /// the panel switch and the controls; search stays one tap away in the
+  /// search panel.
+  static const _searchMinWidth = 1000.0;
+
   @override
   Widget build(BuildContext context) => CupertinoNavigationBar(
         key: const ValueKey('cupertino-nav-bar'),
@@ -297,7 +302,10 @@ class _CupertinoHeader extends StatelessWidget {
         // surface, and the stock page-number and search fields need one.
         transitionBetweenRoutes: false,
         leading: parts.pageNumber,
-        middle: parts.compact ? null : parts.search,
+        middle:
+            parts.compact || MediaQuery.sizeOf(context).width < _searchMinWidth
+                ? null
+                : parts.search,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -349,7 +357,19 @@ class CupertinoSettingsPage extends StatelessWidget {
           onTap: onTap,
         );
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(l10n.exSettings)),
+      navigationBar: CupertinoNavigationBar(
+        // the implied back button draws a CupertinoIcons glyph, a font the
+        // example does not bundle
+        automaticallyImplyLeading: false,
+        leading: CupertinoButton(
+          key: const ValueKey('cupertino-settings-back'),
+          padding: EdgeInsets.zero,
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: Icon(Icons.arrow_back_ios_new,
+              size: 20, color: CupertinoTheme.of(context).primaryColor),
+        ),
+        middle: Text(l10n.exSettings),
+      ),
       child: SafeArea(
         child: ListenableBuilder(
           listenable: Listenable.merge([prefs, design]),

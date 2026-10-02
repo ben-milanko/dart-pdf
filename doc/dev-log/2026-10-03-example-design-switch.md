@@ -58,6 +58,14 @@ own notice.
   through the navigator overlay, outside the editor's `Material` surface,
   and the stock page-number/search `TextField`s throw "No Material widget
   found" (seen when the appearance changed with settings open).
+- The settings page draws its own back button (`Icons.arrow_back_ios_new`):
+  the implied one is a CupertinoIcons glyph, and the example does not
+  bundle cupertino_icons, so it rendered as a missing-glyph box.
+- Below 1000 logical px the nav bar drops the search field from `middle`
+  (it overflowed beside the panel switch, save, controls and Settings at a
+  default 800 px macOS window); the search panel still has search.
+- Checked on macOS (debug, the example's own bundle id) with in-app
+  RepaintBoundary captures of both designs, light and dark.
 
 ## Strings
 
