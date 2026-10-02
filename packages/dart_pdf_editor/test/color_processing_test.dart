@@ -163,8 +163,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
+    // docked, the Edit toolbar is always out; it scrolls in a narrow window
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);
@@ -218,8 +219,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
+    // docked, the Edit toolbar is always out; it scrolls in a narrow window
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);
@@ -332,8 +334,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
+    // docked, the Edit toolbar is always out; it scrolls in a narrow window
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);

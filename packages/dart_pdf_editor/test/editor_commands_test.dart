@@ -383,8 +383,8 @@ void main() {
       expect(PdfEditorCommands.of(tester.element(find.byType(PdfViewer))),
           same(commands));
       expect(
-          PdfEditorCommands.of(
-              tester.element(find.byKey(const ValueKey('pdf-group-shapes')))),
+          PdfEditorCommands.of(tester
+              .element(find.byKey(const ValueKey('pdf-tool-bar-shapes')))),
           same(commands));
 
       // the host's handle drives the stock toolbar
@@ -399,8 +399,8 @@ void main() {
       final commands =
           PdfEditorCommands.of(tester.element(find.byType(PdfViewer)));
       expect(
-          PdfEditorCommands.of(
-              tester.element(find.byKey(const ValueKey('pdf-group-shapes')))),
+          PdfEditorCommands.of(tester
+              .element(find.byKey(const ValueKey('pdf-tool-bar-shapes')))),
           same(commands));
       expect(commands.controller,
           same(tester.widget<PdfViewer>(find.byType(PdfViewer)).editing));

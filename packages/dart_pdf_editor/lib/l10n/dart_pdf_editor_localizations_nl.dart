@@ -2304,4 +2304,78 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Sluiten';
+
+  @override
+  String get tbBarGrip => 'Sleep om te koppelen of klik voor plaatsing';
+
+  @override
+  String get tbDockTop => 'Boven';
+
+  @override
+  String get tbDockBottom => 'Onder';
+
+  @override
+  String get tbDockLeft => 'Links';
+
+  @override
+  String get tbDockRight => 'Rechts';
+
+  @override
+  String get tbDockWithMainToolbar => 'Bij de hoofdwerkbalk';
+
+  @override
+  String get tbStyleInToolBars => 'In de werkbalken';
+
+  @override
+  String get tbSeparateStyleBar => 'Aparte stijlbalk';
+
+  @override
+  String get tbToolbarLayout => 'Werkbalkindeling';
+
+  @override
+  String get tbToolbarLayoutMain => 'Hoofdwerkbalk';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Stijlbediening';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Een stijlbalk houdt kleur, lijn, dekking en lettertype op één plek voor elk gereedschap en elke selectie.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Werkbalken';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Een aan een rand gekoppelde werkbalk blijft daar open. Bij de hoofdwerkbalk opent hij wanneer je zijn groep kiest.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Indeling herstellen';
+
+  @override
+  String get tbToolbarMode => 'Werkbalken';
+
+  @override
+  String get tbToolbarDocked => 'Vastgezet aan de randen';
+
+  @override
+  String get tbToolbarFloating => 'Zwevend boven de pagina';
+
+  @override
+  String get tbFloatingToolbar => 'Boven de pagina laten zweven';
+
+  @override
+  String get tbPropertiesHint =>
+      'Kies een gereedschap of selecteer een markering om de eigenschappen te zien';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek.';
+
+  @override
+  String get tbFloatingToolbars => 'Zwevende werkbalken';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten';
 }

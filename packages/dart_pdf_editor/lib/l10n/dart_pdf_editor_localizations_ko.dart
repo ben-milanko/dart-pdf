@@ -2273,4 +2273,76 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => '닫기';
+
+  @override
+  String get tbBarGrip => '드래그하여 도킹하거나 클릭하여 위치 선택';
+
+  @override
+  String get tbDockTop => '위';
+
+  @override
+  String get tbDockBottom => '아래';
+
+  @override
+  String get tbDockLeft => '왼쪽';
+
+  @override
+  String get tbDockRight => '오른쪽';
+
+  @override
+  String get tbDockWithMainToolbar => '기본 도구 모음과 함께';
+
+  @override
+  String get tbStyleInToolBars => '도구 막대 안에';
+
+  @override
+  String get tbSeparateStyleBar => '별도 스타일 막대';
+
+  @override
+  String get tbToolbarLayout => '도구 모음 레이아웃';
+
+  @override
+  String get tbToolbarLayoutMain => '기본 도구 모음';
+
+  @override
+  String get tbToolbarLayoutStyle => '스타일 컨트롤';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      '스타일 막대는 모든 도구와 선택에 대해 색상, 선, 불투명도, 글꼴을 한곳에 모아 둡니다.';
+
+  @override
+  String get tbToolbarLayoutToolBars => '도구 막대';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '가장자리에 도킹한 도구 막대는 그곳에 열린 채로 있습니다. 기본 도구 모음과 함께이면 그룹을 선택할 때 열립니다.';
+
+  @override
+  String get tbToolbarLayoutReset => '레이아웃 재설정';
+
+  @override
+  String get tbToolbarMode => '도구 모음';
+
+  @override
+  String get tbToolbarDocked => '가장자리에 도킹';
+
+  @override
+  String get tbToolbarFloating => '페이지 위에 떠 있음';
+
+  @override
+  String get tbFloatingToolbar => '페이지 위에 띄우기';
+
+  @override
+  String get tbPropertiesHint => '도구를 고르거나 마크업을 선택하면 속성이 표시됩니다';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      '속성 막대는 선택 항목의 작업과 도구의 옵션 및 스타일을 한곳에 보여 줍니다.';
+
+  @override
+  String get tbFloatingToolbars => '떠 있는 도구 모음';
+
+  @override
+  String get tbFloatingToolbarsHint => '도구 모음을 창 가장자리에 도킹하지 않고 페이지 위에 띄웁니다';
 }

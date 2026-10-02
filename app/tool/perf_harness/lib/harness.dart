@@ -1529,18 +1529,22 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   // triggers across the editor. This one mounts the full PdfEditorView and
   // taps the real chips and strip buttons with synthesized mouse clicks,
   // timing each click to the end of the frame it produced.
-  static const _toolbarSteps = <(String, PdfEditTool?)>[
-    ('pdf-group-shapes', PdfEditTool.rectangle),
-    ('pdf-tool-ellipse', PdfEditTool.ellipse),
-    ('pdf-tool-line', PdfEditTool.line),
-    ('pdf-group-draw', PdfEditTool.ink),
-    ('pdf-tool-highlight', PdfEditTool.highlight),
-    ('pdf-group-insert', PdfEditTool.freeText),
-    ('pdf-tool-note', PdfEditTool.note),
-    ('pdf-group-edit', null),
-    ('pdf-tool-form', PdfEditTool.form),
-    ('pdf-group-markup', null),
-    ('pdf-markup-underline', null),
+  //
+  // Docked toolbars have no group chips: every group's tools are always
+  // out. A chip step then clicks the tool the chip would have armed (the
+  // third field), and a chip that only opened a group is skipped.
+  static const _toolbarSteps = <(String, PdfEditTool?, String?)>[
+    ('pdf-group-shapes', PdfEditTool.rectangle, 'pdf-tool-rectangle'),
+    ('pdf-tool-ellipse', PdfEditTool.ellipse, null),
+    ('pdf-tool-line', PdfEditTool.line, null),
+    ('pdf-group-draw', PdfEditTool.ink, 'pdf-tool-ink'),
+    ('pdf-tool-highlight', PdfEditTool.highlight, null),
+    ('pdf-group-insert', PdfEditTool.freeText, 'pdf-tool-freeText'),
+    ('pdf-tool-note', PdfEditTool.note, null),
+    ('pdf-group-edit', null, null),
+    ('pdf-tool-form', PdfEditTool.form, null),
+    ('pdf-group-markup', null, null),
+    ('pdf-markup-underline', null, null),
   ];
 
   Element? _elementByKey(Key key) {
@@ -1572,8 +1576,14 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     var misses = 0;
     final framesBefore = _frames.length;
     for (var round = 0; round < rounds; round++) {
-      for (final (key, expected) in _toolbarSteps) {
-        final element = _elementByKey(ValueKey(key));
+      for (final (chip, expected, dockedKey) in _toolbarSteps) {
+        var key = chip;
+        var element = _elementByKey(ValueKey(key));
+        if (element == null && chip.startsWith('pdf-group-')) {
+          if (dockedKey == null) continue;
+          key = dockedKey;
+          element = _elementByKey(ValueKey(key));
+        }
         final box = element?.findRenderObject();
         if (box is! RenderBox || !box.attached) {
           misses++;

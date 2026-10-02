@@ -530,11 +530,15 @@ class _DemoHarness {
       return;
     }
 
+    // Floating toolbars switch groups with a chip; docked ones have no
+    // chips (Select aside) because every group's tools are always out.
     final chip = find.byKey(ValueKey('pdf-group-$group'));
-    await tester.ensureVisible(chip);
-    await tester.tap(chip);
-    await $.pump();
-    if (editing.tool == tool) return;
+    if (chip.evaluate().isNotEmpty) {
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      await $.pump();
+      if (editing.tool == tool) return;
+    }
     for (var i = 0; i < 20 && toolButton.evaluate().isEmpty; i++) {
       await $.pump(const Duration(milliseconds: 50));
     }

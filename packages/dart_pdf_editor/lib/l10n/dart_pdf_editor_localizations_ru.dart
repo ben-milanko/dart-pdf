@@ -2341,4 +2341,79 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Закрыть';
+
+  @override
+  String get tbBarGrip =>
+      'Перетащите, чтобы закрепить, или нажмите, чтобы выбрать место';
+
+  @override
+  String get tbDockTop => 'Сверху';
+
+  @override
+  String get tbDockBottom => 'Снизу';
+
+  @override
+  String get tbDockLeft => 'Слева';
+
+  @override
+  String get tbDockRight => 'Справа';
+
+  @override
+  String get tbDockWithMainToolbar => 'С основной панелью';
+
+  @override
+  String get tbStyleInToolBars => 'Внутри панелей инструментов';
+
+  @override
+  String get tbSeparateStyleBar => 'Отдельная панель стиля';
+
+  @override
+  String get tbToolbarLayout => 'Расположение панелей';
+
+  @override
+  String get tbToolbarLayoutMain => 'Основная панель';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Настройки стиля';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Панель стиля собирает цвет, обводку, прозрачность и шрифт в одном месте для любого инструмента и выделения.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Панели инструментов';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Панель, закреплённая у края, остаётся там открытой. С основной панелью она открывается при выборе её группы.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Сбросить расположение';
+
+  @override
+  String get tbToolbarMode => 'Панели инструментов';
+
+  @override
+  String get tbToolbarDocked => 'Закреплены у краёв';
+
+  @override
+  String get tbToolbarFloating => 'Плавают над страницей';
+
+  @override
+  String get tbFloatingToolbar => 'Плавать над страницей';
+
+  @override
+  String get tbPropertiesHint =>
+      'Выберите инструмент или выделите пометку, чтобы увидеть её свойства';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Панель свойств показывает в одном месте действия выделения, параметры и стиль инструмента.';
+
+  @override
+  String get tbFloatingToolbars => 'Плавающие панели';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Показывать панели инструментов поверх страницы, а не закреплять у краёв окна';
 }

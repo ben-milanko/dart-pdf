@@ -222,6 +222,14 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   onSelectionChanged: (s) =>
                       widget.prefs.themePreference = s.first,
                 ),
+                SwitchListTile(
+                  key: const ValueKey('settings-floating-toolbars'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbFloatingToolbars),
+                  subtitle: Text(pdfL10n(context).tbFloatingToolbarsHint),
+                  value: widget.prefs.toolbarFloating,
+                  onChanged: (value) => widget.prefs.toolbarFloating = value,
+                ),
                 const SizedBox(height: 16),
                 Text(appL10n(context).settingsLanguage,
                     style: theme.textTheme.titleSmall),

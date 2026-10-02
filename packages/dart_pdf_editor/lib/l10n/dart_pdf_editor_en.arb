@@ -2951,5 +2951,97 @@
   "dialogDismiss": "Dismiss",
   "@dialogDismiss": {
     "description": "Screen-reader label of the dimmed area behind an editor dialog; activating it closes the dialog."
+  },
+  "tbBarGrip": "Drag to dock, or click for placement",
+  "@tbBarGrip": {
+    "description": "Tooltip on a toolbar bar's grip handle: drag it to another edge, or click it to choose where the bar docks."
+  },
+  "tbDockTop": "Top",
+  "@tbDockTop": {
+    "description": "Toolbar placement choice: dock the bar to the top edge."
+  },
+  "tbDockBottom": "Bottom",
+  "@tbDockBottom": {
+    "description": "Toolbar placement choice: dock the bar to the bottom edge."
+  },
+  "tbDockLeft": "Left",
+  "@tbDockLeft": {
+    "description": "Toolbar placement choice: dock the bar to the left edge."
+  },
+  "tbDockRight": "Right",
+  "@tbDockRight": {
+    "description": "Toolbar placement choice: dock the bar to the right edge."
+  },
+  "tbDockWithMainToolbar": "With main toolbar",
+  "@tbDockWithMainToolbar": {
+    "description": "Toolbar placement choice: a tool bar rides with the main toolbar and opens when its group is picked."
+  },
+  "tbStyleInToolBars": "Inside tool bars",
+  "@tbStyleInToolBars": {
+    "description": "Style-controls placement choice: colour/stroke/opacity controls stay inside each tool bar."
+  },
+  "tbSeparateStyleBar": "Separate style bar",
+  "@tbSeparateStyleBar": {
+    "description": "Toggle in a tool bar's placement menu: move the style controls into one style bar of their own."
+  },
+  "tbToolbarLayout": "Toolbar layout",
+  "@tbToolbarLayout": {
+    "description": "Settings entry and dialog title for arranging the editing toolbars."
+  },
+  "tbToolbarLayoutMain": "Main toolbar",
+  "@tbToolbarLayoutMain": {
+    "description": "Toolbar layout dialog: section for the main toolbar (modes and tool groups)."
+  },
+  "tbToolbarLayoutStyle": "Style controls",
+  "@tbToolbarLayoutStyle": {
+    "description": "Toolbar layout dialog: section for where colour/stroke/opacity/font controls appear."
+  },
+  "tbToolbarLayoutStyleHint": "A style bar keeps color, stroke, opacity and font in one place for every tool and selection.",
+  "@tbToolbarLayoutStyleHint": {
+    "description": "Toolbar layout dialog: explains the separate style bar."
+  },
+  "tbToolbarLayoutToolBars": "Tool bars",
+  "@tbToolbarLayoutToolBars": {
+    "description": "Toolbar layout dialog: section listing each tool group's bar (Markup, Draw, Shapes…)."
+  },
+  "tbToolbarLayoutToolBarsHint": "A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.",
+  "@tbToolbarLayoutToolBarsHint": {
+    "description": "Toolbar layout dialog: explains docking a tool bar."
+  },
+  "tbToolbarLayoutReset": "Reset layout",
+  "@tbToolbarLayoutReset": {
+    "description": "Toolbar layout dialog button: restore the default toolbar arrangement."
+  },
+  "tbToolbarMode": "Toolbars",
+  "@tbToolbarMode": {
+    "description": "Toolbar layout dialog: picker for whether toolbars dock to the window edges or float over the page."
+  },
+  "tbToolbarDocked": "Docked to the edges",
+  "@tbToolbarDocked": {
+    "description": "Toolbar mode choice: solid toolbars attached to the window edges."
+  },
+  "tbToolbarFloating": "Floating over the page",
+  "@tbToolbarFloating": {
+    "description": "Toolbar mode choice: toolbars float as cards over the page."
+  },
+  "tbFloatingToolbar": "Float over the page",
+  "@tbFloatingToolbar": {
+    "description": "Toggle in the main toolbar's placement menu: float the toolbars over the page instead of docking them."
+  },
+  "tbPropertiesHint": "Pick a tool or select a markup to see its properties",
+  "@tbPropertiesHint": {
+    "description": "Shown in the docked properties bar while no tool or selection has properties."
+  },
+  "tbToolbarLayoutPropertiesHint": "The properties bar shows the selection's actions and the tool's options and style in one place.",
+  "@tbToolbarLayoutPropertiesHint": {
+    "description": "Toolbar layout dialog: explains the docked properties bar."
+  },
+  "tbFloatingToolbars": "Floating toolbars",
+  "@tbFloatingToolbars": {
+    "description": "Setting/checkbox: float the editing toolbars over the page instead of docking them to the window edges."
+  },
+  "tbFloatingToolbarsHint": "Float the toolbars over the page instead of docking them to the window edges",
+  "@tbFloatingToolbarsHint": {
+    "description": "Subtitle explaining the Floating toolbars setting."
   }
 }

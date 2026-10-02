@@ -2302,4 +2302,79 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Tutup';
+
+  @override
+  String get tbBarGrip =>
+      'Seret untuk menambatkan, atau klik untuk memilih posisi';
+
+  @override
+  String get tbDockTop => 'Atas';
+
+  @override
+  String get tbDockBottom => 'Bawah';
+
+  @override
+  String get tbDockLeft => 'Kiri';
+
+  @override
+  String get tbDockRight => 'Kanan';
+
+  @override
+  String get tbDockWithMainToolbar => 'Bersama toolbar utama';
+
+  @override
+  String get tbStyleInToolBars => 'Di dalam bilah alat';
+
+  @override
+  String get tbSeparateStyleBar => 'Bilah gaya terpisah';
+
+  @override
+  String get tbToolbarLayout => 'Tata letak toolbar';
+
+  @override
+  String get tbToolbarLayoutMain => 'Toolbar utama';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Kontrol gaya';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Bilah gaya menyatukan warna, goresan, opasitas, dan font di satu tempat untuk setiap alat dan pilihan.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Bilah alat';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Bilah alat yang ditambatkan ke tepi tetap terbuka di sana. Bersama toolbar utama, bilah terbuka saat Anda memilih grupnya.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Atur ulang tata letak';
+
+  @override
+  String get tbToolbarMode => 'Toolbar';
+
+  @override
+  String get tbToolbarDocked => 'Ditambatkan ke tepi';
+
+  @override
+  String get tbToolbarFloating => 'Mengambang di atas halaman';
+
+  @override
+  String get tbFloatingToolbar => 'Mengambang di atas halaman';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pilih alat atau pilih markup untuk melihat propertinya';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Bilah properti menampilkan tindakan pilihan serta opsi dan gaya alat di satu tempat.';
+
+  @override
+  String get tbFloatingToolbars => 'Toolbar mengambang';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Tampilkan toolbar mengambang di atas halaman, bukan ditambatkan ke tepi jendela';
 }
