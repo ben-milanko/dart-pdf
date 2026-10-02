@@ -1,16 +1,19 @@
-// Keeps the editor's design-system coupling from growing while it is being
-// taken apart (see the material_ui plan: the 6.0 switch swaps
-// package:flutter/material.dart for material_ui, and the editor learns to run
-// under CupertinoApp/WidgetsApp first). Three ratchets, all may only shrink:
+// Keeps the editor's design-system coupling from growing and keeps the
+// headless core separable from it (see the material_ui plan: 6.0 moved the
+// libraries from package:flutter/material.dart to material_ui, and the
+// editor runs under material_ui, legacy Material, Cupertino and plain widgets
+// hosts). "Design library" below means any of package:material_ui,
+// package:cupertino_ui, package:flutter/material.dart and
+// package:flutter/cupertino.dart. Three ratchets, all may only shrink, and
+// one hard rule:
 //
-// (a) Material importers. Every file under the editor's and the printing
-//     package's lib/ that imports package:flutter/material.dart or
-//     package:flutter/cupertino.dart is listed in the baseline. A file that
-//     starts importing one fails; a listed file that stopped importing it
-//     fails too, with a hint to tighten the baseline.
+// (a) Design-library importers. Every file under the scanned packages' lib/
+//     that imports or exports a design library is listed in the baseline. A
+//     file that starts importing one fails; a listed file that stopped
+//     importing it fails too, with a hint to tighten the baseline.
 //
 // (b) Headless closures. The transitive import closure of the editing
-//     controller and of PdfPageView must hold no Material importer, so a host
+//     controller and of PdfPageView must reach no design library, so a host
 //     without Material can drive the editor and draw pages. The walk follows
 //     relative and package: imports/exports (all conditional-import branches)
 //     through the workspace packages and their pub dependencies. It stops at
@@ -20,12 +23,19 @@
 //     package:flutter_localizations, which pulls in flutter/material.
 //
 // (c) Raw component counters, over the editor's and the printing package's
-//     lib/ (outside the editor's lib/src/design/): uses of showMenu,
-//     showModalBottomSheet, ScaffoldMessenger and DropdownButton(FormField),
-//     and text fields (TextField, TextFormField, SelectableText) without the
-//     shared context menu, per file. These are the calls a non-Material host
-//     cannot survive; they go through library-owned seams instead (the
-//     presenter, PdfDropdown, pdfTextContextMenu). Comments do not count.
+//     lib/ (outside the editor's lib/src/design/ and lib/src/legacy/): uses
+//     of showMenu, showModalBottomSheet, ScaffoldMessenger and
+//     DropdownButton(FormField), and text fields (TextField, TextFormField,
+//     SelectableText) without the shared context menu, per file. These are
+//     the calls a non-Material host cannot survive; they go through
+//     library-owned seams instead (the presenter, PdfDropdown,
+//     pdfTextContextMenu). Comments do not count.
+//
+// (d) Legacy imports. Only files under the editor's lib/src/legacy/ (the
+//     legacy-host bridge) may import package:flutter/material.dart or
+//     package:flutter/cupertino.dart, and only they and the generated
+//     lib/l10n/ may import package:flutter_localizations. Not a ratchet:
+//     anything else fails outright.
 //
 // The baseline is tool/design_imports_baseline.json. After removing a
 // Material import or a raw use, run with --update-baseline to tighten it; it
@@ -43,11 +53,16 @@ import 'dart:io';
 
 const baselinePath = 'tool/design_imports_baseline.json';
 
-/// Package lib/ trees whose Material importers are allowlisted (a).
+/// Package lib/ trees whose design-library importers are allowlisted (a)
+/// and whose legacy imports are policed (d).
 const scannedLibs = [
   'packages/dart_pdf_editor/lib',
   'packages/dart_pdf_printing/lib',
+  'packages/dart_pdf_editor_flutter_gpu/lib',
 ];
+
+/// The one subtree allowed to import the legacy design libraries (d).
+const legacyBridgeDir = 'packages/dart_pdf_editor/lib/src/legacy/';
 
 /// Entry points whose import closure must stay Material-free (b).
 const headlessRoots = [
@@ -55,12 +70,16 @@ const headlessRoots = [
   'packages/dart_pdf_editor/lib/src/pdf_page_view.dart',
 ];
 
-/// Where counters (c) look, and the one subtree they skip.
+/// Where counters (c) look, and the subtrees they skip (the seams
+/// themselves: the shared chrome and the legacy-host bridge).
 const counterLibs = [
   'packages/dart_pdf_editor/lib',
   'packages/dart_pdf_printing/lib',
 ];
-const counterExempt = 'packages/dart_pdf_editor/lib/src/design/';
+const counterExempt = [
+  'packages/dart_pdf_editor/lib/src/design/',
+  legacyBridgeDir,
+];
 
 /// The raw component uses counted by (c), each over comment-stripped code.
 final counters = <String, int Function(String code)>{
@@ -125,20 +144,18 @@ String _argumentsAt(String code, int open) {
   return code.substring(open + 1);
 }
 
-/// Material edges a headless closure tolerates until a deprecated API goes:
-/// repo-relative file -> the only names its Material import may `show`.
-/// PdfEditingPreferences keeps the deprecated `ThemeMode themeMode` (use
-/// `themePreference`) until 6.0.0, which removes it and this entry.
-const deprecatedMaterialEdges = <String, Set<String>>{
-  'packages/dart_pdf_editor/lib/src/editing/editing_preferences.dart': {
-    'ThemeMode'
-  },
-};
-
-const _materialUris = {
+/// The legacy design libraries (d).
+const legacyUris = {
   'package:flutter/material.dart',
   'package:flutter/cupertino.dart',
 };
+
+/// Whether [uri] is a design library: legacy Material/Cupertino, or any
+/// library of the material_ui / cupertino_ui packages.
+bool isDesignUri(String uri) =>
+    legacyUris.contains(uri) ||
+    uri.startsWith('package:material_ui/') ||
+    uri.startsWith('package:cupertino_ui/');
 
 void main(List<String> args) {
   final update = args.contains('--update-baseline');
@@ -154,7 +171,7 @@ void main(List<String> args) {
           jsonDecode(baselineFile.readAsStringSync()) as Map<String, dynamic>)
       : DesignBaseline.empty();
 
-  final problems = <String>[...current.closureProblems];
+  final problems = <String>[...current.problems];
   final ratchet = compare(baseline, current.baseline);
   if (update) {
     // A missing baseline is being created, not grown.
@@ -181,8 +198,9 @@ void main(List<String> args) {
   }
   final c = current.baseline;
   print('Design import check passed: ${c.materialImporters.length} '
-      'allowlisted Material importers, ${headlessRoots.length} headless '
-      'closures clean, counters ${{
+      'allowlisted design-library importers, legacy imports only under '
+      '$legacyBridgeDir, ${headlessRoots.length} headless closures clean, '
+      'counters ${{
     for (final e in c.counters.entries)
       e.key: e.value.values.fold<int>(0, (a, b) => a + b)
   }}.');
@@ -223,9 +241,9 @@ class DesignBaseline {
 }
 
 class ScanResult {
-  ScanResult(this.baseline, this.closureProblems);
+  ScanResult(this.baseline, this.problems);
   final DesignBaseline baseline;
-  final List<String> closureProblems;
+  final List<String> problems;
 }
 
 class Ratchet {
@@ -237,14 +255,15 @@ class Ratchet {
 /// Scans [root] (the repo root) for all three checks.
 ScanResult scan(String root, PackageResolver resolver) {
   final importers = <String>{};
+  final problems = <String>[];
   for (final lib in scannedLibs) {
     final dir = Directory('$root/$lib');
     if (!dir.existsSync()) continue;
     for (final file in _dartFiles(dir)) {
+      final rel = _relative(root, file.path);
       final uris = directiveUris(file.readAsStringSync());
-      if (uris.any(_materialUris.contains)) {
-        importers.add(_relative(root, file.path));
-      }
+      if (uris.any(isDesignUri)) importers.add(rel);
+      problems.addAll(checkLegacyImports(rel, uris));
     }
   }
 
@@ -256,7 +275,7 @@ ScanResult scan(String root, PackageResolver resolver) {
     if (!counterDir.existsSync()) continue;
     for (final file in _dartFiles(counterDir)) {
       final rel = _relative(root, file.path);
-      if (rel.startsWith(counterExempt)) continue;
+      if (counterExempt.any(rel.startsWith)) continue;
       final code = stripComments(file.readAsStringSync());
       counters.forEach((name, count) {
         final n = count(code);
@@ -265,11 +284,28 @@ ScanResult scan(String root, PackageResolver resolver) {
     }
   }
 
-  final problems = <String>[];
   for (final entry in headlessRoots) {
     problems.addAll(checkClosure(root, entry, resolver));
   }
   return ScanResult(DesignBaseline(importers, counts), problems);
+}
+
+/// Rule (d) for one scanned file at repo-relative [rel] with directive
+/// [uris]: legacy design libraries only under [legacyBridgeDir],
+/// flutter_localizations only there and in the generated lib/l10n/.
+List<String> checkLegacyImports(String rel, List<String> uris) {
+  if (rel.startsWith(legacyBridgeDir)) return const [];
+  return [
+    for (final uri in uris)
+      if (legacyUris.contains(uri))
+        '$rel imports $uri: only $legacyBridgeDir may use the legacy design '
+            'libraries (the library is built on material_ui/cupertino_ui)'
+      else if (uri.startsWith('package:flutter_localizations/') &&
+          !_isGeneratedL10n(rel))
+        '$rel imports $uri: its delegates are the legacy ones; use '
+            "material_ui's GlobalMaterialLocalizations (only the generated "
+            'lib/l10n/ and $legacyBridgeDir may import it)',
+  ];
 }
 
 /// Every way [current] is worse than [baseline] (growth) or better (stale).
@@ -278,14 +314,14 @@ Ratchet compare(DesignBaseline baseline, DesignBaseline current) {
   final stale = <String>[];
   for (final f
       in current.materialImporters.difference(baseline.materialImporters)) {
-    growth.add('$f imports flutter/material or flutter/cupertino and is not '
-        'in the allowlist. New code belongs on the widgets layer '
-        '(lib/src/design/ for shared chrome).');
+    growth.add('$f imports a design library (material_ui, cupertino_ui, '
+        'flutter/material or flutter/cupertino) and is not in the allowlist. '
+        'New code belongs on the widgets layer (lib/src/design/ for shared '
+        'chrome).');
   }
   for (final f
       in baseline.materialImporters.difference(current.materialImporters)) {
-    stale.add('$f no longer imports flutter/material or flutter/cupertino '
-        '(or no longer exists)');
+    stale.add('$f no longer imports a design library (or no longer exists)');
   }
   final names = {...baseline.counters.keys, ...current.counters.keys};
   for (final name in names) {
@@ -331,14 +367,7 @@ List<String> checkClosure(String root, String entry, PackageResolver resolver) {
     final file = File(path);
     if (!file.existsSync()) continue;
     for (final (:uri, :show) in directives(file.readAsStringSync())) {
-      if (_materialUris.contains(uri)) {
-        final allowed = deprecatedMaterialEdges[_relative(root, path)];
-        if (allowed != null &&
-            show != null &&
-            show.isNotEmpty &&
-            allowed.containsAll(show)) {
-          continue;
-        }
+      if (isDesignUri(uri)) {
         problems.add('$entry must stay Material-free, but '
             '${chain(path).join(' -> ')} imports $uri'
             '${show == null ? '' : ' show ${show.join(', ')}'}');

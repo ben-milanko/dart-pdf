@@ -229,20 +229,38 @@ jobs:
   # Every other job runs the pinned .fvmrc Flutter, which says nothing about
   # the floor dart_pdf_editor declares (5.0.0 said >=3.24.0 but used a 3.44
   # API). This analyzes the editor and the pure-Dart packages under it on the
-  # declared floor, outside the workspace (dart_pdf_printing needs 3.47, so
-  # the workspace itself cannot resolve there). Keep flutter-version in step
-  # with `flutter:` in packages/dart_pdf_editor/pubspec.yaml.
+  # declared floor, outside the workspace (the app and the tooling in it may
+  # need a newer Flutter than the published packages). Keep flutter-version
+  # in step with `flutter:` in packages/dart_pdf_editor/pubspec.yaml (6.0:
+  # 3.47.0, material_ui 1.4's floor).
   floor-analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.0
+          flutter-version: 3.47.0
           channel: stable
           cache: true
       - name: Analyze dart_pdf_editor on its Flutter floor
         run: tool/floor_analyze.sh
+
+  # The legacy-host bridge (dart_pdf_editor/lib/src/legacy/) must compile out
+  # completely with --dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false, and be
+  # present under a legacy MaterialApp host. Five small web builds.
+  legacy-bridge-dce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Legacy bridge DCE check
+        env:
+          FLUTTER: flutter
+        run: tool/check_legacy_bridge_dce.sh
 
   # The broad GPU suite above deliberately self-skips on Linux runners without
   # an Impeller context. This designated Metal lane is the non-optional proof:
