@@ -627,6 +627,11 @@ class _PdfReaderState extends State<PdfReader> {
                           backgroundColor: widget.backgroundColor,
                         )
                       : PdfViewer(
+                          // PdfViewer binds its controller once, in initState: a host
+                          // handing in a different one (its own in place of ours)
+                          // gets a fresh viewer bound to it, not one left driving
+                          // the replaced controller
+                          key: ObjectKey(_viewer),
                           document: _session.document,
                           controller: _viewer,
                           formController: features.fillForms ? _session : null,
