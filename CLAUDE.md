@@ -428,6 +428,13 @@ move is the one element edit that keeps its selection, because `moveElements`
 preserves element ids. See
 doc/dev-log/2026-08-27-reposition-page-content.md and
 doc/dev-log/2026-08-27-content-drag-preview-fidelity.md.
+UI control seams (non-breaking, ahead of the 6.0 material_ui switch): tokens
+(`PdfEditorThemeData`, `PdfViewerThemeData`), surfaces (`headerBuilder` +
+`PdfHeaderParts`, menu entry builders), `PdfEditorPresenter` (via
+`PdfEditorScope`), `PdfEditorCommands`, and `PdfMaterialHost` so the editor
+runs under `CupertinoApp`/`WidgetsApp`; new widgets-only code goes in
+`lib/src/design/`, and `tool/check_design_imports.dart` ratchets Material use
+down. See doc/dev-log/2026-10-02-editor-ui-control-seams.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder

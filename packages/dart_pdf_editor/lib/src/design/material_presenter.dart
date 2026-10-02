@@ -86,8 +86,7 @@ PopupMenuEntry<T> _popupEntry<T>(PdfMenuEntry<T> entry) {
   // a row may embed controls (the form text-style popup's fields); the
   // popup route builds under the root navigator, so re-inject what a
   // non-Material host lacks there (a pass-through under a Material host)
-  final child =
-      Builder(builder: (context) => pdfHostRoute(context, content));
+  final child = Builder(builder: (context) => pdfHostRoute(context, content));
   final height = entry.height ?? kMinInteractiveDimension;
   final checked = entry.checked;
   if (checked != null) {

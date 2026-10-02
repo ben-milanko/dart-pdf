@@ -1,5 +1,9 @@
 ## Unreleased
 
+- The print preview's drop-downs are `PdfDropdown`s and its text fields use
+  the editor's shared context menu (`pdfTextContextMenu`), so the dialog runs
+  under a `CupertinoApp` or `WidgetsApp` host. Tests reading the selectors use
+  `PdfDropdown<T>` instead of `DropdownButton<T>`.
 - The print progress dialog opens through `showPdfDialog`, so it stays in
   the window (no native-window promotion) and carries the host's themes and
   `PdfEditorScope`, like the editor's own dialogs.

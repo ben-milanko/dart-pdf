@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../design/editor_presenter.dart';
 import '../l10n/pdf_l10n.dart';
 import 'handle_layout.dart';
 
@@ -231,6 +232,29 @@ class _CropActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = pdfL10n(context);
+    return PdfEditorPresenter.of(context).actionBar(
+      context,
+      PdfActionBarRequest(
+        kind: PdfActionBarKind.crop,
+        actions: [
+          PdfActionBarAction(
+              id: 'pdf-crop-cancel',
+              label: l10n.cancel,
+              icon: Icons.close,
+              onPressed: onCancel),
+          PdfActionBarAction(
+              id: 'pdf-crop-confirm',
+              label: l10n.ok,
+              icon: Icons.check,
+              onPressed: onCommit),
+        ],
+        stock: _stock(context),
+      ),
+    );
+  }
+
+  Widget _stock(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

@@ -7,7 +7,6 @@
 import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:dart_pdf_editor/src/design/material_host.dart' show PdfDropdown;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';

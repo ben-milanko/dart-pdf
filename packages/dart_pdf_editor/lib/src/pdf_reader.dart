@@ -26,6 +26,7 @@ import 'shell_session.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'design/editor_presenter.dart';
+import 'design/editor_theme.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
 /// turn features off rather than rebuilding the layout by hand.
@@ -142,6 +143,7 @@ class PdfReader extends StatefulWidget {
     this.onShareReflowImage,
     this.pageOverlayBuilder,
     this.textMenuBuilder,
+    this.textMenuEntries,
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
@@ -200,6 +202,7 @@ class PdfReader extends StatefulWidget {
     this.onShareReflowImage,
     this.pageOverlayBuilder,
     this.textMenuBuilder,
+    this.textMenuEntries,
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
@@ -329,6 +332,9 @@ class PdfReader extends StatefulWidget {
   /// so the request's controller is always null here.
   final PdfTextMenuBuilder? textMenuBuilder;
 
+  /// See [PdfViewer.textMenuEntries]: rewrites the text menu's rows.
+  final PdfTextMenuEntriesBuilder? textMenuEntries;
+
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
 
@@ -450,11 +456,13 @@ class _PdfReaderState extends State<PdfReader> {
           final prefs = _prefs;
           final reflowActive = _viewMode.viewMode == PdfViewMode.reflow;
           final pageColor = widget.pageColor ?? prefs.pageColor;
-          final showThumbnails =
-              pdfShellShowThumbnailSidebar(prefs, constraints);
+          final showThumbnails = pdfShellShowThumbnailSidebar(
+              prefs, constraints,
+              compactWidth: pdfCompactWidthOf(context));
           // on a narrow screen the strip floats up from the bottom as a
           // sheet instead of docking to the side and crowding the page
-          final useSheets = pdfShellUseBottomSheets(constraints);
+          final useSheets = pdfShellUseBottomSheets(constraints,
+              compactWidth: pdfCompactWidthOf(context));
           // Pages and Bookmarks stay available in the reflow reading view -
           // they drive it through the shared controller (page taps scroll the
           // reader, the strip tracks the reading position).
@@ -627,6 +635,7 @@ class _PdfReaderState extends State<PdfReader> {
                           onLaunchUrl: widget.onLaunchUrl,
                           pageOverlayBuilder: widget.pageOverlayBuilder,
                           textMenuBuilder: widget.textMenuBuilder,
+                          textMenuEntries: widget.textMenuEntries,
                           contextMenuEnabled: widget.contextMenuEnabled,
                           onContextMenuRequested: widget.onContextMenuRequested,
                           pageLayout: widget.pageLayout,

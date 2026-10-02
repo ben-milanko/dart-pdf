@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../design/viewer_tokens.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -475,10 +476,7 @@ class _InlineTextHandlePainter extends CustomPainter {
 }
 
 Color _inlineTextHandleColor(BuildContext context) {
-  final theme = PdfViewerTheme.of(context);
-  return theme.selectionHandleColor ??
-      theme.annotationChromeColor ??
-      const Color(0xFF2196F3);
+  return PdfViewerTheme.of(context).inlineSelectionHandle;
 }
 
 /// One page's editing layer: captures the armed tool's gestures in page
@@ -517,6 +515,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onTextEditClosed,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
+    this.showInlineTextStyleChip = true,
     this.renderWorker,
   });
 
@@ -592,6 +591,10 @@ class EditingPageOverlay extends StatefulWidget {
   /// overlapping that UI. Selection, handles, and move/resize interactions
   /// are unaffected. Defaults to true.
   final bool showSelectionChip;
+
+  /// Whether touch/stylus in-place text editing shows the floating style
+  /// chip (see [PdfViewer.showInlineTextStyleChip]). Defaults to true.
+  final bool showInlineTextStyleChip;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -695,7 +698,6 @@ typedef _Handle = SelectionHandle;
 
 const List<_Handle> _handles = selectionHandles;
 
-const double _handleSize = 8;
 const double _handleHitRadius = HandleLayout.defaultHitRadius;
 const double _minSizeView = 12;
 
@@ -5246,42 +5248,81 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         child: Transform.scale(
           scale: _chromeScale,
           alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
-          child: Material(
-            key: const ValueKey('pdf-selection-chip'),
-            elevation: 3,
-            borderRadius: BorderRadius.circular(22),
-            clipBehavior: Clip.antiAlias,
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
+          child: _selectionActionBar(anchor),
+        ),
+      ),
+    );
+  }
+
+  /// The selection chip's body, drawn by the presenter's
+  /// [PdfEditorPresenter.actionBar] (the stock chip by default).
+  Widget _selectionActionBar(Offset anchor) {
+    final l10n = pdfL10n(context);
+    void delete() => _controller.deleteSelected();
+    void edit() {
+      final rect = _selectedViewRect;
+      if (rect != null) _openTextEditor(rect, existing: true);
+    }
+
+    void more() {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      _host.showAnnotationMenu!(box.localToGlobal(anchor), widget.pageIndex);
+    }
+
+    final canEdit = _controller.canEditSelectedText;
+    final hasMenu =
+        _host.showAnnotationMenu != null && widget.contextMenuEnabled;
+    return PdfEditorPresenter.of(context).actionBar(
+      context,
+      PdfActionBarRequest(
+        kind: PdfActionBarKind.annotationSelection,
+        actions: [
+          PdfActionBarAction(
+              id: 'pdf-selection-chip-delete',
+              label: l10n.delete,
+              icon: Icons.delete_outline,
+              onPressed: delete),
+          if (canEdit)
+            PdfActionBarAction(
+                id: 'pdf-selection-chip-edit',
+                label: l10n.overlayEditText,
+                icon: Icons.edit_outlined,
+                onPressed: edit),
+          if (hasMenu)
+            PdfActionBarAction(
+                id: 'pdf-selection-chip-menu',
+                label: l10n.overlayMore,
+                icon: Icons.more_horiz,
+                onPressed: more),
+        ],
+        stock: Material(
+          key: const ValueKey('pdf-selection-chip'),
+          elevation: 3,
+          borderRadius: BorderRadius.circular(22),
+          clipBehavior: Clip.antiAlias,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              key: const ValueKey('pdf-selection-chip-delete'),
+              icon: const Icon(Icons.delete_outline),
+              tooltip: l10n.delete,
+              onPressed: delete,
+            ),
+            if (canEdit)
               IconButton(
-                key: const ValueKey('pdf-selection-chip-delete'),
-                icon: const Icon(Icons.delete_outline),
-                tooltip: pdfL10n(context).delete,
-                onPressed: _controller.deleteSelected,
+                key: const ValueKey('pdf-selection-chip-edit'),
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: l10n.overlayEditText,
+                onPressed: edit,
               ),
-              if (_controller.canEditSelectedText)
-                IconButton(
-                  key: const ValueKey('pdf-selection-chip-edit'),
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: pdfL10n(context).overlayEditText,
-                  onPressed: () {
-                    final rect = _selectedViewRect;
-                    if (rect != null) _openTextEditor(rect, existing: true);
-                  },
-                ),
-              if (_host.showAnnotationMenu != null && widget.contextMenuEnabled)
-                IconButton(
-                  key: const ValueKey('pdf-selection-chip-menu'),
-                  icon: const Icon(Icons.more_horiz),
-                  tooltip: pdfL10n(context).overlayMore,
-                  onPressed: () {
-                    final box = context.findRenderObject() as RenderBox?;
-                    if (box == null) return;
-                    _host.showAnnotationMenu!(
-                        box.localToGlobal(anchor), widget.pageIndex);
-                  },
-                ),
-            ]),
-          ),
+            if (hasMenu)
+              IconButton(
+                key: const ValueKey('pdf-selection-chip-menu'),
+                icon: const Icon(Icons.more_horiz),
+                tooltip: l10n.overlayMore,
+                onPressed: more,
+              ),
+          ]),
         ),
       ),
     );
@@ -5631,7 +5672,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// point isn't occluded (the [_buildSelectionChip]/eyedropper pattern,
   /// keyed on [_lastPointerKind]).
   Widget _buildReadoutChip(String text, Offset anchor,
-      {String keyValue = 'pdf-measure-readout'}) {
+      {String keyValue = 'pdf-measure-readout',
+      PdfReadoutKind kind = PdfReadoutKind.measurement}) {
     final touch = _lastPointerKind == PointerDeviceKind.touch ||
         _lastPointerKind == PointerDeviceKind.stylus;
     final offset = touch ? const Offset(0, -64) : const Offset(16, -36);
@@ -5650,20 +5692,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // outside translation would itself be magnified by page zoom.
           translation: touch ? const Offset(-0.5, 0) : Offset.zero,
           child: IgnorePointer(
-            child: Material(
-              key: ValueKey(keyValue),
-              color: const Color(0xE6202124),
-              elevation: 3,
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    color: Color(0xFFFFFFFF),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+            child: PdfEditorPresenter.of(context).readout(
+              context,
+              PdfReadoutRequest(
+                kind: kind,
+                text: text,
+                stock: Material(
+                  key: ValueKey(keyValue),
+                  color: PdfViewerTheme.of(context).chip,
+                  elevation: 3,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        color: PdfViewerTheme.of(context).chipForeground,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -6031,10 +6080,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         geometry: _geometry,
                         gridSpacing: _controller.preferences.gridSpacing,
                         chromeScale: _chromeScale,
-                        color:
-                            (PdfViewerTheme.of(context).annotationChromeColor ??
-                                    Theme.of(context).colorScheme.primary)
-                                .withValues(alpha: 0.22),
+                        color: PdfViewerTheme.of(context)
+                            .snapGrid(Theme.of(context).colorScheme.primary),
                       ),
                       size: Size.infinite,
                     ),
@@ -6174,7 +6221,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       painter: _AlignmentGuidePainter(
                         guides: _alignmentGuides,
                         chromeScale: _chromeScale,
-                        color: const Color(0xFFE91E63),
+                        color: PdfViewerTheme.of(context).alignmentGuide,
                       ),
                       size: Size.infinite,
                     ),
@@ -6199,11 +6246,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       key: const ValueKey('pdf-page-rulers'),
                       painter: _PageRulerPainter(
                         this,
-                        surfaceColor: Theme.of(context).colorScheme.surface,
-                        textColor: Theme.of(context).colorScheme.onSurface,
-                        accentColor:
-                            PdfViewerTheme.of(context).annotationChromeColor ??
-                                Theme.of(context).colorScheme.primary,
+                        surfaceColor: PdfViewerTheme.of(context)
+                            .rulerBackground(
+                                Theme.of(context).colorScheme.surface),
+                        textColor: PdfViewerTheme.of(context).rulerForeground(
+                            Theme.of(context).colorScheme.onSurface),
+                        accentColor: PdfViewerTheme.of(context)
+                            .rulerAccent(Theme.of(context).colorScheme.primary),
                       ),
                       size: Size.infinite,
                     ),
@@ -6355,9 +6404,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                 .withValues(alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
-                              color: PdfViewerTheme.of(context)
-                                      .annotationChromeColor ??
-                                  const Color(0xFF1E88E5),
+                              color: PdfViewerTheme.of(context).chrome,
                               width: 1.5 * _chromeScale),
                         ),
                         child: ValueListenableBuilder<TextEditingValue>(
@@ -6476,14 +6523,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     ),
                   ),
                 ),
-              if (_textEditRect != null && _controller.hasTouchInput)
+              if (_textEditRect != null &&
+                  _controller.hasTouchInput &&
+                  widget.showInlineTextStyleChip)
                 _buildInlineTextStyleChip(_textEditRect!),
               if (showChip && widget.showSelectionChip)
                 _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))
-                _buildReadoutChip(text, anchor, keyValue: 'pdf-style-readout'),
+                _buildReadoutChip(text, anchor,
+                    keyValue: 'pdf-style-readout', kind: PdfReadoutKind.style),
               if (_controller.isCroppingImage &&
                   _controller.selectedPage == widget.pageIndex &&
                   selectedAnnotation != null)
@@ -6493,9 +6543,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   initialCrop: _geometry.toViewRect(
                       _controller.imageCropDraft ?? selectedAnnotation.rect),
                   chromeScale: _chromeScale,
-                  accentColor:
-                      PdfViewerTheme.of(context).annotationChromeColor ??
-                          const Color(0xFF1E88E5),
+                  accentColor: PdfViewerTheme.of(context).chrome,
                   onChanged: (viewRect) => _controller
                       .updateImageCropDraft(_geometry.toPageRect(viewRect)),
                   onCommit: _controller.commitImageCrop,
@@ -7059,7 +7107,7 @@ class _HoverCursorPainter extends CustomPainter {
     // thin themed line readable over both white paper and dense drawings.
     final guide = guideCursor;
     if (guide != null) {
-      final color = theme.annotationChromeColor ?? const Color(0xFF1E88E5);
+      final color = theme.chrome;
       final halo = Paint()
         ..color = const Color(0x52000000)
         ..strokeWidth = guideHaloWidth;
@@ -7763,10 +7811,9 @@ class _EditingPreviewPainter extends CustomPainter {
   /// stays constant-size on screen while the viewer is zoomed in.
   final double chromeScale;
 
-  Color get _chrome => theme.annotationChromeColor ?? const Color(0xFF1E88E5);
-  Color get _elementChrome =>
-      theme.elementChromeColor ?? const Color(0xFFFB8C00);
-  Color get _flash => theme.flashColor ?? const Color(0xFFFFB300);
+  Color get _chrome => theme.chrome;
+  Color get _elementChrome => theme.elementChrome;
+  Color get _flash => theme.flash;
 
   /// Paints one set of page-space ink strokes with the committed
   /// appearance's smoothing and pressure mapping.
@@ -7803,7 +7850,8 @@ class _EditingPreviewPainter extends CustomPainter {
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.redact:
-        paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
+        paintRedactionHatch(canvas, rect,
+            chromeScale: chromeScale, color: theme.redactionHatch);
       case PdfEditTool.contentDelete:
         // Same region marquee as Snapshot, but orange to signal permanent
         // page-content edits rather than a read-only capture.
@@ -8265,7 +8313,8 @@ class _EditingPreviewPainter extends CustomPainter {
     }
 
     for (final rect in redactionRects) {
-      paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
+      paintRedactionHatch(canvas, rect,
+          chromeScale: chromeScale, color: theme.redactionHatch);
     }
 
     for (final rect in extraSelectionRects) {
@@ -8354,16 +8403,18 @@ class _EditingPreviewPainter extends CustomPainter {
             box.center.dy + handle.dy * box.height / 2,
           );
           final knob = Rect.fromCircle(
-              center: center, radius: _handleSize / 2 * chromeScale);
+              center: center, radius: theme.handleDiameter / 2 * chromeScale);
           canvas.drawRect(knob, fill);
           canvas.drawRect(knob, stroke);
         }
       }
       if (rotateKnob != null) {
-        canvas.drawCircle(rotateKnob, (_handleSize / 2 + 1) * chromeScale,
+        canvas.drawCircle(
+            rotateKnob,
+            (theme.handleDiameter / 2 + 1) * chromeScale,
             Paint()..color = const Color(0xFFFFFFFF));
         canvas.drawCircle(
-            rotateKnob, (_handleSize / 2 + 1) * chromeScale, stroke);
+            rotateKnob, (theme.handleDiameter / 2 + 1) * chromeScale, stroke);
       }
       canvas.restore();
     }
@@ -8375,7 +8426,7 @@ class _EditingPreviewPainter extends CustomPainter {
         ..strokeWidth = 1.5 * chromeScale;
       for (final center in handles) {
         final knob = Rect.fromCircle(
-            center: center, radius: _handleSize / 2 * chromeScale);
+            center: center, radius: theme.handleDiameter / 2 * chromeScale);
         canvas.drawRect(knob, fill);
         canvas.drawRect(knob, stroke);
       }
@@ -8509,20 +8560,21 @@ class _EditingPreviewPainter extends CustomPainter {
 /// dark wash, a solid border, and diagonal cross-hatch lines, so a marked
 /// region is unmistakable before it is burned (after burning the area is a
 /// solid fill baked into the page content).
-void paintRedactionHatch(Canvas canvas, Rect rect, {double chromeScale = 1}) {
+void paintRedactionHatch(Canvas canvas, Rect rect,
+    {double chromeScale = 1, Color color = PdfViewerDefaults.redactionHatch}) {
   if (rect.isEmpty) return;
   final s = chromeScale.isFinite && chromeScale > 0 ? chromeScale : 1.0;
   canvas.drawRect(rect, Paint()..color = const Color(0x22000000));
   canvas.drawRect(
       rect,
       Paint()
-        ..color = const Color(0xFFD32F2F)
+        ..color = color
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 * s);
   canvas.save();
   canvas.clipRect(rect);
   final hatch = Paint()
-    ..color = const Color(0x66D32F2F)
+    ..color = color.withValues(alpha: 0x66 / 0xFF)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1 * s;
   final step = 8.0 * s;

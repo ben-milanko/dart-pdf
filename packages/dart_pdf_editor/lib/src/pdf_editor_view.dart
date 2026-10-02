@@ -39,6 +39,8 @@ import 'shell_session.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'design/editor_presenter.dart';
+import 'design/header_parts.dart';
+import 'design/editor_theme.dart';
 
 /// Builds the editing toolbar for [PdfEditorView].
 ///
@@ -247,8 +249,12 @@ class PdfEditorView extends StatefulWidget {
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.textMenuBuilder,
+    this.annotationMenuEntries,
+    this.textMenuEntries,
+    this.formFieldMenuEntries,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
+    this.showInlineTextStyleChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
@@ -278,6 +284,8 @@ class PdfEditorView extends StatefulWidget {
     this.backgroundColor,
     this.pageColor,
     this.viewerTheme,
+    this.theme,
+    this.headerBuilder,
     this.rasterCache,
     this.textCache,
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
@@ -347,8 +355,12 @@ class PdfEditorView extends StatefulWidget {
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.textMenuBuilder,
+    this.annotationMenuEntries,
+    this.textMenuEntries,
+    this.formFieldMenuEntries,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
+    this.showInlineTextStyleChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
@@ -378,6 +390,8 @@ class PdfEditorView extends StatefulWidget {
     this.backgroundColor,
     this.pageColor,
     this.viewerTheme,
+    this.theme,
+    this.headerBuilder,
     this.rasterCache,
     this.textCache,
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
@@ -555,11 +569,23 @@ class PdfEditorView extends StatefulWidget {
   /// See [PdfViewer.textMenuBuilder].
   final PdfTextMenuBuilder? textMenuBuilder;
 
+  /// See [PdfViewer.annotationMenuEntries].
+  final PdfAnnotationMenuEntriesBuilder? annotationMenuEntries;
+
+  /// See [PdfViewer.textMenuEntries].
+  final PdfTextMenuEntriesBuilder? textMenuEntries;
+
+  /// See [PdfViewer.formFieldMenuEntries].
+  final PdfFormFieldMenuEntriesBuilder? formFieldMenuEntries;
+
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
 
   /// See [PdfViewer.showSelectionChip].
   final bool showSelectionChip;
+
+  /// See [PdfViewer.showInlineTextStyleChip].
+  final bool showInlineTextStyleChip;
 
   /// See [PdfViewer.onContextMenuRequested].
   final PdfContextMenuHost? onContextMenuRequested;
@@ -701,6 +727,20 @@ class PdfEditorView extends StatefulWidget {
   /// Viewer colors (selection, search matches, scrollbar...). Null
   /// uses an inherited [PdfViewerTheme] or the stock look.
   final PdfViewerThemeData? viewerTheme;
+
+  /// The editor's design tokens (status colours, section labels, the
+  /// compact width, the notice lift, and canvas tokens in
+  /// [PdfEditorThemeData.viewer]), merged over an inherited
+  /// [PdfEditorScope]'s. [viewerTheme], when set, still replaces the canvas
+  /// tokens wholesale. Null keeps the inherited (or stock) look.
+  final PdfEditorThemeData? theme;
+
+  /// Builds the header bar from the stock [PdfHeaderParts] - page number,
+  /// zoom, search, view options, panel switch, save - so the host can lay
+  /// out its own header (adding its own controls, or turning it into a
+  /// platform nav bar). Null builds the stock header ([PdfHeaderParts.stock]).
+  /// [PdfEditorFeatures.headerBar] still gates it.
+  final PdfHeaderBuilder? headerBuilder;
 
   @override
   State<PdfEditorView> createState() => _PdfEditorViewState();
@@ -954,8 +994,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         pageOverlayBuilder: widget.pageOverlayBuilder,
         annotationMenuBuilder: widget.annotationMenuBuilder,
         textMenuBuilder: widget.textMenuBuilder,
+        annotationMenuEntries: widget.annotationMenuEntries,
+        textMenuEntries: widget.textMenuEntries,
+        formFieldMenuEntries: widget.formFieldMenuEntries,
         contextMenuEnabled: widget.contextMenuEnabled,
         showSelectionChip: widget.showSelectionChip,
+        showInlineTextStyleChip: widget.showInlineTextStyleChip,
         onContextMenuRequested: widget.onContextMenuRequested,
         formImagePicker: widget.formImagePicker,
         imagePicker: widget.imagePicker,
@@ -984,6 +1028,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         backgroundColor: widget.backgroundColor,
         pageColor: widget.pageColor,
         viewerTheme: widget.viewerTheme,
+        theme: widget.theme,
+        headerBuilder: widget.headerBuilder,
         // The first-paint buffer only holds the first page(s); its later pages
         // render blank (and its text extracts empty). Keep the persistent
         // content-keyed caches off until the full buffer lands so those blanks
@@ -1083,6 +1129,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         presenter: widget.presenter,
         textPrompt: widget.textPrompt,
         styledTextPrompt: widget.styledTextPrompt,
+        theme: widget.theme,
         // built in the scoped context, below the presenter scope and the
         // host wrapper, so its theme and localizations lookups see them
         child: Builder(builder: (scoped) {
@@ -1090,6 +1137,144 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           return _buildView(scoped);
         }),
       );
+
+  /// The header: the host's [PdfEditorView.headerBuilder] over the stock
+  /// [PdfHeaderParts], or the stock bar.
+  Widget _buildHeader(
+    BuildContext context, {
+    required bool altView,
+    required PdfEditingPreferences prefs,
+    required PdfViewModeHolder viewMode,
+    required PdfEditorFeatures features,
+    required PdfEditingController session,
+    required Map<PdfEditTool, PdfToolShortcut> availableShortcuts,
+    required Set<PdfEditTool>? availableTools,
+    required List<PdfShellPanelItem> panelItems,
+    required List<PdfShellControlItem> viewModeControls,
+    required PdfShellControlItem viewOptionsControl,
+    required bool compact,
+  }) {
+    final pageNumber = features.pageNumber && !altView
+        ? Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: PdfPageNumberField(controller: _viewer),
+          )
+        : null;
+    final zoom = altView ? null : PdfShellZoomControl(controller: _viewer);
+    final search = features.search && !altView
+        ? PdfSearchField(
+            controller: _viewer,
+            searchController: _searchField,
+            focusNode: _searchFocus,
+            preferences: prefs,
+            // the match-case / whole-word / regex controls live in the
+            // results panel here, keeping the header compact
+            showOptions: !features.searchResultsPanel,
+          )
+        : null;
+    final viewOptions = features.viewOptions
+        ? PdfShellViewOptionsButton(
+            preferences: prefs,
+            viewMode: viewMode,
+            reflow: features.reflowView,
+            pageGrid: features.thumbnails,
+            pageColor: features.pageColorEditable,
+            editingGuides: true,
+            author: features.author,
+            authorName: session.preferences.author,
+            onAuthorPressed: _promptAuthor,
+            toolShortcuts: availableShortcuts,
+            onToolShortcutsChanged: (value) =>
+                setState(() => _toolShortcuts = value),
+            tools: availableTools)
+        : null;
+    final panelSwitch = PdfShellPanelSwitch(
+      key: const ValueKey('pdf-shell-panels'),
+      items: panelItems,
+    );
+    final hasSave = widget.onSave != null && widget.showSaveButton;
+    // Save sits in the header, not in the floating toolbar - ⌘S/Ctrl+S
+    // takes the same path.
+    final save = hasSave
+        ? FilledButton.icon(
+            key: const ValueKey('pdf-shell-save'),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            icon: Icon(widget.saveButtonIcon, size: 18),
+            label: Text(widget.saveButtonLabel ?? pdfL10n(context).save),
+            onPressed: _canSave ? _save : null,
+          )
+        : null;
+    List<PdfShellControlItem> compactControls({required bool includeSave}) => [
+          ...viewModeControls,
+          if (features.viewOptions) viewOptionsControl,
+          for (final item in panelItems)
+            PdfShellControlItem(
+              group: PdfShellControlGroup.panels,
+              key: item.key,
+              icon: item.icon,
+              label: item.tooltip,
+              selected: item.selected,
+              onPressed: item.onPressed,
+            ),
+          if (hasSave && includeSave)
+            PdfShellControlItem(
+              group: PdfShellControlGroup.actions,
+              key: const ValueKey('pdf-shell-save'),
+              icon: widget.saveButtonIcon,
+              label: widget.saveButtonLabel ?? pdfL10n(context).save,
+              enabled: _canSave,
+              onPressed: _save,
+            ),
+        ];
+    final sheetChildren = <Widget>[if (zoom != null) zoom];
+    final stock = PdfShellBar(
+      leading: [
+        if (pageNumber != null) pageNumber,
+        if (zoom != null) zoom,
+        if (search != null) search,
+      ],
+      compactLeading: [
+        if (pageNumber != null) pageNumber,
+        if (search != null) search,
+      ],
+      trailing: [
+        if (viewOptions != null) viewOptions,
+        panelSwitch,
+        if (save != null) save,
+      ],
+      compactSheetChildren: sheetChildren,
+      compactControls: compactControls(includeSave: true),
+    );
+    final builder = widget.headerBuilder;
+    if (builder == null) return stock;
+    return builder(
+      context,
+      PdfHeaderParts(
+        compact: compact,
+        stock: stock,
+        pageNumber: pageNumber,
+        zoom: zoom,
+        search: search,
+        viewOptions: viewOptions,
+        panelSwitch: panelSwitch,
+        save: save,
+        barBuilder: (leading, trailing, color) => PdfShellBar(
+            leading: leading,
+            trailing: trailing,
+            adaptive: false,
+            color: color),
+        controlsBuilder: (includeSave) {
+          final controls = compactControls(includeSave: includeSave);
+          if (controls.isEmpty && sheetChildren.isEmpty) return null;
+          return PdfShellControlsButton(
+              controls: controls, sheetChildren: sheetChildren);
+        },
+      ),
+    );
+  }
 
   Widget _buildView(BuildContext context) {
     if (_isSource) return _buildFromSource();
@@ -1125,11 +1310,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final thumbnailDisk = (widget.rasterCache != null && key != null)
               ? widget.rasterCache!.forDocument(key)
               : null;
-          final showThumbnails =
-              pdfShellShowThumbnailSidebar(prefs, constraints);
+          final showThumbnails = pdfShellShowThumbnailSidebar(
+              prefs, constraints,
+              compactWidth: pdfCompactWidthOf(context));
           // on a narrow screen the panels float up from the bottom as
           // sheets instead of docking to the side and crowding the page
-          final useSheets = pdfShellUseBottomSheets(constraints);
+          final useSheets = pdfShellUseBottomSheets(constraints,
+              compactWidth: pdfCompactWidthOf(context));
 
           // The docked and bottom-sheet variants carry DISTINCT keys: when
           // the responsive breakpoint flips, the panel must be disposed and
@@ -1461,15 +1648,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       child: annotationLibrary(bottomSheet: true),
                     ),
                 ];
-          // On a phone the toolbar collapses to a solid bar (see
-          // PdfEditingToolbar.mobileBreakpoint); floating it over the page
-          // there hides the bottom of the content behind it, so dock it
-          // below the viewer instead, where it takes its own layout space.
-          // Above the breakpoint it stays a set of transparent floating
-          // cards with the page showing through the gaps.
+          // On a phone the toolbar collapses to a solid bar (below the
+          // compact width - the same breakpoint as the header and panels);
+          // floating it over the page there hides the bottom of the content
+          // behind it, so dock it below the viewer instead, where it takes
+          // its own layout space. Above the breakpoint it stays a set of
+          // transparent floating cards with the page showing through the
+          // gaps.
           final showToolbar = features.toolbar && sheets.isEmpty && !altView;
-          final dockToolbar = showToolbar &&
-              constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
+          final dockToolbar =
+              showToolbar && constraints.maxWidth < pdfCompactWidthOf(context);
           final toolbar = !showToolbar
               ? null
               : widget.toolbarBuilder?.call(context, session, _viewer) ??
@@ -1606,104 +1794,24 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     prefs.showPropertiesPanel = !prefs.showPropertiesPanel,
               ),
           ];
+          final header = features.headerBar
+              ? _buildHeader(
+                  context,
+                  altView: altView,
+                  prefs: prefs,
+                  viewMode: viewMode,
+                  features: features,
+                  session: session,
+                  availableShortcuts: availableShortcuts,
+                  availableTools: availableTools,
+                  panelItems: panelItems,
+                  viewModeControls: viewModeControls,
+                  viewOptionsControl: viewOptionsControl,
+                  compact: constraints.maxWidth < pdfCompactWidthOf(context),
+                )
+              : null;
           return Column(children: [
-            if (features.headerBar)
-              PdfShellBar(
-                leading: [
-                  if (features.pageNumber && !altView)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: PdfPageNumberField(controller: _viewer),
-                    ),
-                  if (!altView) PdfShellZoomControl(controller: _viewer),
-                  if (features.search && !altView) ...[
-                    PdfSearchField(
-                      controller: _viewer,
-                      searchController: _searchField,
-                      focusNode: _searchFocus,
-                      preferences: prefs,
-                      // the match-case / whole-word / regex controls live in
-                      // the results panel here, keeping the header compact
-                      showOptions: !features.searchResultsPanel,
-                    ),
-                  ],
-                ],
-                compactLeading: [
-                  if (features.pageNumber && !altView)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: PdfPageNumberField(controller: _viewer),
-                    ),
-                  if (features.search && !altView)
-                    PdfSearchField(
-                      controller: _viewer,
-                      searchController: _searchField,
-                      focusNode: _searchFocus,
-                      preferences: prefs,
-                      showOptions: !features.searchResultsPanel,
-                    ),
-                ],
-                trailing: [
-                  if (features.viewOptions)
-                    PdfShellViewOptionsButton(
-                        preferences: prefs,
-                        viewMode: viewMode,
-                        reflow: features.reflowView,
-                        pageGrid: features.thumbnails,
-                        pageColor: features.pageColorEditable,
-                        editingGuides: true,
-                        author: features.author,
-                        authorName: session.preferences.author,
-                        onAuthorPressed: _promptAuthor,
-                        toolShortcuts: availableShortcuts,
-                        onToolShortcutsChanged: (value) =>
-                            setState(() => _toolShortcuts = value),
-                        tools: availableTools),
-                  PdfShellPanelSwitch(
-                    key: const ValueKey('pdf-shell-panels'),
-                    items: panelItems,
-                  ),
-                  // Save sits in the header, not in the floating toolbar -
-                  // ⌘S/Ctrl+S takes the same path.
-                  if (widget.onSave != null && widget.showSaveButton)
-                    FilledButton.icon(
-                      key: const ValueKey('pdf-shell-save'),
-                      style: FilledButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                      icon: Icon(widget.saveButtonIcon, size: 18),
-                      label:
-                          Text(widget.saveButtonLabel ?? pdfL10n(context).save),
-                      onPressed: _canSave ? _save : null,
-                    ),
-                ],
-                compactSheetChildren: [
-                  if (!altView) PdfShellZoomControl(controller: _viewer),
-                ],
-                compactControls: [
-                  ...viewModeControls,
-                  if (features.viewOptions) viewOptionsControl,
-                  for (final item in panelItems)
-                    PdfShellControlItem(
-                      group: PdfShellControlGroup.panels,
-                      key: item.key,
-                      icon: item.icon,
-                      label: item.tooltip,
-                      selected: item.selected,
-                      onPressed: item.onPressed,
-                    ),
-                  if (widget.onSave != null && widget.showSaveButton)
-                    PdfShellControlItem(
-                      group: PdfShellControlGroup.actions,
-                      key: const ValueKey('pdf-shell-save'),
-                      icon: widget.saveButtonIcon,
-                      label: widget.saveButtonLabel ?? pdfL10n(context).save,
-                      enabled: _canSave,
-                      onPressed: _save,
-                    ),
-                ],
-              ),
+            if (header != null) header,
             Expanded(
               child: PdfShellPanelLayout(
                 leadingPanels: dockedPanels(PdfPanelDock.left),
@@ -1726,8 +1834,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         textMenuBuilder: widget.textMenuBuilder,
+                        annotationMenuEntries: widget.annotationMenuEntries,
+                        textMenuEntries: widget.textMenuEntries,
+                        formFieldMenuEntries: widget.formFieldMenuEntries,
                         contextMenuEnabled: widget.contextMenuEnabled,
                         showSelectionChip: widget.showSelectionChip,
+                        showInlineTextStyleChip: widget.showInlineTextStyleChip,
                         onContextMenuRequested: widget.onContextMenuRequested,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,

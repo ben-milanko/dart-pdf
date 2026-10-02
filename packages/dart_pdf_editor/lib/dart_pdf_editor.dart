@@ -23,7 +23,11 @@ export 'src/design/editor_presenter.dart'
         pdfInstallPresenter,
         pdfPresentColor,
         pdfPresentDialog;
-export 'src/design/material_host.dart' show PdfMaterialHost, pdfTextContextMenu;
+export 'src/design/editor_theme.dart'
+    show PdfEditorThemeData, pdfShellCompactWidth;
+export 'src/design/header_parts.dart';
+export 'src/design/material_host.dart'
+    show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;
 export 'src/dialog.dart';
 export 'src/canvas_device.dart';
 export 'src/font_substitution.dart';

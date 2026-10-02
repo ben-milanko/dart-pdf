@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'design/editor_theme.dart';
 import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
@@ -17,17 +18,17 @@ import 'search_field_style.dart';
 import 'design/editor_presenter.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
-/// PdfEditorView). Package-private: not exported from the library.
-
-const double pdfShellCompactWidth = 700;
+/// PdfEditorView). Package-private: not exported from the library (the
+/// compact width, [pdfShellCompactWidth], is - from design/editor_theme.dart).
 
 /// Whether the shell is narrow enough that side panels should give way to
-/// bottom sheets - a phone, or a small window. Below [pdfShellCompactWidth]
-/// a docked 280px panel would crowd the page out, so the shells float the
-/// panels (and the thumbnail strip) up from the bottom instead.
-bool pdfShellUseBottomSheets(BoxConstraints constraints) =>
-    constraints.maxWidth.isFinite &&
-    constraints.maxWidth < pdfShellCompactWidth;
+/// bottom sheets - a phone, or a small window. Below [compactWidth]
+/// (the theme's [PdfEditorThemeData.compactWidth]) a docked 280px panel would
+/// crowd the page out, so the shells float the panels (and the thumbnail
+/// strip) up from the bottom instead.
+bool pdfShellUseBottomSheets(BoxConstraints constraints,
+        {double compactWidth = pdfShellCompactWidth}) =>
+    constraints.maxWidth.isFinite && constraints.maxWidth < compactWidth;
 
 /// Height of the bottom-sheet area, as a fraction of the content area, the
 /// first time a sheet opens. The user drags a sheet's handle to resize it
@@ -968,10 +969,11 @@ class PdfViewportMemory {
 
 bool pdfShellShowThumbnailSidebar(
   PdfEditingPreferences preferences,
-  BoxConstraints constraints,
-) {
-  final compact = constraints.maxWidth.isFinite &&
-      constraints.maxWidth < pdfShellCompactWidth;
+  BoxConstraints constraints, {
+  double compactWidth = pdfShellCompactWidth,
+}) {
+  final compact =
+      pdfShellUseBottomSheets(constraints, compactWidth: compactWidth);
   return preferences.showThumbnailSidebar &&
       (!compact || preferences.hasShowThumbnailSidebarPreference);
 }
@@ -1021,6 +1023,99 @@ class _HeaderScrollBehavior extends MaterialScrollBehavior {
   Set<PointerDeviceKind> get dragDevices => const <PointerDeviceKind>{};
 }
 
+/// Opens the compact header's Controls sheet: [sheetChildren] (the zoom
+/// control) and the view [controls], then the panels, then the actions.
+Future<void> pdfShowShellControls(
+  BuildContext context, {
+  required List<PdfShellControlItem> controls,
+  List<Widget> sheetChildren = const [],
+}) {
+  final compactControls = controls;
+  final viewControls = compactControls
+      .where((control) => control.group == PdfShellControlGroup.view)
+      .toList();
+  final panels = compactControls
+      .where((control) => control.group == PdfShellControlGroup.panels)
+      .toList();
+  final actions = compactControls
+      .where((control) => control.group == PdfShellControlGroup.actions)
+      .toList();
+  final children = sheetChildren;
+  return PdfEditorPresenter.of(context).sheet<void>(
+    context,
+    PdfSheetRequest<void>(
+      scrollControlled: true,
+      maxHeightFactor: 0.9,
+      builder: (context) => _ShellControlsSheetScope(
+        close: () => Navigator.of(context).maybePop(),
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(pdfL10n(context).shellControls,
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (children.isNotEmpty || viewControls.isNotEmpty) ...[
+                  _ShellSheetSectionLabel(pdfL10n(context).shellSectionView),
+                  const SizedBox(height: 10),
+                  for (final child in children) child,
+                  if (viewControls.isNotEmpty)
+                    _ShellControlGrid(controls: viewControls),
+                  const SizedBox(height: 14),
+                ],
+                if (panels.isNotEmpty) ...[
+                  _ShellSheetSectionLabel(pdfL10n(context).shellPanels),
+                  const SizedBox(height: 10),
+                  _ShellControlGrid(controls: panels),
+                ],
+                if (actions.isNotEmpty) ...[
+                  if (children.isNotEmpty ||
+                      viewControls.isNotEmpty ||
+                      panels.isNotEmpty)
+                    const Divider(height: 28),
+                  _ShellControlGrid(controls: actions),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// The compact header's "more" button, opening [pdfShowShellControls].
+class PdfShellControlsButton extends StatelessWidget {
+  const PdfShellControlsButton({
+    super.key,
+    required this.controls,
+    this.sheetChildren = const [],
+  });
+
+  final List<PdfShellControlItem> controls;
+  final List<Widget> sheetChildren;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        key: const ValueKey('pdf-shell-controls'),
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.more_horiz),
+        tooltip: pdfL10n(context).shellControls,
+        onPressed: () => unawaited(pdfShowShellControls(context,
+            controls: controls, sheetChildren: sheetChildren)),
+      );
+}
+
 class PdfShellBar extends StatelessWidget {
   const PdfShellBar({
     super.key,
@@ -1029,7 +1124,17 @@ class PdfShellBar extends StatelessWidget {
     this.compactLeading,
     this.compactControls = const [],
     this.compactSheetChildren = const [],
+    this.adaptive = true,
+    this.color,
   });
+
+  /// The bar's fill; null for the stock `surfaceContainerLow`.
+  final Color? color;
+
+  /// Whether the bar collapses below the compact width (to
+  /// [compactLeading] plus the Controls button). A host-composed bar
+  /// ([PdfHeaderParts.bar]) is not adaptive: it shows what it was given.
+  final bool adaptive;
 
   final List<Widget> leading;
   final List<Widget> trailing;
@@ -1043,74 +1148,14 @@ class PdfShellBar extends StatelessWidget {
   final List<PdfShellControlItem> compactControls;
   final List<Widget> compactSheetChildren;
 
-  Future<void> _showControls(BuildContext context) {
-    final viewControls = compactControls
-        .where((control) => control.group == PdfShellControlGroup.view)
-        .toList();
-    final panels = compactControls
-        .where((control) => control.group == PdfShellControlGroup.panels)
-        .toList();
-    final actions = compactControls
-        .where((control) => control.group == PdfShellControlGroup.actions)
-        .toList();
-    final children = compactSheetChildren;
-    return PdfEditorPresenter.of(context).sheet<void>(
-      context,
-      PdfSheetRequest<void>(
-        scrollControlled: true,
-        maxHeightFactor: 0.9,
-        builder: (context) => _ShellControlsSheetScope(
-          close: () => Navigator.of(context).maybePop(),
-          child: SafeArea(
-            top: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(pdfL10n(context).shellControls,
-                            style: Theme.of(context).textTheme.titleMedium),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (children.isNotEmpty || viewControls.isNotEmpty) ...[
-                    _ShellSheetSectionLabel(pdfL10n(context).shellSectionView),
-                    const SizedBox(height: 10),
-                    for (final child in children) child,
-                    if (viewControls.isNotEmpty)
-                      _ShellControlGrid(controls: viewControls),
-                    const SizedBox(height: 14),
-                  ],
-                  if (panels.isNotEmpty) ...[
-                    _ShellSheetSectionLabel(pdfL10n(context).shellPanels),
-                    const SizedBox(height: 10),
-                    _ShellControlGrid(controls: panels),
-                  ],
-                  if (actions.isNotEmpty) ...[
-                    if (children.isNotEmpty ||
-                        viewControls.isNotEmpty ||
-                        panels.isNotEmpty)
-                      const Divider(height: 28),
-                    _ShellControlGrid(controls: actions),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Future<void> _showControls(BuildContext context) =>
+      pdfShowShellControls(context,
+          controls: compactControls, sheetChildren: compactSheetChildren);
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      color: color ?? Theme.of(context).colorScheme.surfaceContainerLow,
       shape: Border(
           bottom:
               BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
@@ -1127,7 +1172,9 @@ class PdfShellBar extends StatelessWidget {
           // comes from spaceBetween over a min-width-constrained Row
           child: LayoutBuilder(
             builder: (context, constraints) {
-              if (pdfShellUseBottomSheets(constraints)) {
+              if (adaptive &&
+                  pdfShellUseBottomSheets(constraints,
+                      compactWidth: pdfCompactWidthOf(context))) {
                 final compactHeader = compactLeading ?? leading;
                 return Row(
                   children: [
@@ -1304,7 +1351,7 @@ class _ShellSheetSectionLabel extends StatelessWidget {
               .colorScheme
               .onSurfaceVariant
               .withValues(alpha: 0.72),
-        ),
+        ).merge(PdfEditorThemeData.of(context).sectionLabel),
       );
 }
 

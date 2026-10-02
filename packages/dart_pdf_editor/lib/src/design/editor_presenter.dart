@@ -3,6 +3,7 @@
 // the files the defaults call, so a host presenter can replace any one method
 // without the rest changing.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfPageRange;
 
@@ -30,6 +31,8 @@ import '../editing/text_style_prompt.dart'
         showPdfStyledTextPrompt;
 import '../page_range_dialog.dart' show showPdfPageRangeDialog;
 import '../split_dialog.dart' show showPdfSplitDialog;
+import '../theme.dart';
+import 'editor_theme.dart';
 import 'material_host.dart';
 import 'material_presenter.dart';
 
@@ -106,6 +109,22 @@ class PdfEditorPresenter {
   /// (false only without an overlay either).
   bool notice(BuildContext context, PdfEditorNotice notice) =>
       pdfStockNotice(context, notice);
+
+  /// Draws a floating action bar on the page: the row beside a touch
+  /// annotation selection, the chip beside a touch text selection, or an
+  /// image crop's confirm/cancel pair ([PdfActionBarRequest.kind]). The
+  /// editor positions and zoom-compensates whatever this returns; return
+  /// [PdfActionBarRequest.stock] for the stock chip, or build your own from
+  /// [PdfActionBarRequest.actions]. Default: the stock chip.
+  Widget actionBar(BuildContext context, PdfActionBarRequest request) =>
+      request.stock;
+
+  /// Draws a floating readout on the page: the live measurement while a
+  /// measuring tool drags, or the style readout while a stroke width or
+  /// font size changes ([PdfReadoutRequest.kind]). Positioned by the
+  /// editor, like [actionBar]. Default: the stock dark chip.
+  Widget readout(BuildContext context, PdfReadoutRequest request) =>
+      request.stock;
 
   // ---- prompts ------------------------------------------------------------
 
@@ -231,23 +250,37 @@ class PdfEditorPresenter {
           pickColor: request.pickColor);
 }
 
-/// Carries a [PdfEditorPresenter] to the editor widgets below it.
+/// Carries a [PdfEditorPresenter] - and optionally the editor's design
+/// tokens ([theme]) and a [platform] override - to the editor widgets below
+/// it.
 ///
 /// An [InheritedTheme]: [showPdfDialog], popup menus and bottom sheets carry
 /// it into their routes, so prompts opened from inside a dialog find it.
 /// `PdfEditorView`, `PdfViewer` and `PdfReader` install one from their
 /// `presenter` argument; put one above them yourself to share a presenter
-/// across editors (or to reach the stock prompts from your own screens).
+/// (or tokens) across editors, or to reach the stock prompts from your own
+/// screens.
 class PdfEditorScope extends InheritedTheme {
-  /// Provides [presenter] to [child].
+  /// Provides [presenter] (and [theme], [platform]) to [child].
   const PdfEditorScope({
     super.key,
     required this.presenter,
+    this.theme,
+    this.platform,
     required super.child,
   });
 
   /// The presenter the editor widgets below use.
   final PdfEditorPresenter presenter;
+
+  /// The editor's design tokens below this scope, or null for the stock
+  /// look. Read the effective tokens with [PdfEditorThemeData.of].
+  final PdfEditorThemeData? theme;
+
+  /// The platform whose conventions the editor follows below this scope
+  /// (text menus, shortcuts labels), or null for [defaultTargetPlatform].
+  /// Read it with [platformOf].
+  final TargetPlatform? platform;
 
   /// The nearest scope above [context], or null. With [listen] (the
   /// default) [context] rebuilds when the scope's presenter changes.
@@ -256,13 +289,22 @@ class PdfEditorScope extends InheritedTheme {
           ? context.dependOnInheritedWidgetOfExactType<PdfEditorScope>()
           : context.getInheritedWidgetOfExactType<PdfEditorScope>();
 
+  /// The platform the editor follows at [context]: the nearest scope's
+  /// [platform], else [defaultTargetPlatform] (which tests override with
+  /// `debugDefaultTargetPlatformOverride`). Widgets-layer only - it never
+  /// reads a Material theme.
+  static TargetPlatform platformOf(BuildContext context) =>
+      maybeOf(context, listen: false)?.platform ?? defaultTargetPlatform;
+
   @override
-  Widget wrap(BuildContext context, Widget child) =>
-      PdfEditorScope(presenter: presenter, child: child);
+  Widget wrap(BuildContext context, Widget child) => PdfEditorScope(
+      presenter: presenter, theme: theme, platform: platform, child: child);
 
   @override
   bool updateShouldNotify(PdfEditorScope oldWidget) =>
-      !identical(presenter, oldWidget.presenter);
+      !identical(presenter, oldWidget.presenter) ||
+      theme != oldWidget.theme ||
+      platform != oldWidget.platform;
 }
 
 // ---- requests and results -------------------------------------------------
@@ -334,6 +376,12 @@ class PdfMenuRequest<T> {
 abstract class PdfMenuEntry<T> {
   /// Abstract const constructor.
   const PdfMenuEntry();
+
+  /// The entry's stable id - a [PdfMenuItem]'s `pdf-*` key value (such as
+  /// `pdf-annot-menu-flatten`) - or null (a divider, an unkeyed row). Lets
+  /// an entries builder find stock rows:
+  /// `stock.where((e) => e.id != 'pdf-annot-menu-flatten')`.
+  String? get id => null;
 }
 
 /// A rule between groups of [PdfMenuItem]s.
@@ -390,6 +438,10 @@ class PdfMenuItem<T> extends PdfMenuEntry<T> {
 
   /// The stock menu's row padding, or null for its default.
   final EdgeInsets? padding;
+
+  @override
+  String? get id =>
+      switch (key) { ValueKey<String>(:final value) => value, _ => null };
 }
 
 /// What a [PdfEditorNotice] is about.
@@ -456,6 +508,98 @@ class PdfEditorNotice {
 
   /// A key for the shown notice.
   final Key? key;
+}
+
+/// Which floating action bar a [PdfActionBarRequest] draws.
+enum PdfActionBarKind {
+  /// The row beside a touch or stylus annotation selection: delete, edit
+  /// text, and the context menu.
+  annotationSelection,
+
+  /// The chip beside a touch text selection: edit, copy, markup, add link,
+  /// select all.
+  textSelection,
+
+  /// The confirm/cancel pair beside an image being cropped.
+  crop,
+}
+
+/// One action of a [PdfActionBarRequest].
+@immutable
+class PdfActionBarAction {
+  /// An action called [id] (the stock button's key value, such as
+  /// `pdf-selection-chip-delete`).
+  const PdfActionBarAction({
+    required this.id,
+    required this.label,
+    this.icon,
+    this.onPressed,
+    this.children = const [],
+  });
+
+  /// A stable id: the stock button's `pdf-*` key value.
+  final String id;
+
+  /// The action's (localized) label or tooltip.
+  final String label;
+
+  /// The stock icon, if the stock button shows one.
+  final IconData? icon;
+
+  /// Runs the action; null for a group of [children] (the markup choices).
+  final VoidCallback? onPressed;
+
+  /// For a group (the text chip's markup menu), the actions it offers.
+  final List<PdfActionBarAction> children;
+}
+
+/// What [PdfEditorPresenter.actionBar] draws.
+@immutable
+class PdfActionBarRequest {
+  /// A [kind] bar offering [actions]; [stock] is the editor's own chip.
+  const PdfActionBarRequest({
+    required this.kind,
+    required this.actions,
+    required this.stock,
+  });
+
+  /// Which bar.
+  final PdfActionBarKind kind;
+
+  /// The actions the stock chip offers, in order.
+  final List<PdfActionBarAction> actions;
+
+  /// The stock chip (keys and all).
+  final Widget stock;
+}
+
+/// Which floating readout a [PdfReadoutRequest] draws.
+enum PdfReadoutKind {
+  /// The live length/area/angle of a measurement being drawn.
+  measurement,
+
+  /// The stroke width or font size being changed.
+  style,
+}
+
+/// What [PdfEditorPresenter.readout] draws.
+@immutable
+class PdfReadoutRequest {
+  /// A [kind] readout showing [text]; [stock] is the editor's own chip.
+  const PdfReadoutRequest({
+    required this.kind,
+    required this.text,
+    required this.stock,
+  });
+
+  /// Which readout.
+  final PdfReadoutKind kind;
+
+  /// The (formatted) value to show.
+  final String text;
+
+  /// The stock chip.
+  final Widget stock;
 }
 
 /// What [PdfEditorPresenter.text] asks for.
@@ -836,24 +980,40 @@ Future<PdfLinkTarget?> pdfPresentLinkPrompt(
 /// Installs the presenter a root editor widget was given: [presenter] (or
 /// the inherited one), with [textPrompt]/[styledTextPrompt] - the older
 /// per-widget prompt parameters - taking precedence for this subtree, plus a
-/// [PdfMaterialHost] so the stock chrome runs under any host. Always wraps,
-/// so the tree's shape does not change with the arguments.
+/// [PdfMaterialHost] so the stock chrome runs under any host. [theme] merges
+/// over the inherited scope's tokens. Always wraps the scope and host, so
+/// the tree's shape does not change with the prompt arguments.
 Widget pdfInstallPresenter(
   BuildContext context, {
   PdfEditorPresenter? presenter,
   PdfTextPrompt? textPrompt,
   PdfStyledTextPrompt? styledTextPrompt,
+  PdfEditorThemeData? theme,
   required Widget child,
 }) {
-  var effective = presenter ??
-      PdfEditorScope.maybeOf(context)?.presenter ??
-      const PdfEditorPresenter();
+  final inherited = PdfEditorScope.maybeOf(context);
+  var effective =
+      presenter ?? inherited?.presenter ?? const PdfEditorPresenter();
   if (textPrompt != null || styledTextPrompt != null) {
     effective = _PromptOverridePresenter(effective,
         textPrompt: textPrompt, styledTextPrompt: styledTextPrompt);
   }
+  final tokens = inherited?.theme?.merge(theme) ?? theme;
+  Widget content = PdfMaterialHost(child: child);
+  final viewerTokens = tokens?.viewer;
+  if (viewerTokens != null) {
+    // the scope's canvas tokens sit beneath an ambient PdfViewerTheme's
+    // explicit values; a root widget's own viewerTheme wraps inside this
+    content = PdfViewerTheme(
+      data: viewerTokens.merge(PdfViewerTheme.maybeOf(context)),
+      child: content,
+    );
+  }
   return PdfEditorScope(
-      presenter: effective, child: PdfMaterialHost(child: child));
+      presenter: effective,
+      theme: tokens,
+      platform: inherited?.platform,
+      child: content);
 }
 
 /// [base], except that [textPrompt]/[styledTextPrompt] answer the text
@@ -902,6 +1062,14 @@ class _PromptOverridePresenter extends PdfEditorPresenter {
   @override
   bool notice(BuildContext context, PdfEditorNotice notice) =>
       base.notice(context, notice);
+
+  @override
+  Widget actionBar(BuildContext context, PdfActionBarRequest request) =>
+      base.actionBar(context, request);
+
+  @override
+  Widget readout(BuildContext context, PdfReadoutRequest request) =>
+      base.readout(context, request);
 
   @override
   Future<bool> confirm(BuildContext context, PdfConfirmRequest request) =>

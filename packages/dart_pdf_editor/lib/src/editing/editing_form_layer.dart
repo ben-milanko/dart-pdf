@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../design/viewer_tokens.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -45,8 +46,7 @@ class FormFieldLabelLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chrome = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chrome = PdfViewerTheme.of(context).chrome;
     final fields = controller.formWidgetsOn(pageIndex);
     final chromeScale = _chromeScale;
     return IgnorePointer(
@@ -762,8 +762,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   /// choice widget; its [Focus] takes Space, Enter, Tab and Escape.
   Widget _focusRing(Rect rect) {
     final chromeScale = _chromeScale;
-    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chromeColor = PdfViewerTheme.of(context).chrome;
     return Positioned.fromRect(
       key: const ValueKey('pdf-form-focus-ring'),
       rect: rect.inflate(2 * chromeScale),
@@ -814,8 +813,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final rect = _editRect!;
     final scale = widget.geometry.scale;
     final chromeScale = _chromeScale;
-    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chromeColor = PdfViewerTheme.of(context).chrome;
     return Positioned.fromRect(
       // keyed so a Tab from one field of this page to another keeps the
       // same TextField (and its focus) rather than rebuilding it

@@ -14,6 +14,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextAlign,
         PdfTextFont;
 
+import '../design/editor_theme.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
@@ -393,7 +394,11 @@ class PdfEditingToolbar extends StatefulWidget {
   /// show as floating cards. Hosts can read this to decide whether to
   /// dock the toolbar (below this width it's a solid bar, so floating it
   /// over the page would hide content) or let it float.
-  static const mobileBreakpoint = 600.0;
+  ///
+  /// The shells' one compact breakpoint, [pdfShellCompactWidth] (700 -
+  /// it was 600 before 5.5, a separate value from the header's). A
+  /// [PdfEditorThemeData.compactWidth] token moves it per editor.
+  static const mobileBreakpoint = pdfShellCompactWidth;
 
   @override
   State<PdfEditingToolbar> createState() => _PdfEditingToolbarState();
@@ -1363,8 +1368,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             builder: (context, constraints) {
               final compact = widget.compact ??
                   (!widget.dock.isHorizontal &&
-                      constraints.maxWidth <
-                          PdfEditingToolbar.mobileBreakpoint);
+                      constraints.maxWidth < pdfCompactWidthOf(context));
               return compact
                   ? _buildMobile(context, width: constraints.maxWidth)
                   : _buildDesktop(context);
@@ -3336,7 +3340,7 @@ class _StripLabel extends StatelessWidget {
               fontWeight: FontWeight.w600,
               letterSpacing: 0.4,
               color: scheme.onSurfaceFaintOr,
-            ),
+            ).merge(PdfEditorThemeData.of(context).sectionLabel),
           ),
           if (hint != null)
             Padding(
@@ -3377,7 +3381,7 @@ class _SheetSectionLabel extends StatelessWidget {
             fontWeight: FontWeight.w600,
             letterSpacing: 0.5,
             color: scheme.onSurfaceFaintOr,
-          ),
+          ).merge(PdfEditorThemeData.of(context).sectionLabel),
         ),
         if (hint != null)
           Padding(

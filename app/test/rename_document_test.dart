@@ -97,7 +97,7 @@ void main() {
     expect(findMiddleEllipsisText('Project notes.pdf'), findsOneWidget);
     expect((await recovery.list()).single.title, 'Project notes.pdf');
 
-    await tester.tap(find.byKey(const ValueKey('mobile-app-save')));
+    await tester.tap(find.byKey(const ValueKey('pdf-shell-save')));
     await tester.pumpAndSettle();
     expect(sharedName, 'Project notes.pdf');
     expect(sharedBytes, editedBytes);

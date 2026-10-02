@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Export `PdfDropdown` and `PdfDropdownItem`, the drop-down picker the
+  editor's own dialogs use: its options open through the
+  `PdfEditorPresenter`'s menu, so it works under any host. Companion
+  packages (dart_pdf_printing's print preview) use it too.
 - Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`).
   5.0.0 already needed 3.44, since the thumbnail strip's reorder uses
   `ReorderableListView.onReorderItem`, which first shipped in Flutter 3.44, so
@@ -148,6 +152,49 @@
   its own taps (select, move, resize) and hands its double-tap over.
 - `tool/check_design_imports.dart` also counts text fields without the
   shared context menu; it and the `DropdownButton` counter are at 0.
+- Add `PdfEditorThemeData`, the editor's design tokens: `success`/`warning`/
+  `danger`/`info` status colours (the signature and review pills), the
+  `sectionLabel` style, `compactWidth` and `toastLift`, plus canvas tokens in
+  `viewer`. Provide it with `PdfEditorView(theme:)` or
+  `PdfEditorScope(theme:)`; read it with `PdfEditorThemeData.of(context)`.
+  Defaults equal the old literals. `PdfEditorScope` also gains `platform`
+  and `PdfEditorScope.platformOf` (the in-page text editors' Apple caret
+  correction reads it instead of the Material theme's platform).
+- `PdfViewerThemeData` gains `merge`, `copyWith`, `lerp` and the canvas
+  tokens that were hard-coded: `marqueeColor`, `snapGridColor`,
+  `alignmentGuideColor`, `redactionHatchColor`, `rulerBackgroundColor`/
+  `rulerForegroundColor`/`rulerAccentColor`, `chipColor`/
+  `chipForegroundColor`, `handleSize`, `inlineSelectionHandleColor` and
+  `diffInsertedColor`/`diffDeletedColor`/`diffReplacedColor`;
+  `PdfScrollbarThemeData` gains `markerColor`, `merge`, `copyWith` and
+  `lerp`; `PdfViewerTheme.maybeOf`. The stock fallbacks now resolve in one
+  place.
+- Add `PdfEditorView.headerBuilder`, which builds the header from
+  `PdfHeaderParts` (page number, zoom, search, view options, panel switch,
+  save, the compact Controls button, `compact`, the `stock` header, and
+  `bar(...)` in the stock look). Export `pdfShellCompactWidth`.
+- Add context-menu entry builders: `annotationMenuEntries`,
+  `textMenuEntries` and `formFieldMenuEntries` (on `PdfViewer` and
+  `PdfEditorView`; `textMenuEntries` on `PdfReader`) receive the stock rows
+  and return the rows to show. `PdfMenuEntry.id` names stock rows by their
+  `pdf-*` key; `pdfAnnotationMenuEntry`/`pdfTextMenuEntry` build rows in the
+  stock style; `PdfFormFieldMenuRequest` describes the field menu.
+  `showPdfAnnotationMenu`/`showPdfFormFieldMenu` take `entriesBuilder:`.
+- Add `PdfEditorPresenter.actionBar` and `readout`, which draw the floating
+  chips (`PdfActionBarRequest`: the touch annotation selection, touch text
+  selection and image crop chips with their actions as data;
+  `PdfReadoutRequest`: the measurement and style readouts). The defaults
+  return the stock chips unchanged.
+- Add `PdfViewer.showInlineTextStyleChip` (and on `PdfEditorView`) to turn
+  off the touch text-style chip over an in-place text editor.
+- Add `PdfViewerController.globalRectOf(page, rect)`, a page-space
+  rectangle's on-screen position, and `selectionGlobalRect`, a
+  `ValueListenable<Rect?>` of the selection's on-screen bounds.
+- Layout change: the editing toolbar's phone breakpoint is now the shells'
+  compact width, 700 (was 600), so between 600 and 700px wide the toolbar
+  docks below the viewer as a solid bar, matching the header and panels,
+  which were already compact there. `PdfEditingToolbar.mobileBreakpoint` is
+  700; a `PdfEditorThemeData.compactWidth` moves both.
 
 ## 5.1.1
 

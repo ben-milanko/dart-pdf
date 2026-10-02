@@ -100,6 +100,10 @@ void f() {
 import 'package:flutter/material.dart';
 void g() => showMenu(context: c);
 ''');
+    // the printing package's lib/ is counted too (no design/ exemption)
+    write('packages/dart_pdf_printing/lib/src/preview.dart', '''
+void h() => DropdownButton(items: []);
+''');
     write('$lib/src/pdf_page_view.dart', '''
 import 'package:flutter_localizations/flutter_localizations.dart';
 ''');
@@ -137,10 +141,13 @@ import 'package:flutter_localizations/flutter_localizations.dart';
           'showMenu': {'$lib/src/editing/leaky.dart': 1},
           'showModalBottomSheet': {'$lib/src/editing/leaky.dart': 1},
           'ScaffoldMessenger': {'$lib/src/editing/leaky.dart': 1},
-          'DropdownButton': {'$lib/src/editing/leaky.dart': 1},
+          'DropdownButton': {
+            '$lib/src/editing/leaky.dart': 1,
+            'packages/dart_pdf_printing/lib/src/preview.dart': 1,
+          },
           'TextFieldWithoutMenu': {'$lib/src/editing/leaky.dart': 2},
         },
-        'counters skip comments and lib/src/design/');
+        'counters skip comments and lib/src/design/, and scan printing');
 
     // Widening the tolerated deprecated edge is a violation.
     write('$lib/src/editing/editing_preferences.dart', '''

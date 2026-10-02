@@ -19,7 +19,8 @@
 //     edge: the generated localizations under lib/l10n/ importing
 //     package:flutter_localizations, which pulls in flutter/material.
 //
-// (c) Raw component counters, outside lib/src/design/: uses of showMenu,
+// (c) Raw component counters, over the editor's and the printing package's
+//     lib/ (outside the editor's lib/src/design/): uses of showMenu,
 //     showModalBottomSheet, ScaffoldMessenger and DropdownButton(FormField),
 //     and text fields (TextField, TextFormField, SelectableText) without the
 //     shared context menu, per file. These are the calls a non-Material host
@@ -55,7 +56,10 @@ const headlessRoots = [
 ];
 
 /// Where counters (c) look, and the one subtree they skip.
-const counterLib = 'packages/dart_pdf_editor/lib';
+const counterLibs = [
+  'packages/dart_pdf_editor/lib',
+  'packages/dart_pdf_printing/lib',
+];
 const counterExempt = 'packages/dart_pdf_editor/lib/src/design/';
 
 /// The raw component uses counted by (c), each over comment-stripped code.
@@ -247,8 +251,9 @@ ScanResult scan(String root, PackageResolver resolver) {
   final counts = <String, Map<String, int>>{
     for (final name in counters.keys) name: <String, int>{}
   };
-  final counterDir = Directory('$root/$counterLib');
-  if (counterDir.existsSync()) {
+  for (final lib in counterLibs) {
+    final counterDir = Directory('$root/$lib');
+    if (!counterDir.existsSync()) continue;
     for (final file in _dartFiles(counterDir)) {
       final rel = _relative(root, file.path);
       if (rel.startsWith(counterExempt)) continue;

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'design/viewer_tokens.dart';
 import 'theme.dart';
 
 /// The viewer-style scrollbar: a light thumb with a dark outline over a
@@ -292,7 +293,9 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
                               width: _vertical ? double.infinity : 3,
                               height: _vertical ? 3 : double.infinity,
                               child: ColoredBox(
-                                color: Theme.of(context).colorScheme.primary,
+                                color: PdfViewerTheme.of(context)
+                                    .scrollbarMarker(
+                                        Theme.of(context).colorScheme.primary),
                               ),
                             ),
                           ),

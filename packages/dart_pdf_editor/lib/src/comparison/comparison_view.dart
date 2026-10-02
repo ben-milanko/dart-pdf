@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../design/material_host.dart';
+import '../design/viewer_tokens.dart';
 import '../editing/editing_panel.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
@@ -481,19 +482,16 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
 
   ({IconData icon, Color color, String prefix}) _style(
       BuildContext context, PdfDiffChangeKind kind) {
+    final theme = PdfViewerTheme.of(context);
     switch (kind) {
       case PdfDiffChangeKind.inserted:
       case PdfDiffChangeKind.pageInserted:
-        return (icon: Icons.add, color: const Color(0xFF2E7D32), prefix: '');
+        return (icon: Icons.add, color: theme.diffInserted, prefix: '');
       case PdfDiffChangeKind.deleted:
       case PdfDiffChangeKind.pageRemoved:
-        return (icon: Icons.remove, color: const Color(0xFFE53935), prefix: '');
+        return (icon: Icons.remove, color: theme.diffDeleted, prefix: '');
       case PdfDiffChangeKind.replaced:
-        return (
-          icon: Icons.swap_horiz,
-          color: const Color(0xFFF57C00),
-          prefix: ''
-        );
+        return (icon: Icons.swap_horiz, color: theme.diffReplaced, prefix: '');
     }
   }
 

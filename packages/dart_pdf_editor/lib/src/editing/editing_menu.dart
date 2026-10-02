@@ -161,6 +161,95 @@ class PdfTextMenuItem {
 typedef PdfTextMenuBuilder = List<PdfTextMenuItem> Function(
     BuildContext context, PdfTextMenuRequest request);
 
+/// Rewrites a context menu's rows: receives the [stock] rows - the stock
+/// entries, then any [PdfAnnotationMenuBuilder] additions, with dividers -
+/// and returns the rows to show. Drop, reorder or add rows; find stock ones
+/// by [PdfMenuEntry.id] (`pdf-annot-menu-delete`, ...) and build new ones
+/// with [pdfAnnotationMenuEntry]:
+///
+/// ```dart
+/// annotationMenuEntries: (context, request, stock) => [
+///   ...stock.where((e) => e.id != 'pdf-annot-menu-flatten'),
+///   const PdfMenuDivider(),
+///   pdfAnnotationMenuEntry(PdfAnnotationMenuItem(
+///       label: 'Share', onSelected: (request) => share(request.primary))),
+/// ],
+/// ```
+///
+/// Returning an empty list keeps the menu from opening.
+typedef PdfAnnotationMenuEntriesBuilder
+    = List<PdfMenuEntry<PdfAnnotationMenuItem>> Function(
+        BuildContext context,
+        PdfAnnotationMenuRequest request,
+        List<PdfMenuEntry<PdfAnnotationMenuItem>> stock);
+
+/// [PdfAnnotationMenuEntriesBuilder] for the text-selection context menu;
+/// build new rows with [pdfTextMenuEntry]. Stock ids are `pdf-text-menu-*`
+/// (`edit`, `highlight`, `underline`, `strikeout`, `squiggly`, `link`,
+/// `copy`, `select-all`).
+typedef PdfTextMenuEntriesBuilder
+    = List<PdfMenuEntry<PdfTextMenuItem>> Function(BuildContext context,
+        PdfTextMenuRequest request, List<PdfMenuEntry<PdfTextMenuItem>> stock);
+
+/// What the form tool's field context menu acts on.
+class PdfFormFieldMenuRequest {
+  /// The menu for [fieldName] in [controller]'s form.
+  const PdfFormFieldMenuRequest({
+    required this.controller,
+    required this.fieldName,
+    this.widgetIndex,
+  });
+
+  /// The editing session.
+  final PdfEditingController controller;
+
+  /// The field's fully qualified name.
+  final String fieldName;
+
+  /// The field widget the menu opened on (a radio button), when known.
+  final int? widgetIndex;
+}
+
+/// [PdfAnnotationMenuEntriesBuilder] for the form tool's field menu. Stock
+/// ids are `pdf-form-menu-*` (`edit`, `style`, `options`, `add-radio`,
+/// `rename`, `text`, `checkbox`, `button`, `radio`, `combo`, `list`,
+/// `signature`, `delete`, `flatten`).
+typedef PdfFormFieldMenuEntriesBuilder
+    = List<PdfMenuEntry<PdfAnnotationMenuItem>> Function(
+        BuildContext context,
+        PdfFormFieldMenuRequest request,
+        List<PdfMenuEntry<PdfAnnotationMenuItem>> stock);
+
+/// A row for an annotation or form-field context menu, drawn like the stock
+/// rows (dense, a 16px icon) - for [PdfAnnotationMenuEntriesBuilder]s.
+PdfMenuItem<PdfAnnotationMenuItem> pdfAnnotationMenuEntry(
+        PdfAnnotationMenuItem item) =>
+    _menuRow(item);
+
+/// A row for the text-selection context menu, drawn like the stock rows -
+/// for [PdfTextMenuEntriesBuilder]s.
+PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
+    PdfMenuItem<PdfTextMenuItem>(
+      key: item.key,
+      value: item,
+      label: item.label,
+      icon: item.icon,
+      enabled: item.enabled,
+      child: Row(
+        children: [
+          if (item.icon != null) ...[
+            Builder(
+              builder: (context) => Icon(item.icon,
+                  size: 18,
+                  color: item.enabled ? null : Theme.of(context).disabledColor),
+            ),
+            const SizedBox(width: 10),
+          ],
+          Flexible(child: Text(item.label, overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+    );
+
 /// Shows the annotation context menu at [position] (global coordinates)
 /// for [controller]'s current selection: copy/cut/apply-to-pages/paste,
 /// bring to front, send to back, add/remove node (a single /PolyLine or
@@ -172,13 +261,15 @@ typedef PdfTextMenuBuilder = List<PdfTextMenuItem> Function(
 /// Paste centers the clipboard there; without it the paste falls back
 /// to [PdfEditingController.pasteAnnotations]' cascade. With nothing
 /// selected the menu still opens when the clipboard has content (the
-/// empty-area right-click), offering Paste alone.
+/// empty-area right-click), offering Paste alone. [entriesBuilder] rewrites
+/// the rows last (see [PdfAnnotationMenuEntriesBuilder]).
 Future<void> showPdfAnnotationMenu({
   required BuildContext context,
   required Offset position,
   required PdfEditingController controller,
   required int pageIndex,
   PdfAnnotationMenuBuilder? customActions,
+  PdfAnnotationMenuEntriesBuilder? entriesBuilder,
   PdfTextPrompt textPrompt = pdfPresentTextPrompt,
   // When supplied, the host can read a system clipboard on the user's Paste
   // action. No clipboard permissions are requested merely to open the menu.
@@ -406,19 +497,24 @@ Future<void> showPdfAnnotationMenu({
   final custom =
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
+  var entries = _menuRowsWithDividers(
+      [unlock, clipboard, arrange, nodes, recolor, destructive, custom]);
+  if (entriesBuilder != null) {
+    entries = entriesBuilder(context, request, entries);
+    if (entries.isEmpty) return;
+  }
   final picked = await PdfEditorPresenter.of(context).menu(
     context,
-    PdfMenuRequest<PdfAnnotationMenuItem>.at(position,
-        entries: _menuRowsWithDividers(
-            [unlock, clipboard, arrange, nodes, recolor, destructive, custom])),
+    PdfMenuRequest<PdfAnnotationMenuItem>.at(position, entries: entries),
   );
   await picked?.onSelected(request);
 }
 
 /// Shows the form tool's field context menu at [position] (global
 /// coordinates) for the field named [fieldName]: rename, convert to the
-/// other creatable kinds, delete, and flatten the whole form. Resolves
-/// when the menu closes, after the picked action ran.
+/// other creatable kinds, delete, and flatten the whole form, rewritten by
+/// [entriesBuilder] when given. Resolves when the menu closes, after the
+/// picked action ran.
 Future<void> showPdfFormFieldMenu({
   required BuildContext context,
   required Offset position,
@@ -428,6 +524,7 @@ Future<void> showPdfFormFieldMenu({
   PdfTextPrompt textPrompt = pdfPresentTextPrompt,
   PdfFontPicker? fontPicker,
   PdfFormImagePicker? formImagePicker,
+  PdfFormFieldMenuEntriesBuilder? entriesBuilder,
 }) async {
   final field = controller.acroForm?.fieldNamed(fieldName);
   if (field == null) return;
@@ -648,10 +745,20 @@ Future<void> showPdfFormFieldMenu({
     ),
   ];
 
+  var entries = _menuRowsWithDividers([edit, structure, destructive]);
+  if (entriesBuilder != null) {
+    entries = entriesBuilder(
+        context,
+        PdfFormFieldMenuRequest(
+            controller: controller,
+            fieldName: fieldName,
+            widgetIndex: widgetIndex),
+        entries);
+    if (entries.isEmpty) return;
+  }
   final picked = await PdfEditorPresenter.of(context).menu(
     context,
-    PdfMenuRequest<PdfAnnotationMenuItem>.at(position,
-        entries: _menuRowsWithDividers([edit, structure, destructive])),
+    PdfMenuRequest<PdfAnnotationMenuItem>.at(position, entries: entries),
   );
   // the request param is unused by these closures; reuse the row type
   // so the menu plumbing stays shared with the annotation menu

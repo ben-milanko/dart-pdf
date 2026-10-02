@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import '../design/editor_theme.dart';
 import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
@@ -105,6 +106,10 @@ class PdfAnnotationSidebar extends StatefulWidget {
 }
 
 class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
+  /// The status colours (signature verdicts, review states) - the editor's
+  /// success/warning/danger/info tokens.
+  PdfEditorThemeData get _status => PdfEditorThemeData.of(context);
+
   /// Links and form fields are listed but not selectable (the select
   /// tool refuses them too); popups belong to their parent annotation
   /// and are not listed at all.
@@ -530,12 +535,12 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     final revoked = validation.revokedBeforeSigning;
 
     final (String, Color) status = !intact
-        ? (l10n.sidebarSignatureInvalid, Colors.red)
+        ? (l10n.sidebarSignatureInvalid, _status.danger!)
         : revoked
-            ? (l10n.sidebarSignatureRevokedStatus, Colors.red)
+            ? (l10n.sidebarSignatureRevokedStatus, _status.danger!)
             : trusted
-                ? (l10n.sidebarSignatureTrusted, Colors.green)
-                : (l10n.sidebarSignatureUnverified, Colors.orange);
+                ? (l10n.sidebarSignatureTrusted, _status.success!)
+                : (l10n.sidebarSignatureUnverified, _status.warning!);
 
     // (text, accent colour) detail lines; a null colour is a muted line.
     final details = <(String, Color?)>[];
@@ -567,20 +572,20 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               : list != null
                   ? l10n.sidebarSignatureTrustedViaList(authority, list)
                   : l10n.sidebarSignatureTrustedVia(authority),
-          Colors.green,
+          _status.success!,
         ));
       } else if (revoked) {
         // the revocation lines below say why
       } else if (validation.isSelfSigned) {
         // nobody but the signer vouches for this certificate
-        details.add((l10n.sidebarSignatureSelfSigned, Colors.orange));
+        details.add((l10n.sidebarSignatureSelfSigned, _status.warning!));
       } else if (validation.chainTrusted == false) {
         final issuer = validation.signerCertificate?.issuerCommonName;
         details.add((
           issuer != null && issuer.isNotEmpty
               ? l10n.sidebarSignatureUnknownIssuer(issuer)
               : l10n.sidebarSignatureUntrustedDetail,
-          Colors.orange,
+          _status.warning!,
         ));
       } else {
         // no trust store configured - crypto is checked, trust isn't judged
@@ -589,7 +594,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     }
 
     if (!validation.coversWholeDocument) {
-      details.add((l10n.sidebarSignatureModified, Colors.orange));
+      details.add((l10n.sidebarSignatureModified, _status.warning!));
     }
     details.addAll(_revocationDetails(context, validation));
 
@@ -610,7 +615,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     // valid signature's incidental notes stay out of the panel.
     if (!intact) {
       for (final problem in validation.problems) {
-        details.add((problem, Colors.red));
+        details.add((problem, _status.danger!));
       }
     }
 
@@ -694,20 +699,20 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           time != null
               ? l10n.sidebarSignatureRevokedOn(_formatTime(time))
               : l10n.sidebarSignatureRevoked,
-          Colors.red,
+          _status.danger!,
         ));
       } else {
         lines.add((
           l10n.sidebarSignatureRevokedAfterSigning(
               time != null ? _formatTime(time) : ''),
-          Colors.orange,
+          _status.warning!,
         ));
       }
       return lines;
     }
     if (validation.embeddedRevocation == PdfRevocationStatus.revoked) {
       // the signer's own /DSS entry, even when no issuer could be matched
-      return [(l10n.sidebarSignatureRevoked, Colors.red)];
+      return [(l10n.sidebarSignatureRevoked, _status.danger!)];
     }
     switch (validation.revocationStatus) {
       case PdfRevocationStatus.good:
@@ -720,11 +725,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           null,
         ));
       case PdfRevocationStatus.unknown:
-        lines.add((l10n.sidebarSignatureRevocationUnknown, Colors.orange));
+        lines.add((l10n.sidebarSignatureRevocationUnknown, _status.warning!));
       case PdfRevocationStatus.none:
         if (validation.liveRevocationChecked &&
             validation.revocation.isNotEmpty) {
-          lines.add((l10n.sidebarSignatureRevocationUnknown, Colors.orange));
+          lines.add((l10n.sidebarSignatureRevocationUnknown, _status.warning!));
         }
       case PdfRevocationStatus.revoked:
         break; // handled above
@@ -877,11 +882,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   (String, Color)? _stateChip(PdfReviewState state, ColorScheme cs) {
     final l = pdfL10n(context);
     return switch (state) {
-      PdfReviewState.completed => (l.sbarStateResolved, Colors.green),
-      PdfReviewState.accepted => (l.sbarStateAccepted, Colors.green),
-      PdfReviewState.rejected => (l.sbarStateRejected, Colors.red),
-      PdfReviewState.cancelled => (l.sbarStateCancelled, Colors.orange),
-      PdfReviewState.marked => (l.sbarStateMarked, Colors.blue),
+      PdfReviewState.completed => (l.sbarStateResolved, _status.success!),
+      PdfReviewState.accepted => (l.sbarStateAccepted, _status.success!),
+      PdfReviewState.rejected => (l.sbarStateRejected, _status.danger!),
+      PdfReviewState.cancelled => (l.sbarStateCancelled, _status.warning!),
+      PdfReviewState.marked => (l.sbarStateMarked, _status.info!),
       PdfReviewState.unmarked => (l.sbarStateUnmarked, cs.outline),
       PdfReviewState.none => null,
     };

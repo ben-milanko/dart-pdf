@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'design/viewer_tokens.dart';
 import 'package:flutter/material.dart';
 
 import 'design/material_host.dart';
@@ -338,8 +339,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
 
   Widget _resultTile(BuildContext context, int index, PdfSearchResult result) {
     final scheme = Theme.of(context).colorScheme;
-    final highlight =
-        PdfViewerTheme.of(context).searchMatchColor ?? const Color(0x66FFEB3B);
+    final highlight = PdfViewerTheme.of(context).searchMatch;
     final style = Theme.of(context).textTheme.bodySmall;
     return ListTile(
       key: ValueKey('pdf-search-result-$index'),
