@@ -243,18 +243,24 @@ const int pdfRenderWorkerPoolMinPages = 12;
 /// Skipping the pool's defensive snapshot saves a full-document allocation per
 /// worker generation - the single-worker branch never copied either.
 /// [populatedRanges] follows [PdfDocument.open]'s sparse-buffer contract.
+/// [imageCacheBytes] is each worker's decoded-image cache budget; null takes
+/// the platform default (`pdfDefaultWorkerImageCacheBytes`).
 PdfRenderWorker startPdfRenderWorker(
   Uint8List bytes, {
   required int pageCount,
   int? workerCount,
   bool copySource = false,
   List<int>? populatedRanges,
+  int? imageCacheBytes,
 }) {
   final count = math.max(1, workerCount ?? pdfRenderWorkerPoolSize);
   final backend = count > 1 && pageCount >= pdfRenderWorkerPoolMinPages
       ? PdfPooledRenderWorker(bytes, count,
-          copySource: copySource, populatedRanges: populatedRanges)
-      : startRenderWorker(bytes, populatedRanges: populatedRanges);
+          copySource: copySource,
+          populatedRanges: populatedRanges,
+          imageCacheBytes: imageCacheBytes)
+      : startRenderWorker(bytes,
+          populatedRanges: populatedRanges, imageCacheBytes: imageCacheBytes);
   return PdfCachingRenderWorker(backend);
 }
 
@@ -308,8 +314,11 @@ abstract class PdfRenderWorker {
   ///
   /// [populatedRanges] follows [PdfDocument.open]'s sparse-buffer contract;
   /// omitted ranges are inherited from the source buffer before it is copied.
-  static PdfRenderWorker start(Uint8List bytes, {List<int>? populatedRanges}) =>
-      PdfCachingRenderWorker(_backend(bytes, populatedRanges));
+  /// [imageCacheBytes] is each worker's decoded-image cache budget; null takes
+  /// the platform default (`pdfDefaultWorkerImageCacheBytes`).
+  static PdfRenderWorker start(Uint8List bytes,
+          {List<int>? populatedRanges, int? imageCacheBytes}) =>
+      PdfCachingRenderWorker(_backend(bytes, populatedRanges, imageCacheBytes));
 
   /// Builds the uncached backend: a single platform worker, or - when
   /// [pdfRenderWorkerPoolSize] asks for more than one - a pool of them.
@@ -320,11 +329,15 @@ abstract class PdfRenderWorker {
   /// full-document snapshot here is pure waste on the big files #359 makes
   /// common.
   static PdfRenderWorker _backend(
-          Uint8List bytes, List<int>? populatedRanges) =>
+          Uint8List bytes, List<int>? populatedRanges, int? imageCacheBytes) =>
       pdfRenderWorkerPoolSize > 1
           ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize,
-              copySource: false, populatedRanges: populatedRanges)
-          : startRenderWorker(bytes, populatedRanges: populatedRanges);
+              copySource: false,
+              populatedRanges: populatedRanges,
+              imageCacheBytes: imageCacheBytes)
+          : startRenderWorker(bytes,
+              populatedRanges: populatedRanges,
+              imageCacheBytes: imageCacheBytes);
 
   /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
   /// only: for exercising the inner queue/cancel/priority contract, which the
@@ -333,8 +346,9 @@ abstract class PdfRenderWorker {
   /// because this library stays Flutter-free so the web worker can compile via
   /// `dart compile js` without pulling in Flutter.)
   static PdfRenderWorker startUncached(Uint8List bytes,
-          {List<int>? populatedRanges}) =>
-      startRenderWorker(bytes, populatedRanges: populatedRanges);
+          {List<int>? populatedRanges, int? imageCacheBytes}) =>
+      startRenderWorker(bytes,
+          populatedRanges: populatedRanges, imageCacheBytes: imageCacheBytes);
 
   /// Warms the platform render worker ahead of a document, so its startup cost
   /// overlaps whatever the user is doing (choosing or loading a file) instead of
@@ -652,6 +666,13 @@ abstract class PdfRenderWorker {
   /// for a deterministic, backend-independent measurement.
   PdfRenderTrace? get lastRenderTrace => null;
 
+  /// Asks the worker to release the memory it keeps for reuse - its
+  /// decoded-image cache and its document's decoded-stream cache - without
+  /// disturbing anything in flight: later records just decode again, to the
+  /// same bytes. [PdfCachingRenderWorker] calls it on memory pressure (see
+  /// [PdfCacheRegistry.addPressureListener]). The default does nothing.
+  void trimMemory() {}
+
   /// Tears the worker down (kills the isolate, fails pending requests with
   /// null). Idempotent.
   void dispose();
@@ -728,13 +749,19 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// allocation on every (re)start - worth ~one document copy per worker
   /// generation on the big files #359 makes common.
   /// [populatedRanges] is copied with the shared snapshot; if omitted, the map
-  /// attached to [bytes] is inherited.
+  /// attached to [bytes] is inherited. [imageCacheBytes] is each worker's
+  /// decoded-image cache budget (null: the platform default).
   factory PdfPooledRenderWorker(Uint8List bytes, int size,
-          {bool copySource = true, List<int>? populatedRanges}) =>
+          {bool copySource = true,
+          List<int>? populatedRanges,
+          int? imageCacheBytes}) =>
       PdfPooledRenderWorker._shared(
         _prepareSource(bytes, copySource, populatedRanges),
         size,
-        startRenderWorker,
+        imageCacheBytes == null
+            ? startRenderWorker
+            : (bytes) =>
+                startRenderWorker(bytes, imageCacheBytes: imageCacheBytes),
       );
 
   /// Test seam: a pool that spawns its workers through [spawn] instead of the
@@ -1223,6 +1250,15 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     _urgentBytes = next;
   }
 
+  /// Every lane trims, the lazy urgent lane included.
+  @override
+  void trimMemory() {
+    for (final worker in _workers) {
+      worker.trimMemory();
+    }
+    _urgentWorker?.trimMemory();
+  }
+
   @override
   void dispose() {
     _routes.clear();
@@ -1332,7 +1368,8 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 /// requests pile up before any finishes. Sharing the in-flight future collapses
 /// those repeats into one decode per page. A scrolled-away page is cancelled
 /// for every sharer at once, which is correct - none of them want it any more.
-class PdfCachingRenderWorker extends PdfRenderWorker {
+class PdfCachingRenderWorker extends PdfRenderWorker
+    implements PdfMemoryPressureListener {
   PdfCachingRenderWorker(
     this._inner, {
     int? budgetBytes,
@@ -1343,7 +1380,12 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
         _maxRetainedCommands = math.max(
           1,
           maxRetainedCommands ?? pdfRenderWorkerCacheMaxRetainedCommands,
-        );
+        ) {
+    // The workers' own decode caches live in other isolates, where the
+    // registry's cache clear cannot reach: a pressure signal forwards to them
+    // through [trimMemory].
+    PdfCacheRegistry.instance.addPressureListener(this);
+  }
 
   final PdfRenderWorker _inner;
 
@@ -1775,8 +1817,14 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   void promoteTextExtraction(int pageIndex, {int priority = 0}) =>
       _inner.promoteTextExtraction(pageIndex, priority: priority);
 
+  /// Forwards to the backend (every pool lane). The record cache here is a
+  /// registered [PdfBudgetedCache], which memory pressure clears on its own.
+  @override
+  void trimMemory() => _inner.trimMemory();
+
   @override
   void dispose() {
+    PdfCacheRegistry.instance.removePressureListener(this);
     _cache.dispose();
     _inflight.clear();
     _inner.dispose();

@@ -127,6 +127,42 @@ int pdfDefaultImageCacheBytes({
   };
 }
 
+/// Platform-aware budget for each render worker's own decoded-image cache (the
+/// `PdfImageDecodeCache` a worker keeps per open document so a page recorded
+/// again - vector-first, full, thumbnail, deep-zoom detail - does not decode
+/// its images again, #451).
+///
+/// Computed on the main thread and handed to the worker at start, because a
+/// worker cannot size itself: a Web Worker has no `navigator.deviceMemory`
+/// worth reading and a native isolate no platform channel. Every worker in a
+/// pool holds its own, outside the viewer's [PdfCacheRegistry] accounting, so
+/// this is per worker:
+///
+/// - **Desktop** keeps the historical 64 MB.
+/// - **Mobile and web** take 32 MB, and a web device that admits to 2 GB or
+///   less 16 MB. The cache admits only *reusable* decodes (native-resolution
+///   JPEG, luminosity masks, browser-codec decodes) beyond small target-sized
+///   entries, and those fit: on real image-heavy documents the worker kept
+///   every hit it had behind the host's 72 MB record cache at 32 and 16 MB. A
+///   single reusable decode past the budget (an 8 MP+ JPEG under deep zoom) is
+///   still kept alone, up to the old 64 MB.
+int pdfDefaultWorkerImageCacheBytes({
+  PdfPerformancePlatform? platform,
+  double? deviceMemoryGb,
+}) {
+  const mb = 1024 * 1024;
+  final family = platform ?? detectedPdfPerformancePlatform;
+  return switch (family) {
+    PdfPerformancePlatform.desktop || PdfPerformancePlatform.other => 64 * mb,
+    PdfPerformancePlatform.mobile => 32 * mb,
+    PdfPerformancePlatform.web => switch (
+          deviceMemoryGb ?? detectedPdfDeviceMemoryGb) {
+        final ram? when ram <= 2 => 16 * mb,
+        _ => 32 * mb,
+      },
+  };
+}
+
 /// Platform-aware default for [PdfLiveRasterBudget.maxBytes]: the ceiling over
 /// the base rasters, detail patches, and retained-scene images the live pages
 /// in the scroll cacheExtent hold at once (#405).

@@ -938,9 +938,10 @@ _CommandImage? _decodeImageForCommand(
       // instead of repeating the expensive entropy/IDCT pass (notably CMYK).
       // This is byte-identical to the generic region fallback by definition of
       // pdfImageDecodeIgnoresRegion; formats with true region decoders never
-      // enter this branch.
+      // enter this branch. Reusable: every later tile and zoom level crops it.
       final full = imageCache.decode(request.stream, null, null,
-          () => decodePdfImagePixels(document, request.stream));
+          () => decodePdfImagePixels(document, request.stream),
+          reusable: true);
       decoded = full == null
           ? null
           : cropDownsamplePdfDecodedPixels(
@@ -1021,18 +1022,23 @@ _CommandImage? _decodeImageForCommand(
         scaled = decodePdfImage(document, request.stream,
             targetWidth: target.$1, targetHeight: target.$2);
       } else if (pdfImageDecodeIgnoresTarget(document, request.stream)) {
+        // Native, downsampled per record: serves every ratio (reusable).
         final full = imageCache.decode(request.stream, null, null,
-            () => decodePdfImagePixels(document, request.stream));
+            () => decodePdfImagePixels(document, request.stream),
+            reusable: true);
         scaled = full == null
             ? null
             : downsamplePdfDecodedPixels(full, target.$1, target.$2);
       } else {
+        // One exact target size: only a repeat of this record at this ratio
+        // hits it, and the host's record cache mostly answers those.
         scaled = imageCache.decode(
             request.stream,
             target.$1,
             target.$2,
             () => decodePdfImage(document, request.stream,
-                targetWidth: target.$1, targetHeight: target.$2));
+                targetWidth: target.$1, targetHeight: target.$2),
+            reusable: false);
       }
       if (scaled != null) {
         return _CommandImage(
@@ -1044,8 +1050,13 @@ _CommandImage? _decodeImageForCommand(
       ? _luminosityMaskPixels(document, request.stream, imageCache)
       : imageCache == null
           ? decodePdfImagePixels(document, request.stream)
+          // No ratio, or a target at or past native size: a native decode.
+          // It shares its key with the DCT entries above, which crop and
+          // downsample it for every other record - reusable for DCT only;
+          // other formats' native decodes serve just this kind of record.
           : imageCache.decode(request.stream, null, null,
-              () => decodePdfImagePixels(document, request.stream));
+              () => decodePdfImagePixels(document, request.stream),
+              reusable: pdfImageDecodeIgnoresRegion(document, request.stream));
   if (decoded == null) return null;
   final capped = maxImageRatio == null
       ? decoded
@@ -1073,7 +1084,8 @@ PdfDecodedPixels? _luminosityMaskPixels(
       decodePdfImagePixels(document, stream, luminosityMask: true);
   return cache == null
       ? decode()
-      : cache.decode(stream, null, null, luminosityMask: true, decode);
+      : cache.decode(
+          stream, null, null, luminosityMask: true, reusable: true, decode);
 }
 
 (int, int)? _targetDecodedSize(

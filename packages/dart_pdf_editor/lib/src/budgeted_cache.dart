@@ -436,6 +436,19 @@ final class _Entry<K, V> extends LinkedListEntry<_Entry<K, V>> {
   final int weight;
 }
 
+/// Memory held outside every [PdfBudgetedCache] that can still be let go on
+/// request - a render worker's own decode caches, which live in another
+/// isolate or Web Worker where no registered cache can reach.
+///
+/// Register with [PdfCacheRegistry.addPressureListener]:
+/// [PdfCacheRegistry.handleMemoryPressure] calls [trimMemory] after clearing
+/// the registered caches, and [PdfCacheRegistry.trimPressureListeners] calls it
+/// alone.
+abstract interface class PdfMemoryPressureListener {
+  /// Releases whatever reconstructible memory this listener holds.
+  void trimMemory();
+}
+
 /// The one place a memory-pressure signal fans out to every in-process cache.
 ///
 /// A [PdfBudgetedCache] created with `clearsUnderMemoryPressure: true` registers
@@ -460,6 +473,43 @@ class PdfCacheRegistry {
   static final PdfCacheRegistry instance = PdfCacheRegistry._();
 
   final List<WeakReference<PdfBudgetedCache<Object?, Object?>>> _caches = [];
+  final List<WeakReference<PdfMemoryPressureListener>> _listeners = [];
+
+  /// Registers [listener] so memory pressure reaches memory no registered
+  /// cache holds (see [PdfMemoryPressureListener]). Idempotent; held weakly,
+  /// like the caches, so a listener dropped without
+  /// [removePressureListener] is still collectable.
+  void addPressureListener(PdfMemoryPressureListener listener) {
+    _listeners.removeWhere((ref) => ref.target == null);
+    for (final ref in _listeners) {
+      if (identical(ref.target, listener)) return;
+    }
+    _listeners.add(WeakReference(listener));
+  }
+
+  /// Detaches [listener] (its owner was disposed).
+  void removePressureListener(PdfMemoryPressureListener listener) =>
+      _listeners.removeWhere((ref) {
+        final target = ref.target;
+        return target == null || identical(target, listener);
+      });
+
+  /// Asks every live [PdfMemoryPressureListener] to trim, without touching the
+  /// registered caches. [handleMemoryPressure] does this too; a host calls it
+  /// alone on a lifecycle transition where the caches should survive but
+  /// memory outside them should not (a mobile app going to the background).
+  /// Returns how many listeners were asked.
+  int trimPressureListeners() {
+    var asked = 0;
+    for (final ref in _listeners.toList()) {
+      final listener = ref.target;
+      if (listener == null) continue;
+      listener.trimMemory();
+      asked++;
+    }
+    _listeners.removeWhere((ref) => ref.target == null);
+    return asked;
+  }
 
   /// Registers [cache] so its weight is counted in [totalWeight] and it is
   /// cleared on memory pressure. Idempotent; holds only a weak reference.
@@ -563,8 +613,10 @@ class PdfCacheRegistry {
     }
   }
 
-  /// Clears every live registered cache. Wired to the platform
-  /// `didHaveMemoryPressure`. Returns the weight freed.
+  /// Clears every live registered cache, then asks every pressure listener
+  /// to trim ([trimPressureListeners]). Wired to the platform
+  /// `didHaveMemoryPressure`. Returns the weight freed from the registered
+  /// caches (a listener's memory is in another isolate, so it is not counted).
   int handleMemoryPressure() {
     var freed = 0;
     // Copy: a cache's clear cannot mutate _caches, but a future disposer might.
@@ -575,6 +627,7 @@ class PdfCacheRegistry {
       cache.clear();
     }
     _pruneDead();
+    trimPressureListeners();
     return freed;
   }
 

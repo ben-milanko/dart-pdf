@@ -595,9 +595,14 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
       return;
     }
     final freed = PdfCacheRegistry.instance.clearLabel('page-full-raster');
-    if (freed > 0) {
+    // The render workers' decode caches are the other memory a backgrounded
+    // app holds for nothing but speed, and the registry cannot weigh them
+    // (they live in the worker isolates): ask them to trim too.
+    final workers = PdfCacheRegistry.instance.trimPressureListeners();
+    if (freed > 0 || workers > 0) {
       tools.addLog('memory-auto: backgrounded; cleared '
-          '${freed >> 20}MB of visited-page rasters');
+          '${freed >> 20}MB of visited-page rasters'
+          '${workers > 0 ? ', trimmed $workers render worker(s)' : ''}');
     }
   }
 }

@@ -49,16 +49,41 @@ import 'image_pixels.dart';
 /// stream identity is stable across records). Keys hold the [CosStream], so a
 /// cache outliving its document pins those streams - drop it with the document.
 class PdfImageDecodeCache {
-  PdfImageDecodeCache({this.maxBytes = 64 << 20});
+  /// [maxBytes] is the budget; [maxTransientEntryBytes] (default 2 MB) is the
+  /// largest decode a caller that is not `reusable` may retain.
+  PdfImageDecodeCache({this.maxBytes = 64 << 20, int? maxTransientEntryBytes})
+      : maxTransientEntryBytes = maxTransientEntryBytes ?? 2 << 20;
 
   /// Decoded RGBA bytes retained before the least-recently-used entry is
   /// dropped. One 2 MP image is ~8 MB, so the default holds a working set of a
   /// few heavy pages without competing with the viewer's own image cache.
+  /// A render worker sizes it per platform (`PdfRenderWorker` init).
   final int maxBytes;
+
+  /// The largest decode retained for a call that is not `reusable`.
+  ///
+  /// Admission is the caller's call, because only the call site knows what a
+  /// decode is good for. A **reusable** decode serves requests other than the
+  /// one that made it: a native-resolution DCT decode that every target size
+  /// and every deep-zoom region crops or downsamples, a luminosity mask, a
+  /// browser-codec decode. The rest - a decode at one exact target size, or a
+  /// native decode of a format with a genuinely scaled decoder - only ever
+  /// serve a repeat of the same record at the same ratio, which the host's
+  /// record cache (in front of every worker) mostly answers already. They
+  /// still earn their keep as small repeated images (a logo on every page), so
+  /// they are admitted below this size and never displace a reusable entry.
+  final int maxTransientEntryBytes;
+
+  /// The largest single reusable decode retained past [maxBytes], alone, as
+  /// the most recently used entry: the old flat budget, so a smaller budget
+  /// never holds more than it would have. Without it a mobile budget would
+  /// refuse an 8 MP+ JPEG outright and every deep-zoom tile of that page would
+  /// repeat its whole decode.
+  static const int maxOversizeEntryBytes = 64 << 20;
 
   // Insertion-ordered, and re-inserted on every hit, so the first key is the
   // least recently used. Dart's LinkedHashMap makes that free.
-  final _entries = <_Key, PdfDecodedPixels>{};
+  final _entries = <_Key, _Entry>{};
   int _bytes = 0;
   int _hits = 0;
   int _misses = 0;
@@ -73,7 +98,8 @@ class PdfImageDecodeCache {
   /// [targetWidth]x[targetHeight], reusing a retained decode when one matches
   /// exactly. A null target means "native resolution", which is its own key.
   /// [luminosityMask] marks a luminosity-mask decode of [stream], which is
-  /// keyed apart from its ordinary decode.
+  /// keyed apart from its ordinary decode. [reusable] says whether the decode
+  /// serves requests other than this one (see [maxTransientEntryBytes]).
   ///
   /// [decode] is not called on a hit. A null result is not cached - a decline
   /// is cheap to rediscover and caching it would pin the failure across a
@@ -84,24 +110,19 @@ class PdfImageDecodeCache {
     int? targetHeight,
     PdfDecodedPixels? Function() decode, {
     bool luminosityMask = false,
+    bool reusable = true,
   }) {
     final key = _Key(stream, targetWidth, targetHeight, luminosityMask);
     final hit = _entries.remove(key);
     if (hit != null) {
       _entries[key] = hit; // most recently used
       _hits++;
-      return hit;
+      return hit.pixels;
     }
     _misses++;
     final decoded = decode();
     if (decoded == null) return null;
-    final size = decoded.rgba.length;
-    // An image larger than the whole budget would evict everything and then
-    // sit alone; keep it out rather than let one underlay own the cache.
-    if (size > maxBytes) return decoded;
-    _entries[key] = decoded;
-    _bytes += size;
-    _evict();
+    _admit(key, decoded, reusable);
     return decoded;
   }
 
@@ -117,32 +138,70 @@ class PdfImageDecodeCache {
     }
     _entries[key] = hit;
     _hits++;
-    return hit;
+    return hit.pixels;
   }
 
-  /// Retains [pixels] for [stream] at this size. Pairs with [get].
-  void put(CosStream stream, int? width, int? height, PdfDecodedPixels pixels) {
-    final size = pixels.rgba.length;
-    if (size > maxBytes) return;
+  /// Retains [pixels] for [stream] at this size. Pairs with [get]; [reusable]
+  /// as for [decode].
+  void put(CosStream stream, int? width, int? height, PdfDecodedPixels pixels,
+      {bool reusable = true}) {
     final key = _Key(stream, width, height, false);
     final existing = _entries.remove(key);
-    if (existing != null) _bytes -= existing.rgba.length;
-    _entries[key] = pixels;
-    _bytes += size;
-    _evict();
+    if (existing != null) _bytes -= existing.pixels.rgba.length;
+    _admit(key, pixels, reusable);
   }
 
-  void _evict() {
-    while (_bytes > maxBytes && _entries.isNotEmpty) {
+  void _admit(_Key key, PdfDecodedPixels pixels, bool reusable) {
+    final size = pixels.rgba.length;
+    if (!reusable) {
+      if (size > maxTransientEntryBytes || size > maxBytes) return;
+      // A transient entry only displaces other transient entries, least
+      // recently used first, so a page of small target-sized images can never
+      // push out the native decode deep zoom is cropping. When that cannot
+      // make room it is not admitted, and nothing is evicted for it.
+      var excess = _bytes + size - maxBytes;
+      List<_Key>? victims;
+      if (excess > 0) {
+        for (final MapEntry(key: victimKey, value: entry) in _entries.entries) {
+          if (entry.reusable) continue;
+          (victims ??= []).add(victimKey);
+          excess -= entry.pixels.rgba.length;
+          if (excess <= 0) break;
+        }
+        if (excess > 0) return;
+        for (final victim in victims!) {
+          _bytes -= _entries.remove(victim)!.pixels.rgba.length;
+        }
+      }
+    } else if (size > maxBytes && size > maxOversizeEntryBytes) {
+      // One reusable decode may sit past the budget as the newest entry (see
+      // [maxOversizeEntryBytes]); anything bigger stays out rather than let one
+      // underlay own the cache.
+      return;
+    }
+    _entries[key] = _Entry(pixels, reusable);
+    _bytes += size;
+    // A reusable entry displaces anything, least recently used first, but
+    // never itself: alone, it is the oversize allowance.
+    while (_bytes > maxBytes) {
       final oldest = _entries.keys.first;
-      _bytes -= _entries.remove(oldest)!.rgba.length;
+      if (identical(oldest, key)) break;
+      _bytes -= _entries.remove(oldest)!.pixels.rgba.length;
     }
   }
 
+  /// Drops every retained decode (a revision re-open, or a memory-pressure
+  /// trim). Keeps the counters and the object: diagnostics hold on to it.
   void clear() {
     _entries.clear();
     _bytes = 0;
   }
+}
+
+class _Entry {
+  const _Entry(this.pixels, this.reusable);
+  final PdfDecodedPixels pixels;
+  final bool reusable;
 }
 
 /// A stream at one requested size. [CosStream] has no `==`, so this keys by

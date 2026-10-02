@@ -261,8 +261,9 @@ void main() {
       expect(decoded, 1, reason: 'b was the least recently used, so it went');
     });
 
-    test('an image bigger than the whole budget is not cached', () {
-      final cache = PdfImageDecodeCache(maxBytes: 16);
+    test('a transient image bigger than its cap is not cached', () {
+      final cache =
+          PdfImageDecodeCache(maxBytes: 1024, maxTransientEntryBytes: 64);
       final stream = _stream(1);
       var decodes = 0;
       PdfDecodedPixels? decode() {
@@ -270,10 +271,97 @@ void main() {
         return _pixels(1, width: 8, height: 8); // 256 bytes
       }
 
-      expect(cache.decode(stream, 8, 8, decode), isNotNull);
-      expect(cache.decode(stream, 8, 8, decode), isNotNull);
-      // It still decodes correctly - it just never evicts everything else to
-      // sit alone in the cache.
+      expect(cache.decode(stream, 8, 8, decode, reusable: false), isNotNull);
+      expect(cache.decode(stream, 8, 8, decode, reusable: false), isNotNull);
+      // It still decodes correctly - one exact target size is just not worth
+      // holding at this size.
+      expect(decodes, 2);
+      expect(cache.bytes, 0);
+    });
+
+    test('a transient decode never displaces a reusable one', () {
+      // 16 bytes per entry; room for two.
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final a = _stream(1), b = _stream(2), c = _stream(3);
+      cache.decode(a, null, null, () => _pixels(1));
+      cache.decode(b, null, null, () => _pixels(2));
+      var decodes = 0;
+      PdfDecodedPixels? decodeC() {
+        decodes++;
+        return _pixels(3);
+      }
+
+      // No transient entry to make room from: C is served, not retained, and
+      // neither reusable entry moves.
+      expect(cache.decode(c, 2, 2, decodeC, reusable: false), isNotNull);
+      expect(cache.decode(c, 2, 2, decodeC, reusable: false), isNotNull);
+      expect(decodes, 2);
+      expect(cache.length, 2);
+      cache.decode(a, null, null, () => fail('a is reusable and stays'));
+      cache.decode(b, null, null, () => fail('b is reusable and stays'));
+    });
+
+    test('a transient decode makes room from older transient entries', () {
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final a = _stream(1), b = _stream(2), c = _stream(3), d = _stream(4);
+      cache.decode(a, null, null, () => _pixels(1)); // reusable
+      cache.decode(b, 2, 2, () => _pixels(2), reusable: false);
+      // Over budget: b (the only transient entry) goes, a stays.
+      cache.decode(c, 2, 2, () => _pixels(3), reusable: false);
+      expect(cache.length, 2);
+      cache.decode(a, null, null, () => fail('a is reusable and stays'));
+      cache.decode(c, 2, 2, () => fail('c was just admitted'), reusable: false);
+      var decodes = 0;
+      cache.decode(b, 2, 2, () {
+        decodes++;
+        return _pixels(2);
+      }, reusable: false);
+      expect(decodes, 1, reason: 'b was displaced by c');
+      // A reusable decode displaces whatever is least recently used - here
+      // the transient b, once a is touched.
+      cache.decode(a, null, null, () => fail('a is still cached'));
+      cache.decode(d, null, null, () => _pixels(4));
+      expect(cache.bytes, lessThanOrEqualTo(40));
+      cache.decode(a, null, null, () => fail('a was used more recently'));
+    });
+
+    test('one reusable decode past the budget is kept alone, as the newest',
+        () {
+      // An 8 MP+ JPEG under a mobile budget: deep zoom crops every detail
+      // tile from this one native decode, so refusing it would repeat the
+      // whole decode per tile.
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final small = _stream(1), big = _stream(2), next = _stream(3);
+      cache.decode(small, null, null, () => _pixels(1));
+      final bigPixels = _pixels(7, width: 8, height: 8); // 256 bytes
+      cache.decode(big, null, null, () => bigPixels);
+      expect(cache.length, 1, reason: 'everything else made room');
+      expect(cache.bytes, 256);
+      expect(cache.decode(big, null, null, () => fail('kept past the budget')),
+          same(bigPixels));
+      // Transient entries cannot push it out; they are simply not retained.
+      cache.decode(next, 2, 2, () => _pixels(3), reusable: false);
+      expect(cache.length, 1);
+      // The next reusable decode takes its place (least recently used).
+      cache.decode(next, null, null, () => _pixels(3));
+      expect(cache.length, 1);
+      expect(cache.bytes, 16);
+    });
+
+    test('a reusable decode past the old flat budget is not cached', () {
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final stream = _stream(1);
+      final huge = PdfDecodedPixels(
+          Uint8List(PdfImageDecodeCache.maxOversizeEntryBytes + 4), 1, 1);
+      var decodes = 0;
+      cache.decode(stream, null, null, () {
+        decodes++;
+        return huge;
+      });
+      cache.decode(stream, null, null, () {
+        decodes++;
+        return huge;
+      });
       expect(decodes, 2);
       expect(cache.bytes, 0);
     });
@@ -292,13 +380,17 @@ void main() {
       expect(cache.bytes, 16);
     });
 
-    test('clear drops everything', () {
+    test('clear drops everything and keeps the counters', () {
       final cache = PdfImageDecodeCache();
       final stream = _stream(1);
       cache.decode(stream, 2, 2, () => _pixels(1));
+      cache.decode(stream, 2, 2, () => fail('cached'));
       cache.clear();
       expect(cache.bytes, 0);
       expect(cache.length, 0);
+      expect((cache.hits, cache.misses), (1, 1),
+          reason: 'a memory-pressure trim clears in place; the worker '
+              'diagnostics read these across it');
       var decodes = 0;
       cache.decode(stream, 2, 2, () {
         decodes++;

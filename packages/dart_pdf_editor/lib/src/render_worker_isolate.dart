@@ -16,6 +16,7 @@ import 'package:pdf_graphics/raster.dart'
 
 import 'region_replay_index.dart';
 import 'jpeg_accelerator.dart';
+import 'performance_policy.dart' show pdfDefaultWorkerImageCacheBytes;
 import 'render_worker.dart';
 import 'render_worker_ranges.dart';
 import 'render_worker_text_cache.dart';
@@ -82,10 +83,15 @@ final debugPdfRenderWorkerRevisionReports =
 /// kill this long-lived pooled worker. See
 /// `packages/pdf_graphics/tool/bench_render_seam.dart` and
 /// `doc/dev-log/2026-07-17-seam-transfer-measurement.md`.
+///
+/// [imageCacheBytes] budgets the worker's decoded-image cache; null takes
+/// [pdfDefaultWorkerImageCacheBytes], read here on the spawning isolate.
 PdfRenderWorker startRenderWorker(Uint8List bytes,
-        {List<int>? populatedRanges}) =>
+        {List<int>? populatedRanges, int? imageCacheBytes}) =>
     _IsolateRenderWorker(
-        bytes, renderWorkerPopulatedRanges(bytes, populatedRanges));
+        bytes,
+        renderWorkerPopulatedRanges(bytes, populatedRanges),
+        imageCacheBytes ?? pdfDefaultWorkerImageCacheBytes());
 
 /// No-op on native: spawning a background isolate carries no fetch/compile cost
 /// (the ~1.45 s #450 warm-up is dart2js-on-the-web specific), so there is
@@ -96,9 +102,12 @@ void prewarmRenderWorkers(int count) {}
 void disposePrewarmedRenderWorkers() {}
 
 class _IsolateRenderWorker extends PdfRenderWorker {
-  _IsolateRenderWorker(Uint8List bytes, List<int>? populatedRanges) {
+  _IsolateRenderWorker(
+      Uint8List bytes, List<int>? populatedRanges, this._imageCacheBytes) {
     unawaited(_spawn(bytes, populatedRanges));
   }
+
+  final int _imageCacheBytes;
 
   Isolate? _isolate;
   SendPort? _toWorker;
@@ -246,6 +255,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       _workerMain,
       _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes]),
           populatedRanges: populatedRanges,
+          imageCacheBytes: _imageCacheBytes,
           perfEnabled: PdfPerfLog.enabled,
           deferStaleCancel: debugDeferPdfRenderWorkerCancelUntilNextRequest,
           reportRevisions: debugReportPdfRenderWorkerRevisions),
@@ -592,6 +602,16 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     _toCancelPort?.send(request.id);
   }
 
+  /// Rides the cancel port, never the request port: that one carries the
+  /// per-id slot accounting, and a trim must land between the yields of an
+  /// in-flight walk rather than queue behind it. Before the handshake there is
+  /// nothing cached worth trimming, so it is dropped.
+  @override
+  void trimMemory() {
+    if (_disposed) return;
+    _toCancelPort?.send(_trimWorkerMemory);
+  }
+
   @override
   void dispose() {
     if (_disposed) return;
@@ -783,15 +803,25 @@ class _PendingRequest {
   int id = -1;
 }
 
+/// The cancel-port message that asks a worker to trim (see
+/// [PdfRenderWorker.trimMemory]); every other message on that port is an int
+/// request id.
+const String _trimWorkerMemory = 'trim';
+
 class _WorkerInit {
   _WorkerInit(this.reply, this.bytes,
       {this.populatedRanges,
+      this.imageCacheBytes = 64 << 20,
       this.perfEnabled = false,
       this.deferStaleCancel = false,
       this.reportRevisions = false});
 
   /// Populated byte pairs; unlike the buffer's Expando, these cross isolates.
   final List<int>? populatedRanges;
+
+  /// The decoded-image cache budget, sized by the spawner's platform
+  /// ([pdfDefaultWorkerImageCacheBytes]).
+  final int imageCacheBytes;
 
   /// The port the worker sends its own command port (and every response) on.
   final SendPort reply;
@@ -842,7 +872,7 @@ void _workerMain(_WorkerInit init) {
   // page recorded several times in a scroll reuses its image decodes instead of
   // paying for them again (#451). Exact-match on (stream, target size), so it
   // cannot change what a record renders.
-  var imageCache = PdfImageDecodeCache();
+  var imageCache = PdfImageDecodeCache(maxBytes: init.imageCacheBytes);
   try {
     document = PdfDocument.open(workerBytes, populatedRanges: populatedRanges);
   } catch (_) {
@@ -877,6 +907,16 @@ void _workerMain(_WorkerInit init) {
   int? deferredStaleCancelId;
 
   cancelPort.listen((message) {
+    if (message == _trimWorkerMemory) {
+      // Memory pressure on the host: let go of what this worker keeps only
+      // for reuse. Safe between the yields of a running walk - the isolate is
+      // single-threaded, a serialize in progress holds its own references, and
+      // everything cleared here decodes again to the same bytes. Cleared in
+      // place, so the cache's hit/miss counters carry on across a trim.
+      imageCache.clear();
+      document?.cos.trimDecodedStreamCache();
+      return;
+    }
     if (message is! int) return;
     if (deferStaleCancel &&
         deferredStaleCancelId == null &&
@@ -986,7 +1026,7 @@ void _workerMain(_WorkerInit init) {
           // derive its keys again in every worker.
           how = 'reopen';
           stale = null;
-          imageCache = PdfImageDecodeCache();
+          imageCache = PdfImageDecodeCache(maxBytes: init.imageCacheBytes);
           appliedPages.clear();
           final ranges = nextRanges;
           if (ranges != null) cosSparseBufferRanges[live] = ranges;
