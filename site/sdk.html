@@ -765,9 +765,9 @@ PdfReader(bytes: pdfBytes)</pre>
       <div>
         <p class="eyebrow" style="color:#6fd0ff;" data-i18n="sdk_perf_eyebrow">Performance</p>
         <h2 style="margin-top:14px;" data-i18n="sdk_perf_h2">Pure Dart is not a compromise on speed.</h2>
-        <p data-i18n="sdk_perf_p1">On a real-world corpus of 49 files and 255 pages (CAD drawings, scans, reports, forms), the parse and
-          content-stream interpreter runs about 1.9× faster than PDFium, the C++ engine Chrome uses. Full Flutter
-          rasterization is currently about 2× slower end to end; the gap is image decoding and GPU raster, not the
+        <p data-i18n="sdk_perf_p1">On a real-world corpus of 52 files and 268 pages (CAD drawings, scans, reports, forms), the parse and
+          content-stream interpreter runs about 3× faster than PDFium, the C++ engine Chrome uses. Full Flutter
+          rasterization is currently about 1.7× slower end to end; the gap is image decoding and GPU raster, not the
           interpreter.</p>
         <p data-i18n-html="sdk_perf_p2">The <a href="https://github.com/ben-milanko/dart-pdf/tree/main/benchmark" target="_blank"
             rel="noopener">benchmark harness</a> diffs dart-pdf against PDFium file by file, so you can check the
@@ -777,18 +777,18 @@ PdfReader(bytes: pdfBytes)</pre>
         <div class="bench">
           <div class="b-top">
             <span class="b-title" data-i18n="sdk_bench_title">ms per page, lower is better</span>
-            <span class="b-pill" data-i18n="sdk_bench_pill">49 files · 255 pages</span>
+            <span class="b-pill" data-i18n="sdk_bench_pill">52 files · 268 pages</span>
           </div>
           <div class="bar-row">
-            <div class="bl"><span data-i18n="sdk_bar1">dart-pdf interpret (pure Dart)</span><span class="v">13.3 ms</span></div>
-            <div class="bar dart"><i style="width:26%"></i></div>
+            <div class="bl"><span data-i18n="sdk_bar1">dart-pdf interpret (pure Dart)</span><span class="v">10.3 ms</span></div>
+            <div class="bar dart"><i style="width:19%"></i></div>
           </div>
           <div class="bar-row">
-            <div class="bl"><span data-i18n="sdk_bar2">PDFium (open + rasterize)</span><span class="v">24.9 ms</span></div>
-            <div class="bar other"><i style="width:48%"></i></div>
+            <div class="bl"><span data-i18n="sdk_bar2">PDFium (rasterize)</span><span class="v">31.1 ms</span></div>
+            <div class="bar other"><i style="width:58%"></i></div>
           </div>
           <div class="bar-row">
-            <div class="bl"><span data-i18n="sdk_bar3">dart-pdf render (full Flutter raster)</span><span class="v">52.0 ms</span></div>
+            <div class="bl"><span data-i18n="sdk_bar3">dart-pdf render (full Flutter raster)</span><span class="v">54.0 ms</span></div>
             <div class="bar other"><i style="width:100%"></i></div>
           </div>
           <p class="b-note" data-i18n-html="sdk_bench_note">Scale 2, PDFium via pypdfium2. Methodology and per-file results in the repo's

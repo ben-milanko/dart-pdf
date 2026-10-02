@@ -5,9 +5,10 @@ editor fonts offered by the font menu (and used as composite-text fallbacks),
 the **metric-compatible substitute faces** for unembedded text - the standard
 14 and Calibri - and the prebuilt **web render worker**.
 
-These assets add roughly **4.4 MB** to a build (fonts plus the web worker,
-compressed - the four Carlito faces are 2.6 MB of files but 0.86 MB over the
-wire, because TrueType hinting compresses well). They live in this separate package - not in
+These assets add roughly **4.1 MB** to a build (fonts plus the web worker,
+gzip-compressed; about 3.3 MB with brotli - the four Carlito faces are 2.6 MB of
+files but 0.86 MB over the wire with brotli, because TrueType hinting compresses
+well). They live in this separate package - not in
 `dart_pdf_editor` - so an app that only *views* PDFs never bundles them: Flutter
 includes a package's declared assets on every build target, so the only way to
 make these opt-in is to keep them out of the package every consumer depends on.
