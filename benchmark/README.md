@@ -18,26 +18,29 @@ bundles a prebuilt PDFium binary. You do not need a system PDFium build or
 Real-world corpus (52 files / **268 pages** that all three tools rendered
 without error), scale 2.0 (144 DPI), up to 10 pages per file, best-of-3 render
 passes, on the 10-core M1 Pro development Mac. PDFium 5.9.0 / libpdfium
-150.0.7869.0. Captured 2026-08-23 from commit `1b887e9f`.
+150.0.7869.0. Captured 2026-10-02 from commit `fadf7760`.
 
 | engine | throughput | ms/page | vs PDFium |
 |---|---|---|---|
-| **PDFium** (rasterize; open excluded) | 31.3 pages/s | 31.9 | 1.00× |
-| **dart-pdf interpret** (pure Dart, no raster) | 82.4 pages/s | 12.1 | **2.63× faster** |
-| **dart-pdf render** (full Flutter raster + readback) | 16.2 pages/s | 61.6 | **1.93× slower** |
+| **PDFium** (rasterize; open excluded) | 32.1 pages/s | 31.1 | 1.00× |
+| **dart-pdf interpret** (pure Dart, no raster) | 97.5 pages/s | 10.3 | **3.04× faster** |
+| **dart-pdf render** (full Flutter raster + readback) | 18.5 pages/s | 54.0 | **1.73× slower** |
 
 Takeaways:
 
-- **The pure-Dart page interpreter processes this corpus 2.63× faster than
+- **The pure-Dart page interpreter processes this corpus 3.04× faster than
   PDFium rasterizes it.** The interpreter number excludes rasterization; it
   isolates the portable Dart parsing, font, geometry, and content-stream work.
-- **The apples-to-apples full Flutter render is 1.93× slower than PDFium.**
+- **The apples-to-apples full Flutter render is 1.73× slower than PDFium.**
   Beyond interpretation, this path includes image decoding, Flutter
   painting/rasterization, and `toImage`/`toByteData` readback.
-- Since the 2026-07-26 checkpoint, the common set grew from 49 files / 255
-  pages to 52 files / 268 pages. Absolute milliseconds are therefore not a
-  direct regression comparison; the relative ratios moved from 2.42× to
-  2.63× for interpretation and from 1.95× to 1.93× for full rendering.
+- Since the 2026-08-23 checkpoint (commit `1b887e9f`), the common set is
+  unchanged at 52 files / 268 pages: interpretation went from 12.1 to 10.3
+  ms/page, full Flutter rendering from 61.6 to 54.0 ms/page, and PDFium from
+  31.9 to 31.1 ms/page. The ratios moved from 2.63× to 3.04× for
+  interpretation and from 1.93× to 1.73× for full rendering. The host was
+  moderately loaded for this run and the August run's load is unknown, so
+  treat the before/after as approximate.
 
 Absolute milliseconds and ratios are machine-specific. Re-run on the target
 hardware with `benchmark/run.sh corpus 2 10` (see Quick start).

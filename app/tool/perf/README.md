@@ -144,7 +144,7 @@ the engine and imposed a roughly 45–60 ms measurement floor. Screenshot mode
 therefore timestamps a changed frame at the earlier of response completion and
 request start + `PERF_SCREENSHOT_SAMPLE_DELAY_MS` (36 ms by default). The
 checked-in transferred-`OffscreenCanvas` probe found a consistently-old frame
-at 32 ms on the reference Chrome 151 host; 36 ms is a conservative upper bound.
+at 32 ms on the reference Chrome 154 host; 36 ms is a conservative upper bound.
 Run `tool/perf.sh screenshot-probe` on another controlled runner before gating.
 Raw capture-duration summaries and the selected bound are recorded in NDJSON.
 
