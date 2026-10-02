@@ -84,7 +84,7 @@ accepted.
 
 **One line.** The worker script ships in the optional `dart_pdf_editor_assets`
 package (it used to be a `dart_pdf_editor` asset, but was split out so
-viewer-only apps don't bundle its ~0.7 MB gzip-compressed). Depend on that package and call
+viewer-only apps don't bundle its ~0.7 MB (gzip) worker). Depend on that package and call
 `registerBundledEditorAssets()` once at startup - it sets
 `pdfRenderWorkerScriptUrl` to Flutter's package asset path:
 
@@ -213,9 +213,9 @@ priority queue and protocol, and the app is wired up:
   COOP/COEP headers, so a worker pool can still share the document bytes
   through `SharedArrayBuffer`. See `deploy-demo-web.yml`, `deploy-app-web.yml`
   and the firebase configs.
-- `dart compile js` of the worker entry **succeeds** (~857 KB bundle at the time; ~1.7 MB as of
-  October 2026), so the
-  `dart:js_interop` / `package:web` usage is valid on the web toolchain.
+- `dart compile js` of the worker entry **succeeds** (~857 KB bundle at the
+  time; ~1.7 MB as of October 2026), so the `dart:js_interop` /
+  `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
   CAD test doc: every page round-tripped through the worker (`path=worker`),
   the transferred `ArrayBuffer`s replay correctly, and the main-thread interpret

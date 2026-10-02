@@ -103,8 +103,8 @@ Caveats that matter for reading these numbers:
   and the skwasm boot lead moved between runs; do not compare boot times
   across hosts.
 - The host was moderately loaded (desktop apps running), and the corpus is
-  tiny (about 0.6 s of total render, 2–4 ms pages), so per-file ratios are
-  noisy. Best-of-3 over a one-shot headless process.
+  tiny (about 0.6 s of total render across 20 pages, many of them trivial
+  2–70 ms one-page fixtures), so per-file ratios are noisy. Best-of-3 over a one-shot headless process.
 - Blocked CDN font fallback means CJK/symbol glyphs render as boxes under both.
 
 Reproduce: `benchmark/web/run.sh`.
