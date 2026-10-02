@@ -2174,9 +2174,13 @@ class PdfStreamingCommandWriter
 
   /// A tight copy of the buffer so far with its top-level count patched: a
   /// complete, replayable command buffer. Scopes still pending are simply not
-  /// in it yet. Only valid between operations (not inside a soft mask).
+  /// in it yet. Only valid between operations: inside a soft mask the nested
+  /// list's header is half-written, so that throws rather than return a
+  /// corrupt buffer.
   Uint8List snapshot() {
-    assert(_frames.length == 1, 'snapshot inside a soft mask');
+    if (_frames.length != 1) {
+      throw StateError('snapshot inside a soft mask');
+    }
     final out = Uint8List.fromList(Uint8List.sublistView(_w._buf, 0, _w._len));
     // Big-endian, as [_Writer.u32].
     ByteData.sublistView(out).setUint32(_frames.first.countAt, commandCount);

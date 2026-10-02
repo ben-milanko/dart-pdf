@@ -141,6 +141,7 @@ class _PageSurfaceBitmapCache {
 /// walk is still going here, so a revision update waits for all of them.
 class _WorkerWalks {
   final _running = <PdfCancellationToken, Future<void>>{};
+  final _idle = <void Function()>[];
 
   bool get isEmpty => _running.isEmpty;
 
@@ -148,7 +149,26 @@ class _WorkerWalks {
   void run(PdfCancellationToken token, Future<void> Function() walk) {
     final future = walk();
     _running[token] = future;
-    future.whenComplete(() => _running.remove(token));
+    future.whenComplete(() {
+      _running.remove(token);
+      if (_running.isEmpty && _idle.isNotEmpty) {
+        final actions = List.of(_idle);
+        _idle.clear();
+        for (final action in actions) {
+          action();
+        }
+      }
+    });
+  }
+
+  /// Runs [action] now when no walk is running, otherwise once the last one
+  /// ends.
+  void whenIdle(void Function() action) {
+    if (_running.isEmpty) {
+      action();
+    } else {
+      _idle.add(action);
+    }
   }
 
   /// Cancels every running walk; completes once they have all unwound.
@@ -281,8 +301,11 @@ void runPdfRenderWorker() {
   // A host 'trim': let go of what is kept only for reuse, on the same
   // document. The image cache is cleared in place (the timing snapshots hold
   // it); the flate samples start over with a fresh predecoder, whose
-  // prepared-page set would otherwise skip re-seeding them; a walk in flight
-  // keeps the objects it was handed.
+  // prepared-page set would otherwise skip re-seeding them. It runs only
+  // between walks ([trimQueued]): a walk in flight has prepared the decoded
+  // stream seeds it is about to read, and trimming under it would send those
+  // streams back through the pure-Dart inflate.
+  var trimQueued = false;
   void trimDocumentCaches() {
     imageCache.clear();
     flateSampleCache = _BrowserFlateSampleCache();
@@ -545,7 +568,13 @@ void runPdfRenderWorker() {
     }
 
     if (kind == 'trim') {
-      trimDocumentCaches();
+      if (!trimQueued) {
+        trimQueued = true;
+        walks.whenIdle(() {
+          trimQueued = false;
+          trimDocumentCaches();
+        });
+      }
       return;
     }
 

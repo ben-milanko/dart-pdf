@@ -178,4 +178,34 @@ void main() {
         ]);
     expect(writer.commandCount, 5);
   });
+
+  test('a snapshot inside a soft mask throws instead of corrupting', () {
+    // Release builds included: the nested list's count is still 0 and its
+    // header half-written, so a prefix copy there would not replay.
+    final writer = PdfStreamingCommandWriter();
+    const box = PdfPath([PdfMoveTo(0, 0), PdfLineTo(1, 0), PdfClosePath()]);
+    writer.beginSoftMasked();
+    writer.fillPath(box, PdfColor.black, PdfFillRule.nonzero, 1);
+    Object? thrown;
+    writer.endSoftMasked(
+      luminosity: true,
+      backdrop: const PdfRect(0, 0, 1, 1),
+      drawMask: () {
+        writer.fillPath(box, PdfColor(1, 1, 1), PdfFillRule.nonzero, 1);
+        try {
+          writer.snapshot();
+        } on StateError catch (e) {
+          thrown = e;
+        }
+      },
+    );
+    expect(thrown, isA<StateError>());
+    // Back at page level the snapshot is whole again.
+    final restored = deserializeCommands(writer.snapshot());
+    expect(restored.map((c) => c.runtimeType), [
+      PdfBeginSoftMaskedCommand,
+      PdfFillPathCommand,
+      PdfEndSoftMaskedCommand,
+    ]);
+  });
 }
