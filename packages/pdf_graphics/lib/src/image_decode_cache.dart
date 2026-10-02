@@ -49,10 +49,10 @@ import 'image_pixels.dart';
 /// stream identity is stable across records). Keys hold the [CosStream], so a
 /// cache outliving its document pins those streams - drop it with the document.
 class PdfImageDecodeCache {
-  /// [maxBytes] is the budget; [maxTransientEntryBytes] (default 2 MB) is the
-  /// largest decode a caller that is not `reusable` may retain.
+  /// [maxBytes] is the budget; [maxTransientEntryBytes] (default half the
+  /// budget) is the largest decode a caller that is not `reusable` may retain.
   PdfImageDecodeCache({this.maxBytes = 64 << 20, int? maxTransientEntryBytes})
-      : maxTransientEntryBytes = maxTransientEntryBytes ?? 2 << 20;
+      : maxTransientEntryBytes = maxTransientEntryBytes ?? maxBytes ~/ 2;
 
   /// Decoded RGBA bytes retained before the least-recently-used entry is
   /// dropped. One 2 MP image is ~8 MB, so the default holds a working set of a
@@ -68,10 +68,20 @@ class PdfImageDecodeCache {
   /// and every deep-zoom region crops or downsamples, a luminosity mask, a
   /// browser-codec decode, any native-resolution decode (it serves every
   /// record at or past native size). The rest - a decode at one exact target
-  /// size - only ever serve a repeat of the same record at the same ratio,
-  /// which the host's record cache (in front of every worker) mostly answers
-  /// already. They still earn their keep as small repeated images (a logo on every page), so
-  /// they are admitted below this size and never displace a reusable entry.
+  /// size - only serve a repeat of the same record at the same ratio. During a
+  /// scroll the host's record cache (in front of every worker) mostly answers
+  /// those, but an edit or an undo bumps the revision, misses that cache, and
+  /// re-records the page at the ratio it was just recorded at: the worker
+  /// keeps its decode cache across revisions precisely so that re-record does
+  /// not decode a downscaled scan, underlay or JPX again (a 1-page 30 MB
+  /// underlay: ~880 ms per re-record without the entry, ~20 ms with it).
+  ///
+  /// So they are admitted up to half the budget - 32 MB at the desktop 64 MB,
+  /// which holds a full-page target at ratio 2 to 4 - but only ever displace
+  /// other transient entries, never a reusable one. A smaller cap (2 MB was
+  /// tried) loses every edit/undo hit on downscaled images; with the whole
+  /// budget, one zoom level's targets churned out the previous level's in the
+  /// occupancy sim.
   final int maxTransientEntryBytes;
 
   /// The largest single reusable decode retained past [maxBytes], alone, as

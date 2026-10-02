@@ -1062,7 +1062,8 @@ _CommandImage? _decodeImageForCommand(
             : downsamplePdfDecodedPixels(full, target.$1, target.$2);
       } else {
         // One exact target size: only a repeat of this record at this ratio
-        // hits it, and the host's record cache mostly answers those.
+        // hits it - the re-record after an edit or undo, which the host's
+        // record cache cannot answer (see maxTransientEntryBytes).
         scaled = imageCache.decode(
             request.stream,
             target.$1,

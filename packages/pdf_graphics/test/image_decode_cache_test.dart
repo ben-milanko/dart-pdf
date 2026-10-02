@@ -147,6 +147,63 @@ List<PdfDecodedPixels> _decodedImages(Uint8List bytes) {
   return out;
 }
 
+/// A [pageWidth]x[pageHeight] page that draws one uncompressed
+/// [width]x[height] image over the whole page, recorded.
+(PdfDocument, PdfPage, RecordingPdfDevice) _singleImagePage(
+    int width,
+    int height,
+    int components,
+    String colorSpace,
+    int pageWidth,
+    int pageHeight,
+    int Function(int) sample) {
+  final builder = CosDocumentBuilder();
+  final image = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': CosInteger(width),
+      'Height': CosInteger(height),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosName(colorSpace),
+    }),
+    Uint8List.fromList(
+        List.generate(width * height * components, sample, growable: false)),
+  ));
+  final pages = CosDictionary({
+    'Type': const CosName('Pages'),
+    'Count': const CosInteger(1),
+  });
+  final pagesRef = builder.add(pages);
+  final pageRef = builder.add(CosDictionary({
+    'Type': const CosName('Page'),
+    'Parent': pagesRef,
+    'MediaBox': CosArray([
+      const CosInteger(0),
+      const CosInteger(0),
+      CosInteger(pageWidth),
+      CosInteger(pageHeight),
+    ]),
+    'Resources': CosDictionary({
+      'XObject': CosDictionary({'Im0': image}),
+    }),
+    'Contents': builder.add(CosStream(
+        CosDictionary(),
+        Uint8List.fromList(
+            'q $pageWidth 0 0 $pageHeight 0 0 cm /Im0 Do Q'.codeUnits))),
+  }));
+  pages['Kids'] = CosArray([pageRef]);
+  final catalog = builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': pagesRef,
+  }));
+  final document = PdfDocument.open(builder.build(root: catalog));
+  final page = document.page(0);
+  final recorder = RecordingPdfDevice();
+  PdfInterpreter(cos: document.cos, device: recorder).drawPage(page);
+  return (document, page, recorder);
+}
+
 void main() {
   group('PdfImageDecodeCache (#451)', () {
     test('a second record of the same page reuses the first decode', () {
@@ -405,48 +462,9 @@ void main() {
   // record that made it - retained like any reusable decode, whatever the
   // format, even past the transient cap a 1-bit or Flate page blows through.
   test('a non-DCT native decode is reused across past-native ratios', () {
-    const side = 1024; // 4 MB of RGBA, past the 2 MB transient cap
-    final builder = CosDocumentBuilder();
-    final image = builder.add(CosStream(
-      CosDictionary({
-        'Type': const CosName('XObject'),
-        'Subtype': const CosName('Image'),
-        'Width': const CosInteger(side),
-        'Height': const CosInteger(side),
-        'BitsPerComponent': const CosInteger(8),
-        'ColorSpace': const CosName('DeviceGray'),
-      }),
-      Uint8List.fromList(List.generate(side * side, (i) => (i * 7) & 0xff)),
-    ));
-    final pages = CosDictionary({
-      'Type': const CosName('Pages'),
-      'Count': const CosInteger(1),
-    });
-    final pagesRef = builder.add(pages);
-    final pageRef = builder.add(CosDictionary({
-      'Type': const CosName('Page'),
-      'Parent': pagesRef,
-      'MediaBox': CosArray(const [
-        CosInteger(0),
-        CosInteger(0),
-        CosInteger(400),
-        CosInteger(400),
-      ]),
-      'Resources': CosDictionary({
-        'XObject': CosDictionary({'Im0': image}),
-      }),
-      'Contents': builder.add(CosStream(CosDictionary(),
-          Uint8List.fromList('q 400 0 0 400 0 0 cm /Im0 Do Q'.codeUnits))),
-    }));
-    pages['Kids'] = CosArray([pageRef]);
-    final catalog = builder.add(CosDictionary({
-      'Type': const CosName('Catalog'),
-      'Pages': pagesRef,
-    }));
-    final document = PdfDocument.open(builder.build(root: catalog));
-    final page = document.page(0);
-    final recorder = RecordingPdfDevice();
-    PdfInterpreter(cos: document.cos, device: recorder).drawPage(page);
+    const side = 1024; // 4 MB of RGBA, past a mobile budget's transient cap
+    final (document, page, recorder) = _singleImagePage(
+        side, side, 1, 'DeviceGray', 400, 400, (i) => (i * 7) & 0xff);
 
     Uint8List record(double ratio, PdfImageDecodeCache? cache) =>
         serializeCommands(recorder.commands,
@@ -459,7 +477,7 @@ void main() {
 
     // 400pt at ratio 3 and 4 is 1200 and 1600 px: both past the 1024 px
     // native size, so both are native decodes.
-    final cache = PdfImageDecodeCache();
+    final cache = PdfImageDecodeCache(maxBytes: 4 << 20);
     final zoomed = record(3, cache);
     expect((cache.hits, cache.misses), (0, 1));
     final further = record(4, cache);
@@ -468,6 +486,39 @@ void main() {
     expect(cache.bytes, side * side * 4);
     expect(zoomed, record(3, null));
     expect(further, record(4, null));
+  });
+
+  // An edit or an undo bumps the revision, so the host's record cache misses
+  // and the worker re-records the page at the ratio it was just recorded at,
+  // with its decode cache still warm. A downscaled image's target-size decode
+  // is what that re-record needs: under the desktop budget it must be
+  // retained, or every edit on a scan/underlay page pays the decode again.
+  test('a downscaled decode is reused by a same-ratio re-record', () {
+    // 2400 px RGB over a letter page: ratio 2 asks for ~1224x1584, a
+    // target-size decode of ~7.8 MB of RGBA (past the old 2 MB cap).
+    final (document, page, recorder) = _singleImagePage(
+        2400, 2400, 3, 'DeviceRGB', 612, 792, (i) => (i * 31) & 0xff);
+
+    Uint8List record(PdfImageDecodeCache? cache) =>
+        serializeCommands(recorder.commands,
+            cos: document.cos,
+            decodeImages: true,
+            maxImagePixelRatio: 2,
+            pageRasterPixels: pdfPageRasterPixels(page.cropBox, 2),
+            imageCache: cache,
+            compactStateScopes: true)!;
+
+    final cache = PdfImageDecodeCache(); // the desktop 64 MB
+    final first = record(cache);
+    expect((cache.hits, cache.misses), (0, 1));
+    expect(cache.bytes, greaterThan(2 << 20),
+        reason: 'the target-size decode is retained');
+    final again = record(cache);
+    expect((cache.hits, cache.misses), (1, 1),
+        reason: 'the re-record after an edit reuses the downscaled decode');
+    final uncached = record(null);
+    expect(first, uncached);
+    expect(again, uncached);
   });
 
   // Luminosity masks used to bypass the cache, so every record re-decoded
