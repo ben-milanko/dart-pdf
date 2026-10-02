@@ -11,9 +11,10 @@
 //   (PdfEditorCommands.of(context).catalog) as a row of CupertinoButtons -
 //   arming a tool through a command runs its prerequisites (the measuring
 //   scale, the signature capture) exactly like the stock toolbar;
-// * the presenter: CupertinoEditorPresenter shows menus as action sheets,
-//   confirmations and text prompts as alert dialogs, and notices as a
-//   toast.
+// * the presenter: the library's PdfCupertinoPresenter
+//   (package:dart_pdf_editor/cupertino.dart) shows menus as action sheets,
+//   prompts as alert dialogs, form choices as pickers, sheets as modal
+//   popups and notices as a toast.
 //
 // Run it with:
 //   fvm flutter run -t lib/cupertino_host.dart
@@ -25,6 +26,7 @@
 import 'dart:async';
 
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:dart_pdf_editor/cupertino.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 // Only the widgets delegate: flutter_localizations' Cupertino delegate is the
@@ -75,10 +77,10 @@ class _CupertinoEditorScreenState extends State<CupertinoEditorScreen> {
   Widget build(BuildContext context) => CupertinoPageScaffold(
         child: PdfEditorView(
           bytes: widget.bytes,
-          presenter: const CupertinoEditorPresenter(),
+          presenter: const PdfCupertinoPresenter(),
           onSave: (_) {
             setState(() => _saves++);
-            const CupertinoEditorPresenter().notice(
+            const PdfCupertinoPresenter().notice(
               context,
               PdfEditorNotice('Saved ($_saves)', kind: PdfNoticeKind.success),
             );
@@ -192,216 +194,4 @@ class _CommandButton extends StatelessWidget {
           },
         ),
       );
-}
-
-/// A [PdfEditorPresenter] in Cupertino style. It overrides only the "how"
-/// methods a Cupertino app would restyle; everything else (the stock
-/// dialogs, pickers, sheets) keeps the editor's own UI, which runs under a
-/// CupertinoApp as is.
-class CupertinoEditorPresenter extends PdfEditorPresenter {
-  const CupertinoEditorPresenter();
-
-  @override
-  Future<T?> menu<T>(BuildContext context, PdfMenuRequest<T> request) =>
-      showCupertinoModalPopup<T>(
-        context: context,
-        builder: (context) => CupertinoActionSheet(
-          key: const ValueKey('cupertino-menu'),
-          actions: [
-            for (final entry in request.entries)
-              if (entry is PdfMenuItem<T> && entry.value != null)
-                CupertinoActionSheetAction(
-                  key: entry.key,
-                  onPressed: entry.enabled
-                      ? () => Navigator.of(context).pop(entry.value)
-                      : () {},
-                  child: Text(
-                    entry.checked == true ? '✓ ${entry.label}' : entry.label,
-                    style: entry.enabled
-                        ? null
-                        : const TextStyle(color: CupertinoColors.inactiveGray),
-                  ),
-                ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            isDefaultAction: true,
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(pdfL10n(context).cancel),
-          ),
-        ),
-      );
-
-  @override
-  Future<bool> confirm(BuildContext context, PdfConfirmRequest request) async {
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        key: request.key,
-        title: Text(request.title),
-        content: Text(request.message),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(pdfL10n(context).cancel),
-          ),
-          CupertinoDialogAction(
-            key: request.confirmKey,
-            isDestructiveAction: request.destructive,
-            isDefaultAction: !request.destructive,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(request.confirmLabel),
-          ),
-        ],
-      ),
-    );
-    return confirmed == true;
-  }
-
-  @override
-  Future<String?> text(BuildContext context, PdfTextRequest request) =>
-      showCupertinoDialog<String>(
-        context: context,
-        builder: (context) => _CupertinoTextPrompt(request: request),
-      );
-
-  @override
-  bool notice(BuildContext context, PdfEditorNotice notice) {
-    final overlay = Overlay.maybeOf(context, rootOverlay: true);
-    if (overlay == null) return false;
-    late final OverlayEntry entry;
-    var removed = false;
-    void remove() {
-      if (removed) return;
-      removed = true;
-      entry.remove();
-      entry.dispose();
-    }
-
-    entry = OverlayEntry(
-      builder: (context) => _CupertinoToast(notice: notice, onDone: remove),
-    );
-    overlay.insert(entry);
-    return true;
-  }
-}
-
-class _CupertinoTextPrompt extends StatefulWidget {
-  const _CupertinoTextPrompt({required this.request});
-
-  final PdfTextRequest request;
-
-  @override
-  State<_CupertinoTextPrompt> createState() => _CupertinoTextPromptState();
-}
-
-class _CupertinoTextPromptState extends State<_CupertinoTextPrompt> {
-  late final _text = TextEditingController(text: widget.request.initial);
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  void _submit() => Navigator.of(context).pop(_text.text);
-
-  @override
-  Widget build(BuildContext context) => CupertinoAlertDialog(
-        key: const ValueKey('cupertino-text-prompt'),
-        title: Text(widget.request.title),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: CupertinoTextField(
-            key: const ValueKey('cupertino-text-field'),
-            controller: _text,
-            autofocus: true,
-            minLines: widget.request.multiline ? 3 : 1,
-            maxLines: widget.request.multiline ? 6 : 1,
-            onSubmitted: widget.request.multiline ? null : (_) => _submit(),
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(pdfL10n(context).cancel),
-          ),
-          CupertinoDialogAction(
-            key: const ValueKey('cupertino-text-ok'),
-            isDefaultAction: true,
-            onPressed: _submit,
-            child: Text(pdfL10n(context).ok),
-          ),
-        ],
-      );
-}
-
-/// A rounded toast above the bottom edge, with Undo when the notice can be
-/// undone.
-class _CupertinoToast extends StatefulWidget {
-  const _CupertinoToast({required this.notice, required this.onDone});
-
-  final PdfEditorNotice notice;
-  final VoidCallback onDone;
-
-  @override
-  State<_CupertinoToast> createState() => _CupertinoToastState();
-}
-
-class _CupertinoToastState extends State<_CupertinoToast> {
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer(
-        widget.notice.duration ?? const Duration(seconds: 3), widget.onDone);
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final onUndo = widget.notice.onUndo;
-    final lift = PdfEditorThemeData.of(context).toastLift ?? 96;
-    return Positioned(
-      left: 24,
-      right: 24,
-      bottom: lift + MediaQuery.paddingOf(context).bottom,
-      child: Center(
-        child: DecoratedBox(
-          key: const ValueKey('cupertino-toast'),
-          decoration: BoxDecoration(
-            color: const Color(0xE6303030),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Flexible(
-                child: Text(
-                  widget.notice.message,
-                  style: const TextStyle(
-                      color: CupertinoColors.white, fontSize: 15),
-                ),
-              ),
-              if (onUndo != null)
-                CupertinoButton(
-                  padding: const EdgeInsets.only(left: 12),
-                  minimumSize: const Size(0, 32),
-                  onPressed: () {
-                    widget.onDone();
-                    onUndo();
-                  },
-                  child: Text(pdfL10n(context).undo),
-                ),
-            ]),
-          ),
-        ),
-      ),
-    );
-  }
 }

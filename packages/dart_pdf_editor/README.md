@@ -543,6 +543,43 @@ trackpad drawing - over a `PdfSignaturePadController` (strokes, ink, pen,
 `toSignature()`). Put it in your own sheet or page; a presenter's
 `signature` prompt can return what it draws.
 
+**Cupertino presenter.** `package:dart_pdf_editor/cupertino.dart` adds
+`PdfCupertinoPresenter`, an iOS-style presenter built on `cupertino_ui`:
+
+```dart
+import 'package:dart_pdf_editor/cupertino.dart';
+
+CupertinoApp(
+  home: CupertinoPageScaffold(
+    child: PdfEditorView(
+      bytes: bytes,
+      presenter: const PdfCupertinoPresenter(),
+    ),
+  ),
+)
+```
+
+| Method | Shows |
+|---|---|
+| `dialog` | every stock dialog on a `CupertinoDialogRoute` (Enter-to-submit kept) |
+| `confirm`, `text`, `styledText`, `link` | a `CupertinoAlertDialog` with `CupertinoTextField`s (plus a slider, Bold/Italic toggles and swatches for `styledText`, a segmented control for `link`) |
+| `pageRange`, `splitRanges`, `measurementScale`, `measurementInput` | a `CupertinoAlertDialog` form; units open as action sheets |
+| `menu` | a `CupertinoActionSheet` with Cancel |
+| `formChoice` | a `CupertinoPicker` (single-select) or a checklist (multi-select) under Cancel / Done |
+| `sheet` | a modal popup sliding up from the bottom |
+| `notice` | a toast in the root overlay, with Undo |
+| `actionBar`, `readout` | dark iOS edit-menu style capsules |
+| `color`, `font`, `signature` | the stock pickers, on the Cupertino dialog route |
+
+Its text fields use `pdfCupertinoTextContextMenu` (the system menu where
+the platform has one, else `CupertinoAdaptiveTextSelectionToolbar`), and its
+prompts keep the stock prompts' `pdf-*` keys. It runs under a `CupertinoApp`
+with no `MaterialApp`: `PdfMaterialHost` supplies what the stock pickers
+need. It draws no `CupertinoIcons`, so it needs no `cupertino_icons`
+dependency; its few glyphs come from Material Icons, which the chrome needs
+anyway. `package:dart_pdf_editor/dart_pdf_editor.dart` does not import it,
+so a Material app does not compile it. Extend it to change one method.
+
 ### 4. Commands and tool groups
 
 Everything the stock toolbar does goes through `PdfEditorCommands`, which
@@ -656,8 +693,8 @@ mount on its own (a `PdfEditingToolbar` next to your own viewer) in
 [`example/lib/cupertino_host.dart`](example/lib/cupertino_host.dart) puts the
 layers together: a `CupertinoApp` whose nav bar is built from the header
 parts, whose toolbar is built from the command catalog, and whose presenter
-shows menus as action sheets, prompts as alert dialogs and notices as a
-toast (`flutter run -t lib/cupertino_host.dart` in `example/`).
+is `PdfCupertinoPresenter` (`flutter run -t lib/cupertino_host.dart` in
+`example/`).
 
 ### 5. Headless
 

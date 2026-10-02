@@ -2,6 +2,7 @@
 // built from PdfHeaderParts, a toolbar from the command catalog, and a
 // Cupertino presenter - the acceptance test for the 5.x UI seams.
 
+import 'package:dart_pdf_editor/cupertino.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/gestures.dart';
@@ -69,7 +70,7 @@ void main() {
     await tester.tapAt(page + Offset(80 * scale, (792 - 728) * scale),
         kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('cupertino-menu')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-cupertino-menu')), findsOneWidget);
     expect(find.byType(CupertinoActionSheet), findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
     await tester.tap(find.text('Cancel'));
@@ -82,15 +83,15 @@ void main() {
     await pumpHost(tester);
     final context = tester.element(find.byType(PdfViewer));
     final presenter = PdfEditorPresenter.of(context);
-    expect(presenter, isA<CupertinoEditorPresenter>());
+    expect(presenter, isA<PdfCupertinoPresenter>());
 
     final answer = presenter.text(
         context, const PdfTextRequest(title: 'Name', initial: 'a'));
     await tester.pumpAndSettle();
     expect(find.byType(CupertinoAlertDialog), findsOneWidget);
     await tester.enterText(
-        find.byKey(const ValueKey('cupertino-text-field')), 'Report');
-    await tester.tap(find.byKey(const ValueKey('cupertino-text-ok')));
+        find.byKey(const ValueKey('pdf-text-prompt-field')), 'Report');
+    await tester.tap(find.byKey(const ValueKey('pdf-text-prompt-ok')));
     await tester.pumpAndSettle();
     expect(await answer, 'Report');
 
@@ -109,10 +110,10 @@ void main() {
     // Save reports through the Cupertino toast
     await tester.tap(find.byKey(const ValueKey('pdf-shell-save')));
     await tester.pump();
-    expect(find.byKey(const ValueKey('cupertino-toast')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-cupertino-toast')), findsOneWidget);
     expect(find.text('Saved (1)'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
-    expect(find.byKey(const ValueKey('cupertino-toast')), findsNothing);
+    expect(find.byKey(const ValueKey('pdf-cupertino-toast')), findsNothing);
     expectNoErrors(tester);
   });
 
