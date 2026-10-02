@@ -4,8 +4,9 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugPrint, defaultTargetPlatform;
-import 'package:pdf_cos/pdf_cos.dart' show CosDocument, cosSparseBufferRanges;
+    show TargetPlatform, debugPrint, defaultTargetPlatform, visibleForTesting;
+import 'package:pdf_cos/pdf_cos.dart'
+    show CosDictionary, CosDocument, CosName, CosStream, cosSparseBufferRanges;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -1339,9 +1340,12 @@ Future<Uint8List?> _recordResumablePage(
   }
   if (entry == null) {
     final page = document.page(pageIndex);
-    // Unlimited (every visible-page record): stream straight into the wire
-    // buffer. A command-limited record keeps the recorder.
-    final writer = commandLimit == null
+    final content = page.contentBytes();
+    // Stream straight into the wire buffer unless the record is
+    // command-limited, or decodes a light page that declares an image (see
+    // [pdfWorkerRecordStreams]).
+    final writer = pdfWorkerRecordStreams(page, content.length,
+            decodeImages: decodeImages, commandLimit: commandLimit)
         ? PdfStreamingCommandWriter(cos: document.cos)
         : null;
     final recorder = writer == null ? RecordingPdfDevice() : null;
@@ -1350,7 +1354,7 @@ Future<Uint8List?> _recordResumablePage(
       device: writer ?? recorder!,
       collectCharOffsets: true,
     );
-    final walk = interpreter.beginPageContent(page, page.contentBytes());
+    final walk = interpreter.beginPageContent(page, content);
     entry = _SuspendedRecord(
         pageIndex, annotations, page, recorder, writer, interpreter, walk);
   }
@@ -1450,6 +1454,53 @@ Future<Uint8List?> _recordResumablePage(
       imageDecodeFilter: decodeImages ? _decodeImageInBackgroundIsolate : null,
       commandLimit: commandLimit,
       compactStateScopes: true);
+}
+
+/// Decoded content size at and above which a decoding record of a page that
+/// declares an image still streams.
+///
+/// Below it the recorder is cheaper: a streamed decoding record with images
+/// has to deserialize its buffer and serialize it again with decoding on (see
+/// [_finishStreamedRecord]), and that second pass costs more than the
+/// command graph the stream saved. AOT, decoding record at ratio 2: a 40-page
+/// letterhead report (5 KB of content and one logo per page) streamed 1.22x
+/// slower than recorded; real image-bearing CAD sheets streamed 1.06-1.12x
+/// slower at 1-9 MB of content, broke even at 11 MB (0.99x) and only won on
+/// a 25 MB sheet (0.92x process CPU).
+@visibleForTesting
+const int pdfWorkerStreamedImagePageMinContentBytes = 16 << 20;
+
+/// Whether a native worker record of [page] streams into the wire buffer
+/// ([PdfStreamingCommandWriter]) rather than recording a command graph.
+///
+/// A command-limited record keeps the recorder: its limit counts commands
+/// before scope compaction. A decoding record of a page whose resources
+/// declare an image XObject keeps it too unless its decoded content
+/// ([contentLength]) is at least [minContentBytes]. Everything else streams:
+/// non-decoding records, image-free pages and heavy image pages. Images found
+/// only during the walk (inline, or inside a form) still stream and take the
+/// re-serialize in [_finishStreamedRecord] - correct, just not the cheapest.
+@visibleForTesting
+bool pdfWorkerRecordStreams(PdfPage page, int contentLength,
+    {required bool decodeImages,
+    int? commandLimit,
+    int minContentBytes = pdfWorkerStreamedImagePageMinContentBytes}) {
+  if (commandLimit != null) return false;
+  if (!decodeImages || contentLength >= minContentBytes) return true;
+  return !_declaresImageXObject(page);
+}
+
+bool _declaresImageXObject(PdfPage page) {
+  final cos = page.document.cos;
+  final xObjects = cos.resolve(page.resources['XObject']);
+  if (xObjects is! CosDictionary) return false;
+  for (final value in xObjects.entries.values) {
+    final xObject = cos.resolve(value);
+    if (xObject is! CosStream) continue;
+    final subtype = cos.resolve(xObject.dictionary['Subtype']);
+    if (subtype is CosName && subtype.value == 'Image') return true;
+  }
+  return false;
 }
 
 /// Completes a streamed [_recordResumablePage]: the same buffers the recorder
