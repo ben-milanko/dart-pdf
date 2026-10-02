@@ -246,7 +246,10 @@ void main() {
 
       await demo.tapToolbarTooltip('Edit annotation text');
       await $.pump();
-      expect(find.widgetWithText(EditableText, 'First Patrol note'),
+      expect(
+          find.byWidgetPredicate((widget) =>
+              widget is EditableText &&
+              widget.controller.text == 'First Patrol note'),
           findsOneWidget);
       await $.tester.enterText(
         find.byType(EditableText).last,
