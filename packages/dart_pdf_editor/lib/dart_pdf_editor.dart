@@ -61,6 +61,7 @@ export 'src/editing/preferences_store.dart';
 export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';
 export 'src/editing/editing_signature.dart';
+export 'src/editing/signature_pad.dart';
 export 'src/editing/saved_annotation.dart';
 export 'src/editing/editing_snapshot_clipboard.dart';
 export 'src/editing/editing_stamps.dart';

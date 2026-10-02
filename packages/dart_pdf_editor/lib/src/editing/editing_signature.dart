@@ -1,16 +1,13 @@
 import 'dart:async';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:pdf_document/pdf_document.dart'
-    show pdfInkCurveControls, pdfInkStrokeWidth;
+import 'package:pdf_document/pdf_document.dart' show pdfInkCurveControls;
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'models/ink_signature.dart';
-import 'stroke_prediction.dart';
+import 'signature_pad.dart';
 import '../design/editor_presenter.dart';
 
 export 'models/ink_signature.dart'
@@ -358,24 +355,14 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
     Color(0xFFB71C1C)
   ];
 
-  static const _padWidth = 360.0;
-  static const _padHeight = 180.0;
+  late final _pad = PdfSignaturePadController(
+    color: widget.initialColor ?? _inks.first,
+    strokeWidth: widget.initialStrokeWidth,
+  )..addListener(_onPadChanged);
 
-  /// Pad pixels per point: the pad is as wide as a signature stamped at
-  /// [PdfInkSignature.referenceWidth], so a pen drawn here is the pen that
-  /// lands on the page.
-  static const _padScale = _padWidth / PdfInkSignature.referenceWidth;
-
-  final List<List<Offset>> _strokes = [];
-  final List<List<double>?> _pressures = [];
-  List<Offset>? _active;
-  List<double>? _activePressures;
-  double? _pointerPressure;
-  late Color _ink = widget.initialColor ?? _inks.first;
-  late double _strokeWidth = widget.initialStrokeWidth
-      .clamp(PdfInkSignature.minStrokeWidth, PdfInkSignature.maxStrokeWidth);
-
-  bool get _isEmpty => _strokes.isEmpty && _active == null;
+  void _onPadChanged() {
+    if (mounted) setState(() {});
+  }
 
   static String _hexOf(Color color) =>
       (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
@@ -386,270 +373,72 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
     final pick = widget.pickColor ??
         (BuildContext context, Color initial) =>
             pdfPresentColor(context, PdfColorRequest(initial: initial));
-    final picked = await pick(context, _ink);
+    final picked = await pick(context, _pad.color);
     if (picked == null || !mounted) return;
-    setState(() => _ink = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF)));
-  }
-
-  /// 0–1 within the device's range; null when the device has none
-  /// (mouse, finger) - same convention as the ink overlay.
-  static double? _normalizedPressure(PointerEvent event) {
-    if (event.pressureMax <= event.pressureMin) return null;
-    return ((event.pressure - event.pressureMin) /
-            (event.pressureMax - event.pressureMin))
-        .clamp(0.0, 1.0);
-  }
-
-  void _panStart(DragStartDetails details) {
-    final pressure = _pointerPressure;
-    setState(() {
-      _active = [details.localPosition];
-      _activePressures = pressure == null ? null : [pressure];
-    });
-  }
-
-  void _panUpdate(DragUpdateDetails details) {
-    setState(() {
-      _active!.add(details.localPosition);
-      _activePressures?.add(_pointerPressure ?? _activePressures!.last);
-    });
-  }
-
-  void _panEnd(DragEndDetails details) => _endStroke();
-
-  void _endStroke() {
-    final stroke = _active;
-    if (stroke == null) return;
-    setState(() {
-      _strokes.add(stroke);
-      _pressures.add(_activePressures);
-      _active = null;
-      _activePressures = null;
-    });
-  }
-
-  StreamSubscription<PdfTrackpadSignatureEvent>? _trackpadCapture;
-
-  /// Whether [PdfSignatureDialog.trackpad] reported a trackpad attached.
-  bool _trackpadAvailable = false;
-
-  /// Takes the keyboard while a capture runs, so any key can finish it.
-  final _trackpadFocus = FocusNode(debugLabel: 'pdf-signature-trackpad');
-
-  /// Ends a capture when the app loses focus, so a host that parked the
-  /// cursor gets it back.
-  AppLifecycleListener? _lifecycle;
-
-  bool get _trackpadActive => _trackpadCapture != null;
-
-  @override
-  void initState() {
-    super.initState();
-    final trackpad = widget.trackpad;
-    if (trackpad == null) return;
-    _lifecycle =
-        AppLifecycleListener(onInactive: _stopTrackpad, onHide: _stopTrackpad);
-    trackpad.isAvailable().then((available) {
-      if (mounted && available) setState(() => _trackpadAvailable = true);
-    }, onError: (Object _) {});
-  }
-
-  void _startTrackpad() {
-    final trackpad = widget.trackpad;
-    if (trackpad == null || _trackpadActive) return;
-    _endStroke();
-    setState(() {
-      _trackpadCapture = trackpad.capture().listen(
-            _onTrackpad,
-            onError: (Object _) => _stopTrackpad(),
-            onDone: _stopTrackpad,
-          );
-    });
-    _trackpadFocus.requestFocus();
-  }
-
-  /// "Press any key when finished"; every other key is swallowed while the
-  /// capture runs so none reaches the dialog or the document behind it.
-  KeyEventResult _onTrackpadKey(FocusNode node, KeyEvent event) {
-    if (!_trackpadActive) return KeyEventResult.ignored;
-    if (event is KeyDownEvent) _stopTrackpad();
-    return KeyEventResult.handled;
-  }
-
-  void _stopTrackpad() {
-    final capture = _trackpadCapture;
-    if (capture == null) return;
-    _trackpadCapture = null;
-    capture.cancel();
-    if (!mounted) return;
-    _endStroke();
-    setState(() {});
-  }
-
-  /// The whole trackpad surface maps onto the whole pad, like Preview's
-  /// trackpad signatures: where the finger lands is where the pen lands.
-  void _onTrackpad(PdfTrackpadSignatureEvent event) {
-    if (!mounted) return;
-    final point = Offset(event.x.clamp(0.0, 1.0) * _padWidth,
-        event.y.clamp(0.0, 1.0) * _padHeight);
-    switch (event.phase) {
-      case PdfTrackpadSignaturePhase.down:
-        _endStroke();
-        setState(() {
-          _active = [point];
-          _activePressures = null;
-        });
-      case PdfTrackpadSignaturePhase.move:
-        setState(() => (_active ??= []).add(point));
-      case PdfTrackpadSignaturePhase.up:
-        final active = _active;
-        if (active != null && (active.isEmpty || active.last != point)) {
-          active.add(point);
-        }
-        _endStroke();
-      case PdfTrackpadSignaturePhase.finish:
-        _stopTrackpad();
-    }
+    _pad.color = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF));
   }
 
   @override
   void dispose() {
-    _trackpadCapture?.cancel();
-    _trackpadCapture = null;
-    _lifecycle?.dispose();
-    _trackpadFocus.dispose();
+    _pad.dispose();
     super.dispose();
-  }
-
-  /// The in-progress stroke with a display-only predicted lead appended
-  /// (and its last pressure carried onto the lead), recomputed each build
-  /// so the next real sample replaces it - the pad's analogue of the ink
-  /// tool's live prediction. Null when no stroke is active.
-  ({List<Offset> points, List<double>? pressures})? get _activeDisplay {
-    final active = _active;
-    if (active == null) return null;
-    var pressures = _activePressures;
-    if (widget.predictStrokes) {
-      final lead = pdfPredictStrokeLead([for (final p in active) (p.dx, p.dy)]);
-      if (lead.isNotEmpty) {
-        final points = [...active, for (final (x, y) in lead) Offset(x, y)];
-        if (pressures != null) {
-          pressures = [...pressures, for (final _ in lead) pressures.last];
-        }
-        return (points: points, pressures: pressures);
-      }
-    }
-    return (points: active, pressures: pressures);
   }
 
   @override
   Widget build(BuildContext context) {
-    final activeDisplay = _activeDisplay;
+    final scheme = Theme.of(context).colorScheme;
+    final ink = _pad.color;
+    final trackpadActive = _pad.trackpadActive;
     final dialog = AlertDialog(
       title: Text(pdfL10n(context).sigTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: _padWidth,
-            height: _padHeight,
-            decoration: BoxDecoration(
-              // the pad is always paper-white, like the page the
-              // signature will land on - only its border follows the theme
-              color: Colors.white,
-              border: _trackpadActive
-                  ? Border.all(
-                      color: Theme.of(context).colorScheme.primary, width: 2)
-                  : Border.all(color: Theme.of(context).colorScheme.outline),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Listener(
-                onPointerDown: (e) => _pointerPressure = _normalizedPressure(e),
-                onPointerMove: (e) => _pointerPressure = _normalizedPressure(e),
-                child: GestureDetector(
-                  dragStartBehavior: DragStartBehavior.down,
-                  onPanStart: _panStart,
-                  onPanUpdate: _panUpdate,
-                  onPanEnd: _panEnd,
-                  child: CustomPaint(
-                    key: const ValueKey('pdf-signature-pad'),
-                    size: const Size(_padWidth, _padHeight),
-                    painter: _SignaturePadPainter(
-                      strokes: [
-                        ..._strokes,
-                        if (activeDisplay != null) activeDisplay.points
-                      ],
-                      pressures: [
-                        ..._pressures,
-                        if (activeDisplay != null) activeDisplay.pressures
-                      ],
-                      color: _ink,
-                      strokeWidth: _strokeWidth * _padScale,
-                    ),
-                    child: _trackpadActive
-                        ? Align(
-                            alignment: Alignment.topCenter,
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Text(
-                                pdfL10n(context).sigTrackpadHint,
-                                key: const ValueKey(
-                                    'pdf-signature-trackpad-hint'),
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(color: Colors.black54),
-                              ),
-                            ),
-                          )
-                        : null,
-                  ),
-                ),
-              ),
-            ),
+          PdfSignaturePad(
+            controller: _pad,
+            predictStrokes: widget.predictStrokes,
+            trackpad: widget.trackpad,
+            // the pad is always paper-white, like the page the signature
+            // will land on - only its border follows the theme
+            borderColor: scheme.outline,
+            activeBorderColor: scheme.primary,
+            trackpadHintStyle: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.black54),
           ),
           const SizedBox(height: 12),
           Row(children: [
-            for (final ink in _inks)
+            for (final preset in _inks)
               Padding(
                 padding: const EdgeInsetsDirectional.only(end: 8),
                 child: _InkSwatch(
-                  key: ValueKey('pdf-signature-ink-${_hexOf(ink)}'),
-                  color: ink,
-                  selected: _ink == ink,
-                  onTap: () => setState(() => _ink = ink),
+                  key: ValueKey('pdf-signature-ink-${_hexOf(preset)}'),
+                  color: preset,
+                  selected: ink == preset,
+                  onTap: () => _pad.color = preset,
                 ),
               ),
             // any colour at all, through the full picker
             _InkSwatch(
               key: const ValueKey('pdf-signature-custom-ink'),
-              color: _ink,
-              selected: !_inks.contains(_ink),
+              color: ink,
+              selected: !_inks.contains(ink),
               tooltip: pdfL10n(context).colorPickColor,
               icon: Icons.colorize,
               onTap: _pickInk,
             ),
             const Spacer(),
-            if (_trackpadAvailable)
+            if (_pad.trackpadAvailable)
               TextButton.icon(
                 key: const ValueKey('pdf-signature-trackpad'),
-                onPressed: _trackpadActive ? null : _startTrackpad,
+                onPressed: trackpadActive ? null : _pad.startTrackpad,
                 icon: const Icon(Icons.touch_app_outlined, size: 18),
                 label: Text(pdfL10n(context).sigUseTrackpad),
               ),
             TextButton(
-              onPressed: _isEmpty
-                  ? null
-                  : () => setState(() {
-                        _strokes.clear();
-                        _pressures.clear();
-                        _active = null;
-                        _activePressures = null;
-                      }),
+              onPressed: _pad.isEmpty ? null : _pad.clear,
               child: Text(pdfL10n(context).clear),
             ),
           ]),
@@ -658,16 +447,16 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
             Expanded(
               child: Slider(
                 key: const ValueKey('pdf-signature-stroke-width'),
-                value: _strokeWidth,
+                value: _pad.strokeWidth,
                 min: PdfInkSignature.minStrokeWidth,
                 max: PdfInkSignature.maxStrokeWidth,
-                onChanged: (value) => setState(() => _strokeWidth = value),
+                onChanged: (value) => _pad.strokeWidth = value,
               ),
             ),
             SizedBox(
               width: 44,
               child: Text(
-                '${_strokeWidth.toStringAsFixed(1)} pt',
+                '${_pad.strokeWidth.toStringAsFixed(1)} pt',
                 textAlign: TextAlign.end,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -681,26 +470,23 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
           child: Text(pdfL10n(context).cancel),
         ),
         PdfDialogSubmit.action(
-            onSubmit: _isEmpty ? null : _accept,
+            onSubmit: _pad.isEmpty ? null : _accept,
             child: FilledButton(
-              onPressed: _isEmpty ? null : _accept,
+              onPressed: _pad.isEmpty ? null : _accept,
               child: Text(pdfL10n(context).done),
             )),
       ],
     );
     if (widget.trackpad == null) return dialog;
-    return Focus(
-      focusNode: _trackpadFocus,
-      onKeyEvent: _onTrackpadKey,
-      // clicks mean nothing mid-capture: with tap-to-click a quick dab on
-      // the trackpad is also a click, and it must not press a button
-      child: AbsorbPointer(absorbing: _trackpadActive, child: dialog),
-    );
+    // clicks mean nothing mid-capture: with tap-to-click a quick dab on the
+    // trackpad is also a click, and it must not press a button
+    return AbsorbPointer(absorbing: trackpadActive, child: dialog);
   }
 
-  void _accept() => Navigator.of(context).pop(PdfInkSignature.fromPad(
-      _strokes, _pressures, _ink,
-      strokeWidth: _strokeWidth));
+  void _accept() {
+    _pad.endStroke();
+    Navigator.of(context).pop(_pad.toSignature());
+  }
 }
 
 /// One round ink well in the pad's colour row - a preset pen, or (with an
@@ -754,83 +540,4 @@ class _InkSwatch extends StatelessWidget {
     );
     return tooltip == null ? swatch : Tooltip(message: tooltip!, child: swatch);
   }
-}
-
-class _SignaturePadPainter extends CustomPainter {
-  _SignaturePadPainter({
-    required this.strokes,
-    required this.pressures,
-    required this.color,
-    required this.strokeWidth,
-  });
-
-  final List<List<Offset>> strokes;
-  final List<List<double>?> pressures;
-  final Color color;
-
-  /// The pen width in pad pixels - the chosen point width scaled to the
-  /// pad, so what is drawn here is what lands on the page.
-  final double strokeWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final baseline = Paint()
-      ..color = Colors.black12
-      ..strokeWidth = 1;
-    canvas.drawLine(Offset(16, size.height * 0.75),
-        Offset(size.width - 16, size.height * 0.75), baseline);
-
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    for (var i = 0; i < strokes.length; i++) {
-      final stroke = strokes[i];
-      final pressure = i < pressures.length ? pressures[i] : null;
-      if (stroke.isEmpty) continue;
-      // same Catmull-Rom smoothing as the committed ink appearance
-      final controls =
-          pdfInkCurveControls([for (final p in stroke) (p.dx, p.dy)]);
-      if (pressure == null) {
-        final path = Path()..moveTo(stroke.first.dx, stroke.first.dy);
-        for (var j = 0; j + 1 < stroke.length; j++) {
-          final ((c1x, c1y), (c2x, c2y)) = controls[j];
-          path.cubicTo(c1x, c1y, c2x, c2y, stroke[j + 1].dx, stroke[j + 1].dy);
-        }
-        canvas.drawPath(path, paint);
-      } else {
-        // same per-segment width mapping as the committed appearance
-        final segment = Paint()
-          ..color = color
-          ..strokeCap = StrokeCap.round
-          ..style = PaintingStyle.stroke;
-        if (stroke.length == 1) {
-          canvas.drawCircle(
-              stroke.single,
-              pdfInkStrokeWidth(strokeWidth, pressure.first) / 2,
-              Paint()..color = color);
-          continue;
-        }
-        for (var j = 0; j + 1 < stroke.length; j++) {
-          final avg = (pressure[j] + pressure[j + 1]) / 2;
-          segment.strokeWidth = pdfInkStrokeWidth(strokeWidth, avg);
-          final ((c1x, c1y), (c2x, c2y)) = controls[j];
-          canvas.drawPath(
-              Path()
-                ..moveTo(stroke[j].dx, stroke[j].dy)
-                ..cubicTo(
-                    c1x, c1y, c2x, c2y, stroke[j + 1].dx, stroke[j + 1].dy),
-              segment);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_SignaturePadPainter old) =>
-      old.strokes != strokes ||
-      old.color != color ||
-      old.strokeWidth != strokeWidth;
 }
