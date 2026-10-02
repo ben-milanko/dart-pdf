@@ -669,5 +669,6 @@
   "guidesShowGridHint": "แสดงผลเท่านั้น ไม่ได้เพิ่มลงใน PDF",
   "guidesGridSpacing": "ระยะห่างเส้นตาราง",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "เส้นนำเคอร์เซอร์และเส้นตาราง"
+  "shellCursorGuidesAndGrid": "เส้นนำเคอร์เซอร์และเส้นตาราง",
+  "commandSaveAs": "บันทึกเป็น…"
 }

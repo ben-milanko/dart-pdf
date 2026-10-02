@@ -669,5 +669,6 @@
   "guidesShowGridHint": "화면 표시 전용이며 PDF에는 추가되지 않음",
   "guidesGridSpacing": "격자 간격",
   "guidesGridSpacingValue": "{value}pt",
-  "shellCursorGuidesAndGrid": "커서 안내선 및 격자"
+  "shellCursorGuidesAndGrid": "커서 안내선 및 격자",
+  "commandSaveAs": "다른 이름으로 저장…"
 }

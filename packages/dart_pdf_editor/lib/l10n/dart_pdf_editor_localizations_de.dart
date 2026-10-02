@@ -2302,4 +2302,7 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'Cursorhilfslinien und Raster';
+
+  @override
+  String get commandSaveAs => 'Speichern unter…';
 }

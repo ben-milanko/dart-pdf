@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Affichage uniquement ; non ajouté au PDF",
   "guidesGridSpacing": "Espacement de la grille",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Repères du curseur et grille"
+  "shellCursorGuidesAndGrid": "Repères du curseur et grille",
+  "commandSaveAs": "Enregistrer sous…"
 }

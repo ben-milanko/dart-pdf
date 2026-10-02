@@ -18,7 +18,9 @@ import 'editing/editing_sidebar.dart';
 import 'editing/editing_stamps.dart';
 import 'editing/editing_thumbnail_drop.dart';
 import 'editing/editing_thumbnails.dart';
+import 'editing/editing_tool_catalog.dart';
 import 'editing/editing_toolbar.dart';
+import 'editing/editor_commands.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
@@ -267,6 +269,8 @@ class PdfEditorView extends StatefulWidget {
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
     this.toolbarBuilder,
+    this.toolGroups = pdfToolGroups,
+    this.commands,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -364,6 +368,8 @@ class PdfEditorView extends StatefulWidget {
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
     this.toolbarBuilder,
+    this.toolGroups = pdfToolGroups,
+    this.commands,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -649,6 +655,22 @@ class PdfEditorView extends StatefulWidget {
   /// false to disable all toolbar chrome regardless of this value.
   final PdfEditorToolbarBuilder? toolbarBuilder;
 
+  /// The stock toolbar's tool groups, in dock order - see
+  /// [PdfEditingToolbar.toolGroups]. [PdfEditorFeatures.toolGroups] and
+  /// [PdfEditorFeatures.tools] still filter it.
+  final List<PdfToolGroup> toolGroups;
+
+  /// The editor's [PdfEditorCommands], when the host wants to own them -
+  /// to run them from a command palette or menu that lives above this
+  /// widget. Null: the view owns its own.
+  ///
+  /// Either way the view keeps them pointed at its live session, viewer,
+  /// [toolGroups], [features] and save callbacks while it is mounted, and
+  /// provides them to everything beneath it, the toolbar and the viewer's
+  /// tool shortcuts included ([PdfEditorCommands.of]). A host-owned object
+  /// is not disposed by the view.
+  final PdfEditorCommands? commands;
+
   /// See [PdfViewer.pageLayout].
   final PdfPageLayout pageLayout;
 
@@ -679,6 +701,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfPencilInteraction? _pencil;
 
   late Map<PdfEditTool, PdfToolShortcut> _toolShortcuts;
+
+  /// The commands this view owns when the host passes none
+  /// ([PdfEditorView.commands]).
+  PdfEditorCommands? _ownedCommands;
+
+  PdfEditorCommands get _commands => widget.commands ?? _ownedCommands!;
 
   /// The revision length last reported through onDocumentChanged -
   /// revisions are byte prefixes of one buffer, so equal length means
@@ -743,7 +771,52 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     _reportedLength = _session.bytes.length;
     _syncOwnedViewMode();
     _attachPencil();
+    _syncOwnedCommands();
   }
+
+  void _syncOwnedCommands() {
+    if (widget.commands != null) {
+      _ownedCommands?.dispose();
+      _ownedCommands = null;
+      return;
+    }
+    _ownedCommands ??= PdfEditorCommands(
+      controller: _session,
+      viewerController: _viewer,
+      toolGroups: widget.toolGroups,
+    );
+  }
+
+  /// Points the commands at what this view shows right now: the live
+  /// session and viewer (a new session restarts the recent tools but keeps
+  /// the open group), the tool groups, and the surfaces and save callbacks
+  /// the catalog lists. Plain field writes - nothing notifies from build.
+  void _bindCommands({
+    required Set<PdfEditTool>? tools,
+    required Map<PdfEditTool, PdfToolShortcut> shortcuts,
+  }) {
+    _commands
+      ..controller = _session
+      ..viewerController = _viewer
+      ..toolGroups = widget.toolGroups
+      ..preferences = _prefs
+      ..viewMode = _viewMode
+      ..features = widget.features
+      // the toolbar drops the image tool without a picker; so does the
+      // catalog
+      ..tools = widget.imagePicker != null
+          ? tools
+          : {
+              for (final tool in tools ?? PdfEditTool.values)
+                if (tool != PdfEditTool.image) tool,
+            }
+      ..toolShortcuts = shortcuts
+      ..onSave = widget.onSave == null ? null : _save
+      ..saveEnabled = widget.onSave == null ? null : _saveEnabled
+      ..onSaveAs = widget.onSaveAs == null ? null : _saveAs;
+  }
+
+  bool _saveEnabled() => _canSave;
 
   void _prepareSession(PdfEditingController session) {
     session
@@ -800,11 +873,26 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       _attachPencil();
     }
     _syncOwnedViewMode();
+    _syncOwnedCommands();
+    final previous = oldWidget.commands;
+    if (previous != null && !identical(previous, widget.commands)) {
+      _unbindHostCommands(previous);
+    }
+  }
+
+  /// Drops this view's callbacks from host-owned commands it no longer
+  /// drives, so they cannot save through a view that is gone.
+  void _unbindHostCommands(PdfEditorCommands commands) {
+    if (commands.onSave == _save) commands.onSave = null;
+    if (commands.onSaveAs == _saveAs) commands.onSaveAs = null;
+    if (commands.saveEnabled == _saveEnabled) commands.saveEnabled = null;
   }
 
   @override
   void dispose() {
     _pencil?.dispose();
+    _ownedCommands?.dispose();
+    if (widget.commands case final commands?) _unbindHostCommands(commands);
     _ownedViewMode?.dispose();
     if (!_isSource) _shell.dispose();
     super.dispose();
@@ -874,6 +962,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         toolbarLeading: widget.toolbarLeading,
         toolbarTrailing: widget.toolbarTrailing,
         toolbarBuilder: widget.toolbarBuilder,
+        toolGroups: widget.toolGroups,
+        commands: widget.commands,
         pageLayout: widget.pageLayout,
         initialFit: widget.initialFit,
         backgroundColor: widget.backgroundColor,
@@ -980,6 +1070,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     if (widget.onPlaceSignature == null) {
       availableShortcuts.remove(PdfEditTool.signatureBox);
     }
+    _bindCommands(tools: availableTools, shortcuts: availableShortcuts);
     Widget body = LayoutBuilder(builder: (context, constraints) {
       return ListenableBuilder(
         // the session owns the document revisions: the viewer must
@@ -1365,6 +1456,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     palette: widget.palette,
                     tools: availableTools,
                     groups: features.toolGroups,
+                    toolGroups: widget.toolGroups,
                     toolShortcuts: availableShortcuts,
                     showMarkup: features.markup,
                     showUndoRedo: features.undoRedo,
@@ -1683,6 +1775,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     if (widget.viewerTheme != null) {
       body = PdfViewerTheme(data: widget.viewerTheme!, child: body);
     }
+    // one set of commands for the toolbar, the viewer's tool shortcuts and
+    // anything the host builds in (toolbarBuilder, overlays)
+    body = PdfEditorCommandsScope(commands: _commands, child: body);
     final bindings = <ShortcutActivator, VoidCallback>{
       ..._shell.searchShortcuts(enabled: features.headerBar && features.search),
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the

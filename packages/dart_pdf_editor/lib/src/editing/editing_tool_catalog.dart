@@ -2,34 +2,53 @@ import 'package:flutter/material.dart';
 
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
+import 'editor_commands.dart' show PdfCommand;
 import 'tool_shortcuts.dart';
 import '../keyboard_availability.dart';
 
-/// One entry in the tool catalogue: an editing [tool] or a text [markup]
-/// kind, with the icon the dock draws for it.
+/// One entry in the tool catalogue: an editing [tool], a text [markup]
+/// kind, or a host [command], with the icon the dock draws for it.
 ///
 /// The catalogue is the single list behind both the toolbar's dock and any
 /// host that needs to enumerate the tools (a command palette, a shortcut
 /// sheet) - a tool added here joins every one of them.
 class PdfToolEntry {
-  const PdfToolEntry.tool(this.tool, this.icon) : markup = null;
-  const PdfToolEntry.markup(this.markup, this.icon) : tool = null;
+  const PdfToolEntry.tool(this.tool, this.icon)
+      : markup = null,
+        command = null;
+  const PdfToolEntry.markup(this.markup, this.icon)
+      : tool = null,
+        command = null;
+
+  /// A host action in a tool group: the dock draws it as a button beside
+  /// the stock tools, shows it selected while [PdfCommand.selected] is true,
+  /// disables it while [PdfCommand.enabled] is false, and runs
+  /// [PdfCommand.invoke] when it is tapped.
+  PdfToolEntry.command(PdfCommand this.command)
+      : tool = null,
+        markup = null,
+        icon = command.icon;
 
   final PdfEditTool? tool;
   final PdfMarkupKind? markup;
+  final PdfCommand? command;
   final IconData icon;
 
   /// The bare, localized name - what the dock's labelled buttons, the
   /// mobile tool tiles and the active-tool caption show.
   String label(BuildContext context) => tool != null
       ? pdfEditToolLabel(context, tool!)
-      : pdfMarkupLabel(context, markup!);
+      : markup != null
+          ? pdfMarkupLabel(context, markup!)
+          : command!.label(context);
 
   /// The fuller tooltip: a how-to hint where the name alone is too terse,
   /// otherwise the name.
   String tooltip(BuildContext context) => tool != null
       ? pdfEditToolTooltip(context, tool!)
-      : pdfMarkupTooltip(context, markup!);
+      : markup != null
+          ? pdfMarkupTooltip(context, markup!)
+          : command!.tooltipOf(context);
 }
 
 /// A dock group: a labelled chip that raises a contextual strip of [tools].
@@ -38,16 +57,54 @@ class PdfToolEntry {
 /// side-effect-free (shapes → rectangle, draw → ink); groups whose first
 /// tool has a prerequisite (Measure needs a scale, Insert's signature needs
 /// a drawing) leave it null and wait for an explicit tap.
+///
+/// What a group does beyond listing its tools is data on it: [kind] says
+/// which stock group's behaviour it has (the Select navigation cluster, the
+/// Markup strip's text-selection hint and style scope, Measure's scale chip
+/// and totals, Edit's colour processing, and each one's settings controls),
+/// and [labelledTools] whether its strip names its tools. A host group with
+/// no [kind] lists its tools and commands with no extra settings.
 class PdfToolGroup {
-  const PdfToolGroup(this.id, this.icon, this.tools, {this.defaultTool});
+  const PdfToolGroup(
+    this.id,
+    this.icon,
+    this.tools, {
+    this.defaultTool,
+    PdfEditToolGroup? kind,
+    bool? labelledTools,
+    this.labelBuilder,
+  })  : _kind = kind,
+        _labelledTools = labelledTools;
 
+  /// A stable identity, unique among the groups a toolbar shows.
   final String id;
   final IconData icon;
   final List<PdfToolEntry> tools;
   final PdfEditTool? defaultTool;
 
+  final PdfEditToolGroup? _kind;
+  final bool? _labelledTools;
+
+  /// Localizes the group's name. Null uses the stock names for the stock
+  /// ids, and [id] itself otherwise.
+  final String Function(BuildContext context)? labelBuilder;
+
+  /// The stock group whose behaviour this group has, and which
+  /// [PdfEditingToolbar.groups] / [PdfEditorFeatures.toolGroups] value
+  /// shows or hides it. Defaults to the stock group named [id], if any.
+  PdfEditToolGroup? get kind => _kind ?? _stockKinds[id];
+
+  /// Whether the group's strip shows its tools as labelled buttons rather
+  /// than bare icons. Defaults to true for the Edit group only - its tools
+  /// make destructive document edits and read too cryptically as icons.
+  bool get labelledTools => _labelledTools ?? kind == PdfEditToolGroup.edit;
+
+  static final _stockKinds = PdfEditToolGroup.values.asNameMap();
+
   /// The localized group name (the stable [id] is the translation key).
   String label(BuildContext context) {
+    final builder = labelBuilder;
+    if (builder != null) return builder(context);
     final l = pdfL10n(context);
     return switch (id) {
       'select' => l.tbGroupSelect,
@@ -71,13 +128,19 @@ const pdfToolGroups = <PdfToolGroup>[
       [
         PdfToolEntry.tool(PdfEditTool.select, Icons.near_me),
       ],
-      defaultTool: PdfEditTool.select),
-  PdfToolGroup('markup', Icons.edit_note, [
-    PdfToolEntry.markup(PdfMarkupKind.highlight, Icons.border_color),
-    PdfToolEntry.markup(PdfMarkupKind.underline, Icons.format_underlined),
-    PdfToolEntry.markup(PdfMarkupKind.strikeOut, Icons.format_strikethrough),
-    PdfToolEntry.markup(PdfMarkupKind.squiggly, Icons.gesture),
-  ]),
+      defaultTool: PdfEditTool.select,
+      kind: PdfEditToolGroup.select),
+  PdfToolGroup(
+      'markup',
+      Icons.edit_note,
+      [
+        PdfToolEntry.markup(PdfMarkupKind.highlight, Icons.border_color),
+        PdfToolEntry.markup(PdfMarkupKind.underline, Icons.format_underlined),
+        PdfToolEntry.markup(
+            PdfMarkupKind.strikeOut, Icons.format_strikethrough),
+        PdfToolEntry.markup(PdfMarkupKind.squiggly, Icons.gesture),
+      ],
+      kind: PdfEditToolGroup.markup),
   PdfToolGroup(
       'draw',
       Icons.draw,
@@ -86,7 +149,8 @@ const pdfToolGroups = <PdfToolGroup>[
         PdfToolEntry.tool(PdfEditTool.highlight, Icons.border_color),
         PdfToolEntry.tool(PdfEditTool.eraser, Icons.auto_fix_normal),
       ],
-      defaultTool: PdfEditTool.ink),
+      defaultTool: PdfEditTool.ink,
+      kind: PdfEditToolGroup.draw),
   PdfToolGroup(
       'shapes',
       Icons.rectangle_outlined,
@@ -99,7 +163,8 @@ const pdfToolGroups = <PdfToolGroup>[
         PdfToolEntry.tool(PdfEditTool.polygon, Icons.change_history),
         PdfToolEntry.tool(PdfEditTool.cloudPolygon, Icons.cloud_outlined),
       ],
-      defaultTool: PdfEditTool.rectangle),
+      defaultTool: PdfEditTool.rectangle,
+      kind: PdfEditToolGroup.shapes),
   PdfToolGroup(
       'insert',
       Icons.text_fields,
@@ -113,24 +178,34 @@ const pdfToolGroups = <PdfToolGroup>[
         PdfToolEntry.tool(PdfEditTool.signature, Icons.history_edu),
         PdfToolEntry.tool(PdfEditTool.signatureBox, Icons.draw_outlined),
       ],
-      defaultTool: PdfEditTool.freeText),
-  PdfToolGroup('measure', Icons.straighten, [
-    PdfToolEntry.tool(PdfEditTool.measureDistance, Icons.straighten),
-    PdfToolEntry.tool(PdfEditTool.measurePerimeter, Icons.timeline),
-    PdfToolEntry.tool(PdfEditTool.measureArea, Icons.crop_din),
-    PdfToolEntry.tool(PdfEditTool.measureVolume, Icons.view_in_ar),
-    PdfToolEntry.tool(PdfEditTool.measureSlope, Icons.trending_up),
-    PdfToolEntry.tool(PdfEditTool.measureAngle, Icons.architecture),
-    PdfToolEntry.tool(PdfEditTool.measureArc, Icons.gesture),
-  ]),
-  PdfToolGroup('edit', Icons.design_services, [
-    PdfToolEntry.tool(PdfEditTool.content, Icons.format_shapes),
-    PdfToolEntry.tool(PdfEditTool.contentDelete, Icons.content_cut),
-    PdfToolEntry.tool(PdfEditTool.form, Icons.ballot_outlined),
-    PdfToolEntry.tool(PdfEditTool.link, Icons.link),
-    PdfToolEntry.tool(PdfEditTool.redact, Icons.gradient),
-    PdfToolEntry.tool(PdfEditTool.snapshot, Icons.crop),
-  ]),
+      defaultTool: PdfEditTool.freeText,
+      kind: PdfEditToolGroup.insert),
+  PdfToolGroup(
+      'measure',
+      Icons.straighten,
+      [
+        PdfToolEntry.tool(PdfEditTool.measureDistance, Icons.straighten),
+        PdfToolEntry.tool(PdfEditTool.measurePerimeter, Icons.timeline),
+        PdfToolEntry.tool(PdfEditTool.measureArea, Icons.crop_din),
+        PdfToolEntry.tool(PdfEditTool.measureVolume, Icons.view_in_ar),
+        PdfToolEntry.tool(PdfEditTool.measureSlope, Icons.trending_up),
+        PdfToolEntry.tool(PdfEditTool.measureAngle, Icons.architecture),
+        PdfToolEntry.tool(PdfEditTool.measureArc, Icons.gesture),
+      ],
+      kind: PdfEditToolGroup.measure),
+  PdfToolGroup(
+      'edit',
+      Icons.design_services,
+      kind: PdfEditToolGroup.edit,
+      labelledTools: true,
+      [
+        PdfToolEntry.tool(PdfEditTool.content, Icons.format_shapes),
+        PdfToolEntry.tool(PdfEditTool.contentDelete, Icons.content_cut),
+        PdfToolEntry.tool(PdfEditTool.form, Icons.ballot_outlined),
+        PdfToolEntry.tool(PdfEditTool.link, Icons.link),
+        PdfToolEntry.tool(PdfEditTool.redact, Icons.gradient),
+        PdfToolEntry.tool(PdfEditTool.snapshot, Icons.crop),
+      ]),
 ];
 
 /// Every catalogue entry, flattened, paired with the group it belongs to -

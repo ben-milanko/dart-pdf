@@ -36,6 +36,39 @@
   loader's error and the crop overlay's tooltips.
 - README: a "Customising the UI" section covering `uses-material-design` and
   localization delegate registration.
+- Add `PdfEditorCommands`, the stock toolbar's intents as one public object:
+  `armTool`/`toggleTool` (with the prerequisites - a measure tool asks for
+  the measuring scale, the signature tool for a signature), `openGroup`,
+  `applyMarkup`, `applyColor`, `flatten`/`flattenFormFields` (with an Undo
+  notice), hand/select/clear, and `recentTools`. `PdfEditorView` owns one
+  (or takes the host's through `PdfEditorView.commands`) and provides it to
+  everything beneath it; a standalone `PdfEditingToolbar` shares the commands
+  above it when they drive the same controller and otherwise owns its own.
+  Find them with `PdfEditorCommands.of(context)` / `maybeOf`, or place a
+  `PdfEditorCommandsScope` yourself. Swapping the controller restarts the
+  recent tools and keeps the open tool group, as the toolbar always did. The
+  prompts are still the stock Material dialogs.
+- Add `PdfCommand` (id, icon, label, tooltip, shortcut, `enabled`/`selected`
+  listenables, category, `invoke`) and `PdfEditorCommands.catalog(context)`:
+  the editor's tools and markup kinds in dock order, and, under
+  `PdfEditorView`, its panels, view options, view modes and Save / Save as -
+  filtered by the view's `features` - for a command palette or menu.
+- Add ordered `toolGroups` (a `List<PdfToolGroup>`, default `pdfToolGroups`)
+  to `PdfEditingToolbar` and `PdfEditorView`: reorder or trim the dock, or add
+  groups of your own. `PdfToolEntry.command(PdfCommand)` puts a host action in
+  a group beside the stock tools. `PdfToolGroup` gains `kind` (which stock
+  group's behaviour it has, and which `groups`/`features.toolGroups` value
+  filters it; defaults to the stock group named by its `id`),
+  `labelledTools` and `labelBuilder`. A group the toolbar doesn't know no
+  longer throws.
+- Behaviour change: under `PdfEditorView` (or a `PdfEditorCommandsScope`), a
+  viewer tool shortcut now arms through the commands, so `M` asks for the
+  measuring scale before arming a measure tool and `H` asks for a signature
+  when none is saved, exactly as the toolbar does. A bare `PdfViewer` arms
+  directly, as before.
+- Under `PdfEditorView` the toolbar's open group and recent tools now live in
+  the view's commands, so they survive the toolbar remounting (a dock or
+  breakpoint change).
 
 ## 5.1.1
 

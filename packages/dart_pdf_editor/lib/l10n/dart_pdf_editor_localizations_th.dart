@@ -2281,4 +2281,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'เส้นนำเคอร์เซอร์และเส้นตาราง';
+
+  @override
+  String get commandSaveAs => 'บันทึกเป็น…';
 }

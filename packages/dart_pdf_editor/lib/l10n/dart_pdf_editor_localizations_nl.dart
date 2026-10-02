@@ -2298,4 +2298,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'Cursorhulplijnen en raster';
+
+  @override
+  String get commandSaveAs => 'Opslaan als…';
 }

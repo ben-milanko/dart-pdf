@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Solo en pantalla; no se añade al PDF",
   "guidesGridSpacing": "Espaciado de la cuadrícula",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Guías del cursor y cuadrícula"
+  "shellCursorGuidesAndGrid": "Guías del cursor y cuadrícula",
+  "commandSaveAs": "Guardar como…"
 }

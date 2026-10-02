@@ -359,6 +359,55 @@ deprecated. Your own dialogs opened with `showPdfDialog` get Enter-to-submit
 by wrapping the primary action in `PdfDialogSubmit.action(onSubmit: ...,
 child: ...)`, which takes any widget.
 
+### Commands and tool groups
+
+Everything the stock toolbar does goes through `PdfEditorCommands`, which
+`PdfEditorView` provides to its subtree (and the viewer's tool shortcuts use).
+A host's own toolbar, menu or command palette runs the same commands, so a
+measure tool still asks for its scale first:
+
+```dart
+final commands = PdfEditorCommands.of(context);
+await commands.armTool(context, PdfEditTool.measureDistance);
+commands.applyColor(const Color(0xFFE53935));
+
+// Everything the editor offers, for a palette or menu: tools, panels, view
+// modes, save.
+for (final command in commands.catalog(context)) {
+  print('${command.id}: ${command.label(context)}');
+}
+```
+
+To reach them from above the editor (an app-level palette), create them
+yourself and pass `PdfEditorView(commands: ...)`.
+
+`toolGroups` orders the dock and takes groups of your own; an entry can be a
+stock tool, a markup kind or a `PdfCommand`:
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  toolGroups: [
+    pdfToolGroups.firstWhere((g) => g.id == 'select'),
+    pdfToolGroups.firstWhere((g) => g.id == 'markup'),
+    PdfToolGroup(
+      'review',
+      Icons.rate_review_outlined,
+      [
+        const PdfToolEntry.tool(PdfEditTool.note, Icons.sticky_note_2_outlined),
+        PdfToolEntry.command(PdfCommand(
+          id: 'approve',
+          icon: Icons.verified_outlined,
+          label: (context) => 'Approve',
+          invoke: (context) async => approve(),
+        )),
+      ],
+      labelBuilder: (context) => 'Review',
+    ),
+  ],
+)
+```
+
 ## Composing your own UI
 
 `PdfEditorView` and `PdfReader` are assembled from public parts:

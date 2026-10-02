@@ -2287,4 +2287,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'Đường dẫn con trỏ và lưới';
+
+  @override
+  String get commandSaveAs => 'Lưu thành…';
 }

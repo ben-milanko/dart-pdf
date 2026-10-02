@@ -2298,4 +2298,7 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'Guías del cursor y cuadrícula';
+
+  @override
+  String get commandSaveAs => 'Guardar como…';
 }

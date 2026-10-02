@@ -2291,4 +2291,7 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'कर्सर गाइड और ग्रिड';
+
+  @override
+  String get commandSaveAs => 'इस रूप में सहेजें…';
 }

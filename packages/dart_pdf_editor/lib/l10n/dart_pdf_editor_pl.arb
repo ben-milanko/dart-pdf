@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Tylko na ekranie; nie jest dodawana do pliku PDF",
   "guidesGridSpacing": "Odstęp siatki",
   "guidesGridSpacingValue": "{value} pkt",
-  "shellCursorGuidesAndGrid": "Prowadnice kursora i siatka"
+  "shellCursorGuidesAndGrid": "Prowadnice kursora i siatka",
+  "commandSaveAs": "Zapisz jako…"
 }

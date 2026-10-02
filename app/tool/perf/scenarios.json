@@ -103,6 +103,12 @@
       "params": { "ops": 24 },
       "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
     },
+    "toolbar-arm": {
+      "kind": "toolbar",
+      "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
+      "params": { "rounds": 4 },
+      "note": "Mount the full PdfEditorView and arm tools through the stock toolbar with real mouse clicks - the Shapes/Draw/Insert/Edit/Markup chips and strip buttons, 11 clicks a round. The only scenario that exercises the toolbar and PdfEditorCommands: toolbarArmMsP50/P95 is click to end of frame, toolbarBuildMsPerArm the build cost per click; toolbarMisses must stay 0."
+    },
     "editlat-underlay": {
       "kind": "editlat",
       "pdf": "test_corpora/dartpdf/raster-underlay-1p.pdf",

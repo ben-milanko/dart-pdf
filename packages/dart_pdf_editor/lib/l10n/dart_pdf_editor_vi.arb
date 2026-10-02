@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Chỉ hiển thị; không thêm vào PDF",
   "guidesGridSpacing": "Khoảng cách lưới",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Đường dẫn con trỏ và lưới"
+  "shellCursorGuidesAndGrid": "Đường dẫn con trỏ và lưới",
+  "commandSaveAs": "Lưu thành…"
 }

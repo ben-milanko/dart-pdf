@@ -669,5 +669,6 @@
   "guidesShowGridHint": "僅供顯示；不會加入 PDF",
   "guidesGridSpacing": "格線間距",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "游標參考線和格線"
+  "shellCursorGuidesAndGrid": "游標參考線和格線",
+  "commandSaveAs": "另存新檔…"
 }

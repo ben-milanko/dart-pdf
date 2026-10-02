@@ -2335,4 +2335,7 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'Напрямні курсора та сітка';
+
+  @override
+  String get commandSaveAs => 'Зберегти як…';
 }

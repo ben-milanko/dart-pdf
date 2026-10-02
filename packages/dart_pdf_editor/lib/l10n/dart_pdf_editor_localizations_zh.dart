@@ -2257,6 +2257,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => '光标参考线和网格';
+
+  @override
+  String get commandSaveAs => '另存为…';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4512,4 +4515,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get shellCursorGuidesAndGrid => '游標參考線和格線';
+
+  @override
+  String get commandSaveAs => '另存新檔…';
 }

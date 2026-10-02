@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Лише на екрані; не додається до PDF",
   "guidesGridSpacing": "Крок сітки",
   "guidesGridSpacingValue": "{value} пт",
-  "shellCursorGuidesAndGrid": "Напрямні курсора та сітка"
+  "shellCursorGuidesAndGrid": "Напрямні курсора та сітка",
+  "commandSaveAs": "Зберегти як…"
 }

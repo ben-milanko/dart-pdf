@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Apenas exibição; não é adicionada ao PDF",
   "guidesGridSpacing": "Espaçamento da grade",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Guias do cursor e grade"
+  "shellCursorGuidesAndGrid": "Guias do cursor e grade",
+  "commandSaveAs": "Salvar como…"
 }

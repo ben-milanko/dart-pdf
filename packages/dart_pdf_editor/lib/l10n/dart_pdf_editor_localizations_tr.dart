@@ -2293,4 +2293,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'İmleç kılavuzları ve ızgara';
+
+  @override
+  String get commandSaveAs => 'Farklı kaydet…';
 }

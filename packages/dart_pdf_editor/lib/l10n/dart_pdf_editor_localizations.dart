@@ -4155,6 +4155,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Cursor guides and grid'**
   String get shellCursorGuidesAndGrid;
+
+  /// Name of the Save as command in the editor's command catalog (a command palette or menu lists it): saves the document to a new file.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as…'**
+  String get commandSaveAs;
 }
 
 class _DartPdfEditorLocalizationsDelegate

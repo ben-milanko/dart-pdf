@@ -669,5 +669,6 @@
   "guidesShowGridHint": "表示のみ。PDF には追加されません",
   "guidesGridSpacing": "グリッド間隔",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "カーソルガイドとグリッド"
+  "shellCursorGuidesAndGrid": "カーソルガイドとグリッド",
+  "commandSaveAs": "名前を付けて保存…"
 }

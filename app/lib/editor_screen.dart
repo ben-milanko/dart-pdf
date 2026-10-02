@@ -3788,7 +3788,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// then the panels, the view options and the recent files.
   List<AppCommand> _paletteCommands() {
     final l = appL10n(context);
-    final pdf = pdfL10n(context);
     final tab = _active;
     final session = tab?.session;
     final hasDocument = session != null;
@@ -3842,129 +3841,58 @@ class _EditorScreenState extends State<EditorScreen>
       ));
     }
 
-    // The dock's own catalogue - a tool added there joins the palette with
-    // its real name, icon and shortcut, and nothing to keep in step here.
-    for (final (:group, :entry) in pdfToolCatalog()) {
-      final tool = entry.tool;
-      final markup = entry.markup;
-      commands.add(AppCommand(
-        id: tool != null ? 'tool-${tool.name}' : 'markup-${markup!.name}',
-        label: entry.label(context),
-        icon: entry.icon,
-        source: l.paletteSourceTool(group.label(context)),
-        shortcut: tool == null ? null : pdfEditToolShortcutLabel(tool),
-        enabled: hasDocument && !_readOnly,
-        disabledReason:
-            hasDocument ? l.editorMenuReadOnly : l.paletteNeedsDocument,
-        selected: tool != null
-            ? session?.tool == tool
-            : session?.markupTool == markup,
-        run: () {
-          final target = _active?.session;
-          if (target == null) return;
-          if (tool != null) {
-            target.tool = tool;
-          } else {
-            target.markupTool = markup;
-          }
-        },
-      ));
-    }
-
-    void toggle(
-      String id,
-      IconData icon,
-      String label,
-      String source,
-      bool value,
-      void Function(bool) set,
-    ) =>
+    // The editor's own command catalog - its tools (in dock order), panels
+    // and view options, with their real names, icons and shortcuts. A tool or
+    // panel added to the editor joins the palette with nothing to keep in step
+    // here, and a tool armed from here runs the same prerequisites as the
+    // toolbar (a measure tool asks for its scale first).
+    final editorCommands = tab?.commands;
+    if (editorCommands != null) {
+      // the window's view mode, which the open editor binds too; set here so
+      // a read-only tab (no editor mounted) still offers the view modes
+      editorCommands.viewMode = _viewMode;
+      for (final command in editorCommands.catalog(context)) {
+        // the menu's own Save / Save As rows already cover these
+        if (command.category == PdfCommandCategory.document) continue;
+        final tool = command.category == PdfCommandCategory.tool;
+        final blocked = tool && _readOnly;
         commands.add(AppCommand(
-          id: id,
-          label: label,
-          icon: icon,
-          source: source,
-          selected: value,
-          enabled: hasDocument,
-          disabledReason: l.paletteNeedsDocument,
-          run: () => set(!value),
+          id: command.id,
+          label: command.label(context),
+          icon: command.icon,
+          source: switch (command.category) {
+            PdfCommandCategory.tool => l.paletteSourceTool(
+                command.toolGroup?.label(context) ?? l.paletteSourceMenu),
+            PdfCommandCategory.panel => l.paletteSourcePanel,
+            PdfCommandCategory.view => l.paletteSourceView,
+            _ => l.paletteSourceMenu,
+          },
+          shortcut: command.shortcutLabel,
+          enabled: command.enabled.value && !blocked,
+          disabledReason: blocked ? l.editorMenuReadOnly : null,
+          selected: command.selected.value,
+          run: () => unawaited(command.invoke(context)),
         ));
-
-    final panel = l.paletteSourcePanel;
-    toggle(
-        'panel-search',
-        Icons.manage_search,
-        pdf.shellPanelSearchResults,
-        panel,
-        _prefs.showSearchResultsPanel,
-        (v) => _prefs.showSearchResultsPanel = v);
-    toggle('panel-pages', Icons.grid_view, pdf.shellPanelPages, panel,
-        _prefs.showThumbnailSidebar, (v) => _prefs.showThumbnailSidebar = v);
-    toggle(
-        'panel-bookmarks',
-        Icons.bookmarks_outlined,
-        pdf.shellPanelBookmarks,
-        panel,
-        _prefs.showBookmarkSidebar,
-        (v) => _prefs.showBookmarkSidebar = v);
-    toggle(
-        'panel-annotations',
-        Icons.list_alt,
-        pdf.shellPanelAnnotations,
-        panel,
-        _prefs.showAnnotationSidebar,
-        (v) => _prefs.showAnnotationSidebar = v);
-    toggle(
-        'panel-annotation-library',
-        Icons.collections_bookmark_outlined,
-        pdf.annotationLibraryTitle,
-        panel,
-        _prefs.showAnnotationLibraryPanel,
-        (v) => _prefs.showAnnotationLibraryPanel = v);
-    toggle('panel-properties', Icons.tune, pdf.shellPanelProperties, panel,
-        _prefs.showPropertiesPanel, (v) => _prefs.showPropertiesPanel = v);
-
-    final view = l.paletteSourceView;
-    toggle(
-        'view-annotations',
-        Icons.visibility_outlined,
-        pdf.shellShowAnnotations,
-        view,
-        _prefs.showAnnotations,
-        (v) => _prefs.showAnnotations = v);
-    // Reflow and the page grid each replace the page viewer, so they go
-    // through PdfEditingPreferences.viewMode rather than their own bools:
-    // turning one on has to clear the other, and turning one off has to land
-    // somewhere - plain pages.
-    toggle(
-        'view-reflow',
-        Icons.article_outlined,
-        pdf.shellReflowText,
-        view,
-        _viewMode.viewMode == PdfViewMode.reflow,
-        (v) => _viewMode.viewMode = v ? PdfViewMode.reflow : PdfViewMode.pages);
-    toggle(
-        'view-page-grid',
-        Icons.grid_view_outlined,
-        pdf.shellPageGrid,
-        view,
-        _viewMode.viewMode == PdfViewMode.pageGrid,
-        (v) =>
-            _viewMode.viewMode = v ? PdfViewMode.pageGrid : PdfViewMode.pages);
-    toggle(
-        'view-form-fields',
-        Icons.ballot_outlined,
-        pdf.shellHighlightFormFields,
-        view,
-        _prefs.highlightFormFields,
-        (v) => _prefs.highlightFormFields = v);
-    toggle(
-        'view-scrollbar-chapters',
-        Icons.toc,
-        pdf.shellShowScrollbarChapters,
-        view,
-        _prefs.showScrollbarChapters,
-        (v) => _prefs.showScrollbarChapters = v);
+      }
+    } else {
+      // Nothing open: the tools still list, dimmed, so the palette answers
+      // "where is it?" before a document is.
+      for (final (:group, :entry) in pdfToolCatalog()) {
+        final tool = entry.tool;
+        commands.add(AppCommand(
+          id: tool != null
+              ? 'tool-${tool.name}'
+              : 'markup-${entry.markup!.name}',
+          label: entry.label(context),
+          icon: entry.icon,
+          source: l.paletteSourceTool(group.label(context)),
+          shortcut: tool == null ? null : pdfEditToolShortcutLabel(tool),
+          enabled: false,
+          disabledReason: l.paletteNeedsDocument,
+          run: () {},
+        ));
+      }
+    }
 
     for (final entry in _recentMenuEntries()) {
       commands.add(AppCommand(
@@ -4266,6 +4194,7 @@ class _EditorScreenState extends State<EditorScreen>
       documentId: tab.documentId,
       controller: tab.session,
       viewerController: tab.viewer,
+      commands: tab.commands,
       viewMode: _viewMode,
       pageRasterCachePolicy: pageRasterCachePolicy,
       pageRasterWarmPolicy: pageRasterWarmPolicy,

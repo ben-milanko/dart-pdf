@@ -669,5 +669,6 @@
   "guidesShowGridHint": "للعرض فقط؛ لا تُضاف إلى ملف PDF",
   "guidesGridSpacing": "تباعد الشبكة",
   "guidesGridSpacingValue": "{value} نقطة",
-  "shellCursorGuidesAndGrid": "أدلة المؤشر والشبكة"
+  "shellCursorGuidesAndGrid": "أدلة المؤشر والشبكة",
+  "commandSaveAs": "حفظ باسم…"
 }

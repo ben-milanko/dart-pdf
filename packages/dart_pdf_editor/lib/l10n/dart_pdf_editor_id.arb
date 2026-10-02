@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Hanya tampilan; tidak ditambahkan ke PDF",
   "guidesGridSpacing": "Jarak kisi",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Panduan kursor dan kisi"
+  "shellCursorGuidesAndGrid": "Panduan kursor dan kisi",
+  "commandSaveAs": "Simpan sebagai…"
 }

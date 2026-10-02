@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Yalnızca görüntü; PDF'ye eklenmez",
   "guidesGridSpacing": "Izgara aralığı",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "İmleç kılavuzları ve ızgara"
+  "shellCursorGuidesAndGrid": "İmleç kılavuzları ve ızgara",
+  "commandSaveAs": "Farklı kaydet…"
 }

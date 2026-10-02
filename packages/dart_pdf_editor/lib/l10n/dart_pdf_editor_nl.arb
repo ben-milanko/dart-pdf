@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Alleen weergave; wordt niet aan de PDF toegevoegd",
   "guidesGridSpacing": "Rasterafstand",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Cursorhulplijnen en raster"
+  "shellCursorGuidesAndGrid": "Cursorhulplijnen en raster",
+  "commandSaveAs": "Opslaan als…"
 }

@@ -25,6 +25,7 @@ import 'editing/editing_link.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/editing_reach.dart';
+import 'editing/editor_commands.dart' show PdfEditorCommandsScope;
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
@@ -7462,9 +7463,22 @@ class _PdfViewerState extends State<PdfViewer>
   /// mirroring the toolbar's chips: pressing a tool's key arms it,
   /// pressing it again drops back to Select. Clears the text selection
   /// like a toolbar tap does.
+  ///
+  /// Under [PdfEditorCommands] driving this session (a [PdfEditorView], or a
+  /// host [PdfEditorCommandsScope]) the key goes through
+  /// [PdfEditorCommands.toggleTool], so it asks for what the tool needs
+  /// first, exactly as the toolbar does: the measuring scale for a measure
+  /// tool, a signature for the signature tool.
   void _armTool(PdfEditTool tool) {
     final editing = widget.editing;
     if (editing == null) return;
+    final commands = context
+        .getInheritedWidgetOfExactType<PdfEditorCommandsScope>()
+        ?.commands;
+    if (commands != null && identical(commands.controller, editing)) {
+      unawaited(commands.toggleTool(context, tool));
+      return;
+    }
     editing.tool = editing.tool == tool ? PdfEditTool.select : tool;
     _controller.clearSelection();
   }

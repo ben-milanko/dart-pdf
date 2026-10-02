@@ -2943,5 +2943,9 @@
   "shellCursorGuidesAndGrid": "Cursor guides and grid",
   "@shellCursorGuidesAndGrid": {
     "description": "View options entry that opens the guides, snapping and rulers settings."
+  },
+  "commandSaveAs": "Save as…",
+  "@commandSaveAs": {
+    "description": "Name of the Save as command in the editor's command catalog (a command palette or menu lists it): saves the document to a new file."
   }
 }

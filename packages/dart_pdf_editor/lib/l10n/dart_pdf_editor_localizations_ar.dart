@@ -2334,4 +2334,7 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'أدلة المؤشر والشبكة';
+
+  @override
+  String get commandSaveAs => 'حفظ باسم…';
 }

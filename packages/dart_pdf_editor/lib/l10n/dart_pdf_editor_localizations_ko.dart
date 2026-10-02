@@ -2267,4 +2267,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => '커서 안내선 및 격자';
+
+  @override
+  String get commandSaveAs => '다른 이름으로 저장…';
 }

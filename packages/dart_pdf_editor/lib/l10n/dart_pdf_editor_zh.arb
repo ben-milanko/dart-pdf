@@ -669,5 +669,6 @@
   "guidesShowGridHint": "仅用于显示；不会添加到 PDF 中",
   "guidesGridSpacing": "网格间距",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "光标参考线和网格"
+  "shellCursorGuidesAndGrid": "光标参考线和网格",
+  "commandSaveAs": "另存为…"
 }

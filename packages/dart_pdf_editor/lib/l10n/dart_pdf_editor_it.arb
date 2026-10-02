@@ -669,5 +669,6 @@
   "guidesShowGridHint": "Solo visualizzazione; non viene aggiunta al PDF",
   "guidesGridSpacing": "Spaziatura della griglia",
   "guidesGridSpacingValue": "{value} pt",
-  "shellCursorGuidesAndGrid": "Guide del cursore e griglia"
+  "shellCursorGuidesAndGrid": "Guide del cursore e griglia",
+  "commandSaveAs": "Salva con nome…"
 }

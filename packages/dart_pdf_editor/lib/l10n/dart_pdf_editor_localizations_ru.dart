@@ -2335,4 +2335,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get shellCursorGuidesAndGrid => 'Направляющие курсора и сетка';
+
+  @override
+  String get commandSaveAs => 'Сохранить как…';
 }
