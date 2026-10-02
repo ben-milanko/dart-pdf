@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Fluttuanti sulla pagina",
   "tbFloatingToolbar": "Fluttua sulla pagina",
   "tbPropertiesHint": "Scegli uno strumento o seleziona un’annotazione per vederne le proprietà",
-  "tbToolbarLayoutPropertiesHint": "La barra delle proprietà riunisce le azioni della selezione e le opzioni e lo stile dello strumento."
+  "tbToolbarLayoutPropertiesHint": "La barra delle proprietà riunisce le azioni della selezione e le opzioni e lo stile dello strumento.",
+  "tbFloatingToolbars": "Barre mobili",
+  "tbFloatingToolbarsHint": "Mostra le barre degli strumenti sopra la pagina invece di agganciarle ai bordi della finestra"
 }

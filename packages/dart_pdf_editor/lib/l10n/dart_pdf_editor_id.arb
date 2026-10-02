@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Mengambang di atas halaman",
   "tbFloatingToolbar": "Mengambang di atas halaman",
   "tbPropertiesHint": "Pilih alat atau pilih markup untuk melihat propertinya",
-  "tbToolbarLayoutPropertiesHint": "Bilah properti menampilkan tindakan pilihan serta opsi dan gaya alat di satu tempat."
+  "tbToolbarLayoutPropertiesHint": "Bilah properti menampilkan tindakan pilihan serta opsi dan gaya alat di satu tempat.",
+  "tbFloatingToolbars": "Toolbar mengambang",
+  "tbFloatingToolbarsHint": "Tampilkan toolbar mengambang di atas halaman, bukan ditambatkan ke tepi jendela"
 }

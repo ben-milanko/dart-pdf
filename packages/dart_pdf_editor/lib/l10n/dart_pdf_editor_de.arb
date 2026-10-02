@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Über der Seite schwebend",
   "tbFloatingToolbar": "Über der Seite schweben",
   "tbPropertiesHint": "Wählen Sie ein Werkzeug oder eine Markierung, um ihre Eigenschaften zu sehen",
-  "tbToolbarLayoutPropertiesHint": "Die Eigenschaftenleiste zeigt Aktionen der Auswahl sowie Optionen und Stil des Werkzeugs an einem Ort."
+  "tbToolbarLayoutPropertiesHint": "Die Eigenschaftenleiste zeigt Aktionen der Auswahl sowie Optionen und Stil des Werkzeugs an einem Ort.",
+  "tbFloatingToolbars": "Schwebende Symbolleisten",
+  "tbFloatingToolbarsHint": "Symbolleisten über der Seite schweben lassen, statt sie an den Fensterrändern anzudocken"
 }

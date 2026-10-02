@@ -2376,4 +2376,11 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'Die Eigenschaftenleiste zeigt Aktionen der Auswahl sowie Optionen und Stil des Werkzeugs an einem Ort.';
+
+  @override
+  String get tbFloatingToolbars => 'Schwebende Symbolleisten';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Symbolleisten über der Seite schweben lassen, statt sie an den Fensterrändern anzudocken';
 }

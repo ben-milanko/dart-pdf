@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Sayfanın üzerinde yüzen",
   "tbFloatingToolbar": "Sayfanın üzerinde yüzdür",
   "tbPropertiesHint": "Özelliklerini görmek için bir araç seçin veya bir işaretleme seçin",
-  "tbToolbarLayoutPropertiesHint": "Özellikler çubuğu seçimin eylemlerini ve aracın seçeneklerini ile stilini tek yerde gösterir."
+  "tbToolbarLayoutPropertiesHint": "Özellikler çubuğu seçimin eylemlerini ve aracın seçeneklerini ile stilini tek yerde gösterir.",
+  "tbFloatingToolbars": "Yüzen araç çubukları",
+  "tbFloatingToolbarsHint": "Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür"
 }

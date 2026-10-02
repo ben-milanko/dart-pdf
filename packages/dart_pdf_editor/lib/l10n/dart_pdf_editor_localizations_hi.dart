@@ -2365,4 +2365,11 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'गुण बार चयन की क्रियाएँ और टूल के विकल्प व स्टाइल एक ही जगह दिखाता है।';
+
+  @override
+  String get tbFloatingToolbars => 'तैरते टूलबार';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'टूलबार को विंडो के किनारों पर डॉक करने के बजाय पेज के ऊपर तैराएँ';
 }

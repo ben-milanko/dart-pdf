@@ -19,34 +19,53 @@ around as the strip's content changed.
 
 **Docked (the default, `prefs.toolbarFloating == false`).** Solid bars along
 the window edges that take layout space - the content (side panels + viewer)
-shrinks to fit, nothing covers the page:
+shrinks to fit, nothing covers the page. Third follow-up: "users should have
+the option between docked and floating toolbars, and the breakdown of docked
+toolbars should be different to floating". So docked is Bluebeam-style:
 
-- **Main toolbar band** - undo/redo, Hand/Select, the group chips. Top by
-  default (`toolbarDock` default changed bottom → top), or bottom, or a
-  vertical rail on the left/right (Acrobat's tool rail). It spans the window,
-  outside the side panels.
-- **Properties bar** - always present, fixed height (`_bandExtent` 56) so the
-  page never moves as tools and selections change. It leads with the open
-  group's tools (`⠿ SHAPES ▭ ◯ ─ →…`), then the context: the selection's
-  strip (actions, alignment, style), a selected element's actions, the crop
-  controls, or the armed tool's options + style (`⠿ RECTANGLE ● ● ● …`); a
-  hint while nothing applies. On `styleBarDock`, else beside the main toolbar
-  - except a side-rail main toolbar puts it on top (a row of sliders reads as
-  a bar, not a rail; a side properties rail is a fixed `_propertiesRailWidth`
-  so it never changes width).
-- **Tool bars docked to their own edge** (`toolStripDocks`) - a pinned band or
-  rail with that group's tools only, present whether or not the group is open
-  (a persistent palette, as in Bluebeam). Its group's tools then leave the
-  properties bar; the armed tool's options/style still show there.
+- **No group switcher.** The main toolbar (undo/redo, Hand/Select) and *every*
+  group's toolbar (`⠿ SHAPES ▭ ◯ ─ →…`) are always visible, side by side in
+  one toolbar area per edge (`_toolbarArea`): a `Wrap` that flows them into
+  further rows (top/bottom, `_toolbarRowExtent` 40) or rail columns
+  (left/right) as space runs out, each set off by a hairline. One click arms
+  any tool, from any group.
+- **Each group's toolbar drags to any edge on its own** (`toolStripDocks`,
+  else the main toolbar's edge - `_dockedGroupEdge`). Main toolbar: top by
+  default (`toolbarDock` default changed bottom → top), bottom, or a side rail.
+- **Properties bar** - always present, fixed height (`_bandExtent` 48) so the
+  page never moves as tools and selections change: the selection's strip
+  (actions, alignment, style), a selected element's actions, the crop
+  controls, or the armed tool's options + style, led by a label naming it
+  (`⠿ RECTANGLE ● ● ● …`); "PROPERTIES" + a hint while nothing applies. On
+  `styleBarDock`, else beside the main toolbar - except a side-rail main
+  toolbar puts it on top (a row of sliders reads as a bar, not a rail).
+- **Group-wide actions ride in the group's toolbar** (`_groupActions`):
+  Edit's Flatten and Insert's annotation library act on the document, not a
+  tool, so docked they sit after the group's tools - otherwise, with no
+  group to "open", they would only appear once one of its tools was armed.
+  Floating, they stay in the open group's strip.
+- Docked toolbars wrap to 3 rows at 1280px and 4 at 800px. A short panel
+  beside them drops the thumbnail strip's Add page footer under
+  `_minExtentForFooter` (120) rather than overflowing
+  (`panel_dock_test`'s top-docked annotation panel at 800x600 leaves the
+  strip 64px).
+- **Every group's toolbar is always built**, and the toolbar rebuilds on every
+  controller tick (a style slider writes one per frame), so a stroke-width
+  drag rebuilt all seven: `app_prefs_rebuild_test` went 1,034 → 2,256
+  elements per tick. `_cachedGroupSegment` hands back the same widget while
+  its signature (armed tool, edge, grip, theme, locale, visibility settings)
+  holds, and Flutter skips it: 1,008 per tick. Anything a group toolbar
+  newly reads must join that signature.
+- A toolbar longer than its whole edge scrolls inside its own
+  capped slot rather than overflowing - a wrap cannot split one. The slot
+  carries the `pdf-tool-bar-<id>` key, so its rect is the visible toolbar.
 
-Why tools lead the properties bar instead of joining the main band: the first
-docked cut appended them after the group chips, and at 800px the tools
-scrolled out of sight (`color_processing_test` and the markup tests caught it
-- they could not tap the tools). A second row that starts with the tools
-always shows them, and the main band never changes length.
+**Mode switch** in three places: View options → "Floating toolbars" (a check
+item, `pdf-shell-floating-toolbars`), the app's Settings screen
+(`settings-floating-toolbars`), and the main grip's menu.
 
-**Floating (`toolbarFloating`).** The previous card layout, kept as an
-option, with the same per-edge tool bars (`overlay` + `_ToolbarEdgesLayout`)
+**Floating (`toolbarFloating`).** The previous card layout - group
+switcher + contextual strip - kept as an option, with the same per-edge tool bars (`overlay` + `_ToolbarEdgesLayout`)
 and an optional style bar (`styleBarDock` null = style inline at the strip's
 trailing end).
 
@@ -73,9 +92,11 @@ floating, each bar's edge - and a reset (docked, main on top).
   `_cardAlignment`/`_stripAxis` eagerly.
 - `_centeredCard` is the one surface switch: a floating card, a docked band
   (`_band`: `Material` in `surfaceContainerLow` with a hairline on the inner
-  edge, compact visual density so content fits the 56px band, scrolls along
-  the edge on overflow), or - inside the properties bar (`_bare`) - no
-  surface at all. That is how the existing selection/element/crop strips
+  edge, scrolls along the edge on overflow), or - inside the properties bar
+  and the docked toolbar area (`_bare`) - no surface at all. Docked surfaces
+  use `_denseTheme` (minimum visual density, shrink-wrapped tap targets),
+  memoized per source theme: rebuilding the ThemeData on every toolbar build
+  cost the `toolbar-arm` web scenario ~10% p95. That is how the existing selection/element/crop strips
   become properties-bar content unchanged.
 - `_groupSettings` = `_groupOptions` (ink commit, signature/annotation
   library, count tally, scale chip, form type, flatten, apply redactions) +
@@ -107,19 +128,20 @@ floating, each bar's edge - and a reset (docked, main on top).
 
 ## Strings
 
-21 new `tb*` keys (edges, "With main toolbar", "Inside tool bars", "Separate
-style bar", docked/floating, "Float over the page", the properties hint, the
+23 new `tb*` keys (edges, "With main toolbar", "Inside tool bars", "Separate
+style bar", docked/floating, "Float over the page", "Floating toolbars" + its hint, the properties hint, the
 dialog's sections/hints/reset, the grip tooltip), translated in all 19
 non-English locales; en_AU/en_GB synced (colour).
 
 ## Tests
 
-`test/toolbar_layout_test.dart`: prefs round trip + reset; docked bars sit
-above the content, span the window above the side panels, and arming tools
-or switching groups never moves the viewer; a right-docked Shapes rail sits
-beside the content, vertical, with its properties in the properties bar;
+`test/toolbar_layout_test.dart`: prefs round trip + reset; docked: every
+group is its own toolbar with no switcher, one click arms a tool from any
+group and its properties never move the page, an 800px window wraps the
+toolbars without overflow; a right-docked Shapes rail sits beside the
+content, vertical, with its properties in the properties bar;
 dragging the tools section's grip docks the group right; the main toolbar
-docks left as a rail with properties on top; the main grip toggles floating
+docks left as a rail with properties on top; the main grip and View options toggle floating
 and back; floating: pinned palette, style bar, style bar toggle; the layout
 dialog (mode, properties edge, a tool bar edge, reset). `pdf_shell_test.dart`:
 the floating rail/drag tests opt into floating; "wide: docks above the

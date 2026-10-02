@@ -692,5 +692,7 @@
   "tbToolbarFloating": "浮動在頁面上",
   "tbFloatingToolbar": "浮動在頁面上",
   "tbPropertiesHint": "選擇工具或選取標記以查看其屬性",
-  "tbToolbarLayoutPropertiesHint": "屬性列在同一處顯示所選內容的操作，以及工具的選項和樣式。"
+  "tbToolbarLayoutPropertiesHint": "屬性列在同一處顯示所選內容的操作，以及工具的選項和樣式。",
+  "tbFloatingToolbars": "浮動工具列",
+  "tbFloatingToolbarsHint": "讓工具列浮動在頁面上，而不是停駐在視窗邊緣"
 }

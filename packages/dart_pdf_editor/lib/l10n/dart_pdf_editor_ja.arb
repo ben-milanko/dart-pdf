@@ -692,5 +692,7 @@
   "tbToolbarFloating": "ページ上にフローティング",
   "tbFloatingToolbar": "ページ上にフローティング",
   "tbPropertiesHint": "ツールを選ぶか注釈を選択するとプロパティが表示されます",
-  "tbToolbarLayoutPropertiesHint": "プロパティバーには、選択範囲の操作とツールのオプションやスタイルがまとめて表示されます。"
+  "tbToolbarLayoutPropertiesHint": "プロパティバーには、選択範囲の操作とツールのオプションやスタイルがまとめて表示されます。",
+  "tbFloatingToolbars": "フローティングツールバー",
+  "tbFloatingToolbarsHint": "ツールバーをウィンドウの端にドッキングせず、ページ上に浮かせて表示します"
 }

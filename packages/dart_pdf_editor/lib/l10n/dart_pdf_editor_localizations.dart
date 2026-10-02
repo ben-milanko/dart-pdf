@@ -4293,6 +4293,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.'**
   String get tbToolbarLayoutPropertiesHint;
+
+  /// Setting/checkbox: float the editing toolbars over the page instead of docking them to the window edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Floating toolbars'**
+  String get tbFloatingToolbars;
+
+  /// Subtitle explaining the Floating toolbars setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Float the toolbars over the page instead of docking them to the window edges'**
+  String get tbFloatingToolbarsHint;
 }
 
 class _DartPdfEditorLocalizationsDelegate

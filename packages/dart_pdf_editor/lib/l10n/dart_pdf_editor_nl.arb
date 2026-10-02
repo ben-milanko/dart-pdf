@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Zwevend boven de pagina",
   "tbFloatingToolbar": "Boven de pagina laten zweven",
   "tbPropertiesHint": "Kies een gereedschap of selecteer een markering om de eigenschappen te zien",
-  "tbToolbarLayoutPropertiesHint": "De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek."
+  "tbToolbarLayoutPropertiesHint": "De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek.",
+  "tbFloatingToolbars": "Zwevende werkbalken",
+  "tbFloatingToolbarsHint": "Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten"
 }

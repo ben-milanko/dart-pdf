@@ -1114,17 +1114,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
 
-      final insert = find.byKey(const ValueKey('pdf-group-insert'));
-      final dock = find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .last;
-      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
-      await tester.tap(insert);
-      await tester.pump();
-
+      expect(find.byKey(const ValueKey('pdf-tool-bar-insert')), findsOneWidget);
       expect(find.byIcon(Icons.draw_outlined), findsNothing);
     });
 
@@ -1139,25 +1129,11 @@ void main() {
         ),
       );
 
-      final insert = find.byKey(const ValueKey('pdf-group-insert'));
-      final dock = find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .last;
-      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
-      await tester.tap(insert);
-      await tester.pump();
-
-      final signature = find.byIcon(Icons.draw_outlined);
-      final strip = find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .first;
-      await tester.scrollUntilVisible(signature, 100, scrollable: strip);
+      // docked, the Insert toolbar is always on show
+      final signature = find.descendant(
+        of: find.byKey(const ValueKey('pdf-tool-bar-insert')),
+        matching: find.byIcon(Icons.draw_outlined),
+      );
       expect(signature, findsOneWidget);
     });
 
@@ -1171,15 +1147,14 @@ void main() {
           ),
         ),
       );
-      // the two kept groups show their dock chips...
+      // docked, the kept groups show as toolbars (Select lives in the main
+      // toolbar)...
       expect(find.byKey(const ValueKey('pdf-group-select')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-group-draw')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-tool-bar-draw')), findsOneWidget);
       // ...and every other group is gone
-      expect(find.byKey(const ValueKey('pdf-group-markup')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-shapes')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-insert')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-measure')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-edit')), findsNothing);
+      for (final gone in ['markup', 'shapes', 'insert', 'measure', 'edit']) {
+        expect(find.byKey(ValueKey('pdf-tool-bar-$gone')), findsNothing);
+      }
     });
 
     testWidgets('colorControls hides the color changer, keeps the style popup',
@@ -1194,9 +1169,8 @@ void main() {
           ),
         ),
       );
-      // open the Shapes group; its strip is where colour + style controls
-      // now live (the toolbar's first scrollable once the strip is up)
-      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      // arm a shape; the properties bar is where colour + style controls live
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-rectangle')));
       await tester.pump();
       // color changer gone: "More colors…" picker and eyedropper
       expect(find.byIcon(Icons.palette), findsNothing);
@@ -1208,7 +1182,7 @@ void main() {
           find.byTooltip('Stroke, opacity, font'), 100,
           scrollable: find
               .descendant(
-                  of: find.byType(PdfEditingToolbar),
+                  of: find.byKey(const ValueKey('pdf-style-bar')),
                   matching: find.byType(Scrollable))
               .first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
@@ -1233,7 +1207,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')));
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-ink')));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFF123456));
@@ -1248,8 +1222,9 @@ void main() {
 
     testWidgets('color controls are present by default', (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
-      // the colour controls live in a group's strip - open one
-      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      // docked, every tool is on show; arming one puts its colour and style
+      // controls in the properties bar
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-rectangle')));
       await tester.pump();
       final moreColors = find.byKey(const ValueKey('pdf-more-colors'));
       expect(moreColors, findsOneWidget);
@@ -1260,7 +1235,7 @@ void main() {
           find.byTooltip('Stroke, opacity, font'), 100,
           scrollable: find
               .descendant(
-                  of: find.byType(PdfEditingToolbar),
+                  of: find.byKey(const ValueKey('pdf-style-bar')),
                   matching: find.byType(Scrollable))
               .first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
@@ -1290,6 +1265,9 @@ void main() {
         (tester) async {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
+      // the floating layout's group switcher opens Markup with nothing armed
+      // yet; docked, every markup tool is already on show
+      editing.preferences.toolbarFloating = true;
       await pump(tester, PdfEditorView(controller: editing));
 
       await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),

@@ -2327,6 +2327,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutPropertiesHint => '属性栏在同一位置显示所选内容的操作以及工具的选项和样式。';
+
+  @override
+  String get tbFloatingToolbars => '浮动工具栏';
+
+  @override
+  String get tbFloatingToolbarsHint => '让工具栏浮动在页面上，而不是停靠在窗口边缘';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4653,4 +4659,10 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbToolbarLayoutPropertiesHint => '屬性列在同一處顯示所選內容的操作，以及工具的選項和樣式。';
+
+  @override
+  String get tbFloatingToolbars => '浮動工具列';
+
+  @override
+  String get tbFloatingToolbarsHint => '讓工具列浮動在頁面上，而不是停駐在視窗邊緣';
 }

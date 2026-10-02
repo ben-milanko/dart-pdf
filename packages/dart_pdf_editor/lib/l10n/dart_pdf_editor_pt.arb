@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Flutuando sobre a página",
   "tbFloatingToolbar": "Flutuar sobre a página",
   "tbPropertiesHint": "Escolha uma ferramenta ou selecione uma marcação para ver as propriedades",
-  "tbToolbarLayoutPropertiesHint": "A barra de propriedades mostra num só lugar as ações da seleção e as opções e o estilo da ferramenta."
+  "tbToolbarLayoutPropertiesHint": "A barra de propriedades mostra num só lugar as ações da seleção e as opções e o estilo da ferramenta.",
+  "tbFloatingToolbars": "Barras flutuantes",
+  "tbFloatingToolbarsHint": "Mostrar as barras de ferramentas flutuando sobre a página em vez de encaixadas nas bordas da janela"
 }

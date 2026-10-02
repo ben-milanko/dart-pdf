@@ -92,40 +92,81 @@ void main() {
   });
 
   group('docked', () {
-    testWidgets('bars dock above the content and never move the page',
+    testWidgets('every group is its own toolbar, with no group switcher',
         (tester) async {
       await pumpEditor(tester);
-      final main = rectOf(tester, const ValueKey('pdf-group-markup'));
+      // docked, Bluebeam-style: each group's toolbar is on show...
+      for (final group in [
+        'markup',
+        'draw',
+        'shapes',
+        'insert',
+        'measure',
+        'edit'
+      ]) {
+        expect(find.byKey(ValueKey('pdf-tool-bar-$group')), findsOneWidget,
+            reason: group);
+        expect(
+            find.byKey(ValueKey('pdf-tool-bar-move-$group')), findsOneWidget);
+        // ...and there is no switcher chip to open it
+        expect(find.byKey(ValueKey('pdf-group-$group')), findsNothing);
+      }
+      expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
+      // the toolbars sit above the properties bar, which sits above the
+      // content, all spanning the window above the side panels
+      final shapes = rectOf(tester, const ValueKey('pdf-tool-bar-shapes'));
       final bar = rectOf(tester, const ValueKey(properties));
       final pageTop = viewer(tester).top;
-      // main toolbar, then the properties bar, then the content
-      expect(main.bottom, lessThanOrEqualTo(bar.top + 0.5));
+      expect(shapes.bottom, lessThanOrEqualTo(bar.top + 0.5));
       expect(bar.bottom, lessThanOrEqualTo(pageTop + 0.5));
-      // spanning the window, above the side panels
       expect(bar.width, closeTo(1280, 0.5));
       final pages = find.byType(PdfThumbnailSidebar);
       expect(tester.getRect(pages).top, greaterThanOrEqualTo(bar.bottom - 0.5));
       expect(inBar(properties, find.text('Properties'.toUpperCase())),
           findsOneWidget);
+    });
 
-      // opening a group puts its tools at the head of the properties bar
-      await tapMouse(tester, find.byKey(const ValueKey('pdf-group-shapes')));
-      final rectangle = find.byKey(const ValueKey('pdf-tool-rectangle'));
-      expect(inBar(properties, rectangle), findsOneWidget);
+    testWidgets('one click arms a tool; its properties never move the page',
+        (tester) async {
+      final prefs = await pumpEditor(tester);
+      final pageTop = viewer(tester).top;
+      final barHeight = rectOf(tester, const ValueKey(properties)).height;
+
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-rectangle')));
       expect(inBar(properties, find.byKey(const ValueKey('pdf-more-colors'))),
           findsOneWidget);
-      expect(
-          tester.getCenter(rectangle).dx,
-          lessThan(tester
-              .getCenter(find.byKey(const ValueKey('pdf-more-colors')))
-              .dx));
-      // ...and nothing below the bars moved
+      expect(inBar(properties, find.text('RECTANGLE')), findsOneWidget);
+      // the tools are not repeated in the properties bar
+      expect(find.byKey(const ValueKey('pdf-tool-rectangle')), findsOneWidget);
       expect(viewer(tester).top, closeTo(pageTop, 0.5));
       expect(rectOf(tester, const ValueKey(properties)).height,
-          closeTo(bar.height, 0.5));
+          closeTo(barHeight, 0.5));
 
-      await tapMouse(tester, find.byKey(const ValueKey('pdf-group-edit')));
+      // straight to a tool in another group, no switcher in between
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-ink')));
+      expect(inBar(properties, find.text('PEN')), findsNothing);
       expect(viewer(tester).top, closeTo(pageTop, 0.5));
+      expect(prefs.toolbarFloating, isFalse);
+    });
+
+    testWidgets('a narrow window wraps the toolbars and never overflows',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditorView(bytes: buildMultiPagePdf(1), preferences: prefs),
+        ),
+      ));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final markup = rectOf(tester, const ValueKey('pdf-tool-bar-markup'));
+      final edit = rectOf(tester, const ValueKey('pdf-tool-bar-edit'));
+      expect(edit.top, greaterThan(markup.top), reason: 'wrapped to a new row');
+      expect(edit.right, lessThanOrEqualTo(800.5));
     });
 
     testWidgets('a tool bar docked right is a rail beside the content',
@@ -159,9 +200,8 @@ void main() {
     testWidgets('dragging a group\'s tools to an edge docks them there',
         (tester) async {
       final prefs = await pumpEditor(tester);
-      await tapMouse(tester, find.byKey(const ValueKey('pdf-group-shapes')));
       final grip = find.byKey(const ValueKey('pdf-tool-bar-move-shapes'));
-      expect(inBar(properties, grip), findsOneWidget);
+      expect(inBar('pdf-tool-bar-shapes', grip), findsOneWidget);
 
       final gesture = await tester.startGesture(tester.getCenter(grip),
           kind: PointerDeviceKind.mouse);
@@ -186,17 +226,19 @@ void main() {
       await tapMouse(tester, find.byKey(const ValueKey('pdf-bar-place-left')));
       expect(prefs.toolbarDock, PdfPanelDock.left);
 
-      final markup = rectOf(tester, const ValueKey('pdf-group-markup'));
-      final draw = rectOf(tester, const ValueKey('pdf-group-draw'));
-      expect(markup.left, lessThan(20));
-      expect(draw.top, greaterThan(markup.top));
-      expect(
-          markup.right,
-          lessThanOrEqualTo(
-              tester.getRect(find.byType(PdfThumbnailSidebar)).left + 0.5));
+      // the main toolbar and the groups that ride with it form rails down
+      // the left edge, outside the side panels
+      final main = rectOf(tester, const ValueKey('pdf-docked-main'));
+      final rectangle = rectOf(tester, const ValueKey('pdf-tool-rectangle'));
+      final ellipse = rectOf(tester, const ValueKey('pdf-tool-ellipse'));
+      expect(main.left, lessThan(20));
+      expect(ellipse.center.dx, closeTo(rectangle.center.dx, 0.5));
+      expect(ellipse.top, greaterThan(rectangle.top));
+      final pages = tester.getRect(find.byType(PdfThumbnailSidebar));
+      expect(rectangle.right, lessThanOrEqualTo(pages.left + 0.5));
       final bar = rectOf(tester, const ValueKey(properties));
       expect(bar.width, closeTo(1280, 0.5));
-      expect(bar.bottom, lessThanOrEqualTo(markup.top));
+      expect(bar.bottom, lessThanOrEqualTo(main.top));
     });
 
     testWidgets('the main grip menu switches to floating and back',
@@ -215,8 +257,30 @@ void main() {
       await tapMouse(tester, find.byKey(const ValueKey('pdf-toolbar-move')));
       await tapMouse(tester, find.byKey(const ValueKey('pdf-bar-extra-0')));
       expect(prefs.toolbarFloating, isFalse);
+      // the toolbar area and the properties bar
       expect(find.byKey(const ValueKey('pdf-editing-toolbar-band')),
           findsNWidgets(2));
+    });
+
+    testWidgets('View options toggles floating toolbars', (tester) async {
+      final prefs = await pumpEditor(tester);
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-shell-view-options')));
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-shell-floating-toolbars')));
+      expect(prefs.toolbarFloating, isTrue);
+      // floating keeps the group switcher and its contextual strip
+      expect(find.byKey(const ValueKey('pdf-group-shapes')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-tool-bar-shapes')), findsNothing);
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-group-shapes')));
+      expect(find.byKey(const ValueKey('pdf-tool-rectangle')), findsOneWidget);
+
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-shell-view-options')));
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-shell-floating-toolbars')));
+      expect(prefs.toolbarFloating, isFalse);
+      expect(find.byKey(const ValueKey('pdf-group-shapes')), findsNothing);
     });
   });
 

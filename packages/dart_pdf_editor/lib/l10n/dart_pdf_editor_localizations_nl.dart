@@ -2371,4 +2371,11 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek.';
+
+  @override
+  String get tbFloatingToolbars => 'Zwevende werkbalken';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten';
 }

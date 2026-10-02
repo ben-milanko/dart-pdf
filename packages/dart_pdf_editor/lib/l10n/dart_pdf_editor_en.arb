@@ -3035,5 +3035,13 @@
   "tbToolbarLayoutPropertiesHint": "The properties bar shows the selection's actions and the tool's options and style in one place.",
   "@tbToolbarLayoutPropertiesHint": {
     "description": "Toolbar layout dialog: explains the docked properties bar."
+  },
+  "tbFloatingToolbars": "Floating toolbars",
+  "@tbFloatingToolbars": {
+    "description": "Setting/checkbox: float the editing toolbars over the page instead of docking them to the window edges."
+  },
+  "tbFloatingToolbarsHint": "Float the toolbars over the page instead of docking them to the window edges",
+  "@tbFloatingToolbarsHint": {
+    "description": "Subtitle explaining the Floating toolbars setting."
   }
 }

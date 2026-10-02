@@ -2372,4 +2372,11 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'La barra de propiedades muestra en un solo lugar las acciones de la selección y las opciones y el estilo de la herramienta.';
+
+  @override
+  String get tbFloatingToolbars => 'Barras flotantes';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Mostrar las barras flotando sobre la página en lugar de acopladas a los bordes de la ventana';
 }

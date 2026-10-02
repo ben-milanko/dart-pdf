@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Flottantes sur la page",
   "tbFloatingToolbar": "Flotter sur la page",
   "tbPropertiesHint": "Choisissez un outil ou sélectionnez une annotation pour voir ses propriétés",
-  "tbToolbarLayoutPropertiesHint": "La barre des propriétés réunit les actions de la sélection ainsi que les options et le style de l’outil."
+  "tbToolbarLayoutPropertiesHint": "La barre des propriétés réunit les actions de la sélection ainsi que les options et le style de l’outil.",
+  "tbFloatingToolbars": "Barres d’outils flottantes",
+  "tbFloatingToolbarsHint": "Faire flotter les barres d’outils sur la page au lieu de les ancrer aux bords de la fenêtre"
 }

@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Floating over the page",
   "tbFloatingToolbar": "Float over the page",
   "tbPropertiesHint": "Pick a tool or select a markup to see its properties",
-  "tbToolbarLayoutPropertiesHint": "The properties bar shows the selection's actions and the tool's options and style in one place."
+  "tbToolbarLayoutPropertiesHint": "The properties bar shows the selection's actions and the tool's options and style in one place.",
+  "tbFloatingToolbars": "Floating toolbars",
+  "tbFloatingToolbarsHint": "Float the toolbars over the page instead of docking them to the window edges"
 }

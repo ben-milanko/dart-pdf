@@ -1577,6 +1577,7 @@ enum _ViewOption {
   formHighlight,
   pageColor,
   editingGuides,
+  floatingToolbars,
   toolbarLayout,
   author,
   shortcuts
@@ -1621,6 +1622,8 @@ Future<void> _selectViewOption(
         context,
         preferences: preferences,
       );
+    case _ViewOption.floatingToolbars:
+      preferences.toolbarFloating = !preferences.toolbarFloating;
     case _ViewOption.toolbarLayout:
       await showPdfToolbarLayoutDialog(
         context,
@@ -2383,6 +2386,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               contentPadding: EdgeInsets.zero,
             ),
+          ),
+        if (toolbarLayout)
+          CheckedPopupMenuItem(
+            key: const ValueKey('pdf-shell-floating-toolbars'),
+            value: _ViewOption.floatingToolbars,
+            checked: preferences.toolbarFloating,
+            child: Text(pdfL10n(context).tbFloatingToolbars),
           ),
         if (toolbarLayout)
           PopupMenuItem(

@@ -2409,4 +2409,11 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia.';
+
+  @override
+  String get tbFloatingToolbars => 'Pływające paski narzędzi';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Wyświetlaj paski narzędzi nad stroną zamiast dokować je przy krawędziach okna';
 }

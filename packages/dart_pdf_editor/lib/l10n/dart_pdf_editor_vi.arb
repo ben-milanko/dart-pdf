@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Nổi trên trang",
   "tbFloatingToolbar": "Nổi trên trang",
   "tbPropertiesHint": "Chọn công cụ hoặc chọn một chú thích để xem thuộc tính",
-  "tbToolbarLayoutPropertiesHint": "Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ."
+  "tbToolbarLayoutPropertiesHint": "Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ.",
+  "tbFloatingToolbars": "Thanh công cụ nổi",
+  "tbFloatingToolbarsHint": "Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ"
 }

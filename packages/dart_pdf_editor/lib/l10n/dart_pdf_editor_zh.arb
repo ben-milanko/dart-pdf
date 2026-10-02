@@ -692,5 +692,7 @@
   "tbToolbarFloating": "浮动在页面上",
   "tbFloatingToolbar": "浮动在页面上",
   "tbPropertiesHint": "选择工具或选中标记以查看其属性",
-  "tbToolbarLayoutPropertiesHint": "属性栏在同一位置显示所选内容的操作以及工具的选项和样式。"
+  "tbToolbarLayoutPropertiesHint": "属性栏在同一位置显示所选内容的操作以及工具的选项和样式。",
+  "tbFloatingToolbars": "浮动工具栏",
+  "tbFloatingToolbarsHint": "让工具栏浮动在页面上，而不是停靠在窗口边缘"
 }

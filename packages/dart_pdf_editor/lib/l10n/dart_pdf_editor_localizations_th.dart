@@ -2354,4 +2354,11 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'แถบคุณสมบัติแสดงการทำงานของสิ่งที่เลือก รวมถึงตัวเลือกและสไตล์ของเครื่องมือไว้ที่เดียว';
+
+  @override
+  String get tbFloatingToolbars => 'แถบเครื่องมือแบบลอย';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'แสดงแถบเครื่องมือลอยเหนือหน้าแทนการเชื่อมไว้ที่ขอบหน้าต่าง';
 }

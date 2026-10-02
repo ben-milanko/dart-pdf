@@ -2360,4 +2360,11 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ.';
+
+  @override
+  String get tbFloatingToolbars => 'Thanh công cụ nổi';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ';
 }

@@ -2359,6 +2359,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
+
+  @override
+  String get tbFloatingToolbars => 'Floating toolbars';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Float the toolbars over the page instead of docking them to the window edges';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4716,6 +4723,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
+
+  @override
+  String get tbFloatingToolbars => 'Floating toolbars';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Float the toolbars over the page instead of docking them to the window edges';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7073,4 +7087,11 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
+
+  @override
+  String get tbFloatingToolbars => 'Floating toolbars';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Float the toolbars over the page instead of docking them to the window edges';
 }

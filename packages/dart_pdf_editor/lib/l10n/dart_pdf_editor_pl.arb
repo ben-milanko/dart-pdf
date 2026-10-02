@@ -692,5 +692,7 @@
   "tbToolbarFloating": "Unoszące się nad stroną",
   "tbFloatingToolbar": "Unoś nad stroną",
   "tbPropertiesHint": "Wybierz narzędzie lub zaznacz adnotację, aby zobaczyć jej właściwości",
-  "tbToolbarLayoutPropertiesHint": "Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia."
+  "tbToolbarLayoutPropertiesHint": "Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia.",
+  "tbFloatingToolbars": "Pływające paski narzędzi",
+  "tbFloatingToolbarsHint": "Wyświetlaj paski narzędzi nad stroną zamiast dokować je przy krawędziach okna"
 }

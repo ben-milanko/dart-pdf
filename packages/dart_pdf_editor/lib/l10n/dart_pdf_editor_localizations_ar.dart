@@ -2406,4 +2406,11 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get tbToolbarLayoutPropertiesHint =>
       'يعرض شريط الخصائص إجراءات التحديد وخيارات الأداة ونمطها في مكان واحد.';
+
+  @override
+  String get tbFloatingToolbars => 'أشرطة أدوات عائمة';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'عرض أشرطة الأدوات عائمة فوق الصفحة بدلًا من إرسائها على حواف النافذة';
 }

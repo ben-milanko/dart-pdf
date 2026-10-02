@@ -692,5 +692,7 @@
   "tbToolbarFloating": "عائمة فوق الصفحة",
   "tbFloatingToolbar": "تعويم فوق الصفحة",
   "tbPropertiesHint": "اختر أداة أو حدّد تعليقًا لعرض خصائصه",
-  "tbToolbarLayoutPropertiesHint": "يعرض شريط الخصائص إجراءات التحديد وخيارات الأداة ونمطها في مكان واحد."
+  "tbToolbarLayoutPropertiesHint": "يعرض شريط الخصائص إجراءات التحديد وخيارات الأداة ونمطها في مكان واحد.",
+  "tbFloatingToolbars": "أشرطة أدوات عائمة",
+  "tbFloatingToolbarsHint": "عرض أشرطة الأدوات عائمة فوق الصفحة بدلًا من إرسائها على حواف النافذة"
 }
