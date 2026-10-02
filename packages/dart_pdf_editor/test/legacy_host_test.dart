@@ -12,6 +12,9 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/shell_chrome.dart' show PdfShellBar;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+// migrate_design_widgets is an error repo-wide; this test builds a legacy
+// host on purpose.
+// ignore: migrate_design_widgets
 import 'package:flutter/material.dart' as legacy;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

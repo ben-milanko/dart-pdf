@@ -61,6 +61,11 @@ every image the pages draw and reports `decodeMs`.
 
 - `dart:ui` and Flutter imports are **only** allowed in `dart_pdf_editor`.
   Everything else must run on the Dart VM (server/CLI/tests) and on the web.
+- Material/Cupertino come from `material_ui`/`cupertino_ui` everywhere (app
+  and example too). Only `dart_pdf_editor`'s `lib/src/legacy/` may import
+  `package:flutter/material.dart` or `cupertino.dart` (the legacy-host bridge,
+  compiled out with `-DPDF_LEGACY_MATERIAL_BRIDGE=false`); the
+  `migrate_design_widgets` lint is an error elsewhere.
 - `dart:io` is not allowed anywhere in `lib/` (web support); use
   `package:archive` for compression.
 - `pdf_cos` knows nothing about pages or rendering - only the COS object
