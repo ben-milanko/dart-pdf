@@ -198,10 +198,8 @@ void main() {
       final result = await open(tester, settle: false);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       final selector = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('print-options-printer')));
       selector.onChanged!('Plotter');
@@ -228,10 +226,8 @@ void main() {
       expect(find.byKey(const ValueKey('print-printer-error')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       await choose(tester, 'printer', 'Plotter');
       await tester.tap(find.byKey(const ValueKey('print-preview-print')));
       await tester.pumpAndSettle();
@@ -302,10 +298,8 @@ void main() {
           find.byKey(const ValueKey('print-printer-missing')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       expect(
           tester
               .widget<PdfDropdown<String>>(
@@ -332,27 +326,21 @@ void main() {
       expect(find.byKey(const ValueKey('print-printer-error')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       await tester.tap(find.byKey(const ValueKey('print-printer-retry')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('print-printer-error')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       await tester.tap(find.byKey(const ValueKey('print-printer-retry')));
       await tester.pumpAndSettle();
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNotNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: true));
     }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
 
     testWidgets('saved capabilities are normalized and changes survive Cancel',

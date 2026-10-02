@@ -922,13 +922,13 @@ void main() {
 
       // the stroke slider shows the selected annotation's width (scope to
       // the popup - the strip also carries an inline opacity slider)
-      final menuSlider = find.descendant(
-          of: find.byType(MenuAnchor), matching: find.byType(Slider));
-      final slider = tester.widget(menuSlider.first) as Slider;
+      final menuSlider =
+          find.byKey(const ValueKey('pdf-tune-stroke-width-slider'));
+      final slider = tester.widget<Slider>(menuSlider);
       expect(slider.value, closeTo(2, 1e-6));
 
       // dragging it restyles on release
-      await tester.drag(menuSlider.first, const Offset(150, 0));
+      await tester.drag(menuSlider, const Offset(150, 0));
       await tester.pumpAndSettle();
       final width = editing.document.page(0).annotations.single.borderWidth!;
       expect(width, greaterThan(2));

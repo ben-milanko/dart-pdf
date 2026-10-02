@@ -245,6 +245,7 @@ Widget pdfStockTextContextMenu(
       systemMenu && SystemContextMenu.isSupportedByField(editableTextState)
           ? SystemContextMenu.editableText(editableTextState: editableTextState)
           : AdaptiveTextSelectionToolbar.editableText(
+              key: const ValueKey('pdf-text-context-menu'),
               editableTextState: editableTextState);
   if (place != null) menu = place(editableTextState, menu);
   return pdfHostRoute(context, menu, themesFrom: editableTextState.context);

@@ -428,6 +428,40 @@ PdfEditorView(
 );
 ```
 
+`PdfReader` takes the same `headerBuilder` (its parts have no save). Where
+your save button shares or exports, `parts.saveButton(enabledWhenUnchanged:
+true)` keeps it enabled before the first edit; ⌘S / Ctrl+S still saves only
+when there is something to save.
+
+**Panels.** `extraPanels` adds your own dock panels beside the stock ones.
+Each gets a toggle in the panel switch (unless `showInPanelSwitch: false`), a
+resizable frame on its dock with a move handle that drags it to another
+edge, and a bottom sheet on a compact layout. Its dock, width and visibility
+persist by `id`; pass `open:` a `ValueNotifier<bool>` to keep visibility
+yourself. The builder gets the frame's geometry, for the stock header
+controls:
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  extraPanels: [
+    PdfEditorPanel(
+      id: 'comments',
+      icon: Icons.forum_outlined,
+      label: 'Comments',
+      builder: (context, geometry) => Column(children: [
+        Row(children: [
+          if (geometry.moveHandle() case final handle?) handle,
+          const Expanded(child: Text('Comments')),
+          if (geometry.closeButton() case final close?) close,
+        ]),
+        const Expanded(child: CommentsList()),
+      ]),
+    ),
+  ],
+);
+```
+
 **Menus.** `annotationMenuEntries`, `textMenuEntries` and
 `formFieldMenuEntries` receive each context menu's stock rows and return the
 rows to show. Find stock rows by `PdfMenuEntry.id` (their `pdf-*` keys) and
@@ -492,6 +526,12 @@ inside one (the stamp editor's colour picker, say) uses your presenter as
 well. Call `super.method(...)` to fall back to the stock UI for a case you
 don't handle.
 
+**Signature pad.** `PdfSignaturePad` is the signature dialog's drawing
+surface on its own - pointer and stylus with pressure, the predicted lead,
+trackpad drawing - over a `PdfSignaturePadController` (strokes, ink, pen,
+`toSignature()`). Put it in your own sheet or page; a presenter's
+`signature` prompt can return what it draws.
+
 ### 4. Commands and tool groups
 
 Everything the stock toolbar does goes through `PdfEditorCommands`, which
@@ -514,6 +554,32 @@ for (final command in commands.catalog(context)) {
 To reach them from above the editor (an app-level palette), create them
 yourself and pass `PdfEditorView(commands: ...)`. `toolbarBuilder` replaces
 the toolbar with one you build from the catalog.
+
+**Keyboard.** The viewer's keys map to intents - `PdfCopyIntent`,
+`PdfSelectAllIntent`, `PdfUndoIntent`, `PdfRedoIntent`,
+`PdfDeleteSelectionIntent`, `PdfNudgeSelectionIntent`, `PdfArmToolIntent` and
+the rest. Rebind keys by passing a copy of `pdfViewerDefaultShortcuts`
+(`PdfViewer.shortcuts`, or `viewerShortcuts` on `PdfEditorView` and
+`PdfReader`); add keys with a `Shortcuts` above the editor; change what a
+command does with an `Actions` above it:
+
+```dart
+Actions(
+  actions: {
+    PdfDeleteSelectionIntent: CallbackAction<PdfDeleteSelectionIntent>(
+      onInvoke: (_) => confirmThenDelete(),
+    ),
+  },
+  child: PdfEditorView(
+    bytes: bytes,
+    viewerShortcuts: {
+      ...pdfViewerDefaultShortcuts,
+      const SingleActivator(LogicalKeyboardKey.backspace):
+          const DoNothingAndStopPropagationIntent(),
+    },
+  ),
+)
+```
 
 `toolGroups` orders the dock and takes groups of your own; an entry can be a
 stock tool, a markup kind or a `PdfCommand`:
@@ -578,6 +644,9 @@ toast (`flutter run -t lib/cupertino_host.dart` in `example/`).
 
 Below all of that, the editor is a controller and a viewer you can wire into
 any layout yourself - see [Composing your own UI](#composing-your-own-ui).
+The preferences can live outside the device's shared_preferences too:
+`PdfEditingPreferences(store: ...)` takes any `PdfPreferencesStore` (a
+settings database, a per-user profile, or `PdfMemoryPreferencesStore`).
 
 ## Composing your own UI
 

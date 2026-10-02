@@ -32,6 +32,9 @@ class _FakeTrackpad extends PdfTrackpadSignatureCapture {
       controller!.add(PdfTrackpadSignatureEvent(phase, x: x, y: y));
 }
 
+/// The signature pad dialog's Done button.
+final signatureDone = find.byKey(const ValueKey('pdf-signature-done'));
+
 void main() {
   const trackpadButton = ValueKey('pdf-signature-trackpad');
   const hint = ValueKey('pdf-signature-trackpad-hint');
@@ -80,7 +83,7 @@ void main() {
     expect(find.byKey(hint), findsNothing);
     expect(trackpad.cancelled, 1);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+    await tester.tap(signatureDone);
     await tester.pumpAndSettle();
     final signature = result!;
     expect(signature.strokes, hasLength(2));
@@ -126,9 +129,7 @@ void main() {
     await tester.pump();
     expect(find.byKey(hint), findsNothing);
     // the half-drawn stroke is kept, so Done is live
-    final done =
-        tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'));
-    expect(done.onPressed, isNotNull);
+    expect(tester.getSemantics(signatureDone), isSemantics(isEnabled: true));
   });
 
   testWidgets('no trackpad attached, no trackpad button', (tester) async {
@@ -157,11 +158,7 @@ void main() {
     await tester.tap(find.text('Clear'), warnIfMissed: false);
     await tester.pump();
     expect(find.byKey(hint), findsOneWidget);
-    expect(
-        tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'))
-            .onPressed,
-        isNotNull);
+    expect(tester.getSemantics(signatureDone), isSemantics(isEnabled: true));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
     await tester.pump();

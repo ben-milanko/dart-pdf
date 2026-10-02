@@ -297,11 +297,9 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-color-process-scan-progress')),
         findsOneWidget);
     expect(
-        tester
-            .widget<FilledButton>(
-                find.byKey(const ValueKey('pdf-color-process-apply')))
-            .onPressed,
-        isNull);
+        tester.getSemantics(
+            find.byKey(const ValueKey('pdf-color-process-apply'))),
+        isSemantics(isEnabled: false));
 
     await tester.pumpAndSettle();
 
@@ -310,11 +308,9 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-color-process-color-65280')),
         findsOneWidget);
     expect(
-        tester
-            .widget<FilledButton>(
-                find.byKey(const ValueKey('pdf-color-process-apply')))
-            .onPressed,
-        isNotNull);
+        tester.getSemantics(
+            find.byKey(const ValueKey('pdf-color-process-apply'))),
+        isSemantics(isEnabled: true));
   });
 
   testWidgets(

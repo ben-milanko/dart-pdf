@@ -18,8 +18,10 @@ Future<String?> showPdfTextPrompt(
   return pdfPresentDialog<String>(
     context,
     builder: (context) => AlertDialog(
+      key: const ValueKey('pdf-text-prompt'),
       title: Text(title),
       content: TextField(
+        key: const ValueKey('pdf-text-prompt-field'),
         controller: field,
         autofocus: true,
         maxLines: multiline ? 4 : 1,

@@ -243,7 +243,7 @@ void main() {
         expect(row, findsOneWidget);
         expect(find.text('Needs an open document'), findsWidgets);
         // Dimmed means unrunnable, not hidden.
-        expect(tester.widget<InkWell>(row).onTap, isNull);
+        expect(tester.getSemantics(row), isSemantics(hasTapAction: false));
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }

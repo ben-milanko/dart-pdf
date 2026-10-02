@@ -764,9 +764,8 @@ void main() {
       await pumpViewer(tester, controller, buildMultiPagePdf(2),
           beside: PdfSearchResultsPanel(controller: controller));
 
-      final divider = tester.widget<Divider>(find.descendant(
-          of: find.byType(PdfSearchResultsPanel),
-          matching: find.byType(Divider)));
+      final divider = tester.widget<Divider>(
+          find.byKey(const ValueKey('pdf-search-options-divider')));
       expect(divider.indent, 0);
       expect(divider.endIndent, PdfSidebarResizeGrip.width);
     });

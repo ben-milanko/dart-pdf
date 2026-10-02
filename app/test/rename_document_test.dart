@@ -124,13 +124,13 @@ void main() {
     for (final invalid in ['', '  ', '.pdf', '..']) {
       await tester.enterText(name, invalid);
       await tester.pump();
-      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+      expect(tester.getSemantics(confirm), isSemantics(isEnabled: false));
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
       expect(name, findsOneWidget);
     }
     await tester.enterText(name, 'Do not save this');
-    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.tap(find.byKey(const ValueKey('rename-document-cancel')));
     await tester.pumpAndSettle();
     expect(findMiddleEllipsisText('Original.pdf'), findsOneWidget);
     expect(await recovery.list(), isEmpty);

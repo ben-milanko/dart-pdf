@@ -42,11 +42,8 @@ void main() {
     final result =
         tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
     expect(result.document.pageCount, 1);
-    expect(
-        tester
-            .widget<FilledButton>(find.byKey(const ValueKey('pdf-shell-save')))
-            .onPressed,
-        isNotNull);
+    expect(tester.getSemantics(find.byKey(const ValueKey('pdf-shell-save'))),
+        isSemantics(isEnabled: true));
     expect(source.document, same(sourceDocument));
     expect(find.text('Feature showcase - part 2.pdf'), findsOneWidget);
     await tester.tap(find.text('Feature showcase - part 1.pdf'));
@@ -77,11 +74,8 @@ void main() {
     final session =
         tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
     expect(session.document.pageCount, 2);
-    expect(
-        tester
-            .widget<FilledButton>(find.byKey(const ValueKey('pdf-shell-save')))
-            .onPressed,
-        isNotNull);
+    expect(tester.getSemantics(find.byKey(const ValueKey('pdf-shell-save'))),
+        isSemantics(isEnabled: true));
     session.removePage(0);
     await tester.pumpAndSettle();
     expect(session.document.pageCount, 1);

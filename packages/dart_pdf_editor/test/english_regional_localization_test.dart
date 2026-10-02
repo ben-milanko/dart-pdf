@@ -40,7 +40,9 @@ void main() {
           find.text(
               'Snap annotation edges and ${region == 'US' ? 'centers' : 'centres'} • Hold Alt to bypass'),
           findsOneWidget);
-      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+      Navigator.of(
+              tester.element(find.byKey(const ValueKey('pdf-guides-dialog'))))
+          .pop();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Picker'));
       await tester.pumpAndSettle();

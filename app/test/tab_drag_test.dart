@@ -153,7 +153,7 @@ void main() {
     locator.location = TabDropLocation(
       windowHandle: 22,
       localPoint: tester.getCenter(find.descendant(
-        of: find.byType(AppBar),
+        of: find.byKey(const ValueKey('editor-app-bar')),
         matching: find.text('DartPDF'),
       )),
     );

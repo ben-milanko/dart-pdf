@@ -265,12 +265,13 @@ void main() {
       expect(editing.tool, isNull);
       final approveButton = find.byKey(const ValueKey('pdf-command-approve'));
       expect(approveButton, findsOneWidget);
-      expect(tester.widget<IconButton>(approveButton).isSelected, isFalse);
+      expect(
+          tester.getSemantics(approveButton), isSemantics(isSelected: false));
 
       await tester.tap(approveButton, kind: PointerDeviceKind.mouse);
       await tester.pump();
       expect(approvals, 1);
-      expect(tester.widget<IconButton>(approveButton).isSelected, isTrue);
+      expect(tester.getSemantics(approveButton), isSemantics(isSelected: true));
 
       // a stock tool in a host group still arms through the commands
       await tester.tap(find.byKey(const ValueKey('pdf-tool-note')),
@@ -296,7 +297,7 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pump();
       final button = find.byKey(const ValueKey('pdf-command-later'));
-      expect(tester.widget<IconButton>(button).onPressed, isNull);
+      expect(tester.getSemantics(button), isSemantics(isEnabled: false));
     });
 
     testWidgets('a stock group keeps its behaviour wherever it sits',

@@ -41,7 +41,8 @@ void main() {
       // The self-signed caveat must be shown to the user.
       expect(find.textContaining('validity unknown'), findsOneWidget);
 
-      await tester.enterText(find.byType(TextFormField).first, 'Grace Hopper');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-identity-name')), 'Grace Hopper');
       await tester.tap(find.text('Create'));
       await tester.pumpAndSettle();
 

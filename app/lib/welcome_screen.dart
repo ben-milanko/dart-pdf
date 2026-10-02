@@ -207,6 +207,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         Align(
                           alignment: Alignment.center,
                           child: FilledButton.icon(
+                            key: const ValueKey('welcome-open-pdf'),
                             onPressed: widget.onOpen,
                             icon: const Icon(Icons.folder_open),
                             label: Text(appL10n(context).welcomeOpenPdf),

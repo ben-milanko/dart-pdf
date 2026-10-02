@@ -168,24 +168,17 @@ void main() {
       addTearDown(editing.dispose);
       await pumpPanel(tester, controller, editing);
 
-      expect(find.byKey(replaceField),
-          findsOneWidget);
+      expect(find.byKey(replaceField), findsOneWidget);
       expect(
-        tester
-            .widget<FilledButton>(
-                find.byKey(replaceAll))
-            .onPressed,
-        isNull,
+        tester.getSemantics(find.byKey(replaceAll)),
+        isSemantics(isEnabled: false),
       );
 
       unawaited(controller.search('beta'));
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(
-        tester
-            .widget<FilledButton>(
-                find.byKey(replaceAll))
-            .onPressed,
-        isNotNull,
+        tester.getSemantics(find.byKey(replaceAll)),
+        isSemantics(isEnabled: true),
       );
     });
 
@@ -202,8 +195,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(find.text('2 matches'), findsOneWidget);
 
-      await tester.enterText(
-          find.byKey(replaceField), 'issued');
+      await tester.enterText(find.byKey(replaceField), 'issued');
       await tester.pump();
       await tester.tap(find.byKey(replaceAll));
       await tester.pumpAndSettle(const Duration(milliseconds: 200));
@@ -230,8 +222,7 @@ void main() {
       controller.goToMatch(1);
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
 
-      await tester.enterText(
-          find.byKey(replaceField), 'issued');
+      await tester.enterText(find.byKey(replaceField), 'issued');
       await tester.pump();
       await tester.tap(find.byKey(replaceOne));
       await tester.pumpAndSettle(const Duration(milliseconds: 200));

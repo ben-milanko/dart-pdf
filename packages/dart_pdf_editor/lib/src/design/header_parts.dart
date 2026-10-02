@@ -48,8 +48,10 @@ class PdfHeaderParts {
     this.viewOptions,
     this.panelSwitch,
     this.save,
+    Widget? Function(bool enabledWhenUnchanged)? saveBuilder,
   })  : _barBuilder = barBuilder,
-        _controlsBuilder = controlsBuilder;
+        _controlsBuilder = controlsBuilder,
+        _saveBuilder = saveBuilder;
 
   /// Whether the editor is narrower than its compact width
   /// (`PdfEditorThemeData.compactWidth`, 700 by default) - where the stock
@@ -86,6 +88,19 @@ class PdfHeaderParts {
   final Widget Function(
       List<Widget> leading, List<Widget> trailing, Color? color) _barBuilder;
   final Widget? Function(bool includeSave) _controlsBuilder;
+  final Widget? Function(bool enabledWhenUnchanged)? _saveBuilder;
+
+  /// The save button, like [save], for a host that wants it to stay live
+  /// while the document is unchanged ([enabledWhenUnchanged]) - where saving
+  /// an untouched file is still the point, as when the button shares or
+  /// exports the file. Pressing it then calls `PdfEditorView.onSave` even
+  /// with nothing to save; the ⌘S / Ctrl+S shortcut still saves only when
+  /// there is something to save (or with `PdfEditorView.alwaysAllowSave`).
+  /// Use it in place of [save], not beside it. Null when [save] is.
+  Widget? saveButton({bool enabledWhenUnchanged = false}) {
+    if (!enabledWhenUnchanged || save == null) return save;
+    return _saveBuilder?.call(true) ?? save;
+  }
 
   /// A bar in the stock header's look (height, surface, bottom rule, the
   /// header's icon colour), with [leading] at the start and [trailing] at

@@ -415,8 +415,11 @@ class _EditorScreenState extends State<EditorScreen>
   /// (animating back to the natural width) once the pointer leaves the strip.
   double? _heldTabWidth;
 
-  /// Whether the developer tools panel is docked over the editor (F12).
-  bool _devToolsOpen = false;
+  /// Whether the developer tools panel is open (F12). Over an editable
+  /// document on a wide window it is one of the editor's dock panels
+  /// ([PdfEditorView.extraPanels], [_devToolsPanel]), which follows this;
+  /// elsewhere the app lays it out itself (see [build]).
+  final _devToolsOpen = ValueNotifier<bool>(false);
 
   /// True while the command palette is up, so ⌘K can't stack copies.
   bool _paletteOpen = false;
@@ -689,6 +692,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    _devToolsOpen.dispose();
     PdfAnnotationSnapshotClipboard.instance
         .removeListener(_onLocalAnnotationCopy);
     _registeredTabDragCoordinator
@@ -3935,7 +3939,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// stripped with --dart-define=DEVTOOLS=false).
   void _toggleDevTools() {
     if (!kDevToolsEnabled) return;
-    setState(() => _devToolsOpen = !_devToolsOpen);
+    setState(() => _devToolsOpen.value = !_devToolsOpen.value);
   }
 
   /// Global F12 hook (registered in initState): a devtools toggle must work
@@ -3998,9 +4002,10 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// The app's header bar: the app menu, the tabs and the app's actions.
-  /// Over an editable document the editor draws it ([PdfEditorView.
-  /// headerBuilder], [parts] set), with the editor's own controls as its
-  /// second row - one header, not an app bar stacked over the editor's.
+  /// Over an open document the editor or reader draws it ([PdfEditorView.
+  /// headerBuilder], [PdfReader.headerBuilder]; [parts] set), with the
+  /// shell's own controls as its second row - one header, not an app bar
+  /// stacked over the shell's.
   ///
   /// [content] is the app's own part of the bar, built once per
   /// EditorScreen build: the editor rebuilds its header on every preference
@@ -4035,8 +4040,14 @@ class _EditorScreenState extends State<EditorScreen>
                   if (parts.save case final save?) save,
                 ],
               );
-    final save = parts != null && parts.compact ? parts.save : null;
+    // the compact bar's save/share button stays live without edits (sharing
+    // an unedited file is the phone's main action); ⌘S still saves only when
+    // there is something to save
+    final save = parts != null && parts.compact
+        ? parts.saveButton(enabledWhenUnchanged: true)
+        : null;
     return AppBar(
+      key: const ValueKey('editor-app-bar'),
       leading: app.leading,
       leadingWidth: _appMenuLeadingWidth,
       centerTitle: false,
@@ -4065,23 +4076,22 @@ class _EditorScreenState extends State<EditorScreen>
         actions: _buildActions(tab),
       );
 
-  /// Whether [_buildBody] shows [tab] in a [PdfEditorView] - whose header
-  /// then carries the app bar.
-  bool _showsEditor(DocumentTab? tab) =>
+  /// Whether [_buildBody] shows [tab] in a [PdfEditorView] or, read-only, a
+  /// [PdfReader] - whose header then carries the app bar.
+  bool _shellDrawsAppBar(DocumentTab? tab) =>
       tab != null &&
       !tab.isDeferredPath &&
       !tab.isDeferred &&
       !tab.isLoading &&
       tab.error == null &&
       !tab.isComparison &&
-      !tab.isPreview &&
-      !_readOnly;
+      !tab.isPreview;
 
   @override
   Widget build(BuildContext context) {
     final tab = _active;
     return Scaffold(
-      appBar: _showsEditor(tab) ? null : _buildAppBar(tab),
+      appBar: _shellDrawsAppBar(tab) ? null : _buildAppBar(tab),
       body: CallbackShortcuts(
         // ⌘P (macOS) / Ctrl+P (Windows, Linux, web) print the active document.
         // Placed above the editor so the SDK's own shortcuts take precedence;
@@ -4112,6 +4122,10 @@ class _EditorScreenState extends State<EditorScreen>
         },
         child: _buildFileDropTarget(Builder(builder: (context) {
           final compactDevTools = _isCompactWidth(context);
+          // on a wide window an editable document docks the panel itself
+          final appDevTools = _devToolsOpen.value &&
+              kDevToolsEnabled &&
+              !_devToolsInEditor(tab, compact: compactDevTools);
           return Stack(
             children: [
               // On wide screens the devtools panel docks beside the body
@@ -4123,7 +4137,7 @@ class _EditorScreenState extends State<EditorScreen>
                 child: Row(
                   children: [
                     Expanded(child: _buildBodyWithDevTools(tab)),
-                    if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
+                    if (appDevTools && !compactDevTools)
                       DevToolsPanel(
                         onClose: _toggleDevTools,
                         session: tab?.session,
@@ -4145,7 +4159,7 @@ class _EditorScreenState extends State<EditorScreen>
               // Phone devtools: a bottom sheet over the viewer. Scrim-less,
               // so the page underneath still takes gestures (matching the
               // docked panel, which never blocked the viewer either).
-              if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
+              if (appDevTools && compactDevTools)
                 Positioned(
                   left: 0,
                   right: 0,
@@ -4167,6 +4181,32 @@ class _EditorScreenState extends State<EditorScreen>
       ),
     );
   }
+
+  /// Whether the developer tools dock inside the editor ([_devToolsPanel])
+  /// rather than beside the body: over an editable document on a wide
+  /// window.
+  bool _devToolsInEditor(DocumentTab? tab, {required bool compact}) =>
+      kDevToolsEnabled && !compact && _shellDrawsAppBar(tab) && !_readOnly;
+
+  /// The developer tools as one of the editor's dock panels. F12 opens it
+  /// (no panel switch toggle); the editor gives it its frame.
+  PdfEditorPanel _devToolsPanel(DocumentTab tab) => PdfEditorPanel(
+        id: 'devtools',
+        icon: Icons.build_outlined,
+        label: 'Developer tools',
+        open: _devToolsOpen,
+        showInPanelSwitch: false,
+        width: 360,
+        minWidth: 300,
+        maxWidth: 560,
+        builder: (context, geometry) => DevToolsPanel(
+          onClose: _toggleDevTools,
+          session: tab.session,
+          viewerController: tab.viewer,
+          documentTitle: tab.title,
+          geometry: geometry,
+        ),
+      );
 
   /// Rebuild only the mounted document shell when its raster-cache policy
   /// changes. Listening to the full [AppDevTools] model here would also rebuild
@@ -4256,9 +4296,24 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
+    // built once per EditorScreen build (see _buildAppBar)
+    final appBar = _appBarContent(tab);
+    // one header: the app bar, drawn by the shell with its own controls as
+    // the second row (see _buildAppBar)
+    Widget header(BuildContext context, PdfHeaderParts parts) {
+      final bar = _buildAppBar(tab, parts: parts, content: appBar);
+      // the height a Scaffold gives its app bar: the bar plus the status
+      // bar inset it pads itself by
+      return SizedBox(
+        height: bar.preferredSize.height + MediaQuery.paddingOf(context).top,
+        child: bar,
+      );
+    }
+
     if (_readOnly) {
       return PdfReader(
         key: ValueKey(tab),
+        headerBuilder: header,
         bytes: tab.session!.bytes,
         documentId: tab.documentId,
         controller: tab.viewer,
@@ -4274,8 +4329,6 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
-    // built once per EditorScreen build (see _buildAppBar)
-    final appBar = _appBarContent(tab);
     return PdfEditorView(
       key: ValueKey(tab),
       documentId: tab.documentId,
@@ -4288,17 +4341,13 @@ class _EditorScreenState extends State<EditorScreen>
       tileRasterBackend: tileRasterBackend,
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
-      // one header: the app bar, drawn by the editor with its own controls
-      // as the second row (see _buildAppBar)
-      headerBuilder: (context, parts) {
-        final bar = _buildAppBar(tab, parts: parts, content: appBar);
-        // the height a Scaffold gives its app bar: the bar plus the status
-        // bar inset it pads itself by
-        return SizedBox(
-          height: bar.preferredSize.height + MediaQuery.paddingOf(context).top,
-          child: bar,
-        );
-      },
+      headerBuilder: header,
+      // F12's developer tools dock with the editor's own panels - resizable,
+      // and movable to any edge (a phone keeps the app's own bottom sheet)
+      extraPanels: [
+        if (_devToolsInEditor(tab, compact: _isCompactWidth(context)))
+          _devToolsPanel(tab),
+      ],
       saveButtonIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
       saveButtonLabel: _usesMobileShare
           ? WidgetsLocalizations.of(context).shareButtonLabel
@@ -4311,9 +4360,9 @@ class _EditorScreenState extends State<EditorScreen>
       // session sees no edits of its own while the app knows the file on disk
       // is still behind - without this the user could not save the very work we
       // just handed back.
-      // On a compact layout the save/share button sits in the app bar and
-      // stays live (sharing an unedited file is the phone's main action).
-      alwaysAllowSave: tab.isUnsaved || tab.isDirty || _isCompactWidth(context),
+      // (On a compact layout the save/share button in the app bar stays live
+      // regardless - see _buildAppBar - but ⌘S does not.)
+      alwaysAllowSave: tab.isUnsaved || tab.isDirty,
       onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
       // a PDF dragged in from the desktop can be dropped between two page
       // thumbnails; the drop lands its pages exactly there
@@ -4371,6 +4420,7 @@ class _EditorScreenState extends State<EditorScreen>
           builder: (context, _) => !tab.viewer!.hasSelection
               ? const SizedBox.shrink()
               : IconButton(
+                  key: const ValueKey('selection-copy-action'),
                   icon: const Icon(Icons.copy),
                   tooltip: appL10n(context).editorCopySelectedTextTooltip,
                   onPressed: () async {
@@ -4897,6 +4947,7 @@ class _EditorScreenState extends State<EditorScreen>
                 Expanded(child: label()),
                 if (showClose)
                   IconButton(
+                    key: ValueKey('tab-close-$index'),
                     icon: const Icon(Icons.close, size: 16),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,

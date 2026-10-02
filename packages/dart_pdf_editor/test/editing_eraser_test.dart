@@ -441,10 +441,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-eraser-size')), findsOneWidget);
 
-      await tester.drag(
-          find.descendant(
-              of: find.byKey(const ValueKey('pdf-eraser-size')),
-              matching: find.byType(Slider)),
+      await tester.drag(find.byKey(const ValueKey('pdf-eraser-size-slider')),
           const Offset(200, 0));
       await tester.pump();
       expect(editing.preferences.eraserRadius, greaterThan(8));
@@ -480,7 +477,14 @@ void main() {
       await tester.pumpAndSettle();
       // only the eraser slider shows - the paint-only controls are gone
       expect(find.byKey(const ValueKey('pdf-eraser-size')), findsOneWidget);
-      expect(find.byType(Slider), findsOneWidget);
+      for (final paintOnly in [
+        'pdf-tune-stroke-width-slider',
+        'pdf-tune-opacity-slider',
+        'pdf-tune-font-size-slider',
+        'pdf-strip-opacity-slider',
+      ]) {
+        expect(find.byKey(ValueKey(paintOnly)), findsNothing);
+      }
       expect(find.text('Stroke width'), findsNothing);
       expect(find.text('Font size'), findsNothing);
     });

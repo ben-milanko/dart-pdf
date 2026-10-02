@@ -103,6 +103,31 @@ void main() {
     expect(find.byKey(const ValueKey('devtools-panel')), findsNothing);
   });
 
+  testWidgets('over an editable document it docks as an editor panel',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpWithDoc(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+
+    final panel = find.byKey(const ValueKey('devtools-panel'));
+    final docked =
+        find.byKey(const ValueKey('pdf-shell-panel-devtools-docked'));
+    expect(docked, findsOneWidget);
+    expect(find.descendant(of: docked, matching: panel), findsOneWidget);
+    // F12 opens it; it has no panel switch toggle
+    expect(find.byKey(const ValueKey('pdf-shell-panel-devtools-toggle')),
+        findsNothing);
+    // the editor's frame: a move handle to redock it, and its close button
+    expect(find.byKey(const ValueKey('devtools-move')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('devtools-close')));
+    await tester.pump();
+    expect(panel, findsNothing);
+  });
+
   testWidgets('the render route overlay toggles from the panel',
       (tester) async {
     addTearDown(() => pdfDebugShowGpuRasterRoutes.value = false);

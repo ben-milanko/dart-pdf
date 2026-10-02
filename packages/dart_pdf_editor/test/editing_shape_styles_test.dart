@@ -112,8 +112,7 @@ void main() {
         ..preferences.cornerRadius = 10;
       addTearDown(editing.dispose);
       editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
-      expect(
-          editing.document.page(0).annotations.single.cornerRadius, 10);
+      expect(editing.document.page(0).annotations.single.cornerRadius, 10);
     });
 
     test('a zero radius leaves the rectangle square', () {
@@ -217,7 +216,8 @@ void main() {
       final after = editing.document.page(0).annotations.single;
       expect(after.color, 0x1E88E5);
       // the outline row offers no "none" - a cloud always has a stroke
-      expect(find.byKey(const ValueKey('pdf-shape-outline-none')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-shape-outline-none')), findsNothing);
       // and the restyle keeps the revision-cloud border
       expect(after.hasCloudyBorder, isTrue);
     });
@@ -279,27 +279,27 @@ void main() {
       expect(tester.getSize(modes), const Size(81, 40));
       // Tool-free reader mode is intentionally distinct from explicit Hand:
       // it still permits text selection and therefore highlights neither.
-      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
-      expect(tester.widget<IconButton>(select).isSelected, isFalse);
+      expect(tester.getSemantics(hand), isSemantics(isSelected: false));
+      expect(tester.getSemantics(select), isSemantics(isSelected: false));
 
       editing.tool = PdfEditTool.select;
       await tester.pump();
-      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
-      expect(tester.widget<IconButton>(select).isSelected, isTrue);
+      expect(tester.getSemantics(hand), isSemantics(isSelected: false));
+      expect(tester.getSemantics(select), isSemantics(isSelected: true));
 
       await tester.tap(hand);
       await tester.pump();
       expect(editing.tool, isNull);
       expect(editing.isHandMode, isTrue);
-      expect(tester.widget<IconButton>(hand).isSelected, isTrue);
-      expect(tester.widget<IconButton>(select).isSelected, isFalse);
+      expect(tester.getSemantics(hand), isSemantics(isSelected: true));
+      expect(tester.getSemantics(select), isSemantics(isSelected: false));
 
       await tester.tap(select);
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
       expect(editing.isHandMode, isFalse);
-      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
-      expect(tester.widget<IconButton>(select).isSelected, isTrue);
+      expect(tester.getSemantics(hand), isSemantics(isSelected: false));
+      expect(tester.getSemantics(select), isSemantics(isSelected: true));
     });
   });
 

@@ -372,7 +372,9 @@ class _PdfReflowViewState extends State<PdfReflowView>
         future: _hasContent,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+                key: ValueKey('pdf-reflow-loading'),
+                child: CircularProgressIndicator());
           }
           if (snapshot.data != true) {
             return Center(

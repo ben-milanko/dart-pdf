@@ -245,8 +245,9 @@ class _PdfProgressiveSourceBuilderState
     return widget.builder(context, bytes, _full != null);
   }
 
-  static Widget _defaultLoading(BuildContext context) =>
-      const Center(child: CircularProgressIndicator());
+  static Widget _defaultLoading(BuildContext context) => const Center(
+      key: ValueKey('pdf-progressive-loading'),
+      child: CircularProgressIndicator());
 
   static Widget _defaultError(BuildContext context, Object error) => Center(
         child: Padding(

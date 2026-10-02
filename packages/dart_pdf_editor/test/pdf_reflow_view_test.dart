@@ -90,7 +90,7 @@ Future<void> _settle(WidgetTester tester) async {
   for (var i = 0; i < 80; i++) {
     await tester.pump(const Duration(milliseconds: 16));
     await Future<void>.delayed(const Duration(milliseconds: 5));
-    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+    if (find.byKey(const ValueKey('pdf-reflow-loading')).evaluate().isEmpty) {
       if (clearedAt < 0) clearedAt = i;
       // Give per-page image decoding a handful of frames to complete.
       if (i - clearedAt >= 12) return;
@@ -139,9 +139,10 @@ void main() {
 
   testWidgets('styles a heading and indents a list item', (tester) async {
     await tester.runAsync(() async {
-      final doc = PdfDocument.open(_doc('${_text(100, 720, 'Big Heading', size: 24)}\n'
-          '${_text(100, 680, '- first item')}\n'
-          '${_text(100, 664, '- second item')}'));
+      final doc =
+          PdfDocument.open(_doc('${_text(100, 720, 'Big Heading', size: 24)}\n'
+              '${_text(100, 680, '- first item')}\n'
+              '${_text(100, 664, '- second item')}'));
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: PdfReflowView(document: doc)),
       ));
@@ -155,8 +156,7 @@ void main() {
         matching: find.byType(Padding),
       ));
       expect(
-        indented.any((p) =>
-            p.padding.resolve(TextDirection.ltr).left == 16),
+        indented.any((p) => p.padding.resolve(TextDirection.ltr).left == 16),
         isTrue,
       );
     });
@@ -312,8 +312,7 @@ void main() {
       expect(fsImage, findsOneWidget);
       expect(tester.getSize(fsImage),
           tester.getSize(find.byType(InteractiveViewer)));
-      final shareButton =
-          find.byKey(const ValueKey('pdf-reflow-image-share'));
+      final shareButton = find.byKey(const ValueKey('pdf-reflow-image-share'));
       expect(shareButton, findsOneWidget);
 
       await tester.tap(shareButton);
@@ -353,7 +352,8 @@ void main() {
       await _settle(tester);
       expect(find.text('Above the figure'), findsOneWidget);
 
-      final second = PdfDocument.open(_doc(_text(100, 700, 'A different page')));
+      final second =
+          PdfDocument.open(_doc(_text(100, 700, 'A different page')));
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: PdfReflowView(document: second)),
       ));

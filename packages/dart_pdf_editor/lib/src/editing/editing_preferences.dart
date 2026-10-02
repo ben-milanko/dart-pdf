@@ -8,7 +8,6 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
 import 'line_style.dart';
@@ -17,8 +16,9 @@ import 'models/custom_stamp.dart';
 import 'models/ink_signature.dart';
 import 'models/measurement_scale.dart';
 import 'models/panel_dock.dart';
-import 'tool_shortcuts.dart' show PdfEditToolGroup;
+import 'preferences_store.dart';
 import 'saved_annotation.dart';
+import 'tool_shortcuts.dart' show PdfEditToolGroup;
 
 /// The app theme a host runs the editor UI in, as the user chose it:
 /// follow the platform's brightness, or force light or dark. Persisted by
@@ -139,15 +139,22 @@ class PdfViewModeController extends ChangeNotifier
 /// Values load asynchronously ([ready]); each change is written back
 /// immediately. Where no local storage exists - plain widget tests, for
 /// example - loading fails silently and the defaults stand.
+///
+/// They live on the device (shared_preferences) unless [store] says
+/// otherwise: pass a [PdfPreferencesStore] to keep them in the host's own
+/// settings, a per-user profile, or memory ([PdfMemoryPreferencesStore]).
 class PdfEditingPreferences extends ChangeNotifier
     implements PdfViewModeHolder {
-  PdfEditingPreferences() {
+  PdfEditingPreferences({PdfPreferencesStore? store}) : _injectedStore = store {
     _ready = _load();
   }
 
   static const _prefix = 'dart_pdf_editor.editing.';
 
-  SharedPreferences? _store;
+  /// The store passed to the constructor; null uses the device default.
+  final PdfPreferencesStore? _injectedStore;
+
+  PdfPreferencesStore? _store;
   late final Future<void> _ready;
   bool _modified = false;
 
@@ -277,9 +284,9 @@ class PdfEditingPreferences extends ChangeNotifier
   static const _viewportsKey = '${_prefix}documentViewports';
 
   Future<void> _load() async {
-    final SharedPreferences store;
+    final PdfPreferencesStore store;
     try {
-      store = await SharedPreferences.getInstance();
+      store = _injectedStore ?? await PdfPreferencesStore.sharedPreferences();
     } catch (_) {
       return; // no local storage here (e.g. widget tests) - defaults stand
     }
@@ -607,7 +614,7 @@ class PdfEditingPreferences extends ChangeNotifier
     _writeViewports();
   }
 
-  void _write(Future<Object?> Function(SharedPreferences store) write) {
+  void _write(Future<Object?> Function(PdfPreferencesStore store) write) {
     _modified = true;
     final store = _store;
     if (store != null) unawaited(write(store));
@@ -1670,7 +1677,7 @@ class PdfEditingPreferences extends ChangeNotifier
   }
 
   PdfPanelDock _readDock(
-          SharedPreferences store, String key, PdfPanelDock fallback) =>
+          PdfPreferencesStore store, String key, PdfPanelDock fallback) =>
       PdfPanelDock.values.asNameMap()[store.getString('$_prefix$key')] ??
       fallback;
 
@@ -1857,6 +1864,70 @@ class PdfEditingPreferences extends ChangeNotifier
     if (_panelGroups[panel] == group) return;
     _panelGroups[panel] = group;
     _write((s) => s.setInt('${_prefix}panelGroup.${panel.name}', group));
+    notifyListeners();
+  }
+
+  // -------------------------------------------------------------------------
+  // host panels (PdfEditorView.extraPanels), stored by the host's panel id
+
+  /// Values written for host panels this session, by full key; the store
+  /// answers for the rest. Their ids are not known when the store loads, so
+  /// they are read on demand rather than up front.
+  final Map<String, Object?> _extraPanelValues = {};
+
+  static String _extraPanelKey(String id, String field) =>
+      '${_prefix}extraPanel.$id.$field';
+
+  T? _extraPanelValue<T>(String key) {
+    if (_extraPanelValues.containsKey(key)) return _extraPanelValues[key] as T?;
+    final stored = switch (T) {
+      const (String) => _store?.getString(key),
+      const (double) => _store?.getDouble(key),
+      const (bool) => _store?.getBool(key),
+      _ => null,
+    };
+    return stored is T ? stored : null;
+  }
+
+  /// The edge the host panel [id] is docked on, or null while it has never
+  /// been moved (it then sits on its `PdfEditorPanel.defaultDock`).
+  PdfPanelDock? extraPanelDock(String id) => PdfPanelDock.values
+      .asNameMap()[_extraPanelValue<String>(_extraPanelKey(id, 'dock'))];
+
+  /// Persists the edge the host panel [id] is docked on.
+  void setExtraPanelDock(String id, PdfPanelDock dock) {
+    final key = _extraPanelKey(id, 'dock');
+    if (extraPanelDock(id) == dock) return;
+    _extraPanelValues[key] = dock.name;
+    _write((s) => s.setString(key, dock.name));
+    notifyListeners();
+  }
+
+  /// The dragged extent of the host panel [id], or null before it is
+  /// resized.
+  double? extraPanelWidth(String id) =>
+      _extraPanelValue<double>(_extraPanelKey(id, 'width'));
+
+  /// Persists the dragged extent of the host panel [id].
+  void setExtraPanelWidth(String id, double width) {
+    final key = _extraPanelKey(id, 'width');
+    if (extraPanelWidth(id) == width) return;
+    _extraPanelValues[key] = width;
+    _write((s) => s.setDouble(key, width));
+    notifyListeners();
+  }
+
+  /// Whether the host panel [id] is open (closed until first opened), for a
+  /// panel whose host does not keep that itself (`PdfEditorPanel.open`).
+  bool extraPanelOpen(String id) =>
+      _extraPanelValue<bool>(_extraPanelKey(id, 'open')) ?? false;
+
+  /// Persists whether the host panel [id] is open.
+  void setExtraPanelOpen(String id, bool open) {
+    final key = _extraPanelKey(id, 'open');
+    if (extraPanelOpen(id) == open) return;
+    _extraPanelValues[key] = open;
+    _write((s) => s.setBool(key, open));
     notifyListeners();
   }
 
