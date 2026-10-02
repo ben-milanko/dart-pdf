@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart'
     show
         PdfAlignment,
@@ -1507,11 +1507,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               : BoxConstraints(maxHeight: constraints.maxHeight),
           decoration: _cardDecoration(context),
           clipBehavior: Clip.antiAlias,
-          child: SingleChildScrollView(
-            scrollDirection: scrollDirection,
-            child: Padding(
-              padding: padding,
-              child: child,
+          // the card's own ink surface: an ancestor Material's splashes
+          // would paint beneath the card's fill
+          child: Material(
+            type: MaterialType.transparency,
+            child: SingleChildScrollView(
+              scrollDirection: scrollDirection,
+              child: Padding(
+                padding: padding,
+                child: child,
+              ),
             ),
           ),
         ),
