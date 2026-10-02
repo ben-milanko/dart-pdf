@@ -1,10 +1,9 @@
 import 'dart:async';
 
-import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_memory.dart';
 import 'devtools.dart';
@@ -12,6 +11,7 @@ import 'document_tab.dart';
 import 'editor_screen.dart';
 import 'keyless_signing.dart';
 import 'keyboard_availability.dart';
+import 'l10n/app_delegates.dart';
 import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
@@ -221,11 +221,7 @@ class _DartPdfWindow extends StatelessWidget {
       builder: (context) => MaterialApp(
         title: 'DartPDF',
         builder: (context, child) => KeyboardAvailability(child: child!),
-        localizationsDelegates: const [
-          ...AppLocalizations.localizationsDelegates,
-          DartPdfEditorLocalizations.delegate,
-          DartPdfPrintingLocalizations.delegate,
-        ],
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         // The effective locale (DevTools override, else the persisted Settings
         // choice, else null = "System default") is passed as `locale` rather

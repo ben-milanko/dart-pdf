@@ -1,5 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_viewer_example/l10n/app_localizations.dart';
 
@@ -13,8 +13,8 @@ void main() {
       addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
       await tester.pumpWidget(MaterialApp(
         localizationsDelegates: const [
-          ...AppLocalizations.localizationsDelegates,
-          DartPdfEditorLocalizations.delegate,
+          AppLocalizations.delegate,
+          ...PdfEditorLocalizations.delegates,
         ],
         supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(builder: (context) {

@@ -23,8 +23,7 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
-import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_viewer_example/demo_document.dart';
@@ -33,6 +32,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/app.dart' show materialThemeMode;
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/keyboard_availability.dart';
+import 'package:dart_pdf_editor_app/l10n/app_delegates.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 import 'package:dart_pdf_editor_app/window_support.dart';
 import 'package:dart_pdf_editor_app/windows_file_dialogs.dart';
@@ -183,11 +183,7 @@ class _AppScreenshotsState extends State<AppScreenshots> {
           debugShowCheckedModeBanner: false,
           title: 'DartPDF',
           builder: (context, child) => KeyboardAvailability(child: child!),
-          localizationsDelegates: const [
-            ...AppLocalizations.localizationsDelegates,
-            DartPdfEditorLocalizations.delegate,
-            DartPdfPrintingLocalizations.delegate,
-          ],
+          localizationsDelegates: appLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
           theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),

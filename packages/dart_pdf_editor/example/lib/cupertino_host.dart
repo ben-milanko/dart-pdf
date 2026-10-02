@@ -24,10 +24,13 @@
 
 import 'dart:async';
 
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+// Only the widgets delegate: flutter_localizations' Cupertino delegate is the
+// legacy one, so cupertino_ui's GlobalCupertinoLocalizations is used instead.
+import 'package:flutter_localizations/flutter_localizations.dart'
+    show GlobalWidgetsLocalizations;
 
 import 'demo_document.dart';
 
