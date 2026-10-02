@@ -154,7 +154,10 @@ const _hostDelegates = <LocalizationsDelegate<dynamic>>[
 ];
 
 /// material_ui's Material strings for the locale, or the English defaults
-/// for one it does not translate (never leaves them missing).
+/// for one it does not translate (never leaves them missing). Plain or US
+/// English gets the built-in defaults directly - the strings a material_ui
+/// `MaterialApp` without delegates has - which skips initializing intl's
+/// date data for every locale on the first frame.
 class _MaterialFallbackDelegate
     extends LocalizationsDelegate<MaterialLocalizations> {
   const _MaterialFallbackDelegate();
@@ -163,10 +166,10 @@ class _MaterialFallbackDelegate
   bool isSupported(Locale locale) => true;
 
   @override
-  Future<MaterialLocalizations> load(Locale locale) =>
-      GlobalMaterialLocalizations.delegate.isSupported(locale)
-          ? GlobalMaterialLocalizations.delegate.load(locale)
-          : DefaultMaterialLocalizations.load(locale);
+  Future<MaterialLocalizations> load(Locale locale) => !_usEnglish(locale) &&
+          GlobalMaterialLocalizations.delegate.isSupported(locale)
+      ? GlobalMaterialLocalizations.delegate.load(locale)
+      : DefaultMaterialLocalizations.load(locale);
 
   @override
   bool shouldReload(_MaterialFallbackDelegate old) => false;
@@ -182,14 +185,20 @@ class _CupertinoFallbackDelegate
   bool isSupported(Locale locale) => true;
 
   @override
-  Future<CupertinoLocalizations> load(Locale locale) =>
-      GlobalCupertinoLocalizations.delegate.isSupported(locale)
-          ? GlobalCupertinoLocalizations.delegate.load(locale)
-          : DefaultCupertinoLocalizations.load(locale);
+  Future<CupertinoLocalizations> load(Locale locale) => !_usEnglish(locale) &&
+          GlobalCupertinoLocalizations.delegate.isSupported(locale)
+      ? GlobalCupertinoLocalizations.delegate.load(locale)
+      : DefaultCupertinoLocalizations.load(locale);
 
   @override
   bool shouldReload(_CupertinoFallbackDelegate old) => false;
 }
+
+bool _usEnglish(Locale locale) =>
+    locale.languageCode == 'en' &&
+    (locale.countryCode == null ||
+        locale.countryCode!.isEmpty ||
+        locale.countryCode == 'US');
 
 // ThemeData is expensive to build; hosts present a handful of distinct
 // signal combinations at most.
