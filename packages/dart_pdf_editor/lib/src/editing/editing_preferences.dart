@@ -1780,6 +1780,70 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
+  // -------------------------------------------------------------------------
+  // host panels (PdfEditorView.extraPanels), stored by the host's panel id
+
+  /// Values written for host panels this session, by full key; the store
+  /// answers for the rest. Their ids are not known when the store loads, so
+  /// they are read on demand rather than up front.
+  final Map<String, Object?> _extraPanelValues = {};
+
+  static String _extraPanelKey(String id, String field) =>
+      '${_prefix}extraPanel.$id.$field';
+
+  T? _extraPanelValue<T>(String key) {
+    if (_extraPanelValues.containsKey(key)) return _extraPanelValues[key] as T?;
+    final stored = switch (T) {
+      const (String) => _store?.getString(key),
+      const (double) => _store?.getDouble(key),
+      const (bool) => _store?.getBool(key),
+      _ => null,
+    };
+    return stored is T ? stored : null;
+  }
+
+  /// The edge the host panel [id] is docked on, or null while it has never
+  /// been moved (it then sits on its `PdfEditorPanel.defaultDock`).
+  PdfPanelDock? extraPanelDock(String id) => PdfPanelDock.values
+      .asNameMap()[_extraPanelValue<String>(_extraPanelKey(id, 'dock'))];
+
+  /// Persists the edge the host panel [id] is docked on.
+  void setExtraPanelDock(String id, PdfPanelDock dock) {
+    final key = _extraPanelKey(id, 'dock');
+    if (extraPanelDock(id) == dock) return;
+    _extraPanelValues[key] = dock.name;
+    _write((s) => s.setString(key, dock.name));
+    notifyListeners();
+  }
+
+  /// The dragged extent of the host panel [id], or null before it is
+  /// resized.
+  double? extraPanelWidth(String id) =>
+      _extraPanelValue<double>(_extraPanelKey(id, 'width'));
+
+  /// Persists the dragged extent of the host panel [id].
+  void setExtraPanelWidth(String id, double width) {
+    final key = _extraPanelKey(id, 'width');
+    if (extraPanelWidth(id) == width) return;
+    _extraPanelValues[key] = width;
+    _write((s) => s.setDouble(key, width));
+    notifyListeners();
+  }
+
+  /// Whether the host panel [id] is open (closed until first opened), for a
+  /// panel whose host does not keep that itself (`PdfEditorPanel.open`).
+  bool extraPanelOpen(String id) =>
+      _extraPanelValue<bool>(_extraPanelKey(id, 'open')) ?? false;
+
+  /// Persists whether the host panel [id] is open.
+  void setExtraPanelOpen(String id, bool open) {
+    final key = _extraPanelKey(id, 'open');
+    if (extraPanelOpen(id) == open) return;
+    _extraPanelValues[key] = open;
+    _write((s) => s.setBool(key, open));
+    notifyListeners();
+  }
+
   /// The dragged extent of the tab group docked on [dock] (its width for
   /// left/right, its height for top/bottom), or null before it is resized.
   double? panelGroupWidth(PdfPanelDock dock) => _panelGroupWidths[dock];
