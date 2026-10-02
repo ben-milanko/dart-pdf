@@ -9,7 +9,7 @@ import 'render_worker.dart';
 /// Worker backend lands: a worker that never offloads, so every page renders
 /// locally exactly as it did before the worker existed.
 PdfRenderWorker startRenderWorker(Uint8List bytes,
-        {List<int>? populatedRanges}) =>
+        {List<int>? populatedRanges, int? imageCacheBytes}) =>
     const _NullRenderWorker();
 
 /// No-op: there is no worker to prewarm on this platform (#450 is web-specific).

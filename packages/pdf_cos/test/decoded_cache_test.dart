@@ -112,6 +112,25 @@ void main() {
       expect(doc.debugDecodedCacheBytes, 0);
     });
 
+    test('trimDecodedStreamCache releases everything, and reads still decode',
+        () {
+      final a = _flate(ascii('first payload'));
+      final b = _flate(ascii('second payload'));
+      final decodedA = doc.decodeStreamData(a);
+      doc.decodeStreamData(b);
+      final held = doc.debugDecodedCacheBytes;
+      expect(held, greaterThan(0));
+
+      expect(doc.trimDecodedStreamCache(), held);
+      expect(doc.debugDecodedCacheBytes, 0);
+      // The next read decodes again - equal bytes, a fresh buffer - and is
+      // cached as before.
+      final again = doc.decodeStreamData(a);
+      expect(again, decodedA);
+      expect(identical(again, decodedA), isFalse);
+      expect(identical(doc.decodeStreamData(a), again), isTrue);
+    });
+
     test('evicts least-recently-used entries to stay within budget', () {
       // Each decoded payload is 100 bytes; a 250-byte budget holds two.
       final payloads = [

@@ -13,6 +13,7 @@ import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
 import 'package:web/web.dart' as web;
 
 import 'perf_log.dart';
+import 'performance_policy.dart' show pdfDefaultWorkerImageCacheBytes;
 import 'region_replay_index.dart';
 import 'render_trace.dart';
 import 'render_worker.dart';
@@ -72,8 +73,12 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 /// [web.Worker] fails to construct - this degrades to a null worker
 /// ([isActive] false), so hosts can force local rendering. See
 /// `doc/render_worker_web.md`.
+///
+/// [imageCacheBytes] budgets the worker's decoded-image cache; null takes
+/// [pdfDefaultWorkerImageCacheBytes], read here on the main thread (a worker
+/// has no `navigator.deviceMemory` of its own to size itself by).
 PdfRenderWorker startRenderWorker(Uint8List bytes,
-    {List<int>? populatedRanges}) {
+    {List<int>? populatedRanges, int? imageCacheBytes}) {
   final url = pdfRenderWorkerScriptUrl;
   _wlog('startRenderWorker url=$url bytes=${bytes.length}');
   if (url == null) {
@@ -82,7 +87,10 @@ PdfRenderWorker startRenderWorker(Uint8List bytes,
   }
   try {
     return _WebRenderWorker(
-        bytes, url, renderWorkerPopulatedRanges(bytes, populatedRanges));
+        bytes,
+        url,
+        renderWorkerPopulatedRanges(bytes, populatedRanges),
+        imageCacheBytes ?? pdfDefaultWorkerImageCacheBytes());
   } catch (e) {
     // Worker construction can throw (bad URL, blocked by CSP): fall back.
     _wlog('construction threw: $e - falling back to local');
@@ -167,8 +175,8 @@ void disposePrewarmedRenderWorkers() {
 }
 
 class _WebRenderWorker extends PdfRenderWorker {
-  _WebRenderWorker(
-      Uint8List bytes, String scriptUrl, List<int>? populatedRanges) {
+  _WebRenderWorker(Uint8List bytes, String scriptUrl,
+      List<int>? populatedRanges, int imageCacheBytes) {
     // Adopt a pre-booted worker (its fetch/compile/boot already overlapped the
     // file pick) when one is available, else construct on demand as before.
     final worker = _prewarmedWorkers.isNotEmpty
@@ -190,6 +198,8 @@ class _WebRenderWorker extends PdfRenderWorker {
           populatedRanges.map((value) => value.toJS).toList().toJS);
     }
     init.setProperty('timings'.toJS, (_perfClock != null).toJS);
+    // A worker bundle older than this property ignores it and keeps 64 MB.
+    init.setProperty('imageCacheBytes'.toJS, imageCacheBytes.toJS);
     init.setProperty(
       'reuseTranscripts'.toJS,
       pdfRenderWorkerReuseTranscripts.toJS,
@@ -1006,6 +1016,18 @@ class _WebRenderWorker extends PdfRenderWorker {
           ..setProperty('id'.toJS, inFlight.id.toJS),
       );
     }
+  }
+
+  /// Posts `{kind:'trim'}`: the worker clears its decoded-image, flate-sample
+  /// and page-surface-bitmap caches and its document's decoded streams. It is
+  /// handled on arrival, between the yields of any running walk. A worker
+  /// bundle older than the message ignores it.
+  @override
+  void trimMemory() {
+    if (_disposed || _failed) return;
+    _worker?.postMessage(
+      JSObject()..setProperty('kind'.toJS, 'trim'.toJS),
+    );
   }
 
   void _fail() {

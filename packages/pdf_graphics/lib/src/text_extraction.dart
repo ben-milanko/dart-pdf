@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:bidi/bidi.dart' as bidi;
 import 'package:pdf_cos/perf.dart';
@@ -858,7 +859,13 @@ class PdfTextExtractor {
     // the slice is the whole table already rebased at 0 - share it rather
     // than copying every run's advances. Nothing mutates it.
     if (base == 0 && sourceEnd == all.length - 1) return all;
-    return [for (var i = sourceStart; i <= sourceEnd; i++) all[i] - base];
+    // Unboxed, filled by index (a list literal boxes each value on the VM;
+    // `sublist` costs dart2js a view plus a second typed array).
+    final out = Float64List(sourceEnd - sourceStart + 1);
+    for (var i = sourceStart; i <= sourceEnd; i++) {
+      out[i - sourceStart] = all[i] - base;
+    }
+    return out;
   }
 
   /// Groups zero-advance marks with their following base run, then orders the

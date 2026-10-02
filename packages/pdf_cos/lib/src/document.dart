@@ -138,6 +138,17 @@ class CosDocument {
   /// Bytes currently held in the decoded-stream cache - test/diagnostic hook.
   int get debugDecodedCacheBytes => _decodedCacheBytes;
 
+  /// Drops every cached decoded stream payload and returns the bytes that
+  /// released. For hosts relieving memory pressure (a render worker told to
+  /// trim): nothing else changes, and the next read of each stream decodes it
+  /// again, to the same bytes.
+  int trimDecodedStreamCache() {
+    final freed = _decodedCacheBytes;
+    _decodedCache.clear();
+    _decodedCacheBytes = 0;
+    return freed;
+  }
+
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
 

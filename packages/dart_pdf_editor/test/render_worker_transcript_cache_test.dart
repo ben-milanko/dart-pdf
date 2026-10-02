@@ -485,6 +485,31 @@ void main() {
         reason: 'the edited page was dropped');
   });
 
+  test('trimRetained drops the command graphs and keeps the text cache',
+      () async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final cache = PdfWorkerTranscriptCache(capacity: 4);
+    await cache.transcriptFor(document, 0, true, PdfCancellationToken());
+    await cache.transcriptFor(document, 1, true, PdfCancellationToken());
+    expect(cache.length, 2);
+    final text = cache.textCache.length;
+    expect(text, greaterThan(0));
+
+    // The web worker's memory-pressure trim.
+    cache.trimRetained();
+    expect(cache.length, 0);
+    expect(cache.retainedCommandWeight, 0);
+    expect(cache.textCache.length, text,
+        reason: 'search and selection keep their extracted text');
+
+    final timings = PdfWorkerPhaseTimings();
+    final again = await cache.transcriptFor(
+        document, 0, true, PdfCancellationToken(),
+        timings: timings);
+    expect(timings.transcriptHit, isFalse);
+    expect(again, isNotNull, reason: 'a trimmed page records again');
+  });
+
   test('evictPages(null) clears every transcript', () async {
     final document = PdfDocument.open(buildMultiPagePdf(2));
     final cache = PdfWorkerTranscriptCache(capacity: 4);

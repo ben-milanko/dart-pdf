@@ -222,6 +222,50 @@ void main() {
     });
   });
 
+  test('typed and boxed char offsets write the same bytes and read unboxed',
+      () {
+    // The interpreter hands the codec Float64List offsets; older callers and
+    // tests pass List<double>. Both must write the identical wire bytes, and
+    // the reader must hand back an unboxed table either way.
+    const offsets = <double>[0, 0.25, 0.5, 1.75];
+    PdfTextRun run(List<double> offsets) => PdfTextRun(
+          text: 'abc',
+          transform: PdfMatrix.identity,
+          color: PdfColor.black,
+          width: 1.75,
+          charOffsets: offsets,
+        );
+    final boxed = serializeCommands([PdfDrawTextCommand(run(offsets))])!;
+    final typed = serializeCommands(
+        [PdfDrawTextCommand(run(Float64List.fromList(offsets)))])!;
+    expect(typed, boxed);
+    final restored =
+        (deserializeCommands(typed).single as PdfDrawTextCommand).run;
+    expect(restored.charOffsets, isA<Float64List>());
+    expect(restored.charOffsets, offsets);
+
+    PdfPageText page(List<double> offsets) => PdfPageText(
+          pageIndex: 0,
+          text: 'abc',
+          runs: [
+            PdfExtractedRun(
+              text: 'abc',
+              startIndex: 0,
+              transform: PdfMatrix.identity,
+              width: 1.75,
+              bounds: const PdfRect(0, 0, 1.75, 1),
+              charOffsets: offsets,
+            ),
+          ],
+        );
+    final pageBoxed = serializePageText(page(offsets));
+    final pageTyped = serializePageText(page(Float64List.fromList(offsets)));
+    expect(pageTyped, pageBoxed);
+    final text = deserializePageText(pageTyped).runs.single.charOffsets;
+    expect(text, isA<Float64List>());
+    expect(text, offsets);
+  });
+
   group('worker state-scope compaction', () {
     test('drops clip-free scopes but preserves clip-owning scopes', () {
       final doc = CosDocument.open(buildClassicPdf());
@@ -239,13 +283,16 @@ void main() {
 
       expect(compacted.whereType<PdfFillPathCommand>(), hasLength(3));
       expect(compacted.whereType<PdfClipPathCommand>(), hasLength(2));
-      expect(compacted.whereType<PdfSaveCommand>(), hasLength(2));
-      expect(compacted.whereType<PdfRestoreCommand>(), hasLength(2));
+      // `q q W n Q Q` keeps both scopes: a clip writes every scope still
+      // pending, outermost first, because the decision is made online.
+      expect(compacted.whereType<PdfSaveCommand>(), hasLength(3));
+      expect(compacted.whereType<PdfRestoreCommand>(), hasLength(3));
       expect(compacted.first, isA<PdfFillPathCommand>(),
           reason: 'the first clip-free q/Q pair should disappear');
     });
 
-    test('keeps unmatched state commands in a command-limited prefix', () {
+    test('drops a still-pending scope at the end of a command-limited prefix',
+        () {
       final recorder =
           _record(CosDocument.open(buildClassicPdf()), 'q 0 0 10 10 re f Q');
       final bytes = serializeCommands(
@@ -255,9 +302,80 @@ void main() {
       )!;
       final compacted = deserializeCommands(bytes);
 
-      expect(compacted, hasLength(2));
-      expect(compacted[0], isA<PdfSaveCommand>());
-      expect(compacted[1], isA<PdfFillPathCommand>());
+      expect(compacted, hasLength(1));
+      expect(compacted[0], isA<PdfFillPathCommand>());
+    });
+
+    test('keeps a written scope that is still open at the end of a prefix', () {
+      final recorder = _record(CosDocument.open(buildClassicPdf()),
+          'q 0 0 5 5 re W n 0 0 10 10 re f Q');
+      final bytes = serializeCommands(
+        recorder.commands,
+        commandLimit: 3,
+        compactStateScopes: true,
+      )!;
+      expect(deserializeCommands(bytes).map((c) => c.runtimeType), [
+        PdfSaveCommand,
+        PdfClipPathCommand,
+        PdfFillPathCommand,
+      ]);
+    });
+
+    test('a layer writes the pending scopes around it, never inside it', () {
+      // `q q <clip> Q` inside a group used to be decided after the fact; an
+      // online decision must write the outer scope before the group opens,
+      // or its save would land inside the layer and its restore outside.
+      const box = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      const fill =
+          PdfFillPathCommand(box, PdfColor.black, PdfFillRule.nonzero, 1);
+      final commands = <PdfRenderCommand>[
+        const PdfSaveCommand(), // outer: pending at the group
+        const PdfSaveCommand(), // inner: pending at the group
+        const PdfBeginGroupCommand(0.5),
+        const PdfSaveCommand(), // inside the group: clip-free, dropped
+        fill,
+        const PdfRestoreCommand(),
+        const PdfSaveCommand(), // inside the group: clipped, kept
+        const PdfClipPathCommand(box, PdfFillRule.nonzero),
+        fill,
+        const PdfRestoreCommand(),
+        const PdfEndGroupCommand(),
+        const PdfRestoreCommand(),
+        const PdfSaveCommand(), // a later clip-free scope: dropped
+        fill,
+        const PdfRestoreCommand(),
+        const PdfRestoreCommand(),
+      ];
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      expect(restored.map((c) => c.runtimeType), [
+        PdfSaveCommand,
+        PdfSaveCommand,
+        PdfBeginGroupCommand,
+        PdfFillPathCommand,
+        PdfSaveCommand,
+        PdfClipPathCommand,
+        PdfFillPathCommand,
+        PdfRestoreCommand,
+        PdfEndGroupCommand,
+        PdfRestoreCommand,
+        PdfFillPathCommand,
+        PdfRestoreCommand,
+      ]);
+    });
+
+    test('an unmatched restore is written as is', () {
+      final restored = deserializeCommands(serializeCommands(
+          const [PdfRestoreCommand(), PdfSaveCommand(), PdfRestoreCommand()],
+          compactStateScopes: true)!);
+      expect(restored, hasLength(1));
+      expect(restored.single, isA<PdfRestoreCommand>());
     });
 
     test('keeps explicit blend restoration while dropping its scope', () {

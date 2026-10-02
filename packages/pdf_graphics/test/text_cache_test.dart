@@ -60,6 +60,34 @@ void main() {
       _expectSame(page, decoded!);
     });
 
+    test('typed offsets encode like boxed ones and decode unboxed', () {
+      final page = _sample();
+      final typed = PdfPageText(
+        pageIndex: page.pageIndex,
+        text: page.text,
+        runs: [
+          for (final run in page.runs)
+            PdfExtractedRun(
+              text: run.text,
+              startIndex: run.startIndex,
+              transform: run.transform,
+              width: run.width,
+              ascent: run.ascent,
+              bounds: run.bounds,
+              charOffsets: run.charOffsets == null
+                  ? null
+                  : Float64List.fromList(run.charOffsets!),
+              isRightToLeft: run.isRightToLeft,
+            ),
+        ],
+      );
+      final blob = pdfEncodePageText(typed);
+      expect(blob, pdfEncodePageText(page));
+      final decoded = pdfDecodePageText(blob)!;
+      expect(decoded.runs.first.charOffsets, isA<Float64List>());
+      _expectSame(page, decoded);
+    });
+
     test('rejects junk bytes as a miss', () {
       final blob = pdfEncodePageText(_sample());
       // truncated

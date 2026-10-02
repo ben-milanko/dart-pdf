@@ -141,6 +141,7 @@ class _PageSurfaceBitmapCache {
 /// walk is still going here, so a revision update waits for all of them.
 class _WorkerWalks {
   final _running = <PdfCancellationToken, Future<void>>{};
+  final _idle = <void Function()>[];
 
   bool get isEmpty => _running.isEmpty;
 
@@ -148,7 +149,26 @@ class _WorkerWalks {
   void run(PdfCancellationToken token, Future<void> Function() walk) {
     final future = walk();
     _running[token] = future;
-    future.whenComplete(() => _running.remove(token));
+    future.whenComplete(() {
+      _running.remove(token);
+      if (_running.isEmpty && _idle.isNotEmpty) {
+        final actions = List.of(_idle);
+        _idle.clear();
+        for (final action in actions) {
+          action();
+        }
+      }
+    });
+  }
+
+  /// Runs [action] now when no walk is running, otherwise once the last one
+  /// ends.
+  void whenIdle(void Function() action) {
+    if (_running.isEmpty) {
+      action();
+    } else {
+      _idle.add(action);
+    }
   }
 
   /// Cancels every running walk; completes once they have all unwound.
@@ -206,8 +226,10 @@ bool _presentPageSurfaceBitmap(
 ///   `{kind:'compressionResult', bytes:ArrayBuffer, report:String}` or
 ///   `{kind:'compressionError', error:String}`. These standalone requests need
 ///   no `init`; clients use a dedicated worker and terminate it to cancel.
-/// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared, populatedRanges?}` → opens the
-///   document, replies `{kind:'ready', shared, revisionUpdate:1, ...}`.
+/// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared, populatedRanges?,
+///   imageCacheBytes?}` → opens the document, replies `{kind:'ready', shared,
+///   revisionUpdate:1, ...}`. `imageCacheBytes` budgets the decoded-image
+///   cache (absent: 64 MB, what every worker had before the host sized it).
 /// - `{kind:'update', id, baseLength, newLength, bytes:Uint8Array, changed?}`
 ///   → moves the open document to the revision made of its first
 ///   `baseLength` bytes plus `bytes` (see `PdfRenderWorker.updateRevision`),
@@ -220,6 +242,9 @@ bool _presentPageSurfaceBitmap(
 /// - `{kind:'cancel', id}` → cancels only the matching active request, so a
 ///   late message cannot abort its successor; a match abandons the interpreter
 ///   walk early and replies with `buffer:null`.
+/// - `{kind:'trim'}` → drops the memory kept only for reuse (decoded images,
+///   flate samples, page-surface bitmaps, the document's decoded streams); no
+///   reply. Later requests decode again, to the same bytes.
 /// - `{kind:'bin', id, page, annotations, m0..m5, deviceWidth, deviceHeight,
 ///   pixelRatio, slugGlyphs}` → replies with an encoded `StripPlan` in the same result
 ///   shape (null = bin locally).
@@ -247,7 +272,8 @@ void runPdfRenderWorker() {
   // and each record re-decoded every image; #451's device trace showed one page
   // paying ~900ms of pure-Dart CMYK decode three times. Reuse is exact-match on
   // (stream, target size), so it cannot change what a record renders.
-  var imageCache = PdfImageDecodeCache();
+  var imageCacheBytes = 64 << 20;
+  var imageCache = PdfImageDecodeCache(maxBytes: imageCacheBytes);
   var flateSampleCache = _BrowserFlateSampleCache();
   var flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
   var reuseTranscripts = true;
@@ -262,7 +288,7 @@ void runPdfRenderWorker() {
   // A newly opened document has new streams and may have other pages: drop
   // every cache keyed by the previous document's objects or pages.
   void resetDocumentCaches() {
-    imageCache = PdfImageDecodeCache();
+    imageCache = PdfImageDecodeCache(maxBytes: imageCacheBytes);
     flateSampleCache = _BrowserFlateSampleCache();
     flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
     for (final cached in pageSurfaceBitmaps.values) {
@@ -270,6 +296,26 @@ void runPdfRenderWorker() {
     }
     pageSurfaceBitmaps.clear();
     transcriptCache.evictPages(null);
+  }
+
+  // A host 'trim': let go of what is kept only for reuse, on the same
+  // document. The image cache is cleared in place (the timing snapshots hold
+  // it); the retained command graphs go, the text cache stays (see
+  // PdfWorkerTranscriptCache.trimRetained); the flate samples start over with a fresh predecoder, whose
+  // prepared-page set would otherwise skip re-seeding them. It runs only
+  // between walks ([trimQueued]): a walk in flight has prepared the decoded
+  // stream seeds it is about to read, and trimming under it would send those
+  // streams back through the pure-Dart inflate.
+  var trimQueued = false;
+  void trimDocumentCaches() {
+    imageCache.clear();
+    transcriptCache.trimRetained();
+    flateSampleCache = _BrowserFlateSampleCache();
+    flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
+    for (final cached in pageSurfaceBitmaps.values) {
+      cached.dispose();
+    }
+    document?.cos.trimDecodedStreamCache();
   }
 
   // Moves the open document to the revision an 'update' message describes and
@@ -425,6 +471,10 @@ void runPdfRenderWorker() {
                 true;
         collectTimings =
             (data.getProperty('timings'.toJS) as JSBoolean?)?.toDart ?? false;
+        imageCacheBytes =
+            (data.getProperty('imageCacheBytes'.toJS) as JSNumber?)
+                    ?.toDartInt ??
+                imageCacheBytes;
         // Light up the COS-layer facade alongside the trace timings; each
         // result attaches (and resets) its per-job snapshot.
         PdfPerf.enabled = collectTimings;
@@ -515,6 +565,17 @@ void runPdfRenderWorker() {
           ignored.setProperty('activeId'.toJS, active.toJS);
         }
         scope.postMessage(ignored);
+      }
+      return;
+    }
+
+    if (kind == 'trim') {
+      if (!trimQueued) {
+        trimQueued = true;
+        walks.whenIdle(() {
+          trimQueued = false;
+          trimDocumentCaches();
+        });
       }
       return;
     }
@@ -1728,11 +1789,14 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
                   flateSampleCache,
                 );
                 if (decoded != null) {
+                  // One exact target size (see PdfImageDecodeCache's
+                  // maxTransientEntryBytes).
                   imageCache.put(
                     request.stream,
                     target.$1,
                     target.$2,
                     decoded,
+                    reusable: false,
                   );
                   tally?.flate++;
                 }
@@ -1785,6 +1849,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
                     target.$1,
                     target.$2,
                     decoded,
+                    reusable: false,
                   );
                   tally?.flate++;
                 } else {
@@ -1808,7 +1873,8 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
               decoded =
                   await _decodeWithBrowserCodec(cos, request.stream, tally);
               if (decoded != null) {
-                imageCache.put(request.stream, null, null, decoded);
+                imageCache.put(request.stream, null, null, decoded,
+                    reusable: true);
               }
             } else {
               tally?.reused();
