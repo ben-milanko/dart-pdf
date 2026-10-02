@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import '../design/editor_presenter.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_editor_view.dart' show PdfEditorFeatures;
 import '../pdf_viewer.dart';
@@ -12,10 +13,6 @@ import 'editing_measure.dart';
 import 'editing_preferences.dart';
 import 'editing_signature.dart';
 import 'editing_tool_catalog.dart';
-// The Material notices behind [PdfEditorCommands] - the one place the
-// commands reach Material, until the presenter scope takes them over.
-import 'editing_toolbar.dart'
-    show pdfCommandsCalibrateHint, pdfCommandsShowNotice;
 import 'models/panel_dock.dart';
 import 'tool_shortcuts.dart';
 
@@ -556,36 +553,52 @@ class PdfEditorCommands extends ChangeNotifier {
 
   // ---- prompts ----------------------------------------------------------
   //
-  // Every prompt and notice the commands raise goes through these three
-  // methods, so the presenter scope can take them over in one place. They
-  // are the stock Material dialogs and SnackBars today.
+  // Every prompt and notice the commands raise goes through the nearest
+  // [PdfEditorPresenter] (see [PdfEditorScope]).
 
   Future<PdfMeasurementScale?> _promptMeasurementScale(BuildContext context) {
-    final calibrateHint = pdfCommandsCalibrateHint(context);
-    return showPdfScaleDialog(
+    final presenter = PdfEditorPresenter.of(context);
+    return presenter.measurementScale(
       context,
-      initial: _controller.preferences.measurementScale,
-      onCalibrate: () {
-        _controller.tool = PdfEditTool.calibrate;
-        calibrateHint();
-      },
+      PdfMeasurementScaleRequest(
+        initial: _controller.preferences.measurementScale,
+        onCalibrate: () {
+          _controller.tool = PdfEditTool.calibrate;
+          if (!context.mounted) return;
+          presenter.notice(
+            context,
+            PdfEditorNotice(
+              pdfL10n(context).tbCalibrateScaleHint,
+              replaceCurrent: false,
+              placement: PdfNoticePlacement.attached,
+            ),
+          );
+        },
+      ),
     );
   }
 
   Future<PdfInkSignature?> _promptSignature(BuildContext context) =>
-      showPdfSignatureDialog(
+      PdfEditorPresenter.of(context).signature(
         context,
-        initialColor: _controller.color,
-        initialStrokeWidth: _controller.preferences.strokeWidth,
-        // the signature dialog is modal over the page, so the picker it opens
-        // has no page to sample: no eyedropper there
-        pickColor: (context, initial) => pickEditingColor(context, _controller,
-            initial: initial, fromPage: false),
+        PdfSignatureRequest(
+          initialColor: _controller.color,
+          initialStrokeWidth: _controller.preferences.strokeWidth,
+          // the signature dialog is modal over the page, so the picker it
+          // opens has no page to sample: no eyedropper there
+          pickColor: (context, initial) => pickEditingColor(
+              context, _controller,
+              initial: initial, fromPage: false),
+        ),
       );
 
   void _showNotice(BuildContext context, String message,
-          {VoidCallback? onUndo}) =>
-      pdfCommandsShowNotice(context, message, onUndo: onUndo);
+      {VoidCallback? onUndo}) {
+    PdfEditorPresenter.of(context).notice(
+      context,
+      PdfEditorNotice(message, onUndo: onUndo),
+    );
+  }
 
   // ---- recently used tools ------------------------------------------------
 

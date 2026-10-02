@@ -38,6 +38,7 @@ import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
+import 'design/editor_presenter.dart';
 
 /// Builds the editing toolbar for [PdfEditorView].
 ///
@@ -264,6 +265,7 @@ class PdfEditorView extends StatefulWidget {
     this.onShareReflowImage,
     this.textPrompt,
     this.styledTextPrompt,
+    this.presenter,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
@@ -363,6 +365,7 @@ class PdfEditorView extends StatefulWidget {
     this.onShareReflowImage,
     this.textPrompt,
     this.styledTextPrompt,
+    this.presenter,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
@@ -616,12 +619,23 @@ class PdfEditorView extends StatefulWidget {
   final PdfReflowImageShareHandler? onShareReflowImage;
 
   /// How dialog-based tools ask for text. Defaults to
-  /// [showPdfTextPrompt], a Material dialog.
+  /// [PdfEditorPresenter.text] ([showPdfTextPrompt], a Material dialog,
+  /// unless [presenter] overrides it). When set, it answers every text
+  /// prompt in this editor, the ones stock dialogs open included.
   final PdfTextPrompt? textPrompt;
 
   /// How selected page-content text is edited together with its rich style.
-  /// Defaults to [showPdfStyledTextPrompt].
+  /// Defaults to [PdfEditorPresenter.styledText]
+  /// ([showPdfStyledTextPrompt]). When set, it takes precedence over the
+  /// presenter's.
   final PdfStyledTextPrompt? styledTextPrompt;
+
+  /// How the editor presents dialogs, menus, sheets, notices and prompts -
+  /// override [PdfEditorPresenter] methods to replace any of them. Installs
+  /// a [PdfEditorScope] over the editor; null uses the nearest scope above
+  /// it (or the stock presenter). [textPrompt] and [styledTextPrompt], when
+  /// set, take precedence over its text prompts.
+  final PdfEditorPresenter? presenter;
 
   /// The toolbar's color palette.
   final List<Color> palette;
@@ -957,6 +971,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onPlaceSignature: widget.onPlaceSignature,
         textPrompt: widget.textPrompt,
         styledTextPrompt: widget.styledTextPrompt,
+        presenter: widget.presenter,
         palette: widget.palette,
         toolShortcuts: widget.toolShortcuts,
         toolbarLeading: widget.toolbarLeading,
@@ -1028,8 +1043,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   Future<void> _promptAuthor() async {
     final session = _session;
-    final name = await showPdfTextPrompt(context,
-        title: pdfL10n(context).editorViewAuthorNameTitle,
+    final ui = _ui;
+    final name = await pdfPresentTextPrompt(ui,
+        title: pdfL10n(ui).editorViewAuthorNameTitle,
         initial: session.preferences.author ?? '');
     if (name == null) return;
     session.preferences.author = name.trim().isEmpty ? null : name.trim();
@@ -1052,8 +1068,28 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     _prefs.setPanelGroup(panel, group);
   }
 
+  /// A context below the [PdfEditorScope] this view installs - what its own
+  /// prompts open from, so they ask [PdfEditorView.presenter].
+  BuildContext? _scopedContext;
+
+  BuildContext get _ui {
+    final scoped = _scopedContext;
+    return scoped != null && scoped.mounted ? scoped : context;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => pdfInstallPresenter(
+        context,
+        presenter: widget.presenter,
+        textPrompt: widget.textPrompt,
+        styledTextPrompt: widget.styledTextPrompt,
+        child: Builder(builder: (scoped) {
+          _scopedContext = scoped;
+          return _buildView(context);
+        }),
+      );
+
+  Widget _buildView(BuildContext context) {
     if (_isSource) return _buildFromSource();
     final features = widget.features;
     // A signature box is only a placement request; the host still has to
@@ -1439,9 +1475,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     controller: session,
                     viewerController: _viewer,
                     // save lives in the header now, not the dock
-                    textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                    textPrompt: widget.textPrompt ?? pdfPresentTextPrompt,
                     styledTextPrompt:
-                        widget.styledTextPrompt ?? showPdfStyledTextPrompt,
+                        widget.styledTextPrompt ?? pdfPresentStyledTextPrompt,
                     imagePicker: widget.imagePicker,
                     formImagePicker: widget.formImagePicker,
                     onExportSelectedContentImage:

@@ -670,5 +670,6 @@
   "guidesGridSpacing": "격자 간격",
   "guidesGridSpacingValue": "{value}pt",
   "shellCursorGuidesAndGrid": "커서 안내선 및 격자",
-  "commandSaveAs": "다른 이름으로 저장…"
+  "commandSaveAs": "다른 이름으로 저장…",
+  "dialogDismiss": "닫기"
 }

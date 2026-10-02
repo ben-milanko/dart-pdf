@@ -2311,4 +2311,7 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Enregistrer sous…';
+
+  @override
+  String get dialogDismiss => 'Ignorer';
 }

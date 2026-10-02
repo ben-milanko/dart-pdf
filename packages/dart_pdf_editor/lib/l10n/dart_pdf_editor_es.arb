@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Espaciado de la cuadrícula",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Guías del cursor y cuadrícula",
-  "commandSaveAs": "Guardar como…"
+  "commandSaveAs": "Guardar como…",
+  "dialogDismiss": "Cerrar"
 }

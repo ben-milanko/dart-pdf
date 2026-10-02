@@ -2294,4 +2294,7 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'इस रूप में सहेजें…';
+
+  @override
+  String get dialogDismiss => 'खारिज करें';
 }

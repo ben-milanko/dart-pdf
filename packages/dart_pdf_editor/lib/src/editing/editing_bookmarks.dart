@@ -7,6 +7,7 @@ import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
+import '../design/editor_presenter.dart';
 
 /// Dockable PDF outline/bookmarks panel.
 ///
@@ -454,8 +455,8 @@ Future<_BookmarkEditResult?> _showBookmarkDialog(
   required bool initialOpen,
   required bool editing,
 }) =>
-    showPdfDialog<_BookmarkEditResult>(
-      context: context,
+    pdfPresentDialog<_BookmarkEditResult>(
+      context,
       builder: (context) => _BookmarkDialog(
         pageCount: pageCount,
         initialTitle: initialTitle,

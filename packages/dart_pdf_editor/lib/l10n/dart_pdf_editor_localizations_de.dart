@@ -2305,4 +2305,7 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Speichern unter…';
+
+  @override
+  String get dialogDismiss => 'Schließen';
 }

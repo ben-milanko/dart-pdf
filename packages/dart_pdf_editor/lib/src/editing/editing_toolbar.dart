@@ -17,7 +17,6 @@ import 'package:pdf_document/pdf_document.dart'
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
-import '../toast.dart';
 import 'annotation_presentation.dart';
 import 'digital_signature_removal.dart';
 import 'editing_annotation_library.dart';
@@ -42,6 +41,7 @@ import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
 import '../keyboard_availability.dart';
+import '../design/editor_presenter.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
 typedef PdfEditingToolbarWidgetBuilder = Widget Function(
@@ -49,39 +49,6 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfEditingController controller,
   PdfViewerController viewerController,
 );
-
-/// Shows a [PdfEditorCommands] notice - a flatten result, with Undo when
-/// [onUndo] is given - as a floating SnackBar.
-///
-/// Not exported: this and [pdfCommandsCalibrateHint] are the only Material
-/// the commands reach, kept here until the presenter scope replaces them.
-void pdfCommandsShowNotice(BuildContext context, String message,
-    {VoidCallback? onUndo}) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
-  messenger
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(
-      content: Text(message),
-      behavior: SnackBarBehavior.floating,
-      margin: pdfFloatingToastMargin(context),
-      duration: const Duration(seconds: 4),
-      action: onUndo != null
-          ? SnackBarAction(label: pdfL10n(context).undo, onPressed: onUndo)
-          : null,
-    ));
-}
-
-/// The scale dialog's calibrate hint. The messenger is looked up now, while
-/// [context] is still under it, and the hint shown when the returned
-/// callback runs (from inside the dialog). Not exported - see
-/// [pdfCommandsShowNotice].
-VoidCallback pdfCommandsCalibrateHint(BuildContext context) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  return () => messenger?.showSnackBar(SnackBar(
-        content: Text(pdfL10n(context).tbCalibrateScaleHint),
-      ));
-}
 
 /// Opens the stock guide, snapping, grid, and ruler settings.
 ///
@@ -96,8 +63,8 @@ Future<void> showPdfEditingGuidesDialog(
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(1);
 
-  await showPdfDialog<void>(
-    context: context,
+  await pdfPresentDialog<void>(
+    context,
     builder: (context) => AlertDialog(
       title: Text(pdfL10n(context).guidesDialogTitle),
       contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -233,8 +200,8 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.controller,
     required this.viewerController,
     this.onSave,
-    this.textPrompt = showPdfTextPrompt,
-    this.styledTextPrompt = showPdfStyledTextPrompt,
+    this.textPrompt = pdfPresentTextPrompt,
+    this.styledTextPrompt = pdfPresentStyledTextPrompt,
     this.imagePicker,
     this.formImagePicker,
     this.onExportSelectedContentImage,
@@ -271,11 +238,14 @@ class PdfEditingToolbar extends StatefulWidget {
   /// is the app's job.
   final void Function(Uint8List bytes)? onSave;
 
-  /// How the edit-text button asks for replacement text.
+  /// How the edit-text button asks for replacement text. Defaults to
+  /// [pdfPresentTextPrompt], which asks the nearest [PdfEditorPresenter].
   final PdfTextPrompt textPrompt;
 
   /// How the "Edit text & style" button asks for replacement text plus
-  /// rich-text overrides (colour, size, bold, italic).
+  /// rich-text overrides (colour, size, bold, italic). Defaults to
+  /// [pdfPresentStyledTextPrompt], which asks the nearest
+  /// [PdfEditorPresenter].
   final PdfStyledTextPrompt styledTextPrompt;
 
   /// How the image tool ([PdfEditTool.image]) sources a picture to insert,
@@ -745,18 +715,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     BuildContext context, {
     PdfInkSignature? initial,
   }) =>
-      showPdfSignatureDialog(
+      PdfEditorPresenter.of(context).signature(
         context,
-        initialColor: initial == null
-            ? controller.color
-            : Color(0xFF000000 | initial.color),
-        initialStrokeWidth:
-            initial?.strokeWidth ?? controller.preferences.strokeWidth,
-        pickColor: (context, color) => pickEditingColor(
-          context,
-          controller,
-          initial: color,
-          fromPage: false,
+        PdfSignatureRequest(
+          initialColor: initial == null
+              ? controller.color
+              : Color(0xFF000000 | initial.color),
+          initialStrokeWidth:
+              initial?.strokeWidth ?? controller.preferences.strokeWidth,
+          pickColor: (context, color) => pickEditingColor(
+            context,
+            controller,
+            initial: color,
+            fromPage: false,
+          ),
         ),
       );
 
@@ -849,13 +821,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (text == null || text == element.text) return;
     final reflowed = controller.reflowSelectedElementText(text);
     if (!reflowed && context.mounted) {
-      ScaffoldMessenger.maybeOf(context)
-        ?..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(pdfL10n(context).tbReflowFailed),
-          behavior: SnackBarBehavior.floating,
-          margin: pdfFloatingToastMargin(context),
-        ));
+      PdfEditorPresenter.of(context).notice(
+          context,
+          PdfEditorNotice(pdfL10n(context).tbReflowFailed,
+              kind: PdfNoticeKind.error));
     }
   }
 
@@ -868,13 +837,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       if (bytes == null) return;
       final replaced = await controller.replaceSelectedElementImageAsync(bytes);
       if (!replaced && context.mounted) {
-        ScaffoldMessenger.maybeOf(context)
-          ?..clearSnackBars()
-          ..showSnackBar(SnackBar(
-            content: Text(pdfL10n(context).tbReplaceImageFailed),
-            behavior: SnackBarBehavior.floating,
-            margin: pdfFloatingToastMargin(context),
-          ));
+        PdfEditorPresenter.of(context).notice(
+            context,
+            PdfEditorNotice(pdfL10n(context).tbReplaceImageFailed,
+                kind: PdfNoticeKind.error));
       }
     } finally {
       if (mounted) setState(() => _replacingElementImage = false);
@@ -942,31 +908,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         final toolbar = context.findRenderObject();
         final anchor = toolbar is RenderBox && toolbar.attached
             ? toolbar.localToGlobal(Offset(toolbar.size.width / 2, 0))
-            : overlay.size.center(Offset.zero);
-        final picked = await showMenu<String>(
-          context: context,
-          position: RelativeRect.fromRect(
-            anchor & Size.zero,
-            Offset.zero & overlay.size,
+            : overlay.localToGlobal(overlay.size.center(Offset.zero));
+        final values = await PdfEditorPresenter.of(context).formChoice(
+          context,
+          PdfFormChoiceRequest(
+            fieldName: name,
+            options: field.options,
+            anchor: anchor & Size.zero,
+            multiSelect: field.isMultiSelect,
+            selected: field.values.toSet(),
+            compact: false,
+            optionKeyPrefix: 'pdf-selected-form-option-',
           ),
-          items: [
-            for (final (export, display) in field.options)
-              if (field.isMultiSelect)
-                CheckedPopupMenuItem(
-                  key: ValueKey('pdf-selected-form-option-$export'),
-                  value: export,
-                  checked: field.values.contains(export),
-                  child: Text(display),
-                )
-              else
-                PopupMenuItem(
-                  key: ValueKey('pdf-selected-form-option-$export'),
-                  value: export,
-                  child: Text(display),
-                ),
-          ],
         );
-        if (picked != null) controller.pickFormChoiceOption(name, picked);
+        if (values != null) pdfApplyFormChoice(controller, name, values);
       case PdfFieldType.pushButton:
         final picker = widget.formImagePicker;
         if (picker == null) return;
@@ -1315,7 +1270,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         icon: const Icon(Icons.delete_outline),
         tooltip: pdfL10n(context).sidebarDeleteSignature,
         onPressed: () async {
-          if (!await showPdfRemoveSignatureDialog(context, signature) ||
+          if (!await pdfConfirmRemoveSignature(context, signature) ||
               !context.mounted) {
             return;
           }
@@ -1334,39 +1289,25 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       preferences: controller.preferences,
     );
     if (count == null || !context.mounted) return;
-    final message = pdfL10n(context).tbColorsReplaced(count);
-    ScaffoldMessenger.maybeOf(context)
-      ?..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        margin: pdfFloatingToastMargin(context),
-      ));
+    PdfEditorPresenter.of(context).notice(
+        context,
+        PdfEditorNotice(pdfL10n(context).tbColorsReplaced(count),
+            kind: PdfNoticeKind.success));
   }
 
   Future<void> _applyRedactions(BuildContext context) async {
-    final confirmed = await showPdfDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
+    final confirmed = await PdfEditorPresenter.of(context).confirm(
+      context,
+      PdfConfirmRequest(
         key: const ValueKey('pdf-redaction-confirm'),
-        title: Text(pdfL10n(context).tbApplyRedactionsTitle),
-        content: Text(pdfL10n(context).tbApplyRedactionsMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(pdfL10n(context).cancel),
-          ),
-          PdfDialogSubmit.action(
-              onSubmit: () => Navigator.of(context).pop(true),
-              child: FilledButton(
-                key: const ValueKey('pdf-redaction-confirm-apply'),
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(pdfL10n(context).apply),
-              )),
-        ],
+        confirmKey: const ValueKey('pdf-redaction-confirm-apply'),
+        title: pdfL10n(context).tbApplyRedactionsTitle,
+        message: pdfL10n(context).tbApplyRedactionsMessage,
+        confirmLabel: pdfL10n(context).apply,
+        destructive: true,
       ),
     );
-    if (confirmed != true || !context.mounted) return;
+    if (!confirmed || !context.mounted) return;
     final burned = controller.applyRedactions();
     _flattenToast(
       context,
@@ -2502,12 +2443,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   void _showTakeoffPanel(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: PdfTakeoffPanel(controller: controller),
+    PdfEditorPresenter.of(context).sheet<void>(
+      context,
+      PdfSheetRequest<void>(
+        builder: (context) => SafeArea(
+          child: SingleChildScrollView(
+            child: PdfTakeoffPanel(controller: controller),
+          ),
         ),
       ),
     );
@@ -2954,16 +2896,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       return;
     }
     final targetRect = Rect.fromPoints(
-      overlay.globalToLocal(target.localToGlobal(Offset.zero)),
-      overlay.globalToLocal(
-        target.localToGlobal(target.size.bottomRight(Offset.zero)),
-      ),
+      target.localToGlobal(Offset.zero),
+      target.localToGlobal(target.size.bottomRight(Offset.zero)),
     );
-    final items = <PopupMenuEntry<Object>>[
+    final items = <PdfMenuEntry<Object>>[
       if (controller.tool != null || controller.markupTool != null)
-        PopupMenuItem<Object>(
+        PdfMenuItem<Object>(
           key: const ValueKey('pdf-recent-tool-clear'),
           value: _clearToolMenuChoice,
+          label: pdfL10n(targetContext).clear,
+          icon: Icons.close,
           child: Row(children: [
             const Icon(Icons.close, size: 20),
             const SizedBox(width: 12),
@@ -2972,9 +2914,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
       if ((controller.tool != null || controller.markupTool != null) &&
           recent.isNotEmpty)
-        const PopupMenuDivider(),
+        const PdfMenuDivider(),
       if (recent.isNotEmpty)
-        PopupMenuItem<Object>(
+        PdfMenuItem<Object>(
+          value: null,
+          label: pdfL10n(targetContext).propRecentlyUsed,
           enabled: false,
           height: 32,
           child: Text(
@@ -2983,11 +2927,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
         ),
       for (final choice in recent)
-        PopupMenuItem<Object>(
+        PdfMenuItem<Object>(
           key: ValueKey(choice.markup != null
               ? 'pdf-recent-markup-${choice.markup!.name}'
               : 'pdf-recent-tool-${choice.tool!.name}'),
           value: choice,
+          label: _activeToolLabel(targetContext, choice),
+          icon: _activeToolIcon(choice),
           child: Row(children: [
             Icon(_activeToolIcon(choice), size: 20),
             const SizedBox(width: 12),
@@ -2995,13 +2941,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ]),
         ),
     ];
-    final picked = await showMenu<Object>(
-      context: targetContext,
-      position: RelativeRect.fromRect(
-        targetRect,
-        Offset.zero & overlay.size,
-      ),
-      items: items,
+    final picked = await PdfEditorPresenter.of(targetContext).menu<Object>(
+      targetContext,
+      PdfMenuRequest<Object>(anchor: targetRect, entries: items),
     );
     if (!mounted || picked == null) return;
     if (identical(picked, _clearToolMenuChoice)) {
@@ -3022,68 +2964,69 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<void> _openToolSheet(BuildContext context) async {
     final groups = _visibleGroups;
     var tabId = _openGroup?.id ?? groups.first.id;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) => ListenableBuilder(
-          listenable: Listenable.merge([controller, viewerController]),
-          builder: (context, _) {
-            final group = groups.firstWhere((g) => g.id == tabId,
-                orElse: () => groups.first);
-            return SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(children: [
-                        for (final g in groups)
-                          Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 7),
-                            child: _GroupChip(
-                              key: ValueKey('pdf-group-tab-${g.id}'),
-                              group: g,
-                              active: g.id == tabId,
-                              onTap: () {
-                                if (g.kind == PdfEditToolGroup.select) {
-                                  Navigator.of(sheetContext).pop();
-                                  _toggleTool(PdfEditTool.select);
-                                  return;
-                                }
-                                setSheetState(() => tabId = g.id);
-                                // markup arms no tool - scope it so its
-                                // settings row edits markup's own style
-                                if (g.kind == PdfEditToolGroup.markup) {
-                                  controller.useMarkupStyleScope();
-                                }
-                              },
+    await PdfEditorPresenter.of(context).sheet<void>(
+      context,
+      PdfSheetRequest<void>(
+        scrollControlled: true,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, setSheetState) => ListenableBuilder(
+            listenable: Listenable.merge([controller, viewerController]),
+            builder: (context, _) {
+              final group = groups.firstWhere((g) => g.id == tabId,
+                  orElse: () => groups.first);
+              return SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          for (final g in groups)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 7),
+                              child: _GroupChip(
+                                key: ValueKey('pdf-group-tab-${g.id}'),
+                                group: g,
+                                active: g.id == tabId,
+                                onTap: () {
+                                  if (g.kind == PdfEditToolGroup.select) {
+                                    Navigator.of(sheetContext).pop();
+                                    _toggleTool(PdfEditTool.select);
+                                    return;
+                                  }
+                                  setSheetState(() => tabId = g.id);
+                                  // markup arms no tool - scope it so its
+                                  // settings row edits markup's own style
+                                  if (g.kind == PdfEditToolGroup.markup) {
+                                    controller.useMarkupStyleScope();
+                                  }
+                                },
+                              ),
                             ),
-                          ),
-                      ]),
-                    ),
-                    const SizedBox(height: 14),
-                    _SheetSectionLabel(
-                      group.label(context),
-                      hint: group.kind == PdfEditToolGroup.markup &&
-                              !viewerController.hasSelection &&
-                              controller.markupTool == null
-                          ? pdfL10n(context).tbSelectTextForMarkup
-                          : null,
-                    ),
-                    const SizedBox(height: 10),
-                    _sheetToolGrid(sheetContext, group),
-                    ..._sheetSettings(sheetContext, group),
-                  ],
+                        ]),
+                      ),
+                      const SizedBox(height: 14),
+                      _SheetSectionLabel(
+                        group.label(context),
+                        hint: group.kind == PdfEditToolGroup.markup &&
+                                !viewerController.hasSelection &&
+                                controller.markupTool == null
+                            ? pdfL10n(context).tbSelectTextForMarkup
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      _sheetToolGrid(sheetContext, group),
+                      ..._sheetSettings(sheetContext, group),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );

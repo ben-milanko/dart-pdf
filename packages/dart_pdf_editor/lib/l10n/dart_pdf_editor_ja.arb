@@ -670,5 +670,6 @@
   "guidesGridSpacing": "グリッド間隔",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "カーソルガイドとグリッド",
-  "commandSaveAs": "名前を付けて保存…"
+  "commandSaveAs": "名前を付けて保存…",
+  "dialogDismiss": "閉じる"
 }

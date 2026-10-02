@@ -10,6 +10,7 @@ import 'package:pdf_document/pdf_document.dart'
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_font_controls.dart';
+import '../design/editor_presenter.dart';
 
 /// The quick-pick colours the styled-text dialog offers by default - the
 /// same set the toolbar uses. Overridden by the host's own palette when the
@@ -68,8 +69,8 @@ Future<PdfStyledTextEdit?> showPdfStyledTextPrompt(
   List<Color> palette = defaultStyledTextPalette,
   PdfStyledFontPicker? pickFont,
 }) {
-  return showPdfDialog<PdfStyledTextEdit>(
-    context: context,
+  return pdfPresentDialog<PdfStyledTextEdit>(
+    context,
     builder: (context) => _StyledTextDialog(
         initial: initial, palette: palette, pickFont: pickFont),
   );

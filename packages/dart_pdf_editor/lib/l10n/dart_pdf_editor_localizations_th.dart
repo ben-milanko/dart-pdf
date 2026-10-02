@@ -2284,4 +2284,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'บันทึกเป็น…';
+
+  @override
+  String get dialogDismiss => 'ปิด';
 }

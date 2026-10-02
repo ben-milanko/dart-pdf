@@ -2270,4 +2270,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => '다른 이름으로 저장…';
+
+  @override
+  String get dialogDismiss => '닫기';
 }

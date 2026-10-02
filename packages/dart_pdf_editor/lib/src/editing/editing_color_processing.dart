@@ -5,9 +5,9 @@ import 'package:flutter/scheduler.dart';
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
-import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_preferences.dart';
+import '../design/editor_presenter.dart';
 
 /// Shows the document color-processing dialog and returns the number of
 /// page-content color operators rewritten, or null when cancelled.
@@ -16,8 +16,8 @@ Future<int?> showPdfColorProcessingDialog(
   required PdfEditingController controller,
   required PdfEditingPreferences preferences,
 }) {
-  return showPdfDialog<int>(
-    context: context,
+  return pdfPresentDialog<int>(
+    context,
     builder: (context) => _ColorProcessingDialog(
       controller: controller,
       preferences: preferences,
@@ -78,13 +78,15 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
   Future<void> _pickColor(Color initial, ValueChanged<Color> setColor) async {
     // The dialog already lists the document's page-content colours, so the
     // picker only adds the "Recent" grid here (no document grid).
-    final color = await showPdfColorPicker(
+    final color = await pdfPresentColor(
       context,
-      initial: initial,
-      initialFormat: widget.preferences.colorPickerFormat,
-      onFormatChanged: (format) =>
-          widget.preferences.colorPickerFormat = format,
-      recentColors: widget.preferences.recentColors,
+      PdfColorRequest(
+        initial: initial,
+        format: widget.preferences.colorPickerFormat,
+        onFormatChanged: (format) =>
+            widget.preferences.colorPickerFormat = format,
+        recentColors: widget.preferences.recentColors,
+      ),
     );
     if (color == null || !mounted) return;
     widget.preferences.noteRecentColor(color);

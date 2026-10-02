@@ -4161,6 +4161,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Save as…'**
   String get commandSaveAs;
+
+  /// Screen-reader label of the dimmed area behind an editor dialog; activating it closes the dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get dialogDismiss;
 }
 
 class _DartPdfEditorLocalizationsDelegate

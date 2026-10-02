@@ -14,7 +14,6 @@ import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
-import '../popup_position.dart';
 import '../render_worker.dart';
 import '../renderer.dart';
 import '../theme.dart';
@@ -30,6 +29,7 @@ import 'editing_tool_behavior.dart';
 import 'handle_layout.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
@@ -501,7 +501,7 @@ class EditingPageOverlay extends StatefulWidget {
     required this.pageIndex,
     required this.geometry,
     required this.textPrompt,
-    this.linkPrompt = showPdfAddLinkDialog,
+    this.linkPrompt = pdfPresentLinkPrompt,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.interactionHost,
@@ -532,7 +532,8 @@ class EditingPageOverlay extends StatefulWidget {
   final PdfTextPrompt textPrompt;
 
   /// How the link tool ([PdfEditTool.link]) and the text-selection "Add link"
-  /// action collect a hyperlink's target. Defaults to [showPdfAddLinkDialog].
+  /// action collect a hyperlink's target. Defaults to
+  /// [pdfPresentLinkPrompt] ([PdfEditorPresenter.link]).
   final PdfLinkPrompt linkPrompt;
 
   /// How the form tool asks for a push-button field's image. With none,
@@ -4505,12 +4506,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// from it and disarms the tool. Nothing is stamped on the page.
   Future<void> _commitCalibration(Offset start, Offset end) async {
     final existing = _controller.preferences.measurementScale;
-    final result = await showPdfCalibrationLengthDialog(
+    final result = await PdfEditorPresenter.of(context).measurementInput(
       context,
-      initialUnit: existing?.unitLabel,
+      PdfMeasurementInputRequest(
+        kind: PdfMeasurementInputKind.calibrationLength,
+        unit: existing?.unitLabel,
+      ),
     );
     if (!mounted || result == null) return;
-    final (length, unit) = result;
+    final length = result.value;
+    final unit = result.unit ?? existing?.unitLabel ?? '';
     _controller.calibrateScale(
       _geometry.toPagePoint(start),
       _geometry.toPagePoint(end),
@@ -4525,11 +4530,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// scale's unit), then stamps a /Polygon takeoff carrying it. Cancelling
   /// the dialog drops the in-progress polygon without stamping anything.
   Future<void> _commitVolume(List<(double, double)> pagePoints) async {
-    final depth = await showPdfDepthDialog(
+    final input = await PdfEditorPresenter.of(context).measurementInput(
       context,
-      unitLabel: _controller.preferences.measurementScale?.unitLabel,
+      PdfMeasurementInputRequest(
+        kind: PdfMeasurementInputKind.depth,
+        unit: _controller.preferences.measurementScale?.unitLabel,
+      ),
     );
-    if (!mounted || depth == null) return;
+    if (!mounted || input == null) return;
+    final depth = input.value;
     _controller.addMeasurement(
         widget.pageIndex, PdfMeasurementKind.volume, pagePoints,
         depth: depth);
@@ -4848,33 +4857,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
-    final multi = field.isMultiSelect;
-    final selected = field.values.toSet();
-    final style =
-        Theme.of(context).textTheme.labelMedium?.copyWith(height: 1.1);
-    final picked = await showMenu<String>(
-      context: context,
-      position: pdfPopupPosition(context, globalPosition),
-      items: [
-        for (final (export, display) in options)
-          if (multi)
-            CheckedPopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              checked: selected.contains(export),
-              child: Text(display, style: style),
-            )
-          else
-            PopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              child: Text(display, style: style),
-            ),
-      ],
+    final values = await PdfEditorPresenter.of(context).formChoice(
+      context,
+      PdfFormChoiceRequest(
+        fieldName: name,
+        options: options,
+        anchor: globalPosition & Size.zero,
+        multiSelect: field.isMultiSelect,
+        selected: field.values.toSet(),
+      ),
     );
-    if (picked != null) _controller.pickFormChoiceOption(name, picked);
+    if (values != null) pdfApplyFormChoice(_controller, name, values);
   }
 
   /// Rasterizes this page once for the eyedropper, keyed on the revision id

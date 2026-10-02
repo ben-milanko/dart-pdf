@@ -11,6 +11,7 @@ import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'models/ink_signature.dart';
 import 'stroke_prediction.dart';
+import '../design/editor_presenter.dart';
 
 export 'models/ink_signature.dart'
     show
@@ -37,8 +38,8 @@ Future<void> showPdfSignatureLibrary(
   required void Function(PdfSavedSignature signature) onSelect,
   required void Function(PdfSavedSignature signature) onDelete,
 }) =>
-    showPdfDialog<void>(
-      context: context,
+    pdfPresentDialog<void>(
+      context,
       builder: (context) => PdfSignatureLibraryDialog(
         signatures: signatures,
         activeId: activeId,
@@ -292,8 +293,8 @@ Future<PdfInkSignature?> showPdfSignatureDialog(
   PdfSignatureColorPicker? pickColor,
   PdfTrackpadSignatureCapture? trackpad,
 }) =>
-    showPdfDialog<PdfInkSignature>(
-      context: context,
+    pdfPresentDialog<PdfInkSignature>(
+      context,
       builder: (context) => PdfSignatureDialog(
         predictStrokes: predictStrokes,
         initialColor: initialColor,
@@ -384,7 +385,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
   Future<void> _pickInk() async {
     final pick = widget.pickColor ??
         (BuildContext context, Color initial) =>
-            showPdfColorPicker(context, initial: initial);
+            pdfPresentColor(context, PdfColorRequest(initial: initial));
     final picked = await pick(context, _ink);
     if (picked == null || !mounted) return;
     setState(() => _ink = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF)));

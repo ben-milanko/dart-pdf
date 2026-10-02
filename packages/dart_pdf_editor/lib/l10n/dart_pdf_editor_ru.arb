@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Шаг сетки",
   "guidesGridSpacingValue": "{value} пт",
   "shellCursorGuidesAndGrid": "Направляющие курсора и сетка",
-  "commandSaveAs": "Сохранить как…"
+  "commandSaveAs": "Сохранить как…",
+  "dialogDismiss": "Закрыть"
 }

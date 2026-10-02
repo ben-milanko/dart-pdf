@@ -2337,4 +2337,7 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'حفظ باسم…';
+
+  @override
+  String get dialogDismiss => 'رفض';
 }

@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Khoảng cách lưới",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Đường dẫn con trỏ và lưới",
-  "commandSaveAs": "Lưu thành…"
+  "commandSaveAs": "Lưu thành…",
+  "dialogDismiss": "Bỏ qua"
 }

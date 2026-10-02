@@ -2299,4 +2299,7 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Simpan sebagai…';
+
+  @override
+  String get dialogDismiss => 'Tutup';
 }

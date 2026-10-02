@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Rasterabstand",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Cursorhilfslinien und Raster",
-  "commandSaveAs": "Speichern unter…"
+  "commandSaveAs": "Speichern unter…",
+  "dialogDismiss": "Schließen"
 }

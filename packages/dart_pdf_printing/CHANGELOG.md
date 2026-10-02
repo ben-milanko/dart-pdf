@@ -1,3 +1,9 @@
+## Unreleased
+
+- The print progress dialog opens through `showPdfDialog`, so it stays in
+  the window (no native-window promotion) and carries the host's themes and
+  `PdfEditorScope`, like the editor's own dialogs.
+
 ## 0.2.2
 
 - Align dependency constraints with the dart-pdf 5.1.1 package suite.

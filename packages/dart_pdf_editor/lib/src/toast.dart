@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 /// Margin that floats a [SnackBar] clear of the editor's bottom chrome -
 /// the floating editing toolbar dock (and any device safe-area inset

@@ -670,5 +670,6 @@
   "guidesGridSpacing": "ระยะห่างเส้นตาราง",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "เส้นนำเคอร์เซอร์และเส้นตาราง",
-  "commandSaveAs": "บันทึกเป็น…"
+  "commandSaveAs": "บันทึกเป็น…",
+  "dialogDismiss": "ปิด"
 }

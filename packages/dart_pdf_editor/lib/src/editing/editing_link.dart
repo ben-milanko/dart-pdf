@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
+import '../design/editor_presenter.dart';
 
 /// The two shapes a hyperlink target can take in the Add-link dialog.
 enum _LinkKind { web, page }
@@ -21,8 +22,8 @@ Future<PdfLinkTarget?> showPdfAddLinkDialog(
   required int currentPage,
   String initialUrl = '',
 }) {
-  return showPdfDialog<PdfLinkTarget>(
-    context: context,
+  return pdfPresentDialog<PdfLinkTarget>(
+    context,
     builder: (context) => _AddLinkDialog(
       pageCount: pageCount,
       currentPage: currentPage,

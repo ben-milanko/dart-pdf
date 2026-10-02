@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Grid spacing",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Cursor guides and grid",
-  "commandSaveAs": "Save as…"
+  "commandSaveAs": "Save as…",
+  "dialogDismiss": "Dismiss"
 }

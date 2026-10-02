@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Rasterafstand",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Cursorhulplijnen en raster",
-  "commandSaveAs": "Opslaan als…"
+  "commandSaveAs": "Opslaan als…",
+  "dialogDismiss": "Sluiten"
 }

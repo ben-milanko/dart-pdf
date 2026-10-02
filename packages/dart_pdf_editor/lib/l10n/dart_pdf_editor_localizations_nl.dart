@@ -2301,4 +2301,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Opslaan als…';
+
+  @override
+  String get dialogDismiss => 'Sluiten';
 }

@@ -3,8 +3,6 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'dialog.dart';
-import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
@@ -15,6 +13,7 @@ import 'keyboard_availability.dart';
 import 'pdf_viewer.dart';
 import 'scrollbar.dart';
 import 'search_field_style.dart';
+import 'design/editor_presenter.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
 /// PdfEditorView). Package-private: not exported from the library.
@@ -1054,53 +1053,52 @@ class PdfShellBar extends StatelessWidget {
         .where((control) => control.group == PdfShellControlGroup.actions)
         .toList();
     final children = compactSheetChildren;
-    return showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
-      ),
-      builder: (context) => _ShellControlsSheetScope(
-        close: () => Navigator.of(context).maybePop(),
-        child: SafeArea(
-          top: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(pdfL10n(context).shellControls,
-                          style: Theme.of(context).textTheme.titleMedium),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                if (children.isNotEmpty || viewControls.isNotEmpty) ...[
-                  _ShellSheetSectionLabel(pdfL10n(context).shellSectionView),
-                  const SizedBox(height: 10),
-                  for (final child in children) child,
-                  if (viewControls.isNotEmpty)
-                    _ShellControlGrid(controls: viewControls),
+    return PdfEditorPresenter.of(context).sheet<void>(
+      context,
+      PdfSheetRequest<void>(
+        scrollControlled: true,
+        maxHeightFactor: 0.9,
+        builder: (context) => _ShellControlsSheetScope(
+          close: () => Navigator.of(context).maybePop(),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(pdfL10n(context).shellControls,
+                            style: Theme.of(context).textTheme.titleMedium),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 14),
+                  if (children.isNotEmpty || viewControls.isNotEmpty) ...[
+                    _ShellSheetSectionLabel(pdfL10n(context).shellSectionView),
+                    const SizedBox(height: 10),
+                    for (final child in children) child,
+                    if (viewControls.isNotEmpty)
+                      _ShellControlGrid(controls: viewControls),
+                    const SizedBox(height: 14),
+                  ],
+                  if (panels.isNotEmpty) ...[
+                    _ShellSheetSectionLabel(pdfL10n(context).shellPanels),
+                    const SizedBox(height: 10),
+                    _ShellControlGrid(controls: panels),
+                  ],
+                  if (actions.isNotEmpty) ...[
+                    if (children.isNotEmpty ||
+                        viewControls.isNotEmpty ||
+                        panels.isNotEmpty)
+                      const Divider(height: 28),
+                    _ShellControlGrid(controls: actions),
+                  ],
                 ],
-                if (panels.isNotEmpty) ...[
-                  _ShellSheetSectionLabel(pdfL10n(context).shellPanels),
-                  const SizedBox(height: 10),
-                  _ShellControlGrid(controls: panels),
-                ],
-                if (actions.isNotEmpty) ...[
-                  if (children.isNotEmpty ||
-                      viewControls.isNotEmpty ||
-                      panels.isNotEmpty)
-                    const Divider(height: 28),
-                  _ShellControlGrid(controls: actions),
-                ],
-              ],
+              ),
             ),
           ),
         ),
@@ -1458,12 +1456,14 @@ Future<void> _selectViewOption(
       preferences.highlightFormFields = !preferences.highlightFormFields;
     case _ViewOption.pageColor:
       if (!pageColor) return;
-      final color = await showPdfColorPicker(
+      final color = await pdfPresentColor(
         context,
-        initial: preferences.pageColor,
-        initialFormat: preferences.colorPickerFormat,
-        onFormatChanged: (format) => preferences.colorPickerFormat = format,
-        recentColors: preferences.recentColors,
+        PdfColorRequest(
+          initial: preferences.pageColor,
+          format: preferences.colorPickerFormat,
+          onFormatChanged: (format) => preferences.colorPickerFormat = format,
+          recentColors: preferences.recentColors,
+        ),
       );
       if (color != null) {
         preferences.noteRecentColor(color);
@@ -1501,8 +1501,8 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
   var searchQuery = '';
 
   Future<PdfToolShortcut?> captureKey(BuildContext context) {
-    return showPdfDialog<PdfToolShortcut>(
-      context: context,
+    return pdfPresentDialog<PdfToolShortcut>(
+      context,
       builder: (context) {
         return AlertDialog(
           title: Text(pdfL10n(context).shellPressAKey),
@@ -1543,161 +1543,166 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
     );
   }
 
-  return showModalBottomSheet<Map<PdfEditTool, PdfToolShortcut>>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setSheetState) => SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.85,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(pdfL10n(context).shellKeyboardShortcutsTitle,
-                          style: Theme.of(context).textTheme.titleMedium),
-                    ),
-                    TextButton(
-                      key: const ValueKey('pdf-shell-shortcuts-reset'),
-                      onPressed: () => setSheetState(() => draft =
-                          Map<PdfEditTool, PdfToolShortcut>.of(
-                              pdfEditToolShortcuts)),
-                      child: Text(pdfL10n(context).reset),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      tooltip: pdfL10n(context).close,
-                      onPressed: () => Navigator.of(context).maybePop(),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: TextField(
-                  key: const ValueKey('pdf-shell-shortcuts-search'),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: pdfL10n(context).shellShortcutsSearchHint,
-                    border: const OutlineInputBorder(
-                        borderRadius: pdfSearchFieldBorderRadius),
-                  ),
-                  onChanged: (value) =>
-                      setSheetState(() => searchQuery = value),
-                ),
-              ),
-              Flexible(
-                child: Builder(builder: (context) {
-                  final l10n = pdfL10n(context);
-                  final query = searchQuery.trim().toLowerCase();
-                  bool matches(PdfEditTool tool) {
-                    if (query.isEmpty) return true;
-                    final label =
-                        pdfEditToolShortcutLabel(tool, shortcuts: draft) ?? '';
-                    return _toolName(tool).toLowerCase().contains(query) ||
-                        label.toLowerCase().contains(query);
-                  }
-
-                  final byGroup = <PdfEditToolGroup, List<PdfEditTool>>{};
-                  for (final tool in visibleTools.where(matches)) {
-                    byGroup
-                        .putIfAbsent(pdfEditToolGroupOf(tool), () => [])
-                        .add(tool);
-                  }
-
-                  if (byGroup.isEmpty) {
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-                      child: Text(
-                        l10n.shellShortcutsNoMatches(searchQuery.trim()),
-                        key: const ValueKey('pdf-shell-shortcuts-no-matches'),
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyMedium
-                            ?.copyWith(color: Theme.of(context).hintColor),
-                      ),
-                    );
-                  }
-
-                  Widget tile(PdfEditTool tool) => ListTile(
-                        key: ValueKey('pdf-shell-shortcut-${tool.name}'),
-                        leading: const Icon(Icons.keyboard_outlined),
-                        title: Text(_toolName(tool)),
-                        trailing: Text(
-                            pdfEditToolShortcutLabel(tool, shortcuts: draft) ??
-                                l10n.shellUnbound),
-                        onTap: () async {
-                          final shortcut = await captureKey(context);
-                          if (shortcut == null) return;
-                          setSheetState(() {
-                            // steal the combo from whatever tool held it
-                            draft.removeWhere((_, value) => value == shortcut);
-                            if (shortcut.trigger.keyId == 0) {
-                              draft.remove(tool);
-                            } else {
-                              draft[tool] = shortcut;
-                            }
-                          });
-                        },
-                      );
-
-                  return ListView(
-                    shrinkWrap: true,
+  return PdfEditorPresenter.of(context)
+      .sheet<Map<PdfEditTool, PdfToolShortcut>>(
+    context,
+    PdfSheetRequest<Map<PdfEditTool, PdfToolShortcut>>(
+      scrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                  child: Row(
                     children: [
-                      for (final group in PdfEditToolGroup.values)
-                        if (byGroup[group] case final groupTools?) ...[
-                          Padding(
-                            key: ValueKey(
-                                'pdf-shell-shortcut-group-${group.name}'),
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                            child: Text(
-                              _shortcutGroupLabel(context, group),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelMedium
-                                  ?.copyWith(
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                          for (final tool in groupTools) tile(tool),
-                        ],
+                      Expanded(
+                        child: Text(
+                            pdfL10n(context).shellKeyboardShortcutsTitle,
+                            style: Theme.of(context).textTheme.titleMedium),
+                      ),
+                      TextButton(
+                        key: const ValueKey('pdf-shell-shortcuts-reset'),
+                        onPressed: () => setSheetState(() => draft =
+                            Map<PdfEditTool, PdfToolShortcut>.of(
+                                pdfEditToolShortcuts)),
+                        child: Text(pdfL10n(context).reset),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: pdfL10n(context).close,
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
                     ],
-                  );
-                }),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      child: Text(pdfL10n(context).cancel),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      key: const ValueKey('pdf-shell-shortcuts-done'),
-                      onPressed: () => Navigator.of(context).pop(draft),
-                      child: Text(pdfL10n(context).done),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: TextField(
+                    key: const ValueKey('pdf-shell-shortcuts-search'),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: pdfL10n(context).shellShortcutsSearchHint,
+                      border: const OutlineInputBorder(
+                          borderRadius: pdfSearchFieldBorderRadius),
+                    ),
+                    onChanged: (value) =>
+                        setSheetState(() => searchQuery = value),
+                  ),
+                ),
+                Flexible(
+                  child: Builder(builder: (context) {
+                    final l10n = pdfL10n(context);
+                    final query = searchQuery.trim().toLowerCase();
+                    bool matches(PdfEditTool tool) {
+                      if (query.isEmpty) return true;
+                      final label =
+                          pdfEditToolShortcutLabel(tool, shortcuts: draft) ??
+                              '';
+                      return _toolName(tool).toLowerCase().contains(query) ||
+                          label.toLowerCase().contains(query);
+                    }
+
+                    final byGroup = <PdfEditToolGroup, List<PdfEditTool>>{};
+                    for (final tool in visibleTools.where(matches)) {
+                      byGroup
+                          .putIfAbsent(pdfEditToolGroupOf(tool), () => [])
+                          .add(tool);
+                    }
+
+                    if (byGroup.isEmpty) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                        child: Text(
+                          l10n.shellShortcutsNoMatches(searchQuery.trim()),
+                          key: const ValueKey('pdf-shell-shortcuts-no-matches'),
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(color: Theme.of(context).hintColor),
+                        ),
+                      );
+                    }
+
+                    Widget tile(PdfEditTool tool) => ListTile(
+                          key: ValueKey('pdf-shell-shortcut-${tool.name}'),
+                          leading: const Icon(Icons.keyboard_outlined),
+                          title: Text(_toolName(tool)),
+                          trailing: Text(pdfEditToolShortcutLabel(tool,
+                                  shortcuts: draft) ??
+                              l10n.shellUnbound),
+                          onTap: () async {
+                            final shortcut = await captureKey(context);
+                            if (shortcut == null) return;
+                            setSheetState(() {
+                              // steal the combo from whatever tool held it
+                              draft
+                                  .removeWhere((_, value) => value == shortcut);
+                              if (shortcut.trigger.keyId == 0) {
+                                draft.remove(tool);
+                              } else {
+                                draft[tool] = shortcut;
+                              }
+                            });
+                          },
+                        );
+
+                    return ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final group in PdfEditToolGroup.values)
+                          if (byGroup[group] case final groupTools?) ...[
+                            Padding(
+                              key: ValueKey(
+                                  'pdf-shell-shortcut-group-${group.name}'),
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                              child: Text(
+                                _shortcutGroupLabel(context, group),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                            for (final tool in groupTools) tile(tool),
+                          ],
+                      ],
+                    );
+                  }),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        child: Text(pdfL10n(context).cancel),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        key: const ValueKey('pdf-shell-shortcuts-done'),
+                        onPressed: () => Navigator.of(context).pop(draft),
+                        child: Text(pdfL10n(context).done),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1755,159 +1760,160 @@ Future<void> showPdfShellViewOptionsSheet(
     return '#${value.toRadixString(16).padLeft(6, '0').toUpperCase()}';
   }
 
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setSheetState) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(pdfL10n(context).shellSettings,
-                        style: Theme.of(context).textTheme.titleMedium),
+  return PdfEditorPresenter.of(context).sheet<void>(
+    context,
+    PdfSheetRequest<void>(
+      scrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(pdfL10n(context).shellSettings,
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: pdfL10n(context).close,
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ],
+                ),
+                SwitchListTile(
+                  key: const ValueKey('pdf-shell-show-annotations'),
+                  secondary: const Icon(Icons.comment_outlined),
+                  title: Text(pdfL10n(context).shellShowAnnotations),
+                  value: preferences.showAnnotations,
+                  onChanged: (_) async {
+                    await _selectViewOption(
+                      context,
+                      _ViewOption.annotations,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                      toolShortcuts: toolShortcuts,
+                      onToolShortcutsChanged: onToolShortcutsChanged,
+                      tools: tools,
+                    );
+                    setSheetState(() {});
+                  },
+                ),
+                SwitchListTile(
+                  key: const ValueKey('pdf-shell-show-scrollbar-chapters'),
+                  secondary: const Icon(Icons.bookmarks_outlined),
+                  title: Text(pdfL10n(context).shellShowScrollbarChapters),
+                  value: preferences.showScrollbarChapters,
+                  onChanged: (_) async {
+                    await _selectViewOption(
+                      context,
+                      _ViewOption.scrollbarChapters,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                    );
+                    setSheetState(() {});
+                  },
+                ),
+                SwitchListTile(
+                  key: const ValueKey('pdf-shell-highlight-forms'),
+                  secondary: const Icon(Icons.dynamic_form_outlined),
+                  title: Text(pdfL10n(context).shellHighlightFormFields),
+                  value: preferences.highlightFormFields,
+                  onChanged: (_) async {
+                    await _selectViewOption(
+                      context,
+                      _ViewOption.formHighlight,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                      toolShortcuts: toolShortcuts,
+                      onToolShortcutsChanged: onToolShortcutsChanged,
+                      tools: tools,
+                    );
+                    setSheetState(() {});
+                  },
+                ),
+                if (pageColor)
+                  ListTile(
+                    key: const ValueKey('pdf-shell-page-color'),
+                    leading: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: preferences.pageColor,
+                        border: Border.all(
+                            color: Theme.of(context).colorScheme.outline),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    title: Text(pdfL10n(context).shellPageColor),
+                    trailing: Text(hex(preferences.pageColor)),
+                    onTap: () async {
+                      await _selectViewOption(
+                        context,
+                        _ViewOption.pageColor,
+                        preferences: preferences,
+                        pageColor: pageColor,
+                        onAuthorPressed: onAuthorPressed,
+                      );
+                      setSheetState(() {});
+                    },
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: pdfL10n(context).close,
-                    onPressed: () => Navigator.of(context).maybePop(),
+                if (editingGuides)
+                  ListTile(
+                    key: const ValueKey('pdf-shell-editing-guides'),
+                    leading: const Icon(Icons.grid_4x4),
+                    title: Text(pdfL10n(context).shellCursorGuidesAndGrid),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await _selectViewOption(
+                        context,
+                        _ViewOption.editingGuides,
+                        preferences: preferences,
+                        pageColor: pageColor,
+                        onAuthorPressed: onAuthorPressed,
+                      );
+                      setSheetState(() {});
+                    },
                   ),
-                ],
-              ),
-              SwitchListTile(
-                key: const ValueKey('pdf-shell-show-annotations'),
-                secondary: const Icon(Icons.comment_outlined),
-                title: Text(pdfL10n(context).shellShowAnnotations),
-                value: preferences.showAnnotations,
-                onChanged: (_) async {
-                  await _selectViewOption(
-                    context,
-                    _ViewOption.annotations,
-                    preferences: preferences,
-                    pageColor: pageColor,
-                    onAuthorPressed: onAuthorPressed,
-                    toolShortcuts: toolShortcuts,
-                    onToolShortcutsChanged: onToolShortcutsChanged,
-                    tools: tools,
-                  );
-                  setSheetState(() {});
-                },
-              ),
-              SwitchListTile(
-                key: const ValueKey('pdf-shell-show-scrollbar-chapters'),
-                secondary: const Icon(Icons.bookmarks_outlined),
-                title: Text(pdfL10n(context).shellShowScrollbarChapters),
-                value: preferences.showScrollbarChapters,
-                onChanged: (_) async {
-                  await _selectViewOption(
-                    context,
-                    _ViewOption.scrollbarChapters,
-                    preferences: preferences,
-                    pageColor: pageColor,
-                    onAuthorPressed: onAuthorPressed,
-                  );
-                  setSheetState(() {});
-                },
-              ),
-              SwitchListTile(
-                key: const ValueKey('pdf-shell-highlight-forms'),
-                secondary: const Icon(Icons.dynamic_form_outlined),
-                title: Text(pdfL10n(context).shellHighlightFormFields),
-                value: preferences.highlightFormFields,
-                onChanged: (_) async {
-                  await _selectViewOption(
-                    context,
-                    _ViewOption.formHighlight,
-                    preferences: preferences,
-                    pageColor: pageColor,
-                    onAuthorPressed: onAuthorPressed,
-                    toolShortcuts: toolShortcuts,
-                    onToolShortcutsChanged: onToolShortcutsChanged,
-                    tools: tools,
-                  );
-                  setSheetState(() {});
-                },
-              ),
-              if (pageColor)
-                ListTile(
-                  key: const ValueKey('pdf-shell-page-color'),
-                  leading: Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: preferences.pageColor,
-                      border: Border.all(
-                          color: Theme.of(context).colorScheme.outline),
-                      borderRadius: BorderRadius.circular(6),
+                if (author)
+                  ListTile(
+                    key: const ValueKey('pdf-shell-author'),
+                    leading: const Icon(Icons.person_outline),
+                    title: Text(pdfL10n(context).shellDefaultAuthor),
+                    subtitle: Text(
+                      authorName == null || authorName.trim().isEmpty
+                          ? pdfL10n(context).shellNotSet
+                          : authorName,
+                    ),
+                    onTap: onAuthorPressed,
+                  ),
+                if (PdfKeyboardAvailability.of(context) &&
+                    toolShortcuts != null &&
+                    onToolShortcutsChanged != null)
+                  ListTile(
+                    key: const ValueKey('pdf-shell-shortcuts'),
+                    leading: const Icon(Icons.keyboard_outlined),
+                    title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
+                    onTap: () => _selectViewOption(
+                      context,
+                      _ViewOption.shortcuts,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                      toolShortcuts: toolShortcuts,
+                      onToolShortcutsChanged: onToolShortcutsChanged,
+                      tools: tools,
                     ),
                   ),
-                  title: Text(pdfL10n(context).shellPageColor),
-                  trailing: Text(hex(preferences.pageColor)),
-                  onTap: () async {
-                    await _selectViewOption(
-                      context,
-                      _ViewOption.pageColor,
-                      preferences: preferences,
-                      pageColor: pageColor,
-                      onAuthorPressed: onAuthorPressed,
-                    );
-                    setSheetState(() {});
-                  },
-                ),
-              if (editingGuides)
-                ListTile(
-                  key: const ValueKey('pdf-shell-editing-guides'),
-                  leading: const Icon(Icons.grid_4x4),
-                  title: Text(pdfL10n(context).shellCursorGuidesAndGrid),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    await _selectViewOption(
-                      context,
-                      _ViewOption.editingGuides,
-                      preferences: preferences,
-                      pageColor: pageColor,
-                      onAuthorPressed: onAuthorPressed,
-                    );
-                    setSheetState(() {});
-                  },
-                ),
-              if (author)
-                ListTile(
-                  key: const ValueKey('pdf-shell-author'),
-                  leading: const Icon(Icons.person_outline),
-                  title: Text(pdfL10n(context).shellDefaultAuthor),
-                  subtitle: Text(
-                    authorName == null || authorName.trim().isEmpty
-                        ? pdfL10n(context).shellNotSet
-                        : authorName,
-                  ),
-                  onTap: onAuthorPressed,
-                ),
-              if (PdfKeyboardAvailability.of(context) &&
-                  toolShortcuts != null &&
-                  onToolShortcutsChanged != null)
-                ListTile(
-                  key: const ValueKey('pdf-shell-shortcuts'),
-                  leading: const Icon(Icons.keyboard_outlined),
-                  title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
-                  onTap: () => _selectViewOption(
-                    context,
-                    _ViewOption.shortcuts,
-                    preferences: preferences,
-                    pageColor: pageColor,
-                    onAuthorPressed: onAuthorPressed,
-                    toolShortcuts: toolShortcuts,
-                    onToolShortcutsChanged: onToolShortcutsChanged,
-                    tools: tools,
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

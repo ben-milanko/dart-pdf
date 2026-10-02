@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Крок сітки",
   "guidesGridSpacingValue": "{value} пт",
   "shellCursorGuidesAndGrid": "Напрямні курсора та сітка",
-  "commandSaveAs": "Зберегти як…"
+  "commandSaveAs": "Зберегти як…",
+  "dialogDismiss": "Закрити"
 }

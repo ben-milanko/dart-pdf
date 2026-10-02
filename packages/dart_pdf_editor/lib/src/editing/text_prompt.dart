@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
+import '../design/editor_presenter.dart';
 
 export 'models/prompts.dart';
 
@@ -13,8 +14,8 @@ Future<String?> showPdfTextPrompt(
   bool multiline = false,
 }) {
   final field = TextEditingController(text: initial);
-  return showPdfDialog<String>(
-    context: context,
+  return pdfPresentDialog<String>(
+    context,
     builder: (context) => AlertDialog(
       title: Text(title),
       content: TextField(

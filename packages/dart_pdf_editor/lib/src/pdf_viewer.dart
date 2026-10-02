@@ -21,7 +21,6 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
-import 'editing/editing_link.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/editing_reach.dart';
@@ -38,7 +37,6 @@ import 'page_object_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
 import 'platform_cursors.dart';
-import 'popup_position.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -53,7 +51,7 @@ import 'scrollbar.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'tile_store.dart';
-import 'toast.dart';
+import 'design/editor_presenter.dart';
 import 'text_selection_geometry.dart';
 import 'viewport.dart';
 
@@ -1332,6 +1330,7 @@ class PdfViewer extends StatefulWidget {
     this.formController,
     this.editingTextPrompt,
     this.editingStyledTextPrompt,
+    this.presenter,
     this.editingPalette = defaultStyledTextPalette,
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
@@ -1583,12 +1582,21 @@ class PdfViewer extends StatefulWidget {
   final PdfEditingController? formController;
 
   /// How the editing tools ask for annotation text (free text, notes,
-  /// stamps). Defaults to [showPdfTextPrompt], a Material dialog.
+  /// stamps). Defaults to [PdfEditorPresenter.text] ([showPdfTextPrompt],
+  /// a Material dialog, unless a presenter overrides it). When set, it also
+  /// answers [presenter]'s text prompts below this viewer.
   final PdfTextPrompt? editingTextPrompt;
 
   /// How the text-selection menu asks for replacement text and rich style.
-  /// Defaults to [showPdfStyledTextPrompt].
+  /// Defaults to [PdfEditorPresenter.styledText]
+  /// ([showPdfStyledTextPrompt]). When set, it takes precedence over the
+  /// presenter's.
   final PdfStyledTextPrompt? editingStyledTextPrompt;
+
+  /// How the viewer and its editing UI present dialogs, menus, sheets,
+  /// notices and prompts. Installs a [PdfEditorScope] over the viewer; null
+  /// uses the nearest scope above it (or the stock presenter).
+  final PdfEditorPresenter? presenter;
 
   /// Quick-pick colors shown by [editingStyledTextPrompt].
   final List<Color> editingPalette;
@@ -2516,7 +2524,7 @@ class _PdfViewerState extends State<PdfViewer>
           !identical(controller, _revisionController)) {
         return;
       }
-      showPdfXfaNoticeIfNeeded(context, controller);
+      showPdfXfaNoticeIfNeeded(_ui, controller);
     });
   }
 
@@ -6715,7 +6723,7 @@ class _PdfViewerState extends State<PdfViewer>
             return;
           }
           await showPdfAnnotationMenu(
-            context: context,
+            context: _ui,
             position: details.globalPosition,
             controller: editing,
             pageIndex: page,
@@ -6740,7 +6748,7 @@ class _PdfViewerState extends State<PdfViewer>
             return;
           }
           await showPdfAnnotationMenu(
-            context: context,
+            context: _ui,
             position: details.globalPosition,
             controller: editing,
             pageIndex: page,
@@ -6834,59 +6842,75 @@ class _PdfViewerState extends State<PdfViewer>
         editing != null && widget.textSelectionEditing && hasSelection;
     final canMarkup =
         editing != null && widget.textSelectionMarkup && hasSelection;
-    final picked = await showMenu<Object>(
-      context: context,
-      position: pdfPopupPosition(context, globalPosition),
-      items: [
+    final ui = _ui;
+    final picked = await PdfEditorPresenter.of(ui).menu<Object>(
+      ui,
+      PdfMenuRequest<Object>.at(globalPosition, entries: [
         if (canEdit)
-          PopupMenuItem<Object>(
+          PdfMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-edit'),
             value: _TextMenuAction.edit,
+            label: pdfL10n(context).viewerEditTextStyle,
+            icon: Icons.edit,
             child: _textMenuRow(
                 Icons.edit, pdfL10n(context).viewerEditTextStyle, true),
           ),
         if (canMarkup) ...[
-          PopupMenuItem<Object>(
+          PdfMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-highlight'),
             value: _TextMenuAction.highlight,
+            label: pdfL10n(context).viewerMarkupHighlight,
+            icon: Icons.border_color,
             child: _textMenuRow(Icons.border_color,
                 pdfL10n(context).viewerMarkupHighlight, true),
           ),
-          PopupMenuItem<Object>(
+          PdfMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-underline'),
             value: _TextMenuAction.underline,
+            label: pdfL10n(context).viewerMarkupUnderline,
+            icon: Icons.format_underlined,
             child: _textMenuRow(Icons.format_underlined,
                 pdfL10n(context).viewerMarkupUnderline, true),
           ),
-          PopupMenuItem<Object>(
+          PdfMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-strikeout'),
             value: _TextMenuAction.strikeOut,
+            label: pdfL10n(context).viewerMarkupStrikeOut,
+            icon: Icons.format_strikethrough,
             child: _textMenuRow(Icons.format_strikethrough,
                 pdfL10n(context).viewerMarkupStrikeOut, true),
           ),
-          PopupMenuItem<Object>(
+          PdfMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-squiggly'),
             value: _TextMenuAction.squiggly,
+            label: pdfL10n(context).viewerMarkupSquiggly,
+            icon: Icons.gesture,
             child: _textMenuRow(
                 Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
           ),
-          PopupMenuItem<Object>(
+          PdfMenuItem<Object>(
             key: const ValueKey('pdf-text-menu-link'),
             value: _TextMenuAction.addLink,
+            label: pdfL10n(context).linkDialogTitle,
+            icon: Icons.link,
             child: _textMenuRow(
                 Icons.link, pdfL10n(context).linkDialogTitle, true),
           ),
         ],
-        if (canEdit || canMarkup) const PopupMenuDivider(),
-        PopupMenuItem<Object>(
+        if (canEdit || canMarkup) const PdfMenuDivider(),
+        PdfMenuItem<Object>(
           key: const ValueKey('pdf-text-menu-copy'),
           value: _TextMenuAction.copy,
+          label: pdfL10n(context).copy,
+          icon: Icons.copy,
           enabled: hasSelection,
           child: _textMenuRow(Icons.copy, pdfL10n(context).copy, hasSelection),
         ),
-        PopupMenuItem<Object>(
+        PdfMenuItem<Object>(
           key: const ValueKey('pdf-text-menu-select-all'),
           value: _TextMenuAction.selectAll,
+          label: pdfL10n(context).viewerSelectAll,
+          icon: Icons.select_all,
           enabled: hasText,
           child: _textMenuRow(
               Icons.select_all, pdfL10n(context).viewerSelectAll, hasText),
@@ -6894,16 +6918,18 @@ class _PdfViewerState extends State<PdfViewer>
         // the host's entries ride in their own group below a divider,
         // exactly like the annotation menu's
         if (custom.isNotEmpty) ...[
-          const PopupMenuDivider(),
+          const PdfMenuDivider(),
           for (final item in custom)
-            PopupMenuItem<Object>(
+            PdfMenuItem<Object>(
               key: item.key,
               value: item,
+              label: item.label,
+              icon: item.icon,
               enabled: item.enabled,
               child: _textMenuRow(item.icon, item.label, item.enabled),
             ),
         ],
-      ],
+      ]),
     );
     if (picked is PdfTextMenuItem) {
       // request is non-null whenever a custom entry exists
@@ -6952,8 +6978,8 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     final result =
-        await (widget.editingStyledTextPrompt ?? showPdfStyledTextPrompt)(
-      context,
+        await (widget.editingStyledTextPrompt ?? pdfPresentStyledTextPrompt)(
+      _ui,
       initial: selected,
       palette: widget.editingPalette,
       pickFont: (context) => _pickSelectionFont(context, editing),
@@ -7026,10 +7052,13 @@ class _PdfViewerState extends State<PdfViewer>
     final firstPage = _controller.selectionPages.isEmpty
         ? 0
         : _controller.selectionPages.first;
-    final target = await showPdfAddLinkDialog(
-      context,
-      pageCount: editing.document.pageCount,
-      currentPage: firstPage,
+    final ui = _ui;
+    final target = await PdfEditorPresenter.of(ui).link(
+      ui,
+      PdfLinkRequest(
+        pageCount: editing.document.pageCount,
+        currentPage: firstPage,
+      ),
     );
     if (target == null) return;
     editing.addLinkToSelection(quadsByPage, target);
@@ -7037,13 +7066,9 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _textSelectionToast(String message) {
-    ScaffoldMessenger.maybeOf(context)
-      ?..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        margin: pdfFloatingToastMargin(context),
-      ));
+    final ui = _ui;
+    PdfEditorPresenter.of(ui)
+        .notice(ui, PdfEditorNotice(message, kind: PdfNoticeKind.error));
   }
 
   /// Bridge from the page overlay's interaction host to the viewer's
@@ -7104,7 +7129,7 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing == null) return;
     await showPdfAnnotationMenu(
-      context: context,
+      context: _ui,
       position: globalPosition,
       controller: editing,
       pageIndex: pageIndex,
@@ -7123,12 +7148,12 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing == null) return;
     await showPdfFormFieldMenu(
-      context: context,
+      context: _ui,
       position: globalPosition,
       controller: editing,
       fieldName: fieldName,
       widgetIndex: widgetIndex,
-      textPrompt: widget.editingTextPrompt ?? showPdfTextPrompt,
+      textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       fontPicker: widget.fontPicker,
       formImagePicker: widget.formImagePicker,
     );
@@ -8871,8 +8896,29 @@ class _PdfViewerState extends State<PdfViewer>
       : Positioned(
           left: 0, right: PdfScrollbar.hitExtent, bottom: 0, child: bar);
 
+  /// A context below the [PdfEditorScope] this viewer installs - what its
+  /// own menus, prompts and notices open from, so they (and the prompts
+  /// their dialogs open) ask [PdfViewer.presenter].
+  BuildContext? _scopedContext;
+
+  BuildContext get _ui {
+    final scoped = _scopedContext;
+    return scoped != null && scoped.mounted ? scoped : context;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => pdfInstallPresenter(
+        context,
+        presenter: widget.presenter,
+        textPrompt: widget.editingTextPrompt,
+        styledTextPrompt: widget.editingStyledTextPrompt,
+        child: Builder(builder: (scoped) {
+          _scopedContext = scoped;
+          return _buildViewer(context);
+        }),
+      );
+
+  Widget _buildViewer(BuildContext context) {
     final editing = widget.editing;
     final canvasColor = widget.backgroundColor ??
         PdfViewerTheme.of(context).canvasColor ??
@@ -9072,7 +9118,7 @@ class _PdfViewerState extends State<PdfViewer>
                     editing: editing,
                     formController: editing ?? widget.formController,
                     editingTextPrompt:
-                        widget.editingTextPrompt ?? showPdfTextPrompt,
+                        widget.editingTextPrompt ?? pdfPresentTextPrompt,
                     formImagePicker: widget.formImagePicker,
                     imagePicker: widget.imagePicker,
                     onSnapshot: widget.onSnapshot,

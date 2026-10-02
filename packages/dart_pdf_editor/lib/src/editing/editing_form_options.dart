@@ -4,6 +4,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
+import '../design/editor_presenter.dart';
 
 /// What the choice-field options editor hands back: the (export value,
 /// display text) pairs in order, plus the one flag that applies to the
@@ -37,8 +38,8 @@ Future<bool> showPdfFormOptionsDialog({
     return false;
   }
   final combo = field.type == PdfFieldType.comboBox;
-  final edit = await showPdfDialog<PdfFormOptionsEdit>(
-    context: context,
+  final edit = await pdfPresentDialog<PdfFormOptionsEdit>(
+    context,
     builder: (context) => PdfFormOptionsEditor(
       options: field.options,
       combo: combo,

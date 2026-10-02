@@ -2269,4 +2269,7 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => '名前を付けて保存…';
+
+  @override
+  String get dialogDismiss => '閉じる';
 }

@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Espacement de la grille",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Repères du curseur et grille",
-  "commandSaveAs": "Enregistrer sous…"
+  "commandSaveAs": "Enregistrer sous…",
+  "dialogDismiss": "Ignorer"
 }

@@ -10,7 +10,7 @@ import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
 import 'search_field_style.dart';
 import 'theme.dart';
-import 'toast.dart';
+import 'design/editor_presenter.dart';
 
 /// A compact document-search field: a slim text box with the match
 /// count, previous/next, and clear riding alongside - small enough for
@@ -576,20 +576,11 @@ class _ReplaceBarState extends State<_ReplaceBar> {
   TextEditingController get _field => widget.field;
 
   void _toast(String message) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        margin: pdfFloatingToastMargin(context),
-        duration: const Duration(seconds: 4),
-        action: widget.editing.canUndo
-            ? SnackBarAction(
-                label: pdfL10n(context).undo, onPressed: widget.editing.undo)
-            : null,
-      ));
+    PdfEditorPresenter.of(context).notice(
+      context,
+      PdfEditorNotice(message,
+          onUndo: widget.editing.canUndo ? widget.editing.undo : null),
+    );
   }
 
   /// Re-runs the live query against the rewritten document: the hits the

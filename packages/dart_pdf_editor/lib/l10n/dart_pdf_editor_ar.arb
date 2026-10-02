@@ -670,5 +670,6 @@
   "guidesGridSpacing": "تباعد الشبكة",
   "guidesGridSpacingValue": "{value} نقطة",
   "shellCursorGuidesAndGrid": "أدلة المؤشر والشبكة",
-  "commandSaveAs": "حفظ باسم…"
+  "commandSaveAs": "حفظ باسم…",
+  "dialogDismiss": "رفض"
 }

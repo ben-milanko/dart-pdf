@@ -489,7 +489,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   Future<void> _confirmRemoveSignature(
       BuildContext context, PdfSignature signature) async {
-    if (!await showPdfRemoveSignatureDialog(context, signature) || !mounted) {
+    if (!await pdfConfirmRemoveSignature(context, signature) || !mounted) {
       return;
     }
     widget.controller.removeSignature(signature);

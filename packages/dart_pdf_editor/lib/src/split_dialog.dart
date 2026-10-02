@@ -3,6 +3,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'dialog.dart';
 import 'l10n/pdf_l10n.dart';
+import 'design/editor_presenter.dart';
 
 /// Asks for comma-separated page ranges, one output PDF per item.
 ///
@@ -17,8 +18,8 @@ Future<List<PdfPageRange>?> showPdfSplitDialog(
   if (pageCount < 1) {
     throw RangeError.range(pageCount, 1, null, 'pageCount');
   }
-  return showPdfDialog<List<PdfPageRange>>(
-    context: context,
+  return pdfPresentDialog<List<PdfPageRange>>(
+    context,
     builder: (_) => _SplitDialog(pageCount: pageCount),
   );
 }

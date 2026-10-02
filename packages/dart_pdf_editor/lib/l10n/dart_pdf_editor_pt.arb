@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Espaçamento da grade",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Guias do cursor e grade",
-  "commandSaveAs": "Salvar como…"
+  "commandSaveAs": "Salvar como…",
+  "dialogDismiss": "Dispensar"
 }

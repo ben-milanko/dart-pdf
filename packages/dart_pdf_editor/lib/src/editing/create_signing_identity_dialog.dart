@@ -4,6 +4,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'signing_identity_store.dart';
+import '../design/editor_presenter.dart';
 
 /// Shows the "Create signing identity" dialog: the user enters a name (and
 /// optionally an email and organization), and a self-signed P-256
@@ -17,8 +18,8 @@ Future<PdfSigningIdentity?> showCreateSigningIdentityDialog(
   PdfIdentityStore? store,
   String? storeId,
 }) =>
-    showPdfDialog<PdfSigningIdentity>(
-      context: context,
+    pdfPresentDialog<PdfSigningIdentity>(
+      context,
       builder: (context) => Dialog(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 460),

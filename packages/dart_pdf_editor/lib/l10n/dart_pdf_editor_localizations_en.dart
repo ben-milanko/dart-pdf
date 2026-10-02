@@ -2289,6 +2289,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Save as…';
+
+  @override
+  String get dialogDismiss => 'Dismiss';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4576,6 +4579,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get commandSaveAs => 'Save as…';
+
+  @override
+  String get dialogDismiss => 'Dismiss';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -6863,4 +6869,7 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get commandSaveAs => 'Save as…';
+
+  @override
+  String get dialogDismiss => 'Dismiss';
 }

@@ -670,5 +670,6 @@
   "guidesGridSpacing": "网格间距",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "光标参考线和网格",
-  "commandSaveAs": "另存为…"
+  "commandSaveAs": "另存为…",
+  "dialogDismiss": "关闭"
 }

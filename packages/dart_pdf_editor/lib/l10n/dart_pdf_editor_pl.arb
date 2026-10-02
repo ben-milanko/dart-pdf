@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Odstęp siatki",
   "guidesGridSpacingValue": "{value} pkt",
   "shellCursorGuidesAndGrid": "Prowadnice kursora i siatka",
-  "commandSaveAs": "Zapisz jako…"
+  "commandSaveAs": "Zapisz jako…",
+  "dialogDismiss": "Zamknij"
 }

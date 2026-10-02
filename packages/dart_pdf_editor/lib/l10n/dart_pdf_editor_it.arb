@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Spaziatura della griglia",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Guide del cursore e griglia",
-  "commandSaveAs": "Salva con nome…"
+  "commandSaveAs": "Salva con nome…",
+  "dialogDismiss": "Ignora"
 }

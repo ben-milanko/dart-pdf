@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'dialog.dart';
 import 'l10n/pdf_l10n.dart';
+import 'design/editor_presenter.dart';
 
 /// Asks the user for an inclusive page range, returning it 0-based as
 /// `(start, end)` - or null when cancelled. [pageCount] bounds the input
@@ -21,8 +22,8 @@ Future<({int start, int end})?> showPdfPageRangeDialog(
   String? title,
   String? confirmLabel,
 }) {
-  return showPdfDialog<({int start, int end})>(
-    context: context,
+  return pdfPresentDialog<({int start, int end})>(
+    context,
     builder: (context) => _PdfPageRangeDialog(
       pageCount: pageCount,
       initialStart: (initialStart ?? 0).clamp(0, pageCount - 1),

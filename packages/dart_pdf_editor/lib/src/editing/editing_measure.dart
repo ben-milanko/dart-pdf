@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'models/measurement_scale.dart';
+import '../design/editor_presenter.dart';
 
 export 'models/measurement_scale.dart'
     show PdfMeasurementScale, pdfDefaultMeasurementUnit, pdfDefaultPageUnit;
@@ -26,8 +27,8 @@ Future<PdfMeasurementScale?> showPdfScaleDialog(
   PdfMeasurementScale? initial,
   VoidCallback? onCalibrate,
 }) =>
-    showPdfDialog<PdfMeasurementScale>(
-      context: context,
+    pdfPresentDialog<PdfMeasurementScale>(
+      context,
       builder: (context) =>
           PdfScaleDialog(initial: initial, onCalibrate: onCalibrate),
     );
@@ -182,8 +183,8 @@ Future<(double, String)?> showPdfCalibrationLengthDialog(
   BuildContext context, {
   String? initialUnit,
 }) =>
-    showPdfDialog<(double, String)>(
-      context: context,
+    pdfPresentDialog<(double, String)>(
+      context,
       builder: (context) =>
           _PdfCalibrationLengthDialog(initialUnit: initialUnit),
     );
@@ -196,8 +197,8 @@ Future<double?> showPdfDepthDialog(
   BuildContext context, {
   String? unitLabel,
 }) =>
-    showPdfDialog<double>(
-      context: context,
+    pdfPresentDialog<double>(
+      context,
       builder: (context) => _PdfDepthDialog(unitLabel: unitLabel),
     );
 

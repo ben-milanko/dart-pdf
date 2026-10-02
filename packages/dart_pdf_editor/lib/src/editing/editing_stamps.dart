@@ -9,11 +9,10 @@ import 'package:pdf_document/pdf_document.dart';
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
-import 'editing_color_picker.dart';
 import 'editing_controller.dart';
-import 'editing_signature.dart';
 import 'models/custom_stamp.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 export 'models/custom_stamp.dart'
     show
@@ -31,8 +30,8 @@ Future<void> showPdfStampPicker(BuildContext context,
         PdfImagePicker? imagePicker,
         PdfStampExportCallback? onExportStamps,
         PdfStampImportCallback? onImportStamps}) =>
-    showPdfDialog<void>(
-      context: context,
+    pdfPresentDialog<void>(
+      context,
       builder: (context) => PdfStampPickerDialog(
         controller: controller,
         imagePicker: imagePicker,
@@ -268,8 +267,8 @@ Future<PdfCustomStamp?> showPdfStampEditor(BuildContext context,
             PdfEditingController.stampTemplateBuiltinFields,
         PdfImagePicker? imagePicker,
         PdfCustomStamp? initial}) =>
-    showPdfDialog<PdfCustomStamp>(
-      context: context,
+    pdfPresentDialog<PdfCustomStamp>(
+      context,
       builder: (context) => PdfStampEditorDialog(
         fields: fields,
         imagePicker: imagePicker,
@@ -516,9 +515,9 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
   }
 
   Future<void> _pickCustomColor() async {
-    final picked = await showPdfColorPicker(
+    final picked = await pdfPresentColor(
       context,
-      initial: Color(0xFF000000 | _color),
+      PdfColorRequest(initial: Color(0xFF000000 | _color)),
     );
     if (!mounted || picked == null) return;
     _setSelectedColor(picked.toARGB32() & 0xFFFFFF);
@@ -607,7 +606,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
   }
 
   Future<void> _addSignature() async {
-    final signature = await showPdfSignatureDialog(context);
+    final signature = await PdfEditorPresenter.of(context)
+        .signature(context, const PdfSignatureRequest());
     if (signature == null || !mounted) return;
     final aspect = signature.aspect > 0 ? signature.aspect : 2.0;
     var width = math.min(132.0, _templateWidth * 0.62);

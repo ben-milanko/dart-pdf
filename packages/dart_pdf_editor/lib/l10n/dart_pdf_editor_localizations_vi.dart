@@ -2290,4 +2290,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Lưu thành…';
+
+  @override
+  String get dialogDismiss => 'Bỏ qua';
 }

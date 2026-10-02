@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsProperties;
 import 'package:flutter/services.dart';
 
+import 'design/editor_presenter.dart';
+import 'l10n/pdf_l10n.dart';
+
 /// Marks the primary action in a [showPdfDialog] as its Enter action.
 ///
 /// ```dart
@@ -208,6 +211,15 @@ class _PdfDialogKeyboardScopeState extends State<_PdfDialogKeyboardScope> {
 /// native [RegularWindow]s for real multi-window editing, while its modal
 /// prompts stay attached to the navigator that opened them.
 /// Wrap the primary action button in [PdfDialogSubmit] to submit with Enter.
+///
+/// The route carries the opening context's themes and its [PdfEditorScope]
+/// (an [InheritedTheme]), so a dialog that opens another stock prompt still
+/// asks the same [PdfEditorPresenter]. The barrier's semantic label comes
+/// from the editor's own localizations, so no `MaterialLocalizations` are
+/// needed to open one.
+///
+/// This is the stock presentation: [PdfEditorPresenter.dialog] defaults to
+/// it, and the editor's own dialogs go through the presenter.
 Future<T?> showPdfDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -223,24 +235,37 @@ Future<T?> showPdfDialog<T>({
   bool? requestFocus,
   AnimationStyle? animationStyle,
 }) {
-  assert(debugCheckHasMaterialLocalizations(context));
-
   final navigator = Navigator.of(context, rootNavigator: useRootNavigator);
   final themes = InheritedTheme.capture(
     from: context,
     to: navigator.context,
   );
+  // The capture already holds a scope that sits between [context] and the
+  // navigator. One above the navigator (a host's app-wide scope) is still an
+  // ancestor of the route, so either way the dialog sees the same presenter.
+  final scope = PdfEditorScope.maybeOf(context, listen: false);
 
   return navigator.push<T>(
     DialogRoute<T>(
       context: context,
-      builder: (context) => _PdfDialogKeyboardScope(builder: builder),
+      builder: (context) {
+        final child = _PdfDialogKeyboardScope(builder: builder);
+        // Re-inject only when the route's own context lost it (a scope
+        // between the root and a nested navigator that opened the dialog on
+        // the root one is captured too; this is the belt to that brace).
+        if (scope == null ||
+            identical(PdfEditorScope.maybeOf(context, listen: false)?.presenter,
+                scope.presenter)) {
+          return child;
+        }
+        return PdfEditorScope(presenter: scope.presenter, child: child);
+      },
       barrierColor: barrierColor ??
           DialogTheme.of(context).barrierColor ??
           Theme.of(context).dialogTheme.barrierColor ??
           Colors.black54,
       barrierDismissible: barrierDismissible,
-      barrierLabel: barrierLabel,
+      barrierLabel: barrierLabel ?? pdfL10n(context).dialogDismiss,
       useSafeArea: useSafeArea,
       settings: routeSettings,
       themes: themes,

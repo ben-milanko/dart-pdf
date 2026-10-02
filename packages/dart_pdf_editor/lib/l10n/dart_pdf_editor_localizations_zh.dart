@@ -2260,6 +2260,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => '另存为…';
+
+  @override
+  String get dialogDismiss => '关闭';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4518,4 +4521,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get commandSaveAs => '另存新檔…';
+
+  @override
+  String get dialogDismiss => '關閉';
 }

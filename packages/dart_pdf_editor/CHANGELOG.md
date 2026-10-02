@@ -46,8 +46,8 @@
   above it when they drive the same controller and otherwise owns its own.
   Find them with `PdfEditorCommands.of(context)` / `maybeOf`, or place a
   `PdfEditorCommandsScope` yourself. Swapping the controller restarts the
-  recent tools and keeps the open tool group, as the toolbar always did. The
-  prompts are still the stock Material dialogs.
+  recent tools and keeps the open tool group, as the toolbar always did. Its
+  prompts and notices go through `PdfEditorPresenter` (below).
 - Add `PdfCommand` (id, icon, label, tooltip, shortcut, `enabled`/`selected`
   listenables, category, `invoke`) and `PdfEditorCommands.catalog(context)`:
   the editor's tools and markup kinds in dock order, and, under
@@ -69,6 +69,46 @@
 - Under `PdfEditorView` the toolbar's open group and recent tools now live in
   the view's commands, so they survive the toolbar remounting (a dock or
   breakpoint change).
+- Add `PdfEditorPresenter`, how the editor shows things: `dialog`, `sheet`,
+  `menu` (an anchor rectangle plus `PdfMenuItem`/`PdfMenuDivider` entries),
+  `notice` (message, kind, optional Undo), and the prompts `text`,
+  `styledText`, `confirm`, `link`, `color` (`PdfColorResult.picked` or
+  `.sampleFromPage`), `font`, `formChoice`, `measurementScale`,
+  `measurementInput` (calibration length, volume depth), `pageRange`,
+  `splitRanges` and `signature`, each with a small immutable request type.
+  Every method defaults to today's stock UI; extend the class (don't
+  implement it) and override the ones you want. `PdfEditorView`, `PdfViewer`
+  and `PdfReader` take `presenter:`, or put a `PdfEditorScope` (an
+  `InheritedTheme`) above them; `PdfEditorPresenter.of(context)` finds it.
+  Stock dialogs carry the scope into their routes, so the prompts they open
+  in turn - the stamp editor's colour picker and signature pad, the
+  annotation library's rename, colour processing's picker - ask the same
+  presenter. Every editor notice, popup menu, bottom sheet and dialog now
+  goes through it (`tool/check_design_imports.dart`'s `showMenu`,
+  `showModalBottomSheet` and `ScaffoldMessenger` counters are at 0).
+- `PdfEditorView.textPrompt`/`styledTextPrompt` and
+  `PdfViewer.editingTextPrompt`/`editingStyledTextPrompt` keep working and,
+  when set, take precedence over the presenter's text prompts for that
+  widget's subtree. That fixes the places that ignored them: the author-name
+  prompt, the annotation library's four rename/group prompts, and a saved
+  annotation's name from the annotation menu. The text-selection "Add link"
+  and the link tool now ask `PdfEditorPresenter.link` (there was no way to
+  replace that dialog). The six colour pickers that called
+  `showPdfColorPicker` directly ask `PdfEditorPresenter.color`.
+  `PdfEditingToolbar.textPrompt`/`styledTextPrompt` and the `textPrompt`
+  of `showPdfAnnotationMenu`/`showPdfFormFieldMenu` default to the new
+  `pdfPresentTextPrompt`/`pdfPresentStyledTextPrompt`, which ask the
+  presenter (stock UI unchanged).
+- The font menu's picker result is public: `PdfFontChoice` (sealed:
+  `PdfStandardFontChoice`, `PdfBundledFontChoice`, `PdfPlatformFontChoice`,
+  `PdfDocumentFontChoice`, `PdfLoadFontChoice`) and its catalogue rows,
+  `PdfFontCatalogEntry`. `showPdfFontMenu` still builds the catalogue and
+  applies the pick; only the picker in between is the presenter's.
+- `showPdfDialog` keeps its signature and route (in-view, no native-window
+  promotion; Enter submits through `PdfDialogSubmit`). It no longer asserts
+  `MaterialLocalizations`, and its barrier label comes from the editor's own
+  localizations (new string `dialogDismiss`).
+- `showPdfRemoveSignatureDialog` is now a stock `confirm` (unchanged look).
 
 ## 5.1.1
 

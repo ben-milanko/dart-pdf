@@ -25,6 +25,7 @@ import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
+import 'design/editor_presenter.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
 /// turn features off rather than rebuilding the layout by hand.
@@ -153,6 +154,7 @@ class PdfReader extends StatefulWidget {
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
+    this.presenter,
   })  : source = null,
         options = const PdfSourceLoadOptions(
           firstPaintPages: 1,
@@ -210,6 +212,7 @@ class PdfReader extends StatefulWidget {
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
+    this.presenter,
   }) : bytes = null;
 
   /// The PDF to show. Replacing it (by identity) opens the new
@@ -258,6 +261,11 @@ class PdfReader extends StatefulWidget {
   /// Whether idle time is spent baking exact page rasters ahead of
   /// navigation. See [PdfViewer.pageRasterWarmPolicy].
   final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
+
+  /// How the reader presents its menus, sheets, notices and prompts.
+  /// Installs a [PdfEditorScope] over the reader; null uses the nearest
+  /// scope above it (or the stock presenter).
+  final PdfEditorPresenter? presenter;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in [preferences]). Null
@@ -426,7 +434,10 @@ class _PdfReaderState extends State<PdfReader> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => pdfInstallPresenter(context,
+      presenter: widget.presenter, child: _buildReader(context));
+
+  Widget _buildReader(BuildContext context) {
     if (_isSource) return _buildFromSource();
     final features = widget.features;
     Widget body = LayoutBuilder(builder: (context, constraints) {

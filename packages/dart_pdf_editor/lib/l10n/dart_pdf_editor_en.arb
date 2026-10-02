@@ -2947,5 +2947,9 @@
   "commandSaveAs": "Save as…",
   "@commandSaveAs": {
     "description": "Name of the Save as command in the editor's command catalog (a command palette or menu lists it): saves the document to a new file."
+  },
+  "dialogDismiss": "Dismiss",
+  "@dialogDismiss": {
+    "description": "Screen-reader label of the dimmed area behind an editor dialog; activating it closes the dialog."
   }
 }

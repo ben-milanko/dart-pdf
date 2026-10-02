@@ -11,6 +11,7 @@ import 'editing_panel.dart';
 import 'editing_stamps.dart';
 import 'saved_annotation.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 /// Opens the reusable annotation library.
 ///
@@ -27,8 +28,8 @@ Future<void> showPdfAnnotationLibrary(
   PdfStampExportCallback? onExportStamps,
   PdfStampImportCallback? onImportStamps,
 }) =>
-    showPdfDialog<void>(
-      context: context,
+    pdfPresentDialog<void>(
+      context,
       builder: (context) => PdfAnnotationLibraryDialog(
         controller: controller,
         pageIndex: pageIndex,
@@ -104,7 +105,7 @@ class _PdfAnnotationLibraryPanelState extends State<PdfAnnotationLibraryPanel> {
   }
 
   Future<void> _rename(PdfSavedAnnotation annotation) async {
-    final name = await showPdfTextPrompt(
+    final name = await pdfPresentTextPrompt(
       context,
       title: pdfL10n(context).annotationLibraryRenameTitle,
       initial: annotation.name,
@@ -114,7 +115,7 @@ class _PdfAnnotationLibraryPanelState extends State<PdfAnnotationLibraryPanel> {
   }
 
   Future<void> _renameGroup(String group) async {
-    final name = await showPdfTextPrompt(
+    final name = await pdfPresentTextPrompt(
       context,
       title: pdfL10n(context).annotationLibraryRenameGroupTitle,
       initial: group,
@@ -124,8 +125,8 @@ class _PdfAnnotationLibraryPanelState extends State<PdfAnnotationLibraryPanel> {
   }
 
   Future<void> _chooseGroup(PdfSavedAnnotation annotation) async {
-    final choice = await showPdfDialog<_AnnotationGroupChoice>(
-      context: context,
+    final choice = await pdfPresentDialog<_AnnotationGroupChoice>(
+      context,
       builder: (dialogContext) => SimpleDialog(
         title: Text(pdfL10n(context).annotationLibraryChooseGroup),
         children: [
@@ -162,7 +163,7 @@ class _PdfAnnotationLibraryPanelState extends State<PdfAnnotationLibraryPanel> {
     if (choice == null || !mounted) return;
     var group = choice.group;
     if (choice.create) {
-      group = await showPdfTextPrompt(
+      group = await pdfPresentTextPrompt(
         context,
         title: pdfL10n(context).annotationLibraryGroupTitle,
         multiline: false,
@@ -505,7 +506,7 @@ class PdfAnnotationLibraryDialog extends StatelessWidget {
 
   Future<void> _rename(
       BuildContext context, PdfSavedAnnotation annotation) async {
-    final name = await showPdfTextPrompt(
+    final name = await pdfPresentTextPrompt(
       context,
       title: pdfL10n(context).annotationLibraryRenameTitle,
       initial: annotation.name,

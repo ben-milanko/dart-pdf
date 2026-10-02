@@ -8,11 +8,11 @@ import 'package:pdf_document/pdf_document.dart';
 import '../annotation_tap.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
-import '../toast.dart';
 import 'editing_controller.dart';
 import 'editing_text_menu.dart';
 import 'form_tab_navigation.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
@@ -358,12 +358,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   void _showInputError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-      key: const ValueKey('pdf-form-input-error'),
-      content: Text(message),
-      behavior: SnackBarBehavior.floating,
-      margin: pdfFloatingToastMargin(context),
-    ));
+    PdfEditorPresenter.of(context).notice(
+        context,
+        PdfEditorNotice(message,
+            kind: PdfNoticeKind.error,
+            replaceCurrent: false,
+            key: const ValueKey('pdf-form-input-error')));
   }
 
   /// Escape: discard the edit and close (the typed value is dropped).
@@ -435,45 +435,22 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
-    final multi = field.isMultiSelect;
-    final selected = field.values.toSet();
     final box = context.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
-    final topLeft = box.localToGlobal(viewRect.bottomLeft, ancestor: overlay);
-    final picked = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-          topLeft & Size.zero, Offset.zero & overlay.size),
-      items: [
-        for (final (export, display) in options)
-          if (multi)
-            CheckedPopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              checked: selected.contains(export),
-              child: Text(display,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(height: 1.1)),
-            )
-          else
-            PopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              child: Text(display,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(height: 1.1)),
-            ),
-      ],
+    final bottomLeft = box.localToGlobal(viewRect.bottomLeft);
+    final values = await PdfEditorPresenter.of(context).formChoice(
+      context,
+      PdfFormChoiceRequest(
+        fieldName: name,
+        options: options,
+        anchor: bottomLeft & Size.zero,
+        multiSelect: field.isMultiSelect,
+        selected: field.values.toSet(),
+      ),
     );
-    if (picked != null) _controller.pickFormChoiceOption(name, picked);
+    if (values != null) pdfApplyFormChoice(_controller, name, values);
   }
 
   // ---- Tab / Shift+Tab ----------------------------------------------------

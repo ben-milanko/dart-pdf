@@ -2296,4 +2296,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Farklı kaydet…';
+
+  @override
+  String get dialogDismiss => 'Kapat';
 }

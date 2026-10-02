@@ -670,5 +670,6 @@
   "guidesGridSpacing": "ग्रिड अंतराल",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "कर्सर गाइड और ग्रिड",
-  "commandSaveAs": "इस रूप में सहेजें…"
+  "commandSaveAs": "इस रूप में सहेजें…",
+  "dialogDismiss": "खारिज करें"
 }

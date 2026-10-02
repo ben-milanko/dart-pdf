@@ -2338,4 +2338,7 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get commandSaveAs => 'Зберегти як…';
+
+  @override
+  String get dialogDismiss => 'Закрити';
 }

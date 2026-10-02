@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Izgara aralığı",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "İmleç kılavuzları ve ızgara",
-  "commandSaveAs": "Farklı kaydet…"
+  "commandSaveAs": "Farklı kaydet…",
+  "dialogDismiss": "Kapat"
 }

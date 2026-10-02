@@ -408,6 +408,39 @@ PdfEditorView(
 )
 ```
 
+### Presenter: how dialogs, menus and notices appear
+
+`PdfEditorPresenter` decides how the editor shows things - dialogs, bottom
+sheets, popup menus, notices - and answers its prompts (text, colour, font,
+link, measuring scale, page ranges, signatures, ...). Each method defaults to
+the stock UI, so override only what you want to change. Extend the class
+rather than implementing it: new methods arrive with defaults.
+
+```dart
+class MyPresenter extends PdfEditorPresenter {
+  const MyPresenter();
+
+  @override
+  bool notice(BuildContext context, PdfEditorNotice notice) {
+    showMyToast(notice.message, onUndo: notice.onUndo);
+    return true;
+  }
+
+  @override
+  Future<String?> text(BuildContext context, PdfTextRequest request) =>
+      showMyTextSheet(context, request.title, initial: request.initial);
+}
+
+PdfEditorView(bytes: bytes, presenter: const MyPresenter());
+```
+
+`PdfViewer` and `PdfReader` take `presenter:` too, or put a
+`PdfEditorScope(presenter: ..., child: ...)` above several editors. The
+stock dialogs carry the scope into their routes, so a prompt opened from
+inside one (the stamp editor's colour picker, say) uses your presenter as
+well. Call `super.method(...)` to fall back to the stock UI for a case you
+don't handle.
+
 ## Composing your own UI
 
 `PdfEditorView` and `PdfReader` are assembled from public parts:

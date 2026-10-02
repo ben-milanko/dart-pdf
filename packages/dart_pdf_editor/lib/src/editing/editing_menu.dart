@@ -4,14 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../l10n/pdf_l10n.dart';
-import '../page_range_dialog.dart';
-import '../popup_position.dart';
 import 'annotation_presentation.dart';
-import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_form_options.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 const _densePopupMenuHeight = 34.0;
 
@@ -181,7 +179,7 @@ Future<void> showPdfAnnotationMenu({
   required PdfEditingController controller,
   required int pageIndex,
   PdfAnnotationMenuBuilder? customActions,
-  PdfTextPrompt textPrompt = showPdfTextPrompt,
+  PdfTextPrompt textPrompt = pdfPresentTextPrompt,
   // When supplied, the host can read a system clipboard on the user's Paste
   // action. No clipboard permissions are requested merely to open the menu.
   VoidCallback? onPaste,
@@ -235,12 +233,14 @@ Future<void> showPdfAnnotationMenu({
         icon: Icons.copy_all_outlined,
         onSelected: (request) async {
           final pageCount = request.controller.document.pageCount;
-          final range = await showPdfPageRangeDialog(
+          final range = await PdfEditorPresenter.of(context).pageRange(
             context,
-            pageCount: pageCount,
-            title: pdfL10n(context)
-                .menuApplyAnnotationsToPagesTitle(request.annotations.length),
-            confirmLabel: pdfL10n(context).apply,
+            PdfPageRangeRequest(
+              pageCount: pageCount,
+              title: pdfL10n(context)
+                  .menuApplyAnnotationsToPagesTitle(request.annotations.length),
+              confirmLabel: pdfL10n(context).apply,
+            ),
           );
           if (range == null) return;
           request.controller.applySelectedAnnotationsToPages(
@@ -320,12 +320,14 @@ Future<void> showPdfAnnotationMenu({
         label: pdfL10n(context).menuRecolour,
         icon: Icons.palette_outlined,
         onSelected: (request) async {
-          final picked = await showPdfColorPicker(
+          final picked = await pdfPresentColor(
             context,
-            initial: request.controller.color,
-            initialFormat: request.controller.preferences.colorPickerFormat,
-            onFormatChanged: (format) =>
-                request.controller.preferences.colorPickerFormat = format,
+            PdfColorRequest(
+              initial: request.controller.color,
+              format: request.controller.preferences.colorPickerFormat,
+              onFormatChanged: (format) =>
+                  request.controller.preferences.colorPickerFormat = format,
+            ),
           );
           if (picked != null) {
             request.controller.recolorSnapshotSelected(picked);
@@ -348,15 +350,13 @@ Future<void> showPdfAnnotationMenu({
         label: pdfL10n(context).menuSaveToStamps,
         icon: Icons.approval_outlined,
         onSelected: (request) {
-          final messenger = ScaffoldMessenger.maybeOf(context);
           final saved = request.controller.saveSelectedAsCustomStamp();
-          if (saved == null) return;
-          messenger
-            ?..clearSnackBars()
-            ..showSnackBar(SnackBar(
-              content: Text(pdfL10n(context).stampSavedToCollection),
-              behavior: SnackBarBehavior.floating,
-            ));
+          if (saved == null || !context.mounted) return;
+          PdfEditorPresenter.of(context).notice(
+              context,
+              PdfEditorNotice(pdfL10n(context).stampSavedToCollection,
+                  kind: PdfNoticeKind.success,
+                  placement: PdfNoticePlacement.floating));
         },
       ),
     if (hasSelection && controller.canSaveSelectedAnnotation)
@@ -406,11 +406,11 @@ Future<void> showPdfAnnotationMenu({
   final custom =
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
-  final picked = await showMenu<PdfAnnotationMenuItem>(
-    context: context,
-    position: pdfPopupPosition(context, position),
-    items: _menuRowsWithDividers(
-        [unlock, clipboard, arrange, nodes, recolor, destructive, custom]),
+  final picked = await PdfEditorPresenter.of(context).menu(
+    context,
+    PdfMenuRequest<PdfAnnotationMenuItem>.at(position,
+        entries: _menuRowsWithDividers(
+            [unlock, clipboard, arrange, nodes, recolor, destructive, custom])),
   );
   await picked?.onSelected(request);
 }
@@ -425,7 +425,7 @@ Future<void> showPdfFormFieldMenu({
   required PdfEditingController controller,
   required String fieldName,
   int? widgetIndex,
-  PdfTextPrompt textPrompt = showPdfTextPrompt,
+  PdfTextPrompt textPrompt = pdfPresentTextPrompt,
   PdfFontPicker? fontPicker,
   PdfFormImagePicker? formImagePicker,
 }) async {
@@ -484,32 +484,19 @@ Future<void> showPdfFormFieldMenu({
           icon: Icons.list_alt_outlined,
           enabled: enabled && field.options.isNotEmpty,
           onSelected: (_) async {
-            final picked = await showMenu<String>(
-              context: context,
-              position: pdfPopupPosition(context, position),
-              items: [
-                for (final (export, display) in field.options)
-                  if (field.isMultiSelect)
-                    CheckedPopupMenuItem(
-                      key: ValueKey('pdf-form-edit-option-$export'),
-                      value: export,
-                      height: _densePopupMenuHeight,
-                      checked: field.values.contains(export),
-                      child:
-                          Text(display, style: _densePopupTextStyle(context)),
-                    )
-                  else
-                    PopupMenuItem(
-                      key: ValueKey('pdf-form-edit-option-$export'),
-                      value: export,
-                      height: _densePopupMenuHeight,
-                      child:
-                          Text(display, style: _densePopupTextStyle(context)),
-                    ),
-              ],
+            final values = await PdfEditorPresenter.of(context).formChoice(
+              context,
+              PdfFormChoiceRequest(
+                fieldName: fieldName,
+                options: field.options,
+                anchor: position & Size.zero,
+                multiSelect: field.isMultiSelect,
+                selected: field.values.toSet(),
+                optionKeyPrefix: 'pdf-form-edit-option-',
+              ),
             );
-            if (picked != null) {
-              controller.pickFormChoiceOption(fieldName, picked);
+            if (values != null) {
+              pdfApplyFormChoice(controller, fieldName, values);
             }
           },
         );
@@ -661,26 +648,26 @@ Future<void> showPdfFormFieldMenu({
     ),
   ];
 
-  final picked = await showMenu<PdfAnnotationMenuItem>(
-    context: context,
-    position: pdfPopupPosition(context, position),
-    items: _menuRowsWithDividers([edit, structure, destructive]),
+  final picked = await PdfEditorPresenter.of(context).menu(
+    context,
+    PdfMenuRequest<PdfAnnotationMenuItem>.at(position,
+        entries: _menuRowsWithDividers([edit, structure, destructive])),
   );
   // the request param is unused by these closures; reuse the row type
   // so the menu plumbing stays shared with the annotation menu
   await picked?.onSelected(PdfAnnotationMenuRequest._(controller, -1));
 }
 
-/// Flattens [groups] of menu items into popup entries, dropping empty
-/// groups and ruling a [PopupMenuDivider] between the ones that survive.
+/// Flattens [groups] of menu items into menu entries, dropping empty
+/// groups and ruling a [PdfMenuDivider] between the ones that survive.
 /// Large menus read as labelled clusters; a menu that collapses to a
 /// single group draws no divider at all.
-List<PopupMenuEntry<PdfAnnotationMenuItem>> _menuRowsWithDividers(
+List<PdfMenuEntry<PdfAnnotationMenuItem>> _menuRowsWithDividers(
     List<List<PdfAnnotationMenuItem>> groups) {
-  final entries = <PopupMenuEntry<PdfAnnotationMenuItem>>[];
+  final entries = <PdfMenuEntry<PdfAnnotationMenuItem>>[];
   for (final group in groups) {
     if (group.isEmpty) continue;
-    if (entries.isNotEmpty) entries.add(const PopupMenuDivider());
+    if (entries.isNotEmpty) entries.add(const PdfMenuDivider());
     for (final item in group) {
       entries.add(_menuRow(item));
     }
@@ -688,10 +675,12 @@ List<PopupMenuEntry<PdfAnnotationMenuItem>> _menuRowsWithDividers(
   return entries;
 }
 
-PopupMenuItem<PdfAnnotationMenuItem> _menuRow(PdfAnnotationMenuItem item) =>
-    PopupMenuItem<PdfAnnotationMenuItem>(
+PdfMenuItem<PdfAnnotationMenuItem> _menuRow(PdfAnnotationMenuItem item) =>
+    PdfMenuItem<PdfAnnotationMenuItem>(
       key: item.key,
       value: item,
+      label: item.label,
+      icon: item.icon,
       enabled: item.enabled,
       height: _densePopupMenuHeight,
       child: Builder(

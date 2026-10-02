@@ -670,5 +670,6 @@
   "guidesGridSpacing": "Jarak kisi",
   "guidesGridSpacingValue": "{value} pt",
   "shellCursorGuidesAndGrid": "Panduan kursor dan kisi",
-  "commandSaveAs": "Simpan sebagai…"
+  "commandSaveAs": "Simpan sebagai…",
+  "dialogDismiss": "Tutup"
 }

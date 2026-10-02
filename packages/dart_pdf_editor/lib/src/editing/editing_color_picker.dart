@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'models/color_format.dart';
+import '../design/editor_presenter.dart';
 
 export 'models/color_format.dart';
 
@@ -604,8 +605,8 @@ Future<Color?> showPdfColorPicker(
   VoidCallback? onPickFromPage,
 }) {
   var current = initial;
-  return showPdfDialog<Color>(
-    context: context,
+  return pdfPresentDialog<Color>(
+    context,
     builder: (context) => AlertDialog(
       title: Text(pdfL10n(context).colorColorTitle),
       content: SingleChildScrollView(
