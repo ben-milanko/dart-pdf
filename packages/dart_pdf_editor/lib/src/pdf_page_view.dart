@@ -1586,6 +1586,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _slugPicture = null;
     _setScene(null); // the scene transcribes the same content as the picture
     _pictureHasImageDraws = false;
+    _imageRefinePending = false;
     _rasteredRatio = null; // the next picture must re-raster, not be skipped
   }
 
@@ -2059,6 +2060,21 @@ class _PdfPageViewState extends State<PdfPageView>
   /// though the ratio and content match. Mirrors [_renderedAtFullImageRatio]'s
   /// comparison so the two cannot disagree about what "full" means.
   bool _baseRasterIsCurrent() {
+    // An image refine dropped this raster's picture and retained scene to
+    // re-record them at the focused decode ratio. Until a pass puts a picture
+    // back, no pass is a no-op. Once the zoom outruns the base raster the
+    // checks below stop comparing its image ratio (the detail path supplies
+    // the sharp pixels), so a zoom that superseded the refine used to skip
+    // here and leave the page with no scene - no tiles and no image detail -
+    // for good. Scoped to the refine's own preconditions: a page that has
+    // left the quality foreground keeps the old answer (and the debt, which
+    // comes due when it returns) instead of recording at a reduced ratio.
+    if (_imageRefinePending &&
+        _picture == null &&
+        widget.onScreen &&
+        widget.qualityVisible) {
+      return false;
+    }
     if (PdfPageView.directPicturePresentation &&
         _directPicture != null &&
         _intentIsCurrent(_directPictureIntent) &&
@@ -2232,6 +2248,20 @@ class _PdfPageViewState extends State<PdfPageView>
   bool _pictureHasImageDraws = false;
   bool _focusedImageRefinementScheduled = false;
 
+  /// Whether [_scheduleFocusedImageRefinement] has dropped the picture and
+  /// retained scene and still owes the re-record that replaces them.
+  ///
+  /// The window matters because the re-record can be superseded - a zoom
+  /// landing while it is in flight changes the scale, which invalidates the
+  /// full-render generation, and the finished record is thrown away - and the
+  /// base raster it was meant to replace still looks current at deep zoom
+  /// ([_baseRasterIsCurrent]). Set after the refine's [_dropPicture]; cleared
+  /// when a full pass installs its interpreted picture, and by [_dropPicture].
+  /// Any other path that puts a picture back (a retained-scene cache hit)
+  /// settles it too, which is why [_baseRasterIsCurrent] also asks for a null
+  /// [_picture].
+  bool _imageRefinePending = false;
+
   /// Whether the current buffer decoded its images at full resolution - i.e.
   /// this is not a reduced-resolution prefetch buffer. Only such buffers seed
   /// the shared full-raster cache, so [_restoreFullRaster] never serves a
@@ -2296,6 +2326,7 @@ class _PdfPageViewState extends State<PdfPageView>
       }
       final previousRatio = _pictureImageRatio;
       _dropPicture();
+      _imageRefinePending = true;
       PdfPerfLog.log(
         'image-refine page=${widget.previewIndex} '
         'have=${previousRatio?.toStringAsFixed(2) ?? 'unknown'} '
@@ -3707,30 +3738,17 @@ class _PdfPageViewState extends State<PdfPageView>
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
-    final generation = _renderSession.beginFull();
     final pageIndex = widget.previewIndex;
-    final firstInterpret = _picture == null;
     // Re-decided per pass: the worker may have been swapped or stopped, and a
     // pass that learns better narrows this when its record lands.
     _motionSafePass = _pageAllowsMotionRender();
-    if (firstInterpret) {
-      _lastInterpretResultBytes = null;
-      _lastInterpretWaitMs = null;
-      _lastInterpretBuildMs = null;
-      _lastInterpretDecodeMs = null;
-      _lastInterpretReplayMs = null;
-      _lastInterpretTextShapeMs = null;
-      _lastInterpretTextShapeMiss = null;
-      _lastInterpretTextShapeHit = null;
-    }
-    final sw = Stopwatch()..start();
-    // The vector-first phase below runs INSIDE [sw]'s span but interprets
-    // nothing the `interpret=` figure is about - it rasterizes a full-page
-    // vector preview (seconds, on a dense sheet) and can wait a frame for the
-    // detail paint. Left unmeasured it is simply missing from the line, which
-    // is how the 2026-07-29 trace reported a 1224ms "interpret" whose wait and
-    // build summed to 242ms. Measured, it closes the line's accounting.
-    var progressiveMs = 0.0;
+    // Only a pass that will actually render may claim a generation. Claiming
+    // one supersedes whatever is still in flight against the current one - an
+    // overlapping pass on a bare-hold host, or the persistent tier's disk
+    // restore, which holds [PdfPageRenderSession.fullGeneration] unclaimed -
+    // and a pass that is about to re-queue itself or skip as a no-op must not
+    // throw away work it does not replace. So both exits below are decided
+    // before [PdfPageRenderSession.beginFull].
     if (_renderPaused) {
       _render();
       return;
@@ -3752,6 +3770,26 @@ class _PdfPageViewState extends State<PdfPageView>
       await _updateDetail();
       return;
     }
+    final generation = _renderSession.beginFull();
+    final firstInterpret = _picture == null;
+    if (firstInterpret) {
+      _lastInterpretResultBytes = null;
+      _lastInterpretWaitMs = null;
+      _lastInterpretBuildMs = null;
+      _lastInterpretDecodeMs = null;
+      _lastInterpretReplayMs = null;
+      _lastInterpretTextShapeMs = null;
+      _lastInterpretTextShapeMiss = null;
+      _lastInterpretTextShapeHit = null;
+    }
+    final sw = Stopwatch()..start();
+    // The vector-first phase below runs INSIDE [sw]'s span but interprets
+    // nothing the `interpret=` figure is about - it rasterizes a full-page
+    // vector preview (seconds, on a dense sheet) and can wait a frame for the
+    // detail paint. Left unmeasured it is simply missing from the line, which
+    // is how the 2026-07-29 trace reported a 1224ms "interpret" whose wait and
+    // build summed to 242ms. Measured, it closes the line's accounting.
+    var progressiveMs = 0.0;
     // Progressive first paint: on a page's first interpret, paint its
     // vector/text immediately (images skipped) so a heavy raster underlay -
     // which can take seconds to decode - doesn't leave the page blank
@@ -3845,6 +3883,7 @@ class _PdfPageViewState extends State<PdfPageView>
         return;
       }
       _picture = Future.value(interpretedPicture);
+      _imageRefinePending = false;
       if (interpretedScene != null) {
         _setScene(
           interpretedScene,
