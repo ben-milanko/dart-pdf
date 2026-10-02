@@ -1085,6 +1085,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     widget.onSave?.call(_session.bytes);
   }
 
+  /// The save button a host asked to keep live without changes
+  /// ([PdfHeaderParts.saveButton]): saves whatever is there.
+  void _saveUnchanged() => widget.onSave?.call(_session.bytes);
+
   void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
   Future<void> _promptAuthor() async {
@@ -1195,18 +1199,22 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     final hasSave = widget.onSave != null && widget.showSaveButton;
     // Save sits in the header, not in the floating toolbar - ⌘S/Ctrl+S
     // takes the same path.
-    final save = hasSave
-        ? FilledButton.icon(
-            key: const ValueKey('pdf-shell-save'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-            icon: Icon(widget.saveButtonIcon, size: 18),
-            label: Text(widget.saveButtonLabel ?? pdfL10n(context).save),
-            onPressed: _canSave ? _save : null,
-          )
-        : null;
+    Widget saveButton({required bool enabledWhenUnchanged}) =>
+        FilledButton.icon(
+          key: const ValueKey('pdf-shell-save'),
+          style: FilledButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          icon: Icon(widget.saveButtonIcon, size: 18),
+          label: Text(widget.saveButtonLabel ?? pdfL10n(context).save),
+          onPressed: _canSave
+              ? _save
+              : enabledWhenUnchanged
+                  ? _saveUnchanged
+                  : null,
+        );
+    final save = hasSave ? saveButton(enabledWhenUnchanged: false) : null;
     List<PdfShellControlItem> compactControls({required bool includeSave}) => [
           ...viewModeControls,
           if (features.viewOptions) viewOptionsControl,
@@ -1261,6 +1269,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         viewOptions: viewOptions,
         panelSwitch: panelSwitch,
         save: save,
+        saveBuilder: (enabledWhenUnchanged) => hasSave
+            ? saveButton(enabledWhenUnchanged: enabledWhenUnchanged)
+            : null,
         barBuilder: (leading, trailing, color) => PdfShellBar(
             leading: leading,
             trailing: trailing,

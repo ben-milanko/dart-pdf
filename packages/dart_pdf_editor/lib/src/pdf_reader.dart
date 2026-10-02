@@ -27,6 +27,7 @@ import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'design/editor_presenter.dart';
 import 'design/editor_theme.dart';
+import 'design/header_parts.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
 /// turn features off rather than rebuilding the layout by hand.
@@ -157,6 +158,7 @@ class PdfReader extends StatefulWidget {
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.presenter,
+    this.headerBuilder,
   })  : source = null,
         options = const PdfSourceLoadOptions(
           firstPaintPages: 1,
@@ -216,6 +218,7 @@ class PdfReader extends StatefulWidget {
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.presenter,
+    this.headerBuilder,
   }) : bytes = null;
 
   /// The PDF to show. Replacing it (by identity) opens the new
@@ -269,6 +272,15 @@ class PdfReader extends StatefulWidget {
   /// Installs a [PdfEditorScope] over the reader; null uses the nearest
   /// scope above it (or the stock presenter).
   final PdfEditorPresenter? presenter;
+
+  /// Builds the header bar from the stock [PdfHeaderParts] - the page
+  /// number, zoom, search, view options and panel switch - for a host that
+  /// lays out its own header (its app bar, a platform nav bar), exactly as
+  /// [PdfEditorView.headerBuilder] does. The reader has no save button, so
+  /// [PdfHeaderParts.save] is always null. Null builds the stock header
+  /// ([PdfHeaderParts.stock]). Ignored when [PdfReaderFeatures.headerBar]
+  /// is off.
+  final PdfHeaderBuilder? headerBuilder;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in [preferences]). Null
@@ -446,6 +458,145 @@ class _PdfReaderState extends State<PdfReader> {
       // and localizations lookups see them
       child: Builder(builder: _buildReader));
 
+  /// The header: the host's [PdfReader.headerBuilder] over the stock
+  /// [PdfHeaderParts], or the stock bar. Each part is built once and shared
+  /// by the stock bar and the parts, like [PdfEditorView]'s header.
+  Widget _buildHeader(
+    BuildContext context, {
+    required PdfEditingPreferences prefs,
+    required bool reflowActive,
+    required bool showThumbnails,
+    required bool compact,
+  }) {
+    final features = widget.features;
+    final l = pdfL10n(context);
+    final search = features.search && !reflowActive
+        ? PdfSearchField(
+            controller: _viewer,
+            searchController: _searchField,
+            focusNode: _searchFocus,
+            preferences: prefs,
+          )
+        : null;
+    final pageNumber = features.pageNumber && !reflowActive
+        ? Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: PdfPageNumberField(controller: _viewer),
+          )
+        : null;
+    final zoom = reflowActive ? null : PdfShellZoomControl(controller: _viewer);
+    final viewOptions = features.viewOptions
+        ? PdfShellViewOptionsButton(
+            preferences: prefs,
+            viewMode: _viewMode,
+            reflow: true,
+            pageColor: features.pageColorEditable)
+        : null;
+    final panelSwitch = PdfShellPanelSwitch(
+      key: const ValueKey('pdf-shell-panels'),
+      items: [
+        if (features.thumbnails)
+          PdfShellPanelItem(
+            key: const ValueKey('pdf-shell-thumbnails-toggle'),
+            icon: Icons.grid_view,
+            tooltip: l.shellPanelPages,
+            selected: showThumbnails,
+            onPressed: () => prefs.showThumbnailSidebar = !showThumbnails,
+          ),
+        if (features.bookmarks)
+          PdfShellPanelItem(
+            key: const ValueKey('pdf-shell-bookmarks-toggle'),
+            icon: Icons.bookmarks_outlined,
+            tooltip: l.shellPanelBookmarks,
+            selected: prefs.showBookmarkSidebar,
+            onPressed: () =>
+                prefs.showBookmarkSidebar = !prefs.showBookmarkSidebar,
+          ),
+      ],
+    );
+    final sheetChildren = <Widget>[if (zoom != null) zoom];
+    final compactControls = <PdfShellControlItem>[
+      // Pages / Reflow as one exclusive choice, at one tap. The reader
+      // offers no page grid, so the set is a pair.
+      ...pdfShellViewModeControls(context, viewMode: _viewMode, reflow: true),
+      if (features.viewOptions)
+        PdfShellControlItem(
+          key: const ValueKey('pdf-shell-view-options'),
+          group: PdfShellControlGroup.actions,
+          icon: Icons.display_settings_outlined,
+          label: l.shellSettings,
+          onPressed: () {
+            showPdfShellViewOptionsSheet(
+              context,
+              preferences: prefs,
+              pageColor: features.pageColorEditable,
+            );
+          },
+        ),
+      if (features.thumbnails)
+        PdfShellControlItem(
+          group: PdfShellControlGroup.panels,
+          key: const ValueKey('pdf-shell-thumbnails-toggle'),
+          icon: Icons.grid_view,
+          label: l.shellPanelPages,
+          selected: showThumbnails,
+          onPressed: () => prefs.showThumbnailSidebar = !showThumbnails,
+        ),
+      if (features.bookmarks)
+        PdfShellControlItem(
+          group: PdfShellControlGroup.panels,
+          key: const ValueKey('pdf-shell-bookmarks-toggle'),
+          icon: Icons.bookmarks_outlined,
+          label: l.shellPanelBookmarks,
+          selected: prefs.showBookmarkSidebar,
+          onPressed: () =>
+              prefs.showBookmarkSidebar = !prefs.showBookmarkSidebar,
+        ),
+    ];
+    final stock = PdfShellBar(
+      leading: [
+        if (search != null) search,
+        if (pageNumber != null) pageNumber,
+        if (zoom != null) zoom,
+      ],
+      compactLeading: [
+        if (search != null) search,
+        if (pageNumber != null) pageNumber,
+      ],
+      trailing: [
+        if (viewOptions != null) viewOptions,
+        panelSwitch,
+      ],
+      compactSheetChildren: sheetChildren,
+      compactControls: compactControls,
+    );
+    final builder = widget.headerBuilder;
+    if (builder == null) return stock;
+    return builder(
+      context,
+      PdfHeaderParts(
+        compact: compact,
+        stock: stock,
+        pageNumber: pageNumber,
+        zoom: zoom,
+        search: search,
+        viewOptions: viewOptions,
+        panelSwitch: panelSwitch,
+        barBuilder: (leading, trailing, color) => PdfShellBar(
+            leading: leading,
+            trailing: trailing,
+            adaptive: false,
+            color: color),
+        // the reader has no save: [includeSave] has nothing to add
+        controlsBuilder: (includeSave) {
+          if (compactControls.isEmpty && sheetChildren.isEmpty) return null;
+          return PdfShellControlsButton(
+              controls: compactControls, sheetChildren: sheetChildren);
+        },
+      ),
+    );
+  }
+
   Widget _buildReader(BuildContext context) {
     if (_isSource) return _buildFromSource();
     final features = widget.features;
@@ -504,107 +655,12 @@ class _PdfReaderState extends State<PdfReader> {
               );
           return Column(children: [
             if (features.headerBar)
-              PdfShellBar(
-                leading: [
-                  if (features.search && !reflowActive)
-                    PdfSearchField(
-                      controller: _viewer,
-                      searchController: _searchField,
-                      focusNode: _searchFocus,
-                      preferences: prefs,
-                    ),
-                  if (features.pageNumber && !reflowActive)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: PdfPageNumberField(controller: _viewer),
-                    ),
-                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
-                ],
-                compactLeading: [
-                  if (features.search && !reflowActive)
-                    PdfSearchField(
-                      controller: _viewer,
-                      searchController: _searchField,
-                      focusNode: _searchFocus,
-                      preferences: prefs,
-                    ),
-                  if (features.pageNumber && !reflowActive)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: PdfPageNumberField(controller: _viewer),
-                    ),
-                ],
-                trailing: [
-                  if (features.viewOptions)
-                    PdfShellViewOptionsButton(
-                        preferences: prefs,
-                        viewMode: _viewMode,
-                        reflow: true,
-                        pageColor: features.pageColorEditable),
-                  PdfShellPanelSwitch(items: [
-                    if (features.thumbnails)
-                      PdfShellPanelItem(
-                        key: const ValueKey('pdf-shell-thumbnails-toggle'),
-                        icon: Icons.grid_view,
-                        tooltip: pdfL10n(context).shellPanelPages,
-                        selected: showThumbnails,
-                        onPressed: () =>
-                            prefs.showThumbnailSidebar = !showThumbnails,
-                      ),
-                    if (features.bookmarks)
-                      PdfShellPanelItem(
-                        key: const ValueKey('pdf-shell-bookmarks-toggle'),
-                        icon: Icons.bookmarks_outlined,
-                        tooltip: pdfL10n(context).shellPanelBookmarks,
-                        selected: prefs.showBookmarkSidebar,
-                        onPressed: () => prefs.showBookmarkSidebar =
-                            !prefs.showBookmarkSidebar,
-                      ),
-                  ]),
-                ],
-                compactSheetChildren: [
-                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
-                ],
-                compactControls: [
-                  // Pages / Reflow as one exclusive choice, at one tap. The
-                  // reader offers no page grid, so the set is a pair.
-                  ...pdfShellViewModeControls(context,
-                      viewMode: _viewMode, reflow: true),
-                  if (features.viewOptions)
-                    PdfShellControlItem(
-                      key: const ValueKey('pdf-shell-view-options'),
-                      group: PdfShellControlGroup.actions,
-                      icon: Icons.display_settings_outlined,
-                      label: pdfL10n(context).shellSettings,
-                      onPressed: () {
-                        showPdfShellViewOptionsSheet(
-                          context,
-                          preferences: prefs,
-                          pageColor: features.pageColorEditable,
-                        );
-                      },
-                    ),
-                  if (features.thumbnails)
-                    PdfShellControlItem(
-                      group: PdfShellControlGroup.panels,
-                      key: const ValueKey('pdf-shell-thumbnails-toggle'),
-                      icon: Icons.grid_view,
-                      label: pdfL10n(context).shellPanelPages,
-                      selected: showThumbnails,
-                      onPressed: () =>
-                          prefs.showThumbnailSidebar = !showThumbnails,
-                    ),
-                  if (features.bookmarks)
-                    PdfShellControlItem(
-                      group: PdfShellControlGroup.panels,
-                      key: const ValueKey('pdf-shell-bookmarks-toggle'),
-                      icon: Icons.bookmarks_outlined,
-                      label: pdfL10n(context).shellPanelBookmarks,
-                      selected: prefs.showBookmarkSidebar,
-                      onPressed: () => prefs.showBookmarkSidebar =
-                          !prefs.showBookmarkSidebar,
-                    ),
-                ],
+              _buildHeader(
+                context,
+                prefs: prefs,
+                reflowActive: reflowActive,
+                showThumbnails: showThumbnails,
+                compact: constraints.maxWidth < pdfCompactWidthOf(context),
               ),
             Expanded(
               child: PdfShellPanelLayout(
@@ -731,6 +787,7 @@ class _PdfReaderState extends State<PdfReader> {
         backgroundColor: widget.backgroundColor,
         pageColor: widget.pageColor,
         viewerTheme: widget.viewerTheme,
+        headerBuilder: widget.headerBuilder,
         // The first-paint buffer only holds the first page(s); its later pages
         // render blank (and its text extracts empty). Keep the persistent
         // content-keyed caches off until the full buffer lands so those blanks

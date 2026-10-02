@@ -3998,9 +3998,10 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// The app's header bar: the app menu, the tabs and the app's actions.
-  /// Over an editable document the editor draws it ([PdfEditorView.
-  /// headerBuilder], [parts] set), with the editor's own controls as its
-  /// second row - one header, not an app bar stacked over the editor's.
+  /// Over an open document the editor or reader draws it ([PdfEditorView.
+  /// headerBuilder], [PdfReader.headerBuilder]; [parts] set), with the
+  /// shell's own controls as its second row - one header, not an app bar
+  /// stacked over the shell's.
   ///
   /// [content] is the app's own part of the bar, built once per
   /// EditorScreen build: the editor rebuilds its header on every preference
@@ -4035,7 +4036,12 @@ class _EditorScreenState extends State<EditorScreen>
                   if (parts.save case final save?) save,
                 ],
               );
-    final save = parts != null && parts.compact ? parts.save : null;
+    // the compact bar's save/share button stays live without edits (sharing
+    // an unedited file is the phone's main action); ⌘S still saves only when
+    // there is something to save
+    final save = parts != null && parts.compact
+        ? parts.saveButton(enabledWhenUnchanged: true)
+        : null;
     return AppBar(
       leading: app.leading,
       leadingWidth: _appMenuLeadingWidth,
@@ -4065,23 +4071,22 @@ class _EditorScreenState extends State<EditorScreen>
         actions: _buildActions(tab),
       );
 
-  /// Whether [_buildBody] shows [tab] in a [PdfEditorView] - whose header
-  /// then carries the app bar.
-  bool _showsEditor(DocumentTab? tab) =>
+  /// Whether [_buildBody] shows [tab] in a [PdfEditorView] or, read-only, a
+  /// [PdfReader] - whose header then carries the app bar.
+  bool _shellDrawsAppBar(DocumentTab? tab) =>
       tab != null &&
       !tab.isDeferredPath &&
       !tab.isDeferred &&
       !tab.isLoading &&
       tab.error == null &&
       !tab.isComparison &&
-      !tab.isPreview &&
-      !_readOnly;
+      !tab.isPreview;
 
   @override
   Widget build(BuildContext context) {
     final tab = _active;
     return Scaffold(
-      appBar: _showsEditor(tab) ? null : _buildAppBar(tab),
+      appBar: _shellDrawsAppBar(tab) ? null : _buildAppBar(tab),
       body: CallbackShortcuts(
         // ⌘P (macOS) / Ctrl+P (Windows, Linux, web) print the active document.
         // Placed above the editor so the SDK's own shortcuts take precedence;
@@ -4256,9 +4261,24 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
+    // built once per EditorScreen build (see _buildAppBar)
+    final appBar = _appBarContent(tab);
+    // one header: the app bar, drawn by the shell with its own controls as
+    // the second row (see _buildAppBar)
+    Widget header(BuildContext context, PdfHeaderParts parts) {
+      final bar = _buildAppBar(tab, parts: parts, content: appBar);
+      // the height a Scaffold gives its app bar: the bar plus the status
+      // bar inset it pads itself by
+      return SizedBox(
+        height: bar.preferredSize.height + MediaQuery.paddingOf(context).top,
+        child: bar,
+      );
+    }
+
     if (_readOnly) {
       return PdfReader(
         key: ValueKey(tab),
+        headerBuilder: header,
         bytes: tab.session!.bytes,
         documentId: tab.documentId,
         controller: tab.viewer,
@@ -4274,8 +4294,6 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
-    // built once per EditorScreen build (see _buildAppBar)
-    final appBar = _appBarContent(tab);
     return PdfEditorView(
       key: ValueKey(tab),
       documentId: tab.documentId,
@@ -4288,17 +4306,7 @@ class _EditorScreenState extends State<EditorScreen>
       tileRasterBackend: tileRasterBackend,
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
-      // one header: the app bar, drawn by the editor with its own controls
-      // as the second row (see _buildAppBar)
-      headerBuilder: (context, parts) {
-        final bar = _buildAppBar(tab, parts: parts, content: appBar);
-        // the height a Scaffold gives its app bar: the bar plus the status
-        // bar inset it pads itself by
-        return SizedBox(
-          height: bar.preferredSize.height + MediaQuery.paddingOf(context).top,
-          child: bar,
-        );
-      },
+      headerBuilder: header,
       saveButtonIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
       saveButtonLabel: _usesMobileShare
           ? WidgetsLocalizations.of(context).shareButtonLabel
@@ -4311,9 +4319,9 @@ class _EditorScreenState extends State<EditorScreen>
       // session sees no edits of its own while the app knows the file on disk
       // is still behind - without this the user could not save the very work we
       // just handed back.
-      // On a compact layout the save/share button sits in the app bar and
-      // stays live (sharing an unedited file is the phone's main action).
-      alwaysAllowSave: tab.isUnsaved || tab.isDirty || _isCompactWidth(context),
+      // (On a compact layout the save/share button in the app bar stays live
+      // regardless - see _buildAppBar - but ⌘S does not.)
+      alwaysAllowSave: tab.isUnsaved || tab.isDirty,
       onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
       // a PDF dragged in from the desktop can be dropped between two page
       // thumbnails; the drop lands its pages exactly there
