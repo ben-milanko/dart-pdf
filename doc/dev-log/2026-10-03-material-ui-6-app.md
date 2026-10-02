@@ -135,8 +135,9 @@ measurement artefact, plus one real bug it pointed at (fixed in PR A).
   material_ui, a pre-6.0 ref ran as *legacy editor under a material_ui
   MaterialApp*, a host it never shipped with. That hybrid does 12.7% fewer
   rebuilds in the same test (60,703): the editor finds no legacy Theme and
-  its derived theme's buttons never change colour (the same identity
-  problem PR A's fix addresses, mirrored), so the 36 icon-tint
+  its toolbar buttons never change colour (most likely PR A's identity
+  problem mirrored: the material_ui host's default icon colour is not the
+  legacy `IconButton`'s), so the 36 icon-tint
   `AnimatedTheme` transitions - 200 ms of `ThemeData.lerp` + subtree
   rebuild a frame each - never run. Profile-build Chrome traces of the two
   bundles show exactly that: `ThemeData_lerp` 0 vs 2.8 ms self time per run,
