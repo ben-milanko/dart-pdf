@@ -6,7 +6,7 @@ resolution: workspace
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.44.0'
+  flutter: '>=3.47.0'
 
 dependencies:
   file_selector: ^1.0.3

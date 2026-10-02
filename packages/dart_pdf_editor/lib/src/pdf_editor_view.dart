@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';

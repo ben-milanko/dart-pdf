@@ -16,10 +16,13 @@ resolution: workspace
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.44.0'
+  flutter: '>=3.47.0'
 
 dependencies:
   archive: ^4.3.0
+  # The iOS/macOS text-selection menus and their localizations (material_ui
+  # depends on it too; listed because the library imports it directly).
+  cupertino_ui: ^1.1.1
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -27,6 +30,9 @@ dependencies:
   # ICU message formatting (plurals/select/dates) for the shipped
   # localizations; see lib/l10n/.
   intl: ^0.20.2
+  # The Material design library (the stock chrome). 6.0 moved off
+  # package:flutter/material.dart; see doc/migrating-to-6.md.
+  material_ui: ^1.4.0
   # Keychain/Keystore-backed persistence for signing identities
   # (SecureIdentityStore); the private key never touches shared_preferences.
   flutter_secure_storage: ^11.2.0

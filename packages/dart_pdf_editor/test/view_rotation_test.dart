@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -131,8 +131,8 @@ void main() {
           // Render a page with /Rotate 0, overriding to viewRot
           final doc0 = PdfDocument.open(_buildRotatedPdf(0));
           final page0 = doc0.page(0);
-          final img0 = await PdfPageRenderer.renderImage(page0,
-              rotation: viewRot);
+          final img0 =
+              await PdfPageRenderer.renderImage(page0, rotation: viewRot);
 
           // Render a page with /Rotate=viewRot natively
           final docR = PdfDocument.open(_buildRotatedPdf(viewRot));
@@ -191,10 +191,9 @@ void main() {
           // Always /Rotate 0, override with effective rotation
           final doc = PdfDocument.open(_buildRotatedPdf(0));
           final page = doc.page(0);
-          final image = await PdfPageRenderer.renderImage(page,
-              rotation: effective);
-          final size =
-              Size(image.width.toDouble(), image.height.toDouble());
+          final image =
+              await PdfPageRenderer.renderImage(page, rotation: effective);
+          final size = Size(image.width.toDouble(), image.height.toDouble());
           final geometry = PdfPageGeometry(
             cropBox: page.cropBox,
             rotation: effective,
@@ -239,8 +238,7 @@ void main() {
       return controller;
     }
 
-    testWidgets('rotateView changes the page layout aspect',
-        (tester) async {
+    testWidgets('rotateView changes the page layout aspect', (tester) async {
       final controller = await pumpViewer(tester);
       // 612×792 page at fit-width in 800×600: tall page
       final sizeBefore = tester.getSize(find.byType(PdfPageView).first);
@@ -256,8 +254,7 @@ void main() {
           reason: 'page should be wider after 90° view rotation');
     });
 
-    testWidgets('rotateView 360° returns to original layout',
-        (tester) async {
+    testWidgets('rotateView 360° returns to original layout', (tester) async {
       final controller = await pumpViewer(tester);
       final sizeBefore = tester.getSize(find.byType(PdfPageView).first);
 
@@ -278,8 +275,7 @@ void main() {
     testWidgets('rotateView with an already-rotated document composes',
         (tester) async {
       // /Rotate 90 doc → native landscape. View rotate 90 → portrait again
-      final controller =
-          await pumpViewer(tester, bytes: _buildRotatedPdf(90));
+      final controller = await pumpViewer(tester, bytes: _buildRotatedPdf(90));
       final sizeBefore = tester.getSize(find.byType(PdfPageView).first);
       // /Rotate 90 on 200×300 → 300×200 landscape
       expect(sizeBefore.width, greaterThan(sizeBefore.height));

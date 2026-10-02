@@ -7,7 +7,7 @@
 // page counts as "heavy": the I-beam then only appears once the text has been
 // warmed by a real action (here, a selection drag), never from hover alone.
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';

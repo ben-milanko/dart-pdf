@@ -21,6 +21,7 @@ dependencies:
   flutter_web_plugins:
     sdk: flutter
   intl: ^0.20.2
+  material_ui: ^1.4.0
   dart_pdf_editor: ^5.1.1
   pdf_cos: ^5.1.1
   pdf_document: ^5.1.1

@@ -4,7 +4,7 @@
 // turns it off). The pure geometry is covered by stroke_prediction_test.
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -15,7 +15,8 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   // 800px viewport over a 612pt page (fit-width)
-  Future<PdfEditingController> pumpViewer(WidgetTester tester, GlobalKey boundary,
+  Future<PdfEditingController> pumpViewer(
+      WidgetTester tester, GlobalKey boundary,
       {required bool predict}) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
       ..color = const Color(0xFFFF0000)
