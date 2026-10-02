@@ -74,6 +74,8 @@ const bool kPdfLegacyMaterialBridge =
 
 ThemeData? pdfLegacyHostTheme(BuildContext context) => null;
 
+IconThemeData pdfLegacyHostIconTheme(IconThemeData data) => data;
+
 ({Color primary, Color onPrimary, Brightness? brightness})?
     pdfLegacyCupertinoHost(BuildContext context) => null;
 

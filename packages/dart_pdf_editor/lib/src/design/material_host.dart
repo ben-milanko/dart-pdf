@@ -101,14 +101,16 @@ class PdfMaterialHost extends StatelessWidget {
       final bridged = pdfLegacyHostTheme(context);
       if (bridged != null) {
         // Theme installs its own IconTheme; keep the host's (legacy widgets
-        // placed inside the editor's slots draw with it)
+        // placed inside the editor's slots draw with it), its default colour
+        // translated so the editor's buttons still see a default
         final hostIcons =
             context.dependOnInheritedWidgetOfExactType<IconTheme>()?.data;
         result = Theme(
           data: bridged,
           child: hostIcons == null
               ? result
-              : IconTheme(data: hostIcons, child: result),
+              : IconTheme(
+                  data: pdfLegacyHostIconTheme(hostIcons), child: result),
         );
       } else {
         result = Theme(data: _derivedTheme(context), child: result);
