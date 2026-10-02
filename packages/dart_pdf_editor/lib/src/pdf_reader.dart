@@ -159,6 +159,7 @@ class PdfReader extends StatefulWidget {
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.presenter,
     this.headerBuilder,
+    this.viewerShortcuts,
   })  : source = null,
         options = const PdfSourceLoadOptions(
           firstPaintPages: 1,
@@ -219,6 +220,7 @@ class PdfReader extends StatefulWidget {
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.presenter,
     this.headerBuilder,
+    this.viewerShortcuts,
   }) : bytes = null;
 
   /// The PDF to show. Replacing it (by identity) opens the new
@@ -281,6 +283,10 @@ class PdfReader extends StatefulWidget {
   /// ([PdfHeaderParts.stock]). Ignored when [PdfReaderFeatures.headerBar]
   /// is off.
   final PdfHeaderBuilder? headerBuilder;
+
+  /// The viewer's key bindings - see [PdfViewer.shortcuts]. Null keeps the
+  /// stock ones ([pdfViewerDefaultShortcuts]).
+  final Map<ShortcutActivator, Intent>? viewerShortcuts;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in [preferences]). Null
@@ -716,6 +722,7 @@ class _PdfReaderState extends State<PdfReader> {
                           pageRasterCachePolicy: widget.pageRasterCachePolicy,
                           pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                           documentId: _documentKey,
+                          shortcuts: widget.viewerShortcuts,
                         ),
                 ),
                 bottomSheets: [
@@ -788,6 +795,7 @@ class _PdfReaderState extends State<PdfReader> {
         pageColor: widget.pageColor,
         viewerTheme: widget.viewerTheme,
         headerBuilder: widget.headerBuilder,
+        viewerShortcuts: widget.viewerShortcuts,
         // The first-paint buffer only holds the first page(s); its later pages
         // render blank (and its text extracts empty). Keep the persistent
         // content-keyed caches off until the full buffer lands so those blanks

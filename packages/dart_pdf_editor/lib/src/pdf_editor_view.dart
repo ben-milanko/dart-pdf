@@ -286,6 +286,7 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.theme,
     this.headerBuilder,
+    this.viewerShortcuts,
     this.rasterCache,
     this.textCache,
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
@@ -392,6 +393,7 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.theme,
     this.headerBuilder,
+    this.viewerShortcuts,
     this.rasterCache,
     this.textCache,
     this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
@@ -742,6 +744,10 @@ class PdfEditorView extends StatefulWidget {
   /// [PdfEditorFeatures.headerBar] still gates it.
   final PdfHeaderBuilder? headerBuilder;
 
+  /// The viewer's key bindings - see [PdfViewer.shortcuts]. Null keeps the
+  /// stock ones ([pdfViewerDefaultShortcuts]).
+  final Map<ShortcutActivator, Intent>? viewerShortcuts;
+
   @override
   State<PdfEditorView> createState() => _PdfEditorViewState();
 }
@@ -1030,6 +1036,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         viewerTheme: widget.viewerTheme,
         theme: widget.theme,
         headerBuilder: widget.headerBuilder,
+        viewerShortcuts: widget.viewerShortcuts,
         // The first-paint buffer only holds the first page(s); its later pages
         // render blank (and its text extracts empty). Keep the persistent
         // content-keyed caches off until the full buffer lands so those blanks
@@ -1905,6 +1912,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageRasterCachePolicy: widget.pageRasterCachePolicy,
                         pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                         documentId: _documentKey,
+                        shortcuts: widget.viewerShortcuts,
                         // while the full-area page grid overlays the viewer,
                         // pause the viewer entirely: its (invisible) page
                         // renders and preview prerender both compete for the

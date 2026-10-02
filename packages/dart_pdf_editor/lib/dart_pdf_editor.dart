@@ -108,6 +108,7 @@ export 'src/pdf_reader.dart';
 export 'src/live_raster_budget.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
+export 'src/viewer_intents.dart';
 export 'src/performance_policy.dart';
 export 'src/preview_cache.dart';
 export 'src/raster_cache.dart';
