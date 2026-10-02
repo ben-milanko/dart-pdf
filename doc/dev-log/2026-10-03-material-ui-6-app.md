@@ -85,9 +85,9 @@ and the analyzer enforces that.
     moved with the mix.
   - **toolbar-arm vs PR A's base** (`db440c97`, everything legacy): jankCount
     18 -> 20 (runs 13-22 vs 18-19), per-arm build +9.9%, buildP50 1.46 ->
-    2.00 ms, arm P95/max faster. So the extra jank PR A saw is **not** the
-    legacy host: a material_ui host keeps it. It travels with the chrome
-    being material_ui widgets. Not chased here.
+    2.00 ms, arm P95/max faster. ~~So the extra jank PR A saw is **not**
+    the legacy host.~~ Wrong baseline - see "The toolbar-arm 'regression'"
+    below: with the base built on its own legacy harness the A/B is flat.
   - **wheel-text vs PR A**: flat (buildMax -0.1%, jank 6 -> 5, open -5%).
 - App release web (`flutter build web --release`): `main.dart.js`
   4,533,259 B vs 4,478,704 (+54.6 KB raw, +9.7 KB gzip): the splash's
@@ -111,5 +111,51 @@ and the analyzer enforces that.
 - The app could build with `--dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false`
   now (~12 KB of web JS) as `doc/migrating-to-6.md` suggests. That touches
   every release lane's build line, so it is left for its own change.
-- toolbar-arm's jank (+2 vs all-legacy) and per-arm build (+10%) under
-  material_ui.
+
+## The toolbar-arm "regression" (follow-up)
+
+The +10-14% per-arm build and +46% buildP50 vs `db440c97` were a
+measurement artefact, plus one real bug it pointed at (fixed in PR A).
+
+- **Deterministic first.** A throwaway widget test (not committed) mounted
+  `PdfEditorView` at 1400x900 and drove the 44 harness clicks with one
+  persistent mouse pointer on macOS, counting rebuilds per widget type
+  (`debugOnRebuildDirtyWidget`), paints (`debugOnProfilePaint`) and
+  build/layout/paint blocks (`FlutterTimeline.debugCollect`). All-legacy
+  (legacy app + `db440c97` editor) and this branch did the same work: 1144
+  frames each, rebuilds 69,523 vs 69,963 - the only difference the toolbar
+  card's new transparent `Material` (+88 rebuilds of its few widgets, +1,232
+  `RenderClipPath` paints). The material_ui sources of every hot widget
+  (`IconButton`, `ButtonStyleButton`, `InkWell`, `Material`, `Tooltip`,
+  `Theme`, `ThemeData`) are the 3.47.5 legacy code reformatted;
+  `StyleVariant` is declared but unused in 1.4.0, the splash factory default
+  is the same (`InkRipple` on web).
+- **The baseline was not all-legacy.** `bench.mjs` copies today's Dart
+  harness into the ref's worktree, so since this PR flipped the harness to
+  material_ui, a pre-6.0 ref ran as *legacy editor under a material_ui
+  MaterialApp*, a host it never shipped with. That hybrid does 12.7% fewer
+  rebuilds in the same test (60,703): the editor finds no legacy Theme and
+  its derived theme's buttons never change colour (the same identity
+  problem PR A's fix addresses, mirrored), so the 36 icon-tint
+  `AnimatedTheme` transitions - 200 ms of `ThemeData.lerp` + subtree
+  rebuild a frame each - never run. Profile-build Chrome traces of the two
+  bundles show exactly that: `ThemeData_lerp` 0 vs 2.8 ms self time per run,
+  `ThemeData` construction 3.7 -> 6.8 ms, plus the extra subtree builds and
+  paints; `Theme.of` itself identical (51.7 vs 53.6 ms incl.).
+- **Matched A/B** (`db440c97` built with its own legacy harness, 6
+  interleaved runs): buildP50 1.94 -> 1.98 ms (+1.7%), per-arm build 28.3
+  -> 28.8 ms (+1.7%), jank 16.5 -> 16. `bench.mjs` now does this itself
+  (`matchHarnessDesignLibrary`: if the ref's own harness imported
+  `package:flutter/material.dart`, the copied harness gets that import
+  back). `tool/perf.sh webdiff db440c97 toolbar-arm --iterations 6` with it:
+  buildP50 +0.9%, per-arm build -1.4%, jank 18 -> 18; toolbarArmMsP95
+  +23% is the known bimodal ~30/~47 ms mix (per-run values overlap fully).
+- **PR A's legacy-hosted numbers were the bug.** PR A's harness host is
+  legacy, and under a legacy host the editor's `IconButton`s ignored their
+  state colours (legacy `kDefaultIconDarkColor` is not *identical* to
+  material_ui's; see the PR A dev-log). So vs PR A this branch reads
+  buildP50 +46%, per-arm +15%: PR A's base skipped the tint transitions.
+  With the fix on PR A those transitions run under a legacy host too.
+- `wheel-text` vs PR A (1 run): buildMax -14%, jank 6 -> 5; the
+  wheelSoft* moves are one-run noise (wheelSharpPct 98 vs 97).
+
