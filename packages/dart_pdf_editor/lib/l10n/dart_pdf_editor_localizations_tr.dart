@@ -2347,4 +2347,24 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Düzeni sıfırla';
+
+  @override
+  String get tbToolbarMode => 'Araç çubukları';
+
+  @override
+  String get tbToolbarDocked => 'Kenarlara yerleştirilmiş';
+
+  @override
+  String get tbToolbarFloating => 'Sayfanın üzerinde yüzen';
+
+  @override
+  String get tbFloatingToolbar => 'Sayfanın üzerinde yüzdür';
+
+  @override
+  String get tbPropertiesHint =>
+      'Özelliklerini görmek için bir araç seçin veya bir işaretleme seçin';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Özellikler çubuğu seçimin eylemlerini ve aracın seçeneklerini ile stilini tek yerde gösterir.';
 }

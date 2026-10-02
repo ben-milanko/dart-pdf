@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "Pasek stylu trzyma kolor, obrys, krycie i czcionkę w jednym miejscu dla każdego narzędzia i zaznaczenia.",
   "tbToolbarLayoutToolBars": "Paski narzędzi",
   "tbToolbarLayoutToolBarsHint": "Pasek zadokowany przy krawędzi pozostaje tam otwarty. Z głównym paskiem otwiera się po wybraniu jego grupy.",
-  "tbToolbarLayoutReset": "Resetuj układ"
+  "tbToolbarLayoutReset": "Resetuj układ",
+  "tbToolbarMode": "Paski narzędzi",
+  "tbToolbarDocked": "Zadokowane przy krawędziach",
+  "tbToolbarFloating": "Unoszące się nad stroną",
+  "tbFloatingToolbar": "Unoś nad stroną",
+  "tbPropertiesHint": "Wybierz narzędzie lub zaznacz adnotację, aby zobaczyć jej właściwości",
+  "tbToolbarLayoutPropertiesHint": "Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia."
 }

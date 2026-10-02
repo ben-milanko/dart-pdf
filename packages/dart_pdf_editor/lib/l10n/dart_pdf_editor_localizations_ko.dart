@@ -2320,4 +2320,23 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => '레이아웃 재설정';
+
+  @override
+  String get tbToolbarMode => '도구 모음';
+
+  @override
+  String get tbToolbarDocked => '가장자리에 도킹';
+
+  @override
+  String get tbToolbarFloating => '페이지 위에 떠 있음';
+
+  @override
+  String get tbFloatingToolbar => '페이지 위에 띄우기';
+
+  @override
+  String get tbPropertiesHint => '도구를 고르거나 마크업을 선택하면 속성이 표시됩니다';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      '속성 막대는 선택 항목의 작업과 도구의 옵션 및 스타일을 한곳에 보여 줍니다.';
 }

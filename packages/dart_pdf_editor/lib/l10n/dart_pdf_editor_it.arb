@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "Una barra di stile riunisce colore, tratto, opacità e carattere in un unico posto per ogni strumento e selezione.",
   "tbToolbarLayoutToolBars": "Barre degli strumenti",
   "tbToolbarLayoutToolBarsHint": "Una barra agganciata a un bordo resta aperta lì. Con la barra principale, si apre quando scegli il suo gruppo.",
-  "tbToolbarLayoutReset": "Ripristina layout"
+  "tbToolbarLayoutReset": "Ripristina layout",
+  "tbToolbarMode": "Barre degli strumenti",
+  "tbToolbarDocked": "Agganciate ai bordi",
+  "tbToolbarFloating": "Fluttuanti sulla pagina",
+  "tbFloatingToolbar": "Fluttua sulla pagina",
+  "tbPropertiesHint": "Scegli uno strumento o seleziona un’annotazione per vederne le proprietà",
+  "tbToolbarLayoutPropertiesHint": "La barra delle proprietà riunisce le azioni della selezione e le opzioni e lo stile dello strumento."
 }

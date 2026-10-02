@@ -1602,7 +1602,9 @@ void main() {
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      final prefs = PdfEditingPreferences();
+      final prefs = PdfEditingPreferences()
+        ..toolbarFloating = true
+        ..toolbarDock = PdfPanelDock.bottom;
       addTearDown(prefs.dispose);
       await pump(
         tester,
@@ -1647,13 +1649,14 @@ void main() {
       expect(tester.getTopLeft(card).dy, lessThan(140));
     });
 
-    testWidgets('left toolbar is a vertical rail inside docked panels',
+    testWidgets('floating left toolbar is a vertical rail inside docked panels',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
+      prefs.toolbarFloating = true;
       prefs.toolbarDock = PdfPanelDock.left;
 
       await pump(
@@ -1716,7 +1719,8 @@ void main() {
       expect(contextualScroll.scrollDirection, Axis.vertical);
     });
 
-    testWidgets('right toolbar is a vertical rail inside docked panels',
+    testWidgets(
+        'floating right toolbar is a vertical rail inside docked panels',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1;
@@ -1725,6 +1729,7 @@ void main() {
       addTearDown(prefs.dispose);
       prefs.showThumbnailSidebar = false;
       prefs.showAnnotationSidebar = true;
+      prefs.toolbarFloating = true;
       prefs.toolbarDock = PdfPanelDock.right;
 
       await pump(
@@ -2329,14 +2334,39 @@ void main() {
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, greaterThanOrEqualTo(viewerBottom - 0.5));
       expect(
-          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 0);
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 12);
     });
 
-    testWidgets('wide: the editing toolbar floats over the viewer',
+    testWidgets('wide: the editing toolbar docks above the viewer',
         (tester) async {
-      // Above the breakpoint the toolbar is transparent floating cards -
-      // it sits over the bottom of the page (Acrobat/Bluebeam-style).
+      // Above the breakpoint the toolbars dock as solid bars along the top,
+      // taking their own space (Acrobat/Bluebeam-style) - nothing covers the
+      // page, so the viewer needs no scroll tail.
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      final bands = find.byKey(const ValueKey('pdf-editing-toolbar-band'));
+      expect(bands, findsNWidgets(2)); // main toolbar + properties bar
+      final viewerTop = tester.getRect(find.byType(PdfViewer)).top;
+      for (final band in bands.evaluate()) {
+        final rect = tester.getRect(
+            find.byElementPredicate((element) => identical(element, band)));
+        expect(rect.bottom, lessThanOrEqualTo(viewerTop + 0.5),
+            reason: 'a docked bar never overlaps the page');
+      }
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 12);
+    });
+
+    testWidgets('wide: the floating editing toolbar floats over the viewer',
+        (tester) async {
+      // Floating, the toolbar is transparent cards over the bottom of the
+      // page.
+      final prefs = PdfEditingPreferences()
+        ..toolbarFloating = true
+        ..toolbarDock = PdfPanelDock.bottom;
+      addTearDown(prefs.dispose);
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
 
       final toolbar = find.byType(PdfEditingToolbar);
       expect(toolbar, findsOneWidget);

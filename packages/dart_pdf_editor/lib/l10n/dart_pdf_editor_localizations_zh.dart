@@ -2309,6 +2309,24 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => '重置布局';
+
+  @override
+  String get tbToolbarMode => '工具栏';
+
+  @override
+  String get tbToolbarDocked => '停靠在边缘';
+
+  @override
+  String get tbToolbarFloating => '浮动在页面上';
+
+  @override
+  String get tbFloatingToolbar => '浮动在页面上';
+
+  @override
+  String get tbPropertiesHint => '选择工具或选中标记以查看其属性';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint => '属性栏在同一位置显示所选内容的操作以及工具的选项和样式。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4617,4 +4635,22 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbToolbarLayoutReset => '重設配置';
+
+  @override
+  String get tbToolbarMode => '工具列';
+
+  @override
+  String get tbToolbarDocked => '停駐在邊緣';
+
+  @override
+  String get tbToolbarFloating => '浮動在頁面上';
+
+  @override
+  String get tbFloatingToolbar => '浮動在頁面上';
+
+  @override
+  String get tbPropertiesHint => '選擇工具或選取標記以查看其屬性';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint => '屬性列在同一處顯示所選內容的操作，以及工具的選項和樣式。';
 }

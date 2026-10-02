@@ -3011,5 +3011,29 @@
   "tbToolbarLayoutReset": "Reset layout",
   "@tbToolbarLayoutReset": {
     "description": "Toolbar layout dialog button: restore the default toolbar arrangement."
+  },
+  "tbToolbarMode": "Toolbars",
+  "@tbToolbarMode": {
+    "description": "Toolbar layout dialog: picker for whether toolbars dock to the window edges or float over the page."
+  },
+  "tbToolbarDocked": "Docked to the edges",
+  "@tbToolbarDocked": {
+    "description": "Toolbar mode choice: solid toolbars attached to the window edges."
+  },
+  "tbToolbarFloating": "Floating over the page",
+  "@tbToolbarFloating": {
+    "description": "Toolbar mode choice: toolbars float as cards over the page."
+  },
+  "tbFloatingToolbar": "Float over the page",
+  "@tbFloatingToolbar": {
+    "description": "Toggle in the main toolbar's placement menu: float the toolbars over the page instead of docking them."
+  },
+  "tbPropertiesHint": "Pick a tool or select a markup to see its properties",
+  "@tbPropertiesHint": {
+    "description": "Shown in the docked properties bar while no tool or selection has properties."
+  },
+  "tbToolbarLayoutPropertiesHint": "The properties bar shows the selection's actions and the tool's options and style in one place.",
+  "@tbToolbarLayoutPropertiesHint": {
+    "description": "Toolbar layout dialog: explains the docked properties bar."
   }
 }

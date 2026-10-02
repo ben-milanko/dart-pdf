@@ -771,6 +771,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfViewerController get _viewer => _shell.viewer;
   PdfEditingPreferences get _prefs => _shell.preferences;
 
+  /// The margin the viewer leaves below the last page when no floating bar
+  /// covers the bottom of the viewer.
+  static const double _lastPageGap = 12;
+
   /// Whether any floating toolbar bar sits on the bottom edge, where the
   /// viewer needs a scrollable tail so the last page can clear it.
   static bool _toolbarUsesBottom(PdfEditingPreferences prefs) =>
@@ -1670,64 +1674,72 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final showToolbar = features.toolbar && sheets.isEmpty && !altView;
           final dockToolbar =
               showToolbar && constraints.maxWidth < pdfCompactWidthOf(context);
-          final toolbar = !showToolbar
+          // the stock toolbar docks as solid bands around the content (the
+          // default) or floats over the viewer; a host's own toolbar floats
+          final floatToolbar =
+              prefs.toolbarFloating || widget.toolbarBuilder != null;
+          PdfEditingToolbar stockToolbar({Widget? body}) => PdfEditingToolbar(
+                controller: session,
+                viewerController: _viewer,
+                // save lives in the header now, not the dock
+                textPrompt: widget.textPrompt ?? pdfPresentTextPrompt,
+                styledTextPrompt:
+                    widget.styledTextPrompt ?? pdfPresentStyledTextPrompt,
+                imagePicker: widget.imagePicker,
+                formImagePicker: widget.formImagePicker,
+                onExportSelectedContentImage:
+                    widget.onExportSelectedContentImage,
+                fontPicker: widget.fontPicker,
+                onExportCustomStamps: widget.onExportCustomStamps,
+                onImportCustomStamps: widget.onImportCustomStamps,
+                onAnnotationLibraryPressed: features.annotationLibrary
+                    ? () => prefs.showAnnotationLibraryPanel =
+                        !prefs.showAnnotationLibraryPanel
+                    : null,
+                palette: widget.palette,
+                tools: availableTools,
+                groups: features.toolGroups,
+                toolGroups: widget.toolGroups,
+                toolShortcuts: availableShortcuts,
+                showMarkup: features.markup,
+                showUndoRedo: features.undoRedo,
+                showColor: features.colorControls,
+                showStyle: features.styleControls,
+                showFlatten: features.flatten,
+                showColorProcessing: features.colorProcessing,
+                showAnnotationLibrary: features.annotationLibrary,
+                dock: prefs.toolbarDock,
+                // floating, the bars spread over the viewer's edges and
+                // each one can be dragged (or menu-placed) to another;
+                // the phone bar stays one fixed bar
+                onDock: dockToolbar ? null : (dock) => prefs.toolbarDock = dock,
+                onFloatingChanged: dockToolbar
+                    ? null
+                    : (value) => prefs.toolbarFloating = value,
+                overlay: !dockToolbar && body == null,
+                body: body,
+                toolStripDocks: prefs.toolStripDocks,
+                onToolStripDock: dockToolbar ? null : prefs.setToolStripDock,
+                styleBarDock: prefs.styleBarDock,
+                onStyleBarDock:
+                    dockToolbar ? null : (dock) => prefs.styleBarDock = dock,
+                compact: dockToolbar,
+                cardAlignment: switch (prefs.toolbarDock) {
+                  PdfPanelDock.left => Alignment.centerLeft,
+                  PdfPanelDock.right => Alignment.centerRight,
+                  PdfPanelDock.top || PdfPanelDock.bottom => Alignment.center,
+                },
+                leading: widget.toolbarLeading,
+                trailing: widget.toolbarTrailing,
+              );
+          final toolbar = !showToolbar || (!dockToolbar && !floatToolbar)
               ? null
               : widget.toolbarBuilder?.call(context, session, _viewer) ??
-                  PdfEditingToolbar(
-                    controller: session,
-                    viewerController: _viewer,
-                    // save lives in the header now, not the dock
-                    textPrompt: widget.textPrompt ?? pdfPresentTextPrompt,
-                    styledTextPrompt:
-                        widget.styledTextPrompt ?? pdfPresentStyledTextPrompt,
-                    imagePicker: widget.imagePicker,
-                    formImagePicker: widget.formImagePicker,
-                    onExportSelectedContentImage:
-                        widget.onExportSelectedContentImage,
-                    fontPicker: widget.fontPicker,
-                    onExportCustomStamps: widget.onExportCustomStamps,
-                    onImportCustomStamps: widget.onImportCustomStamps,
-                    onAnnotationLibraryPressed: features.annotationLibrary
-                        ? () => prefs.showAnnotationLibraryPanel =
-                            !prefs.showAnnotationLibraryPanel
-                        : null,
-                    palette: widget.palette,
-                    tools: availableTools,
-                    groups: features.toolGroups,
-                    toolGroups: widget.toolGroups,
-                    toolShortcuts: availableShortcuts,
-                    showMarkup: features.markup,
-                    showUndoRedo: features.undoRedo,
-                    showColor: features.colorControls,
-                    showStyle: features.styleControls,
-                    showFlatten: features.flatten,
-                    showColorProcessing: features.colorProcessing,
-                    showAnnotationLibrary: features.annotationLibrary,
-                    dock: prefs.toolbarDock,
-                    // floating, the bars spread over the viewer's edges and
-                    // each one can be dragged (or menu-placed) to another;
-                    // the phone bar stays one fixed bar
-                    onDock:
-                        dockToolbar ? null : (dock) => prefs.toolbarDock = dock,
-                    overlay: !dockToolbar,
-                    toolStripDocks: prefs.toolStripDocks,
-                    onToolStripDock:
-                        dockToolbar ? null : prefs.setToolStripDock,
-                    styleBarDock: prefs.styleBarDock,
-                    onStyleBarDock: dockToolbar
-                        ? null
-                        : (dock) => prefs.styleBarDock = dock,
-                    compact: dockToolbar,
-                    cardAlignment: switch (prefs.toolbarDock) {
-                      PdfPanelDock.left => Alignment.centerLeft,
-                      PdfPanelDock.right => Alignment.centerRight,
-                      PdfPanelDock.top ||
-                      PdfPanelDock.bottom =>
-                        Alignment.center,
-                    },
-                    leading: widget.toolbarLeading,
-                    trailing: widget.toolbarTrailing,
-                  );
+                  stockToolbar();
+          final barsDocked = showToolbar && !dockToolbar && !floatToolbar;
+          final toolbarFrame = barsDocked
+              ? (Widget content) => stockToolbar(body: content)
+              : null;
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             group: PdfShellControlGroup.actions,
@@ -1881,16 +1893,23 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.markup)),
-                        // The desktop toolbar floats over the viewer. Leave a
-                        // scrollable tail tall enough for its dock and
-                        // contextual strip, so the last page can move fully
-                        // clear of the controls instead of being trapped
-                        // underneath them.
+                        // A floating toolbar on the bottom edge covers the
+                        // viewer: leave a scrollable tail tall enough for its
+                        // bars, so the last page can move fully clear of them
+                        // instead of being trapped underneath. Otherwise (the
+                        // docked bars take their own space) a one-gap margin
+                        // below the last page. Never the bare page spacing:
+                        // with semantics on, a page fitted flush to that
+                        // exact extent left a stale semantics node behind on
+                        // a revision swap ('node.built' - the app's Save As
+                        // and print flows), which a floating toolbar on the
+                        // top edge already hit before docking was the default.
                         trailingPadding: showToolbar &&
                                 !dockToolbar &&
+                                floatToolbar &&
                                 _toolbarUsesBottom(prefs)
                             ? 144
-                            : 0,
+                            : _lastPageGap,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: availableShortcuts,
@@ -1935,7 +1954,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 // the stock toolbar lays its bars out on every edge itself
                 floatingToolbarFillsViewer: widget.toolbarBuilder == null,
                 dockedToolbar: toolbar != null && dockToolbar ? toolbar : null,
-                onToolbarDock: toolbar != null && !dockToolbar
+                toolbarFrame: toolbarFrame,
+                onToolbarDock: (toolbar != null || barsDocked) && !dockToolbar
                     ? (dock) => prefs.toolbarDock = dock
                     : null,
               ),

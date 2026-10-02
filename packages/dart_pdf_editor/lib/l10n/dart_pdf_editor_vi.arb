@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "Thanh kiểu giữ màu, nét, độ mờ và phông chữ ở một chỗ cho mọi công cụ và vùng chọn.",
   "tbToolbarLayoutToolBars": "Thanh công cụ",
   "tbToolbarLayoutToolBarsHint": "Thanh công cụ neo vào một cạnh sẽ luôn mở ở đó. Khi đi cùng thanh chính, nó mở khi bạn chọn nhóm của nó.",
-  "tbToolbarLayoutReset": "Đặt lại bố cục"
+  "tbToolbarLayoutReset": "Đặt lại bố cục",
+  "tbToolbarMode": "Thanh công cụ",
+  "tbToolbarDocked": "Neo vào các cạnh",
+  "tbToolbarFloating": "Nổi trên trang",
+  "tbFloatingToolbar": "Nổi trên trang",
+  "tbPropertiesHint": "Chọn công cụ hoặc chọn một chú thích để xem thuộc tính",
+  "tbToolbarLayoutPropertiesHint": "Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ."
 }

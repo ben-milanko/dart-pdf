@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "樣式列將顏色、筆畫、不透明度和字型集中在同一處，適用於每個工具和選取範圍。",
   "tbToolbarLayoutToolBars": "工具列",
   "tbToolbarLayoutToolBarsHint": "停駐在邊緣的工具列會一直在那裡開啟。隨主工具列時，選擇其群組才會開啟。",
-  "tbToolbarLayoutReset": "重設配置"
+  "tbToolbarLayoutReset": "重設配置",
+  "tbToolbarMode": "工具列",
+  "tbToolbarDocked": "停駐在邊緣",
+  "tbToolbarFloating": "浮動在頁面上",
+  "tbFloatingToolbar": "浮動在頁面上",
+  "tbPropertiesHint": "選擇工具或選取標記以查看其屬性",
+  "tbToolbarLayoutPropertiesHint": "屬性列在同一處顯示所選內容的操作，以及工具的選項和樣式。"
 }

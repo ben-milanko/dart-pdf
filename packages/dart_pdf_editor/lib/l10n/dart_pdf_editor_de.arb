@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "Eine Stilleiste hält Farbe, Strich, Deckkraft und Schrift für jedes Werkzeug und jede Auswahl an einem Ort.",
   "tbToolbarLayoutToolBars": "Werkzeugleisten",
   "tbToolbarLayoutToolBarsHint": "Eine an einen Rand angedockte Werkzeugleiste bleibt dort geöffnet. Mit der Hauptsymbolleiste öffnet sie sich, wenn Sie ihre Gruppe wählen.",
-  "tbToolbarLayoutReset": "Layout zurücksetzen"
+  "tbToolbarLayoutReset": "Layout zurücksetzen",
+  "tbToolbarMode": "Symbolleisten",
+  "tbToolbarDocked": "An den Rändern angedockt",
+  "tbToolbarFloating": "Über der Seite schwebend",
+  "tbFloatingToolbar": "Über der Seite schweben",
+  "tbPropertiesHint": "Wählen Sie ein Werkzeug oder eine Markierung, um ihre Eigenschaften zu sehen",
+  "tbToolbarLayoutPropertiesHint": "Die Eigenschaftenleiste zeigt Aktionen der Auswahl sowie Optionen und Stil des Werkzeugs an einem Ort."
 }

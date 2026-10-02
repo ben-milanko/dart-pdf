@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "スタイルバーは、どのツールや選択でも色・線・不透明度・フォントを同じ場所にまとめます。",
   "tbToolbarLayoutToolBars": "ツールバー",
   "tbToolbarLayoutToolBarsHint": "端にドッキングしたツールバーはそこに開いたままになります。メインツールバーと一緒の場合は、グループを選ぶと開きます。",
-  "tbToolbarLayoutReset": "レイアウトをリセット"
+  "tbToolbarLayoutReset": "レイアウトをリセット",
+  "tbToolbarMode": "ツールバー",
+  "tbToolbarDocked": "端にドッキング",
+  "tbToolbarFloating": "ページ上にフローティング",
+  "tbFloatingToolbar": "ページ上にフローティング",
+  "tbPropertiesHint": "ツールを選ぶか注釈を選択するとプロパティが表示されます",
+  "tbToolbarLayoutPropertiesHint": "プロパティバーには、選択範囲の操作とツールのオプションやスタイルがまとめて表示されます。"
 }

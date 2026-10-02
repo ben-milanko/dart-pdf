@@ -2345,4 +2345,24 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'लेआउट रीसेट करें';
+
+  @override
+  String get tbToolbarMode => 'टूलबार';
+
+  @override
+  String get tbToolbarDocked => 'किनारों पर डॉक';
+
+  @override
+  String get tbToolbarFloating => 'पेज के ऊपर तैरते हुए';
+
+  @override
+  String get tbFloatingToolbar => 'पेज के ऊपर तैराएँ';
+
+  @override
+  String get tbPropertiesHint =>
+      'गुण देखने के लिए कोई टूल चुनें या कोई मार्कअप चुनें';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'गुण बार चयन की क्रियाएँ और टूल के विकल्प व स्टाइल एक ही जगह दिखाता है।';
 }

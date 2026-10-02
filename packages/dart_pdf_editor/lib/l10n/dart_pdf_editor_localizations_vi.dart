@@ -2340,4 +2340,24 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Đặt lại bố cục';
+
+  @override
+  String get tbToolbarMode => 'Thanh công cụ';
+
+  @override
+  String get tbToolbarDocked => 'Neo vào các cạnh';
+
+  @override
+  String get tbToolbarFloating => 'Nổi trên trang';
+
+  @override
+  String get tbFloatingToolbar => 'Nổi trên trang';
+
+  @override
+  String get tbPropertiesHint =>
+      'Chọn công cụ hoặc chọn một chú thích để xem thuộc tính';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ.';
 }

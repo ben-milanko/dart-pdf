@@ -2351,4 +2351,24 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Indeling herstellen';
+
+  @override
+  String get tbToolbarMode => 'Werkbalken';
+
+  @override
+  String get tbToolbarDocked => 'Vastgezet aan de randen';
+
+  @override
+  String get tbToolbarFloating => 'Zwevend boven de pagina';
+
+  @override
+  String get tbFloatingToolbar => 'Boven de pagina laten zweven';
+
+  @override
+  String get tbPropertiesHint =>
+      'Kies een gereedschap of selecteer een markering om de eigenschappen te zien';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek.';
 }

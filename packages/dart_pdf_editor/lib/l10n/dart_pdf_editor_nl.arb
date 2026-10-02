@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "Een stijlbalk houdt kleur, lijn, dekking en lettertype op één plek voor elk gereedschap en elke selectie.",
   "tbToolbarLayoutToolBars": "Werkbalken",
   "tbToolbarLayoutToolBarsHint": "Een aan een rand gekoppelde werkbalk blijft daar open. Bij de hoofdwerkbalk opent hij wanneer je zijn groep kiest.",
-  "tbToolbarLayoutReset": "Indeling herstellen"
+  "tbToolbarLayoutReset": "Indeling herstellen",
+  "tbToolbarMode": "Werkbalken",
+  "tbToolbarDocked": "Vastgezet aan de randen",
+  "tbToolbarFloating": "Zwevend boven de pagina",
+  "tbFloatingToolbar": "Boven de pagina laten zweven",
+  "tbPropertiesHint": "Kies een gereedschap of selecteer een markering om de eigenschappen te zien",
+  "tbToolbarLayoutPropertiesHint": "De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek."
 }

@@ -435,13 +435,17 @@ UI control seams (non-breaking, ahead of the 6.0 material_ui switch): tokens
 runs under `CupertinoApp`/`WidgetsApp`; new widgets-only code goes in
 `lib/src/design/`, and `tool/check_design_imports.dart` ratchets Material use
 down. See doc/dev-log/2026-10-02-editor-ui-control-seams.md.
-Toolbar layout: the main toolbar, each group's tool bar and an optional
-style bar dock independently (`PdfEditingToolbar(overlay:, toolStripDocks:,
-styleBarDock:)`, prefs `toolStripDock`/`styleBarDock`); a docked tool bar is
-a pinned palette, the style bar targets selection-then-armed-tool, and each
-bar's grip drags to an edge or clicks for a placement menu. Bars are built
-inside `_onEdge`, so read `_stripAxis` eagerly, never inside a
-`LayoutBuilder`/`Builder` callback. See
+Toolbar layout: docked by default - solid bands along the window edges
+that take layout space (`PdfEditingToolbar(body:)`, wired through
+`PdfShellPanelLayout.toolbarFrame`, whose content carries a GlobalKey so the
+viewer keeps its state as the frame comes and goes): the main toolbar (top by
+default, or a side rail), an always-present fixed-height properties bar
+(the open group's tools, then the selection's or armed tool's
+options + style), and tool bars pinned to edges of their own
+(`toolStripDocks`). `prefs.toolbarFloating` brings back the floating cards
+(`overlay:`). Every bar's grip drags to an edge or clicks for a placement
+menu. Bars are built inside `_onEdge`, so read `_stripAxis` eagerly, never
+inside a `LayoutBuilder`/`Builder` callback. See
 doc/dev-log/2026-10-02-dockable-tool-bars-style-bar.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no

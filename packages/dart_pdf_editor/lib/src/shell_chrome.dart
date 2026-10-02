@@ -70,6 +70,7 @@ class PdfShellPanelLayout extends StatefulWidget {
     this.floatingToolbarDock = PdfPanelDock.bottom,
     this.floatingToolbarFillsViewer = false,
     this.dockedToolbar,
+    this.toolbarFrame,
     this.onPanelDock,
     this.onToolbarDock,
   });
@@ -113,6 +114,12 @@ class PdfShellPanelLayout extends StatefulWidget {
   /// A toolbar that consumes layout space below the content area.
   final Widget? dockedToolbar;
 
+  /// Wraps the content area (the docked panels and the viewer) in a toolbar
+  /// that docks its bars as solid bands around it - the stock toolbar's
+  /// docked layout ([PdfEditingToolbar.body]). The content keeps its state
+  /// (the viewer its scroll position) as the frame comes and goes.
+  final Widget Function(Widget content)? toolbarFrame;
+
   /// Redocks the given panel to the dropped-on edge. Null disables the
   /// drag-to-redock affordance (panels then show no move handle).
   final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
@@ -126,6 +133,11 @@ class PdfShellPanelLayout extends StatefulWidget {
 }
 
 class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
+  // The content moves in and out of the toolbar frame (docked bars come and
+  // go with the page grid, the bottom sheets, a compact width, the floating
+  // mode); the key carries the viewer's state - its scroll position above
+  // all - across the move.
+  final _contentKey = GlobalKey(debugLabel: 'pdf-shell-content');
   bool _draggingPanel = false;
   bool _draggingToolbar = false;
 
@@ -197,11 +209,15 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       ),
       ...widget.trailingPanels,
     ]);
-    final stacked = Column(children: [
-      ...widget.topPanels,
-      Expanded(child: row),
-      ...widget.bottomPanels,
-    ]);
+    final Widget docked = KeyedSubtree(
+      key: _contentKey,
+      child: Column(children: [
+        ...widget.topPanels,
+        Expanded(child: row),
+        ...widget.bottomPanels,
+      ]),
+    );
+    final stacked = widget.toolbarFrame?.call(docked) ?? docked;
     final content = Stack(children: [
       Positioned.fill(child: stacked),
       ...widget.overlays,

@@ -4257,6 +4257,42 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Reset layout'**
   String get tbToolbarLayoutReset;
+
+  /// Toolbar layout dialog: picker for whether toolbars dock to the window edges or float over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Toolbars'**
+  String get tbToolbarMode;
+
+  /// Toolbar mode choice: solid toolbars attached to the window edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Docked to the edges'**
+  String get tbToolbarDocked;
+
+  /// Toolbar mode choice: toolbars float as cards over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Floating over the page'**
+  String get tbToolbarFloating;
+
+  /// Toggle in the main toolbar's placement menu: float the toolbars over the page instead of docking them.
+  ///
+  /// In en, this message translates to:
+  /// **'Float over the page'**
+  String get tbFloatingToolbar;
+
+  /// Shown in the docked properties bar while no tool or selection has properties.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a tool or select a markup to see its properties'**
+  String get tbPropertiesHint;
+
+  /// Toolbar layout dialog: explains the docked properties bar.
+  ///
+  /// In en, this message translates to:
+  /// **'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.'**
+  String get tbToolbarLayoutPropertiesHint;
 }
 
 class _DartPdfEditorLocalizationsDelegate

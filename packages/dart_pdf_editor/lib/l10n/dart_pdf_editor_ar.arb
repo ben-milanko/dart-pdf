@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "يجمع شريط النمط اللون والحد والشفافية والخط في مكان واحد لكل أداة وتحديد.",
   "tbToolbarLayoutToolBars": "أشرطة الأدوات",
   "tbToolbarLayoutToolBarsHint": "يبقى شريط الأدوات المرسى على حافة مفتوحًا هناك. ومع الشريط الرئيسي يُفتح عند اختيار مجموعته.",
-  "tbToolbarLayoutReset": "إعادة تعيين التخطيط"
+  "tbToolbarLayoutReset": "إعادة تعيين التخطيط",
+  "tbToolbarMode": "أشرطة الأدوات",
+  "tbToolbarDocked": "مرساة على الحواف",
+  "tbToolbarFloating": "عائمة فوق الصفحة",
+  "tbFloatingToolbar": "تعويم فوق الصفحة",
+  "tbPropertiesHint": "اختر أداة أو حدّد تعليقًا لعرض خصائصه",
+  "tbToolbarLayoutPropertiesHint": "يعرض شريط الخصائص إجراءات التحديد وخيارات الأداة ونمطها في مكان واحد."
 }

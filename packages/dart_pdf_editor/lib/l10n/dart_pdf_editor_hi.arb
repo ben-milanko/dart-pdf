@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "स्टाइल बार हर टूल और चयन के लिए रंग, स्ट्रोक, अपारदर्शिता और फ़ॉन्ट को एक ही जगह रखता है।",
   "tbToolbarLayoutToolBars": "टूल बार",
   "tbToolbarLayoutToolBarsHint": "किनारे पर डॉक किया गया टूल बार वहीं खुला रहता है। मुख्य टूलबार के साथ होने पर, समूह चुनने पर खुलता है।",
-  "tbToolbarLayoutReset": "लेआउट रीसेट करें"
+  "tbToolbarLayoutReset": "लेआउट रीसेट करें",
+  "tbToolbarMode": "टूलबार",
+  "tbToolbarDocked": "किनारों पर डॉक",
+  "tbToolbarFloating": "पेज के ऊपर तैरते हुए",
+  "tbFloatingToolbar": "पेज के ऊपर तैराएँ",
+  "tbPropertiesHint": "गुण देखने के लिए कोई टूल चुनें या कोई मार्कअप चुनें",
+  "tbToolbarLayoutPropertiesHint": "गुण बार चयन की क्रियाएँ और टूल के विकल्प व स्टाइल एक ही जगह दिखाता है।"
 }

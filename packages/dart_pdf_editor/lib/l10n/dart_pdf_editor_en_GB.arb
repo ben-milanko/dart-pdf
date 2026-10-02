@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "A style bar keeps colour, stroke, opacity and font in one place for every tool and selection.",
   "tbToolbarLayoutToolBars": "Tool bars",
   "tbToolbarLayoutToolBarsHint": "A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.",
-  "tbToolbarLayoutReset": "Reset layout"
+  "tbToolbarLayoutReset": "Reset layout",
+  "tbToolbarMode": "Toolbars",
+  "tbToolbarDocked": "Docked to the edges",
+  "tbToolbarFloating": "Floating over the page",
+  "tbFloatingToolbar": "Float over the page",
+  "tbPropertiesHint": "Pick a tool or select a markup to see its properties",
+  "tbToolbarLayoutPropertiesHint": "The properties bar shows the selection's actions and the tool's options and style in one place."
 }

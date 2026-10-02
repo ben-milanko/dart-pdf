@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "Una barra de estilo reúne color, trazo, opacidad y fuente en un solo lugar para cada herramienta y selección.",
   "tbToolbarLayoutToolBars": "Barras de herramientas",
   "tbToolbarLayoutToolBarsHint": "Una barra acoplada a un borde permanece abierta allí. Con la barra principal, se abre al elegir su grupo.",
-  "tbToolbarLayoutReset": "Restablecer diseño"
+  "tbToolbarLayoutReset": "Restablecer diseño",
+  "tbToolbarMode": "Barras de herramientas",
+  "tbToolbarDocked": "Acopladas a los bordes",
+  "tbToolbarFloating": "Flotando sobre la página",
+  "tbFloatingToolbar": "Flotar sobre la página",
+  "tbPropertiesHint": "Elige una herramienta o selecciona una marca para ver sus propiedades",
+  "tbToolbarLayoutPropertiesHint": "La barra de propiedades muestra en un solo lugar las acciones de la selección y las opciones y el estilo de la herramienta."
 }

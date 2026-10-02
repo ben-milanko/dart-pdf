@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "แถบสไตล์รวมสี เส้น ความทึบ และแบบอักษรไว้ที่เดียวสำหรับทุกเครื่องมือและทุกการเลือก",
   "tbToolbarLayoutToolBars": "แถบเครื่องมือ",
   "tbToolbarLayoutToolBarsHint": "แถบเครื่องมือที่เชื่อมไว้ที่ขอบจะเปิดค้างอยู่ตรงนั้น หากรวมกับแถบหลัก จะเปิดเมื่อคุณเลือกกลุ่มของมัน",
-  "tbToolbarLayoutReset": "รีเซ็ตเค้าโครง"
+  "tbToolbarLayoutReset": "รีเซ็ตเค้าโครง",
+  "tbToolbarMode": "แถบเครื่องมือ",
+  "tbToolbarDocked": "เชื่อมไว้ที่ขอบ",
+  "tbToolbarFloating": "ลอยอยู่เหนือหน้า",
+  "tbFloatingToolbar": "ลอยเหนือหน้า",
+  "tbPropertiesHint": "เลือกเครื่องมือหรือเลือกมาร์กอัปเพื่อดูคุณสมบัติ",
+  "tbToolbarLayoutPropertiesHint": "แถบคุณสมบัติแสดงการทำงานของสิ่งที่เลือก รวมถึงตัวเลือกและสไตล์ของเครื่องมือไว้ที่เดียว"
 }

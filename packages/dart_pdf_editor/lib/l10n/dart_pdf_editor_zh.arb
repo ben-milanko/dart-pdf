@@ -686,5 +686,11 @@
   "tbToolbarLayoutStyleHint": "样式栏将颜色、描边、不透明度和字体集中在同一位置，适用于每个工具和选区。",
   "tbToolbarLayoutToolBars": "工具栏",
   "tbToolbarLayoutToolBarsHint": "停靠到边缘的工具栏会一直在那里打开。随主工具栏时，选择其分组才会打开。",
-  "tbToolbarLayoutReset": "重置布局"
+  "tbToolbarLayoutReset": "重置布局",
+  "tbToolbarMode": "工具栏",
+  "tbToolbarDocked": "停靠在边缘",
+  "tbToolbarFloating": "浮动在页面上",
+  "tbFloatingToolbar": "浮动在页面上",
+  "tbPropertiesHint": "选择工具或选中标记以查看其属性",
+  "tbToolbarLayoutPropertiesHint": "属性栏在同一位置显示所选内容的操作以及工具的选项和样式。"
 }

@@ -2339,6 +2339,26 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Reset layout';
+
+  @override
+  String get tbToolbarMode => 'Toolbars';
+
+  @override
+  String get tbToolbarDocked => 'Docked to the edges';
+
+  @override
+  String get tbToolbarFloating => 'Floating over the page';
+
+  @override
+  String get tbFloatingToolbar => 'Float over the page';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pick a tool or select a markup to see its properties';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4676,6 +4696,26 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbToolbarLayoutReset => 'Reset layout';
+
+  @override
+  String get tbToolbarMode => 'Toolbars';
+
+  @override
+  String get tbToolbarDocked => 'Docked to the edges';
+
+  @override
+  String get tbToolbarFloating => 'Floating over the page';
+
+  @override
+  String get tbFloatingToolbar => 'Float over the page';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pick a tool or select a markup to see its properties';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7013,4 +7053,24 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbToolbarLayoutReset => 'Reset layout';
+
+  @override
+  String get tbToolbarMode => 'Toolbars';
+
+  @override
+  String get tbToolbarDocked => 'Docked to the edges';
+
+  @override
+  String get tbToolbarFloating => 'Floating over the page';
+
+  @override
+  String get tbFloatingToolbar => 'Float over the page';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pick a tool or select a markup to see its properties';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
 }

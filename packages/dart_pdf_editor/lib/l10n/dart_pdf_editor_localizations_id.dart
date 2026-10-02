@@ -2350,4 +2350,24 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Atur ulang tata letak';
+
+  @override
+  String get tbToolbarMode => 'Toolbar';
+
+  @override
+  String get tbToolbarDocked => 'Ditambatkan ke tepi';
+
+  @override
+  String get tbToolbarFloating => 'Mengambang di atas halaman';
+
+  @override
+  String get tbFloatingToolbar => 'Mengambang di atas halaman';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pilih alat atau pilih markup untuk melihat propertinya';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Bilah properti menampilkan tindakan pilihan serta opsi dan gaya alat di satu tempat.';
 }

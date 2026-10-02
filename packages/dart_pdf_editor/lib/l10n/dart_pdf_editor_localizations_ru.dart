@@ -2389,4 +2389,24 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Сбросить расположение';
+
+  @override
+  String get tbToolbarMode => 'Панели инструментов';
+
+  @override
+  String get tbToolbarDocked => 'Закреплены у краёв';
+
+  @override
+  String get tbToolbarFloating => 'Плавают над страницей';
+
+  @override
+  String get tbFloatingToolbar => 'Плавать над страницей';
+
+  @override
+  String get tbPropertiesHint =>
+      'Выберите инструмент или выделите пометку, чтобы увидеть её свойства';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Панель свойств показывает в одном месте действия выделения, параметры и стиль инструмента.';
 }

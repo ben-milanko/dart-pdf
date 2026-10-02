@@ -2389,4 +2389,24 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'Resetuj układ';
+
+  @override
+  String get tbToolbarMode => 'Paski narzędzi';
+
+  @override
+  String get tbToolbarDocked => 'Zadokowane przy krawędziach';
+
+  @override
+  String get tbToolbarFloating => 'Unoszące się nad stroną';
+
+  @override
+  String get tbFloatingToolbar => 'Unoś nad stroną';
+
+  @override
+  String get tbPropertiesHint =>
+      'Wybierz narzędzie lub zaznacz adnotację, aby zobaczyć jej właściwości';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia.';
 }

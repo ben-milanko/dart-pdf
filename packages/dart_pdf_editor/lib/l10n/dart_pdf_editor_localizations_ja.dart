@@ -2319,4 +2319,23 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbToolbarLayoutReset => 'レイアウトをリセット';
+
+  @override
+  String get tbToolbarMode => 'ツールバー';
+
+  @override
+  String get tbToolbarDocked => '端にドッキング';
+
+  @override
+  String get tbToolbarFloating => 'ページ上にフローティング';
+
+  @override
+  String get tbFloatingToolbar => 'ページ上にフローティング';
+
+  @override
+  String get tbPropertiesHint => 'ツールを選ぶか注釈を選択するとプロパティが表示されます';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'プロパティバーには、選択範囲の操作とツールのオプションやスタイルがまとめて表示されます。';
 }

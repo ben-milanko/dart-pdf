@@ -221,7 +221,10 @@ class PdfEditingPreferences extends ChangeNotifier
   PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
   PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
   PdfPanelDock _annotationLibraryPanelDock = PdfPanelDock.right;
-  PdfPanelDock _toolbarDock = PdfPanelDock.bottom;
+  PdfPanelDock _toolbarDock = PdfPanelDock.top;
+  // Docked (solid bands along the window edges, the default) or floating
+  // (cards over the page).
+  bool _toolbarFloating = false;
   // Tool bars pinned to an edge of their own, by group. A group absent here
   // rides with the main toolbar and shows only while its group is open.
   final Map<PdfEditToolGroup, PdfPanelDock> _toolStripDocks = {};
@@ -480,6 +483,8 @@ class PdfEditingPreferences extends ChangeNotifier
       _propertiesPanelDock =
           _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
       _toolbarDock = _readDock(store, 'toolbarDock', _toolbarDock);
+      _toolbarFloating =
+          store.getBool('${_prefix}toolbarFloating') ?? _toolbarFloating;
       for (final group in PdfEditToolGroup.values) {
         final dock = PdfPanelDock.values.asNameMap()[
             store.getString('${_prefix}toolStripDock.${group.name}')];
@@ -1729,7 +1734,8 @@ class PdfEditingPreferences extends ChangeNotifier
     _setDock('annotationLibraryPanelDock', value);
   }
 
-  /// Which edge the floating editing toolbar is attached to. Persisted so a
+  /// Which edge the main editing toolbar is docked to (or, with
+  /// [toolbarFloating], floats along). Defaults to the top. Persisted so a
   /// dragged toolbar returns to the same edge in later sessions. Compact
   /// layouts still use their fixed bottom bar regardless of this preference.
   PdfPanelDock get toolbarDock => _toolbarDock;
@@ -1781,10 +1787,25 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
-  /// Puts the main toolbar back on the bottom edge, returns every tool bar to
-  /// it, and moves the style controls back inside the tool bars.
+  /// Whether the editing toolbars float as cards over the page instead of
+  /// docking as solid bars along the window edges (the default, like the
+  /// toolbars of desktop PDF editors). Compact layouts always use their
+  /// fixed bottom bar. Persisted.
+  bool get toolbarFloating => _toolbarFloating;
+
+  set toolbarFloating(bool value) {
+    if (value == _toolbarFloating) return;
+    _toolbarFloating = value;
+    _write((s) => s.setBool('${_prefix}toolbarFloating', value));
+    notifyListeners();
+  }
+
+  /// Docks the toolbars again with the main toolbar on the top edge, returns
+  /// every tool bar to it, and puts the style controls back in their default
+  /// place.
   void resetToolbarLayout() {
-    toolbarDock = PdfPanelDock.bottom;
+    toolbarFloating = false;
+    toolbarDock = PdfPanelDock.top;
     styleBarDock = null;
     for (final group in _toolStripDocks.keys.toList()) {
       setToolStripDock(group, null);
