@@ -6,7 +6,7 @@ resolution: workspace
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.24.0'
+  flutter: '>=3.44.0'
 
 dependencies:
   file_selector: ^1.0.3
@@ -15,13 +15,13 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
-  pdf_document: ^5.1.1
-  pdf_graphics: ^5.1.1
-  dart_pdf_editor: ^5.1.1
-  dart_pdf_editor_flutter_gpu: ^0.4.2
+  pdf_document: ^6.0.0
+  pdf_graphics: ^6.0.0
+  dart_pdf_editor: ^6.0.0
+  dart_pdf_editor_flutter_gpu: ^0.5.0
   # Optional bundled editor fonts + web render worker (registered in main()).
-  dart_pdf_editor_assets: ^5.1.1
-  pdf_ocr_vlm: ^5.1.1
+  dart_pdf_editor_assets: ^6.0.0
+  pdf_ocr_vlm: ^6.0.0
   share_plus: ^13.3.0
   url_launcher: ^6.3.0
   web: ^1.1.0
@@ -32,7 +32,7 @@ dev_dependencies:
     sdk: flutter
   image: ^4.10.1
   patrol: 4.10.0
-  pdf_test_fixtures: ^5.1.1
+  pdf_test_fixtures: ^6.0.0
   shared_preferences: ^2.3.0
 
 patrol:

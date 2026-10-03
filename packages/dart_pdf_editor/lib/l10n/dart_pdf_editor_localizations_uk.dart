@@ -2276,4 +2276,69 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Дозволити множинний вибір';
+
+  @override
+  String get searchFieldHint => 'Пошук';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Не вдалося відкрити документ: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Експорт сторінок';
+
+  @override
+  String get pageRangeExportConfirm => 'Експортувати';
+
+  @override
+  String get textStyleKeepFont => 'Не змінювати';
+
+  @override
+  String get guidesDialogTitle => 'Напрямні, прив’язка та лінійки';
+
+  @override
+  String get guidesSmartAlignment => 'Розумні напрямні вирівнювання';
+
+  @override
+  String get guidesPageRulers => 'Лінійки сторінки';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Показувати розміри в пунктах біля країв сторінки';
+
+  @override
+  String get guidesVerticalCursorLine => 'Вертикальна лінія курсора';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Горизонтальна лінія курсора';
+
+  @override
+  String get guidesSnapToGrid => 'Прив’язка до сітки';
+
+  @override
+  String get guidesSnapToGridHint => 'Утримуйте Alt, щоб вимкнути прив’язку';
+
+  @override
+  String get guidesShowGrid => 'Показувати лінії сітки';
+
+  @override
+  String get guidesShowGridHint => 'Лише на екрані; не додається до PDF';
+
+  @override
+  String get guidesGridSpacing => 'Крок сітки';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value пт';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Напрямні курсора та сітка';
+
+  @override
+  String get commandSaveAs => 'Зберегти як…';
+
+  @override
+  String get dialogDismiss => 'Закрити';
 }

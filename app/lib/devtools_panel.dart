@@ -56,6 +56,7 @@ class DevToolsPanel extends StatefulWidget {
     this.documentTitle,
     this.bottomSheet = false,
     this.gpuPreviewDownloads = _defaultGpuPreviewDownloads,
+    this.geometry,
   });
 
   final VoidCallback onClose;
@@ -78,6 +79,11 @@ class DevToolsPanel extends StatefulWidget {
   /// Native builds published beside a web preview, keyed by platform label.
   /// Empty URLs are omitted.
   final Map<String, String> gpuPreviewDownloads;
+
+  /// Set when the editor frames the panel (`PdfEditorView.extraPanels`):
+  /// the panel then builds only its content into that frame - the editor
+  /// owns the width, the grip, the dock and the close button.
+  final PdfSidebarPanelGeometry? geometry;
 
   @override
   State<DevToolsPanel> createState() => _DevToolsPanelState();
@@ -105,6 +111,9 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (widget.geometry case final geometry?) {
+      return _buildContent(theme, geometry);
+    }
     return widget.bottomSheet ? _buildBottomSheet(theme) : _buildDocked(theme);
   }
 
@@ -121,7 +130,14 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       bottomSheet: false,
       gripKey: const ValueKey('devtools-resize-grip'),
       onClose: widget.onClose,
-      builder: (context, geometry) => Material(
+      builder: (context, geometry) => _buildContent(theme, geometry),
+    );
+  }
+
+  /// The docked panel's content, in whichever frame holds it - its own
+  /// ([_buildDocked]) or the editor's.
+  Widget _buildContent(ThemeData theme, PdfSidebarPanelGeometry geometry) =>
+      Material(
         key: const ValueKey('devtools-panel'),
         color: theme.colorScheme.surfaceContainerLow,
         child: Column(
@@ -130,9 +146,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
             Expanded(child: _scrollBody(theme, geometry)),
           ],
         ),
-      ),
-    );
-  }
+      );
 
   /// Phone presentation: a rounded, height-capped card anchored to the bottom.
   /// The frame runs in [PdfSidebarPanelFrame.bottomSheet] mode (no grip, no
@@ -225,6 +239,12 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           12 + geometry.contentStartInset, 8, closeButton != null ? 4 : 12, 4),
       child: Row(
         children: [
+          // the editor's frame lets it be dragged to another edge
+          if (geometry.moveHandle(key: const ValueKey('devtools-move'))
+              case final handle?) ...[
+            handle,
+            const SizedBox(width: 4),
+          ],
           Icon(Icons.build_outlined,
               size: 18, color: theme.colorScheme.primary),
           const SizedBox(width: 8),
@@ -560,11 +580,12 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         title: Text(title),
         content: SizedBox(width: 420, child: Text(text)),
         actions: [
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: () => Navigator.of(dialogContext).pop(),
               child: TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          )),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Close'),
+              )),
         ],
       ),
     );

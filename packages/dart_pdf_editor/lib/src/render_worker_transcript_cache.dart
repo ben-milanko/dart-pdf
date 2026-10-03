@@ -434,6 +434,16 @@ class PdfWorkerTranscriptCache {
     _evictSuspended(null);
   }
 
+  /// A memory-pressure trim: drops the retained command graphs, which are
+  /// kept only so a repeat record skips the walk, on the same document.
+  ///
+  /// Keeps the text cache (a page's characters are small next to its command
+  /// graph, and search and selection would otherwise re-walk every page they
+  /// touch) and the suspended walk (work in progress on a page a preempted
+  /// request is about to resume, not reuse; it is dropped when that page
+  /// finishes or is displaced). The hit/miss counters carry on.
+  void trimRetained() => _entries.clear();
+
   /// Evicts the transcripts for [pages] only, or every transcript when [pages]
   /// is null (a structural / all-pages revision). A worker calls this when an
   /// incremental revision changes those pages: their transcripts are stale, but

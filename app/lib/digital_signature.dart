@@ -958,22 +958,24 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(appL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit:
+                (canSign && !_submitting) ? () => unawaited(_submit()) : null,
             child: FilledButton.icon(
-          key: const ValueKey('digital-signature-sign'),
-          onPressed:
-              (canSign && !_submitting) ? () => unawaited(_submit()) : null,
-          icon: _submitting
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.draw_outlined),
-          label: Text(_submitting
-              ? appL10n(context).appSigRefreshingSignIn
-              : appL10n(context).appSigSign),
-        )),
+              key: const ValueKey('digital-signature-sign'),
+              onPressed:
+                  (canSign && !_submitting) ? () => unawaited(_submit()) : null,
+              icon: _submitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.draw_outlined),
+              label: Text(_submitting
+                  ? appL10n(context).appSigRefreshingSignIn
+                  : appL10n(context).appSigSign),
+            )),
       ],
     );
   }

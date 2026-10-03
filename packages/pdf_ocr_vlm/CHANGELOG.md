@@ -1,5 +1,11 @@
 # Changelog
 
+## 6.0.0
+
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
+  matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44
+  (`ReorderableListView.onReorderItem`), so this strands nobody.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.

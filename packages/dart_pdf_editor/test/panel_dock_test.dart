@@ -135,7 +135,7 @@ void main() {
       );
 
       final list = tester.widget<ReorderableListView>(
-        find.byType(ReorderableListView),
+        find.byKey(const ValueKey('pdf-thumbnail-list')),
       );
       expect(list.scrollDirection, Axis.horizontal);
       final bar = tester.widget<PdfScrollbar>(
@@ -156,7 +156,7 @@ void main() {
       expect(second.dy, closeTo(first.dy, 0.5));
 
       final scrollable = find.descendant(
-        of: find.byType(ReorderableListView),
+        of: find.byKey(const ValueKey('pdf-thumbnail-list')),
         matching: find.byType(Scrollable),
       );
       await tester.drag(scrollable, const Offset(-240, 0));

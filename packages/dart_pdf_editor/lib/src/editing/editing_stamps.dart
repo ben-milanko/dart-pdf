@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -6,221 +5,23 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:intl/intl.dart' as intl;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
-import 'editing_color_picker.dart';
 import 'editing_controller.dart';
-import 'editing_signature.dart';
+import 'models/custom_stamp.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
-String _twoDigits(int value) => value.toString().padLeft(2, '0');
-
-String _fourDigits(int value) => value.toString().padLeft(4, '0');
-
-const _monthNames = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
-/// The abbreviated month name for [month] (1-12) in [localeName], falling back
-/// to the bundled English abbreviations.
-///
-/// `localeName == null` keeps the English default (the behavior for hosts that
-/// never register the localization delegate). When a locale is given but its
-/// `intl` date symbols aren't loaded yet - e.g. a plain unit test that never
-/// registered `flutter_localizations` - the lookup throws and we fall back to
-/// English rather than crash the stamp.
-String _monthAbbr(int month, String? localeName) {
-  if (localeName == null) return _monthNames[month - 1];
-  try {
-    return intl.DateFormat.MMM(localeName).format(DateTime(2000, month));
-  } catch (_) {
-    return _monthNames[month - 1];
-  }
-}
-
-/// The localized AM/PM marker for [value] in [localeName], falling back to
-/// English `AM`/`PM` (see [_monthAbbr] for the fallback rationale).
-String _dayPeriod(DateTime value, String? localeName) {
-  final fallback = value.hour < 12 ? 'AM' : 'PM';
-  if (localeName == null) return fallback;
-  try {
-    return intl.DateFormat('a', localeName).format(value);
-  } catch (_) {
-    return fallback;
-  }
-}
-
-/// Date formats used by the built-in `{{date}}` and `{{datetime}}` stamp
-/// template fields.
-enum PdfStampDateFormat {
-  iso,
-  dayMonthYear,
-  monthDayYear,
-  dayMonthNameYear,
-  monthNameDayYear;
-
-  /// Formats [value] for the stamp `{{date}}` field.
-  ///
-  /// [localeName] localizes the spelled-out month name (`dayMonthNameYear` /
-  /// `monthNameDayYear`); null keeps English. Numeric shapes ([iso] and the
-  /// slash forms) stay ASCII digits regardless - `iso` in particular is a
-  /// fixed technical format, not a localized one.
-  String format(DateTime value, {String? localeName}) {
-    final year = _fourDigits(value.year);
-    final month = _twoDigits(value.month);
-    final day = _twoDigits(value.day);
-    final monthName = _monthAbbr(value.month, localeName);
-    return switch (this) {
-      PdfStampDateFormat.iso => '$year-$month-$day',
-      PdfStampDateFormat.dayMonthYear => '$day/$month/$year',
-      PdfStampDateFormat.monthDayYear => '$month/$day/$year',
-      PdfStampDateFormat.dayMonthNameYear => '${value.day} $monthName $year',
-      PdfStampDateFormat.monthNameDayYear => '$monthName ${value.day}, $year',
-    };
-  }
-}
-
-/// Time formats used by the built-in `{{time}}` and `{{datetime}}` stamp
-/// template fields.
-enum PdfStampTimeFormat {
-  twentyFourHour,
-  twelveHour,
-  twentyFourHourSeconds,
-  twelveHourSeconds;
-
-  /// Formats [value] for the stamp `{{time}}` field.
-  ///
-  /// [localeName] localizes the AM/PM marker on the 12-hour shapes; null keeps
-  /// English. The 24-hour shapes carry no marker and are locale-independent.
-  String format(DateTime value, {String? localeName}) {
-    final hour = _twoDigits(value.hour);
-    final minute = _twoDigits(value.minute);
-    final second = _twoDigits(value.second);
-    final suffix = _dayPeriod(value, localeName);
-    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    return switch (this) {
-      PdfStampTimeFormat.twentyFourHour => '$hour:$minute',
-      PdfStampTimeFormat.twelveHour => '$hour12:$minute $suffix',
-      PdfStampTimeFormat.twentyFourHourSeconds => '$hour:$minute:$second',
-      PdfStampTimeFormat.twelveHourSeconds => '$hour12:$minute:$second $suffix',
-    };
-  }
-}
-
-/// A reusable rubber stamp: visual template plus optional app metadata.
-///
-/// Custom stamps are saved on the local device through
-/// [PdfEditingPreferences.customStamps], so they survive app restarts and
-/// are shared across documents. Host apps can also supply non-persisted stamps
-/// through [PdfEditingController.providedCustomStamps] or the editor shell's
-/// custom-stamps parameter. The stamp tool places the
-/// [PdfEditingController.activeStamp] with a tap; with none active it falls
-/// back to the classic flow (drag a box, type the caption).
-///
-/// Serializes to JSON so [PdfEditingPreferences] can persist it.
-class PdfCustomStamp {
-  const PdfCustomStamp({
-    required this.text,
-    required this.color,
-    this.template,
-    this.type,
-    this.tags = const [],
-  });
-
-  /// The caption drawn inside the stamp's rounded border.
-  final String text;
-
-  /// RGB border and caption color.
-  final int color;
-
-  /// Editable vector template for newer stamps. Null means this is a legacy
-  /// text-only stamp and should be rendered with the classic appearance.
-  final PdfStampTemplate? template;
-
-  /// App-defined stamp kind, e.g. "Approval", "Audit", or "Tested".
-  final String? type;
-
-  /// App-defined labels for filtering, grouping, or reporting stamps.
-  final List<String> tags;
-
-  bool hasTag(String tag) {
-    final normalized = tag.trim().toLowerCase();
-    if (normalized.isEmpty) return false;
-    return tags.any((value) => value.trim().toLowerCase() == normalized);
-  }
-
-  String encode() => jsonEncode({
-        'text': text,
-        'color': color,
-        if (template != null) 'template': template!.toJson(),
-        if (type != null && type!.trim().isNotEmpty) 'type': type,
-        if (tags.isNotEmpty) 'tags': tags,
-      });
-
-  /// Parses [encode]'s output; null for anything malformed.
-  static PdfCustomStamp? decode(String json) {
-    try {
-      final map = jsonDecode(json) as Map<String, dynamic>;
-      return PdfCustomStamp(
-        text: map['text'] as String,
-        color: map['color'] as int,
-        template: PdfStampTemplate.fromJson(map['template']),
-        type: map['type'] is String ? map['type'] as String : null,
-        tags: [
-          if (map['tags'] is List)
-            for (final tag in map['tags'] as List)
-              if (tag is String && tag.trim().isNotEmpty) tag
-        ],
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is PdfCustomStamp &&
-      other.text == text &&
-      other.color == color &&
-      other.template == template &&
-      other.type == type &&
-      _stringListEquals(other.tags, tags);
-
-  @override
-  int get hashCode => Object.hash(text, color, template, type,
-      Object.hashAll(tags.map((tag) => tag.trim().toLowerCase())));
-}
-
-/// Saves user-managed custom stamps somewhere outside the editor package.
-///
-/// The stock picker passes only [PdfEditingController.savedCustomStamps];
-/// host-provided stamps are managed by the host and are not exported here.
-typedef PdfStampExportCallback = Future<void> Function(
-  BuildContext context,
-  List<PdfCustomStamp> stamps,
-);
-
-/// Loads user-managed custom stamps from somewhere outside the editor package.
-///
-/// Return null when the user cancels. Returned stamps are merged into the
-/// saved custom stamp list, skipping exact duplicates already shown.
-typedef PdfStampImportCallback = Future<List<PdfCustomStamp>?> Function(
-  BuildContext context,
-);
+export 'models/custom_stamp.dart'
+    show
+        PdfCustomStamp,
+        PdfStampDateFormat,
+        PdfStampExportCallback,
+        PdfStampImportCallback,
+        PdfStampTimeFormat;
 
 /// Shows the stamp picker: choose the stamp the stamp tool places,
 /// create a new one, or delete saved ones. Selections apply directly to
@@ -230,8 +31,8 @@ Future<void> showPdfStampPicker(BuildContext context,
         PdfImagePicker? imagePicker,
         PdfStampExportCallback? onExportStamps,
         PdfStampImportCallback? onImportStamps}) =>
-    showPdfDialog<void>(
-      context: context,
+    pdfPresentDialog<void>(
+      context,
       builder: (context) => PdfStampPickerDialog(
         controller: controller,
         imagePicker: imagePicker,
@@ -374,11 +175,12 @@ class PdfStampPickerDialog extends StatelessWidget {
           onPressed: () => _create(context),
           child: Text(pdfL10n(context).stampNewStamp),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(),
             child: TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(pdfL10n(context).close),
-        )),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(pdfL10n(context).close),
+            )),
       ],
     );
   }
@@ -413,44 +215,42 @@ class _StampDateTimeFormatControls extends StatelessWidget {
         KeyedSubtree(
           key: ValueKey(
               'pdf-stamp-date-format-field-${controller.preferences.stampDateFormat.name}'),
-          child: DropdownButtonFormField<PdfStampDateFormat>(
+          child: PdfDropdown<PdfStampDateFormat>(
             key: const ValueKey('pdf-stamp-date-format'),
-            initialValue: controller.preferences.stampDateFormat,
+            value: controller.preferences.stampDateFormat,
             decoration:
                 InputDecoration(labelText: pdfL10n(context).stampDateFormat),
             items: [
               for (final format in PdfStampDateFormat.values)
-                DropdownMenuItem<PdfStampDateFormat>(
+                PdfDropdownItem<PdfStampDateFormat>(
                   key: ValueKey('pdf-stamp-date-format-${format.name}'),
                   value: format,
-                  child: Text(format.format(sample, localeName: localeName)),
+                  label: format.format(sample, localeName: localeName),
                 ),
             ],
-            onChanged: (value) {
-              if (value != null) controller.preferences.stampDateFormat = value;
-            },
+            onChanged: (value) =>
+                controller.preferences.stampDateFormat = value,
           ),
         ),
         const SizedBox(height: 8),
         KeyedSubtree(
           key: ValueKey(
               'pdf-stamp-time-format-field-${controller.preferences.stampTimeFormat.name}'),
-          child: DropdownButtonFormField<PdfStampTimeFormat>(
+          child: PdfDropdown<PdfStampTimeFormat>(
             key: const ValueKey('pdf-stamp-time-format'),
-            initialValue: controller.preferences.stampTimeFormat,
+            value: controller.preferences.stampTimeFormat,
             decoration:
                 InputDecoration(labelText: pdfL10n(context).stampTimeFormat),
             items: [
               for (final format in PdfStampTimeFormat.values)
-                DropdownMenuItem<PdfStampTimeFormat>(
+                PdfDropdownItem<PdfStampTimeFormat>(
                   key: ValueKey('pdf-stamp-time-format-${format.name}'),
                   value: format,
-                  child: Text(_timePreview(context, format, sample)),
+                  label: _timePreview(context, format, sample),
                 ),
             ],
-            onChanged: (value) {
-              if (value != null) controller.preferences.stampTimeFormat = value;
-            },
+            onChanged: (value) =>
+                controller.preferences.stampTimeFormat = value,
           ),
         ),
       ],
@@ -466,8 +266,8 @@ Future<PdfCustomStamp?> showPdfStampEditor(BuildContext context,
             PdfEditingController.stampTemplateBuiltinFields,
         PdfImagePicker? imagePicker,
         PdfCustomStamp? initial}) =>
-    showPdfDialog<PdfCustomStamp>(
-      context: context,
+    pdfPresentDialog<PdfCustomStamp>(
+      context,
       builder: (context) => PdfStampEditorDialog(
         fields: fields,
         imagePicker: imagePicker,
@@ -714,9 +514,9 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
   }
 
   Future<void> _pickCustomColor() async {
-    final picked = await showPdfColorPicker(
+    final picked = await pdfPresentColor(
       context,
-      initial: Color(0xFF000000 | _color),
+      PdfColorRequest(initial: Color(0xFF000000 | _color)),
     );
     if (!mounted || picked == null) return;
     _setSelectedColor(picked.toARGB32() & 0xFFFFFF);
@@ -805,7 +605,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
   }
 
   Future<void> _addSignature() async {
-    final signature = await showPdfSignatureDialog(context);
+    final signature = await PdfEditorPresenter.of(context)
+        .signature(context, const PdfSignatureRequest());
     if (signature == null || !mounted) return;
     final aspect = signature.aspect > 0 ? signature.aspect : 2.0;
     var width = math.min(132.0, _templateWidth * 0.62);
@@ -882,6 +683,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       decoration: InputDecoration(
                           labelText: pdfL10n(context).stampWidth),
                       onSubmitted: (_) => _commitSize(),
+                      contextMenuBuilder: pdfTextContextMenu,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -894,6 +696,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       decoration: InputDecoration(
                           labelText: pdfL10n(context).stampHeight),
                       onSubmitted: (_) => _commitSize(),
+                      contextMenuBuilder: pdfTextContextMenu,
                     ),
                   ),
                 ],
@@ -919,6 +722,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             ? (value) => _replaceSelected(
                                 selected!.copyWith(text: value))
                             : null,
+                        contextMenuBuilder: pdfTextContextMenu,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1057,25 +861,27 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(pdfL10n(context).cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+            onSubmit: _components.isEmpty ? null : _saveStamp,
             child: FilledButton(
-          onPressed: _components.isEmpty
-              ? null
-              : () {
-                  _commitSize();
-                  final initial = widget.initial;
-                  Navigator.of(context).pop(PdfCustomStamp(
-                    text: _caption,
-                    color: _primaryColor,
-                    template: _template,
-                    type: initial?.type,
-                    tags: initial?.tags ?? const [],
-                  ));
-                },
-          child: Text(pdfL10n(context).save),
-        )),
+              key: const ValueKey('pdf-stamp-editor-save'),
+              onPressed: _components.isEmpty ? null : _saveStamp,
+              child: Text(pdfL10n(context).save),
+            )),
       ],
     );
+  }
+
+  void _saveStamp() {
+    _commitSize();
+    final initial = widget.initial;
+    Navigator.of(context).pop(PdfCustomStamp(
+      text: _caption,
+      color: _primaryColor,
+      template: _template,
+      type: initial?.type,
+      tags: initial?.tags ?? const [],
+    ));
   }
 }
 
@@ -1634,14 +1440,6 @@ class _StampTemplatePainter extends CustomPainter {
 
 bool _componentListsEqual(
     List<PdfStampTemplateComponent> a, List<PdfStampTemplateComponent> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
-bool _stringListEquals(List<String> a, List<String> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
     if (a[i] != b[i]) return false;

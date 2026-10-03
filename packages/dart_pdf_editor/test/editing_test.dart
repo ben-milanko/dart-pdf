@@ -480,11 +480,9 @@ void main() {
       expect(
           find.byKey(const ValueKey('pdf-save-element-image')), findsOneWidget);
       expect(
-          tester
-              .widget<IconButton>(
-                  find.byKey(const ValueKey('pdf-save-element-image')))
-              .onPressed,
-          isNotNull);
+          tester.getSemantics(
+              find.byKey(const ValueKey('pdf-save-element-image'))),
+          isSemantics(isEnabled: true));
     });
 
     test('replaceSelectedElementText rewrites the run in place', () {
@@ -1444,9 +1442,9 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pump();
 
-      final highlightButton = tester.widget<IconButton>(
-          find.widgetWithIcon(IconButton, Icons.border_color));
-      expect(highlightButton.onPressed, isNotNull);
+      expect(
+          tester.getSemantics(find.byKey(const ValueKey('pdf-tool-highlight'))),
+          isSemantics(isEnabled: true));
       await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
@@ -1455,7 +1453,7 @@ void main() {
       expect(editing.preferences.strokeWidth, 12);
       expect(editing.preferences.opacity, 0.45);
 
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.draw));
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-ink')));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFFE53935));
@@ -1706,30 +1704,41 @@ void main() {
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
       // scope to the popup's sliders - the strip also has an inline opacity
-      final menuSliders = find.descendant(
-          of: find.byType(MenuAnchor), matching: find.byType(Slider));
+      final menuSliders = [
+        for (final name in [
+          'pdf-tune-stroke-width',
+          'pdf-corner-radius',
+          'pdf-tune-opacity',
+          'pdf-line-scale',
+        ])
+          find.byKey(ValueKey('$name-slider')),
+      ];
       // the shapes popup carries stroke width, corner radius, opacity, and
       // the pattern scale (font is irrelevant to a rectangle, so it's not
       // shown; corner radius is rectangle-only)
-      expect(menuSliders, findsNWidgets(4));
+      for (final slider in menuSliders) {
+        expect(slider, findsOneWidget);
+      }
+      expect(find.byKey(const ValueKey('pdf-tune-font-size-slider')),
+          findsNothing);
 
       // sliders are laid out stroke width, corner radius, opacity,
       // pattern scale
-      await tester.drag(menuSliders.at(0), const Offset(200, 0));
+      await tester.drag(menuSliders[0], const Offset(200, 0));
       await tester.pump();
       expect(editing.preferences.strokeWidth, greaterThan(2));
 
-      await tester.drag(menuSliders.at(1), const Offset(200, 0));
+      await tester.drag(menuSliders[1], const Offset(200, 0));
       await tester.pump();
       expect(editing.preferences.cornerRadius, greaterThan(0));
 
-      await tester.drag(menuSliders.at(2), const Offset(-200, 0));
+      await tester.drag(menuSliders[2], const Offset(-200, 0));
       await tester.pump();
       expect(editing.preferences.opacity, lessThan(1));
 
       // the pattern scale is independent of the pen width
       final beforeStroke = editing.preferences.strokeWidth;
-      await tester.drag(menuSliders.at(3), const Offset(200, 0));
+      await tester.drag(menuSliders[3], const Offset(200, 0));
       await tester.pump();
       expect(editing.preferences.lineScale, greaterThan(1));
       expect(editing.preferences.strokeWidth, beforeStroke);
@@ -1761,8 +1770,7 @@ void main() {
 
       final radius = find.byKey(const ValueKey('pdf-corner-radius'));
       expect(radius, findsOneWidget);
-      await tester.drag(
-          find.descendant(of: radius, matching: find.byType(Slider)),
+      await tester.drag(find.byKey(const ValueKey('pdf-corner-radius-slider')),
           const Offset(200, 0));
       await tester.pump();
 
@@ -1841,8 +1849,7 @@ void main() {
       expect(shown(2), 'Page 3');
 
       // the first tile's footer button deletes that page
-      await tester
-          .tap(find.widgetWithIcon(IconButton, Icons.delete_outline).first);
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-delete-0')));
       await settle(tester);
       expect(editing.document.pageCount, 2);
       expect(shown(0), 'Page 1');
@@ -1878,7 +1885,8 @@ void main() {
         ),
       ));
 
-      await tester.enterText(find.byType(TextField), '00A040');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-color-hex')), '00A040');
       expect(last, const Color(0xFF00A040));
 
       // layout: 260×160 SV area, 12 gap, 20 hue slider
@@ -1894,7 +1902,11 @@ void main() {
       await tester.tapAt(origin + const Offset(130, 160 + 12 + 10));
       hsv = HSVColor.fromColor(last!);
       expect(hsv.hue, closeTo(180, 10));
-      final hex = tester.widget<TextField>(find.byType(TextField)).controller!;
+      final hex = tester
+          .widget<EditableText>(find.descendant(
+              of: find.byKey(const ValueKey('pdf-color-hex')),
+              matching: find.byType(EditableText)))
+          .controller;
       expect('#${hex.text}',
           '#${(last!.toARGB32() & 0xFFFFFF).toRadixString(16).toUpperCase().padLeft(6, '0')}');
     });

@@ -15,18 +15,18 @@ import '../renderer.dart';
 import '../text_selection_geometry.dart';
 import 'digital_signature.dart';
 import 'editing_annotation_clipboard.dart';
-import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
-import 'editing_signature.dart';
 import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
 import 'form_secret_store.dart';
-import 'editing_stamps.dart';
 import 'line_style.dart';
+import 'models/custom_stamp.dart';
+import 'models/ink_signature.dart';
+import 'models/measurement_scale.dart';
+import 'models/prompts.dart';
 import 'saved_annotation.dart';
 import 'signature_validation_worker.dart';
-import 'text_prompt.dart';
 import 'thumbnail_cache.dart';
 
 PdfEmbeddableImage _decodeEmbeddableImage(Uint8List bytes) =>

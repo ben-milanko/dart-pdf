@@ -160,7 +160,68 @@ The PDFium adapter uses Chrome's built-in PDF Viewer extension and validates
 the page/zoom methods before measuring. A changed Chrome contract is a harness
 failure, never a silently empty or zero-duration pass.
 
-## Current default-viewer checkpoint (2026-08-23)
+## Current default-viewer checkpoint (2026-10-02)
+
+The default JS/CanvasKit viewer is **not yet at PDFium interaction parity**.
+Five interleaved samples per engine were run at clean commit `fadf7760` on the
+reference 10-core Apple M1 Pro host, now on headless Chrome 154 (ANGLE Metal,
+Skia Graphite), with a 1400×1000 viewport and whole-compositor screencast
+timing. The input was the locally supplied, non-checked-in
+`8100_Time_Without_Tide_Quickstart.pdf` (62 pages, 24,121,963 bytes). Each run
+opened the full file in one request, jumped to zero-based pages 2 and 46,
+zoomed to 1.72×, then drove the standard matched down/up wheel sequence. The
+method is unchanged from the 2026-08-23 checkpoint; the browser is not.
+
+| metric | DartPDF p50 / p95 | PDFium p50 / p95 | ratio p50 / p95 | budget result |
+|---|---:|---:|---:|---:|
+| open stable visual | 711 / 757 ms | 1264 / 1411 ms | 0.56× / 0.54× | pass |
+| document-only stable visual | 388 / 417 ms | 1261 / 1408 ms | 0.31× / 0.30× | diagnostic |
+| page first visual | 24 / 31 ms | 19 / 22 ms | 1.26× / 1.39× | diagnostic |
+| page stable visual | 271 / 357 ms | 118 / 121 ms | 2.30× / 2.95× | **fail** |
+| zoom first visual | 41 / 47 ms | 19 / 25 ms | 2.15× / 1.91× | diagnostic |
+| zoom stable visual | 44 / 47 ms | 19 / 25 ms | 2.32× / 1.92× | **fail** |
+| wheel journey | 413 / 919 ms | 972 / 1022 ms | 0.42× / 0.90× | pass |
+| wheel rAF interval p95 | 83 ms | 17 ms | 4.96× | **fail** |
+| peak browser RSS p50 | 2167 MiB | 1887 MiB | 1.15× | pass |
+| settled browser RSS p50 | 2167 MiB | 1639 MiB | 1.32× | diagnostic |
+
+Compared with the 23 August checkpoint, open improved (918 → 711 ms, 0.61× →
+0.56×), stable navigation stayed around 2.3× PDFium at p50, and zoom stable
+got worse (22 → 44 ms, 1.97× → 2.32×). Peak RSS still passes, but with less
+headroom (0.99× → 1.15× against the 1.25× budget). The wheel journey p95 of
+919 ms looks like a single slow iteration; the two verification passes below
+put it at 0.46–0.50× PDFium.
+
+Scroll cadence is not directly comparable with August. PDFium's wheel rAF p95
+is 16.7–16.8 ms in every Chrome 154 run, where it was 10 ms under Chrome 151,
+and DartPDF's p95 lands on whole multiples of that frame time (83, 100,
+117 ms), so headless Chrome on this host now appears to pace frames at 60 Hz.
+The 4.09× → 4.96× change mixes that clock change with any real regression;
+the gap itself is still the largest miss.
+
+Two separate five-run verification passes on the same build produced the same
+five budget misses (navigation p50/p95, zoom p50/p95, scroll rAF p95), with
+page stable at 2.53–2.92× p50, zoom stable at 2.43–3.37× p50, a 100–117 ms
+scroll rAF p95, and peak RSS at 1.02–1.10×. Run-to-run spread on navigation
+and zoom is large, but the pass/fail verdicts did not change. The host was
+not fully idle for every pass (load rose during the first verification pass
+from unrelated processes), so treat the absolute milliseconds as approximate.
+
+Reproduce this exact workload (with the PDF available at the named path) using:
+
+```sh
+PERF_PDF=/path/to/8100_Time_Without_Tide_Quickstart.pdf \
+PERF_PAGES=2,46 PERF_ZOOMS=1.72 \
+  tool/perf.sh competitive parity-plan --iterations 5
+```
+
+This is a desktop-web result. The rendering architecture is shared across
+platforms, but these ratios do not establish native macOS/Windows/Linux or
+physical iOS/Android performance.
+
+## Historical and experimental checkpoints
+
+### Default-viewer checkpoint (2026-08-23)
 
 The default JS/CanvasKit viewer is **not yet at PDFium interaction parity**.
 Five interleaved samples per engine were run at clean commit `1b887e9f` on the
@@ -190,20 +251,6 @@ regressed from 2.50× to 4.09×. The shorter wheel journey is still not a
 smoothness win. A separate five-run verification on the same build produced
 the same five budget misses and a still-worse 66 ms scroll rAF p95, so the
 cadence gap is noisy but reproducible rather than a single outlier.
-
-Reproduce this exact workload (with the PDF available at the named path) using:
-
-```sh
-PERF_PDF=/path/to/8100_Time_Without_Tide_Quickstart.pdf \
-PERF_PAGES=2,46 PERF_ZOOMS=1.72 \
-  tool/perf.sh competitive parity-plan --iterations 5
-```
-
-This is a desktop-web result. The rendering architecture is shared across
-platforms, but these ratios do not establish native macOS/Windows/Linux or
-physical iOS/Android performance.
-
-## Historical and experimental checkpoints
 
 ### Default-viewer checkpoint (2026-08-11)
 

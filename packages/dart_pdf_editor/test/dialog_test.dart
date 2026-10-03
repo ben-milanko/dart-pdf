@@ -8,6 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/src/foundation/_features.dart' show isWindowingEnabled;
 import 'package:flutter_test/flutter_test.dart';
 
+/// The stock text prompt's dialog and field.
+final prompt = find.byKey(const ValueKey('pdf-text-prompt'));
+final promptField = find.byKey(const ValueKey('pdf-text-prompt-field'));
+
 void main() {
   testWidgets('PDF dialogs remain interactive inside a windowed view',
       (tester) async {
@@ -72,14 +76,14 @@ void main() {
               .focusNode
               .hasFocus,
           isTrue);
-      await tester.enterText(find.byType(TextField), 'New');
+      await tester.enterText(promptField, 'New');
       // Flutter's legacy Windows test key-code map omits numpad Enter.
       // Use Linux key data while exercising each platform's widget behavior.
       await tester.sendKeyEvent(key, platform: 'linux');
       await tester.pumpAndSettle();
       expect(result, 'New');
       expect(completions, 1);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(prompt, findsNothing);
     }, variant: TargetPlatformVariant.all());
   }
 
@@ -89,7 +93,8 @@ void main() {
     await openDialog(tester, (context) async {
       result = await showPdfColorPicker(context, initial: Colors.red);
     });
-    await tester.enterText(find.byType(TextField), '00FF00');
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-color-hex')), '00FF00');
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(result, const Color(0xFF00FF00));
@@ -116,15 +121,15 @@ void main() {
     await openDialog(tester, (context) async {
       result = await showPdfTextPrompt(context, title: 'Note', multiline: true);
     });
-    await tester.enterText(find.byType(TextField), 'First');
+    await tester.enterText(promptField, 'First');
     await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await tester.pump();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(prompt, findsOneWidget);
     // The platform text-input client supplies the newline after the shortcut
     // leaves Shift+Enter unhandled.
-    await tester.enterText(find.byType(TextField), 'First\nSecond');
+    await tester.enterText(promptField, 'First\nSecond');
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(result, 'First\nSecond');
@@ -136,7 +141,10 @@ void main() {
     await openDialog(tester, (context) async {
       result = await showPdfTextPrompt(context, title: 'Name');
     });
-    final field = tester.widget<TextField>(find.byType(TextField)).controller!;
+    final field = tester
+        .widget<EditableText>(find.descendant(
+            of: promptField, matching: find.byType(EditableText)))
+        .controller;
     field.value = const TextEditingValue(
       text: '東京',
       selection: TextSelection.collapsed(offset: 2),
@@ -144,7 +152,7 @@ void main() {
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(prompt, findsOneWidget);
     expect(result, isNull);
     field.clearComposing();
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -168,15 +176,12 @@ void main() {
                 return AlertDialog(
                   content: const TextField(autofocus: true),
                   actions: [
-                    PdfDialogSubmit(
+                    PdfDialogSubmit.action(
+                        onSubmit: enabled ? () => submits++ : null,
                         child: FilledButton(
-                      onPressed: enabled
-                          ? () {
-                              submits++;
-                            }
-                          : null,
-                      child: const Text('Save'),
-                    ))
+                          onPressed: enabled ? () => submits++ : null,
+                          child: const Text('Save'),
+                        ))
                   ],
                 );
               }),
@@ -211,14 +216,12 @@ void main() {
                   child: const Text('Open inner'),
                 ),
                 actions: [
-                  PdfDialogSubmit(
-                      child: FilledButton(
-                    onPressed: () {
-                      outerSubmits++;
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('Save outer'),
-                  ))
+                  PdfDialogSubmit.action(
+                      onSubmit: () {
+                        outerSubmits++;
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text('Save outer'))
                 ],
               ),
             ));
@@ -232,7 +235,8 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(outerSubmits, 1);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('Outer'), findsNothing);
+    expect(prompt, findsNothing);
   });
 
   testWidgets('Enter activates Cancel when it has keyboard focus',
@@ -250,11 +254,12 @@ void main() {
               onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Cancel'),
             ),
-            PdfDialogSubmit(
+            PdfDialogSubmit.action(
+                onSubmit: () => Navigator.of(context).pop(true),
                 child: FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Save'),
-            )),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Save'),
+                )),
           ],
         ),
       );
@@ -265,6 +270,106 @@ void main() {
     await tester.pumpAndSettle();
     expect(result, isFalse);
   }, variant: TargetPlatformVariant.all());
+
+  testWidgets('the deprecated ButtonStyleButton form still submits on Enter',
+      (tester) async {
+    var submits = 0;
+    await openDialog(
+        tester,
+        (context) => showPdfDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                content: const TextField(autofocus: true),
+                actions: [
+                  // ignore: deprecated_member_use_from_same_package
+                  PdfDialogSubmit(
+                      child: FilledButton(
+                    onPressed: () => submits++,
+                    child: const Text('Save'),
+                  )),
+                ],
+              ),
+            ));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(submits, 1);
+  });
+
+  // Enter keeps its meaning by role, not by widget type: a value control
+  // (segments, a dropdown) is part of the form, so Enter submits from it;
+  // a focused command button activates itself.
+  Future<int> enterWithFocusOn(
+      WidgetTester tester, Widget Function(FocusNode focus) control) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    var submits = 0;
+    await openDialog(
+        tester,
+        (context) => showPdfDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                content: control(focus),
+                actions: [
+                  PdfDialogSubmit.action(
+                      onSubmit: () => submits++, child: const Text('Save')),
+                ],
+              ),
+            ));
+    focus.requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    return submits;
+  }
+
+  testWidgets('Enter submits from a focused segmented selector',
+      (tester) async {
+    final submits = await enterWithFocusOn(
+        tester,
+        (focus) => SegmentedButton<int>(
+              segments: [
+                ButtonSegment(
+                    value: 1,
+                    label: Focus(
+                        focusNode: focus,
+                        skipTraversal: true,
+                        child: const Text('One'))),
+                const ButtonSegment(value: 2, label: Text('Two')),
+              ],
+              selected: const {1},
+              onSelectionChanged: (_) {},
+            ));
+    expect(submits, 1);
+  });
+
+  testWidgets('Enter submits from a focused dropdown', (tester) async {
+    final submits = await enterWithFocusOn(
+        tester,
+        (focus) => DropdownButton<int>(
+              focusNode: focus,
+              value: 1,
+              items: const [
+                DropdownMenuItem(value: 1, child: Text('One')),
+                DropdownMenuItem(value: 2, child: Text('Two')),
+              ],
+              onChanged: (_) {},
+            ));
+    expect(submits, 1);
+    expect(find.text('Two'), findsNothing, reason: 'the menu stayed closed');
+  });
+
+  testWidgets('a focused command button keeps Enter', (tester) async {
+    var pressed = 0;
+    final submits = await enterWithFocusOn(
+        tester,
+        (focus) => IconButton(
+              focusNode: focus,
+              icon: const Icon(Icons.add),
+              onPressed: () => pressed++,
+            ));
+    expect(submits, 0);
+    expect(pressed, 1);
+  });
 }
 
 Future<void> openDialog(

@@ -44,6 +44,16 @@ jobs:
       # tool/check_arb_coverage.dart and doc/i18n.md.
       - name: Check ARB translation coverage
         run: dart run tool/check_arb_coverage.dart
+      # Ratchets the editor's design-system coupling ahead of the material_ui
+      # move: the Material importers in dart_pdf_editor/dart_pdf_printing lib/
+      # may only shrink, the editing controller's and PdfPageView's import
+      # closures must stay Material-free, and raw showMenu /
+      # showModalBottomSheet / ScaffoldMessenger / DropdownButton uses may only
+      # go down. Baseline: tool/design_imports_baseline.json.
+      - name: Test design import check
+        run: dart tool/check_design_imports_test.dart
+      - name: Check design-system imports
+        run: dart run tool/check_design_imports.dart
       - name: Check English regional spellings
         run: |
           dart tool/sync_english_locales_test.dart
@@ -215,6 +225,24 @@ jobs:
           flags: app
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  # Every other job runs the pinned .fvmrc Flutter, which says nothing about
+  # the floor dart_pdf_editor declares (5.0.0 said >=3.24.0 but used a 3.44
+  # API). This analyzes the editor and the pure-Dart packages under it on the
+  # declared floor, outside the workspace (dart_pdf_printing needs 3.47, so
+  # the workspace itself cannot resolve there). Keep flutter-version in step
+  # with `flutter:` in packages/dart_pdf_editor/pubspec.yaml.
+  floor-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.0
+          channel: stable
+          cache: true
+      - name: Analyze dart_pdf_editor on its Flutter floor
+        run: tool/floor_analyze.sh
 
   # The broad GPU suite above deliberately self-skips on Linux runners without
   # an Impeller context. This designated Metal lane is the non-optional proof:

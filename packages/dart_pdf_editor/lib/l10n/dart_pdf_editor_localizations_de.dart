@@ -2241,4 +2241,71 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Mehrfachauswahl zulassen';
+
+  @override
+  String get searchFieldHint => 'Suchen';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Dokument konnte nicht geöffnet werden: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Seiten exportieren';
+
+  @override
+  String get pageRangeExportConfirm => 'Exportieren';
+
+  @override
+  String get textStyleKeepFont => 'Beibehalten';
+
+  @override
+  String get guidesDialogTitle => 'Hilfslinien, Einrasten und Lineale';
+
+  @override
+  String get guidesSmartAlignment => 'Intelligente Ausrichtungshilfslinien';
+
+  @override
+  String get guidesPageRulers => 'Seitenlineale';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Maße in Punkt an den Seitenrändern anzeigen';
+
+  @override
+  String get guidesVerticalCursorLine => 'Vertikale Cursorlinie';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Horizontale Cursorlinie';
+
+  @override
+  String get guidesSnapToGrid => 'Am Raster einrasten';
+
+  @override
+  String get guidesSnapToGridHint =>
+      'Zum Umgehen des Einrastens Alt gedrückt halten';
+
+  @override
+  String get guidesShowGrid => 'Rasterlinien anzeigen';
+
+  @override
+  String get guidesShowGridHint =>
+      'Nur zur Anzeige; wird nicht in die PDF-Datei übernommen';
+
+  @override
+  String get guidesGridSpacing => 'Rasterabstand';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Cursorhilfslinien und Raster';
+
+  @override
+  String get commandSaveAs => 'Speichern unter…';
+
+  @override
+  String get dialogDismiss => 'Schließen';
 }

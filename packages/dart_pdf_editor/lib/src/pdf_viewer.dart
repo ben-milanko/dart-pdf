@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'design/viewer_tokens.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -21,10 +22,10 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
-import 'editing/editing_link.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/editing_reach.dart';
+import 'editing/editor_commands.dart' show PdfEditorCommandsScope;
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
@@ -37,7 +38,6 @@ import 'page_object_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
 import 'platform_cursors.dart';
-import 'popup_position.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -52,8 +52,9 @@ import 'scrollbar.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'tile_store.dart';
-import 'toast.dart';
+import 'design/editor_presenter.dart';
 import 'text_selection_geometry.dart';
+import 'viewer_intents.dart';
 import 'viewport.dart';
 
 export 'viewport.dart' show PdfViewport, pdfDocumentKey;
@@ -135,9 +136,6 @@ class _PdfViewerPageKey extends LocalKey {
 /// only where the selection hangs off the page ([PdfEditingReach]); on the
 /// page the overlay does its own handle hit-testing.
 const double _selectionGrabMargin = 24;
-
-const double _annotationNudgeStep = 1;
-const double _annotationNudgeStepCoarse = 10;
 
 /// One search hit with the text around it, ready for a results list
 /// like [PdfSearchResultsPanel].
@@ -401,6 +399,7 @@ abstract class PdfReflowBackend {
 
 class PdfViewerController extends ChangeNotifier {
   _PdfViewerState? _state;
+  bool _disposed = false;
 
   /// Set while a text reflow view drives navigation in place of a mounted
   /// page viewer; a mounted [PdfViewer] ([_state]) always wins.
@@ -729,6 +728,7 @@ class PdfViewerController extends ChangeNotifier {
     if (text == _selectedText) return;
     _selectedText = text;
     _notifySafely();
+    _refreshSelectionRectSoon();
   }
 
   /// Zero-based index into the matches, or -1 with no active match.
@@ -849,6 +849,31 @@ class PdfViewerController extends ChangeNotifier {
       _state?._visibleFractionOf(pageIndex) ??
       _reflow?.reflowVisibleFraction(pageIndex);
 
+  /// Where [rect] (page space on [pageIndex], PDF points) is on screen right
+  /// now, in global (logical pixel) coordinates - scroll, zoom, /Rotate and
+  /// view rotation applied. Null while no page viewer is attached or laid
+  /// out (the reflow view has no page canvas), or for a page index out of
+  /// range. Off-screen pages still map, to rectangles outside the viewport.
+  ///
+  /// Anchor host UI to page content with it - a popover beside an
+  /// annotation, say - and re-read it on [viewportChanges]:
+  ///
+  /// ```dart
+  /// final anchor = viewer.globalRectOf(page, annotation.rect);
+  /// ```
+  Rect? globalRectOf(int pageIndex, PdfRect rect) =>
+      _state?._globalRectOf(pageIndex, rect);
+
+  late final _selectionRect = _SelectionRectNotifier(this);
+
+  /// The current selection's bounds in global coordinates: the selected
+  /// annotations (on the primary selection's page) when the viewer edits
+  /// and something is selected, else the text selection's on-screen extent,
+  /// else null. Notifies when it moves - scrolling, zooming, a new
+  /// selection, an edit - so a host can float its own action bar beside the
+  /// selection (with `showSelectionChip: false`) without tracking geometry.
+  ValueListenable<Rect?> get selectionGlobalRect => _selectionRect;
+
   /// A snapshot of the viewer's scroll position and zoom, for mirroring it
   /// onto another viewer (the comparison view's synchronized panes). Null
   /// when no viewer is attached. Pair with [applyViewSync], and listen to
@@ -888,14 +913,29 @@ class PdfViewerController extends ChangeNotifier {
         SchedulerPhase.persistentCallbacks) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
         if (_state != null || _reflow != null) _viewport.notify();
+        _selectionRect.refresh();
       });
     } else {
       _viewport.notify();
+      _selectionRect.refresh();
     }
+  }
+
+  /// Re-reads [selectionGlobalRect] after the next layout (a selection or
+  /// revision change moves it without scrolling).
+  void _refreshSelectionRectSoon() {
+    if (!_selectionRect.hasListeners) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      _selectionRect.refresh();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _selectionRect.dispose();
     _viewport.dispose();
     _pageRenderActivity.dispose();
     super.dispose();
@@ -1013,6 +1053,26 @@ class PdfViewerController extends ChangeNotifier {
 /// way to hand out a bare [Listenable] the viewer can fire.
 class _ViewportNotifier extends ChangeNotifier {
   void notify() => notifyListeners();
+}
+
+/// [PdfViewerController.selectionGlobalRect]: computed on read, notifying
+/// when a [refresh] finds it moved.
+class _SelectionRectNotifier extends ChangeNotifier
+    implements ValueListenable<Rect?> {
+  _SelectionRectNotifier(this._owner);
+
+  final PdfViewerController _owner;
+  Rect? _last;
+
+  @override
+  Rect? get value => _last = _owner._state?._selectionGlobalRect();
+
+  void refresh() {
+    if (!hasListeners) return;
+    final previous = _last;
+    final next = value;
+    if (next != previous) notifyListeners();
+  }
 }
 
 /// The contiguous span of pages overlapping the viewport, as a [Listenable]
@@ -1331,13 +1391,18 @@ class PdfViewer extends StatefulWidget {
     this.formController,
     this.editingTextPrompt,
     this.editingStyledTextPrompt,
+    this.presenter,
     this.editingPalette = defaultStyledTextPalette,
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
     this.textMenuBuilder,
+    this.annotationMenuEntries,
+    this.textMenuEntries,
+    this.formFieldMenuEntries,
     this.contextMenuEnabled = true,
     this.showSelectionChip = true,
+    this.showInlineTextStyleChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.fontPicker,
@@ -1369,6 +1434,7 @@ class PdfViewer extends StatefulWidget {
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
+    this.shortcuts,
     this.renderWorker,
     this.autoRenderWorker = true,
     this.performance,
@@ -1503,6 +1569,20 @@ class PdfViewer extends StatefulWidget {
   /// delete and Escape bindings are not affected.
   final Map<PdfEditTool, PdfToolShortcut> toolShortcuts;
 
+  /// The viewer's key bindings: copy, select all, Escape, undo/redo, cut,
+  /// paste, delete, the arrow-key nudge. Null uses
+  /// [pdfViewerDefaultShortcuts]; pass a copy of it with keys added,
+  /// changed or removed to rebind them. The [toolShortcuts] are bound on
+  /// top, and nothing is bound while an in-place text editor is open (every
+  /// key is the editor's then).
+  ///
+  /// The keys map to intents ([PdfCopyIntent], [PdfUndoIntent],
+  /// [PdfNudgeSelectionIntent], [PdfArmToolIntent], ...), so a host can
+  /// also bind its own keys to them with a [Shortcuts] above the viewer, or
+  /// change what one does with an [Actions] above it: the viewer's own
+  /// actions are overridable ([Action.overridable]).
+  final Map<ShortcutActivator, Intent>? shortcuts;
+
   final PdfViewerController? controller;
 
   /// Called when a tapped link or button carries an action the viewer
@@ -1582,12 +1662,21 @@ class PdfViewer extends StatefulWidget {
   final PdfEditingController? formController;
 
   /// How the editing tools ask for annotation text (free text, notes,
-  /// stamps). Defaults to [showPdfTextPrompt], a Material dialog.
+  /// stamps). Defaults to [PdfEditorPresenter.text] ([showPdfTextPrompt],
+  /// a Material dialog, unless a presenter overrides it). When set, it also
+  /// answers [presenter]'s text prompts below this viewer.
   final PdfTextPrompt? editingTextPrompt;
 
   /// How the text-selection menu asks for replacement text and rich style.
-  /// Defaults to [showPdfStyledTextPrompt].
+  /// Defaults to [PdfEditorPresenter.styledText]
+  /// ([showPdfStyledTextPrompt]). When set, it takes precedence over the
+  /// presenter's.
   final PdfStyledTextPrompt? editingStyledTextPrompt;
+
+  /// How the viewer and its editing UI present dialogs, menus, sheets,
+  /// notices and prompts. Installs a [PdfEditorScope] over the viewer; null
+  /// uses the nearest scope above it (or the stock presenter).
+  final PdfEditorPresenter? presenter;
 
   /// Quick-pick colors shown by [editingStyledTextPrompt].
   final List<Color> editingPalette;
@@ -1618,6 +1707,21 @@ class PdfViewer extends StatefulWidget {
   /// action that doesn't need text still reaches a page that has none.
   final PdfTextMenuBuilder? textMenuBuilder;
 
+  /// Rewrites the annotation context menu's rows - the stock entries plus
+  /// [annotationMenuBuilder]'s - before it opens: drop, reorder or add rows
+  /// (see [PdfAnnotationMenuEntriesBuilder]). Needs [editing].
+  final PdfAnnotationMenuEntriesBuilder? annotationMenuEntries;
+
+  /// Rewrites the text-selection context menu's rows - the stock entries
+  /// plus [textMenuBuilder]'s - before it opens
+  /// ([PdfTextMenuEntriesBuilder]). Works without [editing], like
+  /// [textMenuBuilder].
+  final PdfTextMenuEntriesBuilder? textMenuEntries;
+
+  /// Rewrites the form tool's field context menu
+  /// ([PdfFormFieldMenuEntriesBuilder]). Needs [editing].
+  final PdfFormFieldMenuEntriesBuilder? formFieldMenuEntries;
+
   /// Whether right-click (desktop) and long-press (touch/stylus) open a
   /// context menu. When false, selection, link taps, and pan/zoom still run
   /// normally; only the popup menus are suppressed. Defaults to true.
@@ -1640,6 +1744,13 @@ class PdfViewer extends StatefulWidget {
   /// pointer interactions are unaffected; mice never see the chip either
   /// way. Needs [editing]. Defaults to true.
   final bool showSelectionChip;
+
+  /// Whether a touch or stylus user editing text in place (a free-text box,
+  /// a content edit) gets the floating style chip above the editor (font,
+  /// size, colour, underline). Hosts with their own text-formatting UI can
+  /// turn it off; keyboard shortcuts and the toolbar's style controls keep
+  /// working. Mice never see the chip. Needs [editing]. Defaults to true.
+  final bool showInlineTextStyleChip;
 
   /// Fires when the user requests a context menu (desktop right-click on
   /// text, right-click / long-press on an annotation, touch long-press on
@@ -2515,7 +2626,7 @@ class _PdfViewerState extends State<PdfViewer>
           !identical(controller, _revisionController)) {
         return;
       }
-      showPdfXfaNoticeIfNeeded(context, controller);
+      showPdfXfaNoticeIfNeeded(_ui, controller);
     });
   }
 
@@ -4255,6 +4366,8 @@ class _PdfViewerState extends State<PdfViewer>
   /// itself so the displayed document can't lag the controller.
   void _onRevisionControllerChanged() {
     if (!mounted) return;
+    // an edit or a new annotation selection moves the selection's bounds
+    _controller._refreshSelectionRectSoon();
     // Stream the new revision into the owned worker before the rebuild reads
     // the effective worker, so a resumed render sees current pages, not stale.
     _syncDefaultWorker();
@@ -6254,6 +6367,74 @@ class _PdfViewerState extends State<PdfViewer>
     return _pagePointAt(box.globalToLocal(globalPosition));
   }
 
+  /// The global point in list space, or null before layout.
+  Offset? _listLocalOf(Offset globalPosition) {
+    final box = _listSpaceKey.currentContext?.findRenderObject() as RenderBox?;
+    return box?.globalToLocal(globalPosition);
+  }
+
+  /// Whether a drag from the global point would select page text - the
+  /// select tool's hover probe (an I-beam over text).
+  bool _pageTextAtGlobal(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    return local != null &&
+        _textSelectionStartAt(local, alongTolerance: 14) != null;
+  }
+
+  /// The select tool hands a plain mouse drag that starts over page text
+  /// (and over no annotation) here, so text stays selectable with the tool
+  /// armed. Mirrors the text branch of [_onSelectionStart].
+  bool _beginToolTextSelection(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    if (local == null ||
+        (_wordRangeAt(local) == null &&
+            _textSelectionStartAt(local, alongTolerance: 14) == null)) {
+      return false;
+    }
+    // text and annotations don't share a selection: ⌘C copies one or the
+    // other
+    widget.editing?.clearAnnotationSelection();
+    if (_wordDrag) {
+      // double-click-and-drag extends by whole words, as in the reader
+      final anchor = _wordRangeAt(local);
+      _focusNode.requestFocus();
+      _wordAnchor = anchor;
+      setState(() {
+        _selAnchor = anchor?.$1;
+        _selFocus = anchor?.$2;
+      });
+      _controller._setSelection(anchor == null ? '' : _selectedText());
+      return true;
+    }
+    final position = _textSelectionStartAt(local, alongTolerance: 14);
+    if (position == null) return false;
+    _focusNode.requestFocus();
+    _wordAnchor = null;
+    setState(() {
+      _selAnchor = position;
+      _selFocus = position;
+    });
+    _controller._setSelection('');
+    return true;
+  }
+
+  void _updateToolTextSelection(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    if (local == null) return;
+    _onSelectionUpdate(DragUpdateDetails(
+        globalPosition: globalPosition, localPosition: local));
+  }
+
+  void _endToolTextSelection({bool cancelled = false}) =>
+      _onSelectionEnd(DragEndDetails(), cancelled: cancelled);
+
+  /// A select-tool click: drops the text selection unless the same click
+  /// just made it (the second click of a double-click word select).
+  void _clearToolTextSelection() {
+    if (_suppressTap) return;
+    _clearSelection();
+  }
+
   /// A page overlay reports its single-selection move drag here so the
   /// floating ghost paints above every page (a per-page overlay clips it
   /// behind the page below once the drag crosses a boundary). Null clears.
@@ -6294,6 +6475,49 @@ class _PdfViewerState extends State<PdfViewer>
       to: to,
       scale: preview.scale,
     );
+  }
+
+  /// [PdfViewerController.globalRectOf].
+  Rect? _globalRectOf(int index, PdfRect rect) {
+    final geometry = _pageGeometry(index);
+    final box = _listSpaceKey.currentContext?.findRenderObject();
+    if (geometry == null ||
+        box is! RenderBox ||
+        !box.attached ||
+        !box.hasSize ||
+        !_scroll.hasClients) {
+      return null;
+    }
+    // page view space -> list space (the inverse of [_toPageView]) -> global
+    // through the zoom transform
+    final local = geometry.toViewRect(rect).shift(
+        Offset(_pageContentX(index), _pageContentY(index)) -
+            _axisOffset(_scroll.offset, 0));
+    return MatrixUtils.transformRect(box.getTransformTo(null), local);
+  }
+
+  /// [PdfViewerController.selectionGlobalRect]'s value.
+  Rect? _selectionGlobalRect() {
+    Rect? union(Rect? a, Rect? b) =>
+        a == null ? b : (b == null ? a : a.expandToInclude(b));
+    Rect? bounds;
+    final editing = widget.editing;
+    final page = editing?.selectedPage;
+    if (editing != null && page != null) {
+      for (final (p, slot) in editing.selectedAnnotationSlots) {
+        if (p != page) continue;
+        final annotation = editing.annotationAt(p, slot);
+        if (annotation == null) continue;
+        bounds = union(bounds, _globalRectOf(p, annotation.rect));
+      }
+      if (bounds != null) return bounds;
+    }
+    for (final p in _controller.selectionPages) {
+      for (final quad in _selectionRectsOn(p)) {
+        bounds = union(bounds, _globalRectOf(p, quad));
+      }
+    }
+    return bounds;
   }
 
   /// The laid-out geometry of page [index], or null when it isn't
@@ -6714,11 +6938,12 @@ class _PdfViewerState extends State<PdfViewer>
             return;
           }
           await showPdfAnnotationMenu(
-            context: context,
+            context: _ui,
             position: details.globalPosition,
             controller: editing,
             pageIndex: page,
             customActions: widget.annotationMenuBuilder,
+            entriesBuilder: widget.annotationMenuEntries,
             pagePoint: (x, y),
             onPaste: widget.systemPdfPasteProvider == null
                 ? null
@@ -6739,11 +6964,12 @@ class _PdfViewerState extends State<PdfViewer>
             return;
           }
           await showPdfAnnotationMenu(
-            context: context,
+            context: _ui,
             position: details.globalPosition,
             controller: editing,
             pageIndex: page,
             customActions: widget.annotationMenuBuilder,
+            entriesBuilder: widget.annotationMenuEntries,
             pagePoint: (x, y),
             unlockTarget: (page, locked.$1),
           );
@@ -6810,125 +7036,83 @@ class _PdfViewerState extends State<PdfViewer>
     // The host's entries are built from the selection as it stands now,
     // and that snapshot is what the picked entry is handed - the menu
     // closing must not change what an action was offered for.
-    final builder = widget.textMenuBuilder;
-    PdfTextMenuRequest? request;
-    var custom = const <PdfTextMenuItem>[];
-    if (builder != null) {
-      request = PdfTextMenuRequest(
-        controller: editing,
-        pageIndex: page,
-        selectedText: _controller.selectedText,
-        selectionPages: _controller.selectionPages,
-        quadsByPage: {
-          for (final p in _controller.selectionPages) p: _selectionRectsOn(p),
-        },
-        pagePoint: pagePoint,
-      );
-      custom = builder(context, request);
-    }
+    final request = PdfTextMenuRequest(
+      controller: editing,
+      pageIndex: page,
+      selectedText: _controller.selectedText,
+      selectionPages: _controller.selectionPages,
+      quadsByPage: {
+        for (final p in _controller.selectionPages) p: _selectionRectsOn(p),
+      },
+      pagePoint: pagePoint,
+    );
+    final custom = widget.textMenuBuilder?.call(context, request) ??
+        const <PdfTextMenuItem>[];
     // Host entries can stand alone: an action that doesn't need text still
     // reaches a page with none, where every stock entry would be disabled.
-    if (!hasSelection && !hasText && custom.isEmpty) return;
+    if (!hasSelection &&
+        !hasText &&
+        custom.isEmpty &&
+        widget.textMenuEntries == null) {
+      return;
+    }
     final canEdit =
         editing != null && widget.textSelectionEditing && hasSelection;
     final canMarkup =
         editing != null && widget.textSelectionMarkup && hasSelection;
-    final picked = await showMenu<Object>(
-      context: context,
-      position: pdfPopupPosition(context, globalPosition),
-      items: [
-        if (canEdit)
-          PopupMenuItem<Object>(
-            key: const ValueKey('pdf-text-menu-edit'),
-            value: _TextMenuAction.edit,
-            child: _textMenuRow(
-                Icons.edit, pdfL10n(context).viewerEditTextStyle, true),
-          ),
-        if (canMarkup) ...[
-          PopupMenuItem<Object>(
-            key: const ValueKey('pdf-text-menu-highlight'),
-            value: _TextMenuAction.highlight,
-            child: _textMenuRow(Icons.border_color,
-                pdfL10n(context).viewerMarkupHighlight, true),
-          ),
-          PopupMenuItem<Object>(
-            key: const ValueKey('pdf-text-menu-underline'),
-            value: _TextMenuAction.underline,
-            child: _textMenuRow(Icons.format_underlined,
-                pdfL10n(context).viewerMarkupUnderline, true),
-          ),
-          PopupMenuItem<Object>(
-            key: const ValueKey('pdf-text-menu-strikeout'),
-            value: _TextMenuAction.strikeOut,
-            child: _textMenuRow(Icons.format_strikethrough,
-                pdfL10n(context).viewerMarkupStrikeOut, true),
-          ),
-          PopupMenuItem<Object>(
-            key: const ValueKey('pdf-text-menu-squiggly'),
-            value: _TextMenuAction.squiggly,
-            child: _textMenuRow(
-                Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
-          ),
-          PopupMenuItem<Object>(
-            key: const ValueKey('pdf-text-menu-link'),
-            value: _TextMenuAction.addLink,
-            child: _textMenuRow(
-                Icons.link, pdfL10n(context).linkDialogTitle, true),
-          ),
-        ],
-        if (canEdit || canMarkup) const PopupMenuDivider(),
-        PopupMenuItem<Object>(
-          key: const ValueKey('pdf-text-menu-copy'),
-          value: _TextMenuAction.copy,
-          enabled: hasSelection,
-          child: _textMenuRow(Icons.copy, pdfL10n(context).copy, hasSelection),
-        ),
-        PopupMenuItem<Object>(
-          key: const ValueKey('pdf-text-menu-select-all'),
-          value: _TextMenuAction.selectAll,
-          enabled: hasText,
-          child: _textMenuRow(
-              Icons.select_all, pdfL10n(context).viewerSelectAll, hasText),
-        ),
-        // the host's entries ride in their own group below a divider,
-        // exactly like the annotation menu's
-        if (custom.isNotEmpty) ...[
-          const PopupMenuDivider(),
-          for (final item in custom)
-            PopupMenuItem<Object>(
-              key: item.key,
-              value: item,
-              enabled: item.enabled,
-              child: _textMenuRow(item.icon, item.label, item.enabled),
-            ),
-        ],
+    final l10n = pdfL10n(context);
+    PdfMenuItem<PdfTextMenuItem> stock(String id, String label, IconData icon,
+            FutureOr<void> Function() run,
+            {bool enabled = true}) =>
+        pdfTextMenuEntry(PdfTextMenuItem(
+          key: ValueKey('pdf-text-menu-$id'),
+          label: label,
+          icon: icon,
+          enabled: enabled,
+          onSelected: (_) => run(),
+        ));
+    var entries = <PdfMenuEntry<PdfTextMenuItem>>[
+      if (canEdit)
+        stock('edit', l10n.viewerEditTextStyle, Icons.edit, _editTextSelection),
+      if (canMarkup) ...[
+        stock('highlight', l10n.viewerMarkupHighlight, Icons.border_color,
+            () => _markupTextSelection(PdfMarkupKind.highlight)),
+        stock('underline', l10n.viewerMarkupUnderline, Icons.format_underlined,
+            () => _markupTextSelection(PdfMarkupKind.underline)),
+        stock(
+            'strikeout',
+            l10n.viewerMarkupStrikeOut,
+            Icons.format_strikethrough,
+            () => _markupTextSelection(PdfMarkupKind.strikeOut)),
+        stock('squiggly', l10n.viewerMarkupSquiggly, Icons.gesture,
+            () => _markupTextSelection(PdfMarkupKind.squiggly)),
+        stock(
+            'link', l10n.linkDialogTitle, Icons.link, _addLinkToTextSelection),
       ],
+      if (canEdit || canMarkup) const PdfMenuDivider(),
+      stock('copy', l10n.copy, Icons.copy, _controller.copySelection,
+          enabled: hasSelection),
+      stock('select-all', l10n.viewerSelectAll, Icons.select_all,
+          () => _selectAllTextOn(page),
+          enabled: hasText),
+      // the host's entries ride in their own group below a divider,
+      // exactly like the annotation menu's
+      if (custom.isNotEmpty) ...[
+        const PdfMenuDivider(),
+        for (final item in custom) pdfTextMenuEntry(item),
+      ],
+    ];
+    final rewrite = widget.textMenuEntries;
+    if (rewrite != null) {
+      entries = rewrite(context, request, entries);
+      if (entries.isEmpty) return;
+    }
+    final ui = _ui;
+    final picked = await PdfEditorPresenter.of(ui).menu<PdfTextMenuItem>(
+      ui,
+      PdfMenuRequest<PdfTextMenuItem>.at(globalPosition, entries: entries),
     );
-    if (picked is PdfTextMenuItem) {
-      // request is non-null whenever a custom entry exists
-      await picked.onSelected(request!);
-      return;
-    }
-    switch (picked as _TextMenuAction?) {
-      case _TextMenuAction.edit:
-        await _editTextSelection();
-      case _TextMenuAction.highlight:
-        _markupTextSelection(PdfMarkupKind.highlight);
-      case _TextMenuAction.underline:
-        _markupTextSelection(PdfMarkupKind.underline);
-      case _TextMenuAction.strikeOut:
-        _markupTextSelection(PdfMarkupKind.strikeOut);
-      case _TextMenuAction.squiggly:
-        _markupTextSelection(PdfMarkupKind.squiggly);
-      case _TextMenuAction.addLink:
-        await _addLinkToTextSelection();
-      case _TextMenuAction.copy:
-        await _controller.copySelection();
-      case _TextMenuAction.selectAll:
-        _selectAllTextOn(page);
-      case null:
-        break;
-    }
+    await picked?.onSelected(request);
   }
 
   /// Opens the rich content-text editor for the exact text element under the
@@ -6951,8 +7135,8 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     final result =
-        await (widget.editingStyledTextPrompt ?? showPdfStyledTextPrompt)(
-      context,
+        await (widget.editingStyledTextPrompt ?? pdfPresentStyledTextPrompt)(
+      _ui,
       initial: selected,
       palette: widget.editingPalette,
       pickFont: (context) => _pickSelectionFont(context, editing),
@@ -7025,10 +7209,13 @@ class _PdfViewerState extends State<PdfViewer>
     final firstPage = _controller.selectionPages.isEmpty
         ? 0
         : _controller.selectionPages.first;
-    final target = await showPdfAddLinkDialog(
-      context,
-      pageCount: editing.document.pageCount,
-      currentPage: firstPage,
+    final ui = _ui;
+    final target = await PdfEditorPresenter.of(ui).link(
+      ui,
+      PdfLinkRequest(
+        pageCount: editing.document.pageCount,
+        currentPage: firstPage,
+      ),
     );
     if (target == null) return;
     editing.addLinkToSelection(quadsByPage, target);
@@ -7036,13 +7223,9 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _textSelectionToast(String message) {
-    ScaffoldMessenger.maybeOf(context)
-      ?..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        margin: pdfFloatingToastMargin(context),
-      ));
+    final ui = _ui;
+    PdfEditorPresenter.of(ui)
+        .notice(ui, PdfEditorNotice(message, kind: PdfNoticeKind.error));
   }
 
   /// Bridge from the page overlay's interaction host to the viewer's
@@ -7071,20 +7254,6 @@ class _PdfViewerState extends State<PdfViewer>
     ));
   }
 
-  Widget _textMenuRow(IconData? icon, String label, bool enabled) => Row(
-        children: [
-          if (icon != null) ...[
-            Builder(
-              builder: (context) => Icon(icon,
-                  size: 18,
-                  color: enabled ? null : Theme.of(context).disabledColor),
-            ),
-            const SizedBox(width: 10),
-          ],
-          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
-        ],
-      );
-
   /// Whether [position] (page, char index) falls inside the current text
   /// selection [start, end).
   bool _selectionContains((int, int) position) {
@@ -7103,11 +7272,12 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing == null) return;
     await showPdfAnnotationMenu(
-      context: context,
+      context: _ui,
       position: globalPosition,
       controller: editing,
       pageIndex: pageIndex,
       customActions: widget.annotationMenuBuilder,
+      entriesBuilder: widget.annotationMenuEntries,
       pagePoint: pagePoint,
       onPaste: widget.systemPdfPasteProvider == null
           ? null
@@ -7122,14 +7292,15 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing == null) return;
     await showPdfFormFieldMenu(
-      context: context,
+      context: _ui,
       position: globalPosition,
       controller: editing,
       fieldName: fieldName,
       widgetIndex: widgetIndex,
-      textPrompt: widget.editingTextPrompt ?? showPdfTextPrompt,
+      textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       fontPicker: widget.fontPicker,
       formImagePicker: widget.formImagePicker,
+      entriesBuilder: widget.formFieldMenuEntries,
     );
   }
 
@@ -7251,11 +7422,13 @@ class _PdfViewerState extends State<PdfViewer>
       cursor =
           action != null || notified ? SystemMouseCursors.click : grabCursor;
     } else if (editing != null &&
-        editing.tool == null &&
         !editing.isPickingColor &&
-        !editing.hasAnnotationSelection &&
-        HardwareKeyboard.instance.isShiftPressed) {
-      // Shift held in default editing mode: a drag rubber-bands a marquee
+        (_selectToolMarqueeModifier ||
+            (editing.tool == null &&
+                !editing.hasAnnotationSelection &&
+                HardwareKeyboard.instance.isShiftPressed))) {
+      // Shift held in default editing mode, or ⌘/Ctrl with the select
+      // tool: a drag rubber-bands a marquee
       cursor = SystemMouseCursors.precise;
     } else if (_pagePointAt(event.localPosition) case final at?) {
       // One page resolution per event, shared by every probe below. Each of
@@ -7462,9 +7635,22 @@ class _PdfViewerState extends State<PdfViewer>
   /// mirroring the toolbar's chips: pressing a tool's key arms it,
   /// pressing it again drops back to Select. Clears the text selection
   /// like a toolbar tap does.
+  ///
+  /// Under [PdfEditorCommands] driving this session (a [PdfEditorView], or a
+  /// host [PdfEditorCommandsScope]) the key goes through
+  /// [PdfEditorCommands.toggleTool], so it asks for what the tool needs
+  /// first, exactly as the toolbar does: the measuring scale for a measure
+  /// tool, a signature for the signature tool.
   void _armTool(PdfEditTool tool) {
     final editing = widget.editing;
     if (editing == null) return;
+    final commands = context
+        .getInheritedWidgetOfExactType<PdfEditorCommandsScope>()
+        ?.commands;
+    if (commands != null && identical(commands.controller, editing)) {
+      unawaited(commands.toggleTool(context, tool));
+      return;
+    }
     editing.tool = editing.tool == tool ? PdfEditTool.select : tool;
     _controller.clearSelection();
   }
@@ -7565,6 +7751,13 @@ class _PdfViewerState extends State<PdfViewer>
     _lastMouseDownStamp = event.timeStamp;
     _lastMouseDownLocal = event.localPosition;
     _middleButtonDrag = event.buttons == kMiddleMouseButton;
+    // Hand mode closes the hand on press, not once the drag clears the
+    // slop - the cursor answers the click the way a native hand tool does
+    if (event.buttons == kPrimaryMouseButton &&
+        widget.editing?.isHandMode == true &&
+        _hoverCursor == grabCursor) {
+      setState(() => _hoverCursor = grabbingCursor);
+    }
   }
 
   /// Completes a mouse double-click (second press, released without
@@ -7574,11 +7767,13 @@ class _PdfViewerState extends State<PdfViewer>
   /// by the disambiguation timeout and claim the second of two rapid
   /// clicks, starving buttons in page overlays.
   void _onPointerUp(PointerUpEvent event) {
-    if (event.kind != PointerDeviceKind.mouse ||
-        !_wordDrag ||
-        widget.editing?.isHandMode == true) {
-      return;
+    // a press that never became a grab-pan opens the hand again
+    if (!_grabPanning && _hoverCursor == grabbingCursor) {
+      setState(() => _hoverCursor = grabCursor);
     }
+    // Hand mode keeps this: a double-click still selects a word, even
+    // though a plain drag grabs the document
+    if (event.kind != PointerDeviceKind.mouse || !_wordDrag) return;
     final downLocal = _lastMouseDownLocal;
     if (downLocal == null ||
         (event.localPosition - downLocal).distance >= kTouchSlop) {
@@ -7663,10 +7858,11 @@ class _PdfViewerState extends State<PdfViewer>
       setState(() => _hoverCursor = grabbingCursor);
       return;
     }
-    if (widget.editing?.isHandMode == true) {
-      // Explicit Hand mode is navigation-only. Unlike the tool-free reader
+    if (widget.editing?.isHandMode == true && !_wordDrag) {
+      // Explicit Hand mode is for navigation. Unlike the tool-free reader
       // state, a drag that begins over page text must grab the document
-      // instead of creating a text selection.
+      // instead of creating a text selection - only a double-click (and
+      // double-click-drag) selects words.
       _grabPanning = true;
       _beginMotionRenderHold();
       setState(() => _hoverCursor = grabbingCursor);
@@ -7732,17 +7928,34 @@ class _PdfViewerState extends State<PdfViewer>
   bool _marqueeShouldStart(DragStartDetails details) {
     final editing = widget.editing;
     if (editing == null ||
-        editing.tool != null ||
         editing.markupTool != null ||
         editing.isPickingColor ||
-        editing.hasAnnotationSelection) {
+        editing.isHandMode) {
       return false;
     }
     final kind = details.kind;
     final mouseLike = kind == null ||
         kind == PointerDeviceKind.mouse ||
         kind == PointerDeviceKind.trackpad;
-    return mouseLike && HardwareKeyboard.instance.isShiftPressed;
+    if (!mouseLike) return false;
+    if (_selectToolMarqueeModifier) return true;
+    return editing.tool == null &&
+        !editing.hasAnnotationSelection &&
+        HardwareKeyboard.instance.isShiftPressed;
+  }
+
+  /// Select-tool behaviour (the tool armed, or a default-mode annotation
+  /// selection in play) with ⌘/Ctrl held. A plain select-tool drag over
+  /// text selects the text; ⌘/Ctrl turns it into the marquee. The modifier
+  /// takes the page list out of the hit path ([_zoomModifierDown]), so the
+  /// overlay never sees this drag and the viewer rubber-bands it itself.
+  bool get _selectToolMarqueeModifier {
+    final editing = widget.editing;
+    if (editing == null) return false;
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return false;
+    return editing.tool == PdfEditTool.select ||
+        (editing.tool == null && editing.hasAnnotationSelection);
   }
 
   /// Finishes a marquee drag: selects the annotations the box covers on
@@ -8857,17 +9070,37 @@ class _PdfViewerState extends State<PdfViewer>
       : Positioned(
           left: 0, right: PdfScrollbar.hitExtent, bottom: 0, child: bar);
 
+  /// A context below the [PdfEditorScope] this viewer installs - what its
+  /// own menus, prompts and notices open from, so they (and the prompts
+  /// their dialogs open) ask [PdfViewer.presenter].
+  BuildContext? _scopedContext;
+
+  BuildContext get _ui {
+    final scoped = _scopedContext;
+    return scoped != null && scoped.mounted ? scoped : context;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => pdfInstallPresenter(
+        context,
+        presenter: widget.presenter,
+        textPrompt: widget.editingTextPrompt,
+        styledTextPrompt: widget.editingStyledTextPrompt,
+        // built in the scoped context, below the presenter scope and the
+        // host wrapper, so its theme and localizations lookups see them
+        child: Builder(builder: (scoped) {
+          _scopedContext = scoped;
+          return _buildViewer(scoped);
+        }),
+      );
+
+  Widget _buildViewer(BuildContext context) {
     final editing = widget.editing;
+    final viewerTheme = PdfViewerTheme.of(context);
     final canvasColor = widget.backgroundColor ??
-        PdfViewerTheme.of(context).canvasColor ??
-        (Theme.of(context).brightness == Brightness.dark
-            ? const Color(0xFF202124)
-            : const Color(0xFF404347));
+        viewerTheme.canvas(Theme.of(context).brightness);
     // the rubber-band marquee's chrome, matching the editing overlay's
-    final marqueeColor = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final marqueeColor = viewerTheme.marquee;
     // The platform's own touch slop, for every recognizer this build creates.
     // [GestureDetector] does this for the recognizers it owns, but
     // [RawGestureDetector] does NOT (`_syncAll` never touches
@@ -9058,7 +9291,7 @@ class _PdfViewerState extends State<PdfViewer>
                     editing: editing,
                     formController: editing ?? widget.formController,
                     editingTextPrompt:
-                        widget.editingTextPrompt ?? showPdfTextPrompt,
+                        widget.editingTextPrompt ?? pdfPresentTextPrompt,
                     formImagePicker: widget.formImagePicker,
                     imagePicker: widget.imagePicker,
                     onSnapshot: widget.onSnapshot,
@@ -9067,6 +9300,7 @@ class _PdfViewerState extends State<PdfViewer>
                     onRevealRect: _revealRect,
                     contextMenuEnabled: widget.contextMenuEnabled,
                     showSelectionChip: widget.showSelectionChip,
+                    showInlineTextStyleChip: widget.showInlineTextStyleChip,
                     interactionHost: PdfEditingInteractionHost(
                       panViewport: _touchGrabPanBy,
                       endViewportPan: _flingViewport,
@@ -9077,6 +9311,11 @@ class _PdfViewerState extends State<PdfViewer>
                       resolvePagePoint: _resolvePagePointGlobal,
                       moveDragPreview: _onMoveDragPreview,
                       textEditClosed: _reclaimFocusAfterTextEdit,
+                      pageTextAt: _pageTextAtGlobal,
+                      beginTextSelection: _beginToolTextSelection,
+                      updateTextSelection: _updateToolTextSelection,
+                      endTextSelection: _endToolTextSelection,
+                      clearTextSelection: _clearToolTextSelection,
                     ),
                     interactionSession: widget.interactionSession,
                     crossPageGhost: _crossPageGhostFor(index),
@@ -9100,86 +9339,13 @@ class _PdfViewerState extends State<PdfViewer>
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
       );
-      return CallbackShortcuts(
+      final keyed = Shortcuts(
         // while an in-place text editor is open every key belongs to it:
         // backspace deletes characters (not the annotation), ⌘C copies
         // field text, Escape is the editor's own cancel
-        bindings: editing?.isEditingText ?? false
-            ? const {}
-            : {
-                const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
-                    _onCopy,
-                const SingleActivator(LogicalKeyboardKey.keyC, control: true):
-                    _onCopy,
-                const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
-                    _onSelectAll,
-                const SingleActivator(LogicalKeyboardKey.keyA, control: true):
-                    _onSelectAll,
-                const SingleActivator(LogicalKeyboardKey.escape): _onEscape,
-                if (editing != null) ...{
-                  const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
-                      editing.undo,
-                  const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-                      editing.undo,
-                  const SingleActivator(LogicalKeyboardKey.keyZ, alt: true):
-                      editing.autosizeSelectedTextBox,
-                  const SingleActivator(LogicalKeyboardKey.keyZ,
-                      meta: true, shift: true): editing.redo,
-                  const SingleActivator(LogicalKeyboardKey.keyZ,
-                      control: true, shift: true): editing.redo,
-                  const SingleActivator(LogicalKeyboardKey.keyY, control: true):
-                      editing.redo,
-                  const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
-                      _onCut,
-                  const SingleActivator(LogicalKeyboardKey.keyX, control: true):
-                      _onCut,
-                  const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-                      _onPaste,
-                  const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-                      _onPaste,
-                  const SingleActivator(LogicalKeyboardKey.delete):
-                      editing.deleteSelected,
-                  const SingleActivator(LogicalKeyboardKey.backspace):
-                      editing.deleteSelected,
-                  // arrow keys nudge the selection - the annotation(s), or
-                  // the selected page-content element - 1 pt per press, 10 pt
-                  // with Shift for a coarse move. Only bound while something
-                  // is selected so a bare arrow still scrolls the page when
-                  // it isn't.
-                  if (editing.hasAnnotationSelection ||
-                      editing.selectedElement != null) ...{
-                    const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
-                        editing.nudgeSelected(-_annotationNudgeStep, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
-                        editing.nudgeSelected(_annotationNudgeStep, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
-                        editing.nudgeSelected(0, -_annotationNudgeStep),
-                    const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
-                        editing.nudgeSelected(0, _annotationNudgeStep),
-                    const SingleActivator(LogicalKeyboardKey.arrowLeft,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(-_annotationNudgeStepCoarse, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowRight,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(_annotationNudgeStepCoarse, 0),
-                    const SingleActivator(LogicalKeyboardKey.arrowUp,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(0, -_annotationNudgeStepCoarse),
-                    const SingleActivator(LogicalKeyboardKey.arrowDown,
-                        shift:
-                            true): () =>
-                        editing.nudgeSelected(0, _annotationNudgeStepCoarse),
-                  },
-                  // tool shortcuts (V select, P pen, R rectangle, ⇧L
-                  // polyline, …) - safe because an open in-place text
-                  // editor disables every binding above
-                  for (final entry in widget.toolShortcuts.entries)
-                    entry.value.activator: () => _armTool(entry.key),
-                },
-              },
+        shortcuts: editing?.isEditingText ?? false
+            ? const <ShortcutActivator, Intent>{}
+            : _keyBindings(editing != null),
         child: Focus(
           focusNode: _focusNode,
           child: RawGestureDetector(
@@ -9485,8 +9651,88 @@ class _PdfViewerState extends State<PdfViewer>
           ),
         ),
       );
+      // the viewer's commands for the keys above (and for a host's own
+      // Shortcuts); an ancestor of the focused viewer, as Actions must be
+      return Actions(actions: _keyActions, child: keyed);
     });
   }
+
+  /// The key bindings: the host's [PdfViewer.shortcuts] (or the stock
+  /// ones), plus the tool keys while editing. Cached, so a rebuild that
+  /// changes none of the inputs hands [Shortcuts] the same map and its
+  /// manager keeps its index.
+  Map<ShortcutActivator, Intent> _keyBindings(bool editing) {
+    final base = widget.shortcuts ?? pdfViewerDefaultShortcuts;
+    final tools = widget.toolShortcuts;
+    final cached = _keyBindingsCache;
+    if (cached != null &&
+        identical(_keyBindingsBase, base) &&
+        identical(_keyBindingsTools, tools) &&
+        _keyBindingsEditing == editing) {
+      return cached;
+    }
+    _keyBindingsBase = base;
+    _keyBindingsTools = tools;
+    _keyBindingsEditing = editing;
+    return _keyBindingsCache = !editing || tools.isEmpty
+        ? base
+        : {
+            ...base,
+            // tool shortcuts (V select, P pen, R rectangle, ⇧L polyline, …) -
+            // safe because an open in-place text editor disables every
+            // binding
+            for (final entry in tools.entries)
+              entry.value.activator: PdfArmToolIntent(entry.key),
+          };
+  }
+
+  Map<ShortcutActivator, Intent>? _keyBindingsCache;
+  Map<ShortcutActivator, Intent>? _keyBindingsBase;
+  Map<PdfEditTool, PdfToolShortcut>? _keyBindingsTools;
+  bool? _keyBindingsEditing;
+
+  /// What the bound keys do. Each action is overridable - an [Actions]
+  /// above the viewer replaces it - and an editing-only one is disabled
+  /// without an editing session, which lets its key through as if unbound.
+  late final Map<Type, Action<Intent>> _keyActions = () {
+    bool editing(Intent _) => widget.editing != null;
+    Action<Intent> action<T extends Intent>(void Function(T intent) invoke,
+            {bool Function(T intent)? enabled}) =>
+        Action<T>.overridable(
+          context: context,
+          defaultAction: _PdfViewerKeyAction<T>(invoke, enabled),
+        );
+    return <Type, Action<Intent>>{
+      PdfCopyIntent: action<PdfCopyIntent>((_) => _onCopy()),
+      PdfSelectAllIntent: action<PdfSelectAllIntent>((_) => _onSelectAll()),
+      PdfDismissIntent: action<PdfDismissIntent>((_) => _onEscape()),
+      PdfUndoIntent: action<PdfUndoIntent>((_) => widget.editing?.undo(),
+          enabled: editing),
+      PdfRedoIntent: action<PdfRedoIntent>((_) => widget.editing?.redo(),
+          enabled: editing),
+      PdfAutosizeTextBoxIntent: action<PdfAutosizeTextBoxIntent>(
+          (_) => widget.editing?.autosizeSelectedTextBox(),
+          enabled: editing),
+      PdfCutIntent: action<PdfCutIntent>((_) => _onCut(), enabled: editing),
+      PdfPasteIntent:
+          action<PdfPasteIntent>((_) => _onPaste(), enabled: editing),
+      PdfDeleteSelectionIntent: action<PdfDeleteSelectionIntent>(
+          (_) => widget.editing?.deleteSelected(),
+          enabled: editing),
+      // only while something is selected, so a bare arrow still scrolls
+      // the page when nothing is
+      PdfNudgeSelectionIntent: action<PdfNudgeSelectionIntent>(
+          (intent) => widget.editing?.nudgeSelected(intent.dx, intent.dy),
+          enabled: (_) {
+        final editing = widget.editing;
+        return editing != null &&
+            (editing.hasAnnotationSelection || editing.selectedElement != null);
+      }),
+      PdfArmToolIntent: action<PdfArmToolIntent>(
+          (intent) => _armTool(intent.tool),
+          enabled: editing),
+    };
+  }();
 
   int _renderPriority(int pageIndex) =>
       -1000 + (pageIndex - (_jumpFocusPage ?? _controller.currentPage)).abs();
@@ -10083,6 +10329,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.predictStrokes,
     required this.contextMenuEnabled,
     required this.showSelectionChip,
+    required this.showInlineTextStyleChip,
     required this.onRasterStateChanged,
   });
 
@@ -10208,6 +10455,9 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [PdfViewer.showSelectionChip] - forwarded to the editing overlay.
   final bool showSelectionChip;
+
+  /// See [PdfViewer.showInlineTextStyleChip] - forwarded to the overlay.
+  final bool showInlineTextStyleChip;
   final void Function(int index, bool ready) onRasterStateChanged;
 
   @override
@@ -10530,6 +10780,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 predictStrokes: widget.predictStrokes,
                                 contextMenuEnabled: widget.contextMenuEnabled,
                                 showSelectionChip: widget.showSelectionChip,
+                                showInlineTextStyleChip:
+                                    widget.showInlineTextStyleChip,
                                 renderWorker: widget.renderWorker,
                               ),
                             ),
@@ -10551,6 +10803,32 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               pageIndex: widget.index,
                               geometry: geometry,
                               zoom: zoom,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              // the form tool's field fill: the same form layer as reading
+              // mode, without its tap targets - the tool's overlay owns the
+              // taps and hands its double-tap here (pdfFormFillRequests), so
+              // keystroke scripts and validation run in either mode
+              if (editing != null)
+                Positioned.fill(
+                  child: ListenableBuilder(
+                    listenable: editing,
+                    builder: (context, _) => editing.tool == PdfEditTool.form
+                        ? ValueListenableBuilder<double>(
+                            valueListenable: widget.transformScale,
+                            builder: (context, zoom, _) => FormInteractionLayer(
+                              controller: editing,
+                              pageIndex: widget.index,
+                              geometry: geometry,
+                              pageColor: widget.pageColor,
+                              rasterCurrent: _rastered,
+                              zoom: zoom,
+                              formImagePicker: widget.formImagePicker,
+                              onRevealField: widget.onRevealRect,
+                              tapTargets: false,
                             ),
                           )
                         : const SizedBox.shrink(),
@@ -10636,7 +10914,7 @@ class _FormFieldPainter extends CustomPainter {
     if (box.width <= 0 || box.height <= 0) return;
     final geometry =
         PdfPageGeometry(cropBox: box, rotation: rotation, viewSize: size);
-    final fill = theme.formFieldHighlightColor ?? const Color(0x2E4D90FE);
+    final fill = theme.formFieldHighlight;
     final fillPaint = Paint()..color = fill;
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -10679,15 +10957,12 @@ class _HighlightPainter extends CustomPainter {
     if (box.width <= 0 || box.height <= 0) return;
     final geometry =
         PdfPageGeometry(cropBox: box, rotation: rotation, viewSize: size);
-    final selected = Paint()
-      ..color = theme.selectionColor ?? const Color(0x4D2196F3);
+    final selected = Paint()..color = theme.selection;
     for (final quad in selection) {
       _paintQuad(canvas, geometry, quad, selected);
     }
-    final normal = Paint()
-      ..color = theme.searchMatchColor ?? const Color(0x66FFEB3B);
-    final current = Paint()
-      ..color = theme.currentSearchMatchColor ?? const Color(0x88FF9800);
+    final normal = Paint()..color = theme.searchMatch;
+    final current = Paint()..color = theme.currentSearchMatch;
     for (final match in matches) {
       final paint = identical(match, currentMatch) ? current : normal;
       for (final quad in match.quads) {
@@ -10740,17 +11015,6 @@ class _FlingClock extends Simulation {
 enum _TrackpadIntent { undecided, scroll, zoom }
 
 /// The mouse right-click text menu's actions.
-enum _TextMenuAction {
-  edit,
-  highlight,
-  underline,
-  strikeOut,
-  squiggly,
-  addLink,
-  copy,
-  selectAll,
-}
-
 /// Claims every trackpad pan-zoom gesture, eagerly. The viewer drives
 /// scrolling, zoom-window panning, and pinch zoom itself: leaving these
 /// gestures to the list's drag recognizer trips the iOS-style velocity
@@ -10984,7 +11248,7 @@ class _TextSelectionChrome extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = zoom > 0 ? 1 / zoom : 1.0;
     final theme = PdfViewerTheme.of(context);
-    final color = theme.selectionHandleColor ?? const Color(0xFF2196F3);
+    final color = theme.selectionHandle;
     final startRect = selection.startRect;
     final endRect = selection.endRect;
     return Stack(children: [
@@ -11030,91 +11294,169 @@ class _TextSelectionChrome extends StatelessWidget {
         child: Transform.scale(
           scale: s,
           alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
-          child: Material(
-            key: const ValueKey('pdf-text-selection-chip'),
-            elevation: 3,
-            borderRadius: BorderRadius.circular(22),
-            clipBehavior: Clip.antiAlias,
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (selection.onEdit != null) ...[
-                IconButton(
-                  key: const ValueKey('pdf-text-selection-chip-edit'),
-                  tooltip: pdfL10n(context).viewerEditTextStyle,
-                  icon: const Icon(Icons.edit, size: 20),
-                  onPressed: selection.onEdit,
+          child: _actionBar(
+            context,
+            material: Material(
+              key: const ValueKey('pdf-text-selection-chip'),
+              elevation: 3,
+              borderRadius: BorderRadius.circular(22),
+              clipBehavior: Clip.antiAlias,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (selection.onEdit != null) ...[
+                  IconButton(
+                    key: const ValueKey('pdf-text-selection-chip-edit'),
+                    tooltip: pdfL10n(context).viewerEditTextStyle,
+                    icon: const Icon(Icons.edit, size: 20),
+                    onPressed: selection.onEdit,
+                  ),
+                  const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                ],
+                TextButton(
+                  key: const ValueKey('pdf-text-selection-chip-copy'),
+                  onPressed: selection.onCopy,
+                  child: Text(pdfL10n(context).copy),
                 ),
+                if (selection.onMarkup != null) ...[
+                  const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                  PopupMenuButton<PdfMarkupKind>(
+                    key: const ValueKey('pdf-text-selection-chip-markup'),
+                    tooltip: pdfL10n(context).viewerMarkup,
+                    icon: const Icon(Icons.edit_note, size: 20),
+                    onSelected: selection.onMarkup,
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        key: const ValueKey('pdf-text-selection-highlight'),
+                        value: PdfMarkupKind.highlight,
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.border_color),
+                          title: Text(pdfL10n(context).viewerMarkupHighlight),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('pdf-text-selection-underline'),
+                        value: PdfMarkupKind.underline,
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.format_underlined),
+                          title: Text(pdfL10n(context).viewerMarkupUnderline),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('pdf-text-selection-strikeout'),
+                        value: PdfMarkupKind.strikeOut,
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.format_strikethrough),
+                          title: Text(pdfL10n(context).viewerMarkupStrikeOut),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('pdf-text-selection-squiggly'),
+                        value: PdfMarkupKind.squiggly,
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.gesture),
+                          title: Text(pdfL10n(context).viewerMarkupSquiggly),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (selection.onAddLink != null) ...[
+                  const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                  IconButton(
+                    key: const ValueKey('pdf-text-selection-chip-link'),
+                    tooltip: pdfL10n(context).linkDialogTitle,
+                    icon: const Icon(Icons.link, size: 20),
+                    onPressed: selection.onAddLink,
+                  ),
+                ],
                 const SizedBox(height: 24, child: VerticalDivider(width: 1)),
-              ],
-              TextButton(
-                key: const ValueKey('pdf-text-selection-chip-copy'),
-                onPressed: selection.onCopy,
-                child: Text(pdfL10n(context).copy),
-              ),
-              if (selection.onMarkup != null) ...[
-                const SizedBox(height: 24, child: VerticalDivider(width: 1)),
-                PopupMenuButton<PdfMarkupKind>(
-                  key: const ValueKey('pdf-text-selection-chip-markup'),
-                  tooltip: pdfL10n(context).viewerMarkup,
-                  icon: const Icon(Icons.edit_note, size: 20),
-                  onSelected: selection.onMarkup,
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      key: const ValueKey('pdf-text-selection-highlight'),
-                      value: PdfMarkupKind.highlight,
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.border_color),
-                        title: Text(pdfL10n(context).viewerMarkupHighlight),
-                      ),
-                    ),
-                    PopupMenuItem(
-                      key: const ValueKey('pdf-text-selection-underline'),
-                      value: PdfMarkupKind.underline,
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.format_underlined),
-                        title: Text(pdfL10n(context).viewerMarkupUnderline),
-                      ),
-                    ),
-                    PopupMenuItem(
-                      key: const ValueKey('pdf-text-selection-strikeout'),
-                      value: PdfMarkupKind.strikeOut,
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.format_strikethrough),
-                        title: Text(pdfL10n(context).viewerMarkupStrikeOut),
-                      ),
-                    ),
-                    PopupMenuItem(
-                      key: const ValueKey('pdf-text-selection-squiggly'),
-                      value: PdfMarkupKind.squiggly,
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.gesture),
-                        title: Text(pdfL10n(context).viewerMarkupSquiggly),
-                      ),
-                    ),
-                  ],
+                TextButton(
+                  key: const ValueKey('pdf-text-selection-chip-select-all'),
+                  onPressed: selection.onSelectAll,
+                  child: Text(pdfL10n(context).viewerSelectAll),
                 ),
-              ],
-              if (selection.onAddLink != null) ...[
-                const SizedBox(height: 24, child: VerticalDivider(width: 1)),
-                IconButton(
-                  key: const ValueKey('pdf-text-selection-chip-link'),
-                  tooltip: pdfL10n(context).linkDialogTitle,
-                  icon: const Icon(Icons.link, size: 20),
-                  onPressed: selection.onAddLink,
-                ),
-              ],
-              const SizedBox(height: 24, child: VerticalDivider(width: 1)),
-              TextButton(
-                key: const ValueKey('pdf-text-selection-chip-select-all'),
-                onPressed: selection.onSelectAll,
-                child: Text(pdfL10n(context).viewerSelectAll),
-              ),
-            ]),
+              ]),
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// The chip's body through the presenter's [PdfEditorPresenter.actionBar]
+  /// ([material] is the stock chip).
+  Widget _actionBar(BuildContext context, {required Widget material}) {
+    final l10n = pdfL10n(context);
+    final onMarkup = selection.onMarkup;
+    return PdfEditorPresenter.of(context).actionBar(
+      context,
+      PdfActionBarRequest(
+        kind: PdfActionBarKind.textSelection,
+        actions: [
+          if (selection.onEdit != null)
+            PdfActionBarAction(
+                id: 'pdf-text-selection-chip-edit',
+                label: l10n.viewerEditTextStyle,
+                icon: Icons.edit,
+                onPressed: selection.onEdit),
+          PdfActionBarAction(
+              id: 'pdf-text-selection-chip-copy',
+              label: l10n.copy,
+              onPressed: selection.onCopy),
+          if (onMarkup != null)
+            PdfActionBarAction(
+              id: 'pdf-text-selection-chip-markup',
+              label: l10n.viewerMarkup,
+              icon: Icons.edit_note,
+              children: [
+                for (final (id, kind, label, icon) in [
+                  (
+                    'pdf-text-selection-highlight',
+                    PdfMarkupKind.highlight,
+                    l10n.viewerMarkupHighlight,
+                    Icons.border_color
+                  ),
+                  (
+                    'pdf-text-selection-underline',
+                    PdfMarkupKind.underline,
+                    l10n.viewerMarkupUnderline,
+                    Icons.format_underlined
+                  ),
+                  (
+                    'pdf-text-selection-strikeout',
+                    PdfMarkupKind.strikeOut,
+                    l10n.viewerMarkupStrikeOut,
+                    Icons.format_strikethrough
+                  ),
+                  (
+                    'pdf-text-selection-squiggly',
+                    PdfMarkupKind.squiggly,
+                    l10n.viewerMarkupSquiggly,
+                    Icons.gesture
+                  ),
+                ])
+                  PdfActionBarAction(
+                      id: id,
+                      label: label,
+                      icon: icon,
+                      onPressed: () => onMarkup(kind)),
+              ],
+            ),
+          if (selection.onAddLink != null)
+            PdfActionBarAction(
+                id: 'pdf-text-selection-chip-link',
+                label: l10n.linkDialogTitle,
+                icon: Icons.link,
+                onPressed: selection.onAddLink),
+          PdfActionBarAction(
+              id: 'pdf-text-selection-chip-select-all',
+              label: l10n.viewerSelectAll,
+              onPressed: selection.onSelectAll),
+        ],
+        stock: material,
       ),
     );
   }
@@ -11277,4 +11619,21 @@ class _SelectionHandlePainter extends CustomPainter {
       oldDelegate.ballRadius != ballRadius ||
       oldDelegate.stemWidth != stemWidth ||
       oldDelegate.color != color;
+}
+
+/// One of the viewer's own key actions ([_PdfViewerState._keyActions]).
+class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
+  _PdfViewerKeyAction(this._invoke, this._enabled);
+
+  final void Function(T intent) _invoke;
+  final bool Function(T intent)? _enabled;
+
+  @override
+  bool isEnabled(T intent) => _enabled?.call(intent) ?? true;
+
+  @override
+  Object? invoke(T intent) {
+    _invoke(intent);
+    return null;
+  }
 }

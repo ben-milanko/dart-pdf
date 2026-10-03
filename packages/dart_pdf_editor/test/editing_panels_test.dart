@@ -616,8 +616,8 @@ void main() {
 
       // left-docked strip: 14px bar stepped off the 8px grip, tiles
       // already pad 12 - the list adds the missing 10
-      final strip =
-          tester.widget<ReorderableListView>(find.byType(ReorderableListView));
+      final strip = tester.widget<ReorderableListView>(
+          find.byKey(const ValueKey('pdf-thumbnail-list')));
       expect(strip.padding, const EdgeInsets.fromLTRB(0, 8, 10, 8));
 
       // right-docked annotation list: the grip rides the far edge, so

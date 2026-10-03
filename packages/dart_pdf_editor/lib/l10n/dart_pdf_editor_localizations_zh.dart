@@ -2199,6 +2199,70 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => '允许多选';
+
+  @override
+  String get searchFieldHint => '搜索';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return '无法打开文档：$error';
+  }
+
+  @override
+  String get pageRangeExportTitle => '导出页面';
+
+  @override
+  String get pageRangeExportConfirm => '导出';
+
+  @override
+  String get textStyleKeepFont => '保持不变';
+
+  @override
+  String get guidesDialogTitle => '参考线、吸附和标尺';
+
+  @override
+  String get guidesSmartAlignment => '智能对齐参考线';
+
+  @override
+  String get guidesPageRulers => '页面标尺';
+
+  @override
+  String get guidesPageRulersHint => '在页面边缘显示以点为单位的尺寸';
+
+  @override
+  String get guidesVerticalCursorLine => '垂直光标线';
+
+  @override
+  String get guidesHorizontalCursorLine => '水平光标线';
+
+  @override
+  String get guidesSnapToGrid => '吸附到网格';
+
+  @override
+  String get guidesSnapToGridHint => '按住 Alt 跳过吸附';
+
+  @override
+  String get guidesShowGrid => '显示网格线';
+
+  @override
+  String get guidesShowGridHint => '仅用于显示；不会添加到 PDF 中';
+
+  @override
+  String get guidesGridSpacing => '网格间距';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => '光标参考线和网格';
+
+  @override
+  String get commandSaveAs => '另存为…';
+
+  @override
+  String get dialogDismiss => '关闭';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4396,4 +4460,68 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get formOptionsMultiSelect => '允許多重選取';
+
+  @override
+  String get searchFieldHint => '搜尋';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return '無法開啟文件：$error';
+  }
+
+  @override
+  String get pageRangeExportTitle => '匯出頁面';
+
+  @override
+  String get pageRangeExportConfirm => '匯出';
+
+  @override
+  String get textStyleKeepFont => '保持不變';
+
+  @override
+  String get guidesDialogTitle => '參考線、吸附和尺規';
+
+  @override
+  String get guidesSmartAlignment => '智慧對齊參考線';
+
+  @override
+  String get guidesPageRulers => '頁面尺規';
+
+  @override
+  String get guidesPageRulersHint => '在頁面邊緣顯示以點為單位的尺寸';
+
+  @override
+  String get guidesVerticalCursorLine => '垂直游標線';
+
+  @override
+  String get guidesHorizontalCursorLine => '水平游標線';
+
+  @override
+  String get guidesSnapToGrid => '吸附至格線';
+
+  @override
+  String get guidesSnapToGridHint => '按住 Alt 略過吸附';
+
+  @override
+  String get guidesShowGrid => '顯示格線';
+
+  @override
+  String get guidesShowGridHint => '僅供顯示；不會加入 PDF';
+
+  @override
+  String get guidesGridSpacing => '格線間距';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => '游標參考線和格線';
+
+  @override
+  String get commandSaveAs => '另存新檔…';
+
+  @override
+  String get dialogDismiss => '關閉';
 }

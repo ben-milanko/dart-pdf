@@ -456,6 +456,10 @@ void main() {
       ));
 
       final field = tester.widget<TextField>(find.byKey(fieldKey));
+      expect(field.decoration?.border,
+          const OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius));
+      // The deprecated Material const is the same border.
+      // ignore: deprecated_member_use_from_same_package
       expect(field.decoration?.border, pdfSearchInputBorder);
     });
 
@@ -760,9 +764,8 @@ void main() {
       await pumpViewer(tester, controller, buildMultiPagePdf(2),
           beside: PdfSearchResultsPanel(controller: controller));
 
-      final divider = tester.widget<Divider>(find.descendant(
-          of: find.byType(PdfSearchResultsPanel),
-          matching: find.byType(Divider)));
+      final divider = tester.widget<Divider>(
+          find.byKey(const ValueKey('pdf-search-options-divider')));
       expect(divider.indent, 0);
       expect(divider.endIndent, PdfSidebarResizeGrip.width);
     });

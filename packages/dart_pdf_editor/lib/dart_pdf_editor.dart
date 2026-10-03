@@ -17,6 +17,17 @@ export 'package:pdf_document/pdf_document.dart'
 export 'src/annotation_tap.dart';
 export 'src/budgeted_cache.dart';
 export 'src/debug_overlays.dart';
+export 'src/design/editor_presenter.dart'
+    hide
+        pdfApplyFormChoice,
+        pdfInstallPresenter,
+        pdfPresentColor,
+        pdfPresentDialog;
+export 'src/design/editor_theme.dart'
+    show PdfEditorThemeData, pdfShellCompactWidth;
+export 'src/design/header_parts.dart';
+export 'src/design/material_host.dart'
+    show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;
 export 'src/dialog.dart';
 export 'src/canvas_device.dart';
 export 'src/font_substitution.dart';
@@ -29,13 +40,14 @@ export 'src/editing/editing_color_processing.dart';
 export 'src/editing/editing_controller.dart';
 export 'src/editing/create_signing_identity_dialog.dart';
 export 'src/editing/digital_signature.dart';
-export 'src/editing/digital_signature_removal.dart';
+export 'src/editing/digital_signature_removal.dart'
+    hide pdfConfirmRemoveSignature, pdfRemoveSignatureRequest;
 export 'src/editing/form_secret_store.dart';
 export 'src/editing/signing_identity_store.dart';
 export 'src/editing/editing_annotation_clipboard.dart';
 export 'src/editing/annotation_preview.dart';
 export 'src/editing/editing_annotation_library.dart';
-export 'src/editing/editing_fonts.dart';
+export 'src/editing/editing_fonts.dart' hide pdfShowStockFontPicker;
 export 'src/editing/editing_form_options.dart';
 export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_link.dart';
@@ -45,9 +57,11 @@ export 'src/editing/editing_page_clipboard.dart';
 export 'src/editing/editing_panel.dart';
 export 'src/editing/editing_pencil.dart';
 export 'src/editing/editing_preferences.dart';
+export 'src/editing/preferences_store.dart';
 export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';
 export 'src/editing/editing_signature.dart';
+export 'src/editing/signature_pad.dart';
 export 'src/editing/saved_annotation.dart';
 export 'src/editing/editing_snapshot_clipboard.dart';
 export 'src/editing/editing_stamps.dart';
@@ -55,6 +69,8 @@ export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnail_drop.dart';
 export 'src/editing/editing_thumbnails.dart';
 export 'src/editing/editing_tool_catalog.dart';
+export 'src/editing/editor_commands.dart';
+export 'src/editing/editor_panel.dart';
 export 'src/editing/editing_toolbar.dart';
 export 'src/editing/line_style.dart';
 export 'src/editing/stroke_prediction.dart';
@@ -93,6 +109,7 @@ export 'src/pdf_reader.dart';
 export 'src/live_raster_budget.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
+export 'src/viewer_intents.dart';
 export 'src/performance_policy.dart';
 export 'src/preview_cache.dart';
 export 'src/raster_cache.dart';

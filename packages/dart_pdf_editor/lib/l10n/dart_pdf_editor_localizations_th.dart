@@ -2223,4 +2223,68 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'อนุญาตให้เลือกหลายรายการ';
+
+  @override
+  String get searchFieldHint => 'ค้นหา';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'ไม่สามารถเปิดเอกสารได้: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'ส่งออกหน้า';
+
+  @override
+  String get pageRangeExportConfirm => 'ส่งออก';
+
+  @override
+  String get textStyleKeepFont => 'คงเดิม';
+
+  @override
+  String get guidesDialogTitle => 'เส้นนำ การจัดแนว และไม้บรรทัด';
+
+  @override
+  String get guidesSmartAlignment => 'เส้นนำการจัดแนวอัจฉริยะ';
+
+  @override
+  String get guidesPageRulers => 'ไม้บรรทัดหน้า';
+
+  @override
+  String get guidesPageRulersHint => 'แสดงการวัดเป็นพอยต์ที่ขอบหน้า';
+
+  @override
+  String get guidesVerticalCursorLine => 'เส้นเคอร์เซอร์แนวตั้ง';
+
+  @override
+  String get guidesHorizontalCursorLine => 'เส้นเคอร์เซอร์แนวนอน';
+
+  @override
+  String get guidesSnapToGrid => 'จัดแนวกับเส้นตาราง';
+
+  @override
+  String get guidesSnapToGridHint => 'กด Alt ค้างไว้เพื่อข้ามการจัดแนว';
+
+  @override
+  String get guidesShowGrid => 'แสดงเส้นตาราง';
+
+  @override
+  String get guidesShowGridHint => 'แสดงผลเท่านั้น ไม่ได้เพิ่มลงใน PDF';
+
+  @override
+  String get guidesGridSpacing => 'ระยะห่างเส้นตาราง';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'เส้นนำเคอร์เซอร์และเส้นตาราง';
+
+  @override
+  String get commandSaveAs => 'บันทึกเป็น…';
+
+  @override
+  String get dialogDismiss => 'ปิด';
 }

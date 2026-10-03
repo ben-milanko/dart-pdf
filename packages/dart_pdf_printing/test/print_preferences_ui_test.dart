@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfDropdown;
 import 'package:dart_pdf_printing/dart_pdf_printing.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -93,7 +94,7 @@ void main() {
     final result = await open(tester);
     expect(
         tester
-            .widget<DropdownButton<PrintPaperSize>>(
+            .widget<PdfDropdown<PrintPaperSize>>(
                 find.byKey(const ValueKey('print-options-paper')))
             .value,
         PrintPaperSize.a3);
@@ -197,11 +198,9 @@ void main() {
       final result = await open(tester, settle: false);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
-      final selector = tester.widget<DropdownButton<String>>(
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
+      final selector = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('print-options-printer')));
       selector.onChanged!('Plotter');
       await tester.pumpAndSettle();
@@ -227,10 +226,8 @@ void main() {
       expect(find.byKey(const ValueKey('print-printer-error')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       await choose(tester, 'printer', 'Plotter');
       await tester.tap(find.byKey(const ValueKey('print-preview-print')));
       await tester.pumpAndSettle();
@@ -264,13 +261,13 @@ void main() {
       final result = await open(tester);
       expect(
           tester
-              .widget<DropdownButton<String>>(
+              .widget<PdfDropdown<String>>(
                   find.byKey(const ValueKey('print-options-printer')))
               .value,
           'Plotter');
       expect(
           tester
-              .widget<DropdownButton<PrintDuplex>>(
+              .widget<PdfDropdown<PrintDuplex>>(
                   find.byKey(const ValueKey('print-options-duplex')))
               .value,
           PrintDuplex.longEdge);
@@ -301,13 +298,11 @@ void main() {
           find.byKey(const ValueKey('print-printer-missing')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       expect(
           tester
-              .widget<DropdownButton<String>>(
+              .widget<PdfDropdown<String>>(
                   find.byKey(const ValueKey('print-options-printer')))
               .value,
           isNull);
@@ -331,27 +326,21 @@ void main() {
       expect(find.byKey(const ValueKey('print-printer-error')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       await tester.tap(find.byKey(const ValueKey('print-printer-retry')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('print-printer-error')), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: false));
       await tester.tap(find.byKey(const ValueKey('print-printer-retry')));
       await tester.pumpAndSettle();
       expect(
           tester
-              .widget<FilledButton>(
-                  find.byKey(const ValueKey('print-preview-print')))
-              .onPressed,
-          isNotNull);
+              .getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+          isSemantics(isEnabled: true));
     }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
 
     testWidgets('saved capabilities are normalized and changes survive Cancel',
@@ -372,19 +361,19 @@ void main() {
       await open(tester);
       expect(
           tester
-              .widget<DropdownButton<bool>>(
+              .widget<PdfDropdown<bool>>(
                   find.byKey(const ValueKey('print-options-color')))
               .value,
           isFalse);
       expect(
           tester
-              .widget<DropdownButton<PrintDuplex>>(
+              .widget<PdfDropdown<PrintDuplex>>(
                   find.byKey(const ValueKey('print-options-duplex')))
               .value,
           PrintDuplex.simplex);
       expect(
           tester
-              .widget<DropdownButton<int>>(
+              .widget<PdfDropdown<int>>(
                   find.byKey(const ValueKey('print-options-tray')))
               .value,
           1);

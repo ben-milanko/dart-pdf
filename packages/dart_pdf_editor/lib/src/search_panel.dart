@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'design/viewer_tokens.dart';
 import 'package:flutter/material.dart';
 
+import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_panel.dart';
@@ -10,7 +12,7 @@ import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
 import 'search_field_style.dart';
 import 'theme.dart';
-import 'toast.dart';
+import 'design/editor_presenter.dart';
 
 /// A compact document-search field: a slim text box with the match
 /// count, previous/next, and clear riding alongside - small enough for
@@ -52,6 +54,9 @@ class PdfSearchField extends StatefulWidget {
   /// Optional focus node, for a host-level ⌘F shortcut.
   final FocusNode? focusNode;
 
+  /// The field's placeholder. The default, `'Search'`, shows the localized
+  /// word ([DartPdfEditorLocalizations.searchFieldHint]); any other value is
+  /// shown as given.
   final String hintText;
 
   @override
@@ -120,14 +125,17 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
               controller: _field,
               focusNode: widget.focusNode,
               decoration: InputDecoration(
-                hintText: widget.hintText,
+                hintText: widget.hintText == 'Search'
+                    ? pdfL10n(context).searchFieldHint
+                    : widget.hintText,
                 prefixIcon: const Icon(Icons.search, size: 18),
                 prefixIconConstraints:
                     const BoxConstraints(minWidth: 32, minHeight: 32),
                 isDense: true,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border: pdfSearchInputBorder,
+                border: const OutlineInputBorder(
+                    borderRadius: pdfSearchFieldBorderRadius),
                 suffixIcon: controller.isSearching
                     ? const Padding(
                         padding: EdgeInsets.all(8),
@@ -155,7 +163,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
               // the next match instead of dismissing the field.
               onEditingComplete: () {},
               onChanged: _onChanged,
-              onSubmitted: _onSubmitted,
+              onSubmitted: _onSubmitted, contextMenuBuilder: pdfTextContextMenu,
             ),
           ),
           if (widget.showOptions)
@@ -331,8 +339,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
 
   Widget _resultTile(BuildContext context, int index, PdfSearchResult result) {
     final scheme = Theme.of(context).colorScheme;
-    final highlight =
-        PdfViewerTheme.of(context).searchMatchColor ?? const Color(0x66FFEB3B);
+    final highlight = PdfViewerTheme.of(context).searchMatch;
     final style = Theme.of(context).textTheme.bodySmall;
     return ListTile(
       key: ValueKey('pdf-search-result-$index'),
@@ -519,6 +526,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     geometry: geometry,
                   ),
                 Divider(
+                  key: const ValueKey('pdf-search-options-divider'),
                   height: 1,
                   indent: geometry.contentStartInset,
                   endIndent: geometry.contentEndInset,
@@ -570,20 +578,11 @@ class _ReplaceBarState extends State<_ReplaceBar> {
   TextEditingController get _field => widget.field;
 
   void _toast(String message) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        margin: pdfFloatingToastMargin(context),
-        duration: const Duration(seconds: 4),
-        action: widget.editing.canUndo
-            ? SnackBarAction(
-                label: pdfL10n(context).undo, onPressed: widget.editing.undo)
-            : null,
-      ));
+    PdfEditorPresenter.of(context).notice(
+      context,
+      PdfEditorNotice(message,
+          onUndo: widget.editing.canUndo ? widget.editing.undo : null),
+    );
   }
 
   /// Re-runs the live query against the rewritten document: the hits the
@@ -693,6 +692,7 @@ class _ReplaceBarState extends State<_ReplaceBar> {
             ),
             style: Theme.of(context).textTheme.bodySmall,
             onChanged: (_) => setState(() {}),
+            contextMenuBuilder: pdfTextContextMenu,
           ),
           const SizedBox(height: 6),
           Row(children: [

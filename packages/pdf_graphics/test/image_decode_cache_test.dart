@@ -147,6 +147,63 @@ List<PdfDecodedPixels> _decodedImages(Uint8List bytes) {
   return out;
 }
 
+/// A [pageWidth]x[pageHeight] page that draws one uncompressed
+/// [width]x[height] image over the whole page, recorded.
+(PdfDocument, PdfPage, RecordingPdfDevice) _singleImagePage(
+    int width,
+    int height,
+    int components,
+    String colorSpace,
+    int pageWidth,
+    int pageHeight,
+    int Function(int) sample) {
+  final builder = CosDocumentBuilder();
+  final image = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': CosInteger(width),
+      'Height': CosInteger(height),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosName(colorSpace),
+    }),
+    Uint8List.fromList(
+        List.generate(width * height * components, sample, growable: false)),
+  ));
+  final pages = CosDictionary({
+    'Type': const CosName('Pages'),
+    'Count': const CosInteger(1),
+  });
+  final pagesRef = builder.add(pages);
+  final pageRef = builder.add(CosDictionary({
+    'Type': const CosName('Page'),
+    'Parent': pagesRef,
+    'MediaBox': CosArray([
+      const CosInteger(0),
+      const CosInteger(0),
+      CosInteger(pageWidth),
+      CosInteger(pageHeight),
+    ]),
+    'Resources': CosDictionary({
+      'XObject': CosDictionary({'Im0': image}),
+    }),
+    'Contents': builder.add(CosStream(
+        CosDictionary(),
+        Uint8List.fromList(
+            'q $pageWidth 0 0 $pageHeight 0 0 cm /Im0 Do Q'.codeUnits))),
+  }));
+  pages['Kids'] = CosArray([pageRef]);
+  final catalog = builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': pagesRef,
+  }));
+  final document = PdfDocument.open(builder.build(root: catalog));
+  final page = document.page(0);
+  final recorder = RecordingPdfDevice();
+  PdfInterpreter(cos: document.cos, device: recorder).drawPage(page);
+  return (document, page, recorder);
+}
+
 void main() {
   group('PdfImageDecodeCache (#451)', () {
     test('a second record of the same page reuses the first decode', () {
@@ -261,8 +318,9 @@ void main() {
       expect(decoded, 1, reason: 'b was the least recently used, so it went');
     });
 
-    test('an image bigger than the whole budget is not cached', () {
-      final cache = PdfImageDecodeCache(maxBytes: 16);
+    test('a transient image bigger than its cap is not cached', () {
+      final cache =
+          PdfImageDecodeCache(maxBytes: 1024, maxTransientEntryBytes: 64);
       final stream = _stream(1);
       var decodes = 0;
       PdfDecodedPixels? decode() {
@@ -270,10 +328,97 @@ void main() {
         return _pixels(1, width: 8, height: 8); // 256 bytes
       }
 
-      expect(cache.decode(stream, 8, 8, decode), isNotNull);
-      expect(cache.decode(stream, 8, 8, decode), isNotNull);
-      // It still decodes correctly - it just never evicts everything else to
-      // sit alone in the cache.
+      expect(cache.decode(stream, 8, 8, decode, reusable: false), isNotNull);
+      expect(cache.decode(stream, 8, 8, decode, reusable: false), isNotNull);
+      // It still decodes correctly - one exact target size is just not worth
+      // holding at this size.
+      expect(decodes, 2);
+      expect(cache.bytes, 0);
+    });
+
+    test('a transient decode never displaces a reusable one', () {
+      // 16 bytes per entry; room for two.
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final a = _stream(1), b = _stream(2), c = _stream(3);
+      cache.decode(a, null, null, () => _pixels(1));
+      cache.decode(b, null, null, () => _pixels(2));
+      var decodes = 0;
+      PdfDecodedPixels? decodeC() {
+        decodes++;
+        return _pixels(3);
+      }
+
+      // No transient entry to make room from: C is served, not retained, and
+      // neither reusable entry moves.
+      expect(cache.decode(c, 2, 2, decodeC, reusable: false), isNotNull);
+      expect(cache.decode(c, 2, 2, decodeC, reusable: false), isNotNull);
+      expect(decodes, 2);
+      expect(cache.length, 2);
+      cache.decode(a, null, null, () => fail('a is reusable and stays'));
+      cache.decode(b, null, null, () => fail('b is reusable and stays'));
+    });
+
+    test('a transient decode makes room from older transient entries', () {
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final a = _stream(1), b = _stream(2), c = _stream(3), d = _stream(4);
+      cache.decode(a, null, null, () => _pixels(1)); // reusable
+      cache.decode(b, 2, 2, () => _pixels(2), reusable: false);
+      // Over budget: b (the only transient entry) goes, a stays.
+      cache.decode(c, 2, 2, () => _pixels(3), reusable: false);
+      expect(cache.length, 2);
+      cache.decode(a, null, null, () => fail('a is reusable and stays'));
+      cache.decode(c, 2, 2, () => fail('c was just admitted'), reusable: false);
+      var decodes = 0;
+      cache.decode(b, 2, 2, () {
+        decodes++;
+        return _pixels(2);
+      }, reusable: false);
+      expect(decodes, 1, reason: 'b was displaced by c');
+      // A reusable decode displaces whatever is least recently used - here
+      // the transient b, once a is touched.
+      cache.decode(a, null, null, () => fail('a is still cached'));
+      cache.decode(d, null, null, () => _pixels(4));
+      expect(cache.bytes, lessThanOrEqualTo(40));
+      cache.decode(a, null, null, () => fail('a was used more recently'));
+    });
+
+    test('one reusable decode past the budget is kept alone, as the newest',
+        () {
+      // An 8 MP+ JPEG under a mobile budget: deep zoom crops every detail
+      // tile from this one native decode, so refusing it would repeat the
+      // whole decode per tile.
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final small = _stream(1), big = _stream(2), next = _stream(3);
+      cache.decode(small, null, null, () => _pixels(1));
+      final bigPixels = _pixels(7, width: 8, height: 8); // 256 bytes
+      cache.decode(big, null, null, () => bigPixels);
+      expect(cache.length, 1, reason: 'everything else made room');
+      expect(cache.bytes, 256);
+      expect(cache.decode(big, null, null, () => fail('kept past the budget')),
+          same(bigPixels));
+      // Transient entries cannot push it out; they are simply not retained.
+      cache.decode(next, 2, 2, () => _pixels(3), reusable: false);
+      expect(cache.length, 1);
+      // The next reusable decode takes its place (least recently used).
+      cache.decode(next, null, null, () => _pixels(3));
+      expect(cache.length, 1);
+      expect(cache.bytes, 16);
+    });
+
+    test('a reusable decode past the old flat budget is not cached', () {
+      final cache = PdfImageDecodeCache(maxBytes: 40);
+      final stream = _stream(1);
+      final huge = PdfDecodedPixels(
+          Uint8List(PdfImageDecodeCache.maxOversizeEntryBytes + 4), 1, 1);
+      var decodes = 0;
+      cache.decode(stream, null, null, () {
+        decodes++;
+        return huge;
+      });
+      cache.decode(stream, null, null, () {
+        decodes++;
+        return huge;
+      });
       expect(decodes, 2);
       expect(cache.bytes, 0);
     });
@@ -292,13 +437,17 @@ void main() {
       expect(cache.bytes, 16);
     });
 
-    test('clear drops everything', () {
+    test('clear drops everything and keeps the counters', () {
       final cache = PdfImageDecodeCache();
       final stream = _stream(1);
       cache.decode(stream, 2, 2, () => _pixels(1));
+      cache.decode(stream, 2, 2, () => fail('cached'));
       cache.clear();
       expect(cache.bytes, 0);
       expect(cache.length, 0);
+      expect((cache.hits, cache.misses), (1, 1),
+          reason: 'a memory-pressure trim clears in place; the worker '
+              'diagnostics read these across it');
       var decodes = 0;
       cache.decode(stream, 2, 2, () {
         decodes++;
@@ -306,6 +455,70 @@ void main() {
       });
       expect(decodes, 1);
     });
+  });
+
+  // A scan page past native resolution: every record at or past its native
+  // ratio decodes the same native key, so that decode serves more than the
+  // record that made it - retained like any reusable decode, whatever the
+  // format, even past the transient cap a 1-bit or Flate page blows through.
+  test('a non-DCT native decode is reused across past-native ratios', () {
+    const side = 1024; // 4 MB of RGBA, past a mobile budget's transient cap
+    final (document, page, recorder) = _singleImagePage(
+        side, side, 1, 'DeviceGray', 400, 400, (i) => (i * 7) & 0xff);
+
+    Uint8List record(double ratio, PdfImageDecodeCache? cache) =>
+        serializeCommands(recorder.commands,
+            cos: document.cos,
+            decodeImages: true,
+            maxImagePixelRatio: ratio,
+            pageRasterPixels: pdfPageRasterPixels(page.cropBox, ratio),
+            imageCache: cache,
+            compactStateScopes: true)!;
+
+    // 400pt at ratio 3 and 4 is 1200 and 1600 px: both past the 1024 px
+    // native size, so both are native decodes.
+    final cache = PdfImageDecodeCache(maxBytes: 4 << 20);
+    final zoomed = record(3, cache);
+    expect((cache.hits, cache.misses), (0, 1));
+    final further = record(4, cache);
+    expect((cache.hits, cache.misses), (1, 1),
+        reason: 'the second past-native zoom level reuses the native decode');
+    expect(cache.bytes, side * side * 4);
+    expect(zoomed, record(3, null));
+    expect(further, record(4, null));
+  });
+
+  // An edit or an undo bumps the revision, so the host's record cache misses
+  // and the worker re-records the page at the ratio it was just recorded at,
+  // with its decode cache still warm. A downscaled image's target-size decode
+  // is what that re-record needs: under the desktop budget it must be
+  // retained, or every edit on a scan/underlay page pays the decode again.
+  test('a downscaled decode is reused by a same-ratio re-record', () {
+    // 2400 px RGB over a letter page: ratio 2 asks for ~1224x1584, a
+    // target-size decode of ~7.8 MB of RGBA (past the old 2 MB cap).
+    final (document, page, recorder) = _singleImagePage(
+        2400, 2400, 3, 'DeviceRGB', 612, 792, (i) => (i * 31) & 0xff);
+
+    Uint8List record(PdfImageDecodeCache? cache) =>
+        serializeCommands(recorder.commands,
+            cos: document.cos,
+            decodeImages: true,
+            maxImagePixelRatio: 2,
+            pageRasterPixels: pdfPageRasterPixels(page.cropBox, 2),
+            imageCache: cache,
+            compactStateScopes: true)!;
+
+    final cache = PdfImageDecodeCache(); // the desktop 64 MB
+    final first = record(cache);
+    expect((cache.hits, cache.misses), (0, 1));
+    expect(cache.bytes, greaterThan(2 << 20),
+        reason: 'the target-size decode is retained');
+    final again = record(cache);
+    expect((cache.hits, cache.misses), (1, 1),
+        reason: 'the re-record after an edit reuses the downscaled decode');
+    final uncached = record(null);
+    expect(first, uncached);
+    expect(again, uncached);
   });
 
   // Luminosity masks used to bypass the cache, so every record re-decoded

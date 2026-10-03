@@ -2228,6 +2228,70 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Allow multiple selections';
+
+  @override
+  String get searchFieldHint => 'Search';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Could not open document: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Export pages';
+
+  @override
+  String get pageRangeExportConfirm => 'Export';
+
+  @override
+  String get textStyleKeepFont => 'Keep';
+
+  @override
+  String get guidesDialogTitle => 'Guides, snapping and rulers';
+
+  @override
+  String get guidesSmartAlignment => 'Smart alignment guides';
+
+  @override
+  String get guidesPageRulers => 'Page rulers';
+
+  @override
+  String get guidesPageRulersHint => 'Show point measurements at page edges';
+
+  @override
+  String get guidesVerticalCursorLine => 'Vertical cursor line';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Horizontal cursor line';
+
+  @override
+  String get guidesSnapToGrid => 'Snap to grid';
+
+  @override
+  String get guidesSnapToGridHint => 'Hold Alt to bypass snapping';
+
+  @override
+  String get guidesShowGrid => 'Show grid lines';
+
+  @override
+  String get guidesShowGridHint => 'Display only; not added to the PDF';
+
+  @override
+  String get guidesGridSpacing => 'Grid spacing';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Cursor guides and grid';
+
+  @override
+  String get commandSaveAs => 'Save as…';
+
+  @override
+  String get dialogDismiss => 'Dismiss';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4454,6 +4518,70 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get formOptionsMultiSelect => 'Allow multiple selections';
+
+  @override
+  String get searchFieldHint => 'Search';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Could not open document: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Export pages';
+
+  @override
+  String get pageRangeExportConfirm => 'Export';
+
+  @override
+  String get textStyleKeepFont => 'Keep';
+
+  @override
+  String get guidesDialogTitle => 'Guides, snapping and rulers';
+
+  @override
+  String get guidesSmartAlignment => 'Smart alignment guides';
+
+  @override
+  String get guidesPageRulers => 'Page rulers';
+
+  @override
+  String get guidesPageRulersHint => 'Show point measurements at page edges';
+
+  @override
+  String get guidesVerticalCursorLine => 'Vertical cursor line';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Horizontal cursor line';
+
+  @override
+  String get guidesSnapToGrid => 'Snap to grid';
+
+  @override
+  String get guidesSnapToGridHint => 'Hold Alt to bypass snapping';
+
+  @override
+  String get guidesShowGrid => 'Show grid lines';
+
+  @override
+  String get guidesShowGridHint => 'Display only; not added to the PDF';
+
+  @override
+  String get guidesGridSpacing => 'Grid spacing';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Cursor guides and grid';
+
+  @override
+  String get commandSaveAs => 'Save as…';
+
+  @override
+  String get dialogDismiss => 'Dismiss';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -6680,4 +6808,68 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get formOptionsMultiSelect => 'Allow multiple selections';
+
+  @override
+  String get searchFieldHint => 'Search';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Could not open document: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Export pages';
+
+  @override
+  String get pageRangeExportConfirm => 'Export';
+
+  @override
+  String get textStyleKeepFont => 'Keep';
+
+  @override
+  String get guidesDialogTitle => 'Guides, snapping and rulers';
+
+  @override
+  String get guidesSmartAlignment => 'Smart alignment guides';
+
+  @override
+  String get guidesPageRulers => 'Page rulers';
+
+  @override
+  String get guidesPageRulersHint => 'Show point measurements at page edges';
+
+  @override
+  String get guidesVerticalCursorLine => 'Vertical cursor line';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Horizontal cursor line';
+
+  @override
+  String get guidesSnapToGrid => 'Snap to grid';
+
+  @override
+  String get guidesSnapToGridHint => 'Hold Alt to bypass snapping';
+
+  @override
+  String get guidesShowGrid => 'Show grid lines';
+
+  @override
+  String get guidesShowGridHint => 'Display only; not added to the PDF';
+
+  @override
+  String get guidesGridSpacing => 'Grid spacing';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Cursor guides and grid';
+
+  @override
+  String get commandSaveAs => 'Save as…';
+
+  @override
+  String get dialogDismiss => 'Dismiss';
 }

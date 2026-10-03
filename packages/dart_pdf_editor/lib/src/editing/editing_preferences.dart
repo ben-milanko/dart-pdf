@@ -2,20 +2,39 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Locale, ThemeMode;
+// Only for the deprecated [PdfEditingPreferences.themeMode], removed in 6.0.
+// tool/check_design_imports.dart allows exactly this show list here.
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
-import 'editing_color_picker.dart' show PdfColorFormat;
-import 'editing_panel.dart' show PdfDockablePanel, PdfPanelDock;
 import 'line_style.dart';
-import 'editing_measure.dart';
+import 'models/color_format.dart';
+import 'models/custom_stamp.dart';
+import 'models/ink_signature.dart';
+import 'models/measurement_scale.dart';
+import 'models/panel_dock.dart';
+import 'preferences_store.dart';
 import 'saved_annotation.dart';
-import 'editing_signature.dart';
-import 'editing_stamps.dart';
+
+/// The app theme a host runs the editor UI in, as the user chose it:
+/// follow the platform's brightness, or force light or dark. Persisted by
+/// [PdfEditingPreferences.themePreference].
+///
+/// The editor's own enum rather than Material's `ThemeMode`, so the
+/// preferences stay design-system neutral. A Material host maps it in one
+/// line:
+///
+/// ```dart
+/// themeMode: switch (prefs.themePreference) {
+///   PdfThemePreference.system => ThemeMode.system,
+///   PdfThemePreference.light => ThemeMode.light,
+///   PdfThemePreference.dark => ThemeMode.dark,
+/// },
+/// ```
+enum PdfThemePreference { system, light, dark }
 
 /// Which surface owns the document area: fixed-layout pages, the inferred
 /// text reflow view, or the full-area page grid. Exactly one at a time -
@@ -119,15 +138,22 @@ class PdfViewModeController extends ChangeNotifier
 /// Values load asynchronously ([ready]); each change is written back
 /// immediately. Where no local storage exists - plain widget tests, for
 /// example - loading fails silently and the defaults stand.
+///
+/// They live on the device (shared_preferences) unless [store] says
+/// otherwise: pass a [PdfPreferencesStore] to keep them in the host's own
+/// settings, a per-user profile, or memory ([PdfMemoryPreferencesStore]).
 class PdfEditingPreferences extends ChangeNotifier
     implements PdfViewModeHolder {
-  PdfEditingPreferences() {
+  PdfEditingPreferences({PdfPreferencesStore? store}) : _injectedStore = store {
     _ready = _load();
   }
 
   static const _prefix = 'dart_pdf_editor.editing.';
 
-  SharedPreferences? _store;
+  /// The store passed to the constructor; null uses the device default.
+  final PdfPreferencesStore? _injectedStore;
+
+  PdfPreferencesStore? _store;
   late final Future<void> _ready;
   bool _modified = false;
 
@@ -167,7 +193,7 @@ class PdfEditingPreferences extends ChangeNotifier
   List<PdfCustomStamp> _customStamps = const [];
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
-  ThemeMode _themeMode = ThemeMode.system;
+  PdfThemePreference _themePreference = PdfThemePreference.system;
   Locale? _locale;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   List<Color> _recentColors = const [];
@@ -248,9 +274,9 @@ class PdfEditingPreferences extends ChangeNotifier
   static const _viewportsKey = '${_prefix}documentViewports';
 
   Future<void> _load() async {
-    final SharedPreferences store;
+    final PdfPreferencesStore store;
     try {
-      store = await SharedPreferences.getInstance();
+      store = _injectedStore ?? await PdfPreferencesStore.sharedPreferences();
     } catch (_) {
       return; // no local storage here (e.g. widget tests) - defaults stand
     }
@@ -365,9 +391,13 @@ class PdfEditingPreferences extends ChangeNotifier
               decoded,
         ]);
       }
-      final themeMode = store.getString('${_prefix}themeMode');
-      if (themeMode != null) {
-        _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
+      // Stored under the key the deprecated ThemeMode-typed member used:
+      // both enums name their values system/light/dark, so a choice saved by
+      // an older build reads straight back.
+      final theme = store.getString('${_prefix}themeMode');
+      if (theme != null) {
+        _themePreference =
+            PdfThemePreference.values.asNameMap()[theme] ?? _themePreference;
       }
       final locale = store.getString('${_prefix}locale');
       if (locale != null && locale.isNotEmpty) {
@@ -564,7 +594,7 @@ class PdfEditingPreferences extends ChangeNotifier
     _writeViewports();
   }
 
-  void _write(Future<Object?> Function(SharedPreferences store) write) {
+  void _write(Future<Object?> Function(PdfPreferencesStore store) write) {
     _modified = true;
     final store = _store;
     if (store != null) unawaited(write(store));
@@ -1177,16 +1207,35 @@ class PdfEditingPreferences extends ChangeNotifier
   }
 
   /// The app theme the host runs the viewer UI in. The viewer and the
-  /// stock chrome all follow the ambient [Theme]; this just remembers
-  /// the user's choice for the host's `MaterialApp.themeMode`.
-  ThemeMode get themeMode => _themeMode;
+  /// stock chrome all follow the ambient theme; this just remembers the
+  /// user's choice for the host to apply (for a `MaterialApp`, map it onto
+  /// `themeMode` - see [PdfThemePreference]).
+  PdfThemePreference get themePreference => _themePreference;
 
-  set themeMode(ThemeMode value) {
-    if (value == _themeMode) return;
-    _themeMode = value;
+  set themePreference(PdfThemePreference value) {
+    if (value == _themePreference) return;
+    _themePreference = value;
     _write((s) => s.setString('${_prefix}themeMode', value.name));
     notifyListeners();
   }
+
+  /// [themePreference] as Material's `ThemeMode`.
+  @Deprecated('Use themePreference, the design-system-neutral '
+      'PdfThemePreference, and map it to ThemeMode in the host. '
+      'Removed in 7.0.0.')
+  ThemeMode get themeMode => switch (_themePreference) {
+        PdfThemePreference.system => ThemeMode.system,
+        PdfThemePreference.light => ThemeMode.light,
+        PdfThemePreference.dark => ThemeMode.dark,
+      };
+
+  @Deprecated('Use themePreference, the design-system-neutral '
+      'PdfThemePreference. Removed in 7.0.0.')
+  set themeMode(ThemeMode value) => themePreference = switch (value) {
+        ThemeMode.system => PdfThemePreference.system,
+        ThemeMode.light => PdfThemePreference.light,
+        ThemeMode.dark => PdfThemePreference.dark,
+      };
 
   /// The UI language the user picked in Settings, or null (the default) to
   /// follow the platform locale. A host feeds this to its `MaterialApp`
@@ -1608,7 +1657,7 @@ class PdfEditingPreferences extends ChangeNotifier
   }
 
   PdfPanelDock _readDock(
-          SharedPreferences store, String key, PdfPanelDock fallback) =>
+          PdfPreferencesStore store, String key, PdfPanelDock fallback) =>
       PdfPanelDock.values.asNameMap()[store.getString('$_prefix$key')] ??
       fallback;
 
@@ -1728,6 +1777,70 @@ class PdfEditingPreferences extends ChangeNotifier
     if (_panelGroups[panel] == group) return;
     _panelGroups[panel] = group;
     _write((s) => s.setInt('${_prefix}panelGroup.${panel.name}', group));
+    notifyListeners();
+  }
+
+  // -------------------------------------------------------------------------
+  // host panels (PdfEditorView.extraPanels), stored by the host's panel id
+
+  /// Values written for host panels this session, by full key; the store
+  /// answers for the rest. Their ids are not known when the store loads, so
+  /// they are read on demand rather than up front.
+  final Map<String, Object?> _extraPanelValues = {};
+
+  static String _extraPanelKey(String id, String field) =>
+      '${_prefix}extraPanel.$id.$field';
+
+  T? _extraPanelValue<T>(String key) {
+    if (_extraPanelValues.containsKey(key)) return _extraPanelValues[key] as T?;
+    final stored = switch (T) {
+      const (String) => _store?.getString(key),
+      const (double) => _store?.getDouble(key),
+      const (bool) => _store?.getBool(key),
+      _ => null,
+    };
+    return stored is T ? stored : null;
+  }
+
+  /// The edge the host panel [id] is docked on, or null while it has never
+  /// been moved (it then sits on its `PdfEditorPanel.defaultDock`).
+  PdfPanelDock? extraPanelDock(String id) => PdfPanelDock.values
+      .asNameMap()[_extraPanelValue<String>(_extraPanelKey(id, 'dock'))];
+
+  /// Persists the edge the host panel [id] is docked on.
+  void setExtraPanelDock(String id, PdfPanelDock dock) {
+    final key = _extraPanelKey(id, 'dock');
+    if (extraPanelDock(id) == dock) return;
+    _extraPanelValues[key] = dock.name;
+    _write((s) => s.setString(key, dock.name));
+    notifyListeners();
+  }
+
+  /// The dragged extent of the host panel [id], or null before it is
+  /// resized.
+  double? extraPanelWidth(String id) =>
+      _extraPanelValue<double>(_extraPanelKey(id, 'width'));
+
+  /// Persists the dragged extent of the host panel [id].
+  void setExtraPanelWidth(String id, double width) {
+    final key = _extraPanelKey(id, 'width');
+    if (extraPanelWidth(id) == width) return;
+    _extraPanelValues[key] = width;
+    _write((s) => s.setDouble(key, width));
+    notifyListeners();
+  }
+
+  /// Whether the host panel [id] is open (closed until first opened), for a
+  /// panel whose host does not keep that itself (`PdfEditorPanel.open`).
+  bool extraPanelOpen(String id) =>
+      _extraPanelValue<bool>(_extraPanelKey(id, 'open')) ?? false;
+
+  /// Persists whether the host panel [id] is open.
+  void setExtraPanelOpen(String id, bool open) {
+    final key = _extraPanelKey(id, 'open');
+    if (extraPanelOpen(id) == open) return;
+    _extraPanelValues[key] = open;
+    _write((s) => s.setBool(key, open));
     notifyListeners();
   }
 

@@ -33,7 +33,8 @@ class PrintProgressDialog extends StatelessWidget {
                   ? printL10n(context).printDlgRendering(rendered, total)
                   : printL10n(context).printDlgPreparing),
               const SizedBox(height: 16),
-              LinearProgressIndicator(value: fraction),
+              LinearProgressIndicator(
+                  key: const ValueKey('print-progress-bar'), value: fraction),
             ],
           );
         },

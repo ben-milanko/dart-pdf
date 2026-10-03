@@ -51,8 +51,15 @@ Uint8List pdfEncodePageText(PdfPageText page) {
       out.u32(0);
     } else {
       out.u32(offsets.length);
-      for (final offset in offsets) {
-        out.f64(offset);
+      if (offsets is Float64List) {
+        // Indexed: a for-in over a typed list boxes each element on the VM.
+        for (var i = 0; i < offsets.length; i++) {
+          out.f64(offsets[i]);
+        }
+      } else {
+        for (final offset in offsets) {
+          out.f64(offset);
+        }
       }
     }
   }
@@ -81,9 +88,13 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
       final ascent = r.f64();
       final bounds = PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
       final offsetCount = r.u32();
-      final offsets = offsetCount == 0
-          ? null
-          : [for (var j = 0; j < offsetCount; j++) r.f64()];
+      Float64List? offsets;
+      if (offsetCount != 0) {
+        offsets = Float64List(offsetCount);
+        for (var j = 0; j < offsetCount; j++) {
+          offsets[j] = r.f64();
+        }
+      }
       runs.add(PdfExtractedRun(
         text: runText,
         startIndex: startIndex,

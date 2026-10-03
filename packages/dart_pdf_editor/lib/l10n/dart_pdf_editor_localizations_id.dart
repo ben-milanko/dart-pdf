@@ -2237,4 +2237,69 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get formOptionsMultiSelect => 'Izinkan pilihan ganda';
+
+  @override
+  String get searchFieldHint => 'Cari';
+
+  @override
+  String progressiveOpenFailed(String error) {
+    return 'Tidak dapat membuka dokumen: $error';
+  }
+
+  @override
+  String get pageRangeExportTitle => 'Ekspor halaman';
+
+  @override
+  String get pageRangeExportConfirm => 'Ekspor';
+
+  @override
+  String get textStyleKeepFont => 'Pertahankan';
+
+  @override
+  String get guidesDialogTitle => 'Panduan, jepret, dan penggaris';
+
+  @override
+  String get guidesSmartAlignment => 'Panduan perataan cerdas';
+
+  @override
+  String get guidesPageRulers => 'Penggaris halaman';
+
+  @override
+  String get guidesPageRulersHint =>
+      'Tampilkan ukuran dalam poin di tepi halaman';
+
+  @override
+  String get guidesVerticalCursorLine => 'Garis kursor vertikal';
+
+  @override
+  String get guidesHorizontalCursorLine => 'Garis kursor horizontal';
+
+  @override
+  String get guidesSnapToGrid => 'Jepret ke kisi';
+
+  @override
+  String get guidesSnapToGridHint => 'Tahan Alt untuk melewati jepret';
+
+  @override
+  String get guidesShowGrid => 'Tampilkan garis kisi';
+
+  @override
+  String get guidesShowGridHint => 'Hanya tampilan; tidak ditambahkan ke PDF';
+
+  @override
+  String get guidesGridSpacing => 'Jarak kisi';
+
+  @override
+  String guidesGridSpacingValue(String value) {
+    return '$value pt';
+  }
+
+  @override
+  String get shellCursorGuidesAndGrid => 'Panduan kursor dan kisi';
+
+  @override
+  String get commandSaveAs => 'Simpan sebagai…';
+
+  @override
+  String get dialogDismiss => 'Tutup';
 }

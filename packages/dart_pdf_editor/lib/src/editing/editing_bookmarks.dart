@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
+import '../design/editor_presenter.dart';
 
 /// Dockable PDF outline/bookmarks panel.
 ///
@@ -454,8 +456,8 @@ Future<_BookmarkEditResult?> _showBookmarkDialog(
   required bool initialOpen,
   required bool editing,
 }) =>
-    showPdfDialog<_BookmarkEditResult>(
-      context: context,
+    pdfPresentDialog<_BookmarkEditResult>(
+      context,
       builder: (context) => _BookmarkDialog(
         pageCount: pageCount,
         initialTitle: initialTitle,
@@ -527,6 +529,7 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
                   border: const OutlineInputBorder(),
                 ),
                 textInputAction: TextInputAction.next,
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               const SizedBox(height: 12),
               TextField(
@@ -540,6 +543,7 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
                 ),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               CheckboxListTile(
                 key: const ValueKey('pdf-bookmark-open'),
@@ -556,12 +560,13 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
             onPressed: () => Navigator.of(context).pop(),
             child: Text(pdfL10n(context).cancel),
           ),
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: _save,
               child: FilledButton(
-            key: const ValueKey('pdf-bookmark-save'),
-            onPressed: _save,
-            child: Text(pdfL10n(context).save),
-          )),
+                key: const ValueKey('pdf-bookmark-save'),
+                onPressed: _save,
+                child: Text(pdfL10n(context).save),
+              )),
         ],
       );
 }

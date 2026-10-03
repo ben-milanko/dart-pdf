@@ -257,7 +257,7 @@ class _DartPdfWindow extends StatelessWidget {
           brightness: Brightness.dark,
           useMaterial3: true,
         ),
-        themeMode: prefs.themeMode,
+        themeMode: materialThemeMode(prefs.themePreference),
         home: EditorScreen(
           prefs: prefs,
           tabDragCoordinator: tabDragCoordinator,
@@ -273,6 +273,14 @@ class _DartPdfWindow extends StatelessWidget {
     );
   }
 }
+
+/// The [MaterialApp.themeMode] for the editor's saved theme choice.
+ThemeMode materialThemeMode(PdfThemePreference preference) =>
+    switch (preference) {
+      PdfThemePreference.system => ThemeMode.system,
+      PdfThemePreference.light => ThemeMode.light,
+      PdfThemePreference.dark => ThemeMode.dark,
+    };
 
 /// Rebuilds a window's [MaterialApp] only when a value it reads changes: the
 /// theme mode, the Settings locale, and the DevTools locale override and
@@ -298,10 +306,10 @@ class _WindowShellSelectorState extends State<_WindowShellSelector> {
   // Baselined in initState, not lazily: a lazy first read would happen inside
   // the first _onChanged - the preference load applying a saved theme or
   // locale - and compare the new values with themselves.
-  late (ThemeMode, Locale?, Locale?, bool) _selected;
+  late (PdfThemePreference, Locale?, Locale?, bool) _selected;
 
-  (ThemeMode, Locale?, Locale?, bool) _select() => (
-        widget.prefs.themeMode,
+  (PdfThemePreference, Locale?, Locale?, bool) _select() => (
+        widget.prefs.themePreference,
         widget.prefs.locale,
         AppDevTools.instance.localeOverride.value,
         AppDevTools.instance.showPerformanceOverlay.value,

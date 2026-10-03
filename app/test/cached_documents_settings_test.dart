@@ -74,11 +74,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Cache size unavailable'), findsOneWidget);
     expect(
-        tester
-            .widget<TextButton>(
-                find.byKey(const ValueKey('settings-clear-cache')))
-            .onPressed,
-        isNotNull);
+        tester.getSemantics(find.byKey(const ValueKey('settings-clear-cache'))),
+        isSemantics(isEnabled: true));
   });
 
   testWidgets('dismissing settings during clear still updates Recents',

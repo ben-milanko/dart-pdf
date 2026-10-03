@@ -1,6 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../design/editor_presenter.dart';
+import '../l10n/pdf_l10n.dart';
 import 'handle_layout.dart';
 
 /// The interactive crop rectangle drawn over a selected image stamp while
@@ -79,9 +81,7 @@ class _PdfImageCropOverlayState extends State<PdfImageCropOverlay> {
     super.didUpdateWidget(old);
     // Re-seed only when the incoming crop identity changes and no drag is in
     // flight (the overlay is authoritative while dragging).
-    if (_handle == null &&
-        !_moving &&
-        old.initialCrop != widget.initialCrop) {
+    if (_handle == null && !_moving && old.initialCrop != widget.initialCrop) {
       _seedFractions();
     }
   }
@@ -179,8 +179,8 @@ class _PdfImageCropOverlayState extends State<PdfImageCropOverlay> {
     // image when the crop hugs the bottom edge.
     final chipY = (crop.bottom + 10 * widget.chromeScale)
         .clamp(widget.bounds.top, widget.bounds.bottom - 4);
-    final chipCenter = crop.center.dx
-        .clamp(widget.bounds.left + 44, widget.bounds.right - 44);
+    final chipCenter =
+        crop.center.dx.clamp(widget.bounds.left + 44, widget.bounds.right - 44);
     return Stack(
       children: [
         Positioned.fill(
@@ -232,13 +232,36 @@ class _CropActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = pdfL10n(context);
+    return PdfEditorPresenter.of(context).actionBar(
+      context,
+      PdfActionBarRequest(
+        kind: PdfActionBarKind.crop,
+        actions: [
+          PdfActionBarAction(
+              id: 'pdf-crop-cancel',
+              label: l10n.cancel,
+              icon: Icons.close,
+              onPressed: onCancel),
+          PdfActionBarAction(
+              id: 'pdf-crop-confirm',
+              label: l10n.ok,
+              icon: Icons.check,
+              onPressed: onCommit),
+        ],
+        stock: _stock(context),
+      ),
+    );
+  }
+
+  Widget _stock(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         _CropActionButton(
           key: const ValueKey('pdf-crop-cancel'),
           icon: Icons.close,
-          tooltip: MaterialLocalizations.of(context).cancelButtonLabel,
+          tooltip: pdfL10n(context).cancel,
           background: Colors.white,
           foreground: Colors.black87,
           onPressed: onCancel,
@@ -247,7 +270,7 @@ class _CropActions extends StatelessWidget {
         _CropActionButton(
           key: const ValueKey('pdf-crop-confirm'),
           icon: Icons.check,
-          tooltip: MaterialLocalizations.of(context).okButtonLabel,
+          tooltip: pdfL10n(context).ok,
           background: accent,
           foreground: Colors.white,
           onPressed: onCommit,
@@ -326,7 +349,8 @@ class _CropPainter extends CustomPainter {
       Path()..addRect(bounds),
       Path()..addRect(crop),
     );
-    canvas.drawPath(scrim, Paint()..color = Colors.black.withValues(alpha: 0.45));
+    canvas.drawPath(
+        scrim, Paint()..color = Colors.black.withValues(alpha: 0.45));
 
     // Rule-of-thirds grid inside the crop.
     final grid = Paint()

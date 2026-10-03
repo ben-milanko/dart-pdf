@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'http_byte_source.dart';
+import 'l10n/pdf_l10n.dart';
 
 /// Reads a whole [PdfByteSource] into one contiguous buffer, reporting progress
 /// as it goes.
@@ -244,13 +245,14 @@ class _PdfProgressiveSourceBuilderState
     return widget.builder(context, bytes, _full != null);
   }
 
-  static Widget _defaultLoading(BuildContext context) =>
-      const Center(child: CircularProgressIndicator());
+  static Widget _defaultLoading(BuildContext context) => const Center(
+      key: ValueKey('pdf-progressive-loading'),
+      child: CircularProgressIndicator());
 
   static Widget _defaultError(BuildContext context, Object error) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text('Could not open document: $error',
+          child: Text(pdfL10n(context).progressiveOpenFailed('$error'),
               textAlign: TextAlign.center),
         ),
       );

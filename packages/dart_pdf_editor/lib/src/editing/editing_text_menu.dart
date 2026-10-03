@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../design/editor_presenter.dart' show PdfEditorScope;
+
 /// Places a text field's selection toolbar - the long-press copy/paste
 /// menu - where the framework computed it, even when the field lives
 /// inside the viewer's zoom transform.
@@ -61,14 +63,15 @@ Widget pdfPlacedTextSelectionMenu(
 /// The identity off Apple platforms, and whenever the zoom is unusable.
 Widget pdfZoomAwareCaret(BuildContext context,
     {required double chromeScale, required Widget child}) {
-  final platform = Theme.of(context).platform;
+  final platform = PdfEditorScope.platformOf(context);
   if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
     return child;
   }
   if (!chromeScale.isFinite || chromeScale <= 0) return child;
   final media = MediaQuery.of(context);
   return MediaQuery(
-    data: media.copyWith(devicePixelRatio: media.devicePixelRatio / chromeScale),
+    data:
+        media.copyWith(devicePixelRatio: media.devicePixelRatio / chromeScale),
     child: child,
   );
 }
@@ -86,7 +89,7 @@ double pdfZoomAwareCursorHeight(
   required double lineHeight,
   required double chromeScale,
 }) {
-  final platform = Theme.of(context).platform;
+  final platform = PdfEditorScope.platformOf(context);
   if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
     return lineHeight;
   }

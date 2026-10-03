@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfSignature;
 
-import '../dialog.dart';
+import '../design/material_presenter.dart' show pdfStockConfirm;
 import '../l10n/pdf_l10n.dart';
+import '../design/editor_presenter.dart';
 
 /// Confirms removal of an active digital signature from the document.
 ///
@@ -12,27 +13,25 @@ import '../l10n/pdf_l10n.dart';
 Future<bool> showPdfRemoveSignatureDialog(
   BuildContext context,
   PdfSignature signature,
-) async {
+) =>
+    pdfStockConfirm(context, pdfRemoveSignatureRequest(context, signature));
+
+/// The [PdfConfirmRequest] behind [showPdfRemoveSignatureDialog].
+PdfConfirmRequest pdfRemoveSignatureRequest(
+    BuildContext context, PdfSignature signature) {
   final name = signature.signerName;
-  final confirmed = await showPdfDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(pdfL10n(context).sidebarRemoveSignatureTitle),
-      content: Text(name == null || name.isEmpty
-          ? pdfL10n(context).sidebarRemoveSignatureBody
-          : pdfL10n(context).sidebarRemoveSignatureBodyNamed(name)),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(pdfL10n(context).cancel),
-        ),
-        PdfDialogSubmit(
-            child: FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(pdfL10n(context).remove),
-        )),
-      ],
-    ),
+  return PdfConfirmRequest(
+    title: pdfL10n(context).sidebarRemoveSignatureTitle,
+    message: name == null || name.isEmpty
+        ? pdfL10n(context).sidebarRemoveSignatureBody
+        : pdfL10n(context).sidebarRemoveSignatureBodyNamed(name),
+    confirmLabel: pdfL10n(context).remove,
+    destructive: true,
   );
-  return confirmed == true;
 }
+
+/// Asks the nearest presenter to confirm removing [signature].
+Future<bool> pdfConfirmRemoveSignature(
+        BuildContext context, PdfSignature signature) =>
+    PdfEditorPresenter.of(context)
+        .confirm(context, pdfRemoveSignatureRequest(context, signature));

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../design/viewer_tokens.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,13 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../annotation_tap.dart';
+import '../design/material_host.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
-import '../toast.dart';
 import 'editing_controller.dart';
 import 'editing_text_menu.dart';
 import 'form_tab_navigation.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
@@ -44,8 +46,7 @@ class FormFieldLabelLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chrome = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chrome = PdfViewerTheme.of(context).chrome;
     final fields = controller.formWidgetsOn(pageIndex);
     final chromeScale = _chromeScale;
     return IgnorePointer(
@@ -122,6 +123,7 @@ class FormInteractionLayer extends StatefulWidget {
     this.formImagePicker,
     this.onAnnotationTap,
     this.onRevealField,
+    this.tapTargets = true,
   });
 
   final PdfEditingController controller;
@@ -147,6 +149,13 @@ class FormInteractionLayer extends StatefulWidget {
   /// [PdfViewerController.revealRect]. When null, Tab still moves but
   /// nothing scrolls.
   final Future<void> Function(int pageIndex, PdfRect rect)? onRevealField;
+
+  /// Whether the layer puts a tap target over each field. False while the
+  /// form-authoring tool is armed: that tool's overlay owns the page's taps
+  /// and hands its fill gesture (double-tap) here through
+  /// [pdfFormFillRequests], so every fill - editor, keystroke filtering,
+  /// validation, choice menu - runs this layer's code.
+  final bool tapTargets;
 
   @override
   State<FormInteractionLayer> createState() => _FormInteractionLayerState();
@@ -203,11 +212,14 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   late ValueNotifier<PdfFormTabRequest?> _tabRequests =
       pdfFormTabRequests(widget.controller);
+  late ValueNotifier<PdfFormFillRequest?> _fillRequests =
+      pdfFormFillRequests(widget.controller);
 
   @override
   void initState() {
     super.initState();
     _tabRequests.addListener(_onTabRequest);
+    _fillRequests.addListener(_onFillRequest);
     // a Tab move onto a page that wasn't built yet: this layer mounting is
     // the page scrolling in - take the move once laid out
     if (_tabRequests.value?.pageIndex == widget.pageIndex) {
@@ -224,12 +236,16 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       _tabRequests.removeListener(_onTabRequest);
       _tabRequests = pdfFormTabRequests(widget.controller)
         ..addListener(_onTabRequest);
+      _fillRequests.removeListener(_onFillRequest);
+      _fillRequests = pdfFormFillRequests(widget.controller)
+        ..addListener(_onFillRequest);
     }
   }
 
   @override
   void dispose() {
     _tabRequests.removeListener(_onTabRequest);
+    _fillRequests.removeListener(_onFillRequest);
     _fieldFocus.removeListener(_onFieldFocusChange);
     _fieldFocus.dispose();
     _focus.removeListener(_onFocusChange);
@@ -358,12 +374,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   void _showInputError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-      key: const ValueKey('pdf-form-input-error'),
-      content: Text(message),
-      behavior: SnackBarBehavior.floating,
-      margin: pdfFloatingToastMargin(context),
-    ));
+    PdfEditorPresenter.of(context).notice(
+        context,
+        PdfEditorNotice(message,
+            kind: PdfNoticeKind.error,
+            replaceCurrent: false,
+            key: const ValueKey('pdf-form-input-error')));
   }
 
   /// Escape: discard the edit and close (the typed value is dropped).
@@ -387,8 +403,28 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     _controller.setEditingText(false);
   }
 
-  Future<void> _onFieldTap(
-      PdfFormField field, int widgetIndex, Rect viewRect) async {
+  /// A fill gesture another layer handed over (the form tool's double-tap):
+  /// filled exactly like a tap on the field's own target.
+  void _onFillRequest() {
+    final request = _fillRequests.value;
+    if (request == null || request.pageIndex != widget.pageIndex) return;
+    _fillRequests.value = null;
+    if (request.revisionId != _controller.revisionId) return;
+    for (final (field, widgetIndex, annotation)
+        in _controller.formWidgetsOn(widget.pageIndex)) {
+      if (field.name != request.fieldName ||
+          widgetIndex != request.widgetIndex) {
+        continue;
+      }
+      unawaited(_onFieldTap(
+          field, widgetIndex, widget.geometry.toViewRect(annotation.rect),
+          anchor: request.anchor));
+      return;
+    }
+  }
+
+  Future<void> _onFieldTap(PdfFormField field, int widgetIndex, Rect viewRect,
+      {Offset? anchor}) async {
     if (_focusedWidget != null && _focusedWidget != (field.name, widgetIndex)) {
       _clearFieldFocus();
     }
@@ -413,7 +449,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         final state = field.widgetOnState(widgetIndex);
         if (state != null) _controller.setFormRadioValue(field.name, state);
       case PdfFieldType.comboBox || PdfFieldType.listBox:
-        await _pickChoice(field, viewRect);
+        await _pickChoice(field, viewRect, anchor: anchor);
       case PdfFieldType.pushButton:
         final picker = widget.formImagePicker;
         if (picker == null) return;
@@ -427,53 +463,31 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     }
   }
 
-  /// A choice field's options as a menu anchored under the widget. A
-  /// multi-select list box shows a checkable menu: each pick toggles that
-  /// option in or out of the selection
-  /// ([PdfEditingController.pickFormChoiceOption]).
-  Future<void> _pickChoice(PdfFormField field, Rect viewRect) async {
+  /// A choice field's options as a menu anchored under the widget (or at
+  /// [anchor], a global tap position). A multi-select list box shows a
+  /// checkable menu: each pick toggles that option in or out of the
+  /// selection ([PdfEditingController.pickFormChoiceOption]).
+  Future<void> _pickChoice(PdfFormField field, Rect viewRect,
+      {Offset? anchor}) async {
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
-    final multi = field.isMultiSelect;
-    final selected = field.values.toSet();
     final box = context.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
-    final topLeft = box.localToGlobal(viewRect.bottomLeft, ancestor: overlay);
-    final picked = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-          topLeft & Size.zero, Offset.zero & overlay.size),
-      items: [
-        for (final (export, display) in options)
-          if (multi)
-            CheckedPopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              checked: selected.contains(export),
-              child: Text(display,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(height: 1.1)),
-            )
-          else
-            PopupMenuItem(
-              key: ValueKey('pdf-form-option-$export'),
-              value: export,
-              height: 34,
-              child: Text(display,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(height: 1.1)),
-            ),
-      ],
+    final bottomLeft = anchor ?? box.localToGlobal(viewRect.bottomLeft);
+    final values = await PdfEditorPresenter.of(context).formChoice(
+      context,
+      PdfFormChoiceRequest(
+        fieldName: name,
+        options: options,
+        anchor: bottomLeft & Size.zero,
+        multiSelect: field.isMultiSelect,
+        selected: field.values.toSet(),
+      ),
     );
-    if (picked != null) _controller.pickFormChoiceOption(name, picked);
+    if (values != null) pdfApplyFormChoice(_controller, name, values);
   }
 
   // ---- Tab / Shift+Tab ----------------------------------------------------
@@ -724,7 +738,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
     return Stack(children: [
       for (final (field, widgetIndex, annotation) in fields)
-        if (_interactive(field) && field.name != _editingField)
+        if (widget.tapTargets &&
+            _interactive(field) &&
+            field.name != _editingField)
           _tapTarget(field, widgetIndex, annotation,
               geometry.toViewRect(annotation.rect)),
       if (_afterValue != null && _afterRect != null)
@@ -746,8 +762,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   /// choice widget; its [Focus] takes Space, Enter, Tab and Escape.
   Widget _focusRing(Rect rect) {
     final chromeScale = _chromeScale;
-    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chromeColor = PdfViewerTheme.of(context).chrome;
     return Positioned.fromRect(
       key: const ValueKey('pdf-form-focus-ring'),
       rect: rect.inflate(2 * chromeScale),
@@ -798,8 +813,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final rect = _editRect!;
     final scale = widget.geometry.scale;
     final chromeScale = _chromeScale;
-    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chromeColor = PdfViewerTheme.of(context).chrome;
     return Positioned.fromRect(
       // keyed so a Tab from one field of this page to another keeps the
       // same TextField (and its focus) rather than rebuilding it
@@ -862,10 +876,11 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
               // the zoom transform would otherwise scale AND displace the
               // long-press selection menu off-screen
               contextMenuBuilder: (context, editableTextState) =>
-                  pdfPlacedTextSelectionMenu(
+                  pdfStockTextContextMenu(
+                context,
                 editableTextState,
-                AdaptiveTextSelectionToolbar.editableText(
-                    editableTextState: editableTextState),
+                systemMenu: false,
+                place: pdfPlacedTextSelectionMenu,
               ),
               textDirection: _flutterTextDirection(_text.text),
               textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl

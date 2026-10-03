@@ -151,12 +151,13 @@ class OnDeviceOcr {
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(appL10n(context).cancel),
           ),
-          PdfDialogSubmit(
+          PdfDialogSubmit.action(
+              onSubmit: () => Navigator.of(context).pop(true),
               child: FilledButton(
-            key: const ValueKey('ocr-download-confirm-ok'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(appL10n(context).ocrDownload),
-          )),
+                key: const ValueKey('ocr-download-confirm-ok'),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(appL10n(context).ocrDownload),
+              )),
         ],
       ),
     );

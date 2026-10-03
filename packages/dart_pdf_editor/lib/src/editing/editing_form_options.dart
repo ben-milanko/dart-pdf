@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
+import '../design/editor_presenter.dart';
 
 /// What the choice-field options editor hands back: the (export value,
 /// display text) pairs in order, plus the one flag that applies to the
@@ -37,8 +39,8 @@ Future<bool> showPdfFormOptionsDialog({
     return false;
   }
   final combo = field.type == PdfFieldType.comboBox;
-  final edit = await showPdfDialog<PdfFormOptionsEdit>(
-    context: context,
+  final edit = await pdfPresentDialog<PdfFormOptionsEdit>(
+    context,
     builder: (context) => PdfFormOptionsEditor(
       options: field.options,
       combo: combo,
@@ -157,6 +159,7 @@ class _PdfFormOptionsEditorState extends State<PdfFormOptionsEditor> {
                             labelText: l10n.formOptionsExportValue,
                             isDense: true,
                           ),
+                          contextMenuBuilder: pdfTextContextMenu,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -168,6 +171,7 @@ class _PdfFormOptionsEditorState extends State<PdfFormOptionsEditor> {
                             labelText: l10n.formOptionsDisplayText,
                             isDense: true,
                           ),
+                          contextMenuBuilder: pdfTextContextMenu,
                         ),
                       ),
                       IconButton(
@@ -207,20 +211,23 @@ class _PdfFormOptionsEditorState extends State<PdfFormOptionsEditor> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),
-        PdfDialogSubmit(
+        PdfDialogSubmit.action(
+          onSubmit: _save,
           child: FilledButton(
             key: const ValueKey('pdf-form-options-save'),
-            onPressed: () => Navigator.of(context).pop(
-              PdfFormOptionsEdit(
-                options: _options,
-                editable: widget.combo ? _flag : null,
-                multiSelect: widget.combo ? null : _flag,
-              ),
-            ),
+            onPressed: _save,
             child: Text(l10n.save),
           ),
         ),
       ],
     );
   }
+
+  void _save() => Navigator.of(context).pop(
+        PdfFormOptionsEdit(
+          options: _options,
+          editable: widget.combo ? _flag : null,
+          multiSelect: widget.combo ? null : _flag,
+        ),
+      );
 }

@@ -299,6 +299,15 @@ void main() {
     final tileStore = PdfTileStore.instance;
     final tilesLandedBefore = tileStore.debugTilesLanded;
     final imageAdoptionsBefore = PdfPageView.debugTileImageDetailAdoptions;
+    // The page's last `detail request` line carries `scene=` and `tiles=`, the
+    // tile gate's own account of why tiles are (not) running, so a failed wait
+    // below can say which state the page was stuck in.
+    String? lastDetailRequest;
+    final previousSink = PdfPerfLog.sink;
+    PdfPerfLog.sink = (line) {
+      if (line.contains('] detail request page=')) lastDetailRequest = line;
+      previousSink?.call(line);
+    };
 
     PdfPerfLog.log(
       'scenario name=cad-image-deep-zoom phase=start pages=1 '
@@ -384,17 +393,46 @@ void main() {
         'display=${viewer.zoom.toStringAsFixed(2)} '
         'viewport=${deepZoom.zoom.toStringAsFixed(2)}',
       );
-      await _waitFor(
+      // Three waits against one wall-clock budget, in the order the page gets
+      // there, so a failure names the step that never happened and reports
+      // what the page had reached by then. Each keeps the earlier conditions:
+      // the last one is the whole requirement, all three at once.
+      final tileLayer = find.byKey(const ValueKey('pdf-page-tile-layer'));
+      bool tileLayerUp() => tileLayer.evaluate().isNotEmpty;
+      bool imageDetailAdopted() =>
+          PdfPageView.debugTileImageDetailAdoptions > imageAdoptionsBefore;
+      bool anyTileLanded() => tileStore.debugTilesLanded > tilesLandedBefore;
+      String observed() => 'tileLayer=${tileLayerUp()} '
+          'imageAdoptions='
+          '${PdfPageView.debugTileImageDetailAdoptions - imageAdoptionsBefore} '
+          'tilesLanded=${tileStore.debugTilesLanded - tilesLandedBefore} '
+          'lastDetailRequest=${lastDetailRequest ?? 'none'}';
+      final convergence = Stopwatch()..start();
+      await _waitUntil(
         $,
-        () =>
-            PdfPageView.debugTileImageDetailAdoptions > imageAdoptionsBefore &&
-            tileStore.debugTilesLanded > tilesLandedBefore &&
-            find
-                .byKey(const ValueKey('pdf-page-tile-layer'))
-                .evaluate()
-                .isNotEmpty,
-        reason: 'deep zoom should adopt image detail and land CAD tiles',
-        attempts: 360,
+        tileLayerUp,
+        clock: convergence,
+        reason: () => 'deep zoom should engage the CAD tile layer '
+            '(${observed()})',
+      );
+      final tileLayerMs = convergence.elapsedMilliseconds;
+      await _waitUntil(
+        $,
+        () => tileLayerUp() && imageDetailAdopted(),
+        clock: convergence,
+        reason: () => 'deep zoom should adopt region image detail for its '
+            'tiles (${observed()})',
+      );
+      final imageDetailMs = convergence.elapsedMilliseconds;
+      await _waitUntil(
+        $,
+        () => tileLayerUp() && imageDetailAdopted() && anyTileLanded(),
+        clock: convergence,
+        reason: () => 'deep zoom should land CAD tiles (${observed()})',
+      );
+      debugPrint(
+        'cad-image-deep-zoom converged in ${convergence.elapsedMilliseconds}ms '
+        '(tileLayer=${tileLayerMs}ms imageDetail=${imageDetailMs}ms)',
       );
 
       // Visit three distant windows. Returning to the first one leaves the
@@ -435,6 +473,7 @@ void main() {
         'lastTotal=${trace.endToEndUs}us lastDecode=${trace.decodeUs}us',
       );
     } finally {
+      PdfPerfLog.sink = previousSink;
       await $.pumpWidget(const SizedBox());
       await $.pump(const Duration(milliseconds: 50));
       viewer.dispose();
@@ -692,6 +731,30 @@ Future<void> _waitFor(
     await $.pump(const Duration(milliseconds: 100));
   }
   expect(predicate(), isTrue, reason: reason);
+}
+
+/// Pumps until [predicate] holds or [clock] passes [deadline], then asserts it.
+///
+/// A wall-clock budget rather than [_waitFor]'s attempt count: a pump's real
+/// cost depends on what is on screen. Once a multi-megapixel detail picture is
+/// up every frame is a ~200-300ms raster in CI, so 360 attempts of a 100ms
+/// pump quietly became ~125s. [reason] is built at failure time so it can
+/// report the state the wait actually saw.
+Future<void> _waitUntil(
+  PatrolIntegrationTester $,
+  bool Function() predicate, {
+  required Stopwatch clock,
+  required String Function() reason,
+  Duration deadline = const Duration(seconds: 60),
+}) async {
+  while (!predicate() && clock.elapsed < deadline) {
+    await $.pump(const Duration(milliseconds: 100));
+  }
+  expect(
+    predicate(),
+    isTrue,
+    reason: '${reason()} after ${clock.elapsedMilliseconds}ms',
+  );
 }
 
 double _perfMs(String line, String field) {

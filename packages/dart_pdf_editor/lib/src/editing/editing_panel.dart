@@ -4,67 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../l10n/pdf_l10n.dart';
 import '../scrollbar.dart';
+import 'editor_panel.dart';
+import 'models/panel_dock.dart';
 
-/// Which side of the viewer a sidebar panel's resize grip belongs to. Its
-/// grip rides the opposite (inner) edge - the one facing the viewer. Kept
-/// as the horizontal-only orientation the grip and the comparison navigator
-/// still speak; new placement code uses [PdfPanelDock].
-enum PdfSidebarSide { left, right }
-
-/// Which edge of the content area a dockable panel is attached to.
-///
-/// Left/right docks lay the panel out as a fixed-width column beside the
-/// viewer; top/bottom docks lay it out as a fixed-height strip spanning the
-/// content width, above or below the viewer. The user drags a panel's move
-/// handle onto another edge to redock it, and the shell persists the choice.
-enum PdfPanelDock {
-  left,
-  right,
-  top,
-  bottom;
-
-  /// Left/right docks are vertical columns sized by their width; top/bottom
-  /// docks are horizontal strips sized by their height.
-  bool get isHorizontal =>
-      this == PdfPanelDock.left || this == PdfPanelDock.right;
-
-  /// The horizontal orientation the resize grip speaks, for the left/right
-  /// docks. Meaningless for the vertical docks (which use a vertical grip).
-  PdfSidebarSide get gripSide =>
-      this == PdfPanelDock.left ? PdfSidebarSide.left : PdfSidebarSide.right;
-}
-
-/// The panels a shell can rearrange between docks. Doubles as the payload
-/// dragged from a move handle onto a drop zone and the identity a shell maps
-/// to the panel's persisted [PdfPanelDock].
-enum PdfDockablePanel {
-  thumbnails(Icons.grid_view),
-  search(Icons.manage_search),
-  bookmarks(Icons.bookmarks_outlined),
-  annotations(Icons.list_alt),
-  properties(Icons.tune),
-  annotationLibrary(Icons.collections_bookmark_outlined);
-
-  const PdfDockablePanel(this.icon);
-
-  /// The panel's glyph, shown on the drag feedback chip.
-  final IconData icon;
-
-  /// A localized, human-readable name shown on the drag feedback chip and
-  /// panel headers. Reuses the shell's panel names so the same words are
-  /// translated once.
-  String label(BuildContext context) {
-    final l = pdfL10n(context);
-    return switch (this) {
-      PdfDockablePanel.thumbnails => l.shellPanelPages,
-      PdfDockablePanel.search => l.shellPanelSearchResults,
-      PdfDockablePanel.bookmarks => l.shellPanelBookmarks,
-      PdfDockablePanel.annotations => l.shellPanelAnnotations,
-      PdfDockablePanel.properties => l.shellPanelProperties,
-      PdfDockablePanel.annotationLibrary => l.annotationLibraryTitle,
-    };
-  }
-}
+export 'models/panel_dock.dart'
+    show PdfDockablePanel, PdfPanelDock, PdfSidebarSide;
 
 /// Whether panel row controls should be revealed by mouse hover.
 ///
@@ -190,34 +134,80 @@ class PdfPanelDragFeedback extends StatelessWidget {
   final PdfDockablePanel panel;
 
   @override
+  Widget build(BuildContext context) =>
+      _panelDragChip(context, panel.icon, panel.label(context));
+}
+
+/// The drag chip for a host panel ([PdfEditorPanel]) - its icon and label.
+class _PdfHostPanelDragFeedback extends StatelessWidget {
+  const _PdfHostPanelDragFeedback({required this.panel});
+
+  final PdfEditorPanel panel;
+
+  @override
+  Widget build(BuildContext context) =>
+      _panelDragChip(context, panel.icon, panel.label);
+}
+
+/// The grab handle of a host panel ([PdfEditorPanel]): drags the panel
+/// itself, which the shell's edge drop zones accept to redock it.
+class _PdfHostPanelMoveHandle extends StatelessWidget {
+  const _PdfHostPanelMoveHandle({super.key, required this.panel});
+
+  final PdfEditorPanel panel;
+
+  @override
   Widget build(BuildContext context) {
+    final scope = PdfPanelDragScope.maybeOf(context);
+    if (scope == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: scheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(panel.icon, size: 18, color: scheme.onPrimaryContainer),
-          const SizedBox(width: 8),
-          Text(panel.label(context),
-              style: TextStyle(
-                  color: scheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w500)),
-        ]),
+    final handle = MouseRegion(
+      cursor: SystemMouseCursors.move,
+      child: Tooltip(
+        message: pdfL10n(context).panelDragToMovePanel,
+        child: Icon(Icons.drag_indicator,
+            size: 18, color: scheme.onSurfaceVariant),
       ),
     );
+    return Draggable<Object>(
+      data: panel,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      onDragStarted: scope.onDragStarted,
+      onDragEnd: (_) => scope.onDragEnded(),
+      onDraggableCanceled: (_, __) => scope.onDragEnded(),
+      feedback: _PdfHostPanelDragFeedback(panel: panel),
+      childWhenDragging: Opacity(opacity: 0.3, child: handle),
+      child: handle,
+    );
   }
+}
+
+Widget _panelDragChip(BuildContext context, IconData icon, String label) {
+  final scheme = Theme.of(context).colorScheme;
+  return Material(
+    color: Colors.transparent,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 18, color: scheme.onPrimaryContainer),
+        const SizedBox(width: 8),
+        Text(label,
+            style: TextStyle(
+                color: scheme.onPrimaryContainer, fontWeight: FontWeight.w500)),
+      ]),
+    ),
+  );
 }
 
 /// The draggable divider on a sidebar's inner edge: an invisible 8px
@@ -367,6 +357,7 @@ class PdfSidebarPanelGeometry {
     required this.gripOnLeft,
     required this.onClose,
     required this.panel,
+    this.hostPanel,
   });
 
   /// The panel's fixed extent along its dock's cross axis - the column
@@ -385,6 +376,10 @@ class PdfSidebarPanelGeometry {
   /// the panel is not registered as dockable.
   final PdfDockablePanel? panel;
 
+  /// The host panel ([PdfEditorPanel]) this frame holds, when it holds one
+  /// rather than a stock [panel]: its move handle drags it to another edge.
+  final PdfEditorPanel? hostPanel;
+
   bool get gripOnRight => showGrip && !gripOnLeft && dock.isHorizontal;
   bool get scrollbarSharesGripEdge => gripOnRight;
   double get scrollbarInset =>
@@ -402,9 +397,16 @@ class PdfSidebarPanelGeometry {
   /// The move (drag-to-redock) handle; null unless the panel is dockable
   /// and docked (bottom sheets carry no handle). Renders nothing further
   /// when no [PdfPanelDragScope] is in scope.
-  Widget? moveHandle({Key? key}) => bottomSheet || panel == null
-      ? null
-      : PdfSidebarMoveHandle(key: key, panel: panel!);
+  Widget? moveHandle({Key? key}) {
+    if (bottomSheet) return null;
+    if (panel case final panel?) {
+      return PdfSidebarMoveHandle(key: key, panel: panel);
+    }
+    if (hostPanel case final hostPanel?) {
+      return _PdfHostPanelMoveHandle(key: key, panel: hostPanel);
+    }
+    return null;
+  }
 
   /// Places the package scrollbar at the shared dock-aware inset.
   Widget withScrollbar({
@@ -452,6 +454,7 @@ class PdfSidebarPanelFrame extends StatefulWidget {
     this.persistedWidth,
     this.onPersistWidth,
     this.onClose,
+    this.hostPanel,
   });
 
   final PdfSidebarPanelContentBuilder builder;
@@ -468,6 +471,11 @@ class PdfSidebarPanelFrame extends StatefulWidget {
   /// The panel's identity, enabling the move (drag-to-redock) handle when a
   /// [PdfPanelDragScope] is in scope. Null keeps the panel non-draggable.
   final PdfDockablePanel? panel;
+
+  /// The host panel ([PdfEditorPanel], `PdfEditorView.extraPanels`) this
+  /// frame holds, enabling its move handle the way [panel] does a stock
+  /// panel's. Set by the editor; null otherwise.
+  final PdfEditorPanel? hostPanel;
 
   final bool resizable;
   final bool bottomSheet;
@@ -524,6 +532,7 @@ class _PdfSidebarPanelFrameState extends State<PdfSidebarPanelFrame> {
       gripOnLeft: showGrip && widget.dock == PdfPanelDock.right,
       onClose: widget.onClose,
       panel: widget.panel,
+      hostPanel: widget.hostPanel,
     );
     final content = widget.builder(context, geometry);
     if (widget.bottomSheet) return content;

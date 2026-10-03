@@ -3,6 +3,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_color_picker.dart';
 import '../l10n/pdf_l10n.dart';
+import '../design/editor_presenter.dart';
 
 /// A Bold / Italic toggle pair that picks the matching base-14 variant of
 /// [font]'s current family (Sans/Serif/Mono). Reports the new font - same
@@ -137,8 +138,8 @@ class TextAlignToggles extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: selected ? scheme.primary : Colors.transparent,
-              border: Border.all(
-                  color: selected ? scheme.primary : scheme.outline),
+              border:
+                  Border.all(color: selected ? scheme.primary : scheme.outline),
             ),
             child: Icon(
               icon,
@@ -282,7 +283,8 @@ class PdfColorSwatchRow extends StatelessWidget {
             final initial = value ?? const Color(0xFFFFFFFF);
             final picked = pickColor != null
                 ? await pickColor!(context, initial)
-                : await showPdfColorPicker(context, initial: initial);
+                : await pdfPresentColor(
+                    context, PdfColorRequest(initial: initial));
             if (picked != null) onChanged(picked);
           },
         ),

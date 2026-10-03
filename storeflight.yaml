@@ -117,7 +117,10 @@ profiles:
         release_status: completed
         send_for_review: true
         on_existing_review: error
-        managed_publishing: true
+        # Managed Publishing is off in Play Console: Google's approval makes a
+        # production release public with no Publish changes step.
+        managed_publishing: false
+        allow_standard_publishing: true
         credentials:
           service_account: [file:app/.secrets/google-play-service-account.json, env:PLAY_STORE_SERVICE_ACCOUNT_JSON]
       microsoft_store:

@@ -12,6 +12,9 @@ const scale = 800 / 612;
 
 Offset viewPoint(double x, double y) => Offset(x * scale, (792 - y) * scale);
 
+/// The stock popup menu's group separators.
+final menuDivider = find.byKey(const ValueKey('pdf-menu-divider'));
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -373,9 +376,10 @@ void main() {
       expect(editing.selectedAnnotation?.subtype, 'Polygon');
       expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
           findsOneWidget);
-      final remove = tester.widget<PopupMenuItem>(
-          find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
-      expect(remove.enabled, isTrue);
+      expect(
+          tester.getSemantics(
+              find.byKey(const ValueKey('pdf-annot-menu-remove-node'))),
+          isSemantics(isEnabled: true));
 
       await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-node')));
       await tester.pumpAndSettle();
@@ -428,7 +432,7 @@ void main() {
       await rightClick(tester, viewPoint(110, 725));
       // stock entries are grouped (clipboard | arrange | set-default | delete)
       // and the host action rides in its own group below the last divider
-      expect(find.byType(PopupMenuDivider), findsNWidgets(4));
+      expect(menuDivider, findsNWidgets(4));
       expect(find.text('Bring to front'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-copy-comment')));
@@ -488,7 +492,7 @@ void main() {
       await rightClick(tester, viewPoint(110, 725)); // rectangle A
       // clipboard (copy/cut/apply/paste) | arrange (front/back) |
       // set-default (style capture) | delete
-      expect(find.byType(PopupMenuDivider), findsNWidgets(3));
+      expect(menuDivider, findsNWidgets(3));
       expect(find.byKey(const ValueKey('pdf-annot-menu-set-default')),
           findsOneWidget);
     });
@@ -506,7 +510,7 @@ void main() {
       await rightClick(tester, viewPoint(450, 400));
       expect(
           find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
-      expect(find.byType(PopupMenuDivider), findsNothing);
+      expect(menuDivider, findsNothing);
     });
   });
 
@@ -545,7 +549,7 @@ void main() {
       expect(
           find.byKey(const ValueKey('pdf-form-menu-flatten')), findsOneWidget);
       // edit (value + style) | rename/convert | delete/flatten
-      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
+      expect(menuDivider, findsNWidgets(2));
     });
   });
 
@@ -617,9 +621,9 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsNothing);
       expect(
           find.byKey(const ValueKey('pdf-text-menu-highlight')), findsNothing);
-      final copy = tester.widget<PopupMenuItem>(
-          find.byKey(const ValueKey('pdf-text-menu-copy')));
-      expect(copy.enabled, isTrue);
+      expect(
+          tester.getSemantics(find.byKey(const ValueKey('pdf-text-menu-copy'))),
+          isSemantics(isEnabled: true));
     });
 
     testWidgets('the text menu is anchored in an offset navigator overlay',
@@ -706,12 +710,13 @@ void main() {
 
       await rightClick(tester, viewPoint(450, 400)); // no text here
       expect(controller.hasSelection, isFalse);
-      final copy = tester.widget<PopupMenuItem>(
-          find.byKey(const ValueKey('pdf-text-menu-copy')));
-      expect(copy.enabled, isFalse);
-      final all = tester.widget<PopupMenuItem>(
-          find.byKey(const ValueKey('pdf-text-menu-select-all')));
-      expect(all.enabled, isTrue);
+      expect(
+          tester.getSemantics(find.byKey(const ValueKey('pdf-text-menu-copy'))),
+          isSemantics(isEnabled: false));
+      expect(
+          tester.getSemantics(
+              find.byKey(const ValueKey('pdf-text-menu-select-all'))),
+          isSemantics(isEnabled: true));
     });
 
     testWidgets('a right-click inside an existing selection keeps it',
@@ -780,7 +785,7 @@ void main() {
       await rightClick(tester, viewPoint(100, 720)); // 'Page'
       expect(controller.selectedText, 'Page');
       // stock (Copy | Select all) then the host's group below the divider
-      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      expect(menuDivider, findsOneWidget);
       expect(find.text('Link to a record'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-link-record')));
@@ -869,7 +874,7 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-menu-highlight')),
           findsOneWidget);
       // markup | copy+select-all | host
-      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
+      expect(menuDivider, findsNWidgets(2));
 
       await tester.tap(find.byKey(const ValueKey('host-link-record')));
       await tester.pumpAndSettle();
@@ -934,12 +939,13 @@ void main() {
 
       await rightClick(tester, viewPoint(300, 400));
       // the stock rows come along, both dead; the host's is the live one
-      final copy = tester.widget<PopupMenuItem>(
-          find.byKey(const ValueKey('pdf-text-menu-copy')));
-      expect(copy.enabled, isFalse);
-      final all = tester.widget<PopupMenuItem>(
-          find.byKey(const ValueKey('pdf-text-menu-select-all')));
-      expect(all.enabled, isFalse);
+      expect(
+          tester.getSemantics(find.byKey(const ValueKey('pdf-text-menu-copy'))),
+          isSemantics(isEnabled: false));
+      expect(
+          tester.getSemantics(
+              find.byKey(const ValueKey('pdf-text-menu-select-all'))),
+          isSemantics(isEnabled: false));
 
       await tester.tap(find.byKey(const ValueKey('host-link-page')));
       await tester.pumpAndSettle();

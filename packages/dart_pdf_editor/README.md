@@ -109,7 +109,7 @@ Built on the pure-Dart
 ## Optional bundled assets
 
 The editor's six bundled fonts, the metric-compatible faces it substitutes into
-unembedded standard-14 text, and its web render worker (~3.3 MB package
+unembedded standard-14 text, and its web render worker (~4.2 MB package
 download) ship in a separate opt-in package,
 [`dart_pdf_editor_assets`](../dart_pdf_editor_assets), rather than in
 `dart_pdf_editor` itself. Flutter bundles a package's declared assets on every
@@ -161,8 +161,8 @@ also supply its own catalogue - set `pdfBundledFonts` to your own
 ## Performance
 
 **The default viewer has not reached PDFium interaction parity yet.** The most
-recent real-document checkpoint (23 August 2026, commit `1b887e9f`) used five
-interleaved DartPDF/PDFium runs in Chrome 151 on an M1 Pro, a 1400×1000
+recent real-document checkpoint (2 October 2026, commit `fadf7760`) used five
+interleaved DartPDF/PDFium runs in Chrome 154 on an M1 Pro, a 1400×1000
 viewport, and the default JS/CanvasKit web build. The input was a locally
 supplied 62-page, 24.1 MB illustrated PDF; the journey opened it, jumped to
 pages 3 and 47, zoomed to 1.72×, and drove matched wheel gestures. Lower
@@ -170,25 +170,28 @@ ratios are better.
 
 | user-visible metric | DartPDF p50 / p95 | PDFium p50 / p95 | ratio p50 / p95 |
 |---|---:|---:|---:|
-| open to stable visual | 918 / 974 ms | 1493 / 1520 ms | **0.61× / 0.64×** |
-| page first visual change | 18 / 24 ms | 11 / 16 ms | 1.72× / 1.54× |
-| page stable visual | 297 / 381 ms | 130 / 134 ms | **2.29× / 2.84×** |
-| zoom stable visual | 22 / 31 ms | 11 / 13 ms | **1.97× / 2.35×** |
-| wheel journey | 315 / 433 ms | 912 / 1123 ms | 0.34× / 0.39× |
-| wheel rAF interval p95 | 42 ms | 10 ms | **4.09×** |
-| peak browser RSS p50 | 1827 MiB | 1850 MiB | 0.99× |
+| open to stable visual | 711 / 757 ms | 1264 / 1411 ms | **0.56× / 0.54×** |
+| page first visual change | 24 / 31 ms | 19 / 22 ms | 1.26× / 1.39× |
+| page stable visual | 271 / 357 ms | 118 / 121 ms | **2.30× / 2.95×** |
+| zoom stable visual | 44 / 47 ms | 19 / 25 ms | **2.32× / 1.92×** |
+| wheel journey | 413 / 919 ms | 972 / 1022 ms | 0.42× / 0.90× |
+| wheel rAF interval p95 | 83 ms | 17 ms | **4.96×** |
+| peak browser RSS p50 | 2167 MiB | 1887 MiB | 1.15× |
 
 The wheel journey completes sooner, but its worse rAF tail means it is not yet
-as smooth; total duration alone would be a misleading win. Open and memory are
-inside the current provisional budgets, while stable navigation, zoom, and
+as smooth; total duration alone would be a misleading win. Headless Chrome 154
+appears to pace frames at 60 Hz on this host (PDFium's rAF p95 is 17 ms, where
+it was 10 ms in August), so the cadence ratio is not directly comparable with
+earlier checkpoints. Open and memory are inside the current provisional budgets
+(memory with less headroom than in August), while stable navigation, zoom, and
 scroll cadence are not. These numbers describe desktop web only and are not a
 native-desktop or mobile parity claim. See the
 [full methodology and historical checkpoints](https://github.com/ben-milanko/dart-pdf/blob/main/doc/benchmarks/pdfium-parity.md).
 
 The offline corpus benchmark remains useful as a subsystem diagnostic, not as
 evidence of viewer latency: over the 52-file / 268-page common subset at scale
-2, pure-Dart interpretation takes 12.1 ms/page, PDFium rasterization takes
-31.9 ms/page, and the complete Flutter raster plus readback takes 61.6 ms/page.
+2, pure-Dart interpretation takes 10.3 ms/page, PDFium rasterization takes
+31.1 ms/page, and the complete Flutter raster plus readback takes 54.0 ms/page.
 Reproducible offline harnesses and file-by-file diffs live in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
 
@@ -320,6 +323,330 @@ Resources can remain shared within one output; separate outputs own their copies
 Encrypted sources produce **unencrypted outputs**. See the
 [core splitting API](../pdf_document/README.md#splitting-and-extracting-pages)
 for the bytes-only `PdfSplitter` facade and full extraction semantics.
+
+## Customising the UI
+
+Control comes in layers. Each works on its own, and each later one goes
+further: **tokens** restyle the stock chrome, **surfaces** let you rebuild
+the header, menus and floating chips from stock parts, the **presenter**
+replaces how dialogs, menus and notices appear, **commands** let your own
+controls drive the editor, and the **headless** parts let you assemble an
+editor from scratch. None of them needs a `MaterialApp`.
+
+### Setup
+
+The stock chrome draws Material Icons, so the host app's `pubspec.yaml` must
+bundle that font:
+
+```yaml
+flutter:
+  uses-material-design: true
+```
+
+Register the editor's localizations so its strings follow the app's locale
+(without them it falls back to English). `localizationsDelegates` carries the
+editor's delegate plus Flutter's Material, Cupertino and widgets delegates:
+
+```dart
+MaterialApp(
+  localizationsDelegates: DartPdfEditorLocalizations.localizationsDelegates,
+  supportedLocales: DartPdfEditorLocalizations.supportedLocales,
+  // If the app has its own gen-l10n bundle, list both:
+  // localizationsDelegates: [
+  //   ...AppLocalizations.localizationsDelegates,
+  //   DartPdfEditorLocalizations.delegate,
+  // ],
+  themeMode: switch (prefs.themePreference) {
+    PdfThemePreference.system => ThemeMode.system,
+    PdfThemePreference.light => ThemeMode.light,
+    PdfThemePreference.dark => ThemeMode.dark,
+  },
+  home: ...,
+)
+```
+
+`PdfEditingPreferences.themePreference` is the user's saved theme choice in
+a design-system-neutral enum; the `ThemeMode`-typed `themeMode` is
+deprecated. Your own dialogs opened with `showPdfDialog` get Enter-to-submit
+by wrapping the primary action in `PdfDialogSubmit.action(onSubmit: ...,
+child: ...)`, which takes any widget.
+
+### 1. Tokens
+
+`PdfEditorThemeData` holds the editor's design tokens - status colours
+(`success`, `warning`, `danger`, `info`), the small section-label style, the
+compact-layout width (`compactWidth`, 700 by default - `pdfShellCompactWidth`)
+and how far notices float above the toolbar (`toastLift`) - plus the canvas
+tokens in `viewer` (`PdfViewerThemeData`: selection and search washes,
+annotation and element chrome, the marquee, snap grid and alignment guides,
+redaction hatching, rulers, readout chips, handle size, diff colours,
+scrollbar markers). Every field is optional; a null keeps the stock value.
+They are plain colours, text styles and lengths, so they read the same under
+any design system.
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  theme: const PdfEditorThemeData(
+    danger: Color(0xFFB00020),
+    compactWidth: 600,
+    viewer: PdfViewerThemeData(
+      annotationChromeColor: Color(0xFF00897B),
+      alignmentGuideColor: Color(0xFF00897B),
+    ),
+  ),
+);
+```
+
+Or set them once for several editors with
+`PdfEditorScope(presenter: ..., theme: ..., child: ...)`, and read the
+effective values with `PdfEditorThemeData.of(context)`. `PdfViewerTheme`
+still works on its own for the canvas tokens. Both data classes have
+`merge`, `copyWith` and `lerp`.
+
+### 2. Surfaces
+
+**Header.** `headerBuilder` receives the stock header's parts - page number,
+zoom, search, view options, panel switch, save, the compact Controls button
+- so you can lay out your own header, add your own controls, or turn it into
+a platform nav bar. `parts.stock` is the stock header; `parts.bar(...)`
+gives you its look with your own children:
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  onSave: save,
+  headerBuilder: (context, parts) => parts.bar(
+    leading: [parts.pageNumber, parts.search].nonNulls.toList(),
+    trailing: [
+      IconButton(icon: const Icon(Icons.ios_share), onPressed: share),
+      if (parts.compact) ...[parts.save, parts.controls(includeSave: false)]
+          .nonNulls
+      else ...[parts.viewOptions, parts.panelSwitch, parts.save].nonNulls,
+    ],
+  ),
+);
+```
+
+`PdfReader` takes the same `headerBuilder` (its parts have no save). Where
+your save button shares or exports, `parts.saveButton(enabledWhenUnchanged:
+true)` keeps it enabled before the first edit; ⌘S / Ctrl+S still saves only
+when there is something to save.
+
+**Panels.** `extraPanels` adds your own dock panels beside the stock ones.
+Each gets a toggle in the panel switch (unless `showInPanelSwitch: false`), a
+resizable frame on its dock with a move handle that drags it to another
+edge, and a bottom sheet on a compact layout. Its dock, width and visibility
+persist by `id`; pass `open:` a `ValueNotifier<bool>` to keep visibility
+yourself. The builder gets the frame's geometry, for the stock header
+controls:
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  extraPanels: [
+    PdfEditorPanel(
+      id: 'comments',
+      icon: Icons.forum_outlined,
+      label: 'Comments',
+      builder: (context, geometry) => Column(children: [
+        Row(children: [
+          if (geometry.moveHandle() case final handle?) handle,
+          const Expanded(child: Text('Comments')),
+          if (geometry.closeButton() case final close?) close,
+        ]),
+        const Expanded(child: CommentsList()),
+      ]),
+    ),
+  ],
+);
+```
+
+**Menus.** `annotationMenuEntries`, `textMenuEntries` and
+`formFieldMenuEntries` receive each context menu's stock rows and return the
+rows to show. Find stock rows by `PdfMenuEntry.id` (their `pdf-*` keys) and
+build new ones with `pdfAnnotationMenuEntry` / `pdfTextMenuEntry`:
+
+```dart
+annotationMenuEntries: (context, request, stock) => [
+  ...stock.where((e) => e.id != 'pdf-annot-menu-flatten'),
+  const PdfMenuDivider(),
+  pdfAnnotationMenuEntry(PdfAnnotationMenuItem(
+    label: 'Share',
+    icon: Icons.ios_share,
+    onSelected: (request) => shareAnnotation(request.primary),
+  )),
+],
+```
+
+**Floating chips.** The chips the editor floats over the page - beside a
+touch selection, a touch text selection or an image crop, and the
+measurement and style readouts - are drawn by the presenter's `actionBar`
+and `readout` (below), which get the stock chip plus its actions as data.
+`showSelectionChip: false` and `showInlineTextStyleChip: false` turn the
+selection chip and the touch text-style chip off when you show your own UI;
+`PdfViewerController.selectionGlobalRect` (a `ValueListenable<Rect?>`) and
+`globalRectOf(page, rect)` tell you where to put it.
+
+### 3. Presenter
+
+`PdfEditorPresenter` decides how the editor shows things - dialogs, bottom
+sheets, popup menus, notices, the floating action bars and readouts - and
+answers its prompts (text, colour, font, link, measuring scale, page ranges,
+signatures, ...). Each method defaults to the stock UI, so override only
+what you want to change. Extend the class rather than implementing it: new
+methods arrive with defaults.
+
+```dart
+class MyPresenter extends PdfEditorPresenter {
+  const MyPresenter();
+
+  @override
+  bool notice(BuildContext context, PdfEditorNotice notice) {
+    showMyToast(notice.message, onUndo: notice.onUndo);
+    return true;
+  }
+
+  @override
+  Future<String?> text(BuildContext context, PdfTextRequest request) =>
+      showMyTextSheet(context, request.title, initial: request.initial);
+
+  @override
+  Widget actionBar(BuildContext context, PdfActionBarRequest request) =>
+      MyChipRow(actions: request.actions); // or request.stock
+}
+
+PdfEditorView(bytes: bytes, presenter: const MyPresenter());
+```
+
+`PdfViewer` and `PdfReader` take `presenter:` too, or put a
+`PdfEditorScope(presenter: ..., child: ...)` above several editors. The
+stock dialogs carry the scope into their routes, so a prompt opened from
+inside one (the stamp editor's colour picker, say) uses your presenter as
+well. Call `super.method(...)` to fall back to the stock UI for a case you
+don't handle.
+
+**Signature pad.** `PdfSignaturePad` is the signature dialog's drawing
+surface on its own - pointer and stylus with pressure, the predicted lead,
+trackpad drawing - over a `PdfSignaturePadController` (strokes, ink, pen,
+`toSignature()`). Put it in your own sheet or page; a presenter's
+`signature` prompt can return what it draws.
+
+### 4. Commands and tool groups
+
+Everything the stock toolbar does goes through `PdfEditorCommands`, which
+`PdfEditorView` provides to its subtree (and the viewer's tool shortcuts use).
+A host's own toolbar, menu or command palette runs the same commands, so a
+measure tool still asks for its scale first:
+
+```dart
+final commands = PdfEditorCommands.of(context);
+await commands.armTool(context, PdfEditTool.measureDistance);
+commands.applyColor(const Color(0xFFE53935));
+
+// Everything the editor offers, for a palette or menu: tools, panels, view
+// modes, save.
+for (final command in commands.catalog(context)) {
+  print('${command.id}: ${command.label(context)}');
+}
+```
+
+To reach them from above the editor (an app-level palette), create them
+yourself and pass `PdfEditorView(commands: ...)`. `toolbarBuilder` replaces
+the toolbar with one you build from the catalog.
+
+**Keyboard.** The viewer's keys map to intents - `PdfCopyIntent`,
+`PdfSelectAllIntent`, `PdfUndoIntent`, `PdfRedoIntent`,
+`PdfDeleteSelectionIntent`, `PdfNudgeSelectionIntent`, `PdfArmToolIntent` and
+the rest. Rebind keys by passing a copy of `pdfViewerDefaultShortcuts`
+(`PdfViewer.shortcuts`, or `viewerShortcuts` on `PdfEditorView` and
+`PdfReader`); add keys with a `Shortcuts` above the editor; change what a
+command does with an `Actions` above it:
+
+```dart
+Actions(
+  actions: {
+    PdfDeleteSelectionIntent: CallbackAction<PdfDeleteSelectionIntent>(
+      onInvoke: (_) => confirmThenDelete(),
+    ),
+  },
+  child: PdfEditorView(
+    bytes: bytes,
+    viewerShortcuts: {
+      ...pdfViewerDefaultShortcuts,
+      const SingleActivator(LogicalKeyboardKey.backspace):
+          const DoNothingAndStopPropagationIntent(),
+    },
+  ),
+)
+```
+
+`toolGroups` orders the dock and takes groups of your own; an entry can be a
+stock tool, a markup kind or a `PdfCommand`:
+
+```dart
+PdfEditorView(
+  bytes: bytes,
+  toolGroups: [
+    pdfToolGroups.firstWhere((g) => g.id == 'select'),
+    pdfToolGroups.firstWhere((g) => g.id == 'markup'),
+    PdfToolGroup(
+      'review',
+      Icons.rate_review_outlined,
+      [
+        const PdfToolEntry.tool(PdfEditTool.note, Icons.sticky_note_2_outlined),
+        PdfToolEntry.command(PdfCommand(
+          id: 'approve',
+          icon: Icons.verified_outlined,
+          label: (context) => 'Approve',
+          invoke: (context) async => approve(),
+        )),
+      ],
+      labelBuilder: (context) => 'Review',
+    ),
+  ],
+)
+```
+
+### Any host: MaterialApp, CupertinoApp or WidgetsApp
+
+The editor does not need a `MaterialApp`. `PdfViewer`, `PdfReader`,
+`PdfEditorView` and `PdfComparisonView` run under a `CupertinoApp` or a plain
+`WidgetsApp` too:
+
+```dart
+CupertinoApp(
+  home: CupertinoPageScaffold(child: PdfEditorView(bytes: bytes)),
+)
+```
+
+Each wraps its content in `PdfMaterialHost`, which supplies whatever the
+stock chrome needs and the host lacks: Material and Cupertino localizations,
+a theme derived from the host's `CupertinoTheme` (or its platform brightness
+and `DefaultSelectionStyle`), and a surface for ink and text fields. Under a
+`MaterialApp` it adds nothing. The editor's dialogs, menus, sheets, notices
+and text-field context menus build under the root navigator, outside that
+wrapper, so they re-inject the same things; without a `ScaffoldMessenger`,
+notices appear as a toast in the root overlay. Wrap any stock widget you
+mount on its own (a `PdfEditingToolbar` next to your own viewer) in
+`PdfMaterialHost`, give text fields in your own dialogs
+`contextMenuBuilder: pdfTextContextMenu`, and use `PdfDropdown` rather than
+`DropdownButton`. The chrome still draws Material Icons, so
+`uses-material-design: true` is still needed.
+
+[`example/lib/cupertino_host.dart`](example/lib/cupertino_host.dart) puts the
+layers together: a `CupertinoApp` whose nav bar is built from the header
+parts, whose toolbar is built from the command catalog, and whose presenter
+shows menus as action sheets, prompts as alert dialogs and notices as a
+toast (`flutter run -t lib/cupertino_host.dart` in `example/`).
+
+### 5. Headless
+
+Below all of that, the editor is a controller and a viewer you can wire into
+any layout yourself - see [Composing your own UI](#composing-your-own-ui).
+The preferences can live outside the device's shared_preferences too:
+`PdfEditingPreferences(store: ...)` takes any `PdfPreferencesStore` (a
+settings database, a per-user profile, or `PdfMemoryPreferencesStore`).
 
 ## Composing your own UI
 

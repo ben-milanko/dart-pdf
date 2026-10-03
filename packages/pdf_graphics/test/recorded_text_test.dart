@@ -88,6 +88,76 @@ q /Pattern cs /PatternText scn 80 80 30 30 re f Q
         extracted.runs.where((run) => run.text == 'TYPE3_TEXT'), hasLength(2));
   });
 
+  test(
+      'char offsets survive the shared scratch: nested Type3 text, '
+      'long runs and reuse across pages', () {
+    // The interpreter collects offsets into one reused Float64List. A Type3
+    // CharProc shows text of its own mid-run (TYPE3_TEXT inside each A), a
+    // run past the retained size grows and is dropped, and a clamped
+    // negative Tc must stay non-decreasing - none of it may leak between
+    // runs or depend on what the scratch last held.
+    final long = 'Long prose ' * 450; // past the 4096 retained
+    const tail = 'BT /F1 12 Tf -3 Tc 72 600 Td (After the nested run) Tj ET';
+    final content = '''
+BT /T3 24 Tf 72 720 Td (AA) Tj ET
+$tail
+BT /F1 9 Tf 0 Tc 72 500 Td ($long) Tj ET
+BT /F1 9 Tf 72 480 Td (short) Tj ET
+''';
+    final document = _document(content);
+    // Text runs in drawing order, Type3 glyph cells included.
+    List<PdfTextRun> runs(PdfInterpreter interpreter, PdfDocument document) {
+      final recorder = interpreter.device as RecordingPdfDevice;
+      recorder.commands.clear();
+      interpreter.drawPage(document.page(0));
+      final out = <PdfTextRun>[];
+      void walk(List<PdfRenderCommand> commands) {
+        for (final c in commands) {
+          if (c is PdfDrawTextCommand) out.add(c.run);
+          if (c is PdfDrawTiledCellCommand) walk(c.cellCommands);
+        }
+      }
+
+      walk(recorder.commands);
+      return out;
+    }
+
+    final interpreter = PdfInterpreter(
+        cos: document.cos,
+        device: RecordingPdfDevice(),
+        collectCharOffsets: true);
+    final first = runs(interpreter, document);
+    expect(first.map((r) => r.text), [
+      'TYPE3_TEXT', 'TYPE3_TEXT', 'AA', 'After the nested run', long, 'short' //
+    ]);
+    for (final run in first) {
+      final offsets = run.charOffsets!;
+      expect(offsets, isA<Float64List>());
+      expect(offsets, hasLength(run.text.length + 1));
+      for (var i = 1; i < offsets.length; i++) {
+        expect(offsets[i], greaterThanOrEqualTo(offsets[i - 1]));
+      }
+    }
+    expect(first[2].charOffsets, [0, 1, 2]);
+    // Each run owns its table - the next run reusing the scratch leaves it be.
+    expect(identical(first[3].charOffsets, first[5].charOffsets), isFalse);
+    final snapshot = [for (final r in first) List.of(r.charOffsets!)];
+
+    // A second pass on the same interpreter (warm scratch) and a fresh
+    // interpreter drawing only the trailing run agree exactly.
+    final second = runs(interpreter, document);
+    expect([for (final r in second) r.charOffsets], snapshot);
+    expect([for (final r in first) r.charOffsets], snapshot);
+    final alone = _document(tail);
+    final fresh = runs(
+        PdfInterpreter(
+            cos: alone.cos,
+            device: RecordingPdfDevice(),
+            collectCharOffsets: true),
+        alone);
+    expect(fresh.single.charOffsets, snapshot[3]);
+  });
+
   test('embedded RTL glyphs and positioned combining marks retain logical text',
       () {
     for (final bytes in [

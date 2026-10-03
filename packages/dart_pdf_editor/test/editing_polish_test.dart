@@ -169,7 +169,7 @@ void main() {
       editing.tool = PdfEditTool.ink;
       editing.addInkStroke(0, [(100, 500), (150, 520)]);
       await tester.pump();
-      expect(find.byTooltip('Add ink annotation'), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-ink-confirm')), findsNothing);
       editing.discardInk();
       await tester.pump();
 
@@ -198,26 +198,28 @@ void main() {
           ),
         ),
       ));
-      IconButton saveButton() => tester
-          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.save_alt));
+      final save = find.byKey(const ValueKey('pdf-toolbar-save'));
+      final enabled = isSemantics(isEnabled: true);
+      final disabled = isSemantics(isEnabled: false);
 
       // freshly opened: the document matches what was opened, nothing to save
-      expect(saveButton().onPressed, isNull);
+      expect(tester.getSemantics(save), disabled);
 
       // an edit enables it
       editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       await tester.pump();
-      expect(saveButton().onPressed, isNotNull);
+      expect(tester.getSemantics(save), enabled);
 
       // pressing it hands the host the current revision's bytes
-      saveButton().onPressed!();
+      await tester.ensureVisible(save);
+      await tester.tap(save);
       expect(saved, isNotNull);
       expect(saved!.length, editing.bytes.length);
 
       // undoing back to the original disables it again
       editing.undo();
       await tester.pump();
-      expect(saveButton().onPressed, isNull);
+      expect(tester.getSemantics(save), disabled);
     });
   });
 

@@ -460,7 +460,7 @@ void main() {
 
       // the editor is open in place - nothing committed yet, no dialog
       expect(find.byKey(editorKey), findsOneWidget);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-text-prompt')), findsNothing);
       expect(editing.isEditingText, isTrue);
       expect(editing.document.page(0).annotations, isEmpty);
 

@@ -8,7 +8,7 @@ import 'editing_fonts.dart';
 import 'editing_value_field.dart';
 import 'text_prompt.dart';
 import '../l10n/pdf_l10n.dart';
-import '../popup_position.dart';
+import '../design/editor_presenter.dart';
 
 /// A field-type menu for the single selected form widget.
 ///
@@ -284,12 +284,13 @@ Future<void> showPdfFormTextStylePopup({
   PdfFontPicker? fontPicker,
 }) async {
   if (!controller.canStyleSelectedFormField) return;
-  await showMenu<void>(
-    context: context,
-    position: pdfPopupPosition(context, position),
-    items: [
-      PopupMenuItem<void>(
+  await PdfEditorPresenter.of(context).menu<void>(
+    context,
+    PdfMenuRequest<void>.at(position, entries: [
+      PdfMenuItem<void>(
         key: const ValueKey('pdf-form-style-popup'),
+        value: null,
+        label: pdfL10n(context).menuTextStyle,
         enabled: false,
         padding: EdgeInsets.zero,
         child: Padding(
@@ -303,6 +304,6 @@ Future<void> showPdfFormTextStylePopup({
           ),
         ),
       ),
-    ],
+    ]),
   );
 }

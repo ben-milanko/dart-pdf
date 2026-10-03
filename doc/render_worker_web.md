@@ -84,7 +84,7 @@ accepted.
 
 **One line.** The worker script ships in the optional `dart_pdf_editor_assets`
 package (it used to be a `dart_pdf_editor` asset, but was split out so
-viewer-only apps don't bundle its ~0.48 MB). Depend on that package and call
+viewer-only apps don't bundle its ~0.7 MB (gzip) worker). Depend on that package and call
 `registerBundledEditorAssets()` once at startup - it sets
 `pdfRenderWorkerScriptUrl` to Flutter's package asset path:
 
@@ -158,7 +158,7 @@ renders locally. A forgotten rebuild degrades gracefully; it never breaks.
 
 The real bundled worker asset
 (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
-~1 MB `dart compile js` output that is **not committed** (issue #582) - two
+~1.7 MB `dart compile js` output that is **not committed** (issue #582) - two
 `dart2js` outputs can't be merged textually, so committing a bundle that almost
 every source change regenerates was a constant source of unmergeable diffs, and
 its `.js.deps` sibling leaked absolute local pub-cache paths.
@@ -192,7 +192,7 @@ dart run dart_pdf_editor:build_web_worker \
 ```
 
 or just route local web work through `app/tool/build_web.sh`, which does this
-for you. That leaves the ~1 MB bundle in your working tree as an uncommitted
+for you. That leaves the ~1.7 MB bundle in your working tree as an uncommitted
 modification of the placeholder; `git checkout` the path to restore it (CI's
 `worker-compiles` job guards that the committed file stays the small
 placeholder, and also compiles the worker to catch `dart2js`/`.toJS` errors
@@ -213,8 +213,9 @@ priority queue and protocol, and the app is wired up:
   COOP/COEP headers, so a worker pool can still share the document bytes
   through `SharedArrayBuffer`. See `deploy-demo-web.yml`, `deploy-app-web.yml`
   and the firebase configs.
-- `dart compile js` of the worker entry **succeeds** (~857 KB bundle), so the
-  `dart:js_interop` / `package:web` usage is valid on the web toolchain.
+- `dart compile js` of the worker entry **succeeds** (~857 KB bundle at the
+  time; ~1.7 MB as of October 2026), so the `dart:js_interop` /
+  `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
   CAD test doc: every page round-tripped through the worker (`path=worker`),
   the transferred `ArrayBuffer`s replay correctly, and the main-thread interpret

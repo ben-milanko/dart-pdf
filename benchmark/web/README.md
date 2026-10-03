@@ -47,8 +47,8 @@ field in the output is observed, not assumed.
 
 ## Important caveats
 
-- **Software rasterization.** Headless Chromium has no GPU, so WebGL falls back
-  to SwiftShader (software) for both renderers. The **absolute** ms are
+- **Software rasterization.** The driver forces ANGLE/SwiftShader, so WebGL
+  runs in software for both renderers, whatever the host GPU. The **absolute** ms are
   software-rasterized and far slower than a real GPU; the CanvasKit-vs-skwasm
   **ratio** is the portable signal. Run `drive.cjs --headed` on a machine with a
   display/GPU for representative absolute numbers.
@@ -70,29 +70,41 @@ table - read them from the JSON for the load-time / bundle-size comparison.
 
 ### Latest run
 
-20 files from `test_corpora/pdfjs` (19 rendered without error), scale 2,
-maxPages 5, best-of-3 passes, in this sandbox's **headless Chromium with
-SwiftShader (software WebGL - no GPU)**. Captured 2026-06-18.
+20 files from `test_corpora/pdfjs` (19 rendered without error, 20 pages),
+scale 2, maxPages 5, best-of-3 passes, in Playwright's headless Chromium
+(Chrome Headless Shell 153) on an Apple M1 Pro laptop. The driver forces
+ANGLE/SwiftShader, so WebGL is still **software-rasterized (no GPU)** even on
+this host. Captured 2026-10-02 at commit `fadf7760`. This is a new checkpoint
+on a different host, not a like-for-like successor to the 2026-06-18 sandbox
+run (which measured skwasm 1.63× slower).
 
-| renderer      | app build | throughput       | ms/page | boot       | fetched bytes¹ |
-| ------------- | --------- | ---------------- | ------- | ---------- | -------------- |
-| **CanvasKit** | dart2js   | **24.8 pages/s** | 40.4    | 609 ms     | 9.8 MB         |
-| **skwasm**    | dart2wasm | 15.2 pages/s     | 66.0    | **417 ms** | **7.4 MB**     |
+| renderer      | app build | throughput       | ms/page | boot        | fetched bytes¹ |
+| ------------- | --------- | ---------------- | ------- | ----------- | -------------- |
+| **CanvasKit** | dart2js   | **36.6 pages/s** | 27.3    | 2959 ms     | 13.8 MB        |
+| **skwasm**    | dart2wasm | 31.1 pages/s     | 32.2    | **2548 ms** | **11.8 MB**    |
 
-**skwasm rasterized 1.63× slower than CanvasKit** here, consistently across the
-corpus (per-file 0.42×–0.95×). It booted ~30% faster and fetched fewer bytes.
+**skwasm rasterized 1.18× slower than CanvasKit** here (a replicate run gave
+1.17×). It was slower on most files but not all: per-file 0.53×–1.36×, with
+skwasm ahead on 5 of 19. It booted 5–14% faster across two runs and fetched
+about 15% fewer bytes.
 
-¹ Uncompressed bytes of the resources actually fetched (not the full 43–45 MB
+¹ Uncompressed bytes of the resources actually fetched (not the full 48–50 MB
 on-disk bundle); a real server would gzip/brotli these.
 
 Caveats that matter for reading these numbers:
 
-- **This is software rasterization.** With no GPU, both renderers fall back to
-  SwiftShader, so the absolute ms are far slower than production and the gap is
-  not predictive of GPU hardware - skwasm's threaded raster and CanvasKit's
-  WebGL path scale differently with a real GPU. Re-run `--headed` on a GPU box
-  before trusting the magnitude or even the direction of the ratio.
-- Best-of-3 over a one-shot headless process; boot times especially are noisy.
+- **This is software rasterization.** `drive.cjs` passes
+  `--use-angle=swiftshader`, so both renderers run on SwiftShader and the
+  absolute ms are far slower than production. The gap is not predictive of GPU
+  hardware - skwasm's threaded raster and CanvasKit's WebGL path scale
+  differently with a real GPU. Re-run `--headed` on a GPU box before trusting
+  the magnitude or even the direction of the ratio.
+- Boot took 2.5–3 s on this host versus 0.4–0.6 s in the 2026-06-18 sandbox,
+  and the skwasm boot lead moved between runs; do not compare boot times
+  across hosts.
+- The host was moderately loaded (desktop apps running), and the corpus is
+  tiny (about 0.6 s of total render across 20 pages, many of them trivial
+  2–70 ms one-page fixtures), so per-file ratios are noisy. Best-of-3 over a one-shot headless process.
 - Blocked CDN font fallback means CJK/symbol glyphs render as boxes under both.
 
 Reproduce: `benchmark/web/run.sh`.

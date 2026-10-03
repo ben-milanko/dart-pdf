@@ -77,8 +77,8 @@ void main() {
   final keylessAt = DateTime.utc(2026, 6, 10, 12);
   Future<PdfSigningIdentity> mintKeyless() => fulcioSigningIdentity(
         oidcToken: _jwt({'email': 'dev@example.com'}),
-        transport: (request) async =>
-            buildTestFulcioResponse(request, ca: fulcioCa, notBefore: keylessAt),
+        transport: (request) async => buildTestFulcioResponse(request,
+            ca: fulcioCa, notBefore: keylessAt),
       );
   Future<Uint8List> fakeTsa(Uint8List request) async =>
       buildTestTimeStampToken(request, genTime: keylessAt);
@@ -115,19 +115,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DigitalSignatureDialog), findsOneWidget);
     expect(
-      tester
-          .widget<FilledButton>(
-            find.byKey(const ValueKey('digital-signature-sign')),
-          )
-          .onPressed,
-      isNull,
+      tester.getSemantics(find.byKey(const ValueKey('digital-signature-sign'))),
+      isSemantics(isEnabled: false),
     );
 
     // The certificate-file option lives under "Advanced" (easy options first).
     await tester.tap(find.byKey(const ValueKey('digital-signature-advanced')));
     await tester.pumpAndSettle();
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-private-key')));
     await tester.tap(
       find.byKey(const ValueKey('digital-signature-private-key')),
     );
@@ -154,7 +150,8 @@ void main() {
     expect(result!.location, 'Melbourne');
   });
 
-  testWidgets('a key/cert mismatch shows a localized error, not a raw exception',
+  testWidgets(
+      'a key/cert mismatch shows a localized error, not a raw exception',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -188,14 +185,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(
         find.byKey(const ValueKey('digital-signature-private-key')));
-    await tester.tap(find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-private-key')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
         find.byKey(const ValueKey('digital-signature-certificates')));
-    await tester.tap(find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-certificates')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('digital-signature-error')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('digital-signature-error')), findsOneWidget);
     expect(
       find.text('The private key does not match any selected RSA certificate.'),
       findsOneWidget,
@@ -235,11 +235,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(
         find.byKey(const ValueKey('digital-signature-private-key')));
-    await tester.tap(find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-private-key')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
         find.byKey(const ValueKey('digital-signature-certificates')));
-    await tester.tap(find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-certificates')));
     await tester.pumpAndSettle();
 
     expect(find.text('Dart PDF Test Signer'), findsOneWidget);
@@ -260,7 +262,8 @@ void main() {
                 context,
                 identityStore: store,
                 createSelfSignedIdentity: (context, store) async {
-                  final identity = PdfSigningIdentity.generate(name: 'Ada Lovelace');
+                  final identity =
+                      PdfSigningIdentity.generate(name: 'Ada Lovelace');
                   await store.save(identity.name!, identity);
                   return identity;
                 },
@@ -276,11 +279,8 @@ void main() {
     await tester.pumpAndSettle();
     // Sign is disabled until an identity is chosen.
     expect(
-      tester
-          .widget<FilledButton>(
-              find.byKey(const ValueKey('digital-signature-sign')))
-          .onPressed,
-      isNull,
+      tester.getSemantics(find.byKey(const ValueKey('digital-signature-sign'))),
+      isSemantics(isEnabled: false),
     );
 
     await tester
@@ -427,7 +427,7 @@ void main() {
     // signed once, and the "Undo" affordance is offered
     expect(saves, hasLength(1));
     expect(PdfSignature.of(PdfDocument.open(saves.first)), hasLength(1));
-    expect(find.widgetWithText(SnackBarAction, 'Undo'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
 
     await tester.tap(find.text('Undo'));
     await tester.pumpAndSettle();
@@ -463,11 +463,8 @@ void main() {
     await tester.pumpAndSettle();
     // Sign is disabled until an identity is chosen.
     expect(
-      tester
-          .widget<FilledButton>(
-              find.byKey(const ValueKey('digital-signature-sign')))
-          .onPressed,
-      isNull,
+      tester.getSemantics(find.byKey(const ValueKey('digital-signature-sign'))),
+      isSemantics(isEnabled: false),
     );
 
     await tester
@@ -479,7 +476,8 @@ void main() {
         findsOneWidget);
     expect(find.text('dev@example.com'), findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(const ValueKey('digital-signature-sign')));
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('digital-signature-sign')));
     await tester.tap(find.byKey(const ValueKey('digital-signature-sign')));
     await tester.pumpAndSettle();
 
@@ -491,7 +489,8 @@ void main() {
     expect(result!.signerName, 'dev@example.com');
   });
 
-  testWidgets('placement shows the Appearance section and returns an appearance',
+  testWidgets(
+      'placement shows the Appearance section and returns an appearance',
       (tester) async {
     // A 1x1 opaque PNG stands in for a company logo backdrop.
     final logo = base64Decode(
@@ -524,7 +523,8 @@ void main() {
 
     // the Appearance section (only shown for a placement) offers the pickers
     expect(find.text('Appearance'), findsOneWidget);
-    expect(find.byKey(const ValueKey('digital-signature-draw')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('digital-signature-draw')), findsOneWidget);
 
     // add a logo backdrop
     await tester
@@ -536,9 +536,11 @@ void main() {
     // apply the box to pages 1–3 (of the 4-page document, 0-based 0..2)
     await tester.ensureVisible(
         find.byKey(const ValueKey('digital-signature-apply-pages')));
-    await tester.tap(find.byKey(const ValueKey('digital-signature-apply-pages')));
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-apply-pages')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('pdf-page-range-to')), '3');
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-page-range-to')), '3');
     await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
     await tester.pumpAndSettle();
 
@@ -594,7 +596,8 @@ void main() {
     // First session: add a logo - it is written to the device store.
     await open();
     expect(find.text('Logo added ✓'), findsNothing);
-    await tester.ensureVisible(find.byKey(const ValueKey('digital-signature-logo')));
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('digital-signature-logo')));
     await tester.tap(find.byKey(const ValueKey('digital-signature-logo')));
     await tester.pumpAndSettle();
     expect(find.text('Logo added ✓'), findsOneWidget);
@@ -638,11 +641,8 @@ void main() {
         findsOneWidget);
     expect(find.text('dev@example.com'), findsOneWidget);
     expect(
-      tester
-          .widget<FilledButton>(
-              find.byKey(const ValueKey('digital-signature-sign')))
-          .onPressed,
-      isNotNull,
+      tester.getSemantics(find.byKey(const ValueKey('digital-signature-sign'))),
+      isSemantics(isEnabled: true),
     );
 
     await tester.tap(find.byKey(const ValueKey('digital-signature-sign')));
@@ -681,8 +681,8 @@ void main() {
     // and nothing keyless is pre-selected; the button is still offered
     expect(find.byKey(const ValueKey('digital-signature-keyless-identity')),
         findsNothing);
-    expect(
-        find.byKey(const ValueKey('digital-signature-keyless')), findsOneWidget);
+    expect(find.byKey(const ValueKey('digital-signature-keyless')),
+        findsOneWidget);
   });
 
   testWidgets('on web, a note points to the desktop/mobile app for keyless',
@@ -704,7 +704,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // no keyless button (no provider), but the explanatory note is shown
-    expect(find.byKey(const ValueKey('digital-signature-keyless')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('digital-signature-keyless')), findsNothing);
     expect(find.byKey(const ValueKey('digital-signature-keyless-web-note')),
         findsOneWidget);
   });
@@ -733,16 +734,18 @@ void main() {
     }
 
     await open();
-    expect(find.byKey(const ValueKey('digital-signature-keyless')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('digital-signature-keyless')), findsNothing);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
     await open(tokenProvider: (context) async => _jwt({'email': 'x@y.z'}));
-    expect(
-        find.byKey(const ValueKey('digital-signature-keyless')), findsOneWidget);
+    expect(find.byKey(const ValueKey('digital-signature-keyless')),
+        findsOneWidget);
   });
 
-  testWidgets('app menu signs keyless (B-T), then saves a timestamped signature',
+  testWidgets(
+      'app menu signs keyless (B-T), then saves a timestamped signature',
       (tester) async {
     final keyless = await mintKeyless();
     Uint8List? saved;
