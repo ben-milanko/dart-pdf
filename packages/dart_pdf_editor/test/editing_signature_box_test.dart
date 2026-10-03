@@ -2,7 +2,7 @@
 // host's onPlaceSignature handler runs with the page and the box in PDF user
 // space to collect an identity/appearance and cryptographically sign into it.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -42,8 +42,8 @@ void main() {
         (tester) async {
       int? gotPage;
       PdfRect? gotRect;
-      final editing = await pumpEditor(tester,
-          onPlaceSignature: (context, {required pageIndex, required pageRect}) async {
+      final editing = await pumpEditor(tester, onPlaceSignature: (context,
+          {required pageIndex, required pageRect}) async {
         gotPage = pageIndex;
         gotRect = pageRect;
       });

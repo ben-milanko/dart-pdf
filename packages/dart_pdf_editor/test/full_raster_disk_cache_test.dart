@@ -19,7 +19,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -60,7 +60,10 @@ class _ThrowingDiskCache extends PdfDiskCache {
 /// Wraps [payload] in the `PRAS` container header the cache writes, letting a
 /// test forge a header that disagrees with its own body.
 Uint8List frame(Uint8List payload,
-    {required int width, required int height, int format = 0, int version = 1}) {
+    {required int width,
+    required int height,
+    int format = 0,
+    int version = 1}) {
   final out = Uint8List(20 + payload.length);
   final header = ByteData.sublistView(out, 0, 20);
   header.setUint32(0, 0x50524153); // 'PRAS'
@@ -299,8 +302,8 @@ void main() {
             annotations: true,
             rotation: null);
 
-        final original = await cache.readFullRasterBytes(0,
-            width: 12, height: 9);
+        final original =
+            await cache.readFullRasterBytes(0, width: 12, height: 9);
         expect(original, isNotNull, reason: 'the raw-bytes hook reads back');
 
         // Rewrite the stored bytes behind the cache's back, exactly as a
@@ -711,7 +714,8 @@ void main() {
         busy = false;
         await Future<void>.delayed(const Duration(milliseconds: 250));
         expect(raster.fullRasterStats.stores, 1,
-            reason: 'the queued raster was dropped, not written after the wipe');
+            reason:
+                'the queued raster was dropped, not written after the wipe');
         expect(await raster.fullRasters!.debugLength, 0);
       });
       addTearDown(cache.dispose);
@@ -873,7 +877,8 @@ void main() {
             pageColor: 0xFFFFFFFF,
             annotations: true,
             rotation: null);
-        expect(restored, isNotNull, reason: 'the newest raster is the stored one');
+        expect(restored, isNotNull,
+            reason: 'the newest raster is the stored one');
         restored!.dispose();
       });
       addTearDown(cache.dispose);

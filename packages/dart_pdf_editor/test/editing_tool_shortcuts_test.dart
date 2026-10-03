@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -62,9 +62,8 @@ void main() {
     });
 
     test('activator matches the key and shift state', () {
-      final plain =
-          const PdfToolShortcut(LogicalKeyboardKey.keyL).activator
-              as SingleActivator;
+      final plain = const PdfToolShortcut(LogicalKeyboardKey.keyL).activator
+          as SingleActivator;
       expect(plain.trigger, LogicalKeyboardKey.keyL);
       expect(plain.shift, isFalse);
 

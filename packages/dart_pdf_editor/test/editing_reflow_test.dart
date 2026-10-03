@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -146,12 +146,14 @@ void main() {
       return editing;
     }
 
-    testWidgets('the strip exposes Reflow paragraph for a selected text element',
+    testWidgets(
+        'the strip exposes Reflow paragraph for a selected text element',
         (tester) async {
       var prompted = false;
       final editing = await pumpToolbar(
         tester,
-        textPrompt: (context, {required title, initial = '', multiline = false}) async {
+        textPrompt: (context,
+            {required title, initial = '', multiline = false}) async {
           prompted = true;
           // a paragraph prompt opens multiline, pre-filled with the line
           expect(title, 'Reflow paragraph');
@@ -175,15 +177,18 @@ void main() {
       expect(editing.isModified, isTrue);
       final lines = PdfPageElements.of(editing.document, 0)
           .elements
-          .where((e) => e.kind == PdfElementKind.text && !e.text!.startsWith('Footer'))
+          .where((e) =>
+              e.kind == PdfElementKind.text && !e.text!.startsWith('Footer'))
           .length;
       expect(lines, greaterThan(2), reason: 'the paragraph re-wrapped longer');
     });
 
-    testWidgets('an unreflowable selection shows a fallback hint', (tester) async {
+    testWidgets('an unreflowable selection shows a fallback hint',
+        (tester) async {
       final editing = await pumpToolbar(
         tester,
-        textPrompt: (context, {required title, initial = '', multiline = false}) async =>
+        textPrompt: (context,
+                {required title, initial = '', multiline = false}) async =>
             'Footer line here grown so long it would need a second wrapped line',
       );
       editing.tool = PdfEditTool.content;
@@ -195,7 +200,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-reflow-element-text')));
       await tester.pumpAndSettle();
 
-      expect(editing.isModified, isFalse, reason: 'a bailed reflow changes nothing');
+      expect(editing.isModified, isFalse,
+          reason: 'a bailed reflow changes nothing');
       expect(find.textContaining("Couldn't reflow"), findsOneWidget);
     });
   });

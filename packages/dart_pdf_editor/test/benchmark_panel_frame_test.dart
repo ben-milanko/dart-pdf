@@ -6,7 +6,7 @@
 import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -26,9 +26,8 @@ void main() {
               alignment: Alignment.topLeft,
               child: PdfSearchResultsPanel(
                 controller: controller,
-                dock: generation.isEven
-                    ? PdfPanelDock.left
-                    : PdfPanelDock.right,
+                dock:
+                    generation.isEven ? PdfPanelDock.left : PdfPanelDock.right,
                 bottomSheet: generation % 3 == 0,
               ),
             ),

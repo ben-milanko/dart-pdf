@@ -5,10 +5,11 @@
 
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
+import '../legacy/legacy_host_bridge.dart';
 import '../toast.dart';
 import 'editor_presenter.dart';
 import 'material_host.dart';
@@ -126,12 +127,33 @@ Widget _defaultRow(PdfMenuItem<Object?> item) => Builder(
     );
 
 /// [PdfEditorPresenter.notice]'s default: a SnackBar on the nearest
-/// [ScaffoldMessenger], or - under a host without one (a `CupertinoApp`, a
-/// `WidgetsApp`, a bare `MaterialApp` home) - the same notice as a toast in
-/// the root [Overlay]. False (nothing shown) only with neither.
+/// [ScaffoldMessenger]; else, under a host on the legacy
+/// `package:flutter/material.dart`, a SnackBar on that host's messenger
+/// (see `kPdfLegacyMaterialBridge`); else - a `CupertinoApp`, a `WidgetsApp`,
+/// a bare `MaterialApp` home - the same notice as a toast in the root
+/// [Overlay]. False (nothing shown) only with none of them.
 bool pdfStockNotice(BuildContext context, PdfEditorNotice notice) {
   final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return _PdfOverlayToast.show(context, notice);
+  if (messenger == null) {
+    final onUndo = notice.onUndo;
+    if (pdfLegacyHostNotice(
+      context,
+      key: notice.key,
+      message: notice.message,
+      floating: notice.placement != PdfNoticePlacement.attached,
+      margin: notice.placement == PdfNoticePlacement.aboveToolbar
+          ? pdfFloatingToastMargin(context)
+          : null,
+      duration: notice.duration ?? const Duration(milliseconds: 4000),
+      showClose: notice.showClose,
+      replaceCurrent: notice.replaceCurrent,
+      undoLabel: onUndo == null ? null : pdfL10n(context).undo,
+      onUndo: onUndo,
+    )) {
+      return true;
+    }
+    return _PdfOverlayToast.show(context, notice);
+  }
   if (notice.replaceCurrent) messenger.clearSnackBars();
   final onUndo = notice.onUndo;
   messenger.showSnackBar(SnackBar(

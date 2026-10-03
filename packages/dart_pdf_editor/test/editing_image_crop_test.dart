@@ -4,7 +4,7 @@ import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_image_crop.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -18,7 +18,8 @@ String appearance(PdfDocument doc, PdfAnnotation annot) =>
 
 void main() {
   group('PdfImageCropOverlay widget', () {
-    testWidgets('dragging the top-right handle shrinks the crop', (tester) async {
+    testWidgets('dragging the top-right handle shrinks the crop',
+        (tester) async {
       const bounds = Rect.fromLTWH(0, 0, 200, 200);
       Rect? changed;
       await tester.pumpWidget(MaterialApp(
@@ -116,8 +117,8 @@ void main() {
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
       // a fully-visible image near the top of the page
-      expect(editing.addImageInRect(
-          0, const PdfRect(150, 520, 350, 700), _png), isTrue);
+      expect(editing.addImageInRect(0, const PdfRect(150, 520, 350, 700), _png),
+          isTrue);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: ListenableBuilder(
@@ -139,7 +140,8 @@ void main() {
         (tester) async {
       final editing = await pumpWithImage(tester);
       expect(editing.canCropSelected, isTrue);
-      expect(find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
 
       editing.beginImageCrop();
       await tester.pump();
@@ -152,7 +154,8 @@ void main() {
       // let the double-tap window and ink ripple timers drain
       await tester.pumpAndSettle(const Duration(milliseconds: 400));
       expect(editing.isCroppingImage, isFalse);
-      expect(find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
     });
 
     testWidgets('dragging a handle then confirming crops the image',
@@ -189,7 +192,8 @@ void main() {
       expect(appearance(editing.document, stamp), contains('/Img0 Do'));
     });
 
-    testWidgets('cancel via the overlay chip discards the crop', (tester) async {
+    testWidgets('cancel via the overlay chip discards the crop',
+        (tester) async {
       final editing = await pumpWithImage(tester);
       final rect = editing.selectedAnnotation!.rect;
       editing.beginImageCrop();
@@ -209,8 +213,8 @@ void main() {
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
-      expect(editing.addImageInRect(
-          0, const PdfRect(150, 520, 350, 700), _png), isTrue);
+      expect(editing.addImageInRect(0, const PdfRect(150, 520, 350, 700), _png),
+          isTrue);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: const SizedBox.expand(),
@@ -235,8 +239,8 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 400));
       expect(editing.isCroppingImage, isTrue);
       // the strip now shows the crop Done/Cancel actions
-      expect(find.byKey(const ValueKey('pdf-crop-apply-toolbar')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-crop-apply-toolbar')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-crop-cancel-toolbar')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-crop-image')), findsNothing);

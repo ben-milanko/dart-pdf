@@ -6,7 +6,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -458,9 +458,6 @@ void main() {
       final field = tester.widget<TextField>(find.byKey(fieldKey));
       expect(field.decoration?.border,
           const OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius));
-      // The deprecated Material const is the same border.
-      // ignore: deprecated_member_use_from_same_package
-      expect(field.decoration?.border, pdfSearchInputBorder);
     });
 
     testWidgets('typing searches after the debounce', (tester) async {

@@ -29,7 +29,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -57,7 +57,8 @@ void main() {
           pageColor: pageColor, targetLongestSide: side);
     }
     clock.stop();
-    expect(cache.hasIntermediate(index, targetLongestSide: levels.last), isTrue);
+    expect(
+        cache.hasIntermediate(index, targetLongestSide: levels.last), isTrue);
     cache.dispose();
     return clock.elapsedMicroseconds;
   }
@@ -69,7 +70,8 @@ void main() {
     await cache.renderPreview(index, page,
         pageColor: pageColor, alsoFillLongestSides: levels);
     clock.stop();
-    expect(cache.hasIntermediate(index, targetLongestSide: levels.last), isTrue);
+    expect(
+        cache.hasIntermediate(index, targetLongestSide: levels.last), isTrue);
     cache.dispose();
     return clock.elapsedMicroseconds;
   }
@@ -121,7 +123,8 @@ void main() {
 
   /// A tile rendered the way a worker-less session rendered it: interpret the
   /// whole page to fill 128 px.
-  Future<int> localTileMicros(PdfEditingController controller, int index) async {
+  Future<int> localTileMicros(
+      PdfEditingController controller, int index) async {
     final clock = Stopwatch()..start();
     final image = await rasterizeThumbnail(
       controller: controller,
@@ -189,7 +192,8 @@ void main() {
     return (micros: micros, ops: ops);
   }
 
-  Future<void> report(String label, Uint8List bytes, {required int pages}) async {
+  Future<void> report(String label, Uint8List bytes,
+      {required int pages}) async {
     final document = PdfDocument.open(bytes);
     final controller = PdfEditingController(bytes);
     addTearDown(controller.dispose);
@@ -248,8 +252,8 @@ void main() {
   }
 
   testWidgets('ordinary text pages', (tester) async {
-    await tester.runAsync(
-        () => report('ordinary', buildMultiPagePdf(4), pages: 4));
+    await tester
+        .runAsync(() => report('ordinary', buildMultiPagePdf(4), pages: 4));
   });
 
   testWidgets('dense vector linework (CAD profile)', (tester) async {
@@ -278,8 +282,7 @@ void main() {
             Platform.environment['PDF_SURFACE_BENCHMARK_PAGES'] ?? '') ??
         6;
     await tester.runAsync(() => report(
-        path.split(Platform.pathSeparator).last,
-        File(path).readAsBytesSync(),
+        path.split(Platform.pathSeparator).last, File(path).readAsBytesSync(),
         pages: pages));
   });
 }

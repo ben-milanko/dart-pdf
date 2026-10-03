@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -249,8 +249,8 @@ void main() {
     final annot = reopened.page(0).annotations.single;
     expect(annot.isCallout, isTrue);
     expect(annot.calloutLine!.first, (120.0, 500.0));
-    final ap = latin1
-        .decode(reopened.cos.decodeStreamData(annot.normalAppearance!));
+    final ap =
+        latin1.decode(reopened.cos.decodeStreamData(annot.normalAppearance!));
     expect(ap, contains('Tj'));
   });
 }

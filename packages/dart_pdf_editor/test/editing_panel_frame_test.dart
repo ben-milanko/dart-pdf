@@ -1,6 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/shell_chrome.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -109,8 +109,7 @@ void main() {
         closeTo(300, 1));
   });
 
-  testWidgets('tab bodies stay clear of the outer resize grip',
-      (tester) async {
+  testWidgets('tab bodies stay clear of the outer resize grip', (tester) async {
     Widget tabHost(PdfPanelDock dock) => MaterialApp(
           home: Scaffold(
             body: Align(
