@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0
+
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 0.4.2
 
 - Align dependency constraints with the dart-pdf 5.1.1 package suite.

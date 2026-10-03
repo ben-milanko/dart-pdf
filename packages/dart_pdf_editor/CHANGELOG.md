@@ -1,7 +1,21 @@
 # Changelog
 
-## Unreleased
+## 6.0.0
 
+- Breaking: `PdfDialogSubmit.child` is now `Widget`, so an arbitrary host
+  control can be the submit action. Code reading Material button properties
+  from it must keep its own button reference or check/cast the widget type.
+  The original constructor, `themeMode` and `pdfSearchInputBorder` remain
+  available and deprecated; their removal is deferred to 7.0.0.
+- `PdfRenderWorker` gains `trimMemory()`: subclasses inherit its no-op default;
+  hosts using `implements PdfRenderWorker` must implement the new method.
+  Workers now use platform-sized decode budgets and release reconstructible
+  caches on memory pressure and mobile backgrounding.
+- Stream native render records directly into the command buffer and keep text
+  offsets in unboxed typed arrays, reducing allocation and worker memory.
+- Fix deep zoom losing its scene when a later zoom supersedes an image refine.
+- The Select tool selects page text as well as annotations. Hand mode retains
+  double-click word selection while single drags pan the page.
 - Export `PdfDropdown` and `PdfDropdownItem`, the drop-down picker the
   editor's own dialogs use: its options open through the
   `PdfEditorPresenter`'s menu, so it works under any host. Companion
@@ -15,15 +29,15 @@
   saved theme choice as an editor-owned enum instead of Material's
   `ThemeMode`. It is stored under the same key, so a choice saved by an older
   build reads back. `themeMode` still works and is deprecated (removed in
-  6.0.0); map the new value to `ThemeMode` in the host.
+  7.0.0); map the new value to `ThemeMode` in the host.
 - Add `PdfDialogSubmit.action(onSubmit:, child:)`, which marks any widget as
   a dialog's Enter action. The `ButtonStyleButton`-only default constructor is
-  deprecated (removed in 6.0.0). Enter now tells a focused command button
+  deprecated (removed in 7.0.0). Enter now tells a focused command button
   (which keeps Enter) from a focused value control such as segments, a
   dropdown or a checkbox (Enter submits) by semantics role rather than by
   Material widget type, so controls from any design system classify the same.
 - Add `pdfSearchFieldBorderRadius`; `pdfSearchInputBorder` (a Material
-  `OutlineInputBorder`) is deprecated (removed in 6.0.0).
+  `OutlineInputBorder`) is deprecated (removed in 7.0.0).
 - Move the headless model types (`PdfMeasurementScale`, `PdfInkSignature`,
   `PdfSavedSignature`, the trackpad signature capture types, `PdfCustomStamp`,
   `PdfStampDateFormat`/`PdfStampTimeFormat`, the picker and prompt typedefs,

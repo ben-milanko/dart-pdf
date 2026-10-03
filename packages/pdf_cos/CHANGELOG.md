@@ -1,5 +1,11 @@
 # Changelog
 
+## 6.0.0
+
+- Add `CosDocument.trimDecodedStreamCache()` to release decoded payloads
+  without closing the document or changing subsequent decode results.
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.

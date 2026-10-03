@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 6.0.0
 
 - Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
   matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44
