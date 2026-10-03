@@ -61,17 +61,16 @@ class DocumentHandoff {
 /// while the full bytes stream in, an [error] placeholder, or a two-file
 /// [comparison].
 class DocumentTab {
-  /// A document opens as a reader, not as an editor: the session starts in
-  /// explicit Hand mode, so a mouse drag pans the page instead of starting a
-  /// text selection and a touch long-press does not select text. Every tool,
-  /// text selection included, stays one toolbar click away.
-  static PdfEditingController _handModeController(
+  /// A document opens in Select mode, so a click picks, moves and resizes
+  /// what is on the page straight away. Hand mode (drag-to-pan) and every
+  /// other tool stay one toolbar click away.
+  static PdfEditingController _selectModeController(
     Uint8List bytes,
     PdfEditingPreferences preferences,
   ) {
     final controller = PdfEditingController(bytes,
         preferences: preferences, formSecretStore: appFormSecretStore)
-      ..activateHandMode();
+      ..tool = PdfEditTool.select;
     // Off-web: live revocation checks + EU trusted list roots for the
     // signature panel (see signature_trust.dart).
     SignatureTrust.platformDefault?.attach(controller);
@@ -102,7 +101,7 @@ class DocumentTab {
     this.cachePath,
     bool initiallyDirty = false,
     int? savedLength,
-  })  : session = _handModeController(bytes, preferences),
+  })  : session = _selectModeController(bytes, preferences),
         viewer = PdfViewerController(),
         // Normally the opened bytes *are* the saved baseline. Crash recovery is
         // the exception: it reopens a document at the revision that was in
