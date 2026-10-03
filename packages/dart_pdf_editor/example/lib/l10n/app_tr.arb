@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF belgeleri",
   "exFileTypeImages": "Görseller",
   "exFileTypeFonts": "Yazı tipleri",
-  "exExtractedTitle": "{title} - bölüm {part}.pdf"
+  "exExtractedTitle": "{title} - bölüm {part}.pdf",
+  "exUseCupertinoDesign": "Cupertino tasarımına geç",
+  "exSettings": "Ayarlar",
+  "exDesignSection": "Tasarım",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Geçiş, açık belgeleri ve kaydedilmemiş düzenlemeleri korur.",
+  "exAppearanceSection": "Görünüm",
+  "exAppearanceSystem": "Sistem",
+  "exAppearanceLight": "Açık",
+  "exAppearanceDark": "Koyu",
+  "exOpenDocumentsSection": "Açık belgeler"
 }

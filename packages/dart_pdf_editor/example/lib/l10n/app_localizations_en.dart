@@ -443,6 +443,40 @@ class AppLocalizationsEn extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - part $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Switch to Cupertino design';
+
+  @override
+  String get exSettings => 'Settings';
+
+  @override
+  String get exDesignSection => 'Design';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Switching keeps your open documents and unsaved edits.';
+
+  @override
+  String get exAppearanceSection => 'Appearance';
+
+  @override
+  String get exAppearanceSystem => 'System';
+
+  @override
+  String get exAppearanceLight => 'Light';
+
+  @override
+  String get exAppearanceDark => 'Dark';
+
+  @override
+  String get exOpenDocumentsSection => 'Open documents';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -884,6 +918,40 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String exExtractedTitle(String title, int part) {
     return '$title - part $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Switch to Cupertino design';
+
+  @override
+  String get exSettings => 'Settings';
+
+  @override
+  String get exDesignSection => 'Design';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Switching keeps your open documents and unsaved edits.';
+
+  @override
+  String get exAppearanceSection => 'Appearance';
+
+  @override
+  String get exAppearanceSystem => 'System';
+
+  @override
+  String get exAppearanceLight => 'Light';
+
+  @override
+  String get exAppearanceDark => 'Dark';
+
+  @override
+  String get exOpenDocumentsSection => 'Open documents';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -1325,4 +1393,38 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String exExtractedTitle(String title, int part) {
     return '$title - part $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Switch to Cupertino design';
+
+  @override
+  String get exSettings => 'Settings';
+
+  @override
+  String get exDesignSection => 'Design';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Switching keeps your open documents and unsaved edits.';
+
+  @override
+  String get exAppearanceSection => 'Appearance';
+
+  @override
+  String get exAppearanceSystem => 'System';
+
+  @override
+  String get exAppearanceLight => 'Light';
+
+  @override
+  String get exAppearanceDark => 'Dark';
+
+  @override
+  String get exOpenDocumentsSection => 'Open documents';
 }

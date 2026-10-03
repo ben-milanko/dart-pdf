@@ -445,4 +445,38 @@ class AppLocalizationsVi extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - phần $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Chuyển sang thiết kế Cupertino';
+
+  @override
+  String get exSettings => 'Cài đặt';
+
+  @override
+  String get exDesignSection => 'Thiết kế';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Khi chuyển, các tài liệu đang mở và chỉnh sửa chưa lưu vẫn được giữ nguyên.';
+
+  @override
+  String get exAppearanceSection => 'Giao diện';
+
+  @override
+  String get exAppearanceSystem => 'Hệ thống';
+
+  @override
+  String get exAppearanceLight => 'Sáng';
+
+  @override
+  String get exAppearanceDark => 'Tối';
+
+  @override
+  String get exOpenDocumentsSection => 'Tài liệu đang mở';
 }

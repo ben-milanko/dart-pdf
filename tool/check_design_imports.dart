@@ -37,6 +37,11 @@
 //     lib/l10n/ may import package:flutter_localizations. Not a ratchet:
 //     anything else fails outright.
 //
+// (e) Cupertino separation. The Cupertino presenter (lib/src/cupertino/) is
+//     reachable only through package:dart_pdf_editor/cupertino.dart: the
+//     import closure of lib/dart_pdf_editor.dart must not reach it, so a
+//     Material host never compiles it. Not a ratchet.
+//
 // The baseline is tool/design_imports_baseline.json. After removing a
 // Material import or a raw use, run with --update-baseline to tighten it; it
 // refuses to record growth (edit the JSON by hand, in review, if a new
@@ -68,6 +73,13 @@ const legacyBridgeDir = 'packages/dart_pdf_editor/lib/src/legacy/';
 const headlessRoots = [
   'packages/dart_pdf_editor/lib/src/editing/editing_controller.dart',
   'packages/dart_pdf_editor/lib/src/pdf_page_view.dart',
+];
+
+/// The subtree only lib/cupertino.dart may reach (e), and the libraries
+/// whose closures must not reach it.
+const cupertinoOnlyDir = 'packages/dart_pdf_editor/lib/src/cupertino/';
+const cupertinoFreeRoots = [
+  'packages/dart_pdf_editor/lib/dart_pdf_editor.dart'
 ];
 
 /// Where counters (c) look, and the subtrees they skip (the seams
@@ -200,6 +212,7 @@ void main(List<String> args) {
   print('Design import check passed: ${c.materialImporters.length} '
       'allowlisted design-library importers, legacy imports only under '
       '$legacyBridgeDir, ${headlessRoots.length} headless closures clean, '
+      '$cupertinoOnlyDir unreachable from the main library, '
       'counters ${{
     for (final e in c.counters.entries)
       e.key: e.value.values.fold<int>(0, (a, b) => a + b)
@@ -286,6 +299,9 @@ ScanResult scan(String root, PackageResolver resolver) {
 
   for (final entry in headlessRoots) {
     problems.addAll(checkClosure(root, entry, resolver));
+  }
+  for (final entry in cupertinoFreeRoots) {
+    problems.addAll(checkNotReached(root, entry, cupertinoOnlyDir, resolver));
   }
   return ScanResult(DesignBaseline(importers, counts), problems);
 }
@@ -394,6 +410,53 @@ List<String> checkClosure(String root, String entry, PackageResolver resolver) {
       final normalized = File(target).absolute.path;
       if (parent.containsKey(normalized)) continue;
       parent[normalized] = path;
+      queue.add(normalized);
+    }
+  }
+  return problems;
+}
+
+/// Rule (e): walks [entry]'s closure through relative and
+/// `package:dart_pdf_editor/` imports (nothing else can lead back into the
+/// editor's lib/) and reports every file under [dir] it reaches. A missing
+/// [entry] reports nothing (the scan's fixtures may not have one).
+List<String> checkNotReached(
+    String root, String entry, String dir, PackageResolver resolver) {
+  final start = File('$root/$entry').absolute.path;
+  if (!File(start).existsSync()) return const [];
+  final banned = Directory('$root/$dir').absolute.path;
+  final parent = <String, String?>{start: null};
+  final queue = [start];
+  final problems = <String>[];
+  while (queue.isNotEmpty) {
+    final path = queue.removeLast();
+    final file = File(path);
+    if (!file.existsSync()) continue;
+    for (final (:uri, show: _) in directives(file.readAsStringSync())) {
+      final String? target;
+      if (uri.startsWith('package:dart_pdf_editor/')) {
+        target = resolver.resolve(uri);
+      } else if (!uri.contains(':')) {
+        target = File.fromUri(file.uri.resolve(uri)).path;
+      } else {
+        continue;
+      }
+      if (target == null) continue;
+      final normalized = File(target).absolute.path;
+      if (parent.containsKey(normalized)) continue;
+      parent[normalized] = path;
+      if (normalized.startsWith(banned)) {
+        final chain = <String>[];
+        String? at = normalized;
+        while (at != null) {
+          chain.add(_display(root, at));
+          at = parent[at];
+        }
+        problems.add('$entry must not reach $dir (a Material host would '
+            'compile the Cupertino presenter; only lib/cupertino.dart may '
+            'import it), but ${chain.reversed.join(' -> ')} does');
+        continue;
+      }
       queue.add(normalized);
     }
   }

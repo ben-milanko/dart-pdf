@@ -9,7 +9,7 @@ environment:
   flutter: '>=3.47.0'
 
 dependencies:
-  # The Cupertino host demo (lib/cupertino_host.dart).
+  # The Cupertino design (lib/cupertino_host.dart), switchable at runtime.
   cupertino_ui: ^1.1.1
   file_selector: ^1.0.3
   flutter:

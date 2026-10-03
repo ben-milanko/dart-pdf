@@ -441,6 +441,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - 第 $part 部分.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => '切换到 Cupertino 设计';
+
+  @override
+  String get exSettings => '设置';
+
+  @override
+  String get exDesignSection => '设计';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter => '切换后，已打开的文档和未保存的编辑都会保留。';
+
+  @override
+  String get exAppearanceSection => '外观';
+
+  @override
+  String get exAppearanceSystem => '跟随系统';
+
+  @override
+  String get exAppearanceLight => '浅色';
+
+  @override
+  String get exAppearanceDark => '深色';
+
+  @override
+  String get exOpenDocumentsSection => '已打开的文档';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -880,4 +913,37 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String exExtractedTitle(String title, int part) {
     return '$title - 第 $part 部分.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => '切換至 Cupertino 設計';
+
+  @override
+  String get exSettings => '設定';
+
+  @override
+  String get exDesignSection => '設計';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter => '切換後，已開啟的文件和未儲存的編輯都會保留。';
+
+  @override
+  String get exAppearanceSection => '外觀';
+
+  @override
+  String get exAppearanceSystem => '跟隨系統';
+
+  @override
+  String get exAppearanceLight => '淺色';
+
+  @override
+  String get exAppearanceDark => '深色';
+
+  @override
+  String get exOpenDocumentsSection => '已開啟的文件';
 }

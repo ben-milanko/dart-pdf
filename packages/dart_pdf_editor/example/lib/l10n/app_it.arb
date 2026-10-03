@@ -120,5 +120,16 @@
   "exFileTypePdf": "Documenti PDF",
   "exFileTypeImages": "Immagini",
   "exFileTypeFonts": "Caratteri",
-  "exExtractedTitle": "{title} - parte {part}.pdf"
+  "exExtractedTitle": "{title} - parte {part}.pdf",
+  "exUseCupertinoDesign": "Passa al design Cupertino",
+  "exSettings": "Impostazioni",
+  "exDesignSection": "Design",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Il cambio mantiene i documenti aperti e le modifiche non salvate.",
+  "exAppearanceSection": "Aspetto",
+  "exAppearanceSystem": "Sistema",
+  "exAppearanceLight": "Chiaro",
+  "exAppearanceDark": "Scuro",
+  "exOpenDocumentsSection": "Documenti aperti"
 }

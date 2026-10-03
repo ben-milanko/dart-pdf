@@ -120,5 +120,16 @@
   "exFileTypePdf": "Документы PDF",
   "exFileTypeImages": "Изображения",
   "exFileTypeFonts": "Шрифты",
-  "exExtractedTitle": "{title} - часть {part}.pdf"
+  "exExtractedTitle": "{title} - часть {part}.pdf",
+  "exUseCupertinoDesign": "Перейти на дизайн Cupertino",
+  "exSettings": "Настройки",
+  "exDesignSection": "Дизайн",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "При переключении открытые документы и несохранённые изменения сохраняются.",
+  "exAppearanceSection": "Оформление",
+  "exAppearanceSystem": "Системное",
+  "exAppearanceLight": "Светлое",
+  "exAppearanceDark": "Тёмное",
+  "exOpenDocumentsSection": "Открытые документы"
 }

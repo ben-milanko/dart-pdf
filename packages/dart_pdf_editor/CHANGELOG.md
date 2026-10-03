@@ -47,6 +47,19 @@
     the Dart language version stays 3.5.
 - Toolbar strips (the open tool group's card) draw their own ink surface, so
   pressed and hovered splashes show over the card's fill under every host.
+- Add `package:dart_pdf_editor/cupertino.dart` with `PdfCupertinoPresenter`,
+  an iOS-style `PdfEditorPresenter` on `cupertino_ui` (additive; targets
+  7.1, after the 7.0.0 material_ui switch). Dialogs open on a
+  `CupertinoDialogRoute`; confirmations and the text, styled-text, link,
+  page-range, split and measuring prompts are `CupertinoAlertDialog`s with
+  `CupertinoTextField`s; menus are action sheets; form choices are a picker
+  (single-select) or a checklist (multi-select); sheets are modal popups;
+  notices are a toast with Undo; the floating action bars and readouts are
+  dark capsules. The colour, font and signature prompts keep the stock
+  pickers on the Cupertino route. Also exports `pdfCupertinoTextContextMenu`.
+  It works under a `CupertinoApp` with no `MaterialApp`, needs no
+  `cupertino_icons`, and `package:dart_pdf_editor/dart_pdf_editor.dart` does
+  not import it, so Material apps do not compile it.
 
 ## 6.0.0
 

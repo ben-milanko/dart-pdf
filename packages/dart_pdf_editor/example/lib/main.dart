@@ -16,6 +16,7 @@ import 'l10n/app_l10n.dart';
 import 'l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'cupertino_host.dart' show CupertinoEditorApp;
 import 'demo_brand_assets.dart';
 import 'demo_document.dart';
 import 'error_log.dart';
@@ -24,6 +25,7 @@ import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
 import 'scroll_indicator_demo.dart';
+import 'workspace.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -59,7 +61,7 @@ PdfByteSource Function(Uri uri) remoteByteSourceFactory =
 /// a type group missing the field a platform filters by throws there.
 // The `label` is the file-dialog filter name and is localized; the caller (it
 // always has a BuildContext) passes the resolved string in.
-XTypeGroup _pdfTypeGroup(String label) => XTypeGroup(
+XTypeGroup pdfTypeGroup(String label) => XTypeGroup(
       label: label,
       extensions: const ['pdf'],
       mimeTypes: const ['application/pdf'],
@@ -117,7 +119,62 @@ String pdfSavePathWithExtension(String path) {
   return '$trimmed.pdf';
 }
 
-void main() {
+/// The file name a save suggests for a document titled [title].
+String pdfSaveFileName(String? title) {
+  var name = (title ?? '').trim();
+  if (name.isEmpty) name = 'document';
+  if (!name.toLowerCase().endsWith('.pdf')) name = '$name.pdf';
+  return name;
+}
+
+/// Saves [bytes] as [name] with whatever the platform offers: a save dialog
+/// on desktop, a browser download on the web, the share sheet on phones and
+/// tablets (where apps can't write outside their sandbox directly). Returns
+/// the message to show the user, or null when there is nothing to report
+/// (cancelled, or handed to the share sheet). Both designs' hosts save
+/// through it and show the message their own way.
+Future<String?> savePdfBytes(
+    BuildContext context, Uint8List bytes, String name) async {
+  final l10n = appL10n(context);
+  final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return l10n.exDownloaded(name);
+  }
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        // required on iPad: the share popover anchors to this rect
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return null;
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: [pdfTypeGroup(l10n.exFileTypePdf)],
+      );
+      if (location == null) return null;
+      try {
+        final path = pdfSavePathWithExtension(location.path);
+        await file.saveTo(path);
+        return l10n.exSavedTo(path);
+      } catch (e, s) {
+        AppLog.instance.error('Save failed', error: e, stackTrace: s);
+        return l10n.exSaveFailed('$e');
+      }
+  }
+}
+
+void main() => runExample();
+
+/// Starts the example in the saved design, or in [initialDesign] (which is
+/// then saved) - `lib/cupertino_host.dart` passes Cupertino.
+void runExample({ExampleDesign? initialDesign}) {
   if (_buildCommit.isNotEmpty) {
     PdfPerfLog.buildTag = 'commit=$_buildCommit';
   }
@@ -145,11 +202,28 @@ void main() {
   // dialog). install() also returns the zone handler for the async path.
   final onZoneError = AppLog.instance.install();
   AppLog.instance.info('App started (version $kAppVersion)');
-  runZonedGuarded(() => runApp(const ViewerApp()), onZoneError);
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    // Read the saved design before the first frame, so a Cupertino user does
+    // not see the Material chrome flash past on launch.
+    final design = ExampleDesignPreference(initial: initialDesign);
+    await design.ready;
+    runApp(ViewerApp(design: design));
+  }, onZoneError);
 }
 
+/// The example app: the editor in the Material design ([ViewerScreen]) or,
+/// when the user switches, the Cupertino one ([CupertinoEditorApp]). The
+/// open documents live in an [ExampleWorkspace] owned here, above either
+/// app root, so a switch keeps them (and their unsaved edits).
 class ViewerApp extends StatefulWidget {
-  const ViewerApp({super.key, this.cacheStore, this.identityStore});
+  const ViewerApp({
+    super.key,
+    this.cacheStore,
+    this.identityStore,
+    this.design,
+    this.initialBytes,
+  });
 
   /// The persistent backend the on-disk caches and the recent-files list
   /// share. Defaults to the platform store (filesystem / IndexedDB); tests
@@ -159,6 +233,13 @@ class ViewerApp extends StatefulWidget {
   /// Where one-tap signing identities are persisted. The production default
   /// is the platform secure store; tests can inject an in-memory backend.
   final PdfIdentityStore? identityStore;
+
+  /// The design choice. Null creates one that loads the saved choice
+  /// (Material until then, and by default).
+  final ExampleDesignPreference? design;
+
+  /// The document to open on launch instead of the feature-showcase demo.
+  final Uint8List? initialBytes;
 
   @override
   State<ViewerApp> createState() => _ViewerAppState();
@@ -170,6 +251,12 @@ class _ViewerAppState extends State<ViewerApp> {
   /// follow the persisted light/dark choice; the screen below shares
   /// the same instance with every editing session.
   final _prefs = PdfEditingPreferences();
+
+  /// The open documents, shared by whichever design is on screen.
+  final _workspace = ExampleWorkspace();
+
+  late final ExampleDesignPreference _design =
+      widget.design ?? ExampleDesignPreference();
 
   @override
   void initState() {
@@ -194,6 +281,10 @@ class _ViewerAppState extends State<ViewerApp> {
 
   @override
   void dispose() {
+    // after the frame, so the outgoing viewers detach from the sessions first
+    final workspace = _workspace;
+    WidgetsBinding.instance.addPostFrameCallback((_) => workspace.dispose());
+    if (widget.design == null) _design.dispose();
     _prefs.dispose();
     super.dispose();
   }
@@ -201,8 +292,22 @@ class _ViewerAppState extends State<ViewerApp> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _prefs,
-      builder: (context, _) => MaterialApp(
+      listenable: Listenable.merge([_prefs, _design]),
+      builder: (context, _) => switch (_design.value) {
+        ExampleDesign.cupertino => CupertinoEditorApp(
+            key: const ValueKey('example-cupertino-app'),
+            prefs: _prefs,
+            design: _design,
+            workspace: _workspace,
+            initialBytes: widget.initialBytes,
+          ),
+        ExampleDesign.material => _buildMaterial(),
+      },
+    );
+  }
+
+  Widget _buildMaterial() => MaterialApp(
+        key: const ValueKey('example-material-app'),
         title: 'dart-pdf viewer',
         // Not AppLocalizations.localizationsDelegates: gen-l10n still emits
         // the legacy flutter_localizations delegates there, which give a
@@ -227,23 +332,37 @@ class _ViewerAppState extends State<ViewerApp> {
         },
         home: ViewerScreen(
           prefs: _prefs,
+          workspace: _workspace,
+          design: _design,
+          initialBytes: widget.initialBytes,
           cacheStore: widget.cacheStore,
           identityStore: widget.identityStore,
         ),
-      ),
-    );
-  }
+      );
 }
 
 class ViewerScreen extends StatefulWidget {
   const ViewerScreen({
     super.key,
     required this.prefs,
+    required this.workspace,
+    required this.design,
+    this.initialBytes,
     this.cacheStore,
     this.identityStore,
   });
 
   final PdfEditingPreferences prefs;
+
+  /// The open documents; owned by [ViewerApp] so they outlive this screen
+  /// across a design switch.
+  final ExampleWorkspace workspace;
+
+  /// The design choice the app menu's "Cupertino design" entry flips.
+  final ExampleDesignPreference design;
+
+  /// The launch document (see [ViewerApp.initialBytes]).
+  final Uint8List? initialBytes;
 
   /// Optional override for the persistent cache backend (see [ViewerApp]).
   final PdfCacheStore? cacheStore;
@@ -311,11 +430,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// One entry per open document. Each tab owns its own edit session and
   /// viewer controller, so switching tabs preserves each document's
   /// edits, undo history, and any demo-specific state.
-  final List<_DocumentTab> _tabs = [];
-  int _activeIndex = 0;
+  ///
+  /// The list lives in the app-wide [ExampleWorkspace], so the tabs survive
+  /// this screen being replaced by the Cupertino host and back.
+  List<DocumentTab> get _tabs => widget.workspace.tabs;
+  int get _activeIndex => widget.workspace.activeIndex;
+  set _activeIndex(int value) => widget.workspace.activeIndex = value;
 
-  _DocumentTab? get _active =>
-      _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
+  DocumentTab? get _active => widget.workspace.active;
 
   /// Demo of the two drop-in widgets: the toggle swaps the full
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
@@ -486,8 +608,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
       ? const PdfPageLayout.horizontalContinuous()
       : const PdfPageLayout.verticalContinuous();
 
-  final PdfPerformanceController _performance = PdfPerformanceController();
-  int _workerConfigEpoch = 0;
+  PdfPerformanceController get _performance => widget.workspace.performance;
+  int get _workerConfigEpoch => widget.workspace.workerConfigEpoch;
 
   String get _workerPoolTooltip {
     final mode = _performance.mode;
@@ -584,12 +706,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
     if (next == _performance.mode) return;
     setState(() {
       _performance.mode = next;
-      _workerConfigEpoch++;
+      widget.workspace.workerConfigEpoch++;
     });
     _toast(_workerPoolTooltip);
   }
 
-  Key _pdfShellKey(_DocumentTab tab, String mode) =>
+  Key _pdfShellKey(DocumentTab tab, String mode) =>
       ValueKey<Object>((tab, mode, _workerConfigEpoch));
 
   String get _nextThemeLabel => switch (_prefs.themePreference) {
@@ -628,7 +750,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       );
 
   List<PopupMenuEntry<VoidCallback>> _appMenuItems(
-          BuildContext menuContext, _DocumentTab? tab) =>
+          BuildContext menuContext, DocumentTab? tab) =>
       [
         PopupMenuItem(
           value: () {
@@ -752,6 +874,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
           child: _appMenuTile(
             icon: Icons.dark_mode,
             title: _nextThemeLabel,
+          ),
+        ),
+        PopupMenuItem(
+          key: const ValueKey('dartpdf-design-cupertino'),
+          value: () => widget.design.value = ExampleDesign.cupertino,
+          child: _appMenuTile(
+            icon: Icons.phone_iphone,
+            title: appL10n(context).exUseCupertinoDesign,
           ),
         ),
         const PopupMenuDivider(),
@@ -912,7 +1042,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Future<void> _placeDigitalSignature(
     BuildContext dialogContext,
-    _DocumentTab tab, {
+    DocumentTab tab, {
     required int pageIndex,
     required PdfRect pageRect,
   }) async {
@@ -949,7 +1079,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// Opens [bytes] in a brand-new tab and makes it the active one.
   void _openBytes(Uint8List bytes, String title,
       {bool isDemo = false, bool isExtracted = false}) {
-    _addTab(_DocumentTab.document(
+    _addTab(DocumentTab.document(
       title: title,
       bytes: bytes,
       preferences: _prefs,
@@ -975,11 +1105,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   /// Adds a tab that just reports an open failure.
   void _openError(String title, String error) {
-    _addTab(_DocumentTab.error(title: title, error: error));
+    _addTab(DocumentTab.error(title: title, error: error));
   }
 
   /// Adds [tab] as the active tab.
-  void _addTab(_DocumentTab tab) {
+  void _addTab(DocumentTab tab) {
     setState(() {
       _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
@@ -990,13 +1120,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// looking idle while their bytes are read and parsed. Returns the exact
   /// tab object so the async completion can replace it, unless the user
   /// closes it first.
-  _DocumentTab _openLoading(String title) {
-    final tab = _DocumentTab.loading(title: title);
+  DocumentTab _openLoading(String title) {
+    final tab = DocumentTab.loading(title: title);
     _addTab(tab);
     return tab;
   }
 
-  void _replaceLoadingTab(_DocumentTab loading, _DocumentTab replacement) {
+  void _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) {
     final index = _tabs.indexOf(loading);
     if (index == -1) {
       replacement.dispose();
@@ -1109,9 +1239,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
     // Localizations.of(context), which isn't available until the first build
     // completes - defer to a post-frame callback so it runs with a ready
     // context instead of throwing in initState.
+    // Only once per app run: a screen mounted by a switch back from the
+    // Cupertino design finds the workspace's documents already open.
+    if (widget.workspace.launched) return;
+    widget.workspace.launched = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (preset.isNotEmpty) {
+      final initial = widget.initialBytes;
+      if (initial != null) {
+        _openBytes(initial, 'document.pdf');
+      } else if (preset.isNotEmpty) {
         _openPath(preset);
       } else {
         _openDemo();
@@ -1127,16 +1264,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
   void dispose() {
     _recents.removeListener(_onRecentsChanged);
     _recents.dispose();
-    for (final tab in _tabs) {
-      tab.dispose();
-    }
-    _performance.dispose();
+    // the tabs and the performance controller belong to the workspace
     super.dispose();
   }
 
   Future<void> _pickFile() async {
     final file = await openFile(
-        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
+        acceptedTypeGroups: [pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     final loading = _openLoading(file.name);
     try {
@@ -1147,7 +1281,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.document(
+        DocumentTab.document(
           title: file.name,
           bytes: bytes,
           preferences: _prefs,
@@ -1160,7 +1294,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.error(
+        DocumentTab.error(
           title: file.name,
           error: appL10n(context).exCouldNotOpenFile(file.name, '$e'),
         ),
@@ -1187,8 +1321,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         : uri.host;
 
     final progress = ValueNotifier<double>(0);
-    final loading =
-        _DocumentTab.loading(title: name, loadingProgress: progress);
+    final loading = DocumentTab.loading(title: name, loadingProgress: progress);
     _addTab(loading);
 
     final source = remoteByteSourceFactory(uri);
@@ -1205,7 +1338,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       final bytes = doc.cos.bytes;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.document(title: name, bytes: bytes, preferences: _prefs),
+        DocumentTab.document(title: name, bytes: bytes, preferences: _prefs),
       );
       unawaited(_recents.record(name, bytes));
     } catch (e, s) {
@@ -1214,7 +1347,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.error(
+        DocumentTab.error(
           title: name,
           error: appL10n(context).exCouldNotOpenUrlCors('$uri', '$e'),
         ),
@@ -1236,7 +1369,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// for the editor's "Insert PDF…" action.
   Future<Uint8List?> _pickPdfBytes() async {
     final file = await openFile(
-        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
+        acceptedTypeGroups: [pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     return file?.readAsBytes();
   }
 
@@ -1248,12 +1381,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
     if (current == null) return;
     final l10n = appL10n(context);
     final file = await openFile(
-        acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
+        acceptedTypeGroups: [pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     try {
       final other = await file.readAsBytes();
       setState(() {
-        _tabs.add(_DocumentTab.comparison(
+        _tabs.add(DocumentTab.comparison(
           title: l10n.exCompareTabTitle(tab!.title, file.name),
           before: current,
           after: other,
@@ -1276,7 +1409,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.document(
+        DocumentTab.document(
           title: name,
           bytes: bytes,
           preferences: _prefs,
@@ -1288,7 +1421,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.error(
+        DocumentTab.error(
             title: name,
             error: appL10n(context).exCouldNotOpenPath(path, '$e')),
       );
@@ -1306,7 +1439,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (bytes == null) {
         _replaceLoadingTab(
           loading,
-          _DocumentTab.error(
+          DocumentTab.error(
             title: entry.title,
             error: appL10n(context).exCouldNotReopenGone(entry.title),
           ),
@@ -1318,7 +1451,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.document(
+        DocumentTab.document(
           title: entry.title,
           bytes: bytes,
           preferences: _prefs,
@@ -1331,7 +1464,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
-        _DocumentTab.error(
+        DocumentTab.error(
           title: entry.title,
           error: appL10n(context).exCouldNotReopen(entry.title, '$e'),
         ),
@@ -1341,51 +1474,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   /// The suggested save name - the active tab's title (the opened file's
   /// name, or the demo's title), with a `.pdf` extension guaranteed.
-  String _saveFileName() {
-    var name = (_active?.title ?? '').trim();
-    if (name.isEmpty) name = 'document';
-    if (!name.toLowerCase().endsWith('.pdf')) name = '$name.pdf';
-    return name;
-  }
+  String _saveFileName() => pdfSaveFileName(_active?.title);
 
   /// Saves with whatever the platform offers: a save dialog on desktop,
   /// a browser download on the web, the share sheet on phones and
   /// tablets (where apps can't write outside their sandbox directly).
   Future<void> _saveAs(Uint8List bytes) async {
-    final l10n = appL10n(context);
-    final name = _saveFileName();
-    final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
-    if (kIsWeb) {
-      await file.saveTo(name);
-      _toast(l10n.exDownloaded(name));
-      return;
-    }
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.android || TargetPlatform.iOS:
-        final box = context.findRenderObject() as RenderBox?;
-        final origin =
-            box == null ? null : box.localToGlobal(Offset.zero) & box.size;
-        await SharePlus.instance.share(ShareParams(
-          files: [file],
-          fileNameOverrides: [name],
-          // required on iPad: the share popover anchors to this rect
-          sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
-        ));
-      default:
-        final location = await getSaveLocation(
-          suggestedName: name,
-          acceptedTypeGroups: [_pdfTypeGroup(l10n.exFileTypePdf)],
-        );
-        if (location == null) return;
-        try {
-          final path = pdfSavePathWithExtension(location.path);
-          await file.saveTo(path);
-          _toast(l10n.exSavedTo(path));
-        } catch (e, s) {
-          AppLog.instance.error('Save failed', error: e, stackTrace: s);
-          _toast(l10n.exSaveFailed('$e'));
-        }
-    }
+    final message = await savePdfBytes(context, bytes, _saveFileName());
+    if (message != null && mounted) _toast(message);
   }
 
   /// Exports a Snapshot tool capture as a PNG image - a save dialog on
@@ -1819,7 +1915,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     );
   }
 
-  Widget _buildAppMenu(_DocumentTab? tab) => PopupMenuButton<VoidCallback>(
+  Widget _buildAppMenu(DocumentTab? tab) => PopupMenuButton<VoidCallback>(
         key: const ValueKey('dartpdf-app-menu'),
         iconSize: _appMenuIconSize,
         icon: Image.memory(
@@ -2011,95 +2107,6 @@ class _OpeningDocument extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// One open document. Holds its own edit session and viewer controller
-/// so switching tabs preserves edits, undo history, scroll position,
-/// and any demo-specific overlay state.
-class _DocumentTab {
-  _DocumentTab.loading({required this.title, this.loadingProgress})
-      : session = null,
-        viewer = null,
-        isDemo = false,
-        isExtracted = false,
-        error = null,
-        compareBefore = null,
-        compareAfter = null,
-        isLoading = true;
-
-  _DocumentTab.document({
-    required this.title,
-    required Uint8List bytes,
-    required PdfEditingPreferences preferences,
-    this.isDemo = false,
-    this.isExtracted = false,
-  })  : session = PdfEditingController(bytes, preferences: preferences),
-        viewer = PdfViewerController(),
-        error = null,
-        compareBefore = null,
-        compareAfter = null,
-        loadingProgress = null,
-        isLoading = false;
-
-  _DocumentTab.error({required this.title, required this.error})
-      : session = null,
-        viewer = null,
-        isDemo = false,
-        isExtracted = false,
-        compareBefore = null,
-        compareAfter = null,
-        loadingProgress = null,
-        isLoading = false;
-
-  /// A document-comparison tab: hosts a [PdfComparisonView] over two
-  /// files. No edit session or viewer controller of its own.
-  _DocumentTab.comparison({
-    required this.title,
-    required Uint8List before,
-    required Uint8List after,
-  })  : session = null,
-        viewer = null,
-        isDemo = false,
-        isExtracted = false,
-        error = null,
-        compareBefore = before,
-        compareAfter = after,
-        loadingProgress = null,
-        isLoading = false;
-
-  final String title;
-  final String? error;
-  final bool isDemo;
-  // A new extraction has no saved file yet, even without any edits.
-  final bool isExtracted;
-  final bool isLoading;
-
-  /// Download progress (0..1) for a remote-load ([_openFromUrl]) loading tab,
-  /// or null for an indeterminate spinner. The notifier is owned by the code
-  /// that started the load, not the tab.
-  final ValueListenable<double>? loadingProgress;
-
-  /// The two documents a comparison tab diffs; null on every other tab.
-  final Uint8List? compareBefore;
-  final Uint8List? compareAfter;
-
-  bool get isComparison => compareAfter != null;
-
-  /// Null for an error tab. Shared preferences are owned by the app, so
-  /// they outlive the tab.
-  final PdfEditingController? session;
-  final PdfViewerController? viewer;
-
-  // demo-specific state the PDF links and overlays drive, per document
-  int counter = 0;
-  bool switchOn = false;
-  final noteField = TextEditingController();
-
-  void dispose() {
-    session?.dispose();
-    viewer?.dispose();
-    noteField.dispose();
   }
 }
 

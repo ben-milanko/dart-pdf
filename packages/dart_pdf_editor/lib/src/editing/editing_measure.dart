@@ -9,14 +9,6 @@ import '../design/editor_presenter.dart';
 export 'models/measurement_scale.dart'
     show PdfMeasurementScale, pdfDefaultMeasurementUnit, pdfDefaultPageUnit;
 
-/// The real-world unit labels offered by [showPdfScaleDialog].
-const _pdfScaleUnits = ['ft', 'in', 'yd', 'mi', 'm', 'cm', 'mm', 'km'];
-
-/// The on-page reference units offered for the left-hand side of the ratio.
-/// These are physical lengths on the printed page, so only the small units
-/// make sense.
-const _pdfPageUnits = ['in', 'cm', 'mm'];
-
 /// Asks the user for a drawing scale (`1 in on the page = N unit in the
 /// world`) and returns the calibrated [PdfMeasurementScale], or null when
 /// dismissed. [initial] pre-fills the fields. When [onCalibrate] is given,
@@ -65,7 +57,7 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
     // existing scale; otherwise default to the device region's measurement
     // system (inches vs centimetres).
     _pageUnit =
-        (initial != null && _pdfPageUnits.contains(initial.pageUnitLabel))
+        (initial != null && pdfPageUnits.contains(initial.pageUnitLabel))
             ? initial.pageUnitLabel
             : pdfDefaultPageUnit();
     final perPageUnit = initial == null
@@ -80,7 +72,7 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
     _value = TextEditingController(text: text);
     // Carry over the real-world unit from an existing scale; otherwise
     // default to the device region's measurement system (feet vs metres).
-    _unit = (initial != null && _pdfScaleUnits.contains(initial.unitLabel))
+    _unit = (initial != null && pdfScaleUnits.contains(initial.unitLabel))
         ? initial.unitLabel
         : pdfDefaultMeasurementUnit();
   }
@@ -117,7 +109,7 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
             value: _pageUnit,
             onChanged: (value) => setState(() => _pageUnit = value),
             items: [
-              for (final unit in _pdfPageUnits)
+              for (final unit in pdfPageUnits)
                 PdfDropdownItem(value: unit, label: unit),
             ],
           ),
@@ -141,7 +133,7 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
             value: _unit,
             onChanged: (value) => setState(() => _unit = value),
             items: [
-              for (final unit in _pdfScaleUnits)
+              for (final unit in pdfScaleUnits)
                 PdfDropdownItem(value: unit, label: unit),
             ],
           ),
@@ -291,7 +283,7 @@ class _PdfCalibrationLengthDialogState
   void initState() {
     super.initState();
     _unit = (widget.initialUnit != null &&
-            _pdfScaleUnits.contains(widget.initialUnit))
+            pdfScaleUnits.contains(widget.initialUnit))
         ? widget.initialUnit!
         : pdfDefaultMeasurementUnit();
   }
@@ -343,7 +335,7 @@ class _PdfCalibrationLengthDialogState
                 value: _unit,
                 onChanged: (value) => setState(() => _unit = value),
                 items: [
-                  for (final unit in _pdfScaleUnits)
+                  for (final unit in pdfScaleUnits)
                     PdfDropdownItem(value: unit, label: unit),
                 ],
               ),
