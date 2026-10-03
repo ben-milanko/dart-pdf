@@ -99,6 +99,78 @@ void main() {
       expect(snap.region, const PdfRect(60, 700, 200, 740));
     });
 
+    group('un-flattened annotations', () {
+      // page 0 with a red square annotation inside the capture region and a
+      // blue one well outside it
+      PdfDocument annotated() {
+        final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+        editor.addSquare(0, const PdfRect(80, 705, 120, 735),
+            strokeColor: 0xFF0000);
+        editor.addSquare(0, const PdfRect(300, 100, 340, 140),
+            strokeColor: 0x0000FF);
+        return PdfDocument.open(editor.save());
+      }
+
+      CosDictionary xObjectsOf(PdfDocument pdf) {
+        final res = pdf.cos.resolve(pdf.page(0).resources) as CosDictionary;
+        return pdf.cos.resolve(res['XObject']) as CosDictionary;
+      }
+
+      test('are drawn over the content from their appearances', () {
+        final doc = annotated();
+        final snap = PdfEditor(doc)
+            .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        final pdf = PdfDocument.open(snap.toPdfBytes());
+        final content = latin1.decode(pdf.page(0).contentBytes());
+        // the page text comes first, bracketed, then the annotation
+        expect(content.indexOf('(Page 1) Tj'),
+            lessThan(content.indexOf('/SnapAnnot0 Do')));
+        // only the overlapping annotation travels with the snapshot
+        expect(content, isNot(contains('/SnapAnnot1 Do')));
+        final xobj = xObjectsOf(pdf);
+        expect(xobj.entries.keys, ['SnapAnnot0']);
+        final form = pdf.cos.resolve(xobj['SnapAnnot0']) as CosStream;
+        expect(_name(form.dictionary['Subtype']), 'Form');
+        expect(latin1.decode(pdf.cos.decodeStreamData(form)),
+            contains('1 0 0 RG'));
+        // the snapshot is still a plain page: no annotations of its own
+        expect(pdf.page(0).annotations, isEmpty);
+      });
+
+      test('pasted back, the annotation draws inside the captured form', () {
+        final doc = annotated();
+        final editor = PdfEditor(doc);
+        final snap =
+            editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        editor.pasteVectorSnapshot(0, const PdfRect(100, 100, 260, 140), snap);
+        final out = PdfDocument.open(editor.save());
+        final stamp = out.page(0).annotations.last;
+        expect(_capContent(out, stamp), contains('/SnapAnnot0 Do'));
+      });
+
+      test('are left out when annotations is false', () {
+        final doc = annotated();
+        final snap = PdfEditor(doc).captureVectorSnapshot(
+            0, const PdfRect(60, 700, 220, 740),
+            annotations: false);
+        final content = latin1
+            .decode(PdfDocument.open(snap.toPdfBytes()).page(0).contentBytes());
+        expect(content, isNot(contains('SnapAnnot')));
+      });
+
+      test('hidden annotations are left out', () {
+        final editor = PdfEditor(annotated());
+        final square = editor.document.page(0).annotations.first;
+        editor.setAnnotationFlags(0, square, 2); // Hidden
+        final doc = PdfDocument.open(editor.save());
+        final snap = PdfEditor(doc)
+            .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        final content = latin1
+            .decode(PdfDocument.open(snap.toPdfBytes()).page(0).contentBytes());
+        expect(content, isNot(contains('SnapAnnot')));
+      });
+    });
+
     test('paste makes a vector /Stamp drawing the captured form', () {
       final doc = PdfDocument.open(buildMultiPagePdf(2));
       final editor = PdfEditor(doc);
