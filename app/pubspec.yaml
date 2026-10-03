@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 5.1.1+41
+version: 6.0.0+42
 
 environment:
   sdk: ^3.5.0
@@ -20,24 +20,24 @@ dependencies:
   # and the generated AppLocalizations bundle. Pinned to the version
   # flutter_localizations resolves against Flutter 3.47.5.
   intl: ^0.20.2
-  # The Material design library. 6.0 moved off package:flutter/material.dart;
-  # see doc/migrating-to-6.md.
+  # The Material design library. 7.0 moved off package:flutter/material.dart;
+  # see doc/MIGRATING-7.0.0.md.
   material_ui: ^1.4.0
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^5.1.1
+  dart_pdf_editor: ^6.0.0
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
-  dart_pdf_editor_flutter_gpu: ^0.4.2
+  dart_pdf_editor_flutter_gpu: ^0.5.0
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
-  dart_pdf_editor_assets: ^5.1.1
-  pdf_document: ^5.1.1
-  pdf_cos: ^5.1.1
+  dart_pdf_editor_assets: ^6.0.0
+  pdf_document: ^6.0.0
+  pdf_cos: ^6.0.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^5.1.1
+  pdf_ocr_ondevice: ^6.0.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
@@ -48,7 +48,7 @@ dependencies:
   share_plus: ^13.3.0
   url_launcher: ^6.3.0
   # Optional preview, sheet composition and native system printing.
-  dart_pdf_printing: ^0.2.2
+  dart_pdf_printing: ^0.3.0
   shared_preferences: ^2.3.0
   # On-device document scanner (phones/tablets only): Google ML Kit's Document
   # Scanner on Android, VisionKit on iOS. Powers "Scan to new document" and
@@ -94,11 +94,11 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^5.1.1
+  pdf_test_fixtures: ^6.0.0
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^5.1.1
+  pdf_graphics: ^6.0.0
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see
   # test/unsaved_changes_store_io_test.dart).

@@ -1,6 +1,10 @@
-# 6.0 PR B: the app and the example move to material_ui
+# 7.0 PR B: the app and the example move to material_ui
 
-The second half of the material_ui plan's 6.0.0 milestone, stacked on PR A
+Ships as **7.0.0** with PR A: 6.0.0 was released first without the switch,
+so the stack merged main's 6.0.0 release and was retargeted. The file name
+keeps the original "6".
+
+The second half of the material_ui plan's major-version milestone, stacked on PR A
 (`2026-10-02-material-ui-6-library.md`). After it nothing in the repo imports
 `package:flutter/material.dart` or `cupertino.dart` except the editor's
 legacy-host bridge and the editor tests that build legacy hosts on purpose,
@@ -109,7 +113,7 @@ and the analyzer enforces that.
 ## Follow-ups
 
 - The app could build with `--dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false`
-  now (~12 KB of web JS) as `doc/migrating-to-6.md` suggests. That touches
+  now (~12 KB of web JS) as `doc/MIGRATING-7.0.0.md` suggests. That touches
   every release lane's build line, so it is left for its own change.
 
 ## The toolbar-arm "regression" (follow-up)
@@ -132,7 +136,7 @@ measurement artefact, plus one real bug it pointed at (fixed in PR A).
   is the same (`InkRipple` on web).
 - **The baseline was not all-legacy.** `bench.mjs` copies today's Dart
   harness into the ref's worktree, so since this PR flipped the harness to
-  material_ui, a pre-6.0 ref ran as *legacy editor under a material_ui
+  material_ui, a pre-switch ref ran as *legacy editor under a material_ui
   MaterialApp*, a host it never shipped with. That hybrid does 12.7% fewer
   rebuilds in the same test (60,703): the editor finds no legacy Theme and
   its toolbar buttons never change colour (most likely PR A's identity

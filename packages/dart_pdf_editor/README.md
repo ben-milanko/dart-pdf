@@ -344,7 +344,7 @@ flutter:
 ```
 
 The library is built on [material_ui](https://pub.dev/packages/material_ui)
-(since 6.0; see [doc/migrating-to-6.md](https://github.com/ben-milanko/dart-pdf/blob/main/doc/migrating-to-6.md)).
+(since 7.0; see [doc/MIGRATING-7.0.0.md](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-7.0.0.md)).
 Register the editor's localizations so its strings follow the app's locale
 (without them it falls back to English). `PdfEditorLocalizations.delegates`
 carries the editor's delegate plus material_ui's Material, Cupertino and

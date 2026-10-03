@@ -7,7 +7,7 @@
   `package:flutter/material.dart`, which Flutter is retiring. Their `Theme`,
   `ThemeData`, `MaterialLocalizations`, `ScaffoldMessenger`, `InputDecoration`
   and friends are different types from the legacy ones. Hosts on either
-  library keep working; see `doc/migrating-to-6.md`.
+  library keep working; see `doc/MIGRATING-7.0.0.md`.
   - A host on the legacy `MaterialApp` keeps its look: a small bridge
     carries the host theme's colour scheme, text and icon themes, platform
     and density into the editor, and shows notices as SnackBars on the host's
@@ -33,9 +33,10 @@
   - Add `PdfEditorThemeData.primary` and `PdfEditorThemeData.brightness`:
     set either and the stock chrome draws with a colour scheme seeded from
     them, whatever theme the host has.
-  - Remove the APIs deprecated in 5.x: `PdfEditingPreferences.themeMode` (use
-    `themePreference`), the `ButtonStyleButton` form of `PdfDialogSubmit`
-    (use `PdfDialogSubmit.action`), and `pdfSearchInputBorder` (use
+  - Remove the APIs deprecated in 5.x and kept through 6.0.0:
+    `PdfEditingPreferences.themeMode` (use `themePreference`), the
+    `ButtonStyleButton` form of `PdfDialogSubmit` (use
+    `PdfDialogSubmit.action`), and `pdfSearchInputBorder` (use
     `pdfSearchFieldBorderRadius`).
   - Public parameters typed with Material classes now take the material_ui
     ones (`PdfDropdown.decoration` is a material_ui `InputDecoration`).
@@ -46,7 +47,36 @@
     the Dart language version stays 3.5.
 - Toolbar strips (the open tool group's card) draw their own ink surface, so
   pressed and hovered splashes show over the card's fill under every host.
+- Add `package:dart_pdf_editor/cupertino.dart` with `PdfCupertinoPresenter`,
+  an iOS-style `PdfEditorPresenter` on `cupertino_ui` (additive; targets
+  7.1, after the 7.0.0 material_ui switch). Dialogs open on a
+  `CupertinoDialogRoute`; confirmations and the text, styled-text, link,
+  page-range, split and measuring prompts are `CupertinoAlertDialog`s with
+  `CupertinoTextField`s; menus are action sheets; form choices are a picker
+  (single-select) or a checklist (multi-select); sheets are modal popups;
+  notices are a toast with Undo; the floating action bars and readouts are
+  dark capsules. The colour, font and signature prompts keep the stock
+  pickers on the Cupertino route. Also exports `pdfCupertinoTextContextMenu`.
+  It works under a `CupertinoApp` with no `MaterialApp`, needs no
+  `cupertino_icons`, and `package:dart_pdf_editor/dart_pdf_editor.dart` does
+  not import it, so Material apps do not compile it.
 
+## 6.0.0
+
+- Breaking: `PdfDialogSubmit.child` is now `Widget`, so an arbitrary host
+  control can be the submit action. Code reading Material button properties
+  from it must keep its own button reference or check/cast the widget type.
+  The original constructor, `themeMode` and `pdfSearchInputBorder` remain
+  available and deprecated; their removal is deferred to 7.0.0.
+- `PdfRenderWorker` gains `trimMemory()`: subclasses inherit its no-op default;
+  hosts using `implements PdfRenderWorker` must implement the new method.
+  Workers now use platform-sized decode budgets and release reconstructible
+  caches on memory pressure and mobile backgrounding.
+- Stream native render records directly into the command buffer and keep text
+  offsets in unboxed typed arrays, reducing allocation and worker memory.
+- Fix deep zoom losing its scene when a later zoom supersedes an image refine.
+- The Select tool selects page text as well as annotations. Hand mode retains
+  double-click word selection while single drags pan the page.
 - Export `PdfDropdown` and `PdfDropdownItem`, the drop-down picker the
   editor's own dialogs use: its options open through the
   `PdfEditorPresenter`'s menu, so it works under any host. Companion
@@ -60,15 +90,15 @@
   saved theme choice as an editor-owned enum instead of Material's
   `ThemeMode`. It is stored under the same key, so a choice saved by an older
   build reads back. `themeMode` still works and is deprecated (removed in
-  6.0.0); map the new value to `ThemeMode` in the host.
+  7.0.0); map the new value to `ThemeMode` in the host.
 - Add `PdfDialogSubmit.action(onSubmit:, child:)`, which marks any widget as
   a dialog's Enter action. The `ButtonStyleButton`-only default constructor is
-  deprecated (removed in 6.0.0). Enter now tells a focused command button
+  deprecated (removed in 7.0.0). Enter now tells a focused command button
   (which keeps Enter) from a focused value control such as segments, a
   dropdown or a checkbox (Enter submits) by semantics role rather than by
   Material widget type, so controls from any design system classify the same.
 - Add `pdfSearchFieldBorderRadius`; `pdfSearchInputBorder` (a Material
-  `OutlineInputBorder`) is deprecated (removed in 6.0.0).
+  `OutlineInputBorder`) is deprecated (removed in 7.0.0).
 - Move the headless model types (`PdfMeasurementScale`, `PdfInkSignature`,
   `PdfSavedSignature`, the trackpad signature capture types, `PdfCustomStamp`,
   `PdfStampDateFormat`/`PdfStampTimeFormat`, the picker and prompt typedefs,
@@ -288,18 +318,6 @@
   save, ink confirm/discard, delete, guides dialog and sliders, the identity
   name field, the stock popup menu divider, the text context menu, and the
   loading indicators.
-- Add `package:dart_pdf_editor/cupertino.dart` with `PdfCupertinoPresenter`,
-  an iOS-style `PdfEditorPresenter` on `cupertino_ui` (additive). Dialogs open
-  on a `CupertinoDialogRoute`; confirmations and the text, styled-text, link,
-  page-range, split and measuring prompts are `CupertinoAlertDialog`s with
-  `CupertinoTextField`s; menus are action sheets; form choices are a picker
-  (single-select) or a checklist (multi-select); sheets are modal popups;
-  notices are a toast with Undo; the floating action bars and readouts are
-  dark capsules. The colour, font and signature prompts keep the stock
-  pickers on the Cupertino route. Also exports `pdfCupertinoTextContextMenu`.
-  It works under a `CupertinoApp` with no `MaterialApp`, needs no
-  `cupertino_icons`, and `package:dart_pdf_editor/dart_pdf_editor.dart` does
-  not import it, so Material apps do not compile it.
 
 ## 5.1.1
 

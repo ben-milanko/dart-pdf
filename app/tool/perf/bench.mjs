@@ -114,7 +114,7 @@ function medianMetrics(runs) {
 }
 
 // The harness's host app has to be built from the design library the ref's
-// own harness used. Copying today's material_ui harness over a pre-6.0 ref
+// own harness used. Copying today's material_ui harness over a pre-7.0 ref
 // mounts the legacy editor under a material_ui MaterialApp - a host that ref
 // never shipped with: the editor finds no legacy Theme, falls back to a
 // derived one, and its toolbar buttons never run their icon-colour

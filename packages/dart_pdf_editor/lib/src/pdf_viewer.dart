@@ -6367,6 +6367,74 @@ class _PdfViewerState extends State<PdfViewer>
     return _pagePointAt(box.globalToLocal(globalPosition));
   }
 
+  /// The global point in list space, or null before layout.
+  Offset? _listLocalOf(Offset globalPosition) {
+    final box = _listSpaceKey.currentContext?.findRenderObject() as RenderBox?;
+    return box?.globalToLocal(globalPosition);
+  }
+
+  /// Whether a drag from the global point would select page text - the
+  /// select tool's hover probe (an I-beam over text).
+  bool _pageTextAtGlobal(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    return local != null &&
+        _textSelectionStartAt(local, alongTolerance: 14) != null;
+  }
+
+  /// The select tool hands a plain mouse drag that starts over page text
+  /// (and over no annotation) here, so text stays selectable with the tool
+  /// armed. Mirrors the text branch of [_onSelectionStart].
+  bool _beginToolTextSelection(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    if (local == null ||
+        (_wordRangeAt(local) == null &&
+            _textSelectionStartAt(local, alongTolerance: 14) == null)) {
+      return false;
+    }
+    // text and annotations don't share a selection: ⌘C copies one or the
+    // other
+    widget.editing?.clearAnnotationSelection();
+    if (_wordDrag) {
+      // double-click-and-drag extends by whole words, as in the reader
+      final anchor = _wordRangeAt(local);
+      _focusNode.requestFocus();
+      _wordAnchor = anchor;
+      setState(() {
+        _selAnchor = anchor?.$1;
+        _selFocus = anchor?.$2;
+      });
+      _controller._setSelection(anchor == null ? '' : _selectedText());
+      return true;
+    }
+    final position = _textSelectionStartAt(local, alongTolerance: 14);
+    if (position == null) return false;
+    _focusNode.requestFocus();
+    _wordAnchor = null;
+    setState(() {
+      _selAnchor = position;
+      _selFocus = position;
+    });
+    _controller._setSelection('');
+    return true;
+  }
+
+  void _updateToolTextSelection(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    if (local == null) return;
+    _onSelectionUpdate(DragUpdateDetails(
+        globalPosition: globalPosition, localPosition: local));
+  }
+
+  void _endToolTextSelection({bool cancelled = false}) =>
+      _onSelectionEnd(DragEndDetails(), cancelled: cancelled);
+
+  /// A select-tool click: drops the text selection unless the same click
+  /// just made it (the second click of a double-click word select).
+  void _clearToolTextSelection() {
+    if (_suppressTap) return;
+    _clearSelection();
+  }
+
   /// A page overlay reports its single-selection move drag here so the
   /// floating ghost paints above every page (a per-page overlay clips it
   /// behind the page below once the drag crosses a boundary). Null clears.
@@ -7354,11 +7422,13 @@ class _PdfViewerState extends State<PdfViewer>
       cursor =
           action != null || notified ? SystemMouseCursors.click : grabCursor;
     } else if (editing != null &&
-        editing.tool == null &&
         !editing.isPickingColor &&
-        !editing.hasAnnotationSelection &&
-        HardwareKeyboard.instance.isShiftPressed) {
-      // Shift held in default editing mode: a drag rubber-bands a marquee
+        (_selectToolMarqueeModifier ||
+            (editing.tool == null &&
+                !editing.hasAnnotationSelection &&
+                HardwareKeyboard.instance.isShiftPressed))) {
+      // Shift held in default editing mode, or ⌘/Ctrl with the select
+      // tool: a drag rubber-bands a marquee
       cursor = SystemMouseCursors.precise;
     } else if (_pagePointAt(event.localPosition) case final at?) {
       // One page resolution per event, shared by every probe below. Each of
@@ -7681,6 +7751,13 @@ class _PdfViewerState extends State<PdfViewer>
     _lastMouseDownStamp = event.timeStamp;
     _lastMouseDownLocal = event.localPosition;
     _middleButtonDrag = event.buttons == kMiddleMouseButton;
+    // Hand mode closes the hand on press, not once the drag clears the
+    // slop - the cursor answers the click the way a native hand tool does
+    if (event.buttons == kPrimaryMouseButton &&
+        widget.editing?.isHandMode == true &&
+        _hoverCursor == grabCursor) {
+      setState(() => _hoverCursor = grabbingCursor);
+    }
   }
 
   /// Completes a mouse double-click (second press, released without
@@ -7690,11 +7767,13 @@ class _PdfViewerState extends State<PdfViewer>
   /// by the disambiguation timeout and claim the second of two rapid
   /// clicks, starving buttons in page overlays.
   void _onPointerUp(PointerUpEvent event) {
-    if (event.kind != PointerDeviceKind.mouse ||
-        !_wordDrag ||
-        widget.editing?.isHandMode == true) {
-      return;
+    // a press that never became a grab-pan opens the hand again
+    if (!_grabPanning && _hoverCursor == grabbingCursor) {
+      setState(() => _hoverCursor = grabCursor);
     }
+    // Hand mode keeps this: a double-click still selects a word, even
+    // though a plain drag grabs the document
+    if (event.kind != PointerDeviceKind.mouse || !_wordDrag) return;
     final downLocal = _lastMouseDownLocal;
     if (downLocal == null ||
         (event.localPosition - downLocal).distance >= kTouchSlop) {
@@ -7779,10 +7858,11 @@ class _PdfViewerState extends State<PdfViewer>
       setState(() => _hoverCursor = grabbingCursor);
       return;
     }
-    if (widget.editing?.isHandMode == true) {
-      // Explicit Hand mode is navigation-only. Unlike the tool-free reader
+    if (widget.editing?.isHandMode == true && !_wordDrag) {
+      // Explicit Hand mode is for navigation. Unlike the tool-free reader
       // state, a drag that begins over page text must grab the document
-      // instead of creating a text selection.
+      // instead of creating a text selection - only a double-click (and
+      // double-click-drag) selects words.
       _grabPanning = true;
       _beginMotionRenderHold();
       setState(() => _hoverCursor = grabbingCursor);
@@ -7848,17 +7928,34 @@ class _PdfViewerState extends State<PdfViewer>
   bool _marqueeShouldStart(DragStartDetails details) {
     final editing = widget.editing;
     if (editing == null ||
-        editing.tool != null ||
         editing.markupTool != null ||
         editing.isPickingColor ||
-        editing.hasAnnotationSelection) {
+        editing.isHandMode) {
       return false;
     }
     final kind = details.kind;
     final mouseLike = kind == null ||
         kind == PointerDeviceKind.mouse ||
         kind == PointerDeviceKind.trackpad;
-    return mouseLike && HardwareKeyboard.instance.isShiftPressed;
+    if (!mouseLike) return false;
+    if (_selectToolMarqueeModifier) return true;
+    return editing.tool == null &&
+        !editing.hasAnnotationSelection &&
+        HardwareKeyboard.instance.isShiftPressed;
+  }
+
+  /// Select-tool behaviour (the tool armed, or a default-mode annotation
+  /// selection in play) with ⌘/Ctrl held. A plain select-tool drag over
+  /// text selects the text; ⌘/Ctrl turns it into the marquee. The modifier
+  /// takes the page list out of the hit path ([_zoomModifierDown]), so the
+  /// overlay never sees this drag and the viewer rubber-bands it itself.
+  bool get _selectToolMarqueeModifier {
+    final editing = widget.editing;
+    if (editing == null) return false;
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return false;
+    return editing.tool == PdfEditTool.select ||
+        (editing.tool == null && editing.hasAnnotationSelection);
   }
 
   /// Finishes a marquee drag: selects the annotations the box covers on
@@ -9214,6 +9311,11 @@ class _PdfViewerState extends State<PdfViewer>
                       resolvePagePoint: _resolvePagePointGlobal,
                       moveDragPreview: _onMoveDragPreview,
                       textEditClosed: _reclaimFocusAfterTextEdit,
+                      pageTextAt: _pageTextAtGlobal,
+                      beginTextSelection: _beginToolTextSelection,
+                      updateTextSelection: _updateToolTextSelection,
+                      endTextSelection: _endToolTextSelection,
+                      clearTextSelection: _clearToolTextSelection,
                     ),
                     interactionSession: widget.interactionSession,
                     crossPageGhost: _crossPageGhostFor(index),

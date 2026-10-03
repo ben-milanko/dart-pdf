@@ -1,8 +1,10 @@
-# 6.1: PdfCupertinoPresenter (package:dart_pdf_editor/cupertino.dart)
+# 7.1: PdfCupertinoPresenter (package:dart_pdf_editor/cupertino.dart)
 
-The material_ui plan's 6.1 item (decision 6): a presenter-only Cupertino
-library, promoted from the example's `CupertinoEditorPresenter` once the 5.5
-example showed the seams were enough. Stacked on the 6.0 PRs (library, app).
+The material_ui plan's x.1 item (decision 6; planned as 6.1, now 7.1 because
+6.0.0 shipped without the material_ui switch, which moved to 7.0.0): a
+presenter-only Cupertino library, promoted from the example's
+`CupertinoEditorPresenter` once the 5.5 example showed the seams were enough.
+Stacked on the 7.0 PRs (library, app).
 
 ## What changed
 
