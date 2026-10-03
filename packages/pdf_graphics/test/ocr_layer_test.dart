@@ -123,6 +123,20 @@ void main() {
       expect(ocrSpansNotIn(text, const [span]), hasLength(1));
     });
 
+    test('sums coverage across separate lines under one span', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..injectTextLayer(0, const [
+          PdfOcrSpan(text: 'Upper', bounds: PdfRect(0, 40, 100, 60)),
+          PdfOcrSpan(text: 'Lower', bounds: PdfRect(0, 0, 100, 20)),
+        ]);
+      final text = PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
+      // A line-level box over both: two thirds covered, so a duplicate;
+      // counting only one of the lines (a third) would keep it.
+      const span =
+          PdfOcrSpan(text: 'Upper Lower', bounds: PdfRect(0, 0, 100, 60));
+      expect(ocrSpansNotIn(text, const [span]), isEmpty);
+    });
+
     test('a page without text keeps everything', () {
       const text = PdfPageText(pageIndex: 0, text: '', runs: []);
       expect(ocrSpansNotIn(text, const [overHello, elsewhere]), hasLength(2));
