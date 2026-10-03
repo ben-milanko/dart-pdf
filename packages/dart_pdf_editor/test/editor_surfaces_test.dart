@@ -329,8 +329,7 @@ void main() {
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
-      expect(
-          find.byKey(const ValueKey('pdf-text-menu-highlight')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-text-menu-markup')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('host-define')));
       await tester.pumpAndSettle();
       expect(picked, 'Page');
