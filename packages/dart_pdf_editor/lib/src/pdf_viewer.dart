@@ -6917,13 +6917,19 @@ class _PdfViewerState extends State<PdfViewer>
       }
       if (editing.tool != PdfEditTool.form) {
         final hit = editing.selectableAnnotationAt(page, x, y);
+        // A right-click on selected text is about that text, whatever the
+        // clipboard holds: it gets the text menu (the touch chip's
+        // actions), not a Paste-only annotation menu (#1004).
+        final onSelectedText =
+            hit == null && _clickInTextSelection(details.localPosition);
         // an annotation, or empty page area with something to paste,
         // gets the annotation menu
         if (hit != null ||
-            editing.hasAnnotationClipboard ||
-            editing.hasSnapshotClipboard ||
-            (widget.systemPdfPasteProvider != null &&
-                editing.lockedAnnotationAt(page, x, y) == null)) {
+            (!onSelectedText &&
+                (editing.hasAnnotationClipboard ||
+                    editing.hasSnapshotClipboard ||
+                    (widget.systemPdfPasteProvider != null &&
+                        editing.lockedAnnotationAt(page, x, y) == null)))) {
           if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
             editing.selectAnnotationAt(page, x, y);
           }
@@ -7008,15 +7014,19 @@ class _PdfViewerState extends State<PdfViewer>
         details.globalPosition, details.localPosition, page, (x, y));
   }
 
+  /// Whether a click at [local] lands inside the current text selection.
+  bool _clickInTextSelection(Offset local) {
+    if (_selRange == null) return false;
+    final position = _textSelectionStartAt(local, alongTolerance: 14);
+    return position != null && _selectionContains(position);
+  }
+
   /// Selects the word under [local] unless the click landed inside the
   /// current selection, which is kept - the desktop-reader behaviour the
   /// text menu (and its host-takeover counterpart) depend on so that Copy
   /// has something to act on.
   void _prepareTextSelectionAt(Offset local) {
-    final position = _textSelectionStartAt(local, alongTolerance: 14);
-    if (!(position != null && _selectionContains(position))) {
-      _selectWordAt(local);
-    }
+    if (!_clickInTextSelection(local)) _selectWordAt(local);
   }
 
   /// The mouse right-click text menu: editing/markup actions when an editor
@@ -7071,27 +7081,19 @@ class _PdfViewerState extends State<PdfViewer>
           enabled: enabled,
           onSelected: (_) => run(),
         ));
+    // Same actions, same order as the touch selection chip - Edit, Copy,
+    // Markup (its four kinds grouped one level down), Link, Select all - so
+    // a selection offers one layout whichever way it was made.
     var entries = <PdfMenuEntry<PdfTextMenuItem>>[
       if (canEdit)
         stock('edit', l10n.viewerEditTextStyle, Icons.edit, _editTextSelection),
+      stock('copy', l10n.copy, Icons.copy, _controller.copySelection,
+          enabled: hasSelection),
       if (canMarkup) ...[
-        stock('highlight', l10n.viewerMarkupHighlight, Icons.border_color,
-            () => _markupTextSelection(PdfMarkupKind.highlight)),
-        stock('underline', l10n.viewerMarkupUnderline, Icons.format_underlined,
-            () => _markupTextSelection(PdfMarkupKind.underline)),
-        stock(
-            'strikeout',
-            l10n.viewerMarkupStrikeOut,
-            Icons.format_strikethrough,
-            () => _markupTextSelection(PdfMarkupKind.strikeOut)),
-        stock('squiggly', l10n.viewerMarkupSquiggly, Icons.gesture,
-            () => _markupTextSelection(PdfMarkupKind.squiggly)),
+        _markupSubmenuEntry(globalPosition),
         stock(
             'link', l10n.linkDialogTitle, Icons.link, _addLinkToTextSelection),
       ],
-      if (canEdit || canMarkup) const PdfMenuDivider(),
-      stock('copy', l10n.copy, Icons.copy, _controller.copySelection,
-          enabled: hasSelection),
       stock('select-all', l10n.viewerSelectAll, Icons.select_all,
           () => _selectAllTextOn(page),
           enabled: hasText),
@@ -7113,6 +7115,77 @@ class _PdfViewerState extends State<PdfViewer>
       PdfMenuRequest<PdfTextMenuItem>.at(globalPosition, entries: entries),
     );
     await picked?.onSelected(request);
+  }
+
+  /// The text menu's Markup row: the touch chip's markup submenu for the
+  /// mouse. [PdfMenuRequest] rows are flat, so picking it opens the four
+  /// kinds as a second menu at the same point (ids
+  /// `pdf-text-menu-highlight` / `underline` / `strikeout` / `squiggly`).
+  PdfMenuItem<PdfTextMenuItem> _markupSubmenuEntry(Offset globalPosition) {
+    final l10n = pdfL10n(context);
+    final item = PdfTextMenuItem(
+      key: const ValueKey('pdf-text-menu-markup'),
+      label: l10n.viewerMarkup,
+      icon: Icons.edit_note,
+      onSelected: (_) => _showMarkupSubmenu(globalPosition),
+    );
+    final row = pdfTextMenuEntry(item);
+    return PdfMenuItem<PdfTextMenuItem>(
+      key: row.key,
+      value: row.value,
+      label: row.label,
+      icon: row.icon,
+      child: Row(children: [
+        Expanded(child: row.child!),
+        const SizedBox(width: 10),
+        const Icon(Icons.chevron_right, size: 18),
+      ]),
+    );
+  }
+
+  Future<void> _showMarkupSubmenu(Offset globalPosition) async {
+    if (!mounted || _selRange == null) return;
+    final l10n = pdfL10n(context);
+    final entries = <PdfMenuEntry<PdfMarkupKind>>[
+      for (final (id, kind, label, icon) in [
+        (
+          'highlight',
+          PdfMarkupKind.highlight,
+          l10n.viewerMarkupHighlight,
+          Icons.border_color
+        ),
+        (
+          'underline',
+          PdfMarkupKind.underline,
+          l10n.viewerMarkupUnderline,
+          Icons.format_underlined
+        ),
+        (
+          'strikeout',
+          PdfMarkupKind.strikeOut,
+          l10n.viewerMarkupStrikeOut,
+          Icons.format_strikethrough
+        ),
+        (
+          'squiggly',
+          PdfMarkupKind.squiggly,
+          l10n.viewerMarkupSquiggly,
+          Icons.gesture
+        ),
+      ])
+        PdfMenuItem<PdfMarkupKind>(
+          key: ValueKey('pdf-text-menu-$id'),
+          value: kind,
+          label: label,
+          icon: icon,
+        ),
+    ];
+    final ui = _ui;
+    final kind = await PdfEditorPresenter.of(ui).menu<PdfMarkupKind>(
+      ui,
+      PdfMenuRequest<PdfMarkupKind>.at(globalPosition, entries: entries),
+    );
+    if (kind != null && mounted) _markupTextSelection(kind);
   }
 
   /// Opens the rich content-text editor for the exact text element under the
