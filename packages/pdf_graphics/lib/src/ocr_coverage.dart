@@ -62,8 +62,8 @@ double _unionArea(List<PdfRect> rects) {
     ..sort();
   var total = 0.0;
   for (var i = 0; i + 1 < xs.length; i++) {
+    // xs is de-duplicated and sorted, so every slab has positive width.
     final x0 = xs[i], x1 = xs[i + 1];
-    if (x1 <= x0) continue;
     // Merge the y-intervals of the rects spanning this x slab.
     final spansY = [
       for (final r in rects)

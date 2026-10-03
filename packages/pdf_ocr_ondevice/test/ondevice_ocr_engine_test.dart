@@ -157,7 +157,9 @@ void main() {
       final engine = OnDeviceOcrEngine(_FakeRunner(const [
         RecognizedTextLine(
           text: 'Invoice',
-          pixelBounds: Rect.fromLTWH(120, 80, 200, 40),
+          // Clear of the page's own "Hello, world!", which applyOcr would
+          // treat as already-extracted text.
+          pixelBounds: Rect.fromLTWH(120, 1200, 200, 40),
           confidence: 0.95,
         ),
       ]));

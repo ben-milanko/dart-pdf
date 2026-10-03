@@ -39,7 +39,11 @@ void main() {
         return http.Response(
           jsonEncode({
             'spans': [
-              {'text': 'Hello', 'bbox': [0, 0, 200, 60], 'confidence': 0.9},
+              {
+                'text': 'Hello',
+                'bbox': [0, 0, 200, 60],
+                'confidence': 0.9
+              },
             ],
           }),
           200,
@@ -83,14 +87,28 @@ void main() {
         // dots.ocr replies with a JSON array of layout cells inside the
         // assistant message content (here wrapped in a ```json fence).
         final content = '```json\n${jsonEncode([
-              {'bbox': [0, 0, 200, 60], 'category': 'Title', 'text': 'Report'},
-              {'bbox': [0, 100, 200, 160], 'category': 'Picture', 'text': ''},
-              {'bbox': [0, 200, 400, 260], 'category': 'Text', 'text': 'Body'},
+              {
+                'bbox': [0, 0, 200, 60],
+                'category': 'Title',
+                'text': 'Report'
+              },
+              {
+                'bbox': [0, 100, 200, 160],
+                'category': 'Picture',
+                'text': ''
+              },
+              {
+                'bbox': [0, 200, 400, 260],
+                'category': 'Text',
+                'text': 'Body'
+              },
             ])}\n```';
         return http.Response(
           jsonEncode({
             'choices': [
-              {'message': {'role': 'assistant', 'content': content}},
+              {
+                'message': {'role': 'assistant', 'content': content}
+              },
             ],
           }),
           200,
@@ -126,7 +144,12 @@ void main() {
         return http.Response(
           jsonEncode({
             'spans': [
-              {'text': 'Scanned', 'bbox': [100, 120, 340, 156]},
+              // Clear of the page's own "Hello, world!", which applyOcr
+              // would treat as already-extracted text.
+              {
+                'text': 'Scanned',
+                'bbox': [100, 1200, 340, 1236]
+              },
             ],
           }),
           200,
@@ -136,8 +159,8 @@ void main() {
       final editor = PdfEditor(PdfDocument.open(original));
       final written = await editor.applyOcr(
         0,
-        VlmOcrEngine(endpoint: Uri.parse('http://localhost:9/ocr'),
-            client: client),
+        VlmOcrEngine(
+            endpoint: Uri.parse('http://localhost:9/ocr'), client: client),
         pixelRatio: 2,
       );
       expect(written, 1);
@@ -151,8 +174,8 @@ void main() {
   testWidgets('a non-200 response throws VlmOcrException', (tester) async {
     await tester.runAsync(() async {
       final page = await renderPage();
-      final client = MockClient((request) async =>
-          http.Response('upstream model not loaded', 503));
+      final client = MockClient(
+          (request) async => http.Response('upstream model not loaded', 503));
       final engine = VlmOcrEngine(
         endpoint: Uri.parse('http://localhost:9/ocr'),
         client: client,
@@ -171,7 +194,12 @@ void main() {
       'results': [
         {
           'transcription': 'poly',
-          'points': [[10, 20], [110, 22], [108, 60], [12, 58]],
+          'points': [
+            [10, 20],
+            [110, 22],
+            [108, 60],
+            [12, 58]
+          ],
           'score': 0.8,
         },
       ],
