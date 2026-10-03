@@ -64,6 +64,22 @@ Markup contract in the HTML:
 Share a localized link directly with `?lang=<locale>`, e.g.
 `https://dart-pdf.com/?lang=ja`.
 
+## Search indexing
+
+Use the extensionless, non-trailing-slash URLs on `https://dart-pdf.com`
+in page canonicals, internal links, and `sitemap.xml`. Hosting redirects
+`.html` and trailing-slash variants; `/sdk`, `/sdk/`, and `/sdk.html`
+redirect directly to `/flutter-pdf-editor`. The `www` host declares the
+apex URLs as canonical.
+
+Every indexable page should be reachable through HTML links from the home
+page, including English-only guides. When a page changes, update its sitemap
+`lastmod` to the actual content-change date, rather than the deployment date.
+In Search Console, redirect URLs and alternate pages with proper canonical
+tags are expected exclusions. For a canonical page marked **Discovered –
+currently not indexed**, inspect its live URL and request indexing; a
+successful request queues a crawl and does not confirm indexing.
+
 ## Local preview
 
 Any static server works, e.g.:
