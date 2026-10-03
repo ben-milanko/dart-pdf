@@ -14,7 +14,7 @@ const pdfSearchFieldBorderRadius = BorderRadius.all(Radius.circular(999));
 /// supported field height.
 @Deprecated('Use OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius), '
     'or pdfSearchFieldBorderRadius with your own field border. Removed in '
-    '6.0.0.')
+    '7.0.0.')
 const pdfSearchInputBorder = OutlineInputBorder(
   borderRadius: pdfSearchFieldBorderRadius,
 );

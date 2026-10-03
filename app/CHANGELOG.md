@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 6.0.0
 
+- Select page text with the Select tool; double-click a word in Hand mode.
+- Render pages faster with less worker memory, and release cached decodes
+  when memory is tight or the mobile app enters the background.
+- Fix missing deep-zoom detail after zooming quickly.
 - Read-only mode keeps one header bar, like editing: the document controls
   share the app bar instead of a second bar under it.
 - The developer tools panel (F12) docks with the editor's own panels on a

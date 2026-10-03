@@ -1,5 +1,6 @@
-## Unreleased
+## 0.3.0
 
+- Align dependencies with the dart-pdf 6.0.0 suite and its editor API changes.
 - The print preview's drop-downs are `PdfDropdown`s and its text fields use
   the editor's shared context menu (`pdfTextContextMenu`), so the dialog runs
   under a `CupertinoApp` or `WidgetsApp` host. Tests reading the selectors use

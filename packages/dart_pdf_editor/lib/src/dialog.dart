@@ -33,7 +33,7 @@ class PdfDialogSubmit extends StatefulWidget {
   /// Marks [child], a Material button, as the submit action; Enter calls its
   /// current `onPressed`.
   @Deprecated('Use PdfDialogSubmit.action(onSubmit: ..., child: ...), which '
-      'takes any widget. The ButtonStyleButton form is removed in 6.0.0.')
+      'takes any widget. The ButtonStyleButton form is removed in 7.0.0.')
   const PdfDialogSubmit({super.key, required ButtonStyleButton this.child})
       : onSubmit = null,
         _submitsChild = true;

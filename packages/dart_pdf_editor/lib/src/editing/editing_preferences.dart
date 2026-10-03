@@ -1222,7 +1222,7 @@ class PdfEditingPreferences extends ChangeNotifier
   /// [themePreference] as Material's `ThemeMode`.
   @Deprecated('Use themePreference, the design-system-neutral '
       'PdfThemePreference, and map it to ThemeMode in the host. '
-      'Removed in 6.0.0.')
+      'Removed in 7.0.0.')
   ThemeMode get themeMode => switch (_themePreference) {
         PdfThemePreference.system => ThemeMode.system,
         PdfThemePreference.light => ThemeMode.light,
@@ -1230,7 +1230,7 @@ class PdfEditingPreferences extends ChangeNotifier
       };
 
   @Deprecated('Use themePreference, the design-system-neutral '
-      'PdfThemePreference. Removed in 6.0.0.')
+      'PdfThemePreference. Removed in 7.0.0.')
   set themeMode(ThemeMode value) => themePreference = switch (value) {
         ThemeMode.system => PdfThemePreference.system,
         ThemeMode.light => PdfThemePreference.light,

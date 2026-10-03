@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.0.0
+
+- Add `PdfStreamingCommandWriter` for native workers to record directly to
+  the existing v11 wire format, avoiding an intermediate command graph.
+- Store extracted and decoded character offsets in typed arrays.
+- Budget reusable and target-sized image decodes separately and expose
+  `PdfImageDecodeCache.maxTransientEntryBytes` for worker memory policy.
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.
