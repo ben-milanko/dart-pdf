@@ -4733,7 +4733,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
         // callback is an optional export of the raster image on top
-        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
+            annotations: widget.showAnnotations);
         final handler = widget.onSnapshot;
         if (handler == null) return;
         // page raster space (post-/Rotate, y down) = view space / scale -
