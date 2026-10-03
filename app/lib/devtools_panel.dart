@@ -17,7 +17,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'app_info.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show debugRepaintRainbowEnabled;
 import 'package:flutter/services.dart';
 // ignore: implementation_imports - the perf facade is deliberately unexported.

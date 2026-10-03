@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The app is built on `material_ui`, the package Flutter's Material widgets
+  are moving to, instead of the retiring `package:flutter/material.dart`.
+  Nothing should look or behave differently: the editor now takes the app's
+  theme directly instead of through a compatibility layer.
+
 ## 6.0.0
 
 - Select page text with the Select tool; double-click a word in Hand mode.

@@ -20,7 +20,9 @@ dependencies:
   # and the generated AppLocalizations bundle. Pinned to the version
   # flutter_localizations resolves against Flutter 3.47.5.
   intl: ^0.20.2
-  cupertino_icons: ^1.0.8
+  # The Material design library. 7.0 moved off package:flutter/material.dart;
+  # see doc/MIGRATING-7.0.0.md.
+  material_ui: ^1.4.0
 
   # The PDF engine and editing UI live in the workspace packages.
   dart_pdf_editor: ^6.0.0

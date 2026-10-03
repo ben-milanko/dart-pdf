@@ -34,7 +34,11 @@
 // lib/src/legacy/. When the SDK removes flutter/material, this file goes and
 // the define becomes a no-op.
 
+// The migrate_design_widgets lint is an error repo-wide; this is the one lib
+// file allowed the legacy libraries.
+// ignore: migrate_design_widgets
 import 'package:flutter/cupertino.dart' as legacy_cupertino;
+// ignore: migrate_design_widgets
 import 'package:flutter/material.dart' as legacy;
 import 'package:material_ui/material_ui.dart';
 

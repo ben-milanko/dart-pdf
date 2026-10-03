@@ -1,7 +1,7 @@
 // The app's read-only ("view") mode swaps PdfEditorView for PdfReader. Paper
 // colour is an authoring choice, so the View options menu drops "Page color…"
 // while reading and keeps it while editing.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';

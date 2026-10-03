@@ -1,9 +1,10 @@
 import 'package:dart_pdf_printing/l10n/dart_pdf_printing_localizations.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_app/l10n/app_delegates.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 import 'package:dart_pdf_editor_app/recents.dart';
 import 'package:dart_pdf_editor_app/settings_screen.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,7 +20,7 @@ void main() {
       await prefs.ready;
       await tester.pumpWidget(MaterialApp(
         locale: Locale('en', region),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(body: Builder(builder: (context) {
           return TextButton(
@@ -108,11 +109,7 @@ void main() {
 
 Widget _host({Locale? locale}) => MaterialApp(
       locale: locale,
-      localizationsDelegates: const [
-        ...AppLocalizations.localizationsDelegates,
-        DartPdfEditorLocalizations.delegate,
-        DartPdfPrintingLocalizations.delegate,
-      ],
+      localizationsDelegates: appLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Builder(builder: (context) {
         final app = AppLocalizations.of(context)!;
