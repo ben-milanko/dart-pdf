@@ -1,5 +1,5 @@
 // The editor under a host still on the legacy package:flutter/material.dart
-// MaterialApp (6.0 moved the library to material_ui, whose Theme,
+// MaterialApp (7.0 moved the library to material_ui, whose Theme,
 // localizations and ScaffoldMessenger are other types). The bridge
 // (lib/src/legacy/legacy_host_bridge.dart) must carry the host's theme into
 // the chrome - its exact primary colour and dark mode - and its notices onto

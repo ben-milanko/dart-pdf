@@ -1,5 +1,5 @@
 // Keeps the editor's design-system coupling from growing and keeps the
-// headless core separable from it (see the material_ui plan: 6.0 moved the
+// headless core separable from it (see the material_ui plan: 7.0 moved the
 // libraries from package:flutter/material.dart to material_ui, and the
 // editor runs under material_ui, legacy Material, Cupertino and plain widgets
 // hosts). "Design library" below means any of package:material_ui,

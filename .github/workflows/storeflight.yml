@@ -24,6 +24,10 @@ on:
         default: ''
         required: false
         type: string
+      allow_source_drift:
+        description: Allow packaging-only repairs when resuming Flatpak
+        default: false
+        type: boolean
       destinations:
         description: Comma-separated store destinations; blank selects all unless deliveries is set
         default: ''
@@ -481,13 +485,24 @@ jobs:
           compression-level: 0
           retention-days: 90
 
-  github_release_flatpak:
-    name: GitHub Release · flatpak
-    if: inputs.destinations == '' && inputs.deliveries == ''
+  flatpak:
+    name: Flatpak
+    if: >-
+      always() && (
+        (inputs.destinations == '' && inputs.deliveries == '' &&
+          needs.microsoft_store.result == 'success' &&
+          needs.snap.result == 'success') ||
+        contains(format(',{0},', inputs.deliveries), ',flatpak,')
+      )
     runs-on: ubuntu-latest
+    # The Flatpak plan also publishes its Linux archive to GitHub. Keeping
+    # both steps in one job prevents a second build overwriting that asset.
     needs: [microsoft_store, snap]
     timeout-minutes: 180
     environment: storeflight-production
+    permissions:
+      contents: write
+      actions: write
     env:
       SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
       GH_TOKEN: ${{ github.token }}
@@ -516,111 +531,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
-      - name: Restore resumable release state
-        if: inputs.resume_run_id != ''
-        uses: actions/download-artifact@v8
-        with:
-          pattern: storeflight-state-github_release_flatpak-${{ inputs.resume_run_id }}
-          path: .
-          merge-multiple: true
-          run-id: ${{ inputs.resume_run_id }}
-          github-token: ${{ github.token }}
-      - name: Run delivery
-        if: inputs.resume_run_id == ''
-        run: >-
-          dart pub global run storeflight:storeflight submit
-          --ci github
-          --config "${{ env.STOREFLIGHT_CONFIG }}"
-          --profile "${{ inputs.profile }}"
-          --delivery github_release
-          --platform flatpak
-          --until "${{ inputs.until }}"
-          --wait
-          --yes
-          ${{ inputs.dry_run && '--dry-run' || '' }}
-      - name: Resume interrupted delivery
-        if: inputs.resume_run_id != ''
-        run: >-
-          dart pub global run storeflight:storeflight resume
-          --ci github
-          --config "${{ env.STOREFLIGHT_CONFIG }}"
-          --wait
-          --yes
-          ${{ inputs.dry_run && '--dry-run' || '' }}
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: storeflight-ledger-github_release_flatpak-${{ github.run_id }}
-          # upload-artifact globs through @actions/glob, which has no brace
-          # expansion: a {a,b} pattern matches nothing at all, and only warns.
-          path: |
-            **/.storeflight/plans/**
-            **/.storeflight/releases/**
-            **/.storeflight/progress/**
-            **/.storeflight/certifications/**
-          if-no-files-found: warn
-          include-hidden-files: true
-          retention-days: 90
-      - uses: actions/upload-artifact@v7
-        if: always() && !inputs.dry_run
-        with:
-          name: storeflight-state-github_release_flatpak-${{ github.run_id }}
-          path: |
-            **/.storeflight/plans/**
-            **/.storeflight/releases/**
-            **/.storeflight/progress/**
-            **/.storeflight/certifications/**
-            **/.storeflight/artifacts/**
-            **/*.aab
-            **/*.ipa
-            **/*.pkg
-            **/*.msix
-            **/*.msixupload
-            **/*.snap
-            **/*.flatpak
-            **/*.tar.gz
-            **/*.zip
-          if-no-files-found: warn
-          include-hidden-files: true
-          compression-level: 0
-          retention-days: 90
-  flatpak:
-    name: Flatpak
-    if: inputs.destinations == '' && inputs.deliveries == ''
-    runs-on: ubuntu-latest
-    needs: [microsoft_store, snap, github_release_flatpak]
-    timeout-minutes: 180
-    environment: storeflight-production
-    env:
-      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: 3.47.5
-          cache: true
-          pub-cache: true
-      - name: Check out Storeflight
-        uses: actions/checkout@v7
-        with:
-          repository: ben-milanko/storeflight
-          ref: main
-          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
-          path: .storeflight-cli
-      - name: Install Storeflight
-        shell: bash
-        run: |
-          echo '.storeflight-cli/' >> .git/info/exclude
-          dart pub global activate --source path .storeflight-cli
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev flatpak
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
@@ -651,6 +562,7 @@ jobs:
           --config "${{ env.STOREFLIGHT_CONFIG }}"
           --wait
           --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - uses: actions/upload-artifact@v7
         if: always()
@@ -692,7 +604,7 @@ jobs:
   summary:
     name: Release summary
     if: always()
-    needs: [microsoft_store, snap, github_release_windows, github_release_snap, github_release_flatpak, flatpak]
+    needs: [microsoft_store, snap, github_release_windows, github_release_snap, flatpak]
     runs-on: ubuntu-latest
     environment: storeflight-production
     steps:

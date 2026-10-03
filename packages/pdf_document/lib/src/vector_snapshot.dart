@@ -3,6 +3,9 @@ part of 'editor.dart';
 /// A detached, **vector** copy of a rectangular region of a page - the page
 /// content and resources under the region, resolved and copied inline so
 /// the snapshot survives edits, undo, and even closing the source document.
+/// The page's live (un-flattened) annotations over the region are captured
+/// too, drawn over the content from their appearances, so the snapshot
+/// shows what the page shows.
 ///
 /// It is the payload behind the Snapshot tool's "paste as vector":
 /// [PdfVectorSnapshotEditing.pasteVectorSnapshot] re-materializes it onto
@@ -49,8 +52,9 @@ class PdfVectorSnapshot {
   final double displayWidth;
   final double displayHeight;
 
-  /// The source page's content streams, decoded and concatenated - the
-  /// operators the appearance replays (under [_matrix], clipped to the
+  /// The source page's content streams, decoded and concatenated (then the
+  /// captured annotations' drawing, when any) - the operators the
+  /// appearance replays (under [_matrix], clipped to the
   /// form BBox).
   final Uint8List _content;
 
@@ -164,11 +168,32 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   ///
   /// The page's /Rotate is baked in, so the snapshot pastes the way the
   /// region was displayed.
-  PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region) {
+  ///
+  /// With [annotations] (the default) the page's live, un-flattened
+  /// annotations that overlap [region] are captured too, drawn over the
+  /// content from their normal appearances exactly as flattening would -
+  /// so the snapshot shows what the page shows on screen. Only annotations
+  /// the renderer paints on screen qualify: hidden, no-view, popup, reply
+  /// and review-state annotations, and any without an /AP, are left out.
+  PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region,
+      {bool annotations = true}) {
     final page = document.page(pageIndex);
-    final content = page.contentBytes();
-    final resources =
-        _SnapshotCopier(document).copy(page.resources) as CosDictionary;
+    final copier = _SnapshotCopier(document);
+    var content = page.contentBytes();
+    final resources = copier.copy(page.resources) as CosDictionary;
+    if (annotations) {
+      final drawn = _snapshotAnnotations(page, region, copier, resources);
+      if (drawn != null) {
+        // bracket the page content so its leftover graphics state cannot
+        // leak into the annotation drawing (as flattening does)
+        content = (BytesBuilder(copy: false)
+              ..add(latin1.encode('q\n'))
+              ..add(content)
+              ..add(latin1.encode('\nQ\n'))
+              ..add(drawn))
+            .takeBytes();
+      }
+    }
     final rx0 = region.left, ry0 = region.bottom;
     final rx1 = region.right, ry1 = region.top;
     final w = region.width, h = region.height;
@@ -182,6 +207,63 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       _ => ([1, 0, 0, 1, -rx0, -ry0], w, h),
     };
     return PdfVectorSnapshot._(region, dW, dH, content, resources, matrix);
+  }
+
+  /// The operators drawing [page]'s on-screen annotations that overlap
+  /// [region], their appearance forms copied (detached, through [copier])
+  /// into [resources]' /XObject dictionary - or null when none qualify.
+  ///
+  /// Mirrors the screen pass of the renderer's `drawAnnotations` for which
+  /// annotations paint, and [_flattenAnnotations] for how: each appearance
+  /// is fitted onto its /Rect per §12.5.5.
+  Uint8List? _snapshotAnnotations(PdfPage page, PdfRect region,
+      _SnapshotCopier copier, CosDictionary resources) {
+    final cos = document.cos;
+    final existing = resources['XObject'];
+    final xObjects = CosDictionary({
+      if (existing is CosDictionary) ...existing.entries,
+    });
+    final w = ContentWriter();
+    var index = 0;
+    var drew = false;
+    for (final annot in page.annotations) {
+      if (annot.isHidden || annot.isNoView) continue;
+      if (annot.subtype == 'Popup') continue;
+      if (annot.isReply || annot.isStateAnnotation) continue;
+      final form = annot.normalAppearance;
+      if (form == null) continue;
+      final rect = annot.rect;
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      // outside the region the form BBox clips it away entirely - skip it
+      // rather than carry its appearance along
+      if (rect.right <= region.left ||
+          rect.left >= region.right ||
+          rect.top <= region.bottom ||
+          rect.bottom >= region.top) {
+        continue;
+      }
+      final bbox = pdfRectFrom(cos, form.dictionary['BBox']);
+      if (bbox == null) continue;
+      final fit = fitFormToRect(bbox, _formMatrix(form), rect);
+      final copied = copier.copy(form);
+      if (copied is! CosStream) continue;
+
+      var name = 'SnapAnnot$index';
+      while (xObjects.containsKey(name)) {
+        name = 'SnapAnnot${++index}';
+      }
+      index++;
+      xObjects[name] = copied;
+      w
+        ..save()
+        ..concatMatrix(fit.a, fit.b, fit.c, fit.d, fit.e, fit.f)
+        ..drawXObject(name)
+        ..restore();
+      drew = true;
+    }
+    if (!drew) return null;
+    resources['XObject'] = xObjects;
+    return w.takeBytes();
   }
 
   /// Pastes [snapshot] onto page [pageIndex], scaled to fill [targetRect],

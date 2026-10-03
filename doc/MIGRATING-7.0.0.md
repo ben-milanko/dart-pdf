@@ -1,6 +1,6 @@
-# Migrating to dart-pdf 6.0
+# Migrating to 7.0.0
 
-6.0 moves `dart_pdf_editor` and `dart_pdf_printing` from
+7.0.0 moves `dart_pdf_editor` and `dart_pdf_printing` from
 `package:flutter/material.dart` to
 [`material_ui`](https://pub.dev/packages/material_ui) (and `cupertino_ui`),
 the packages Flutter's Material and Cupertino libraries are moving to.
@@ -10,10 +10,13 @@ material_ui is a copy, not a re-export: its `Theme`, `ThemeData`,
 with the same names. Only widgets-layer values (`Color`, `TextStyle`,
 `IconData`, `IconThemeData`, `Navigator`, `Overlay`, ...) are shared.
 
-Most apps need no code changes beyond removing APIs deprecated in 5.x. Your
-app can stay on `package:flutter/material.dart` for now; the editor bridges
-to it. Moving the app to material_ui as well is what Flutter recommends, and
-it is a mechanical `dart fix` (below).
+6.0.0 shipped without this switch. Coming from 5.x, read
+[MIGRATING-6.0.0.md](MIGRATING-6.0.0.md) first.
+
+Most apps need no code changes beyond removing APIs deprecated in 5.x and
+kept through 6.0.0. Your app can stay on `package:flutter/material.dart` for
+now; the editor bridges to it. Moving the app to material_ui as well is what
+Flutter recommends, and it is a mechanical `dart fix` (below).
 
 ## Requirements
 
@@ -28,12 +31,12 @@ flutter:
   uses-material-design: true
 ```
 
-## Removed APIs (deprecated in 5.x)
+## Removed APIs (deprecated in 5.x, kept through 6.0.0)
 
 | Removed | Use instead |
 |---|---|
 | `PdfEditingPreferences.themeMode` (`ThemeMode`) | `themePreference` (`PdfThemePreference`), mapped in your app |
-| `PdfDialogSubmit(child: someButton)` | `PdfDialogSubmit.action(onSubmit: ..., child: ...)` |
+| `PdfDialogSubmit(child: someButton)` (the `ButtonStyleButton` form) | `PdfDialogSubmit.action(onSubmit: ..., child: ...)` |
 | `pdfSearchInputBorder` | `OutlineInputBorder(borderRadius: pdfSearchFieldBorderRadius)` |
 
 `themePreference` is stored under the same key `themeMode` used, so saved

@@ -1,5 +1,9 @@
 # Changelog
 
+## 6.0.0
+
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.

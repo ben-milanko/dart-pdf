@@ -1,6 +1,6 @@
 // The editor's design tokens: widgets-layer values only (colours, text
 // styles, lengths), so they read the same under a Material, Cupertino or
-// plain widgets host and survive the 6.0 switch to material_ui unchanged.
+// plain widgets host and survive the 7.0 switch to material_ui unchanged.
 
 import 'dart:ui' show lerpDouble;
 

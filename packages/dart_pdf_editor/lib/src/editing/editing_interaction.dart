@@ -166,6 +166,11 @@ class PdfEditingInteractionHost {
     this.resolvePagePoint,
     this.moveDragPreview,
     this.textEditClosed,
+    this.pageTextAt,
+    this.beginTextSelection,
+    this.updateTextSelection,
+    this.endTextSelection,
+    this.clearTextSelection,
   });
 
   final void Function(Offset delta)? panViewport;
@@ -180,6 +185,25 @@ class PdfEditingInteractionHost {
       resolvePagePoint;
   final PdfMoveDragPreviewCallback? moveDragPreview;
   final VoidCallback? textEditClosed;
+
+  /// Whether a drag starting at the global position would select page
+  /// text. The select tool asks on hover (text cursor) and at drag start.
+  final bool Function(Offset globalPosition)? pageTextAt;
+
+  /// Starts a page-text selection at the global position - a select-tool
+  /// drag that begins over text and over no annotation. Returns false when
+  /// there is no text there, leaving the drag to the overlay.
+  final bool Function(Offset globalPosition)? beginTextSelection;
+
+  /// Extends the selection begun by [beginTextSelection].
+  final void Function(Offset globalPosition)? updateTextSelection;
+
+  /// Ends the selection drag begun by [beginTextSelection].
+  final void Function({bool cancelled})? endTextSelection;
+
+  /// A select-tool click clears the page-text selection, as a click in the
+  /// reader does.
+  final VoidCallback? clearTextSelection;
 }
 
 /// The gesture intent currently owned by an editing page.
