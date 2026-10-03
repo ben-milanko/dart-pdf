@@ -1,6 +1,6 @@
 analyzer:
   errors:
-    # 6.0: Material and Cupertino come from material_ui / cupertino_ui. An
+    # 7.0: Material and Cupertino come from material_ui / cupertino_ui. An
     # import of package:flutter/material.dart or cupertino.dart is an error;
     # only the editor's legacy-host bridge (and the tests that build legacy
     # hosts) opt out, with an ignore_for_file.

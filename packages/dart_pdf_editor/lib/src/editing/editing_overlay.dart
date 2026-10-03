@@ -1082,6 +1082,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // touch drags on empty page area pan the viewer instead
   bool _viewportPanning = false;
 
+  /// A select-tool drag that began over page text: the viewer owns it
+  /// (see [PdfEditingInteractionHost.beginTextSelection]).
+  bool _textSelecting = false;
+
   // rotate drag: the pointer's start angle about the selection center,
   // the annotation's resting rotation when the drag started, and the
   // current delta (view space, clockwise positive - y is down)
@@ -1870,6 +1874,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a second finger landed: stop panning so the viewer's pinch-zoom
     // recognizer takes both touches (no fling - the gesture isn't a pan)
     _pointers.clearPan();
+    if (_textSelecting) {
+      _textSelecting = false;
+      _host.endTextSelection?.call(cancelled: true);
+    }
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -3873,6 +3881,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final mouseLike = details.kind == null ||
         details.kind == PointerDeviceKind.mouse ||
         details.kind == PointerDeviceKind.trackpad;
+    // a plain mouse drag over page text selects the text, like a reader;
+    // Shift/⌘/Ctrl still rubber-bands over it
+    if (mouseLike &&
+        !_additiveModifier &&
+        (_host.beginTextSelection?.call(details.globalPosition) ?? false)) {
+      _textSelecting = true;
+      return;
+    }
     if (mouseLike) {
       _beginInteraction(PdfEditingInteractionIntent.marquee, details.kind);
       setState(() {
@@ -3954,6 +3970,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _panUpdate(DragUpdateDetails details) {
     if (_controller.isCroppingImage) return;
     if (_pointers.gestureBailed || _pointers.rawPointer != null) return;
+    if (_textSelecting) {
+      _host.updateTextSelection?.call(details.globalPosition);
+      return;
+    }
     final position = details.localPosition;
     _interaction.sample();
     if (_panErasing) {
@@ -4106,6 +4126,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _panEnd(DragEndDetails details) {
     if (_controller.isCroppingImage) return;
     if (_pointers.rawPointer != null) return; // the raw pointer-up commits
+    if (_textSelecting) {
+      _textSelecting = false;
+      _host.endTextSelection?.call();
+      return;
+    }
     final before = _controller.revisionId;
     final transition = _interaction.state.transition;
     _finishPan(details);
@@ -4708,7 +4733,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
         // callback is an optional export of the raster image on top
-        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
+            annotations: widget.showAnnotations);
         final handler = widget.onSnapshot;
         if (handler == null) return;
         // page raster space (post-/Rotate, y down) = view space / scale -
@@ -4924,6 +4950,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _openTextEditor(_selectedViewRect!, existing: true);
         return;
       }
+      if (!_additiveModifier) _host.clearTextSelection?.call();
       // shift/⌘-click toggles membership in the selection
       _controller.selectAnnotationAt(widget.pageIndex, x, y,
           toggle: _additiveModifier);
@@ -5090,12 +5117,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         cursor = SystemMouseCursors.move;
       } else {
         final (x, y) = _geometry.toPagePoint(event.localPosition);
-        // a pointer over a selectable annotation, a crosshair-ish basic
-        // over empty page (a drag there rubber-bands)
+        // a pointer over a selectable annotation, an I-beam over page
+        // text (a drag there selects it), a crosshair-ish basic over empty
+        // page (a drag there rubber-bands)
         cursor =
             _controller.selectableAnnotationAt(widget.pageIndex, x, y) != null
                 ? SystemMouseCursors.click
-                : SystemMouseCursors.basic;
+                : (_host.pageTextAt?.call(event.position) ?? false)
+                    ? SystemMouseCursors.text
+                    : SystemMouseCursors.basic;
       }
     } else if (_tool == PdfEditTool.note) {
       cursor = SystemMouseCursors.click;
@@ -6094,6 +6124,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     chromeScale: _chromeScale,
                     tool: _tool,
                     color: _controller.color,
+                    inkOpacity: _controller.preferences.opacity
+                        .clamp(0.0, 1.0)
+                        .toDouble(),
                     strokeWidth:
                         _controller.preferences.strokeWidth * _geometry.scale,
                     lineScale: _controller.preferences.lineScale,
@@ -6768,7 +6801,10 @@ class _ActiveStrokePainter extends CustomPainter {
       geometry,
       parts.strokes,
       parts.pressures,
-      _state._controller.color,
+      // at the opacity the stroke commits with, so it doesn't paint
+      // opaque and then fade when the annotation lands
+      _state._controller.color.withValues(
+          alpha: _state._controller.preferences.opacity.clamp(0.0, 1.0)),
       _state._controller.preferences.strokeWidth * geometry.scale,
     );
     // the pen dot rides the sibling _HoverCursorPainter (it must show with
@@ -7588,6 +7624,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.geometry,
     required this.strokes,
     required this.pressures,
+    this.inkOpacity = 1,
     required this.dragRect,
     required this.dragLine,
     this.calloutLeader,
@@ -7640,6 +7677,10 @@ class _EditingPreviewPainter extends CustomPainter {
 
   final PdfEditTool? tool;
   final Color color;
+
+  /// Alpha the buffered ink [strokes] preview at - the opacity they will
+  /// commit with, so a highlighter stroke is translucent from the start.
+  final double inkOpacity;
   final double strokeWidth;
 
   /// Pattern-size multiplier for live borders, independent of pen width.
@@ -8262,7 +8303,8 @@ class _EditingPreviewPainter extends CustomPainter {
       }
     }
 
-    _paintInk(canvas, strokes, pressures, color, strokeWidth);
+    _paintInk(canvas, strokes, pressures, color.withValues(alpha: inkOpacity),
+        strokeWidth);
     for (final ink in extraInk) {
       _paintInk(canvas, ink.strokes, ink.pressures, ink.color, ink.strokeWidth);
     }
@@ -8491,6 +8533,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.chromeScale != chromeScale ||
       oldDelegate.tool != tool ||
       oldDelegate.color != color ||
+      oldDelegate.inkOpacity != inkOpacity ||
       oldDelegate.strokeWidth != strokeWidth ||
       oldDelegate.lineScale != lineScale ||
       !listEquals(oldDelegate.redactionRects, redactionRects) ||

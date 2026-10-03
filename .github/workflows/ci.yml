@@ -231,7 +231,7 @@ jobs:
   # API). This analyzes the editor and the pure-Dart packages under it on the
   # declared floor, outside the workspace (the app and the tooling in it may
   # need a newer Flutter than the published packages). Keep flutter-version
-  # in step with `flutter:` in packages/dart_pdf_editor/pubspec.yaml (6.0:
+  # in step with `flutter:` in packages/dart_pdf_editor/pubspec.yaml (7.0:
   # 3.47.0, material_ui 1.4's floor).
   floor-analyze:
     runs-on: ubuntu-latest

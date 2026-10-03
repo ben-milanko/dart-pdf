@@ -433,7 +433,7 @@ move is the one element edit that keeps its selection, because `moveElements`
 preserves element ids. See
 doc/dev-log/2026-08-27-reposition-page-content.md and
 doc/dev-log/2026-08-27-content-drag-preview-fidelity.md.
-UI control seams (non-breaking, ahead of the 6.0 material_ui switch): tokens
+UI control seams (non-breaking, ahead of the 7.0 material_ui switch): tokens
 (`PdfEditorThemeData`, `PdfViewerThemeData`), surfaces (`headerBuilder` +
 `PdfHeaderParts`, menu entry builders), `PdfEditorPresenter` (via
 `PdfEditorScope`), `PdfEditorCommands`, and `PdfMaterialHost` so the editor

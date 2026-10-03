@@ -6545,16 +6545,23 @@ class PdfEditingController extends ChangeNotifier {
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot - the page graphics under the region, copied inline,
   /// with the page's /Rotate baked in. Read-only: the document is
-  /// untouched. See [PdfVectorSnapshotEditing.captureVectorSnapshot].
-  PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region) =>
-      PdfEditor(_document).captureVectorSnapshot(pageIndex, region);
+  /// untouched. [annotations] includes the page's un-flattened annotations
+  /// over the region (pass the viewer's annotation visibility so the
+  /// capture matches the screen). See
+  /// [PdfVectorSnapshotEditing.captureVectorSnapshot].
+  PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region,
+          {bool annotations = true}) =>
+      PdfEditor(_document)
+          .captureVectorSnapshot(pageIndex, region, annotations: annotations);
 
   /// Captures [region] of [pageIndex] and keeps it on the snapshot
   /// clipboard for [pasteSnapshot] - the copy half of the Snapshot tool.
   /// The most recent copy wins, so this also drops the annotation
   /// clipboard. Returns the captured snapshot.
-  PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
-    final snapshot = captureVectorSnapshot(pageIndex, region);
+  PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region,
+      {bool annotations = true}) {
+    final snapshot =
+        captureVectorSnapshot(pageIndex, region, annotations: annotations);
     // publish to the shared clipboard; paste resets its per-document
     // bookkeeping when it sees this new snapshot (identity differs from the
     // anchor).

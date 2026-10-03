@@ -1,11 +1,16 @@
-# 6.0 PR A: the libraries move to material_ui (app stays legacy)
+# 7.0 PR A: the libraries move to material_ui (app stays legacy)
 
-The breaking half of the material_ui plan's 6.0.0 milestone: `dart_pdf_editor`
+Ships as **7.0.0**: 6.0.0 was released first without the switch (its
+deprecated APIs stayed, with removal deferred to 7.0.0), so this branch
+merged main's 6.0.0 release and was retargeted. The file name keeps the
+original "6" from when the work began.
+
+The breaking half of the material_ui plan's major-version milestone: `dart_pdf_editor`
 and `dart_pdf_printing` build on `material_ui`/`cupertino_ui` instead of
 `package:flutter/material.dart`/`cupertino.dart`. The app and the editor's
 example stay on the legacy library in this PR on purpose: they are the canary
 for a legacy `MaterialApp` hosting the flipped library. PR B moves them.
-Migration notes for hosts: `doc/migrating-to-6.md`.
+Migration notes for hosts: `doc/MIGRATING-7.0.0.md`.
 
 ## What changed
 
@@ -18,7 +23,7 @@ Migration notes for hosts: `doc/migrating-to-6.md`.
   (`sdk: ^3.5.0` and language 3.5 unchanged). No export directive needed
   fixing. The gpu package imports only the widgets layer; only its floor
   moved.
-- **`PdfMaterialHost`** (`design/material_host.dart`) is the 6.0 wrapper.
+- **`PdfMaterialHost`** (`design/material_host.dart`) is the 7.0 wrapper.
   `_needsHost` is "material_ui `MaterialLocalizations` or cupertino_ui
   `CupertinoLocalizations` missing, or no material_ui `Theme`, or the scope's
   tokens set colours" - a legacy `MaterialApp` provides none of those types,
