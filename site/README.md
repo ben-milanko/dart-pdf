@@ -72,9 +72,32 @@ in page canonicals, internal links, and `sitemap.xml`. Hosting redirects
 redirect directly to `/flutter-pdf-editor`. The `www` host declares the
 apex URLs as canonical.
 
-Every indexable page should be reachable through HTML links from the home
-page, including English-only guides. When a page changes, update its sitemap
-`lastmod` to the actual content-change date, rather than the deployment date.
+Every indexable page must be reachable through HTML links from the home
+page, including English-only guides. `tool/site/seo.py` discovers pages from
+their canonical tags and generates `sitemap.xml`, using each HTML file's
+latest Git commit date for `lastmod`. New pages join the sitemap automatically;
+unrelated commits and redeploys do not advance existing page dates. Generation
+requires full Git history and committed HTML sources.
+
+The **Deploy Site** workflow runs these checks on pull requests and before
+deploying main: canonical routes, title/description/H1, internal links,
+homepage reachability, robots rules, and direct redirects for URL variants.
+It regenerates the sitemap for every deployment and then checks the live
+domain's HTTP statuses, canonical/robots tags, sitemap, links, redirects, and
+real 404 responses. Failed live checks fail the deployment workflow and are
+reported in GitHub Actions.
+The source checker supports the site's exact/simple-glob Hosting rules and
+literal-prefix robots rules; unsupported patterns fail explicitly and require
+extending the checker before deployment.
+
+Run locally from the repository root:
+
+```sh
+python3 -m unittest discover -s tool/site -p 'test_*.py'
+python3 tool/site/seo.py --write-sitemap
+python3 tool/site/seo.py --live
+```
+
 In Search Console, redirect URLs and alternate pages with proper canonical
 tags are expected exclusions. For a canonical page marked **Discovered –
 currently not indexed**, inspect its live URL and request indexing; a
@@ -103,6 +126,7 @@ live under that project:
 Deploy the landing page:
 
 ```sh
+python3 tool/site/seo.py --write-sitemap # from the repository root, after committing HTML edits
 cd site
 firebase deploy --only hosting:dartpdf --project dart-pdf-demo
 ```
