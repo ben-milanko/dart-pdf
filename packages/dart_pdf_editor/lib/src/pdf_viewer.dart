@@ -8627,6 +8627,7 @@ class _PdfViewerState extends State<PdfViewer>
       }
       target += fraction * _pageMain(match.pageIndex) -
           _scroll.position.viewportDimension / (3 * scale);
+      if (scale > 1.01) _panCrossToMatch(match, scale);
     }
     _scroll.animateTo(
       target.clamp(0.0, _scroll.position.maxScrollExtent),
@@ -8634,6 +8635,35 @@ class _PdfViewerState extends State<PdfViewer>
       curve: Curves.easeInOut,
     );
     setState(() {}); // repaint highlights with the new current match
+  }
+
+  /// Zoomed in, the scroll only moves along the main axis, so a match off
+  /// to the side of the zoom window stays hidden: pan the cross axis to
+  /// centre the match's first rect when any of it lies outside the view.
+  void _panCrossToMatch(PdfTextMatch match, double scale) {
+    final index = match.pageIndex;
+    final box = _pages[index].cropBox;
+    if (box.width <= 0 || box.height <= 0) return;
+    final geometry = PdfPageGeometry(
+      cropBox: box,
+      rotation: _effectiveRotation(index),
+      viewSize: Size(_pageWidth(index), _pageHeight(index)),
+    );
+    final target = geometry
+        .toViewRect(match.rects.first)
+        .shift(Offset(_pageContentX(index), _pageContentY(index)))
+        .inflate(24 / scale);
+    final m = _transform.value;
+    final viewCross = -m.storage[_crossTranslate] / scale;
+    final crossLength = _crossView / scale;
+    final start = _horizontal ? target.top : target.left;
+    final end = _horizontal ? target.bottom : target.right;
+    if (start >= viewCross && end <= viewCross + crossLength) return;
+    // centred, or leading-edge aligned when it can't fit
+    final placed =
+        end - start >= crossLength ? start : (start + end - crossLength) / 2;
+    final t = (-placed * scale).clamp(_crossView * (1 - scale), 0.0);
+    _transform.value = m.clone()..storage[_crossTranslate] = t;
   }
 
   /// The whitespace-delimited word range at a point (list coordinates).
