@@ -2304,4 +2304,79 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Dispensar';
+
+  @override
+  String get tbBarGrip =>
+      'Arraste para encaixar ou clique para escolher a posição';
+
+  @override
+  String get tbDockTop => 'Topo';
+
+  @override
+  String get tbDockBottom => 'Base';
+
+  @override
+  String get tbDockLeft => 'Esquerda';
+
+  @override
+  String get tbDockRight => 'Direita';
+
+  @override
+  String get tbDockWithMainToolbar => 'Com a barra principal';
+
+  @override
+  String get tbStyleInToolBars => 'Dentro das barras de ferramentas';
+
+  @override
+  String get tbSeparateStyleBar => 'Barra de estilo separada';
+
+  @override
+  String get tbToolbarLayout => 'Layout das barras de ferramentas';
+
+  @override
+  String get tbToolbarLayoutMain => 'Barra principal';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Controles de estilo';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Uma barra de estilo reúne cor, traço, opacidade e fonte num só lugar para cada ferramenta e seleção.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Barras de ferramentas';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Uma barra encaixada numa borda fica aberta ali. Com a barra principal, ela abre quando você escolhe o grupo.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Redefinir layout';
+
+  @override
+  String get tbToolbarMode => 'Barras de ferramentas';
+
+  @override
+  String get tbToolbarDocked => 'Encaixadas nas bordas';
+
+  @override
+  String get tbToolbarFloating => 'Flutuando sobre a página';
+
+  @override
+  String get tbFloatingToolbar => 'Flutuar sobre a página';
+
+  @override
+  String get tbPropertiesHint =>
+      'Escolha uma ferramenta ou selecione uma marcação para ver as propriedades';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'A barra de propriedades mostra num só lugar as ações da seleção e as opções e o estilo da ferramenta.';
+
+  @override
+  String get tbFloatingToolbars => 'Barras flutuantes';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Mostrar as barras de ferramentas flutuando sobre a página em vez de encaixadas nas bordas da janela';
 }

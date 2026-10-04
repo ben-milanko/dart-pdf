@@ -4167,6 +4167,144 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get dialogDismiss;
+
+  /// Tooltip on a toolbar bar's grip handle: drag it to another edge, or click it to choose where the bar docks.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to dock, or click for placement'**
+  String get tbBarGrip;
+
+  /// Toolbar placement choice: dock the bar to the top edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Top'**
+  String get tbDockTop;
+
+  /// Toolbar placement choice: dock the bar to the bottom edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom'**
+  String get tbDockBottom;
+
+  /// Toolbar placement choice: dock the bar to the left edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get tbDockLeft;
+
+  /// Toolbar placement choice: dock the bar to the right edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Right'**
+  String get tbDockRight;
+
+  /// Toolbar placement choice: a tool bar rides with the main toolbar and opens when its group is picked.
+  ///
+  /// In en, this message translates to:
+  /// **'With main toolbar'**
+  String get tbDockWithMainToolbar;
+
+  /// Style-controls placement choice: colour/stroke/opacity controls stay inside each tool bar.
+  ///
+  /// In en, this message translates to:
+  /// **'Inside tool bars'**
+  String get tbStyleInToolBars;
+
+  /// Toggle in a tool bar's placement menu: move the style controls into one style bar of their own.
+  ///
+  /// In en, this message translates to:
+  /// **'Separate style bar'**
+  String get tbSeparateStyleBar;
+
+  /// Settings entry and dialog title for arranging the editing toolbars.
+  ///
+  /// In en, this message translates to:
+  /// **'Toolbar layout'**
+  String get tbToolbarLayout;
+
+  /// Toolbar layout dialog: section for the main toolbar (modes and tool groups).
+  ///
+  /// In en, this message translates to:
+  /// **'Main toolbar'**
+  String get tbToolbarLayoutMain;
+
+  /// Toolbar layout dialog: section for where colour/stroke/opacity/font controls appear.
+  ///
+  /// In en, this message translates to:
+  /// **'Style controls'**
+  String get tbToolbarLayoutStyle;
+
+  /// Toolbar layout dialog: explains the separate style bar.
+  ///
+  /// In en, this message translates to:
+  /// **'A style bar keeps color, stroke, opacity and font in one place for every tool and selection.'**
+  String get tbToolbarLayoutStyleHint;
+
+  /// Toolbar layout dialog: section listing each tool group's bar (Markup, Draw, Shapes…).
+  ///
+  /// In en, this message translates to:
+  /// **'Tool bars'**
+  String get tbToolbarLayoutToolBars;
+
+  /// Toolbar layout dialog: explains docking a tool bar.
+  ///
+  /// In en, this message translates to:
+  /// **'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.'**
+  String get tbToolbarLayoutToolBarsHint;
+
+  /// Toolbar layout dialog button: restore the default toolbar arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset layout'**
+  String get tbToolbarLayoutReset;
+
+  /// Toolbar layout dialog: picker for whether toolbars dock to the window edges or float over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Toolbars'**
+  String get tbToolbarMode;
+
+  /// Toolbar mode choice: solid toolbars attached to the window edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Docked to the edges'**
+  String get tbToolbarDocked;
+
+  /// Toolbar mode choice: toolbars float as cards over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Floating over the page'**
+  String get tbToolbarFloating;
+
+  /// Toggle in the main toolbar's placement menu: float the toolbars over the page instead of docking them.
+  ///
+  /// In en, this message translates to:
+  /// **'Float over the page'**
+  String get tbFloatingToolbar;
+
+  /// Shown in the docked properties bar while no tool or selection has properties.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a tool or select a markup to see its properties'**
+  String get tbPropertiesHint;
+
+  /// Toolbar layout dialog: explains the docked properties bar.
+  ///
+  /// In en, this message translates to:
+  /// **'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.'**
+  String get tbToolbarLayoutPropertiesHint;
+
+  /// Setting/checkbox: float the editing toolbars over the page instead of docking them to the window edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Floating toolbars'**
+  String get tbFloatingToolbars;
+
+  /// Subtitle explaining the Floating toolbars setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Float the toolbars over the page instead of docking them to the window edges'**
+  String get tbFloatingToolbarsHint;
 }
 
 class _DartPdfEditorLocalizationsDelegate

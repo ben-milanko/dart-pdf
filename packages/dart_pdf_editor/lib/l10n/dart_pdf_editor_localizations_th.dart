@@ -2287,4 +2287,78 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'ปิด';
+
+  @override
+  String get tbBarGrip => 'ลากเพื่อเชื่อมต่อ หรือคลิกเพื่อเลือกตำแหน่ง';
+
+  @override
+  String get tbDockTop => 'บน';
+
+  @override
+  String get tbDockBottom => 'ล่าง';
+
+  @override
+  String get tbDockLeft => 'ซ้าย';
+
+  @override
+  String get tbDockRight => 'ขวา';
+
+  @override
+  String get tbDockWithMainToolbar => 'รวมกับแถบเครื่องมือหลัก';
+
+  @override
+  String get tbStyleInToolBars => 'ภายในแถบเครื่องมือ';
+
+  @override
+  String get tbSeparateStyleBar => 'แถบสไตล์แยก';
+
+  @override
+  String get tbToolbarLayout => 'เค้าโครงแถบเครื่องมือ';
+
+  @override
+  String get tbToolbarLayoutMain => 'แถบเครื่องมือหลัก';
+
+  @override
+  String get tbToolbarLayoutStyle => 'ตัวควบคุมสไตล์';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'แถบสไตล์รวมสี เส้น ความทึบ และแบบอักษรไว้ที่เดียวสำหรับทุกเครื่องมือและทุกการเลือก';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'แถบเครื่องมือ';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'แถบเครื่องมือที่เชื่อมไว้ที่ขอบจะเปิดค้างอยู่ตรงนั้น หากรวมกับแถบหลัก จะเปิดเมื่อคุณเลือกกลุ่มของมัน';
+
+  @override
+  String get tbToolbarLayoutReset => 'รีเซ็ตเค้าโครง';
+
+  @override
+  String get tbToolbarMode => 'แถบเครื่องมือ';
+
+  @override
+  String get tbToolbarDocked => 'เชื่อมไว้ที่ขอบ';
+
+  @override
+  String get tbToolbarFloating => 'ลอยอยู่เหนือหน้า';
+
+  @override
+  String get tbFloatingToolbar => 'ลอยเหนือหน้า';
+
+  @override
+  String get tbPropertiesHint =>
+      'เลือกเครื่องมือหรือเลือกมาร์กอัปเพื่อดูคุณสมบัติ';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'แถบคุณสมบัติแสดงการทำงานของสิ่งที่เลือก รวมถึงตัวเลือกและสไตล์ของเครื่องมือไว้ที่เดียว';
+
+  @override
+  String get tbFloatingToolbars => 'แถบเครื่องมือแบบลอย';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'แสดงแถบเครื่องมือลอยเหนือหน้าแทนการเชื่อมไว้ที่ขอบหน้าต่าง';
 }

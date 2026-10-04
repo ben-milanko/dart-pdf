@@ -2341,4 +2341,79 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Zamknij';
+
+  @override
+  String get tbBarGrip =>
+      'Przeciągnij, aby zadokować, lub kliknij, aby wybrać położenie';
+
+  @override
+  String get tbDockTop => 'Góra';
+
+  @override
+  String get tbDockBottom => 'Dół';
+
+  @override
+  String get tbDockLeft => 'Lewo';
+
+  @override
+  String get tbDockRight => 'Prawo';
+
+  @override
+  String get tbDockWithMainToolbar => 'Z głównym paskiem';
+
+  @override
+  String get tbStyleInToolBars => 'Wewnątrz pasków narzędzi';
+
+  @override
+  String get tbSeparateStyleBar => 'Osobny pasek stylu';
+
+  @override
+  String get tbToolbarLayout => 'Układ pasków narzędzi';
+
+  @override
+  String get tbToolbarLayoutMain => 'Główny pasek narzędzi';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Ustawienia stylu';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Pasek stylu trzyma kolor, obrys, krycie i czcionkę w jednym miejscu dla każdego narzędzia i zaznaczenia.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Paski narzędzi';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Pasek zadokowany przy krawędzi pozostaje tam otwarty. Z głównym paskiem otwiera się po wybraniu jego grupy.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Resetuj układ';
+
+  @override
+  String get tbToolbarMode => 'Paski narzędzi';
+
+  @override
+  String get tbToolbarDocked => 'Zadokowane przy krawędziach';
+
+  @override
+  String get tbToolbarFloating => 'Unoszące się nad stroną';
+
+  @override
+  String get tbFloatingToolbar => 'Unoś nad stroną';
+
+  @override
+  String get tbPropertiesHint =>
+      'Wybierz narzędzie lub zaznacz adnotację, aby zobaczyć jej właściwości';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia.';
+
+  @override
+  String get tbFloatingToolbars => 'Pływające paski narzędzi';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Wyświetlaj paski narzędzi nad stroną zamiast dokować je przy krawędziach okna';
 }
