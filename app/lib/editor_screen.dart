@@ -34,7 +34,7 @@ import 'l10n/app_l10n.dart';
 import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
-import 'ocr_status_label.dart';
+import 'ocr_status_chip.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
 import 'recent_thumbnails.dart';
@@ -4412,7 +4412,7 @@ class _EditorScreenState extends State<EditorScreen>
         valueListenable: _ocr.status,
         builder: (context, status, _) => status == null
             ? const SizedBox.shrink()
-            : _OcrStatusChip(status: status, onCancel: _ocr.cancel),
+            : OcrStatusChip(status: status, onCancel: _ocr.cancel),
       ),
       if (_showsSelectionCopyAction && tab?.viewer != null)
         ListenableBuilder(
@@ -5574,102 +5574,6 @@ class _DropOverlay extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// Compact app-bar indicator for a running background OCR job: a spinner that
-/// keeps turning so the job visibly stays alive between updates, a short
-/// label, a cancel button, and a progress bar along the chip's bottom edge
-/// (determinate when the job knows how far along it is, sweeping otherwise).
-class _OcrStatusChip extends StatelessWidget {
-  const _OcrStatusChip({required this.status, required this.onCancel});
-
-  final OcrJobStatus status;
-  final VoidCallback onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final fraction = status.fraction;
-    return Tooltip(
-      message: appL10n(context).editorOcrTooltip(status.title),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Material(
-          key: const ValueKey('ocr-status-chip'),
-          color: scheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(20),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            children: [
-              Padding(
-                padding: const EdgeInsetsDirectional.only(start: 10),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 15,
-                      height: 15,
-                      child: CircularProgressIndicator(
-                        key: ValueKey('ocr-status-spinner'),
-                        strokeWidth: 2,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      ocrStatusLabel(appL10n(context), status),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: scheme.onSecondaryContainer,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    IconButton(
-                      key: const ValueKey('ocr-status-cancel'),
-                      visualDensity: VisualDensity.compact,
-                      iconSize: 18,
-                      icon: const Icon(Icons.close),
-                      tooltip: appL10n(context).editorCancelOcr,
-                      onPressed: onCancel,
-                    ),
-                  ],
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: TweenAnimationBuilder<double?>(
-                  // Ease between updates so page steps glide instead of jump.
-                  tween: _NullableFractionTween(end: fraction),
-                  duration: const Duration(milliseconds: 300),
-                  builder: (context, value, _) => LinearProgressIndicator(
-                    key: const ValueKey('ocr-status-progress'),
-                    value: value,
-                    minHeight: 3,
-                    backgroundColor: Colors.transparent,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Tweens a progress fraction, snapping (rather than interpolating) to or
-/// from null so the bar switches cleanly between determinate and sweeping.
-class _NullableFractionTween extends Tween<double?> {
-  _NullableFractionTween({super.end});
-
-  @override
-  double? lerp(double t) {
-    final a = begin;
-    final b = end;
-    if (a == null || b == null) return b;
-    return a + (b - a) * t;
   }
 }
 

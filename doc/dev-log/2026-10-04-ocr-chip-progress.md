@@ -1,6 +1,7 @@
 # OCR chip: honest progress, live motion, web download %
 
-The app-bar OCR chip (`_OcrStatusChip` in `app/lib/editor_screen.dart`) had
+The app-bar OCR chip (`OcrStatusChip`, now in `app/lib/ocr_status_chip.dart`
+with widget tests in `app/test/ocr_status_chip_test.dart`) had
 three problems:
 
 - **"OCR 1/1" while working.** `OcrJobStatus.fraction` was `page / pageCount`
@@ -27,3 +28,8 @@ Web also reports within-page progress per recognized tile
 
 Note: the chip now always contains an indeterminate spinner, so a widget test
 must `pump(duration)` rather than `pumpAndSettle()` while it is up.
+
+Gotcha: `TweenAnimationBuilder` asserts a non-null `tween.end`, so the bar only
+eases when the fraction is known and swaps to a plain indeterminate
+`LinearProgressIndicator` otherwise (a nullable tween crashes debug builds in
+the preparing/finishing phases).
