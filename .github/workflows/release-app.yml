@@ -156,6 +156,11 @@ jobs:
       - name: Cache-bust web build
         working-directory: app
         run: bash ../tool/web_cache_bust.sh build/web
+      # The browser OCR loads its PP-OCR models from the app's own origin
+      # (GitHub release downloads send no CORS headers); SHA-256-checked.
+      - name: Add the OCR models
+        working-directory: app
+        run: bash ../tool/fetch_ocr_models.sh build/web
       - name: Zip
         working-directory: app
         run: (cd build/web && zip -r ../../dartpdf-web.zip .)

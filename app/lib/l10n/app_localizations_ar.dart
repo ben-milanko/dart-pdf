@@ -811,7 +811,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'يُنزّل OCR على الويب نموذج Florence-2 للرؤية واللغة ويشغّله محليًا باستخدام WebGPU/WASM عبر Transformers.js. تبقى صفحات PDF في هذا المتصفح؛ ولا يُجلب سوى ملفات النموذج عند أول استخدام.';
+      'يُنزّل OCR على الويب نموذجًا صغيرًا للتعرّف على النصوص (PP-OCRv5، نحو 21 ميغابايت) ويشغّله محليًا باستخدام WebAssembly. تبقى صفحات PDF في هذا المتصفح؛ ولا يُجلب سوى ملفات النموذج عند أول استخدام.';
 
   @override
   String get ocrWebPromptTitle => 'تشغيل OCR بالذكاء الاصطناعي في هذا المتصفح؟';

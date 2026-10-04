@@ -795,7 +795,7 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'L\'OCR web scarica un modello linguistico-visivo Florence-2 e lo esegue localmente con WebGPU/WASM tramite Transformers.js. Le pagine PDF rimangono in questo browser; solo i file del modello vengono recuperati al primo utilizzo.';
+      'L\'OCR web scarica un piccolo modello di riconoscimento del testo (PP-OCRv5, circa 21 MB) e lo esegue localmente con WebAssembly. Le pagine del PDF restano in questo browser; vengono scaricati solo i file del modello, al primo utilizzo.';
 
   @override
   String get ocrWebPromptTitle => 'Eseguire l\'OCR con IA in questo browser?';

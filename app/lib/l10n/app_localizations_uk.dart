@@ -799,7 +799,7 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Веб-OCR завантажує модель «зображення-мова» Florence-2 і запускає її локально за допомогою WebGPU/WASM через Transformers.js. Сторінки PDF залишаються в цьому браузері; лише файли моделі завантажуються під час першого використання.';
+      'Веб-OCR завантажує невелику модель розпізнавання тексту (PP-OCRv5, близько 21 МБ) і запускає її локально за допомогою WebAssembly. Сторінки PDF залишаються в цьому браузері; під час першого використання завантажуються лише файли моделі.';
 
   @override
   String get ocrWebPromptTitle =>

@@ -783,7 +783,7 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'OCR บนเว็บจะดาวน์โหลดโมเดลภาษาภาพ Florence-2 และรันในเครื่องด้วย WebGPU/WASM ผ่าน Transformers.js หน้า PDF จะยังคงอยู่ในเบราว์เซอร์นี้ มีเพียงไฟล์โมเดลเท่านั้นที่ดึงมาเมื่อใช้งานครั้งแรก';
+      'OCR บนเว็บจะดาวน์โหลดโมเดลรู้จำข้อความขนาดเล็ก (PP-OCRv5 ประมาณ 21 MB) และรันในเครื่องด้วย WebAssembly หน้า PDF จะอยู่ในเบราว์เซอร์นี้ มีเพียงไฟล์โมเดลที่ถูกดาวน์โหลดเมื่อใช้งานครั้งแรก';
 
   @override
   String get ocrWebPromptTitle => 'รัน AI OCR ในเบราว์เซอร์นี้หรือไม่';

@@ -199,7 +199,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "On-device OCR is not available on this platform",
   "ocrResult": "{count, plural, =0{OCR found no text on these pages} =1{OCR added 1 text span - the page text is now selectable} other{OCR added {count} text spans - the page text is now selectable}}",
-  "ocrWebPromptBody": "Web OCR downloads a Florence-2 vision-language model and runs it locally with WebGPU/WASM through Transformers.js. The PDF pages stay in this browser; only model files are fetched on first use.",
+  "ocrWebPromptBody": "Web OCR downloads a small text-recognition model (PP-OCRv5, about 21 MB) and runs it locally with WebAssembly. The PDF pages stay in this browser; only the model files are fetched, on first use.",
   "ocrWebPromptTitle": "Run AI OCR in this browser?",
   "ocrWebStart": "Start OCR",
   "ok": "OK",

@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "OCR di perangkat tidak tersedia di platform ini",
   "ocrResult": "{count, plural, =0{OCR tidak menemukan teks pada halaman ini} =1{OCR menambahkan 1 rentang teks - teks halaman kini dapat dipilih} other{OCR menambahkan {count} rentang teks - teks halaman kini dapat dipilih}}",
-  "ocrWebPromptBody": "OCR web mengunduh model bahasa-visual Florence-2 dan menjalankannya secara lokal dengan WebGPU/WASM melalui Transformers.js. Halaman PDF tetap di peramban ini; hanya berkas model yang diambil saat pertama kali digunakan.",
+  "ocrWebPromptBody": "OCR web mengunduh model pengenalan teks kecil (PP-OCRv5, sekitar 21 MB) dan menjalankannya secara lokal dengan WebAssembly. Halaman PDF tetap berada di browser ini; hanya file model yang diambil, saat pertama kali digunakan.",
   "ocrWebPromptTitle": "Jalankan OCR AI di peramban ini?",
   "ocrWebStart": "Mulai OCR",
   "ok": "OK",

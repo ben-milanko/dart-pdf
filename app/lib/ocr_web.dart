@@ -1,26 +1,25 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:js_interop';
-import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 
 import 'l10n/app_l10n.dart';
 import 'ocr_status.dart';
-import 'ocr_tiling.dart';
 
 export 'ocr_status.dart';
 
 /// Drives the app's browser-local OCR flow.
 ///
-/// Native builds use `pdf_ocr_ondevice` with ONNX Runtime. Web builds cannot
-/// compile that FFI stack, so this implementation calls the JavaScript OCR
-/// bridge registered by `web/index.html`. That bridge loads a Florence-2
-/// vision-language model through Transformers.js and runs recognition in the
-/// browser; page images and OCR results do not go to an app OCR server.
+/// The same PP-OCR pipeline the native apps run (`pdf_ocr_ondevice`'s
+/// [PpOcrPipeline]: resize, normalize, box extraction, CTC decoding), with
+/// its two network calls handed to the onnxruntime-web bridge registered by
+/// `web/index.html` instead of native ONNX Runtime, which can't compile here.
+/// The models come from this app's own origin; page images and OCR results
+/// never leave the browser.
 class OnDeviceOcr {
   OnDeviceOcr();
 
@@ -30,7 +29,7 @@ class OnDeviceOcr {
 
   bool _cancelled = false;
 
-  /// Web OCR is supported by the browser-local Florence-2 bridge.
+  /// Web OCR is supported by the browser-local onnxruntime-web bridge.
   static bool get isSupported => true;
 
   /// Whether a job is in flight (only one runs at a time).
@@ -70,7 +69,8 @@ class OnDeviceOcr {
     if (approved != true) return;
     _cancelled = false;
 
-    final engine = _BrowserOcrEngine();
+    final pipeline = PpOcrPipeline(_BrowserOcrInference());
+    final engine = OcrRunnerEngine(pipeline);
     try {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
       // Feed the bridge's model-download progress into the chip. The bridge
@@ -93,7 +93,7 @@ class OnDeviceOcr {
         );
       });
       try {
-        await engine.warmUp();
+        await pipeline.load();
       } finally {
         _setProgressListener(null);
       }
@@ -115,8 +115,9 @@ class OnDeviceOcr {
               pageFraction: pageFraction,
             );
         report();
-        engine.onPageProgress = report;
-        spans += await editor.applyOcr(i, engine, pixelRatio: 2);
+        pipeline.onProgress = report;
+        spans += await editor.applyOcr(i, engine,
+            pixelRatio: OcrRunnerEngine.pixelRatioFor(editor.document.page(i)));
         await Future<void>.delayed(Duration.zero);
       }
       if (_cancelled) {
@@ -130,6 +131,7 @@ class OnDeviceOcr {
     } catch (e) {
       onToast(l10n.ocrFailed(e.toString()));
     } finally {
+      await engine.dispose();
       status.value = null;
     }
   }
@@ -160,92 +162,49 @@ external JSAny? get _ocrProgressHook;
 @JS('__dartPdfOcrOnProgress')
 external void _registerOcrProgress(JSFunction? listener);
 
-@JS('__dartPdfOcrRecognize')
+@JS('__dartPdfOcrRun')
 external JSAny? get _ocrBridge;
 
-@JS('__dartPdfOcrRecognize')
-external JSPromise<JSString> _recognizeWithBrowserOcr(String imageDataUrl);
+@JS('__dartPdfOcrLoad')
+external JSPromise<JSString> _ocrLoad();
 
-class _BrowserOcrEngine implements PdfOcrEngine {
-  /// Called with the fraction of the current page's tiles recognized so far.
-  void Function(double fraction)? onPageProgress;
+@JS('__dartPdfOcrRun')
+external JSPromise<_OcrRunResult> _ocrRun(
+    String name, JSFloat32Array data, JSArray<JSNumber> dims);
 
-  Future<void> warmUp() async {
-    await _recognizeDataUrl(
-      'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
-    );
-  }
+extension type _OcrRunResult(JSObject _) implements JSObject {
+  external JSFloat32Array get data;
+  external JSArray<JSNumber> get dims;
+}
+
+/// [PpOcrInference] over the onnxruntime-web bridge in `web/index.html`.
+class _BrowserOcrInference implements PpOcrInference {
+  @override
+  Future<String> load() async => (await _ocrLoad().toDart).toDart;
 
   @override
-  Future<List<PdfOcrSpan>> recognize(PdfOcrPageImage page) async {
-    // Florence-2 resizes whatever image it is handed to 768x768, so feeding it
-    // the whole page crushes small print to a few unreadable pixels and it
-    // hallucinates. Recognize the page in overlapping tiles small enough to
-    // survive that resize, lift each tile's boxes back into page-pixel space,
-    // then drop the duplicates the overlaps produce.
-    final image = page.image;
-    final tiles = ocrTiles(image.width, image.height);
-    final raw = <OcrRawSpan>[];
-    for (var t = 0; t < tiles.length; t++) {
-      final tile = tiles[t];
-      final png = await _encodeTilePng(image, tile);
-      final result = await _recognizeDataUrl(
-        'data:image/png;base64,${base64Encode(png)}',
-      );
-      final spans = parseFlorenceSpans(
-        result,
-        fallbackWidth: tile.width.round(),
-        fallbackHeight: tile.height.round(),
-      );
-      for (final span in spans) {
-        raw.add(span.shifted(tile.left, tile.top));
-      }
-      onPageProgress?.call((t + 1) / tiles.length);
-    }
-    return [
-      for (final span in mergeOcrSpans(raw))
-        PdfOcrSpan(
-          text: span.text,
-          bounds: page.userSpaceRect(span.box),
-          confidence: span.confidence,
-        ),
-    ];
-  }
+  Future<OcrTensor> detect(Float32List input, int width, int height) =>
+      _run('det', input, [1, 3, height, width]);
 
-  /// Encodes the sub-rectangle [src] of [image] to PNG, the form the JS bridge
-  /// accepts. Cropping happens on the raster thread (draw the source rect into
-  /// a tile-sized image) so only the tile's pixels cross to JavaScript.
-  static Future<Uint8List> _encodeTilePng(ui.Image image, Rect src) async {
-    final w = src.width.round();
-    final h = src.height.round();
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(recorder);
-    canvas.drawImageRect(
-      image,
-      src,
-      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
-      ui.Paint(),
+  @override
+  Future<OcrTensor> recognize(
+          Float32List input, int batch, int height, int width) =>
+      _run('rec', input, [batch, 3, height, width]);
+
+  static Future<OcrTensor> _run(
+      String name, Float32List input, List<int> dims) async {
+    final result =
+        await _ocrRun(name, input.toJS, [for (final d in dims) d.toJS].toJS)
+            .toDart;
+    return (
+      data: result.data.toDart,
+      shape: [for (final d in result.dims.toDart) d.toDartInt],
     );
-    final picture = recorder.endRecording();
-    final ui.Image tile;
-    try {
-      tile = await picture.toImage(w, h);
-    } finally {
-      picture.dispose();
-    }
-    try {
-      final data = await tile.toByteData(format: ui.ImageByteFormat.png);
-      if (data == null) throw StateError('could not encode OCR tile to PNG');
-      return data.buffer.asUint8List();
-    } finally {
-      tile.dispose();
-    }
   }
 
-  static Future<Object?> _recognizeDataUrl(String dataUrl) async {
-    final result = await _recognizeWithBrowserOcr(dataUrl).toDart;
-    return jsonDecode(result.toDart);
-  }
+  // The sessions live for the page; a later job reuses them.
+  @override
+  Future<void> dispose() async {}
 }
 
 class _WebOcrConfirmDialog extends StatelessWidget {

@@ -32,4 +32,7 @@ $FLUTTER build web --dart-define=PDF_BUILD_COMMIT="$BUILD_COMMIT" "$@"
 echo "==> Cache-busting web entrypoints and fonts"
 bash "$REPO_ROOT/tool/web_cache_bust.sh" build/web
 
-echo "==> Done. build/web includes the dart_pdf_editor_assets worker asset."
+echo "==> Adding the OCR models (served from this origin for the browser OCR)"
+bash "$REPO_ROOT/tool/fetch_ocr_models.sh" build/web
+
+echo "==> Done. build/web includes the dart_pdf_editor_assets worker asset and the OCR models."

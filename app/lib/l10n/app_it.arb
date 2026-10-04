@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "L'OCR sul dispositivo non è disponibile su questa piattaforma",
   "ocrResult": "{count, plural, =0{L'OCR non ha trovato testo su queste pagine} =1{L'OCR ha aggiunto 1 blocco di testo - il testo della pagina è ora selezionabile} other{L'OCR ha aggiunto {count} blocchi di testo - il testo della pagina è ora selezionabile}}",
-  "ocrWebPromptBody": "L'OCR web scarica un modello linguistico-visivo Florence-2 e lo esegue localmente con WebGPU/WASM tramite Transformers.js. Le pagine PDF rimangono in questo browser; solo i file del modello vengono recuperati al primo utilizzo.",
+  "ocrWebPromptBody": "L'OCR web scarica un piccolo modello di riconoscimento del testo (PP-OCRv5, circa 21 MB) e lo esegue localmente con WebAssembly. Le pagine del PDF restano in questo browser; vengono scaricati solo i file del modello, al primo utilizzo.",
   "ocrWebPromptTitle": "Eseguire l'OCR con IA in questo browser?",
   "ocrWebStart": "Avvia OCR",
   "ok": "OK",
