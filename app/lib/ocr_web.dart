@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 
 import 'l10n/app_l10n.dart';
+import 'ocr_pages.dart';
 import 'ocr_status.dart';
 
 export 'ocr_status.dart';
@@ -103,23 +104,22 @@ class OnDeviceOcr {
       }
 
       final editor = PdfEditor(PdfDocument.open(bytes));
-      final count = editor.document.pageCount;
-      var spans = 0;
-      for (var i = 0; i < count; i++) {
-        if (_cancelled) break;
-        void report([double? pageFraction]) => status.value = OcrJobStatus(
-              phase: OcrPhase.recognising,
-              title: title,
-              page: i + 1,
-              pageCount: count,
-              pageFraction: pageFraction,
-            );
-        report();
-        pipeline.onProgress = report;
-        spans += await editor.applyOcr(i, engine,
-            pixelRatio: OcrRunnerEngine.pixelRatioFor(editor.document.page(i)));
-        await Future<void>.delayed(Duration.zero);
-      }
+      final spans = await ocrAllPages(
+        editor,
+        engine,
+        isCancelled: () => _cancelled,
+        onPage: (i, count) {
+          void report([double? pageFraction]) => status.value = OcrJobStatus(
+                phase: OcrPhase.recognising,
+                title: title,
+                page: i + 1,
+                pageCount: count,
+                pageFraction: pageFraction,
+              );
+          report();
+          pipeline.onProgress = report;
+        },
+      );
       if (_cancelled) {
         onToast(l10n.ocrCancelledAfterSpans(spans));
         return;

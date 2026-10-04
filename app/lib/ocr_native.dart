@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
 
 import 'l10n/app_l10n.dart';
+import 'ocr_pages.dart';
 import 'ocr_status.dart';
 
 export 'ocr_status.dart';
@@ -104,22 +105,17 @@ class OnDeviceOcr {
       status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
       engine = await OnDeviceOcrEngine.fromDownloadedModel(_manager, _model);
       final editor = PdfEditor(PdfDocument.open(bytes));
-      final count = editor.document.pageCount;
-      var spans = 0;
-      for (var i = 0; i < count; i++) {
-        if (_cancelled) break;
-        status.value = OcrJobStatus(
+      final spans = await ocrAllPages(
+        editor,
+        engine,
+        isCancelled: () => _cancelled,
+        onPage: (i, count) => status.value = OcrJobStatus(
           phase: OcrPhase.recognising,
           title: title,
           page: i + 1,
           pageCount: count,
-        );
-        spans += await editor.applyOcr(i, engine,
-            pixelRatio:
-                OnDeviceOcrEngine.pixelRatioFor(editor.document.page(i)));
-        // Hand the event loop a turn so taps/scrolls are serviced promptly.
-        await Future<void>.delayed(Duration.zero);
-      }
+        ),
+      );
       if (_cancelled) {
         onToast(l10n.ocrCancelledAfterSpans(spans));
         return;
