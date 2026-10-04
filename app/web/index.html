@@ -110,14 +110,15 @@
   <script>
     (function () {
       var florencePromise = null;
-      async function hasWebGpuFp16() {
+      // navigator.gpu can exist with no usable adapter behind it (Linux
+      // Chrome without GPU access, headless browsers), and asking ONNX Runtime
+      // for 'webgpu' there fails outright - so pick the device by whether an
+      // adapter actually comes back, not by whether the API is defined.
+      async function webGpuAdapter() {
         try {
-          if (!navigator.gpu) return false;
-          var adapter = await navigator.gpu.requestAdapter();
-          return !!(adapter && adapter.features &&
-            adapter.features.has('shader-f16'));
+          return navigator.gpu ? await navigator.gpu.requestAdapter() : null;
         } catch (_) {
-          return false;
+          return null;
         }
       }
       async function florence() {
@@ -131,10 +132,12 @@
               .from_pretrained(modelId);
             var tokenizer = await transformers.AutoTokenizer
               .from_pretrained(modelId);
-            var fp16 = await hasWebGpuFp16();
+            var adapter = await webGpuAdapter();
+            var fp16 = !!(adapter && adapter.features &&
+              adapter.features.has('shader-f16'));
             var model = await transformers.Florence2ForConditionalGeneration
               .from_pretrained(modelId, {
-                device: navigator.gpu ? 'webgpu' : 'wasm',
+                device: adapter ? 'webgpu' : 'wasm',
                 dtype: {
                   embed_tokens: fp16 ? 'fp16' : 'fp32',
                   vision_encoder: fp16 ? 'fp16' : 'fp32',
