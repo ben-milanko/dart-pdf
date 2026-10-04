@@ -7675,33 +7675,36 @@ class _PdfViewerState extends State<PdfViewer>
         page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
   }
 
-  /// ⌘A/Ctrl+A: with the select tool armed (or an annotation selection
-  /// in play) selects every annotation on the current page; otherwise
-  /// selects the current page's whole text.
+  /// ⌘A/Ctrl+A: with an annotation selection in play, widens it to every
+  /// annotation on the current page; otherwise selects the current page's
+  /// whole text - in Select mode too, since that tool selects text (and is
+  /// the mode a document opens in). A page with no text falls back to its
+  /// annotations under the select tool.
   void _onSelectAll() {
     final page = _controller.currentPage;
     final editing = widget.editing;
-    if (editing?.isHandMode == true) return;
-    if (editing != null &&
-        (editing.tool == PdfEditTool.select ||
-            editing.hasAnnotationSelection)) {
+    if (editing != null && editing.hasAnnotationSelection) {
       editing.selectAllAnnotationsOn(page);
       return;
     }
-    _selectAllTextOn(page);
+    if (_selectAllTextOn(page)) return;
+    if (editing != null && editing.tool == PdfEditTool.select) {
+      editing.selectAllAnnotationsOn(page);
+    }
   }
 
   /// Selects the whole text of one page (⌘A and the touch chip's
-  /// Select All).
-  void _selectAllTextOn(int page) {
+  /// Select All). False when the page has no text to select.
+  bool _selectAllTextOn(int page) {
     final length = _pageText(page).text.length;
-    if (length == 0) return;
+    if (length == 0) return false;
     _wordAnchor = null;
     setState(() {
       _selAnchor = (page, 0);
       _selFocus = (page, length);
     });
     _controller._setSelection(_selectedText());
+    return true;
   }
 
   /// A single-key tool shortcut ([pdfEditToolShortcuts]) arms [tool],
