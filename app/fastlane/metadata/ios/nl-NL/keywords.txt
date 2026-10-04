@@ -1,1 +1,1 @@
-pdf,editor,bewerken,annoteren,markeren,ondertekenen,handtekening,formulier,scannen,ocr,samenvoegen
+ocr,markup,notities,stempel,formulier,samenvoegen,lezen,wachtwoord,vergelijk,scan,pagina,inkt,export

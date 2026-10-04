@@ -1,1 +1,1 @@
-pdf,editor,bearbeiten,anmerken,signieren,formular,ausfüllen,schwärzen,scannen,ocr,vergleichen
+ocr,markieren,notizen,stempel,formulare,verbinden,lesen,passwort,vergleich,scan,seiten,tinte,export
