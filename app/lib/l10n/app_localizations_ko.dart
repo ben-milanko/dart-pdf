@@ -1019,8 +1019,14 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR $pageCount페이지 중 $page페이지';
   }
+
+  @override
+  String get ocrChipRecognisingText => '텍스트 읽는 중…';
+
+  @override
+  String get ocrChipPreparing => 'OCR 모델 로드 중…';
 
   @override
   String get ocrChipFinishing => 'OCR 마무리 중…';

@@ -1059,8 +1059,14 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR: сторінка $page з $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Розпізнавання тексту…';
+
+  @override
+  String get ocrChipPreparing => 'Завантаження моделі OCR…';
 
   @override
   String get ocrChipFinishing => 'Завершення OCR…';

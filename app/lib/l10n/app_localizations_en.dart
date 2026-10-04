@@ -1036,8 +1036,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR page $page of $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Reading text…';
+
+  @override
+  String get ocrChipPreparing => 'Loading OCR model…';
 
   @override
   String get ocrChipFinishing => 'Finishing OCR…';
@@ -2287,8 +2293,14 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR page $page of $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Reading text…';
+
+  @override
+  String get ocrChipPreparing => 'Loading OCR model…';
 
   @override
   String get ocrChipFinishing => 'Finishing OCR…';
@@ -3538,8 +3550,14 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR page $page of $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Reading text…';
+
+  @override
+  String get ocrChipPreparing => 'Loading OCR model…';
 
   @override
   String get ocrChipFinishing => 'Finishing OCR…';
