@@ -1056,8 +1056,14 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR: страница $page из $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Распознавание текста…';
+
+  @override
+  String get ocrChipPreparing => 'Загрузка модели OCR…';
 
   @override
   String get ocrChipFinishing => 'Завершение OCR…';

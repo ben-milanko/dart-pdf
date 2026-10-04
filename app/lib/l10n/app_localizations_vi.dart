@@ -1039,8 +1039,14 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR trang $page/$pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Đang đọc văn bản…';
+
+  @override
+  String get ocrChipPreparing => 'Đang tải mô hình OCR…';
 
   @override
   String get ocrChipFinishing => 'Đang hoàn tất OCR…';

@@ -30,8 +30,9 @@ class DetectedBox {
 /// the same few pixels instead of reaching into the neighbouring label.
 ///
 /// This uses axis-aligned bounding boxes rather than rotated min-area rects:
-/// the OCR layer this feeds (`PdfEditor.injectTextLayer`) places horizontal
-/// runs, and axis-aligned boxes keep the post-process pure-Dart and robust.
+/// the OCR layer this feeds (`PdfEditor.injectTextLayer`) places runs along
+/// the page's on-screen reading direction (horizontal in this raster), and
+/// axis-aligned boxes keep the post-process pure-Dart and robust.
 List<DetectedBox> extractDetectionBoxes(
   Float32List probMap,
   int width,

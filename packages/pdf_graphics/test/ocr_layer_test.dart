@@ -1,6 +1,8 @@
 // The OCR text-layer injection (PdfEditor.injectTextLayer): a recognized
 // span becomes invisible (render mode 3) text the interpreter still emits,
 // so the page is selectable/searchable/extractable but looks unchanged.
+import 'dart:math' as math;
+
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -80,6 +82,89 @@ void main() {
       expect(pageText.text, contains('high'));
       expect(pageText.text, isNot(contains('low')));
     });
+  });
+
+  group('injectTextLayer on a /Rotate page', () {
+    // A word that reads left to right on screen, as the OCR engine reports
+    // it: axis-aligned user-space bounds that are tall on a quarter-turned
+    // page (the on-screen width runs along user-space y) and wide otherwise.
+    PdfOcrSpan spanFor(int rotation) => PdfOcrSpan(
+          text: 'Recognized',
+          bounds: rotation == 90 || rotation == 270
+              ? const PdfRect(200, 300, 230, 500)
+              : const PdfRect(200, 300, 400, 330),
+        );
+
+    // A user-space direction as the viewer shows it: /Rotate turns the page
+    // clockwise, so a vector (x, y) lands at (x cos r + y sin r,
+    // −x sin r + y cos r) with y up.
+    (double, double) onScreen(double x, double y, int rotation) {
+      final r = rotation * math.pi / 180;
+      return (
+        x * math.cos(r) + y * math.sin(r),
+        -x * math.sin(r) + y * math.cos(r),
+      );
+    }
+
+    (double, double) unit(double x, double y) {
+      final length = math.sqrt(x * x + y * y);
+      return (x / length, y / length);
+    }
+
+    for (final rotation in const [90, 180, 270]) {
+      test('$rotation: one run over the span, reading with the page', () {
+        final span = spanFor(rotation);
+        final editor = PdfEditor(
+            PdfDocument.open(buildMultiPagePdf(1, rotation: rotation)));
+        expect(editor.injectTextLayer(0, [span]), 1);
+        final text =
+            PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
+
+        // One run, not stacked fragments, with bounds on the span.
+        final runs = text.runs.where((r) => r.text.contains('Recogn')).toList();
+        expect(runs, hasLength(1));
+        final run = runs.single;
+        expect(run.text.trim(), 'Recognized');
+        expect(run.bounds.left, closeTo(span.bounds.left, 0.5));
+        expect(run.bounds.bottom, closeTo(span.bounds.bottom, 0.5));
+        expect(run.bounds.right, closeTo(span.bounds.right, 0.5));
+        expect(run.bounds.top, closeTo(span.bounds.top, 0.5));
+
+        // The baseline reads left to right on screen and the glyphs stand
+        // upright.
+        final m = run.transform;
+        final (bx, by) = unit(m.a, m.b);
+        final (sx, sy) = onScreen(bx, by, rotation);
+        expect(sx, closeTo(1, 1e-6));
+        expect(sy, closeTo(0, 1e-6));
+        final (ux, uy) = unit(m.c, m.d);
+        final (vx, vy) = onScreen(ux, uy, rotation);
+        expect(vx, closeTo(0, 1e-6));
+        expect(vy, closeTo(1, 1e-6));
+
+        // Searchable, highlighted over the span.
+        final rect = text.findAll('Recognized').single.rects.single;
+        expect(rect.left, closeTo(span.bounds.left, 0.5));
+        expect(rect.bottom, closeTo(span.bounds.bottom, 0.5));
+        expect(rect.right, closeTo(span.bounds.right, 0.5));
+        expect(rect.top, closeTo(span.bounds.top, 0.5));
+      });
+
+      test('$rotation: a re-run is deduped against the injected layer', () {
+        final span = spanFor(rotation);
+        final editor = PdfEditor(
+            PdfDocument.open(buildMultiPagePdf(1, rotation: rotation)))
+          ..injectTextLayer(0, [span]);
+        final text =
+            PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
+        const elsewhere =
+            PdfOcrSpan(text: 'Other', bounds: PdfRect(450, 50, 500, 80));
+        expect(
+          ocrSpansNotIn(text, [span, elsewhere]).map((s) => s.text),
+          ['Other'],
+        );
+      });
+    }
   });
 
   group('ocrSpansNotIn', () {

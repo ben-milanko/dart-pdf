@@ -101,6 +101,7 @@ class OnDeviceOcr {
     // Recognize every page, yielding between pages so the UI stays responsive.
     OnDeviceOcrEngine? engine;
     try {
+      status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
       engine = await OnDeviceOcrEngine.fromDownloadedModel(_manager, _model);
       final editor = PdfEditor(PdfDocument.open(bytes));
       final count = editor.document.pageCount;
