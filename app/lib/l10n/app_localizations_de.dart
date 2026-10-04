@@ -1056,8 +1056,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR Seite $page von $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Text wird gelesen…';
+
+  @override
+  String get ocrChipPreparing => 'OCR-Modell wird geladen…';
 
   @override
   String get ocrChipFinishing => 'OCR wird abgeschlossen…';

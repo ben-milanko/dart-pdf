@@ -185,8 +185,9 @@ typedef PdfAnnotationMenuEntriesBuilder
 
 /// [PdfAnnotationMenuEntriesBuilder] for the text-selection context menu;
 /// build new rows with [pdfTextMenuEntry]. Stock ids are `pdf-text-menu-*`
-/// (`edit`, `highlight`, `underline`, `strikeout`, `squiggly`, `link`,
-/// `copy`, `select-all`).
+/// (`edit`, `copy`, `markup`, `link`, `select-all`), in the touch selection
+/// chip's order; `markup` opens the `highlight`, `underline`, `strikeout`
+/// and `squiggly` rows as a second menu, so they are not in [stock].
 typedef PdfTextMenuEntriesBuilder
     = List<PdfMenuEntry<PdfTextMenuItem>> Function(BuildContext context,
         PdfTextMenuRequest request, List<PdfMenuEntry<PdfTextMenuItem>> stock);

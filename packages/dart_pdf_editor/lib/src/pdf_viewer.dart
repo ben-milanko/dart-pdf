@@ -6435,6 +6435,21 @@ class _PdfViewerState extends State<PdfViewer>
     _clearSelection();
   }
 
+  /// A select-tool click over a link follows it, as [_onTapUp] does in the
+  /// reader (the editing overlay covers the page, so the viewer's own tap
+  /// never sees it). Returns whether there was an action to follow.
+  bool _activateLinkAtGlobal(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    if (local == null) return false;
+    final hit = _annotationHitAt(local, actionsOnly: true);
+    if (hit == null) return false;
+    if (widget.onAnnotationTap != null) {
+      _notifyAnnotationTap(hit, globalPosition);
+    }
+    _activate(hit.annotation);
+    return true;
+  }
+
   /// A page overlay reports its single-selection move drag here so the
   /// floating ghost paints above every page (a per-page overlay clips it
   /// behind the page below once the drag crosses a boundary). Null clears.
@@ -6917,13 +6932,19 @@ class _PdfViewerState extends State<PdfViewer>
       }
       if (editing.tool != PdfEditTool.form) {
         final hit = editing.selectableAnnotationAt(page, x, y);
+        // A right-click on selected text is about that text, whatever the
+        // clipboard holds: it gets the text menu (the touch chip's
+        // actions), not a Paste-only annotation menu (#1004).
+        final onSelectedText =
+            hit == null && _clickInTextSelection(details.localPosition);
         // an annotation, or empty page area with something to paste,
         // gets the annotation menu
         if (hit != null ||
-            editing.hasAnnotationClipboard ||
-            editing.hasSnapshotClipboard ||
-            (widget.systemPdfPasteProvider != null &&
-                editing.lockedAnnotationAt(page, x, y) == null)) {
+            (!onSelectedText &&
+                (editing.hasAnnotationClipboard ||
+                    editing.hasSnapshotClipboard ||
+                    (widget.systemPdfPasteProvider != null &&
+                        editing.lockedAnnotationAt(page, x, y) == null)))) {
           if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
             editing.selectAnnotationAt(page, x, y);
           }
@@ -7008,15 +7029,19 @@ class _PdfViewerState extends State<PdfViewer>
         details.globalPosition, details.localPosition, page, (x, y));
   }
 
+  /// Whether a click at [local] lands inside the current text selection.
+  bool _clickInTextSelection(Offset local) {
+    if (_selRange == null) return false;
+    final position = _textSelectionStartAt(local, alongTolerance: 14);
+    return position != null && _selectionContains(position);
+  }
+
   /// Selects the word under [local] unless the click landed inside the
   /// current selection, which is kept - the desktop-reader behaviour the
   /// text menu (and its host-takeover counterpart) depend on so that Copy
   /// has something to act on.
   void _prepareTextSelectionAt(Offset local) {
-    final position = _textSelectionStartAt(local, alongTolerance: 14);
-    if (!(position != null && _selectionContains(position))) {
-      _selectWordAt(local);
-    }
+    if (!_clickInTextSelection(local)) _selectWordAt(local);
   }
 
   /// The mouse right-click text menu: editing/markup actions when an editor
@@ -7071,27 +7096,19 @@ class _PdfViewerState extends State<PdfViewer>
           enabled: enabled,
           onSelected: (_) => run(),
         ));
+    // Same actions, same order as the touch selection chip - Edit, Copy,
+    // Markup (its four kinds grouped one level down), Link, Select all - so
+    // a selection offers one layout whichever way it was made.
     var entries = <PdfMenuEntry<PdfTextMenuItem>>[
       if (canEdit)
         stock('edit', l10n.viewerEditTextStyle, Icons.edit, _editTextSelection),
+      stock('copy', l10n.copy, Icons.copy, _controller.copySelection,
+          enabled: hasSelection),
       if (canMarkup) ...[
-        stock('highlight', l10n.viewerMarkupHighlight, Icons.border_color,
-            () => _markupTextSelection(PdfMarkupKind.highlight)),
-        stock('underline', l10n.viewerMarkupUnderline, Icons.format_underlined,
-            () => _markupTextSelection(PdfMarkupKind.underline)),
-        stock(
-            'strikeout',
-            l10n.viewerMarkupStrikeOut,
-            Icons.format_strikethrough,
-            () => _markupTextSelection(PdfMarkupKind.strikeOut)),
-        stock('squiggly', l10n.viewerMarkupSquiggly, Icons.gesture,
-            () => _markupTextSelection(PdfMarkupKind.squiggly)),
+        _markupSubmenuEntry(globalPosition),
         stock(
             'link', l10n.linkDialogTitle, Icons.link, _addLinkToTextSelection),
       ],
-      if (canEdit || canMarkup) const PdfMenuDivider(),
-      stock('copy', l10n.copy, Icons.copy, _controller.copySelection,
-          enabled: hasSelection),
       stock('select-all', l10n.viewerSelectAll, Icons.select_all,
           () => _selectAllTextOn(page),
           enabled: hasText),
@@ -7113,6 +7130,77 @@ class _PdfViewerState extends State<PdfViewer>
       PdfMenuRequest<PdfTextMenuItem>.at(globalPosition, entries: entries),
     );
     await picked?.onSelected(request);
+  }
+
+  /// The text menu's Markup row: the touch chip's markup submenu for the
+  /// mouse. [PdfMenuRequest] rows are flat, so picking it opens the four
+  /// kinds as a second menu at the same point (ids
+  /// `pdf-text-menu-highlight` / `underline` / `strikeout` / `squiggly`).
+  PdfMenuItem<PdfTextMenuItem> _markupSubmenuEntry(Offset globalPosition) {
+    final l10n = pdfL10n(context);
+    final item = PdfTextMenuItem(
+      key: const ValueKey('pdf-text-menu-markup'),
+      label: l10n.viewerMarkup,
+      icon: Icons.edit_note,
+      onSelected: (_) => _showMarkupSubmenu(globalPosition),
+    );
+    final row = pdfTextMenuEntry(item);
+    return PdfMenuItem<PdfTextMenuItem>(
+      key: row.key,
+      value: row.value,
+      label: row.label,
+      icon: row.icon,
+      child: Row(children: [
+        Expanded(child: row.child!),
+        const SizedBox(width: 10),
+        const Icon(Icons.chevron_right, size: 18),
+      ]),
+    );
+  }
+
+  Future<void> _showMarkupSubmenu(Offset globalPosition) async {
+    if (!mounted || _selRange == null) return;
+    final l10n = pdfL10n(context);
+    final entries = <PdfMenuEntry<PdfMarkupKind>>[
+      for (final (id, kind, label, icon) in [
+        (
+          'highlight',
+          PdfMarkupKind.highlight,
+          l10n.viewerMarkupHighlight,
+          Icons.border_color
+        ),
+        (
+          'underline',
+          PdfMarkupKind.underline,
+          l10n.viewerMarkupUnderline,
+          Icons.format_underlined
+        ),
+        (
+          'strikeout',
+          PdfMarkupKind.strikeOut,
+          l10n.viewerMarkupStrikeOut,
+          Icons.format_strikethrough
+        ),
+        (
+          'squiggly',
+          PdfMarkupKind.squiggly,
+          l10n.viewerMarkupSquiggly,
+          Icons.gesture
+        ),
+      ])
+        PdfMenuItem<PdfMarkupKind>(
+          key: ValueKey('pdf-text-menu-$id'),
+          value: kind,
+          label: label,
+          icon: icon,
+        ),
+    ];
+    final ui = _ui;
+    final kind = await PdfEditorPresenter.of(ui).menu<PdfMarkupKind>(
+      ui,
+      PdfMenuRequest<PdfMarkupKind>.at(globalPosition, entries: entries),
+    );
+    if (kind != null && mounted) _markupTextSelection(kind);
   }
 
   /// Opens the rich content-text editor for the exact text element under the
@@ -7602,33 +7690,36 @@ class _PdfViewerState extends State<PdfViewer>
         page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
   }
 
-  /// ⌘A/Ctrl+A: with the select tool armed (or an annotation selection
-  /// in play) selects every annotation on the current page; otherwise
-  /// selects the current page's whole text.
+  /// ⌘A/Ctrl+A: with an annotation selection in play, widens it to every
+  /// annotation on the current page; otherwise selects the current page's
+  /// whole text - in Select mode too, since that tool selects text (and is
+  /// the mode a document opens in). A page with no text falls back to its
+  /// annotations under the select tool.
   void _onSelectAll() {
     final page = _controller.currentPage;
     final editing = widget.editing;
-    if (editing?.isHandMode == true) return;
-    if (editing != null &&
-        (editing.tool == PdfEditTool.select ||
-            editing.hasAnnotationSelection)) {
+    if (editing != null && editing.hasAnnotationSelection) {
       editing.selectAllAnnotationsOn(page);
       return;
     }
-    _selectAllTextOn(page);
+    if (_selectAllTextOn(page)) return;
+    if (editing != null && editing.tool == PdfEditTool.select) {
+      editing.selectAllAnnotationsOn(page);
+    }
   }
 
   /// Selects the whole text of one page (⌘A and the touch chip's
-  /// Select All).
-  void _selectAllTextOn(int page) {
+  /// Select All). False when the page has no text to select.
+  bool _selectAllTextOn(int page) {
     final length = _pageText(page).text.length;
-    if (length == 0) return;
+    if (length == 0) return false;
     _wordAnchor = null;
     setState(() {
       _selAnchor = (page, 0);
       _selFocus = (page, length);
     });
     _controller._setSelection(_selectedText());
+    return true;
   }
 
   /// A single-key tool shortcut ([pdfEditToolShortcuts]) arms [tool],
@@ -8056,6 +8147,24 @@ class _PdfViewerState extends State<PdfViewer>
       _selRange != null &&
       (_lastPointerKind == PointerDeviceKind.touch ||
           _lastPointerKind == PointerDeviceKind.stylus);
+
+  /// Whether a touch/stylus long-press at [local] may start a text
+  /// selection: in reader mode, and in Select mode too - Select is where a
+  /// document opens, so a long-press must select text there just as it does
+  /// with no tool. In Select mode a press on an annotation stays the
+  /// overlay's (a held finger then drags it, or opens its menu). Drawing
+  /// tools, Hand mode and the eyedropper own the press.
+  bool _selectionLongPressEnabledAt(Offset local) {
+    final editing = widget.editing;
+    if (editing == null) return true;
+    if (editing.isHandMode || editing.isPickingColor) return false;
+    final tool = editing.tool;
+    if (tool == null) return true;
+    if (tool != PdfEditTool.select) return false;
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    return editing.selectableAnnotationAt(point.$1, point.$2, point.$3) == null;
+  }
 
   void _onLongPressStart(LongPressStartDetails details) {
     final range = _wordRangeAt(details.localPosition);
@@ -9316,6 +9425,7 @@ class _PdfViewerState extends State<PdfViewer>
                       updateTextSelection: _updateToolTextSelection,
                       endTextSelection: _endToolTextSelection,
                       clearTextSelection: _clearToolTextSelection,
+                      activateLinkAt: _activateLinkAtGlobal,
                     ),
                     interactionSession: widget.interactionSession,
                     crossPageGhost: _crossPageGhostFor(index),
@@ -9517,8 +9627,8 @@ class _PdfViewerState extends State<PdfViewer>
                                         cancelled: true),
                                 ),
                                 // touch text selection starts with a long
-                                // press instead; stands aside while an
-                                // editing tool owns touch gestures
+                                // press instead; stands aside while a
+                                // drawing tool owns touch gestures
                                 _SelectionLongPressRecognizer:
                                     GestureRecognizerFactoryWithHandlers<
                                         _SelectionLongPressRecognizer>(
@@ -9526,10 +9636,7 @@ class _PdfViewerState extends State<PdfViewer>
                                       debugOwner: this),
                                   (recognizer) => recognizer
                                     ..gestureSettings = gestureSettings
-                                    ..isEnabled = (() =>
-                                        widget.editing?.tool == null &&
-                                        widget.editing?.isHandMode != true &&
-                                        widget.editing?.isPickingColor != true)
+                                    ..isEnabled = _selectionLongPressEnabledAt
                                     ..onLongPressStart = _onLongPressStart
                                     ..onLongPressMoveUpdate = _onLongPressMove
                                     ..onLongPressEnd =
@@ -10723,168 +10830,200 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
               rotation: widget.effectiveRotation,
               viewSize: constraints.biggest,
             );
-            return Stack(children: [
-              if (builder != null) ...builder(context, widget.index, geometry),
-              // the editing layer sits topmost so an armed tool's
-              // gestures win over app overlays underneath
-              if (editing != null)
-                ListenableBuilder(
-                  listenable: editing,
-                  // mounted for an armed tool, the eyedropper, a
-                  // default-mode (mouse click) annotation selection, or
-                  // a pending attention flash (the sidebar's zoom-to -
-                  // links and form fields flash without a selection). Cursor
-                  // cursor guides and rulers mount the same passive,
-                  // low-latency hover layer even in ordinary reader/hand
-                  // mode.
-                  builder: (context, _) {
-                    final rasterCurrent = _rastered &&
-                        _annotationLayerCurrent &&
-                        // Clean page wrappers deliberately survive an
-                        // incremental revision. Their PdfDocument wrapper may
-                        // therefore be older, but it shares the one live COS
-                        // graph and its page-tree caches self-invalidate from
-                        // the COS revision generation.
-                        identical(
-                            widget.page.document.cos, editing.document.cos);
-                    return editing.tool == null &&
-                            !editing.isPickingColor &&
-                            editing.activeSavedAnnotation == null &&
-                            !editing.hasAnnotationSelection &&
-                            editing.pendingFlash == null &&
-                            !editing.preferences.showVerticalCursorGuide &&
-                            !editing.preferences.showHorizontalCursorGuide &&
-                            !editing.preferences.showPageRulers &&
-                            !editing.preferences.showSnapGrid &&
-                            (rasterCurrent ||
-                                editing.committedInksOn(widget.index).isEmpty)
-                        ? const SizedBox.shrink()
-                        : Positioned.fill(
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: widget.transformScale,
-                              builder: (context, zoom, _) => EditingPageOverlay(
-                                controller: editing,
-                                pageIndex: widget.index,
-                                geometry: geometry,
-                                textPrompt: widget.editingTextPrompt,
-                                formImagePicker: widget.formImagePicker,
-                                imagePicker: widget.imagePicker,
-                                onSnapshot: widget.onSnapshot,
-                                onPlaceSignature: widget.onPlaceSignature,
-                                pageColor: widget.pageColor,
-                                showAnnotations: widget.showAnnotations,
-                                interactionHost: widget.interactionHost,
-                                interactionSession: widget.interactionSession,
-                                rasterCurrent: rasterCurrent,
-                                zoom: zoom,
-                                predictStrokes: widget.predictStrokes,
-                                contextMenuEnabled: widget.contextMenuEnabled,
-                                showSelectionChip: widget.showSelectionChip,
-                                showInlineTextStyleChip:
-                                    widget.showInlineTextStyleChip,
-                                renderWorker: widget.renderWorker,
-                              ),
-                            ),
-                          );
-                  },
-                ),
-              // field-name labels: while the form-authoring tool is armed,
-              // outline every field and tag it with its name so empty
-              // fields (which render nothing) are discoverable
-              if (editing != null)
-                Positioned.fill(
-                  child: ListenableBuilder(
-                    listenable: editing,
-                    builder: (context, _) => editing.tool == PdfEditTool.form
-                        ? ValueListenableBuilder<double>(
-                            valueListenable: widget.transformScale,
-                            builder: (context, zoom, _) => FormFieldLabelLayer(
-                              controller: editing,
-                              pageIndex: widget.index,
-                              geometry: geometry,
-                              zoom: zoom,
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ),
-              // the form tool's field fill: the same form layer as reading
-              // mode, without its tap targets - the tool's overlay owns the
-              // taps and hands its double-tap here (pdfFormFillRequests), so
-              // keystroke scripts and validation run in either mode
-              if (editing != null)
-                Positioned.fill(
-                  child: ListenableBuilder(
-                    listenable: editing,
-                    builder: (context, _) => editing.tool == PdfEditTool.form
-                        ? ValueListenableBuilder<double>(
-                            valueListenable: widget.transformScale,
-                            builder: (context, zoom, _) => FormInteractionLayer(
-                              controller: editing,
-                              pageIndex: widget.index,
-                              geometry: geometry,
-                              pageColor: widget.pageColor,
-                              rasterCurrent: _rastered,
-                              zoom: zoom,
-                              formImagePicker: widget.formImagePicker,
-                              onRevealField: widget.onRevealRect,
-                              tapTargets: false,
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ),
-              // direct form fill: a per-field tap layer in reading /
-              // selection modes (the form-authoring tool owns fields
-              // itself, drawing tools own the whole page). It sits over
-              // the editing overlay so a field tap beats a select-mode
-              // marquee, but covers only the field rects. The reader
-              // drives this without an [editing] controller, so it never
-              // enables annotation move/resize.
-              if (formController != null && widget.interactiveForms)
-                Positioned.fill(
-                  child: ListenableBuilder(
-                    listenable: formController,
-                    builder: (context, _) {
-                      final tool = editing?.tool;
-                      final active = editing == null ||
-                          tool == null ||
-                          tool == PdfEditTool.select;
-                      return active
-                          ? ValueListenableBuilder<double>(
-                              valueListenable: widget.transformScale,
-                              builder: (context, zoom, _) =>
-                                  FormInteractionLayer(
-                                controller: formController,
-                                pageIndex: widget.index,
-                                geometry: geometry,
-                                pageColor: widget.pageColor,
-                                rasterCurrent: _rastered,
-                                zoom: zoom,
-                                formImagePicker: widget.formImagePicker,
-                                onAnnotationTap: widget.onAnnotationTap,
-                                onRevealField: widget.onRevealRect,
-                              ),
-                            )
-                          : const SizedBox.shrink();
-                    },
-                  ),
-                ),
-              // touch text selection chrome rides topmost - it only
-              // shows in reader mode (tool disarmed), so it never
-              // competes with an armed tool's gestures
-              if (textSelection != null)
-                Positioned.fill(
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: widget.transformScale,
-                    builder: (context, zoom, _) => _TextSelectionChrome(
-                      geometry: geometry,
-                      selection: textSelection,
-                      zoom: zoom,
+            // built once per layout: reordering below must not re-run the
+            // host's builder on every editing notification
+            final hostLayer = builder == null
+                ? null
+                : Positioned.fill(
+                    key: const ValueKey('pdf-host-page-overlays'),
+                    child: Stack(
+                        children: builder(context, widget.index, geometry)),
+                  );
+            Widget layers({required bool hostAboveEditing}) => Stack(children: [
+                  if (hostLayer != null && !hostAboveEditing) hostLayer,
+                  // the editing layer sits above app overlays so an armed drawing
+                  // tool's gestures win over them. Select mode is the exception
+                  // (below): it is where a document opens, so the app's page
+                  // widgets must stay live there, as form fields do
+                  if (editing != null)
+                    ListenableBuilder(
+                      key: const ValueKey('pdf-editing-layer'),
+                      listenable: editing,
+                      // mounted for an armed tool, the eyedropper, a
+                      // default-mode (mouse click) annotation selection, or
+                      // a pending attention flash (the sidebar's zoom-to -
+                      // links and form fields flash without a selection). Cursor
+                      // cursor guides and rulers mount the same passive,
+                      // low-latency hover layer even in ordinary reader/hand
+                      // mode.
+                      builder: (context, _) {
+                        final rasterCurrent = _rastered &&
+                            _annotationLayerCurrent &&
+                            // Clean page wrappers deliberately survive an
+                            // incremental revision. Their PdfDocument wrapper may
+                            // therefore be older, but it shares the one live COS
+                            // graph and its page-tree caches self-invalidate from
+                            // the COS revision generation.
+                            identical(
+                                widget.page.document.cos, editing.document.cos);
+                        return editing.tool == null &&
+                                !editing.isPickingColor &&
+                                editing.activeSavedAnnotation == null &&
+                                !editing.hasAnnotationSelection &&
+                                editing.pendingFlash == null &&
+                                !editing.preferences.showVerticalCursorGuide &&
+                                !editing
+                                    .preferences.showHorizontalCursorGuide &&
+                                !editing.preferences.showPageRulers &&
+                                !editing.preferences.showSnapGrid &&
+                                (rasterCurrent ||
+                                    editing
+                                        .committedInksOn(widget.index)
+                                        .isEmpty)
+                            ? const SizedBox.shrink()
+                            : Positioned.fill(
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: widget.transformScale,
+                                  builder: (context, zoom, _) =>
+                                      EditingPageOverlay(
+                                    controller: editing,
+                                    pageIndex: widget.index,
+                                    geometry: geometry,
+                                    textPrompt: widget.editingTextPrompt,
+                                    formImagePicker: widget.formImagePicker,
+                                    imagePicker: widget.imagePicker,
+                                    onSnapshot: widget.onSnapshot,
+                                    onPlaceSignature: widget.onPlaceSignature,
+                                    pageColor: widget.pageColor,
+                                    showAnnotations: widget.showAnnotations,
+                                    interactionHost: widget.interactionHost,
+                                    interactionSession:
+                                        widget.interactionSession,
+                                    rasterCurrent: rasterCurrent,
+                                    zoom: zoom,
+                                    predictStrokes: widget.predictStrokes,
+                                    contextMenuEnabled:
+                                        widget.contextMenuEnabled,
+                                    showSelectionChip: widget.showSelectionChip,
+                                    showInlineTextStyleChip:
+                                        widget.showInlineTextStyleChip,
+                                    renderWorker: widget.renderWorker,
+                                  ),
+                                ),
+                              );
+                      },
                     ),
-                  ),
-                ),
-            ]);
+                  if (hostLayer != null && hostAboveEditing) hostLayer,
+                  // field-name labels: while the form-authoring tool is armed,
+                  // outline every field and tag it with its name so empty
+                  // fields (which render nothing) are discoverable
+                  if (editing != null)
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: editing,
+                        builder: (context, _) =>
+                            editing.tool == PdfEditTool.form
+                                ? ValueListenableBuilder<double>(
+                                    valueListenable: widget.transformScale,
+                                    builder: (context, zoom, _) =>
+                                        FormFieldLabelLayer(
+                                      controller: editing,
+                                      pageIndex: widget.index,
+                                      geometry: geometry,
+                                      zoom: zoom,
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                      ),
+                    ),
+                  // the form tool's field fill: the same form layer as reading
+                  // mode, without its tap targets - the tool's overlay owns the
+                  // taps and hands its double-tap here (pdfFormFillRequests), so
+                  // keystroke scripts and validation run in either mode
+                  if (editing != null)
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: editing,
+                        builder: (context, _) =>
+                            editing.tool == PdfEditTool.form
+                                ? ValueListenableBuilder<double>(
+                                    valueListenable: widget.transformScale,
+                                    builder: (context, zoom, _) =>
+                                        FormInteractionLayer(
+                                      controller: editing,
+                                      pageIndex: widget.index,
+                                      geometry: geometry,
+                                      pageColor: widget.pageColor,
+                                      rasterCurrent: _rastered,
+                                      zoom: zoom,
+                                      formImagePicker: widget.formImagePicker,
+                                      onRevealField: widget.onRevealRect,
+                                      tapTargets: false,
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                      ),
+                    ),
+                  // direct form fill: a per-field tap layer in reading /
+                  // selection modes (the form-authoring tool owns fields
+                  // itself, drawing tools own the whole page). It sits over
+                  // the editing overlay so a field tap beats a select-mode
+                  // marquee, but covers only the field rects. The reader
+                  // drives this without an [editing] controller, so it never
+                  // enables annotation move/resize.
+                  if (formController != null && widget.interactiveForms)
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: formController,
+                        builder: (context, _) {
+                          final tool = editing?.tool;
+                          final active = editing == null ||
+                              tool == null ||
+                              tool == PdfEditTool.select;
+                          return active
+                              ? ValueListenableBuilder<double>(
+                                  valueListenable: widget.transformScale,
+                                  builder: (context, zoom, _) =>
+                                      FormInteractionLayer(
+                                    controller: formController,
+                                    pageIndex: widget.index,
+                                    geometry: geometry,
+                                    pageColor: widget.pageColor,
+                                    rasterCurrent: _rastered,
+                                    zoom: zoom,
+                                    formImagePicker: widget.formImagePicker,
+                                    onAnnotationTap: widget.onAnnotationTap,
+                                    onRevealField: widget.onRevealRect,
+                                  ),
+                                )
+                              : const SizedBox.shrink();
+                        },
+                      ),
+                    ),
+                  // touch text selection chrome rides topmost - it only
+                  // shows in reader or Select mode, so it never competes
+                  // with a drawing tool's gestures
+                  if (textSelection != null)
+                    Positioned.fill(
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: widget.transformScale,
+                        builder: (context, zoom, _) => _TextSelectionChrome(
+                          geometry: geometry,
+                          selection: textSelection,
+                          zoom: zoom,
+                        ),
+                      ),
+                    ),
+                ]);
+            if (editing == null || hostLayer == null) {
+              return layers(hostAboveEditing: false);
+            }
+            // keyed children: the reorder keeps the app widgets' state
+            return ListenableBuilder(
+              listenable: editing,
+              builder: (context, _) =>
+                  layers(hostAboveEditing: editing.tool == PdfEditTool.select),
+            );
           }),
         ),
     ]);
@@ -11141,7 +11280,7 @@ class _ZoomedTouchPanRecognizer extends PanGestureRecognizer {
 /// Touch text selection: long-press to select. Sits in the same arena
 /// as the list's drag recognizers, so once it fires the press can drag
 /// to extend without scrolling. Stands down (never enters the arena)
-/// while an editing tool is armed - a held finger must not start
+/// while a drawing tool is armed - a held finger must not start
 /// selecting text under an ink stroke or a shape drag.
 class _SelectionLongPressRecognizer extends LongPressGestureRecognizer {
   _SelectionLongPressRecognizer({super.debugOwner})
@@ -11150,11 +11289,11 @@ class _SelectionLongPressRecognizer extends LongPressGestureRecognizer {
           PointerDeviceKind.stylus,
         });
 
-  bool Function()? isEnabled;
+  bool Function(Offset localPosition)? isEnabled;
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
-    if (isEnabled?.call() == false) return;
+    if (isEnabled?.call(event.localPosition) == false) return;
     super.addAllowedPointer(event);
   }
 

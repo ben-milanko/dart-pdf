@@ -18,7 +18,7 @@ metadata/
     name.txt              (≤30)  app name
     subtitle.txt          (≤30)
     promotional_text.txt  (≤170) editable without review
-    keywords.txt          (≤100) comma-separated, no spaces
+    keywords.txt          (≤100) comma-separated, no spaces after commas
     description.txt       (≤4000)
     release_notes.txt     (≤4000) "What's New" for the current version
   android/<play-locale>/         Play Console
@@ -72,6 +72,9 @@ locales differently; the folder names below are what each console accepts.
 - **Character limits are per store field**, counted in characters. The capped
   fields (subtitle, promotional text, keywords, short description, changelog)
   are kept within budget in every locale.
+- **Localized titles and subtitles may use shorter wording** to fit their
+  limits. Keywords use commas without following spaces; spaces within a
+  keyword phrase are allowed.
 
 ## Keeping it current
 
