@@ -110,6 +110,47 @@
   <script>
     (function () {
       var florencePromise = null;
+      // Model-download progress for the app's OCR chip. Transformers.js
+      // reports per file, and each file's size is only known once its
+      // request opens, so bytes are summed over every file seen so far.
+      // Dart registers a listener(stage, loaded, total) through
+      // __dartPdfOcrOnProgress; stage is 'download' while files arrive and
+      // 'preparing' once they are all in and the model is warming up.
+      var progressListener = null;
+      var downloadFiles = {};
+      window.__dartPdfOcrOnProgress = function (listener) {
+        progressListener = listener || null;
+      };
+      function emitProgress(stage) {
+        if (!progressListener) return;
+        var loaded = 0;
+        var total = 0;
+        for (var key in downloadFiles) {
+          loaded += downloadFiles[key].loaded;
+          total += downloadFiles[key].total;
+        }
+        try {
+          progressListener(stage, loaded, total);
+        } catch (_) {
+          // A progress hiccup must never break the model load.
+        }
+      }
+      function onModelProgress(info) {
+        if (!info || !info.file) return;
+        var key = (info.name || '') + '/' + info.file;
+        var entry = downloadFiles[key] || (downloadFiles[key] = {
+          loaded: 0,
+          total: 0
+        });
+        if (info.status === 'progress') {
+          if (info.total > 0) entry.total = info.total;
+          if (info.loaded >= 0) entry.loaded = info.loaded;
+        } else if (info.status === 'done') {
+          if (entry.total === 0) entry.total = entry.loaded;
+          entry.loaded = entry.total;
+        }
+        emitProgress('download');
+      }
       async function hasWebGpuFp16() {
         try {
           if (!navigator.gpu) return false;
@@ -128,13 +169,18 @@
             );
             var modelId = 'onnx-community/Florence-2-base-ft';
             var processor = await transformers.AutoProcessor
-              .from_pretrained(modelId);
+              .from_pretrained(modelId, {
+                progress_callback: onModelProgress
+              });
             var tokenizer = await transformers.AutoTokenizer
-              .from_pretrained(modelId);
+              .from_pretrained(modelId, {
+                progress_callback: onModelProgress
+              });
             var fp16 = await hasWebGpuFp16();
             var model = await transformers.Florence2ForConditionalGeneration
               .from_pretrained(modelId, {
                 device: navigator.gpu ? 'webgpu' : 'wasm',
+                progress_callback: onModelProgress,
                 dtype: {
                   embed_tokens: fp16 ? 'fp16' : 'fp32',
                   vision_encoder: fp16 ? 'fp16' : 'fp32',
@@ -142,6 +188,7 @@
                   decoder_model_merged: 'q4'
                 }
               });
+            emitProgress('preparing');
             var textInputs = tokenizer('a');
             var pixelValues = transformers.full([1, 3, 768, 768], 0.0);
             await model.generate({

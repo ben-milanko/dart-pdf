@@ -1016,8 +1016,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR 第 $page/$pageCount 页';
   }
+
+  @override
+  String get ocrChipRecognisingText => '正在识别文本…';
+
+  @override
+  String get ocrChipPreparing => '正在加载 OCR 模型…';
 
   @override
   String get ocrChipFinishing => '正在完成 OCR…';
@@ -2236,8 +2242,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR 第 $page/$pageCount 頁';
   }
+
+  @override
+  String get ocrChipRecognisingText => '正在辨識文字…';
+
+  @override
+  String get ocrChipPreparing => '正在載入 OCR 模型…';
 
   @override
   String get ocrChipFinishing => '正在完成 OCR…';

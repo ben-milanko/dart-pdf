@@ -73,7 +73,29 @@ class OnDeviceOcr {
     final engine = _BrowserOcrEngine();
     try {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
-      await engine.warmUp();
+      // Feed the bridge's model-download progress into the chip. The total
+      // grows as each model file's request opens, so the fraction is held
+      // monotonic rather than jumping backwards.
+      var shownFraction = 0.0;
+      _setProgressListener((String stage, num loaded, num total) {
+        if (stage == 'preparing') {
+          status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
+          return;
+        }
+        if (total <= 0) return;
+        final fraction = (loaded / total).clamp(0.0, 1.0);
+        if (fraction > shownFraction) shownFraction = fraction;
+        status.value = OcrJobStatus(
+          phase: OcrPhase.downloading,
+          title: title,
+          downloadFraction: shownFraction,
+        );
+      });
+      try {
+        await engine.warmUp();
+      } finally {
+        _setProgressListener(null);
+      }
       if (_cancelled) {
         onToast(l10n.ocrCancelled);
         return;
@@ -84,12 +106,15 @@ class OnDeviceOcr {
       var spans = 0;
       for (var i = 0; i < count; i++) {
         if (_cancelled) break;
-        status.value = OcrJobStatus(
-          phase: OcrPhase.recognising,
-          title: title,
-          page: i + 1,
-          pageCount: count,
-        );
+        void report([double? pageFraction]) => status.value = OcrJobStatus(
+              phase: OcrPhase.recognising,
+              title: title,
+              page: i + 1,
+              pageCount: count,
+              pageFraction: pageFraction,
+            );
+        report();
+        engine.onPageProgress = report;
         spans += await editor.applyOcr(i, engine, pixelRatio: 2);
         await Future<void>.delayed(Duration.zero);
       }
@@ -109,7 +134,30 @@ class OnDeviceOcr {
   }
 
   static bool get _hasBridge => _ocrBridge != null;
+
+  /// Registers (or with null, clears) the bridge's model-load progress
+  /// listener. A no-op against an older cached `index.html` without the hook.
+  static void _setProgressListener(
+    void Function(String stage, num loaded, num total)? listener,
+  ) {
+    if (_ocrProgressHook == null) return;
+    _registerOcrProgress(
+      listener == null
+          ? null
+          : ((JSString stage, JSNumber loaded, JSNumber total) => listener(
+                stage.toDart,
+                loaded.toDartDouble,
+                total.toDartDouble,
+              )).toJS,
+    );
+  }
 }
+
+@JS('__dartPdfOcrOnProgress')
+external JSAny? get _ocrProgressHook;
+
+@JS('__dartPdfOcrOnProgress')
+external void _registerOcrProgress(JSFunction? listener);
 
 @JS('__dartPdfOcrRecognize')
 external JSAny? get _ocrBridge;
@@ -118,6 +166,9 @@ external JSAny? get _ocrBridge;
 external JSPromise<JSString> _recognizeWithBrowserOcr(String imageDataUrl);
 
 class _BrowserOcrEngine implements PdfOcrEngine {
+  /// Called with the fraction of the current page's tiles recognized so far.
+  void Function(double fraction)? onPageProgress;
+
   Future<void> warmUp() async {
     await _recognizeDataUrl(
       'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
@@ -134,7 +185,8 @@ class _BrowserOcrEngine implements PdfOcrEngine {
     final image = page.image;
     final tiles = ocrTiles(image.width, image.height);
     final raw = <OcrRawSpan>[];
-    for (final tile in tiles) {
+    for (var t = 0; t < tiles.length; t++) {
+      final tile = tiles[t];
       final png = await _encodeTilePng(image, tile);
       final result = await _recognizeDataUrl(
         'data:image/png;base64,${base64Encode(png)}',
@@ -147,6 +199,7 @@ class _BrowserOcrEngine implements PdfOcrEngine {
       for (final span in spans) {
         raw.add(span.shifted(tile.left, tile.top));
       }
+      onPageProgress?.call((t + 1) / tiles.length);
     }
     return [
       for (final span in mergeOcrSpans(raw))
