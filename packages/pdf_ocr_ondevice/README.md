@@ -30,9 +30,14 @@ on CPU on a phone or a laptop.
 ## Supported platforms
 
 Android, iOS, macOS, Windows, and Linux, wherever ONNX Runtime has prebuilt
-binaries. **Not the web** (no local model store / native runtime): on the web,
-`PdfOcrModelManager.isSupported` is `false`; use `pdf_ocr_vlm` against an HTTP
-service there.
+binaries. The main library does not compile for **the web** (no local model
+store / native runtime; `PdfOcrModelManager.isSupported` is `false` there).
+For a browser, import `package:pdf_ocr_ondevice/pp_ocr.dart` instead: the same
+`PpOcrPipeline` (every pre- and post-processing step) without the native
+runtime, over a `PpOcrInference` you back with onnxruntime-web. The DartPDF
+app's `web/index.html` bridge and `app/lib/ocr_web.dart` are a complete
+example; serve the models from your own origin (`tool/fetch_ocr_models.sh`),
+since GitHub release downloads send no CORS headers.
 
 ## Install
 

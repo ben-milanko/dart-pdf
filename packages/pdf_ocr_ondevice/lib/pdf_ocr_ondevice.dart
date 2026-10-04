@@ -6,8 +6,10 @@
 /// model is downloaded once via [PdfOcrModelManager] and then runs locally on
 /// ONNX Runtime.
 ///
-/// Supported on the native platforms (Android, iOS, macOS, Windows, Linux);
-/// on the web use the HTTP-backed `pdf_ocr_vlm` engine instead.
+/// This library needs the native platforms (Android, iOS, macOS, Windows,
+/// Linux). For the web, `package:pdf_ocr_ondevice/pp_ocr.dart` is the same
+/// pipeline without the native runtime - supply an onnxruntime-web
+/// [PpOcrInference] (the DartPDF app's `web/index.html` bridge is one).
 ///
 /// ```dart
 /// final manager = PdfOcrModelManager();
@@ -30,6 +32,8 @@ export 'src/ocr_image.dart';
 export 'src/ocr_model.dart';
 export 'src/ocr_model_runner.dart';
 export 'src/ondevice_ocr_engine.dart';
+export 'src/ocr_runner_engine.dart';
 export 'src/onnx_ocr_model_runner.dart';
+export 'src/pp_ocr_pipeline.dart';
 export 'src/preprocess.dart';
 export 'src/text_cleanup.dart';

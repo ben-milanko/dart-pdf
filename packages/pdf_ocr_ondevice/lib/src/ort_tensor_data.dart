@@ -10,8 +10,7 @@ import 'package:onnxruntime/onnxruntime.dart';
 import 'package:onnxruntime/src/bindings/onnxruntime_bindings_generated.dart'
     as ort;
 
-/// A float tensor's elements (row-major) and its shape.
-typedef FloatTensor = ({Float32List data, List<int> shape});
+import 'pp_ocr_pipeline.dart' show OcrTensor;
 
 /// Reads a float32 output tensor straight out of ONNX Runtime's buffer - one
 /// copy into a [Float32List], or null when [value] is not a float32 tensor
@@ -21,7 +20,7 @@ typedef FloatTensor = ({Float32List data, List<int> shape});
 /// `OrtValueTensor.value` builds a nested `List` of boxed doubles, and a
 /// PP-OCR recognition output is `[1, T, 18385]` - over a million boxed
 /// numbers per text line, which cost ~3x the inference itself.
-FloatTensor? readFloatTensor(OrtValue value) {
+OcrTensor? readFloatTensor(OrtValue value) {
   final api = OrtEnv.instance.ortApiPtr.ref;
   final ptr = value.ptr;
   return using((arena) {

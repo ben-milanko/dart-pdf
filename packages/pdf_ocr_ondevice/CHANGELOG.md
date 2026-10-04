@@ -24,6 +24,16 @@
   - Model outputs are read straight from ONNX Runtime's buffer instead of
     through `OrtValueTensor.value`'s nested lists, which cost ~3x the
     inference itself. Adds a direct `ffi` dependency.
+- New web-safe library `package:pdf_ocr_ondevice/pp_ocr.dart`: the
+  pipeline is now `PpOcrPipeline` (plain Dart) over a `PpOcrInference`
+  backend - `OnnxOcrModelRunner` is that pipeline over native ONNX Runtime,
+  and a browser can supply onnxruntime-web (the DartPDF app now does, in place
+  of Florence-2). `OcrRunnerEngine` is the backend-agnostic `PdfOcrEngine`
+  (`OnDeviceOcrEngine` extends it; `pixelRatioFor` lives there too).
+- Recognition runs in aspect-sorted batches of 6 lines
+  (`recognitionBatchSize`, PaddleOCR's default), each padded to its own widest
+  line: identical readings, page time halved again (37 s -> 19 s on the
+  benchmark sheet).
 - Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
   `dart_pdf_editor` 7.0.0 (material_ui 1.4's floor).
 
