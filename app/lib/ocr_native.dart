@@ -113,7 +113,9 @@ class OnDeviceOcr {
           page: i + 1,
           pageCount: count,
         );
-        spans += await editor.applyOcr(i, engine, pixelRatio: 2);
+        spans += await editor.applyOcr(i, engine,
+            pixelRatio:
+                OnDeviceOcrEngine.pixelRatioFor(editor.document.page(i)));
         // Hand the event loop a turn so taps/scrolls are serviced promptly.
         await Future<void>.delayed(Duration.zero);
       }

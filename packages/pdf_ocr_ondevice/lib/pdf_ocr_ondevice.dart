@@ -32,3 +32,4 @@ export 'src/ocr_model_runner.dart';
 export 'src/ondevice_ocr_engine.dart';
 export 'src/onnx_ocr_model_runner.dart';
 export 'src/preprocess.dart';
+export 'src/text_cleanup.dart';

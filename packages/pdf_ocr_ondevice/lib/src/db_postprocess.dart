@@ -18,10 +18,16 @@ class DetectedBox {
 /// (the detector's per-pixel text probability). The map is binarized at
 /// [threshold]; each 4-connected blob becomes one axis-aligned box, dropped
 /// if its mean probability is below [boxScoreThreshold] or it is smaller than
-/// [minSize] on either side. Boxes are dilated by [unclipRatio] (DB shrinks
-/// text regions during training, so detections are tightened; expanding
-/// recovers the full glyph extent) and finally scaled by [scaleX]/[scaleY]
-/// back into the original image's pixels.
+/// [minSize] on either side. Boxes are then unclipped and finally scaled by
+/// [scaleX]/[scaleY] back into the original image's pixels.
+///
+/// **Unclip** is DB's own (and PaddleOCR's `DBPostProcess.unclip`): DB trains
+/// on text polygons shrunk inwards by `area * (1 - r^2) / perimeter`, so a
+/// detection is grown back *outwards by a distance* `area * unclipRatio /
+/// perimeter` on every side - not scaled about its centre. For a line of
+/// text that is wide and short, the distance is set by the height, so the
+/// box gains vertical margin for ascenders/descenders while its ends grow by
+/// the same few pixels instead of reaching into the neighbouring label.
 ///
 /// This uses axis-aligned bounding boxes rather than rotated min-area rects:
 /// the OCR layer this feeds (`PdfEditor.injectTextLayer`) places horizontal
@@ -31,8 +37,8 @@ List<DetectedBox> extractDetectionBoxes(
   int width,
   int height, {
   double threshold = 0.3,
-  double boxScoreThreshold = 0.5,
-  double unclipRatio = 1.6,
+  double boxScoreThreshold = 0.6,
+  double unclipRatio = 1.5,
   int minSize = 3,
   double scaleX = 1.0,
   double scaleY = 1.0,
@@ -74,16 +80,13 @@ List<DetectedBox> extractDetectionBoxes(
     final score = sum / count;
     if (score < boxScoreThreshold) continue;
 
-    // Unclip: grow the box about its centre.
-    final cx = (minX + maxX + 1) / 2;
-    final cy = (minY + maxY + 1) / 2;
-    final halfW = boxW / 2 * unclipRatio;
-    final halfH = boxH / 2 * unclipRatio;
+    // Unclip: offset every side outwards by area * ratio / perimeter.
+    final d = boxW * boxH * unclipRatio / (2 * (boxW + boxH));
     final rect = Rect.fromLTRB(
-      ((cx - halfW) * scaleX).clamp(0.0, width * scaleX),
-      ((cy - halfH) * scaleY).clamp(0.0, height * scaleY),
-      ((cx + halfW) * scaleX).clamp(0.0, width * scaleX),
-      ((cy + halfH) * scaleY).clamp(0.0, height * scaleY),
+      ((minX - d) * scaleX).clamp(0.0, width * scaleX),
+      ((minY - d) * scaleY).clamp(0.0, height * scaleY),
+      ((maxX + 1 + d) * scaleX).clamp(0.0, width * scaleX),
+      ((maxY + 1 + d) * scaleY).clamp(0.0, height * scaleY),
     );
     boxes.add(DetectedBox(rect: rect, score: score));
   }

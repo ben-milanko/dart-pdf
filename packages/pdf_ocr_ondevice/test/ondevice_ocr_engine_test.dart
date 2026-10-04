@@ -36,6 +36,17 @@ class _FakeRunner implements OcrModelRunner {
 }
 
 void main() {
+  test('pixelRatioFor targets 216 dpi and caps the raster side', () {
+    // US Letter (612 x 792pt): 3 x 792 = 2376 px, well under the cap.
+    final letter = PdfDocument.open(buildClassicPdf()).page(0);
+    expect(OnDeviceOcrEngine.pixelRatioFor(letter), 3);
+    // A 8504pt-wide strip at ratio 3 would be 25 512 px; fit it to 4000.
+    final strip = PdfDocument.open(buildSyntheticCadStrip(ops: 1)).page(0);
+    expect(
+        OnDeviceOcrEngine.pixelRatioFor(strip), closeTo(4000 / 8503.939, 1e-9));
+    expect(OnDeviceOcrEngine.pixelRatioFor(letter, target: 2), 2);
+  });
+
   test('downloaded models use the isolate runner by default', () async {
     final temp = Directory.systemTemp.createTempSync('pdf_ocr_worker_test');
     addTearDown(() {

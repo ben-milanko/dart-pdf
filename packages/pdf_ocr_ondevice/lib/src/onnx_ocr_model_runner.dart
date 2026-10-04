@@ -7,7 +7,9 @@ import 'ctc_decode.dart';
 import 'db_postprocess.dart';
 import 'ocr_image.dart';
 import 'ocr_model_runner.dart';
+import 'ort_tensor_data.dart';
 import 'preprocess.dart';
+import 'text_cleanup.dart';
 
 /// An [OcrModelRunner] that runs a PP-OCR-style detect-then-recognize
 /// pipeline on [ONNX Runtime](https://onnxruntime.ai).
@@ -31,15 +33,17 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     required this.detectionModelPath,
     required this.recognitionModelPath,
     required this.dictionaryPath,
-    this.detectionSideLimit = 960,
+    this.detectionSideLimit = 4000,
     this.detectionMean = const [0.485, 0.456, 0.406],
     this.detectionStd = const [0.229, 0.224, 0.225],
     this.recognitionImageHeight = 48,
-    this.recognitionMaxWidth = 512,
+    this.recognitionMinWidth = 320,
+    this.recognitionMaxWidth = 3200,
     this.detectionThreshold = 0.3,
-    this.boxScoreThreshold = 0.5,
-    this.unclipRatio = 1.6,
+    this.boxScoreThreshold = 0.6,
+    this.unclipRatio = 1.5,
     this.recognitionEmitsLogits = false,
+    this.cleanText = true,
   });
 
   final String detectionModelPath;
@@ -50,6 +54,14 @@ class OnnxOcrModelRunner implements OcrModelRunner {
   final List<double> detectionMean;
   final List<double> detectionStd;
   final int recognitionImageHeight;
+
+  /// The narrowest recognition input; shorter lines are zero-padded to it
+  /// (PP-OCR's 320). Longer lines keep their own aspect-preserving width.
+  final int recognitionMinWidth;
+
+  /// A safety cap on a recognition input's width: a crop that would scale
+  /// wider is squeezed to it. Not a padding width - lines keep their aspect
+  /// below it.
   final int recognitionMaxWidth;
   final double detectionThreshold;
   final double boxScoreThreshold;
@@ -60,6 +72,11 @@ class OnnxOcrModelRunner implements OcrModelRunner {
   /// exported PP-OCR rec model already ends in a softmax, so the default is
   /// false; flip it for a logits-only export.
   final bool recognitionEmitsLogits;
+
+  /// Whether each line goes through [cleanRecognizedText] - drawing symbols
+  /// (● ▲ ▼ ...) removed, symbol-only lines dropped. On by default; turn it off
+  /// to see the recognizer's raw output.
+  final bool cleanText;
 
   OrtSession? _det;
   OrtSession? _rec;
@@ -121,14 +138,17 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     for (final box in boxes) {
       final crop = image.crop(box.rect);
       final input = recognitionInput(crop,
-          targetHeight: recognitionImageHeight, maxWidth: recognitionMaxWidth);
+          targetHeight: recognitionImageHeight,
+          minWidth: recognitionMinWidth,
+          maxWidth: recognitionMaxWidth);
       final (predictions: predictions, timesteps: t, vocab: v) =
           await _runRecognition(
-              rec, input.tensor, recognitionImageHeight, recognitionMaxWidth);
+              rec, input.tensor, recognitionImageHeight, input.paddedWidth);
       final result = decoder.decode(predictions, t, v);
-      if (result.text.trim().isEmpty) continue;
+      final text = cleanText ? cleanRecognizedText(result.text) : result.text;
+      if (text == null || text.trim().isEmpty) continue;
       lines.add(RecognizedTextLine(
-        text: result.text,
+        text: text,
         pixelBounds: box.rect,
         confidence: result.confidence,
       ));
@@ -144,10 +164,15 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     try {
       final outputs = await session
           .runAsync(runOptions, {session.inputNames.first: tensor});
-      final out = _flatten(outputs?.first?.value);
-      _release(outputs);
-      // The detection output is [1, 1, H, W]; the flat order matches the map.
-      return out;
+      try {
+        final first = outputs?.first;
+        // The detection output is [1, 1, H, W]; the flat order matches the
+        // map.
+        return (first == null ? null : readFloatTensor(first))?.data ??
+            _flatten(first?.value);
+      } finally {
+        _release(outputs);
+      }
     } finally {
       tensor.release();
       runOptions.release();
@@ -162,11 +187,17 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     try {
       final outputs = await session
           .runAsync(runOptions, {session.inputNames.first: tensor});
-      final raw = outputs?.first?.value;
-      // Recognition output is [1, T, vocab].
-      final shape = _innerShape(raw);
-      final predictions = _flatten(raw);
-      _release(outputs);
+      final List<int> shape;
+      final Float32List predictions;
+      try {
+        final first = outputs?.first;
+        // Recognition output is [1, T, vocab].
+        final fast = first == null ? null : readFloatTensor(first);
+        shape = fast?.shape ?? _innerShape(first?.value);
+        predictions = fast?.data ?? _flatten(first?.value);
+      } finally {
+        _release(outputs);
+      }
       final vocab = shape.last;
       final timesteps = vocab > 0 ? predictions.length ~/ vocab : 0;
       return (predictions: predictions, timesteps: timesteps, vocab: vocab);

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfOcrSpan;
+import 'package:pdf_document/pdf_document.dart' show PdfOcrSpan, PdfPage;
 
 import 'isolate_ocr_model_runner.dart';
 import 'model_manager.dart';
@@ -33,6 +33,28 @@ class OnDeviceOcrEngine implements PdfOcrEngine {
   final double minConfidence;
 
   bool _loaded = false;
+
+  /// The raster resolution (pixels per PDF point) to OCR [page] at: [target]
+  /// (3 = 216 dpi) unless that would make the page's longest side exceed
+  /// [maxSidePixels], in which case the ratio that fits it exactly.
+  ///
+  /// 216 dpi puts the ~5pt capitals of a drawing label at ~16 px - inside
+  /// PP-OCR's working range, where 144 dpi (ratio 2) leaves them at ~11 px.
+  /// The cap matches the detector's own side limit, so a large-format sheet
+  /// is not rasterized only for detection to shrink it again, and it bounds
+  /// the raster's memory (4000 x 2828 RGBA is ~45 MB; A0 at ratio 3 would be
+  /// ~290 MB).
+  static double pixelRatioFor(
+    PdfPage page, {
+    double target = 3,
+    int maxSidePixels = 4000,
+  }) {
+    final box = page.cropBox;
+    final longest = box.width > box.height ? box.width : box.height;
+    if (longest <= 0) return target;
+    final fit = maxSidePixels / longest;
+    return fit < target ? fit : target;
+  }
 
   /// Builds an engine that runs [model] from files already downloaded by
   /// [manager] on ONNX Runtime. Throws [PdfOcrModelException] if the model is
