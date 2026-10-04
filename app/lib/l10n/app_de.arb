@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "On-Device-OCR ist auf dieser Plattform nicht verfügbar",
   "ocrResult": "{count, plural, =0{OCR hat auf diesen Seiten keinen Text gefunden} =1{OCR hat 1 Textabschnitt hinzugefügt - der Seitentext ist jetzt auswählbar} other{OCR hat {count} Textabschnitte hinzugefügt - der Seitentext ist jetzt auswählbar}}",
-  "ocrWebPromptBody": "Web-OCR lädt ein Florence-2-Vision-Language-Modell herunter und führt es lokal mit WebGPU/WASM über Transformers.js aus. Die PDF-Seiten bleiben in diesem Browser; nur die Modelldateien werden bei der ersten Verwendung abgerufen.",
+  "ocrWebPromptBody": "Web-OCR lädt ein kleines Texterkennungsmodell (PP-OCRv5, etwa 21 MB) herunter und führt es lokal mit WebAssembly aus. Die PDF-Seiten bleiben in diesem Browser; nur die Modelldateien werden bei der ersten Verwendung abgerufen.",
   "ocrWebPromptTitle": "KI-OCR in diesem Browser ausführen?",
   "ocrWebStart": "OCR starten",
   "ok": "OK",

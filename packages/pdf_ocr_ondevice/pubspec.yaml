@@ -24,6 +24,7 @@ dependencies:
   pdf_document: ^6.0.0
   http: ^1.2.0
   crypto: ^3.0.0
+  ffi: ^2.1.0
   path_provider: ^2.1.6
   onnxruntime: ^1.4.1
 

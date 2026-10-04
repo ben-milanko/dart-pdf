@@ -30,9 +30,14 @@ on CPU on a phone or a laptop.
 ## Supported platforms
 
 Android, iOS, macOS, Windows, and Linux, wherever ONNX Runtime has prebuilt
-binaries. **Not the web** (no local model store / native runtime): on the web,
-`PdfOcrModelManager.isSupported` is `false`; use `pdf_ocr_vlm` against an HTTP
-service there.
+binaries. The main library does not compile for **the web** (no local model
+store / native runtime; `PdfOcrModelManager.isSupported` is `false` there).
+For a browser, import `package:pdf_ocr_ondevice/pp_ocr.dart` instead: the same
+`PpOcrPipeline` (every pre- and post-processing step) without the native
+runtime, over a `PpOcrInference` you back with onnxruntime-web. The DartPDF
+app's `web/index.html` bridge and `app/lib/ocr_web.dart` are a complete
+example; serve the models from your own origin (`tool/fetch_ocr_models.sh`),
+since GitHub release downloads send no CORS headers.
 
 ## Install
 
@@ -85,7 +90,10 @@ Future<Uint8List> addSearchableTextLayer(Uint8List bytes) async {
     engine = await OnDeviceOcrEngine.fromDownloadedModel(manager, model);
     final editor = PdfEditor(PdfDocument.open(bytes));
     for (var page = 0; page < editor.document.pageCount; page++) {
-      await editor.applyOcr(page, engine, pixelRatio: 2);
+      // 216 dpi (capped at 4000 px a side) - see "Resolution" below.
+      final pixelRatio =
+          OnDeviceOcrEngine.pixelRatioFor(editor.document.page(page));
+      await editor.applyOcr(page, engine, pixelRatio: pixelRatio);
     }
     return editor.save(); // selectable/searchable text layer added
   } finally {
@@ -186,16 +194,28 @@ long-lived worker isolate that owns and reuses the ONNX sessions, keeping
 resize, normalization, detection, recognition, and post-processing off the UI
 isolate. The wrapped `OnnxOcrModelRunner`:
 
-1. resizes the page for detection (longest side ≤ limit, multiples of 32) and
+1. resizes the page for detection (longest side ≤ 4000, multiples of 32) and
    normalizes it (`toNchwFloat32`);
 2. runs the detection network → a probability map, from which
    `extractDetectionBoxes` derives text-line boxes (DB threshold + connected
-   components + unclip), scaled back to the original raster;
-3. crops each box, normalizes it for recognition (`recognitionInput`), runs the
-   recognition network, and greedily CTC-decodes (`CtcDecoder`) the logits
-   against the model's dictionary.
+   components + DB's distance unclip), scaled back to the original raster;
+3. crops each box, normalizes it for recognition (`recognitionInput`, aspect
+   kept, padded to at least 320 px), runs the recognition network, greedily
+   CTC-decodes (`CtcDecoder`) its output against the model's dictionary, and
+   drops drawing symbols (`cleanRecognizedText`).
 
 Everything except the two `OrtSession.run` calls is plain Dart and unit tested.
+
+### Resolution
+
+Rasterize at `OnDeviceOcrEngine.pixelRatioFor(page)`: 3 px/pt (216 dpi), or
+less when that would push the page past 4000 px on its longest side (the
+detector's own limit). At 144 dpi (`pixelRatio: 2`) the ~5pt capitals common
+on drawings and fine print come out ~11 px tall, below where PP-OCR separates
+a label from the line work beside it. On a synthetic A3 signalling drawing
+(`pdf_test_fixtures`' `buildOcrDrawingSheet`, scored by
+`test/accuracy/ocr_accuracy_test.dart`), 216 dpi reads 95% of labels exactly
+against 18% with the 6.0.0 pipeline at 144 dpi.
 
 Pass `useWorkerIsolate: false` to `fromDownloadedModel` only when debugging the
 inference pipeline on the calling isolate. Custom `OcrModelRunner`

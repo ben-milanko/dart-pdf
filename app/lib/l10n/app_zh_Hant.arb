@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "此平台不支援裝置端 OCR",
   "ocrResult": "{count, plural, =0{OCR 在這些頁面上找不到文字} =1{OCR 新增了 1 個文字範圍 - 現在可選取頁面文字} other{OCR 新增了 {count} 個文字範圍 - 現在可選取頁面文字}}",
-  "ocrWebPromptBody": "網頁 OCR 會下載 Florence-2 視覺語言模型，並透過 Transformers.js 以 WebGPU/WASM 在本機執行。PDF 頁面會保留在此瀏覽器中；只有模型檔案會在首次使用時擷取。",
+  "ocrWebPromptBody": "網頁 OCR 會下載一個小型文字辨識模型（PP-OCRv5，約 21 MB），並透過 WebAssembly 在本機執行。PDF 頁面會留在此瀏覽器中；只在首次使用時取得模型檔案。",
   "ocrWebPromptTitle": "在此瀏覽器中執行 AI OCR？",
   "ocrWebStart": "開始 OCR",
   "ok": "確定",

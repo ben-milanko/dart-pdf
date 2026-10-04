@@ -50,11 +50,12 @@ AppImage and portable tarball builds remain available from
 - Drawn signatures and certificate-backed PAdES B-B digital signatures. The
   digital-signing flow reads an RSA key and X.509 chain in memory, validates
   the result, then saves through the normal document destination.
-- OCR for scanned PDFs: native builds use `pdf_ocr_ondevice` with a
-  downloadable PP-OCR model that runs offline after the first download; the web
-  build uses a browser-local Florence-2 bridge through Transformers.js/WebGPU
-  or WASM. OCR adds an invisible selectable/searchable text layer and opens the
-  result in a new tab.
+- OCR for scanned PDFs: `pdf_ocr_ondevice`'s PP-OCR pipeline, on native ONNX
+  Runtime in native builds (model downloaded once, then offline) and on
+  onnxruntime-web in the browser (models served from the app's origin - run
+  `tool/fetch_ocr_models.sh app/web` before `flutter run -d chrome`). OCR adds
+  an invisible selectable/searchable text layer and opens the result in a new
+  tab.
 - Tabs, light/dark theme, read-only mode, document compare.
 - Progressive rendering reveals complex pages top-down, while faithful
   overprint and spot-color handling keeps print-oriented PDFs visually

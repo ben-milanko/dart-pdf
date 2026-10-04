@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "이 플랫폼에서는 온디바이스 OCR을 사용할 수 없습니다",
   "ocrResult": "{count, plural, =0{이 페이지에서 OCR이 텍스트를 찾지 못했습니다} =1{OCR이 텍스트 스팬 1개를 추가했습니다 - 이제 페이지 텍스트를 선택할 수 있습니다} other{OCR이 텍스트 스팬 {count}개를 추가했습니다 - 이제 페이지 텍스트를 선택할 수 있습니다}}",
-  "ocrWebPromptBody": "웹 OCR은 Florence-2 비전-언어 모델을 다운로드하여 Transformers.js를 통해 WebGPU/WASM으로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 유지되며, 처음 사용할 때 모델 파일만 가져옵니다.",
+  "ocrWebPromptBody": "웹 OCR은 작은 텍스트 인식 모델(PP-OCRv5, 약 21MB)을 다운로드하여 WebAssembly로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 남으며, 처음 사용할 때 모델 파일만 가져옵니다.",
   "ocrWebPromptTitle": "이 브라우저에서 AI OCR을 실행하시겠습니까?",
   "ocrWebStart": "OCR 시작",
   "ok": "확인",

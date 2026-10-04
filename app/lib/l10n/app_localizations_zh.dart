@@ -772,7 +772,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      '网页 OCR 会下载一个 Florence-2 视觉语言模型，并通过 Transformers.js 使用 WebGPU/WASM 在本地运行。PDF 页面会保留在此浏览器中；仅在首次使用时获取模型文件。';
+      '网页 OCR 会下载一个小型文字识别模型（PP-OCRv5，约 21 MB），并通过 WebAssembly 在本地运行。PDF 页面保留在此浏览器中；仅在首次使用时获取模型文件。';
 
   @override
   String get ocrWebPromptTitle => '在此浏览器中运行 AI OCR？';
@@ -1997,7 +1997,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get ocrWebPromptBody =>
-      '網頁 OCR 會下載 Florence-2 視覺語言模型，並透過 Transformers.js 以 WebGPU/WASM 在本機執行。PDF 頁面會保留在此瀏覽器中；只有模型檔案會在首次使用時擷取。';
+      '網頁 OCR 會下載一個小型文字辨識模型（PP-OCRv5，約 21 MB），並透過 WebAssembly 在本機執行。PDF 頁面會留在此瀏覽器中；只在首次使用時取得模型檔案。';
 
   @override
   String get ocrWebPromptTitle => '在此瀏覽器中執行 AI OCR？';

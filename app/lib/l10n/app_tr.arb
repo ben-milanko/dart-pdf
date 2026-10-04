@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "Cihaz üzerinde OCR bu platformda kullanılamıyor",
   "ocrResult": "{count, plural, =0{OCR bu sayfalarda metin bulamadı} =1{OCR 1 metin dizisi ekledi - sayfa metni artık seçilebilir} other{OCR {count} metin dizisi ekledi - sayfa metni artık seçilebilir}}",
-  "ocrWebPromptBody": "Web OCR, bir Florence-2 görsel-dil modeli indirir ve Transformers.js aracılığıyla WebGPU/WASM ile yerel olarak çalıştırır. PDF sayfaları bu tarayıcıda kalır; yalnızca model dosyaları ilk kullanımda getirilir.",
+  "ocrWebPromptBody": "Web OCR, küçük bir metin tanıma modeli (PP-OCRv5, yaklaşık 21 MB) indirir ve WebAssembly ile yerel olarak çalıştırır. PDF sayfaları bu tarayıcıda kalır; ilk kullanımda yalnızca model dosyaları indirilir.",
   "ocrWebPromptTitle": "Bu tarayıcıda AI OCR çalıştırılsın mı?",
   "ocrWebStart": "OCR'yi başlat",
   "ok": "Tamam",

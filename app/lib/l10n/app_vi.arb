@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "OCR trên thiết bị không khả dụng trên nền tảng này",
   "ocrResult": "{count, plural, =0{OCR không tìm thấy văn bản nào trên các trang này} =1{OCR đã thêm 1 đoạn văn bản - văn bản trang giờ có thể chọn được} other{OCR đã thêm {count} đoạn văn bản - văn bản trang giờ có thể chọn được}}",
-  "ocrWebPromptBody": "OCR web tải xuống mô hình ngôn ngữ-thị giác Florence-2 và chạy nó cục bộ bằng WebGPU/WASM thông qua Transformers.js. Các trang PDF vẫn ở trong trình duyệt này; chỉ các tệp mô hình được tải về khi dùng lần đầu.",
+  "ocrWebPromptBody": "OCR trên web tải xuống một mô hình nhận dạng văn bản nhỏ (PP-OCRv5, khoảng 21 MB) và chạy cục bộ bằng WebAssembly. Các trang PDF vẫn ở trong trình duyệt này; chỉ các tệp mô hình được tải về, ở lần dùng đầu tiên.",
   "ocrWebPromptTitle": "Chạy AI OCR trong trình duyệt này?",
   "ocrWebStart": "Bắt đầu OCR",
   "ok": "OK",

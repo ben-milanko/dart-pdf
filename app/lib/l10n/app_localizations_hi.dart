@@ -788,7 +788,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'वेब OCR एक Florence-2 विज़न-लैंग्वेज मॉडल डाउनलोड करता है और इसे Transformers.js के माध्यम से WebGPU/WASM के साथ स्थानीय रूप से चलाता है। PDF पृष्ठ इसी ब्राउज़र में रहते हैं; केवल मॉडल फ़ाइलें पहली बार उपयोग पर लाई जाती हैं।';
+      'वेब OCR एक छोटा टेक्स्ट-पहचान मॉडल (PP-OCRv5, लगभग 21 MB) डाउनलोड करता है और उसे WebAssembly के साथ स्थानीय रूप से चलाता है। PDF पेज इसी ब्राउज़र में रहते हैं; पहली बार उपयोग पर केवल मॉडल फ़ाइलें प्राप्त की जाती हैं।';
 
   @override
   String get ocrWebPromptTitle => 'इस ब्राउज़र में AI OCR चलाएँ?';

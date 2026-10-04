@@ -44,7 +44,7 @@ class PdfOcrModel {
     this.description = '',
     this.languages = const ['en'],
     this.recognitionImageHeight = 48,
-    this.detectionSideLimit = 960,
+    this.detectionSideLimit = 4000,
     this.detectionMean = const [0.485, 0.456, 0.406],
     this.detectionStd = const [0.229, 0.224, 0.225],
   });
@@ -79,7 +79,11 @@ class PdfOcrModel {
 
   /// Detection resizes the page so its longest side is at most this many
   /// pixels (rounded to a multiple of 32). Higher = more accurate on small
-  /// type, slower.
+  /// type, slower. 4000 is PaddleOCR's own cap for PP-OCRv5 (`max_side_limit`);
+  /// PP-OCRv5's pipeline otherwise runs detection at the raster's own size,
+  /// and squeezing a page into a smaller budget (the old 960) shrinks small
+  /// print below what the detector can separate - a label fuses with the
+  /// symbol beside it and the line reads as garbage.
   final int detectionSideLimit;
 
   /// Per-channel normalization mean (RGB) for the detection input.

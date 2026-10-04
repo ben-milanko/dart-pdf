@@ -103,39 +103,32 @@
     }
   </style>
 
-  <!-- Browser-local OCR bridge. Flutter web calls __dartPdfOcrRecognize with
-       a page image data URL. Transformers.js and Florence-2 are fetched lazily
-       on first use, then recognition runs in the browser rather than on an OCR
-       app server. -->
+  <!-- Browser-local OCR bridge: the two network calls of the PP-OCR pipeline.
+       Flutter web runs pdf_ocr_ondevice's PpOcrPipeline (resize, normalize,
+       box extraction, CTC decoding - the same Dart the native apps run) and
+       hands each tensor to __dartPdfOcrRun, which runs it on onnxruntime-web.
+       The PP-OCRv5 mobile models (~21 MB) are served from this origin under
+       ocr/pp-ocrv5-mobile/ (tool/fetch_ocr_models.sh puts them in the build;
+       GitHub release downloads have no CORS) and kept in the Cache API after
+       the first use. Page images and OCR results never leave the browser. -->
   <script>
     (function () {
-      var florencePromise = null;
+      var ORT_BASE =
+        'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+      var MODEL_DIR = 'ocr/pp-ocrv5-mobile/';
+      var MODEL_CACHE = 'dart-pdf-ocr-pp-ocrv5-mobile-v1';
+
       // Model-download progress for the app's OCR chip, reported to a Dart
       // listener(stage, loaded, total) registered through
-      // __dartPdfOcrOnProgress.
-      //
-      // Only the ONNX weight files (`onnx/...`) are counted: they are
-      // effectively all of the bytes, and counting the small JSON files would
-      // read 100% as soon as the processor's config arrives, before the
-      // weights have even started. Transformers.js starts every session file
-      // together (initiate fires for all of them up front), but a file's size
-      // is only known from its first chunk, so nothing is reported until
-      // every started weight file has a size.
-      //
-      // Once the last weight byte is in, the stage flips to 'preparing'
-      // straight away: Transformers.js then writes each file into the
-      // browser cache, fetches the ONNX Runtime WASM binary, and builds the
-      // inference sessions one after another, none of which reports
-      // progress - that is the long pause after the download.
+      // __dartPdfOcrOnProgress: 'download' while the two .onnx files arrive
+      // (the dictionary is a rounding error), then 'preparing' once while
+      // onnxruntime-web fetches its WASM and builds both sessions - which
+      // reports nothing itself.
       var progressListener = null;
-      var weightFiles = {};
-      var progressStage = 'download';
       window.__dartPdfOcrOnProgress = function (listener) {
         progressListener = listener || null;
       };
       function emitProgress(stage, loaded, total) {
-        if (progressStage === 'preparing') return;
-        progressStage = stage;
         if (!progressListener) return;
         try {
           progressListener(stage, loaded, total);
@@ -143,121 +136,144 @@
           // A progress hiccup must never break the model load.
         }
       }
-      function onModelProgress(info) {
-        if (!info || typeof info.file !== 'string' ||
-            info.file.indexOf('onnx/') !== 0) {
-          return;
-        }
-        var entry = weightFiles[info.file] || (weightFiles[info.file] = {
-          loaded: 0,
-          total: 0
-        });
-        if (info.status === 'progress') {
-          if (info.total > 0) entry.total = info.total;
-          if (info.loaded >= 0) entry.loaded = info.loaded;
-        } else if (info.status === 'done') {
-          if (entry.total === 0) entry.total = entry.loaded;
-          entry.loaded = entry.total;
-        } else {
-          return;
-        }
-        var loaded = 0;
-        var total = 0;
-        for (var key in weightFiles) {
-          // A started file with no size yet would make the fraction jump
-          // backwards once it arrives, so wait for it.
-          if (weightFiles[key].total <= 0) return;
-          loaded += weightFiles[key].loaded;
-          total += weightFiles[key].total;
-        }
-        emitProgress(loaded >= total ? 'preparing' : 'download', loaded,
-          total);
-      }
-      async function hasWebGpuFp16() {
+
+      // navigator.gpu can exist with no usable adapter behind it (Linux
+      // Chrome without GPU access, headless browsers), and asking ONNX Runtime
+      // for 'webgpu' there fails outright - so pick the device by whether an
+      // adapter actually comes back, not by whether the API is defined.
+      async function webGpuAdapter() {
         try {
-          if (!navigator.gpu) return false;
-          var adapter = await navigator.gpu.requestAdapter();
-          return !!(adapter && adapter.features &&
-            adapter.features.has('shader-f16'));
+          return navigator.gpu ? await navigator.gpu.requestAdapter() : null;
         } catch (_) {
-          return false;
+          return null;
         }
       }
-      async function florence() {
-        if (!florencePromise) {
-          florencePromise = (async function () {
-            var transformers = await import(
-              'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0'
-            );
-            var modelId = 'onnx-community/Florence-2-base-ft';
-            var processor = await transformers.AutoProcessor
-              .from_pretrained(modelId, {
-                progress_callback: onModelProgress
-              });
-            var tokenizer = await transformers.AutoTokenizer
-              .from_pretrained(modelId, {
-                progress_callback: onModelProgress
-              });
-            var fp16 = await hasWebGpuFp16();
-            var model = await transformers.Florence2ForConditionalGeneration
-              .from_pretrained(modelId, {
-                device: navigator.gpu ? 'webgpu' : 'wasm',
-                progress_callback: onModelProgress,
-                dtype: {
-                  embed_tokens: fp16 ? 'fp16' : 'fp32',
-                  vision_encoder: fp16 ? 'fp16' : 'fp32',
-                  encoder_model: 'q4',
-                  decoder_model_merged: 'q4'
-                }
-              });
+
+      // One model file, from the Cache API when an earlier session stored it,
+      // else fetched (streamed, for progress) and stored. Same-origin, so a
+      // cache that is unavailable (private mode) just means a re-download.
+      async function fetchModelFile(url, onBytes) {
+        var cache = null;
+        try {
+          cache = await caches.open(MODEL_CACHE);
+          var hit = await cache.match(url);
+          if (hit) {
+            var cached = await hit.arrayBuffer();
+            onBytes(cached.byteLength, cached.byteLength);
+            return cached;
+          }
+        } catch (_) {
+          cache = null;
+        }
+        var response = await fetch(url);
+        if (!response.ok) {
+          throw new Error('OCR model ' + url + ': HTTP ' + response.status);
+        }
+        var total = Number(response.headers.get('content-length')) || 0;
+        var chunks = [];
+        var loaded = 0;
+        var reader = response.body.getReader();
+        for (;;) {
+          var step = await reader.read();
+          if (step.done) break;
+          chunks.push(step.value);
+          loaded += step.value.byteLength;
+          onBytes(loaded, Math.max(total, loaded));
+        }
+        var bytes = new Uint8Array(loaded);
+        var offset = 0;
+        for (var i = 0; i < chunks.length; i++) {
+          bytes.set(chunks[i], offset);
+          offset += chunks[i].byteLength;
+        }
+        if (cache) {
+          try {
+            await cache.put(url, new Response(bytes.slice().buffer));
+          } catch (_) {
+            // Quota or private mode: the model still runs, it just isn't kept.
+          }
+        }
+        return bytes.buffer;
+      }
+
+      var enginePromise = null;
+      function engine() {
+        if (!enginePromise) {
+          enginePromise = (async function () {
+            var adapter = await webGpuAdapter();
+            // The WebGPU build is twice the WASM-only one; fetch it only when
+            // there is an adapter to use it.
+            var ort = await import(ORT_BASE +
+              (adapter ? 'ort.webgpu.min.mjs' : 'ort.wasm.min.mjs'));
+            ort.env.wasm.wasmPaths = ORT_BASE;
+            // Threads need SharedArrayBuffer, i.e. a cross-origin-isolated
+            // page (firebase.json's COOP/COEP); elsewhere run single-threaded.
+            ort.env.wasm.numThreads = self.crossOriginIsolated ?
+              Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+
+            var base = new URL(MODEL_DIR, document.baseURI);
+            var names = ['det.onnx', 'rec.onnx'];
+            var loaded = [0, 0];
+            var totals = [0, 0];
+            var models = await Promise.all(names.map(function (name, i) {
+              return fetchModelFile(new URL(name, base).href,
+                function (l, t) {
+                  loaded[i] = l;
+                  totals[i] = t;
+                  // A file with no size yet would make the fraction jump
+                  // backwards once it arrives, so wait for both.
+                  if (totals[0] > 0 && totals[1] > 0) {
+                    emitProgress('download', loaded[0] + loaded[1],
+                      totals[0] + totals[1]);
+                  }
+                });
+            }));
+            var dictionary = new TextDecoder().decode(await fetchModelFile(
+              new URL('dict.txt', base).href, function () {}));
             emitProgress('preparing', 0, 0);
-            var textInputs = tokenizer('a');
-            var pixelValues = transformers.full([1, 3, 768, 768], 0.0);
-            await model.generate({
-              ...textInputs,
-              pixel_values: pixelValues,
-              max_new_tokens: 1
-            });
-            return {
-              model: model,
-              processor: processor,
-              tokenizer: tokenizer,
-              RawImage: transformers.RawImage
+
+            var options = {
+              executionProviders: adapter ? ['webgpu', 'wasm'] : ['wasm'],
+              graphOptimizationLevel: 'all'
             };
+            var det = await ort.InferenceSession.create(
+              new Uint8Array(models[0]), options);
+            var rec = await ort.InferenceSession.create(
+              new Uint8Array(models[1]), options);
+            return { ort: ort, det: det, rec: rec, dictionary: dictionary };
           })();
+          // A failed load (offline, missing models) can be retried.
+          enginePromise.catch(function () {
+            enginePromise = null;
+          });
         }
-        return florencePromise;
+        return enginePromise;
       }
-      window.__dartPdfOcrRecognize = async function (imageDataUrl) {
-        var bundle = await florence();
-        var image = await bundle.RawImage?.fromURL?.(imageDataUrl);
-        if (!image) {
-          var transformers = await import(
-            'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0'
-          );
-          image = await transformers.RawImage.fromURL(imageDataUrl);
+
+      // Loads both networks; resolves to the recognizer's dictionary text.
+      window.__dartPdfOcrLoad = async function () {
+        return (await engine()).dictionary;
+      };
+
+      // Runs network `name` ('det' or 'rec') on a float32 NCHW tensor;
+      // resolves to { data: Float32Array, dims: number[] }.
+      window.__dartPdfOcrRun = async function (name, data, dims) {
+        var e = await engine();
+        var session = name === 'det' ? e.det : e.rec;
+        var input = new e.ort.Tensor('float32', data, dims);
+        var feeds = {};
+        feeds[session.inputNames[0]] = input;
+        var outputs = await session.run(feeds);
+        var output = outputs[session.outputNames[0]];
+        try {
+          return {
+            data: await output.getData(),
+            dims: Array.from(output.dims)
+          };
+        } finally {
+          input.dispose();
+          output.dispose();
         }
-        var imageSize = image.size;
-        var visionInputs = await bundle.processor(image);
-        var task = '<OCR_WITH_REGION>';
-        var prompts = bundle.processor.construct_prompts(task);
-        var textInputs = bundle.tokenizer(prompts);
-        var generatedIds = await bundle.model.generate({
-          ...textInputs,
-          ...visionInputs,
-          max_new_tokens: 1024,
-          num_beams: 1,
-          do_sample: false
-        });
-        var generatedText = bundle.tokenizer.batch_decode(generatedIds, {
-          skip_special_tokens: false
-        })[0];
-        var result = bundle.processor.post_process_generation(
-          generatedText,
-          task,
-          imageSize
-        );
-        return JSON.stringify(result);
       };
     })();
   </script>

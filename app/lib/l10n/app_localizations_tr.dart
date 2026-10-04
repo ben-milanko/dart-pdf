@@ -787,7 +787,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Web OCR, bir Florence-2 görsel-dil modeli indirir ve Transformers.js aracılığıyla WebGPU/WASM ile yerel olarak çalıştırır. PDF sayfaları bu tarayıcıda kalır; yalnızca model dosyaları ilk kullanımda getirilir.';
+      'Web OCR, küçük bir metin tanıma modeli (PP-OCRv5, yaklaşık 21 MB) indirir ve WebAssembly ile yerel olarak çalıştırır. PDF sayfaları bu tarayıcıda kalır; ilk kullanımda yalnızca model dosyaları indirilir.';
 
   @override
   String get ocrWebPromptTitle => 'Bu tarayıcıda AI OCR çalıştırılsın mı?';

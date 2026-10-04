@@ -791,7 +791,7 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'OCR web mengunduh model bahasa-visual Florence-2 dan menjalankannya secara lokal dengan WebGPU/WASM melalui Transformers.js. Halaman PDF tetap di peramban ini; hanya berkas model yang diambil saat pertama kali digunakan.';
+      'OCR web mengunduh model pengenalan teks kecil (PP-OCRv5, sekitar 21 MB) dan menjalankannya secara lokal dengan WebAssembly. Halaman PDF tetap berada di browser ini; hanya file model yang diambil, saat pertama kali digunakan.';
 
   @override
   String get ocrWebPromptTitle => 'Jalankan OCR AI di peramban ini?';

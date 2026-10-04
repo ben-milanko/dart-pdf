@@ -192,7 +192,7 @@
   "ocrModelApproxSize": "(~{mb} MB)",
   "ocrNotAvailable": "此平台不支持设备端 OCR",
   "ocrResult": "{count, plural, =0{OCR 未在这些页面上找到文本} =1{OCR 添加了 1 个文本段 - 现在可以选择页面文本了} other{OCR 添加了 {count} 个文本段 - 现在可以选择页面文本了}}",
-  "ocrWebPromptBody": "网页 OCR 会下载一个 Florence-2 视觉语言模型，并通过 Transformers.js 使用 WebGPU/WASM 在本地运行。PDF 页面会保留在此浏览器中；仅在首次使用时获取模型文件。",
+  "ocrWebPromptBody": "网页 OCR 会下载一个小型文字识别模型（PP-OCRv5，约 21 MB），并通过 WebAssembly 在本地运行。PDF 页面保留在此浏览器中；仅在首次使用时获取模型文件。",
   "ocrWebPromptTitle": "在此浏览器中运行 AI OCR？",
   "ocrWebStart": "开始 OCR",
   "ok": "确定",
