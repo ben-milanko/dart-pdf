@@ -6435,6 +6435,21 @@ class _PdfViewerState extends State<PdfViewer>
     _clearSelection();
   }
 
+  /// A select-tool click over a link follows it, as [_onTapUp] does in the
+  /// reader (the editing overlay covers the page, so the viewer's own tap
+  /// never sees it). Returns whether there was an action to follow.
+  bool _activateLinkAtGlobal(Offset globalPosition) {
+    final local = _listLocalOf(globalPosition);
+    if (local == null) return false;
+    final hit = _annotationHitAt(local, actionsOnly: true);
+    if (hit == null) return false;
+    if (widget.onAnnotationTap != null) {
+      _notifyAnnotationTap(hit, globalPosition);
+    }
+    _activate(hit.annotation);
+    return true;
+  }
+
   /// A page overlay reports its single-selection move drag here so the
   /// floating ghost paints above every page (a per-page overlay clips it
   /// behind the page below once the drag crosses a boundary). Null clears.
@@ -9407,6 +9422,7 @@ class _PdfViewerState extends State<PdfViewer>
                       updateTextSelection: _updateToolTextSelection,
                       endTextSelection: _endToolTextSelection,
                       clearTextSelection: _clearToolTextSelection,
+                      activateLinkAt: _activateLinkAtGlobal,
                     ),
                     interactionSession: widget.interactionSession,
                     crossPageGhost: _crossPageGhostFor(index),
@@ -10811,168 +10827,200 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
               rotation: widget.effectiveRotation,
               viewSize: constraints.biggest,
             );
-            return Stack(children: [
-              if (builder != null) ...builder(context, widget.index, geometry),
-              // the editing layer sits topmost so an armed tool's
-              // gestures win over app overlays underneath
-              if (editing != null)
-                ListenableBuilder(
-                  listenable: editing,
-                  // mounted for an armed tool, the eyedropper, a
-                  // default-mode (mouse click) annotation selection, or
-                  // a pending attention flash (the sidebar's zoom-to -
-                  // links and form fields flash without a selection). Cursor
-                  // cursor guides and rulers mount the same passive,
-                  // low-latency hover layer even in ordinary reader/hand
-                  // mode.
-                  builder: (context, _) {
-                    final rasterCurrent = _rastered &&
-                        _annotationLayerCurrent &&
-                        // Clean page wrappers deliberately survive an
-                        // incremental revision. Their PdfDocument wrapper may
-                        // therefore be older, but it shares the one live COS
-                        // graph and its page-tree caches self-invalidate from
-                        // the COS revision generation.
-                        identical(
-                            widget.page.document.cos, editing.document.cos);
-                    return editing.tool == null &&
-                            !editing.isPickingColor &&
-                            editing.activeSavedAnnotation == null &&
-                            !editing.hasAnnotationSelection &&
-                            editing.pendingFlash == null &&
-                            !editing.preferences.showVerticalCursorGuide &&
-                            !editing.preferences.showHorizontalCursorGuide &&
-                            !editing.preferences.showPageRulers &&
-                            !editing.preferences.showSnapGrid &&
-                            (rasterCurrent ||
-                                editing.committedInksOn(widget.index).isEmpty)
-                        ? const SizedBox.shrink()
-                        : Positioned.fill(
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: widget.transformScale,
-                              builder: (context, zoom, _) => EditingPageOverlay(
-                                controller: editing,
-                                pageIndex: widget.index,
-                                geometry: geometry,
-                                textPrompt: widget.editingTextPrompt,
-                                formImagePicker: widget.formImagePicker,
-                                imagePicker: widget.imagePicker,
-                                onSnapshot: widget.onSnapshot,
-                                onPlaceSignature: widget.onPlaceSignature,
-                                pageColor: widget.pageColor,
-                                showAnnotations: widget.showAnnotations,
-                                interactionHost: widget.interactionHost,
-                                interactionSession: widget.interactionSession,
-                                rasterCurrent: rasterCurrent,
-                                zoom: zoom,
-                                predictStrokes: widget.predictStrokes,
-                                contextMenuEnabled: widget.contextMenuEnabled,
-                                showSelectionChip: widget.showSelectionChip,
-                                showInlineTextStyleChip:
-                                    widget.showInlineTextStyleChip,
-                                renderWorker: widget.renderWorker,
-                              ),
-                            ),
-                          );
-                  },
-                ),
-              // field-name labels: while the form-authoring tool is armed,
-              // outline every field and tag it with its name so empty
-              // fields (which render nothing) are discoverable
-              if (editing != null)
-                Positioned.fill(
-                  child: ListenableBuilder(
-                    listenable: editing,
-                    builder: (context, _) => editing.tool == PdfEditTool.form
-                        ? ValueListenableBuilder<double>(
-                            valueListenable: widget.transformScale,
-                            builder: (context, zoom, _) => FormFieldLabelLayer(
-                              controller: editing,
-                              pageIndex: widget.index,
-                              geometry: geometry,
-                              zoom: zoom,
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ),
-              // the form tool's field fill: the same form layer as reading
-              // mode, without its tap targets - the tool's overlay owns the
-              // taps and hands its double-tap here (pdfFormFillRequests), so
-              // keystroke scripts and validation run in either mode
-              if (editing != null)
-                Positioned.fill(
-                  child: ListenableBuilder(
-                    listenable: editing,
-                    builder: (context, _) => editing.tool == PdfEditTool.form
-                        ? ValueListenableBuilder<double>(
-                            valueListenable: widget.transformScale,
-                            builder: (context, zoom, _) => FormInteractionLayer(
-                              controller: editing,
-                              pageIndex: widget.index,
-                              geometry: geometry,
-                              pageColor: widget.pageColor,
-                              rasterCurrent: _rastered,
-                              zoom: zoom,
-                              formImagePicker: widget.formImagePicker,
-                              onRevealField: widget.onRevealRect,
-                              tapTargets: false,
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ),
-              // direct form fill: a per-field tap layer in reading /
-              // selection modes (the form-authoring tool owns fields
-              // itself, drawing tools own the whole page). It sits over
-              // the editing overlay so a field tap beats a select-mode
-              // marquee, but covers only the field rects. The reader
-              // drives this without an [editing] controller, so it never
-              // enables annotation move/resize.
-              if (formController != null && widget.interactiveForms)
-                Positioned.fill(
-                  child: ListenableBuilder(
-                    listenable: formController,
-                    builder: (context, _) {
-                      final tool = editing?.tool;
-                      final active = editing == null ||
-                          tool == null ||
-                          tool == PdfEditTool.select;
-                      return active
-                          ? ValueListenableBuilder<double>(
-                              valueListenable: widget.transformScale,
-                              builder: (context, zoom, _) =>
-                                  FormInteractionLayer(
-                                controller: formController,
-                                pageIndex: widget.index,
-                                geometry: geometry,
-                                pageColor: widget.pageColor,
-                                rasterCurrent: _rastered,
-                                zoom: zoom,
-                                formImagePicker: widget.formImagePicker,
-                                onAnnotationTap: widget.onAnnotationTap,
-                                onRevealField: widget.onRevealRect,
-                              ),
-                            )
-                          : const SizedBox.shrink();
-                    },
-                  ),
-                ),
-              // touch text selection chrome rides topmost - it only
-              // shows in reader or Select mode, so it never competes
-              // with a drawing tool's gestures
-              if (textSelection != null)
-                Positioned.fill(
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: widget.transformScale,
-                    builder: (context, zoom, _) => _TextSelectionChrome(
-                      geometry: geometry,
-                      selection: textSelection,
-                      zoom: zoom,
+            // built once per layout: reordering below must not re-run the
+            // host's builder on every editing notification
+            final hostLayer = builder == null
+                ? null
+                : Positioned.fill(
+                    key: const ValueKey('pdf-host-page-overlays'),
+                    child: Stack(
+                        children: builder(context, widget.index, geometry)),
+                  );
+            Widget layers({required bool hostAboveEditing}) => Stack(children: [
+                  if (hostLayer != null && !hostAboveEditing) hostLayer,
+                  // the editing layer sits above app overlays so an armed drawing
+                  // tool's gestures win over them. Select mode is the exception
+                  // (below): it is where a document opens, so the app's page
+                  // widgets must stay live there, as form fields do
+                  if (editing != null)
+                    ListenableBuilder(
+                      key: const ValueKey('pdf-editing-layer'),
+                      listenable: editing,
+                      // mounted for an armed tool, the eyedropper, a
+                      // default-mode (mouse click) annotation selection, or
+                      // a pending attention flash (the sidebar's zoom-to -
+                      // links and form fields flash without a selection). Cursor
+                      // cursor guides and rulers mount the same passive,
+                      // low-latency hover layer even in ordinary reader/hand
+                      // mode.
+                      builder: (context, _) {
+                        final rasterCurrent = _rastered &&
+                            _annotationLayerCurrent &&
+                            // Clean page wrappers deliberately survive an
+                            // incremental revision. Their PdfDocument wrapper may
+                            // therefore be older, but it shares the one live COS
+                            // graph and its page-tree caches self-invalidate from
+                            // the COS revision generation.
+                            identical(
+                                widget.page.document.cos, editing.document.cos);
+                        return editing.tool == null &&
+                                !editing.isPickingColor &&
+                                editing.activeSavedAnnotation == null &&
+                                !editing.hasAnnotationSelection &&
+                                editing.pendingFlash == null &&
+                                !editing.preferences.showVerticalCursorGuide &&
+                                !editing
+                                    .preferences.showHorizontalCursorGuide &&
+                                !editing.preferences.showPageRulers &&
+                                !editing.preferences.showSnapGrid &&
+                                (rasterCurrent ||
+                                    editing
+                                        .committedInksOn(widget.index)
+                                        .isEmpty)
+                            ? const SizedBox.shrink()
+                            : Positioned.fill(
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: widget.transformScale,
+                                  builder: (context, zoom, _) =>
+                                      EditingPageOverlay(
+                                    controller: editing,
+                                    pageIndex: widget.index,
+                                    geometry: geometry,
+                                    textPrompt: widget.editingTextPrompt,
+                                    formImagePicker: widget.formImagePicker,
+                                    imagePicker: widget.imagePicker,
+                                    onSnapshot: widget.onSnapshot,
+                                    onPlaceSignature: widget.onPlaceSignature,
+                                    pageColor: widget.pageColor,
+                                    showAnnotations: widget.showAnnotations,
+                                    interactionHost: widget.interactionHost,
+                                    interactionSession:
+                                        widget.interactionSession,
+                                    rasterCurrent: rasterCurrent,
+                                    zoom: zoom,
+                                    predictStrokes: widget.predictStrokes,
+                                    contextMenuEnabled:
+                                        widget.contextMenuEnabled,
+                                    showSelectionChip: widget.showSelectionChip,
+                                    showInlineTextStyleChip:
+                                        widget.showInlineTextStyleChip,
+                                    renderWorker: widget.renderWorker,
+                                  ),
+                                ),
+                              );
+                      },
                     ),
-                  ),
-                ),
-            ]);
+                  if (hostLayer != null && hostAboveEditing) hostLayer,
+                  // field-name labels: while the form-authoring tool is armed,
+                  // outline every field and tag it with its name so empty
+                  // fields (which render nothing) are discoverable
+                  if (editing != null)
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: editing,
+                        builder: (context, _) =>
+                            editing.tool == PdfEditTool.form
+                                ? ValueListenableBuilder<double>(
+                                    valueListenable: widget.transformScale,
+                                    builder: (context, zoom, _) =>
+                                        FormFieldLabelLayer(
+                                      controller: editing,
+                                      pageIndex: widget.index,
+                                      geometry: geometry,
+                                      zoom: zoom,
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                      ),
+                    ),
+                  // the form tool's field fill: the same form layer as reading
+                  // mode, without its tap targets - the tool's overlay owns the
+                  // taps and hands its double-tap here (pdfFormFillRequests), so
+                  // keystroke scripts and validation run in either mode
+                  if (editing != null)
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: editing,
+                        builder: (context, _) =>
+                            editing.tool == PdfEditTool.form
+                                ? ValueListenableBuilder<double>(
+                                    valueListenable: widget.transformScale,
+                                    builder: (context, zoom, _) =>
+                                        FormInteractionLayer(
+                                      controller: editing,
+                                      pageIndex: widget.index,
+                                      geometry: geometry,
+                                      pageColor: widget.pageColor,
+                                      rasterCurrent: _rastered,
+                                      zoom: zoom,
+                                      formImagePicker: widget.formImagePicker,
+                                      onRevealField: widget.onRevealRect,
+                                      tapTargets: false,
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                      ),
+                    ),
+                  // direct form fill: a per-field tap layer in reading /
+                  // selection modes (the form-authoring tool owns fields
+                  // itself, drawing tools own the whole page). It sits over
+                  // the editing overlay so a field tap beats a select-mode
+                  // marquee, but covers only the field rects. The reader
+                  // drives this without an [editing] controller, so it never
+                  // enables annotation move/resize.
+                  if (formController != null && widget.interactiveForms)
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: formController,
+                        builder: (context, _) {
+                          final tool = editing?.tool;
+                          final active = editing == null ||
+                              tool == null ||
+                              tool == PdfEditTool.select;
+                          return active
+                              ? ValueListenableBuilder<double>(
+                                  valueListenable: widget.transformScale,
+                                  builder: (context, zoom, _) =>
+                                      FormInteractionLayer(
+                                    controller: formController,
+                                    pageIndex: widget.index,
+                                    geometry: geometry,
+                                    pageColor: widget.pageColor,
+                                    rasterCurrent: _rastered,
+                                    zoom: zoom,
+                                    formImagePicker: widget.formImagePicker,
+                                    onAnnotationTap: widget.onAnnotationTap,
+                                    onRevealField: widget.onRevealRect,
+                                  ),
+                                )
+                              : const SizedBox.shrink();
+                        },
+                      ),
+                    ),
+                  // touch text selection chrome rides topmost - it only
+                  // shows in reader or Select mode, so it never competes
+                  // with a drawing tool's gestures
+                  if (textSelection != null)
+                    Positioned.fill(
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: widget.transformScale,
+                        builder: (context, zoom, _) => _TextSelectionChrome(
+                          geometry: geometry,
+                          selection: textSelection,
+                          zoom: zoom,
+                        ),
+                      ),
+                    ),
+                ]);
+            if (editing == null || hostLayer == null) {
+              return layers(hostAboveEditing: false);
+            }
+            // keyed children: the reorder keeps the app widgets' state
+            return ListenableBuilder(
+              listenable: editing,
+              builder: (context, _) =>
+                  layers(hostAboveEditing: editing.tool == PdfEditTool.select),
+            );
           }),
         ),
     ]);
