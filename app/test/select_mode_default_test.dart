@@ -1,5 +1,5 @@
-// A document opens as a reader: the edit session starts in explicit Hand
-// mode, so a mouse drag pans the page instead of starting a text selection.
+// A document opens in Select mode: the edit session starts with the Select
+// tool armed, not in Hand mode.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,7 +19,7 @@ void main() {
 
   tearDown(() => preferences.dispose());
 
-  test('a new document tab starts in Hand mode', () {
+  test('a new document tab starts in Select mode', () {
     final tab = DocumentTab.document(
       title: 'reader.pdf',
       bytes: buildMultiPagePdf(1),
@@ -27,12 +27,12 @@ void main() {
     );
     addTearDown(tab.dispose);
 
-    expect(tab.session!.isHandMode, isTrue);
-    expect(tab.session!.tool, isNull);
+    expect(tab.session!.tool, PdfEditTool.select);
+    expect(tab.session!.isHandMode, isFalse);
     expect(tab.session!.markupTool, isNull);
   });
 
-  testWidgets('the opened document reaches the viewer in Hand mode',
+  testWidgets('the opened document reaches the viewer in Select mode',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: EditorScreen(
@@ -44,6 +44,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
-    expect(viewer.editing!.isHandMode, isTrue);
+    expect(viewer.editing!.tool, PdfEditTool.select);
+    expect(viewer.editing!.isHandMode, isFalse);
   });
 }

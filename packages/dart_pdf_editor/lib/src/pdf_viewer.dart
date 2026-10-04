@@ -8130,6 +8130,24 @@ class _PdfViewerState extends State<PdfViewer>
       (_lastPointerKind == PointerDeviceKind.touch ||
           _lastPointerKind == PointerDeviceKind.stylus);
 
+  /// Whether a touch/stylus long-press at [local] may start a text
+  /// selection: in reader mode, and in Select mode too - Select is where a
+  /// document opens, so a long-press must select text there just as it does
+  /// with no tool. In Select mode a press on an annotation stays the
+  /// overlay's (a held finger then drags it, or opens its menu). Drawing
+  /// tools, Hand mode and the eyedropper own the press.
+  bool _selectionLongPressEnabledAt(Offset local) {
+    final editing = widget.editing;
+    if (editing == null) return true;
+    if (editing.isHandMode || editing.isPickingColor) return false;
+    final tool = editing.tool;
+    if (tool == null) return true;
+    if (tool != PdfEditTool.select) return false;
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    return editing.selectableAnnotationAt(point.$1, point.$2, point.$3) == null;
+  }
+
   void _onLongPressStart(LongPressStartDetails details) {
     final range = _wordRangeAt(details.localPosition);
     if (range == null) {
@@ -9590,8 +9608,8 @@ class _PdfViewerState extends State<PdfViewer>
                                         cancelled: true),
                                 ),
                                 // touch text selection starts with a long
-                                // press instead; stands aside while an
-                                // editing tool owns touch gestures
+                                // press instead; stands aside while a
+                                // drawing tool owns touch gestures
                                 _SelectionLongPressRecognizer:
                                     GestureRecognizerFactoryWithHandlers<
                                         _SelectionLongPressRecognizer>(
@@ -9599,10 +9617,7 @@ class _PdfViewerState extends State<PdfViewer>
                                       debugOwner: this),
                                   (recognizer) => recognizer
                                     ..gestureSettings = gestureSettings
-                                    ..isEnabled = (() =>
-                                        widget.editing?.tool == null &&
-                                        widget.editing?.isHandMode != true &&
-                                        widget.editing?.isPickingColor != true)
+                                    ..isEnabled = _selectionLongPressEnabledAt
                                     ..onLongPressStart = _onLongPressStart
                                     ..onLongPressMoveUpdate = _onLongPressMove
                                     ..onLongPressEnd =
@@ -10944,8 +10959,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   ),
                 ),
               // touch text selection chrome rides topmost - it only
-              // shows in reader mode (tool disarmed), so it never
-              // competes with an armed tool's gestures
+              // shows in reader or Select mode, so it never competes
+              // with a drawing tool's gestures
               if (textSelection != null)
                 Positioned.fill(
                   child: ValueListenableBuilder<double>(
@@ -11214,7 +11229,7 @@ class _ZoomedTouchPanRecognizer extends PanGestureRecognizer {
 /// Touch text selection: long-press to select. Sits in the same arena
 /// as the list's drag recognizers, so once it fires the press can drag
 /// to extend without scrolling. Stands down (never enters the arena)
-/// while an editing tool is armed - a held finger must not start
+/// while a drawing tool is armed - a held finger must not start
 /// selecting text under an ink stroke or a shape drag.
 class _SelectionLongPressRecognizer extends LongPressGestureRecognizer {
   _SelectionLongPressRecognizer({super.debugOwner})
@@ -11223,11 +11238,11 @@ class _SelectionLongPressRecognizer extends LongPressGestureRecognizer {
           PointerDeviceKind.stylus,
         });
 
-  bool Function()? isEnabled;
+  bool Function(Offset localPosition)? isEnabled;
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
-    if (isEnabled?.call() == false) return;
+    if (isEnabled?.call(event.localPosition) == false) return;
     super.addAllowedPointer(event);
   }
 
