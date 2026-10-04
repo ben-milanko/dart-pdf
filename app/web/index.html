@@ -110,25 +110,33 @@
   <script>
     (function () {
       var florencePromise = null;
-      // Model-download progress for the app's OCR chip. Transformers.js
-      // reports per file, and each file's size is only known once its
-      // request opens, so bytes are summed over every file seen so far.
-      // Dart registers a listener(stage, loaded, total) through
-      // __dartPdfOcrOnProgress; stage is 'download' while files arrive and
-      // 'preparing' once they are all in and the model is warming up.
+      // Model-download progress for the app's OCR chip, reported to a Dart
+      // listener(stage, loaded, total) registered through
+      // __dartPdfOcrOnProgress.
+      //
+      // Only the ONNX weight files (`onnx/...`) are counted: they are
+      // effectively all of the bytes, and counting the small JSON files would
+      // read 100% as soon as the processor's config arrives, before the
+      // weights have even started. Transformers.js starts every session file
+      // together (initiate fires for all of them up front), but a file's size
+      // is only known from its first chunk, so nothing is reported until
+      // every started weight file has a size.
+      //
+      // Once the last weight byte is in, the stage flips to 'preparing'
+      // straight away: Transformers.js then writes each file into the
+      // browser cache, fetches the ONNX Runtime WASM binary, and builds the
+      // inference sessions one after another, none of which reports
+      // progress - that is the long pause after the download.
       var progressListener = null;
-      var downloadFiles = {};
+      var weightFiles = {};
+      var progressStage = 'download';
       window.__dartPdfOcrOnProgress = function (listener) {
         progressListener = listener || null;
       };
-      function emitProgress(stage) {
+      function emitProgress(stage, loaded, total) {
+        if (progressStage === 'preparing') return;
+        progressStage = stage;
         if (!progressListener) return;
-        var loaded = 0;
-        var total = 0;
-        for (var key in downloadFiles) {
-          loaded += downloadFiles[key].loaded;
-          total += downloadFiles[key].total;
-        }
         try {
           progressListener(stage, loaded, total);
         } catch (_) {
@@ -136,9 +144,11 @@
         }
       }
       function onModelProgress(info) {
-        if (!info || !info.file) return;
-        var key = (info.name || '') + '/' + info.file;
-        var entry = downloadFiles[key] || (downloadFiles[key] = {
+        if (!info || typeof info.file !== 'string' ||
+            info.file.indexOf('onnx/') !== 0) {
+          return;
+        }
+        var entry = weightFiles[info.file] || (weightFiles[info.file] = {
           loaded: 0,
           total: 0
         });
@@ -148,8 +158,20 @@
         } else if (info.status === 'done') {
           if (entry.total === 0) entry.total = entry.loaded;
           entry.loaded = entry.total;
+        } else {
+          return;
         }
-        emitProgress('download');
+        var loaded = 0;
+        var total = 0;
+        for (var key in weightFiles) {
+          // A started file with no size yet would make the fraction jump
+          // backwards once it arrives, so wait for it.
+          if (weightFiles[key].total <= 0) return;
+          loaded += weightFiles[key].loaded;
+          total += weightFiles[key].total;
+        }
+        emitProgress(loaded >= total ? 'preparing' : 'download', loaded,
+          total);
       }
       async function hasWebGpuFp16() {
         try {
@@ -188,7 +210,7 @@
                   decoder_model_merged: 'q4'
                 }
               });
-            emitProgress('preparing');
+            emitProgress('preparing', 0, 0);
             var textInputs = tokenizer('a');
             var pixelValues = transformers.full([1, 3, 768, 768], 0.0);
             await model.generate({

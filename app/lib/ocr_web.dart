@@ -73,9 +73,10 @@ class OnDeviceOcr {
     final engine = _BrowserOcrEngine();
     try {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
-      // Feed the bridge's model-download progress into the chip. The total
-      // grows as each model file's request opens, so the fraction is held
-      // monotonic rather than jumping backwards.
+      // Feed the bridge's model-download progress into the chip. The bridge
+      // counts only the weight files and reports 'preparing' once their last
+      // byte is in (cache write + session setup follow, with no progress);
+      // the fraction is still held monotonic as a guard.
       var shownFraction = 0.0;
       _setProgressListener((String stage, num loaded, num total) {
         if (stage == 'preparing') {

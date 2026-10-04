@@ -33,3 +33,23 @@ Gotcha: `TweenAnimationBuilder` asserts a non-null `tween.end`, so the bar only
 eases when the fraction is known and swaps to a plain indeterminate
 `LinearProgressIndicator` otherwise (a nullable tween crashes debug builds in
 the preparing/finishing phases).
+
+## Follow-up: the minute at "Downloading model 100%"
+
+Reading the Transformers.js 4.2.0 source (`transformers.web.js`) explains it:
+
+- The first bridge version summed *every* file, so the processor's tiny JSON
+  files reached 100% before the ONNX weights had even started, and the
+  monotonic hold then kept the chip at 100% through the real download. The
+  bridge now counts only `onnx/...` files and waits until every started
+  weight file has reported a size (`initiate` fires for all session files up
+  front, but a size only arrives with the first chunk).
+- After the last weight byte, `from_pretrained` still writes each file into
+  the browser Cache API (`storeCachedResource`, before `done`), fetches the
+  ONNX Runtime WASM binary (`ensureWasmLoaded`), and builds the four
+  inference sessions **serially** (`webInitChain`). None of that reports
+  progress, and the old code only switched to "Loading OCR model…" after
+  `from_pretrained` returned. The bridge now flips to `preparing` the moment
+  the weight bytes are complete, so that stretch shows the sweeping bar and
+  the right label. There is no honest percentage for session creation;
+  ONNX Runtime exposes no hook.
