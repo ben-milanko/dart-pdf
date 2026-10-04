@@ -166,8 +166,9 @@ void main() {
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
         WidgetTester tester,
-        {int pages = 2}) async {
-      final editing = PdfEditingController(buildMultiPagePdf(pages));
+        {int pages = 2,
+        Uint8List? bytes}) async {
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(pages));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -400,6 +401,25 @@ void main() {
 
       expect(viewer.selectedText, contains('Page 1'));
       expect(editing.hasAnnotationSelection, isFalse);
+      await settle(tester);
+    });
+
+    testWidgets(
+        'cmd+A in Select mode on a page without text selects '
+        'its annotations', (tester) async {
+      final (editing, viewer) =
+          await pumpEditor(tester, bytes: buildTextLinesPdf(const []));
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tester.tapAt(view(450, 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, isEmpty);
+      expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
       await settle(tester);
     });
 
