@@ -2029,7 +2029,9 @@ class _DocumentTab {
     required PdfEditingPreferences preferences,
     this.isDemo = false,
     this.isExtracted = false,
-  })  : session = PdfEditingController(bytes, preferences: preferences),
+  })  : session = PdfEditingController(bytes, preferences: preferences)
+          // a document opens in Select mode, like the app's tabs
+          ..tool = PdfEditTool.select,
         viewer = PdfViewerController(),
         error = null,
         compareBefore = null,

@@ -4951,6 +4951,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         return;
       }
       if (!_additiveModifier) _host.clearTextSelection?.call();
+      // a plain click on a link follows it, as in the reader - an
+      // annotation that can be selected still wins the click
+      if (!_additiveModifier &&
+          _controller.selectableAnnotationAt(widget.pageIndex, x, y) == null &&
+          (_host.activateLinkAt?.call(details.globalPosition) ?? false)) {
+        _controller.clearAnnotationSelection();
+        return;
+      }
       // shift/⌘-click toggles membership in the selection
       _controller.selectAnnotationAt(widget.pageIndex, x, y,
           toggle: _additiveModifier);
