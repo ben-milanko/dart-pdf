@@ -88,7 +88,9 @@ void main() {
       final rasterizer = _RecordingRasterizer();
       final written = await editor.applyOcr(
         0,
-        _FakeOcrEngine('Scanned', const Rect.fromLTWH(100, 120, 240, 36)),
+        // Clear of the page's own "Hello, world!", which applyOcr would
+        // treat as already-extracted text.
+        _FakeOcrEngine('Scanned', const Rect.fromLTWH(100, 1200, 240, 36)),
         pixelRatio: 2,
         rasterizer: rasterizer,
       );
@@ -107,6 +109,39 @@ void main() {
       // Invisible: the OCR layer changes nothing on the raster.
       final after = await _rasterBytes(reopened);
       expect(after, equals(before));
+    });
+  });
+
+  testWidgets('applyOcr does not duplicate text the page already has',
+      (tester) async {
+    await tester.runAsync(() async {
+      // "Hello, world!" is real text at 24pt from (72, 720); at 2 px/pt its
+      // first word sits at roughly this raster box.
+      final helloPixels = const Rect.fromLTWH(144, 100, 140, 56);
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      expect(
+        await editor.applyOcr(0, _FakeOcrEngine('Hello,', helloPixels)),
+        0,
+      );
+
+      // A scanned word lands once; OCR run again over the result adds
+      // nothing, because the first pass's invisible layer is existing text.
+      final scanned =
+          _FakeOcrEngine('Scanned', const Rect.fromLTWH(100, 1200, 240, 36));
+      expect(await editor.applyOcr(0, scanned), 1);
+      final again = PdfEditor(PdfDocument.open(editor.save()));
+      expect(await again.applyOcr(0, scanned), 0);
+
+      final pageText =
+          PdfTextExtractor.extract(PdfDocument.open(again.save()), 0);
+      expect(pageText.findAll('Hello'), hasLength(1));
+      expect(pageText.findAll('Scanned'), hasLength(1));
+
+      // Opting out writes the span regardless.
+      expect(
+        await again.applyOcr(0, scanned, skipExistingText: false),
+        1,
+      );
     });
   });
 }

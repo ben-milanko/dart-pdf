@@ -75,10 +75,71 @@ void main() {
         minConfidence: 0.5,
       );
       expect(written, 1);
-      final pageText = PdfTextExtractor.extract(
-          PdfDocument.open(editor.save()), 0);
+      final pageText =
+          PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
       expect(pageText.text, contains('high'));
       expect(pageText.text, isNot(contains('low')));
+    });
+  });
+
+  group('ocrSpansNotIn', () {
+    // buildClassicPdf draws "Hello, world!" at 24pt from (72, 720).
+    const overHello = PdfOcrSpan(
+      text: 'Hello,',
+      bounds: PdfRect(72, 714, 140, 740),
+    );
+    const elsewhere = PdfOcrSpan(
+      text: 'Scanned',
+      bounds: PdfRect(100, 100, 300, 130),
+    );
+
+    test('drops spans that repeat the page text, keeps the rest', () {
+      final text =
+          PdfTextExtractor.extract(PdfDocument.open(buildClassicPdf()), 0);
+      final kept = ocrSpansNotIn(text, const [overHello, elsewhere]);
+      expect(kept.map((s) => s.text), ['Scanned']);
+    });
+
+    test('an earlier invisible OCR layer counts as existing text', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..injectTextLayer(0, const [elsewhere]);
+      final text = PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
+      const partial = PdfOcrSpan(
+        text: 'Partly',
+        bounds: PdfRect(250, 100, 450, 130), // a quarter over 'Scanned'
+      );
+      final kept = ocrSpansNotIn(text, const [elsewhere, partial]);
+      expect(kept.map((s) => s.text), ['Partly']);
+    });
+
+    test('text drawn twice is not counted twice', () {
+      const run = PdfOcrSpan(text: 'Twice', bounds: PdfRect(0, 0, 100, 20));
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..injectTextLayer(0, const [run])
+        ..injectTextLayer(0, const [run]);
+      final text = PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
+      // 40% under the doubled run: a summed coverage (80%) would drop it.
+      const span = PdfOcrSpan(text: 'Next', bounds: PdfRect(60, 0, 160, 20));
+      expect(ocrSpansNotIn(text, const [span]), hasLength(1));
+    });
+
+    test('sums coverage across separate lines under one span', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..injectTextLayer(0, const [
+          PdfOcrSpan(text: 'Upper', bounds: PdfRect(0, 40, 100, 60)),
+          PdfOcrSpan(text: 'Lower', bounds: PdfRect(0, 0, 100, 20)),
+        ]);
+      final text = PdfTextExtractor.extract(PdfDocument.open(editor.save()), 0);
+      // A line-level box over both: two thirds covered, so a duplicate;
+      // counting only one of the lines (a third) would keep it.
+      const span =
+          PdfOcrSpan(text: 'Upper Lower', bounds: PdfRect(0, 0, 100, 60));
+      expect(ocrSpansNotIn(text, const [span]), isEmpty);
+    });
+
+    test('a page without text keeps everything', () {
+      const text = PdfPageText(pageIndex: 0, text: '', runs: []);
+      expect(ocrSpansNotIn(text, const [overHello, elsewhere]), hasLength(2));
     });
   });
 }
