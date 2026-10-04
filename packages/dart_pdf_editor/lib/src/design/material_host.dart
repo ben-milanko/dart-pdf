@@ -1,44 +1,54 @@
-// What lets the stock (Material) editor chrome run under any host - a
-// MaterialApp, a CupertinoApp or a plain WidgetsApp: the wrapper the root
-// widgets install, the re-injection routes and overlays need (they build
-// under the root Navigator, outside the editor's subtree), the shared text
-// context menu every editor text field uses, and the dropdown that replaced
-// DropdownButton (whose menu route had no hook for any of this).
+// What lets the stock (material_ui) editor chrome run under any host - a
+// material_ui MaterialApp, a legacy package:flutter/material.dart MaterialApp,
+// a CupertinoApp or a plain WidgetsApp: the wrapper the root widgets install,
+// the re-injection routes and overlays need (they build under the root
+// Navigator, outside the editor's subtree), the shared text context menu
+// every editor text field uses, and the dropdown that replaced DropdownButton
+// (whose menu route had no hook for any of this).
 //
-// Under a Material host (Theme + Material and Cupertino localizations in
-// scope) every piece here is a pass-through: same widgets, same tree.
+// Under a material_ui host (Theme + Material and Cupertino localizations in
+// scope) every piece here is a pass-through: same widgets, same tree. A
+// legacy MaterialApp provides none of those - its Theme and localizations
+// are other types - so it gets the full wrapper, themed from the host's
+// legacy theme through lib/src/legacy/legacy_host_bridge.dart.
 
-import 'package:flutter/cupertino.dart'
+import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoLocalizations,
         CupertinoTheme,
         DefaultCupertinoLocalizations,
+        GlobalCupertinoLocalizations,
         InheritedCupertinoTheme;
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 
+import '../legacy/legacy_host_bridge.dart';
 import 'editor_presenter.dart';
+import 'editor_theme.dart';
 
-/// Supplies what the editor's stock (Material) chrome needs when the host
+/// Supplies what the editor's stock (material_ui) chrome needs when the host
 /// app does not: Material and Cupertino localizations, a [Theme], and a
 /// transparent [Material] for ink and text fields.
 ///
 /// `PdfViewer`, `PdfReader`, `PdfEditorView` and `PdfComparisonView` put one
-/// around their content, so they run under a `CupertinoApp` or a plain
-/// `WidgetsApp` as well as a `MaterialApp`. Wrap any other stock widget you
-/// mount on its own (a `PdfEditingToolbar` beside your own viewer, say) the
-/// same way.
+/// around their content, so they run under a material_ui `MaterialApp`, a
+/// legacy `package:flutter/material.dart` `MaterialApp`, a `CupertinoApp` or
+/// a plain `WidgetsApp`. Wrap any other stock widget you mount on its own (a
+/// `PdfEditingToolbar` beside your own viewer, say) the same way.
 ///
-/// Under a host that already provides a [Theme] and both localizations it
-/// adds nothing - [child] is built as is. Otherwise:
+/// Under a material_ui host that already provides a [Theme] and both
+/// localizations it adds nothing - [child] is built as is. Otherwise:
 ///
-/// * missing `MaterialLocalizations` / `CupertinoLocalizations` come from
-///   `flutter_localizations` for the ambient locale (English where it has no
-///   translation); the editor's dialogs, sheets, notices and text-field
-///   menus, which build under the root navigator, re-inject them;
-/// * with no [Theme] above, one is derived from what the host does provide:
-///   a `CupertinoTheme`'s primary colour and brightness, else the platform
+/// * missing (material_ui / cupertino_ui) `MaterialLocalizations` and
+///   `CupertinoLocalizations` come from `GlobalMaterialLocalizations` and
+///   `GlobalCupertinoLocalizations` for the ambient locale (English where
+///   they have no translation); the editor's dialogs, sheets, notices and
+///   text-field menus, which build under the root navigator, re-inject them;
+/// * the [Theme] comes from the first of: the [PdfEditorThemeData.primary] /
+///   [PdfEditorThemeData.brightness] tokens of the enclosing
+///   [PdfEditorScope]; a material_ui [Theme] above; a legacy
+///   `package:flutter/material.dart` `Theme` above (its colour scheme, text
+///   and icon themes, platform and density - see `kPdfLegacyMaterialBridge`);
+///   a `CupertinoTheme`'s primary colour and brightness; else the platform
 ///   brightness ([MediaQuery]) and the host's [DefaultSelectionStyle] cursor
 ///   colour and [IconTheme];
 /// * a transparent [Material] gives ink splashes and text fields a surface.
@@ -57,13 +67,25 @@ class PdfMaterialHost extends StatelessWidget {
 
   /// Whether [context] lacks something the stock chrome needs.
   static bool _needsHost(BuildContext context) =>
-      Localizations.of<MaterialLocalizations>(
-              context, MaterialLocalizations) ==
+      _missingLocalizations(context) ||
+      context.findAncestorWidgetOfExactType<Theme>() == null ||
+      _colourTokens(context) != null;
+
+  static bool _missingLocalizations(BuildContext context) =>
+      Localizations.of<MaterialLocalizations>(context, MaterialLocalizations) ==
           null ||
       Localizations.of<CupertinoLocalizations>(
               context, CupertinoLocalizations) ==
-          null ||
-      context.findAncestorWidgetOfExactType<Theme>() == null;
+          null;
+
+  /// The enclosing scope's tokens when they set the chrome's colours.
+  static PdfEditorThemeData? _colourTokens(BuildContext context) {
+    final tokens = PdfEditorScope.maybeOf(context)?.theme;
+    return tokens != null &&
+            (tokens.primary != null || tokens.brightness != null)
+        ? tokens
+        : null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,15 +94,29 @@ class PdfMaterialHost extends StatelessWidget {
     if (_surface && Material.maybeOf(context) == null) {
       result = Material(type: MaterialType.transparency, child: result);
     }
-    if (context.findAncestorWidgetOfExactType<Theme>() == null) {
-      result = Theme(data: _derivedTheme(context), child: result);
+    final tokens = _colourTokens(context);
+    if (tokens != null) {
+      result = Theme(data: _tokenTheme(context, tokens), child: result);
+    } else if (context.findAncestorWidgetOfExactType<Theme>() == null) {
+      final bridged = pdfLegacyHostTheme(context);
+      if (bridged != null) {
+        // Theme installs its own IconTheme; keep the host's (legacy widgets
+        // placed inside the editor's slots draw with it), its default colour
+        // translated so the editor's buttons still see a default
+        final hostIcons =
+            context.dependOnInheritedWidgetOfExactType<IconTheme>()?.data;
+        result = Theme(
+          data: bridged,
+          child: hostIcons == null
+              ? result
+              : IconTheme(
+                  data: pdfLegacyHostIconTheme(hostIcons), child: result),
+        );
+      } else {
+        result = Theme(data: _derivedTheme(context), child: result);
+      }
     }
-    if (Localizations.of<MaterialLocalizations>(
-                context, MaterialLocalizations) ==
-            null ||
-        Localizations.of<CupertinoLocalizations>(
-                context, CupertinoLocalizations) ==
-            null) {
+    if (_missingLocalizations(context)) {
       result = _installLocalizations(context, result);
     }
     return result;
@@ -89,8 +125,8 @@ class PdfMaterialHost extends StatelessWidget {
 
 /// Wraps route or overlay content built under the root navigator: whatever
 /// [context] (the route's own) lacks is re-injected. A pass-through under a
-/// Material host. [themesFrom], when given, is the context the content was
-/// opened from; its themes (and the editor's scope) are captured first.
+/// material_ui host. [themesFrom], when given, is the context the content
+/// was opened from; its themes (and the editor's scope) are captured first.
 Widget pdfHostRoute(BuildContext context, Widget child,
     {BuildContext? themesFrom}) {
   if (!PdfMaterialHost._needsHost(context)) return child;
@@ -111,13 +147,19 @@ Widget _installLocalizations(BuildContext context, Widget child) =>
       child: child,
     );
 
+// material_ui's and cupertino_ui's localizations - never the legacy
+// flutter_localizations ones, which are other types. Both, always: the iOS
+// and macOS text-selection menus read the Cupertino strings.
 const _hostDelegates = <LocalizationsDelegate<dynamic>>[
   _MaterialFallbackDelegate(),
   _CupertinoFallbackDelegate(),
 ];
 
-/// `flutter_localizations`' Material strings for the locale, or the English
-/// defaults for one it does not translate (never leaves them missing).
+/// material_ui's Material strings for the locale, or the English defaults
+/// for one it does not translate (never leaves them missing). Plain or US
+/// English gets the built-in defaults directly - the strings a material_ui
+/// `MaterialApp` without delegates has - which skips initializing intl's
+/// date data for every locale on the first frame.
 class _MaterialFallbackDelegate
     extends LocalizationsDelegate<MaterialLocalizations> {
   const _MaterialFallbackDelegate();
@@ -126,17 +168,17 @@ class _MaterialFallbackDelegate
   bool isSupported(Locale locale) => true;
 
   @override
-  Future<MaterialLocalizations> load(Locale locale) =>
-      GlobalMaterialLocalizations.delegate.isSupported(locale)
-          ? GlobalMaterialLocalizations.delegate.load(locale)
-          : DefaultMaterialLocalizations.load(locale);
+  Future<MaterialLocalizations> load(Locale locale) => !_usEnglish(locale) &&
+          GlobalMaterialLocalizations.delegate.isSupported(locale)
+      ? GlobalMaterialLocalizations.delegate.load(locale)
+      : DefaultMaterialLocalizations.load(locale);
 
   @override
   bool shouldReload(_MaterialFallbackDelegate old) => false;
 }
 
-/// The Cupertino counterpart of [_MaterialFallbackDelegate] (iOS and macOS
-/// text-selection menus read these).
+/// The cupertino_ui counterpart of [_MaterialFallbackDelegate] (iOS and
+/// macOS text-selection menus read these).
 class _CupertinoFallbackDelegate
     extends LocalizationsDelegate<CupertinoLocalizations> {
   const _CupertinoFallbackDelegate();
@@ -145,32 +187,67 @@ class _CupertinoFallbackDelegate
   bool isSupported(Locale locale) => true;
 
   @override
-  Future<CupertinoLocalizations> load(Locale locale) =>
-      GlobalCupertinoLocalizations.delegate.isSupported(locale)
-          ? GlobalCupertinoLocalizations.delegate.load(locale)
-          : DefaultCupertinoLocalizations.load(locale);
+  Future<CupertinoLocalizations> load(Locale locale) => !_usEnglish(locale) &&
+          GlobalCupertinoLocalizations.delegate.isSupported(locale)
+      ? GlobalCupertinoLocalizations.delegate.load(locale)
+      : DefaultCupertinoLocalizations.load(locale);
 
   @override
   bool shouldReload(_CupertinoFallbackDelegate old) => false;
 }
 
+bool _usEnglish(Locale locale) =>
+    locale.languageCode == 'en' &&
+    (locale.countryCode == null ||
+        locale.countryCode!.isEmpty ||
+        locale.countryCode == 'US');
+
 // ThemeData is expensive to build; hosts present a handful of distinct
 // signal combinations at most.
 final _derivedThemes = <Object, ThemeData>{};
 
+/// The theme the [PdfEditorThemeData.primary]/[PdfEditorThemeData.brightness]
+/// tokens ask for, over whatever the host provides for the rest (platform,
+/// density).
+ThemeData _tokenTheme(BuildContext context, PdfEditorThemeData tokens) {
+  final base = context.findAncestorWidgetOfExactType<Theme>() != null
+      ? Theme.of(context)
+      : pdfLegacyHostTheme(context) ?? _derivedTheme(context);
+  final brightness = tokens.brightness ?? base.brightness;
+  final primary = tokens.primary;
+  final seed = primary ?? base.colorScheme.primary;
+  final key = (
+    'tokens',
+    base.platform,
+    base.visualDensity,
+    brightness,
+    seed.toARGB32(),
+    primary?.toARGB32(),
+  );
+  return _cachedTheme(
+      key,
+      () => ThemeData(
+            platform: base.platform,
+            visualDensity: base.visualDensity,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: seed,
+              brightness: brightness,
+              primary: primary,
+            ),
+          ));
+}
+
 /// A Material theme for a host that has none, from the widgets-layer
 /// signals it does provide.
 ThemeData _derivedTheme(BuildContext context) {
-  final platform = defaultTargetPlatform;
+  final platform = PdfEditorScope.platformOf(context);
   final platformBrightness =
       MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
-  final cupertino =
-      context.dependOnInheritedWidgetOfExactType<InheritedCupertinoTheme>();
+  final cupertino = _cupertinoHost(context);
   if (cupertino != null) {
-    final data = CupertinoTheme.of(context);
-    final brightness = data.brightness ?? platformBrightness;
-    final primary = data.primaryColor;
-    final onPrimary = data.primaryContrastingColor;
+    final brightness = cupertino.brightness ?? platformBrightness;
+    final primary = cupertino.primary;
+    final onPrimary = cupertino.onPrimary;
     final key = (
       'cupertino',
       platform,
@@ -204,6 +281,22 @@ ThemeData _derivedTheme(BuildContext context) {
         ? base
         : base.copyWith(iconTheme: base.iconTheme.merge(hostIcons));
   });
+}
+
+/// A cupertino_ui `CupertinoTheme`'s colours above [context], else a legacy
+/// `package:flutter/cupertino.dart` one's (through the bridge), else null.
+({Color primary, Color onPrimary, Brightness? brightness})? _cupertinoHost(
+    BuildContext context) {
+  if (context.dependOnInheritedWidgetOfExactType<InheritedCupertinoTheme>() !=
+      null) {
+    final data = CupertinoTheme.of(context);
+    return (
+      primary: data.primaryColor,
+      onPrimary: data.primaryContrastingColor,
+      brightness: data.brightness,
+    );
+  }
+  return pdfLegacyCupertinoHost(context);
 }
 
 ThemeData _cachedTheme(Object key, ThemeData Function() build) {

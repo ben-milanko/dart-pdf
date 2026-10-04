@@ -18,7 +18,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -40,7 +40,8 @@ void main() {
       int.tryParse(Platform.environment['CAD_OPS'] ?? '') ?? 850000;
   final ratio = double.tryParse(Platform.environment['CAD_RATIO'] ?? '') ?? 2.0;
   final tilePx = double.tryParse(Platform.environment['CAD_TILE'] ?? '') ?? 256;
-  final panTiles = int.tryParse(Platform.environment['CAD_PAN_TILES'] ?? '') ?? 16;
+  final panTiles =
+      int.tryParse(Platform.environment['CAD_PAN_TILES'] ?? '') ?? 16;
 
   testWidgets('CAD jank baseline probe', (tester) async {
     final Uint8List bytes;

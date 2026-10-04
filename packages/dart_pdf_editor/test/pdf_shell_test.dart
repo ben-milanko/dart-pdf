@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -680,9 +680,8 @@ void main() {
       // as wide as the widest, so this is the case that would overflow.
       await tester.pumpWidget(MaterialApp(
         locale: const Locale('uk'),
-        localizationsDelegates:
-            DartPdfEditorLocalizations.localizationsDelegates,
-        supportedLocales: DartPdfEditorLocalizations.supportedLocales,
+        localizationsDelegates: PdfEditorLocalizations.delegates,
+        supportedLocales: PdfEditorLocalizations.supportedLocales,
         home: Scaffold(body: PdfEditorView(bytes: buildMultiPagePdf(2))),
       ));
       await tester.pump();
