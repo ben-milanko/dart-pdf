@@ -14,7 +14,7 @@ typedef OcrScoredSpan = ({
 /// The score of one OCR run against a truth set.
 class OcrAccuracy {
   OcrAccuracy._(this.labels, this.exact, this.missed, this.edits, this.chars,
-      this.extras, this.misreads);
+      this.extras, this.misreads, this.readings);
 
   /// Truth labels scored.
   final int labels;
@@ -36,6 +36,9 @@ class OcrAccuracy {
 
   /// `(truth, read)` for every label not read exactly, for eyeballing.
   final List<(String, String)> misreads;
+
+  /// `(truth, read)` for every label, in truth order.
+  final List<(String, String)> readings;
 
   /// Character error rate over every label.
   double get cer => chars == 0 ? 0 : edits / chars;
@@ -99,6 +102,7 @@ OcrAccuracy scoreOcrAccuracy(
   }
   var exact = 0, missed = 0, edits = 0, chars = 0;
   final misreads = <(String, String)>[];
+  final readings = <(String, String)>[];
   for (var i = 0; i < truth.length; i++) {
     final t = truth[i];
     final horizontal = t.right - t.left >= t.top - t.bottom;
@@ -108,6 +112,7 @@ OcrAccuracy scoreOcrAccuracy(
     final read = _norm(parts.map((s) => s.text).join(' '));
     final want = _norm(t.text);
     if (parts.isEmpty) missed++;
+    readings.add((want, read));
     final d = ocrEditDistance(want, read);
     edits += d;
     chars += want.length;
@@ -118,5 +123,5 @@ OcrAccuracy scoreOcrAccuracy(
     }
   }
   return OcrAccuracy._(
-      truth.length, exact, missed, edits, chars, extras, misreads);
+      truth.length, exact, missed, edits, chars, extras, misreads, readings);
 }
