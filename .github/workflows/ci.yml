@@ -792,6 +792,11 @@ jobs:
           sudo apt-get install -y \
             ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev \
             desktop-file-utils appstream xvfb x11-utils
+      - name: Test Windows clipboard DIB decode (host-portable C++)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            app/windows/test/dib_pixels_test.cc -o "$RUNNER_TEMP/dib_pixels_test"
+          "$RUNNER_TEMP/dib_pixels_test"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.47.5
