@@ -1393,6 +1393,41 @@ class _GenericWindow {
       }
     }
     final rowBase = y * w;
+    // Every template's own row (dy 0) is the least significant run and ends
+    // at dx -1, so the pixel entering it is the one just decoded. The rows
+    // above read from zero-padded copies, which need no bounds checks: the
+    // nominal shapes (rows -2/-1/0 or -1/0, the AT pixels a few columns out)
+    // are all of them.
+    final rows = rowOffsets.length;
+    if ((rows == 3 && rowOffsets[0] == -2 || rows == 2) &&
+        rowOffsets[rows - 2] == -1) {
+      final above =
+          _rowAbove(bitmap, y - 1, _above1 ??= Uint8List(w + 2 * _pad));
+      final keep = keepMask;
+      final s1 = shifts[rows - 2];
+      final o1 = _pad + 1 + lastColumns[rows - 2];
+      if (rows == 3) {
+        final twoAbove =
+            _rowAbove(bitmap, y - 2, _above2 ??= Uint8List(w + 2 * _pad));
+        final s2 = shifts[0];
+        final o2 = _pad + 1 + lastColumns[0];
+        for (var x = 0; x < w; x++) {
+          final bit = decoder.decode(contexts, indexes, context);
+          if (bit != 0) data[rowBase + x] = 1;
+          context = ((context << 1) & keep) |
+              (twoAbove[x + o2] << s2) |
+              (above[x + o1] << s1) |
+              bit;
+        }
+      } else {
+        for (var x = 0; x < w; x++) {
+          final bit = decoder.decode(contexts, indexes, context);
+          if (bit != 0) data[rowBase + x] = 1;
+          context = ((context << 1) & keep) | (above[x + o1] << s1) | bit;
+        }
+      }
+      return;
+    }
     for (var x = 0; x < w; x++) {
       final bit = decoder.decode(contexts, indexes, context);
       if (bit != 0) data[rowBase + x] = 1;
@@ -1405,6 +1440,26 @@ class _GenericWindow {
         }
       }
     }
+  }
+
+  /// Columns of zero padding either side of the [_rowAbove] copies: room for
+  /// any entry column `x + 1 + lastColumn` an AT pixel can name (|dx| <= 127).
+  static const _pad = 129;
+
+  /// Scratch copies of the rows one and two above the row being decoded.
+  Uint8List? _above1;
+  Uint8List? _above2;
+
+  /// Copies row [y] of [bitmap] into [buffer] at offset [_pad], or zeroes it
+  /// when [y] is above the bitmap (those pixels read as white).
+  static Uint8List _rowAbove(_Bitmap bitmap, int y, Uint8List buffer) {
+    final w = bitmap.width;
+    if (y < 0) {
+      buffer.fillRange(_pad, _pad + w, 0);
+    } else {
+      buffer.setRange(_pad, _pad + w, bitmap.data, y * w);
+    }
+    return buffer;
   }
 }
 

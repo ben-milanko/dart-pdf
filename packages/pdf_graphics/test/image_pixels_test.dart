@@ -2273,6 +2273,66 @@ void main() {
     });
   });
 
+  group('a stencil /Mask requested at target size', () {
+    // 37x23 with ragged rows: partial trailing bytes and cells that straddle
+    // byte boundaries, plus whole blank and whole solid bytes.
+    const width = 37, height = 23, rowBytes = 5;
+    final bits = Uint8List(rowBytes * height);
+    for (var y = 0; y < height; y++) {
+      for (var b = 0; b < rowBytes; b++) {
+        bits[y * rowBytes + b] = switch ((y + b) % 4) {
+          0 => 0x00,
+          1 => 0xff,
+          _ => (y * 37 + b * 101) & 0xff,
+        };
+      }
+    }
+
+    CosDictionary parent(bool inverted) => CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'Mask': image({
+            'Width': const CosInteger(width),
+            'Height': const CosInteger(height),
+            'ImageMask': const CosBoolean(true),
+            'BitsPerComponent': const CosInteger(1),
+            if (inverted)
+              'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+          }, bits),
+        });
+
+    for (final inverted in [false, true]) {
+      test('matches the box-filtered native mask (inverted: $inverted)', () {
+        final native = pdfImageStencilMask(cos, parent(inverted))!;
+        expect((native.width, native.height), (width, height));
+        for (var y = 0; y < height; y++) {
+          for (var x = 0; x < width; x++) {
+            final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+            expect(native.alpha[y * width + x],
+                bit == (inverted ? 1 : 0) ? 255 : 0);
+          }
+        }
+        const tw = 9, th = 5;
+        final scaled = pdfImageStencilMask(cos, parent(inverted),
+            targetWidth: tw, targetHeight: th)!;
+        expect((scaled.width, scaled.height), (tw, th));
+        for (var ty = 0; ty < th; ty++) {
+          for (var tx = 0; tx < tw; tx++) {
+            var sum = 0, count = 0;
+            for (var y = ty * height ~/ th; y < (ty + 1) * height ~/ th; y++) {
+              for (var x = tx * width ~/ tw; x < (tx + 1) * width ~/ tw; x++) {
+                sum += native.alpha[y * width + x];
+                count++;
+              }
+            }
+            expect(scaled.alpha[ty * tw + tx], sum ~/ count,
+                reason: 'cell ($tx, $ty)');
+          }
+        }
+      });
+    }
+  });
+
   group('a small-displayed JPX takes the resolution-reduced decode', () {
     CosStream jpxImage(int tw, int th) => image({
           'Width': const CosInteger(16),

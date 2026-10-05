@@ -79,13 +79,29 @@ class MqDecoder {
       Uint8List.fromList([for (final e in _qe) e.$4]);
 
   /// Decodes one bit in [cx] using per-context state arrays.
+  ///
+  /// Split so the common case - the more probable symbol with no
+  /// renormalisation, nearly every pixel of a sparse JBIG2 mask - is a few
+  /// operations the compilers inline into the caller's pixel loop; the rest
+  /// of Annex E's DECODE runs out of line in [_decodeSlow].
+  @pragma('vm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int decode(Int8List mpsTable, Uint8List indexTable, int cx) {
     final i = indexTable[cx];
-    final mps = mpsTable[cx];
     final qe = _qeValue[i];
+    final a = _a - qe;
+    final c = _c;
+    if ((c >> 16) >= qe && a & 0x8000 != 0) {
+      _a = a;
+      _c = c - (qe << 16);
+      return mpsTable[cx];
+    }
+    return _decodeSlow(mpsTable, indexTable, cx, i, qe, a, c);
+  }
 
-    var a = _a - qe;
-    var c = _c;
+  int _decodeSlow(Int8List mpsTable, Uint8List indexTable, int cx, int i,
+      int qe, int a, int c) {
+    final mps = mpsTable[cx];
     int d;
     if ((c >> 16) < qe) {
       if (a < qe) {
@@ -98,12 +114,8 @@ class MqDecoder {
       }
       a = qe;
     } else {
+      // a has dropped below 0x8000: the MPS path with renormalisation
       c -= qe << 16;
-      if (a & 0x8000 != 0) {
-        _a = a;
-        _c = c;
-        return mps;
-      }
       if (a < qe) {
         d = 1 - mps;
         if (_qeSwitch[i] == 1) mpsTable[cx] = 1 - mps;

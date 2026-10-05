@@ -54,11 +54,42 @@ generic region for templates 0-3 plus two gapped custom-AT layouts
 (`jbig2_roundtrip_test.dart`); image_pixels_test covers the half-size and
 masked-base reduce.
 
+## Second pass
+
+After the first round the worker record was 8.1 s / 14.3 s. A fresh profile
+put the remaining time in the JBIG2 mask's *consumer*, the MQ call, JPX
+tier-1 bookkeeping and the 8-bit output step:
+
+- `pdfImageStencilMask` with a target now counts shown bits per target cell
+  straight from the packed rows (`_stencilCoverage`, factored out of
+  `_scaledImageMaskRegion`'s popcount kernel - same partition and truncating
+  `count * 255 ~/ area`, so pixel-identical to expanding and box-filtering;
+  test in image_pixels_test). It used to expand a byte per pixel of the
+  17 MP page mask and box-filter that. Note the web
+  `pdfComponentBoxDownsampler` accelerator is no longer consulted for 1-bit
+  stencils; the portable kernel is exact and cheaper. The native-size unpack
+  skips blank bytes and fills solid ones. The dart2js interceptor probe now
+  checks `_stencilCoverage`.
+- `MqDecoder.decode` is a prefer-inline fast path (MPS, no renormalisation)
+  with `_decodeSlow` out of line: raw JBIG2 183 -> 149 ms.
+- JBIG2 `_GenericWindow`: rows -2/-1/0 (or -1/0) read zero-padded copies of
+  the rows above with no bounds checks; the own-row entry pixel is the bit
+  just decoded.
+- JPX: table-driven sign context + `_decodeSign`, hoisted pass locals,
+  edge-peeled horizontal lifts (`_liftRow`/`_liftRow53`), and an 8-bit
+  interleave that clamps in floating point instead of `round()` (identical
+  for every input, NaN included).
+
+Result: **4.4 s** at ratio 1 and **8.8 s** at ratio 2 (from 20.7 / 27.3 s
+originally). Decoded JBIG2/JPX output is still bit-identical.
+
+Measured and rejected: cache-striping the vertical DWT (64-1024 column
+strips - noise to 20% slower), and merging tier-1's significant/visited/
+refined arrays into one state byte (no change, JIT or AOT).
+
 ## Left on the table
 
-- JBIG2 is now ~12 ns per MQ-decoded pixel; going further means inlining the
-  MQ decoder into the row loop.
-- JPX tier-1 (`_BitModel` passes) is ~90 ms on the background - the next JPX
-  hot spot after the DWT.
-- At ratio 2 the backgrounds still decode at full resolution (the target
-  needs it); only a faster decoder helps there.
+- Per page at ratio 2 the floor is now ~150 ms of JBIG2 MQ decode, ~280 ms
+  per full-resolution JPX background and 0.2-1.3 s per photo layer (tier-1
+  ~1/3, DWT ~1/2). Further single-thread gains are small; the larger lever
+  is decoding a page's images concurrently (they are independent).

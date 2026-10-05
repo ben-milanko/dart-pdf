@@ -219,6 +219,18 @@ class _JpxParser {
       final upscale = depth < 8 ? 8 - depth : 0;
       final plane = planes[c];
       final stride = components.length;
+      if (scale == 0 && upscale == 0) {
+        // 8-bit: clamp in floating point, then round the in-range value with
+        // a truncating add. `round()` on a double is a slow general call, and
+        // this loop runs once per sample of the image. Same result: anything
+        // below 0.5 rounds to <= 0 and anything from 254.5 up to >= 255.
+        final offset = shift + 0.5;
+        for (var i = 0, o = c; i < plane.length; i++, o += stride) {
+          final v = plane[i] + offset;
+          out[o] = v < 1 ? 0 : (v >= 255 ? 255 : v.toInt());
+        }
+        continue;
+      }
       for (var i = 0, o = c; i < plane.length; i++, o += stride) {
         var v = (plane[i] + shift).round();
         v = v >> scale << upscale;
@@ -982,30 +994,48 @@ class _BitModel {
     _index[18] = 46; // uniform
   }
 
-  // zero-coding context lookup: neighbors (h, v, d) → context, per band
-  // family (0: LL/LH, 1: HL, 2: HH)
-  int _zcContext(int index) => _zc[_neighbors[index]];
-
   /// Sign coding: context 9–13 plus an XOR bit, from the H/V neighbor
-  /// significance/sign contributions.
-  (int, int) _scContext(int x, int y) {
-    int contribution(int nx, int ny) {
-      if (nx < 0 || nx >= width || ny < 0 || ny >= height) return 0;
-      final index = ny * width + nx;
-      if (_significant[index] == 0) return 0;
-      return signs[index] == 0 ? 1 : -1;
+  /// significance/sign contributions, packed as `context | xorBit << 8`.
+  int _scContext(int x, int y, int index) {
+    var h = 0;
+    var v = 0;
+    final significant = _significant;
+    if (x > 0 && significant[index - 1] != 0) {
+      h += signs[index - 1] == 0 ? 1 : -1;
     }
-
-    var h = contribution(x - 1, y) + contribution(x + 1, y);
-    var v = contribution(x, y - 1) + contribution(x, y + 1);
-    h = h.clamp(-1, 1);
-    v = v.clamp(-1, 1);
-    if (h == 1) return (v == 1 ? 13 : (v == 0 ? 12 : 11), 0);
-    if (h == 0) return (v == 1 ? 10 : (v == 0 ? 9 : 10), v == -1 ? 1 : 0);
-    return (v == 1 ? 11 : (v == 0 ? 12 : 13), 1);
+    if (x + 1 < width && significant[index + 1] != 0) {
+      h += signs[index + 1] == 0 ? 1 : -1;
+    }
+    if (y > 0 && significant[index - width] != 0) {
+      v += signs[index - width] == 0 ? 1 : -1;
+    }
+    if (y + 1 < height && significant[index + width] != 0) {
+      v += signs[index + width] == 0 ? 1 : -1;
+    }
+    h = h < -1 ? -1 : (h > 1 ? 1 : h);
+    v = v < -1 ? -1 : (v > 1 ? 1 : v);
+    return _signContexts[(h + 1) * 3 + v + 1];
   }
 
-  bool _hasSignificantNeighbor(int index) => _neighbors[index] != 0;
+  /// [_scContext]'s table (T.800 Table D.3), indexed `(h + 1) * 3 + v + 1`
+  /// for clamped contributions h, v in -1..1: the context, plus the XOR bit
+  /// at bit 8.
+  static const _signContexts = [
+    13 | 1 << 8, 12 | 1 << 8, 11 | 1 << 8, // h = -1
+    10 | 1 << 8, 9, 10, // h = 0
+    11, 12, 13, // h = 1
+  ];
+
+  /// Decodes the sign of the coefficient at ([x], [y]) that just became
+  /// significant in [plane], and records it.
+  void _decodeSign(int x, int y, int index, int bit, int plane) {
+    final sc = _scContext(x, y, index);
+    final sign = decoder.decode(_mps, _index, sc & 0xFF) ^ (sc >> 8);
+    _markSignificant(x, y, index);
+    signs[index] = sign;
+    magnitudes[index] = bit;
+    lowPlanes[index] = plane;
+  }
 
   /// Marks the coefficient at ([x], [y]) significant and bumps its eight
   /// neighbours' counts in [_neighbors]. A coefficient becomes significant at
@@ -1067,22 +1097,20 @@ class _BitModel {
 
   void _significancePass(int plane) {
     final bit = 1 << plane;
+    final significant = _significant;
+    final neighbors = _neighbors;
+    final visited = _visited;
+    final zc = _zc;
     for (var y0 = 0; y0 < height; y0 += 4) {
+      final y1 = y0 + 4 < height ? y0 + 4 : height;
       for (var x = 0; x < width; x++) {
-        for (var y = y0; y < math.min(y0 + 4, height); y++) {
-          final index = y * width + x;
-          if (_significant[index] != 0 || !_hasSignificantNeighbor(index)) {
-            continue;
-          }
-          _visited[index] = 1;
-          final d = decoder.decode(_mps, _index, _zcContext(index));
-          if (d == 1) {
-            final (sc, xorBit) = _scContext(x, y);
-            final sign = decoder.decode(_mps, _index, sc) ^ xorBit;
-            _markSignificant(x, y, index);
-            signs[index] = sign;
-            magnitudes[index] = bit;
-            lowPlanes[index] = plane;
+        for (var y = y0, index = y0 * width + x; y < y1; y++, index += width) {
+          if (significant[index] != 0) continue;
+          final n = neighbors[index];
+          if (n == 0) continue;
+          visited[index] = 1;
+          if (decoder.decode(_mps, _index, zc[n]) == 1) {
+            _decodeSign(x, y, index, bit, plane);
           }
         }
       }
@@ -1091,15 +1119,18 @@ class _BitModel {
 
   void _refinementPass(int plane) {
     final bit = 1 << plane;
+    final significant = _significant;
+    final visited = _visited;
+    final refined = _refined;
     for (var y0 = 0; y0 < height; y0 += 4) {
+      final y1 = y0 + 4 < height ? y0 + 4 : height;
       for (var x = 0; x < width; x++) {
-        for (var y = y0; y < math.min(y0 + 4, height); y++) {
-          final index = y * width + x;
-          if (_significant[index] == 0 || _visited[index] != 0) continue;
+        for (var y = y0, index = y0 * width + x; y < y1; y++, index += width) {
+          if (significant[index] == 0 || visited[index] != 0) continue;
           int context;
-          if (_refined[index] == 0) {
-            context = _hasSignificantNeighbor(index) ? 15 : 14;
-            _refined[index] = 1;
+          if (refined[index] == 0) {
+            context = _neighbors[index] != 0 ? 15 : 14;
+            refined[index] = 1;
           } else {
             context = 16;
           }
@@ -1113,55 +1144,45 @@ class _BitModel {
 
   void _cleanupPass(int plane) {
     final bit = 1 << plane;
+    final significant = _significant;
+    final neighbors = _neighbors;
+    final visited = _visited;
+    final zc = _zc;
+    final w = width;
     for (var y0 = 0; y0 < height; y0 += 4) {
-      for (var x = 0; x < width; x++) {
+      final columnHeight = height - y0 < 4 ? height - y0 : 4;
+      final y1 = y0 + columnHeight;
+      for (var x = 0; x < w; x++) {
         var y = y0;
-        final columnHeight = math.min(4, height - y0);
+        final top = y0 * w + x;
         // run-length mode: the whole 4-column is insignificant with no
         // significant neighbors and nothing visited
-        var runLength = false;
-        if (columnHeight == 4) {
-          runLength = true;
-          for (var k = 0; k < 4; k++) {
-            final index = (y0 + k) * width + x;
-            if (_significant[index] != 0 ||
-                _visited[index] != 0 ||
-                _hasSignificantNeighbor(index)) {
-              runLength = false;
-              break;
-            }
-          }
-        }
-        if (runLength) {
-          final any = decoder.decode(_mps, _index, 17);
-          if (any == 0) {
-            _clearVisited(x, y0, columnHeight);
-            continue; // all four stay insignificant
+        if (columnHeight == 4 &&
+            (significant[top] | visited[top] | neighbors[top]) == 0 &&
+            (significant[top + w] | visited[top + w] | neighbors[top + w]) ==
+                0 &&
+            (significant[top + 2 * w] |
+                    visited[top + 2 * w] |
+                    neighbors[top + 2 * w]) ==
+                0 &&
+            (significant[top + 3 * w] |
+                    visited[top + 3 * w] |
+                    neighbors[top + 3 * w]) ==
+                0) {
+          if (decoder.decode(_mps, _index, 17) == 0) {
+            continue; // all four stay insignificant (and none was visited)
           }
           final position = (decoder.decode(_mps, _index, 18) << 1) |
               decoder.decode(_mps, _index, 18);
           y = y0 + position;
           // the coefficient at `position` is significant by definition
-          final index = y * width + x;
-          final (sc, xorBit) = _scContext(x, y);
-          final sign = decoder.decode(_mps, _index, sc) ^ xorBit;
-          _markSignificant(x, y, index);
-          signs[index] = sign;
-          magnitudes[index] = bit;
-          lowPlanes[index] = plane;
+          _decodeSign(x, y, y * w + x, bit, plane);
           y++;
         }
-        for (; y < y0 + columnHeight; y++) {
-          final index = y * width + x;
-          if (_significant[index] != 0 || _visited[index] != 0) continue;
-          final d = decoder.decode(_mps, _index, _zcContext(index));
-          if (d == 1) {
-            final (sc, xorBit) = _scContext(x, y);
-            final sign = decoder.decode(_mps, _index, sc) ^ xorBit;
-            _markSignificant(x, y, index);
-            signs[index] = sign;
-            magnitudes[index] = bit;
-            lowPlanes[index] = plane;
+        for (var index = y * w + x; y < y1; y++, index += w) {
+          if (significant[index] != 0 || visited[index] != 0) continue;
+          if (decoder.decode(_mps, _index, zc[neighbors[index]]) == 1) {
+            _decodeSign(x, y, index, bit, plane);
           }
         }
         _clearVisited(x, y0, columnHeight);
@@ -1288,30 +1309,18 @@ void _synthesizeRows(Float32List out, int w, int h, int x0, bool reversible) {
   }
   final evenStart = x0.isEven ? 0 : 1;
   final oddStart = 1 - evenStart;
-  final last = w - 1;
   for (var y = 0; y < h; y++) {
     final t = y * w;
-    // Symmetric extension: sample -1 mirrors 1, sample w mirrors w - 2.
-    final mirrorLeft = t + 1;
-    final mirrorRight = t + w - 2;
     if (reversible) {
-      for (var i = evenStart; i < w; i += 2) {
-        final left = out[i == 0 ? mirrorLeft : t + i - 1];
-        final right = out[i == last ? mirrorRight : t + i + 1];
-        out[t + i] -= ((left + right + 2) / 4).floorToDouble();
-      }
-      for (var i = oddStart; i < w; i += 2) {
-        final left = out[i == 0 ? mirrorLeft : t + i - 1];
-        final right = out[i == last ? mirrorRight : t + i + 1];
-        out[t + i] += ((left + right) / 2).floorToDouble();
-      }
+      _liftRow53(out, t, w, evenStart, true);
+      _liftRow53(out, t, w, oddStart, false);
       continue;
     }
-    for (var i = evenStart; i < w; i += 2) {
-      out[t + i] *= _k97;
+    for (var i = t + evenStart; i < t + w; i += 2) {
+      out[i] *= _k97;
     }
-    for (var i = oddStart; i < w; i += 2) {
-      out[t + i] /= _k97;
+    for (var i = t + oddStart; i < t + w; i += 2) {
+      out[i] /= _k97;
     }
     _liftRow(out, t, w, _delta97, evenStart);
     _liftRow(out, t, w, _gamma97, oddStart);
@@ -1320,15 +1329,45 @@ void _synthesizeRows(Float32List out, int w, int h, int x0, bool reversible) {
   }
 }
 
-/// One 9/7 lifting step along the [w]-sample row at [t] of [out].
+/// One 9/7 lifting step along the [w]-sample row at [t] of [out], over the
+/// samples of parity [start]. The two edge samples read their mirrored
+/// neighbour (-1 -> 1, w -> w - 2); the interior loop needs no edge test.
 void _liftRow(Float32List out, int t, int w, double coefficient, int start) {
   final last = w - 1;
-  final mirrorLeft = t + 1;
-  final mirrorRight = t + w - 2;
-  for (var i = start; i < w; i += 2) {
-    final left = out[i == 0 ? mirrorLeft : t + i - 1];
-    final right = out[i == last ? mirrorRight : t + i + 1];
-    out[t + i] -= coefficient * (left + right);
+  var i = start;
+  if (i == 0) {
+    out[t] -= coefficient * (out[t + 1] + out[t + 1]);
+    i = 2;
+  }
+  final interiorEnd = t + last;
+  var k = t + i;
+  for (; k < interiorEnd; k += 2) {
+    out[k] -= coefficient * (out[k - 1] + out[k + 1]);
+  }
+  if (k == interiorEnd) {
+    out[k] -= coefficient * (out[k - 1] + out[t + w - 2]);
+  }
+}
+
+/// One 5/3 lifting step along a row, as [_liftRow]: the even (low-pass)
+/// update when [low], else the odd (high-pass) one.
+void _liftRow53(Float32List out, int t, int w, int start, bool low) {
+  final last = w - 1;
+  double step(double left, double right) => low
+      ? -((left + right + 2) / 4).floorToDouble()
+      : ((left + right) / 2).floorToDouble();
+  var i = start;
+  if (i == 0) {
+    out[t] += step(out[t + 1], out[t + 1]);
+    i = 2;
+  }
+  final interiorEnd = t + last;
+  var k = t + i;
+  for (; k < interiorEnd; k += 2) {
+    out[k] += step(out[k - 1], out[k + 1]);
+  }
+  if (k == interiorEnd) {
+    out[k] += step(out[k - 1], out[t + w - 2]);
   }
 }
 
