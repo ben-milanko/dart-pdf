@@ -1,0 +1,75 @@
+name: Repackage released Linux AppImage
+
+# Recover a packaging failure without rebuilding or moving the release tag.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published app version (X.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    environment: storeflight-production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      APPIMAGETOOL_VERSION: '1.9.1'
+      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download and verify the released Linux bundle
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="app-v$RELEASE_VERSION"
+          gh release download "$tag" --pattern dartpdf-linux-x64.tar.gz
+          expected="$(gh release view "$tag" --json assets --jq \
+            '.assets[] | select(.name == "dartpdf-linux-x64.tar.gz") | .digest')"
+          actual="sha256:$(sha256sum dartpdf-linux-x64.tar.gz | cut -d' ' -f1)"
+          [[ -n "$expected" && "$actual" == "$expected" ]]
+          echo "Packaging verified release archive $actual"
+      - name: Package the existing bundle
+        run: |
+          set -euo pipefail
+          APPDIR=DartPDF.AppDir
+          mkdir -p "$APPDIR/usr/bin"
+          tar xzf dartpdf-linux-x64.tar.gz -C "$APPDIR/usr/bin"
+          cp "$APPDIR/usr/bin/share/icons/hicolor/512x512/apps/dev.milanko.dartpdf.png" "$APPDIR/dartpdf.png"
+          cp "$APPDIR/usr/bin/share/applications/dev.milanko.dartpdf.desktop" "$APPDIR/dartpdf.desktop"
+          # The desktop file's installed executable path is different inside
+          # this portable container; AppRun resolves the bundled executable.
+          sed -i 's|^Exec=.*|Exec=dart_pdf_editor_app %F|' "$APPDIR/dartpdf.desktop"
+          sed -i 's|^Icon=.*|Icon=dartpdf|' "$APPDIR/dartpdf.desktop"
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          curl -fsSL -o appimagetool-x86_64.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
+          echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
+      - name: Smoke-test the portable app
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb x11-utils
+          tool/smoke_test_linux_gui.sh \
+            --cmd "./dartpdf-linux-x86_64.AppImage --appimage-extract-and-run" \
+            --timeout 15
+      - name: Attach the portable app
+        run: gh release upload "app-v$RELEASE_VERSION" dartpdf-linux-x86_64.AppImage
+      - uses: actions/upload-artifact@v7
+        with:
+          name: appimage-repackaged
+          path: dartpdf-linux-x86_64.AppImage
