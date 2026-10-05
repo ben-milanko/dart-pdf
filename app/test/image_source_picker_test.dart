@@ -1,7 +1,7 @@
 import 'package:file_selector_platform_interface/file_selector_platform_interface.dart'
     as fs;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
@@ -147,8 +147,9 @@ void main() {
       expect(camera.requestedSource, isNull);
     });
 
-    testWidgetsOn('a rotated file pick is put upright too',
-        TargetPlatform.android, (tester) async {
+    testWidgetsOn(
+        'a rotated file pick is put upright too', TargetPlatform.android,
+        (tester) async {
       final files = _FakeFileSelector(
           fs.XFile.fromData(_jpeg(orientation: 6), name: 'photo.jpg'));
       final originalFiles = fs.FileSelectorPlatform.instance;
@@ -158,8 +159,8 @@ void main() {
       // A widget test cannot await the real isolate hop (`compute` makes no
       // progress in the fake-async zone), so bake in place here. The isolate
       // path itself is covered by the plain tests below.
-      debugBakeOrientationOffIsolate = (bytes) async =>
-          bakeJpegOrientation(bytes);
+      debugBakeOrientationOffIsolate =
+          (bytes) async => bakeJpegOrientation(bytes);
       addTearDown(() => debugBakeOrientationOffIsolate = null);
 
       final picked = await _startPick(tester);
@@ -171,8 +172,9 @@ void main() {
       expect(img.decodeJpg(bytes)!.width, 4);
     });
 
-    testWidgetsOn('dismissing the sheet cancels the pick',
-        TargetPlatform.android, (tester) async {
+    testWidgetsOn(
+        'dismissing the sheet cancels the pick', TargetPlatform.android,
+        (tester) async {
       final files = _FakeFileSelector(null);
       final originalFiles = fs.FileSelectorPlatform.instance;
       fs.FileSelectorPlatform.instance = files;

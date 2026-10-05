@@ -13,7 +13,7 @@
 // rather than become a second place to learn.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show PdfKeyboardAvailability;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'l10n/app_l10n.dart';

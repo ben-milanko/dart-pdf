@@ -4,7 +4,7 @@
 // button cancels.
 import 'package:dart_pdf_editor_app/ocr_status.dart';
 import 'package:dart_pdf_editor_app/ocr_status_chip.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

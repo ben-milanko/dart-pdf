@@ -18,7 +18,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 
@@ -120,8 +120,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
       // The viewer attaches on the first frame of its widget; jump after
       // the scene's widget is mounted and settled.
-      final viewer =
-          scene.mode == _Mode.editor ? _viewer : _readerViewer;
+      final viewer = scene.mode == _Mode.editor ? _viewer : _readerViewer;
       await viewer.jumpToPage(scene.page);
       await _settle();
 

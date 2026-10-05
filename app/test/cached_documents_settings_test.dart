@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:dart_pdf_editor_app/cached_documents_settings.dart';
 import 'package:dart_pdf_editor_app/pdf_cache.dart';
 import 'package:dart_pdf_editor_app/recents.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
