@@ -1,5 +1,7 @@
 #include "image_clipboard.h"
 
+#include "dib_pixels.h"
+
 #include <objbase.h>
 #include <objidl.h>
 #include <ocidl.h>
@@ -328,6 +330,42 @@ std::optional<std::vector<uint8_t>> ReadImageFromClipboard(HWND owner) {
       }
       if (buffer != nullptr) {
         ::GlobalUnlock(handle);
+      }
+    }
+  }
+
+  // Next, a 32bpp DIB read directly, keeping its alpha. Browsers (a web app's
+  // copied image, without a PNG alongside) publish transparency this way;
+  // routing it through CF_BITMAP below would drop the alpha and paint the
+  // transparent background black, which reads as an inverted image.
+  // Windows synthesizes CF_DIB from CF_DIBV5, so this covers both.
+  if (::IsClipboardFormatAvailable(CF_DIB)) {
+    HANDLE handle = ::GetClipboardData(CF_DIB);
+    if (handle != nullptr) {
+      const SIZE_T size = ::GlobalSize(handle);
+      const void* buffer = ::GlobalLock(handle);
+      std::optional<dart_pdf::DibImage> dib;
+      if (buffer != nullptr) {
+        dib = dart_pdf::DecodePackedDib32(static_cast<const uint8_t*>(buffer),
+                                          size);
+        ::GlobalUnlock(handle);
+      }
+      ComPtr<IWICImagingFactory> factory;
+      if (dib.has_value()) factory = CreateWicFactory();
+      if (factory) {
+        // An opaque image encodes as plain RGB (no soft mask in the PDF).
+        const UINT stride = dib->width * 4;
+        ComPtr<IWICBitmap> wic_bitmap;
+        std::vector<uint8_t> png;
+        if (SUCCEEDED(factory->CreateBitmapFromMemory(
+                dib->width, dib->height,
+                dib->has_alpha ? GUID_WICPixelFormat32bppBGRA
+                               : GUID_WICPixelFormat32bppBGR,
+                stride, static_cast<UINT>(dib->bgra.size()),
+                dib->bgra.data(), &wic_bitmap)) &&
+            EncodeSourceToPng(factory.Get(), wic_bitmap.Get(), &png)) {
+          return png;
+        }
       }
     }
   }
